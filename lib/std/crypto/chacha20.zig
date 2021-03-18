@@ -15,286 +15,357 @@ const Vector = std.meta.Vector;
 const Poly1305 = std.crypto.onetimeauth.Poly1305;
 const Error = std.crypto.Error;
 
+/// IETF-variant of the ChaCha20 stream cipher, as designed for TLS.
+pub const ChaCha20IETF = ChaChaIETF(20);
+
+/// IETF-variant of the ChaCha20 stream cipher, reduced to 12 rounds.
+/// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
+/// However, ChaCha is still believed to have a comfortable security even with only with 8 rounds.
+pub const ChaCha12IETF = ChaChaIETF(12);
+
+/// IETF-variant of the ChaCha20 stream cipher, reduced to 8 rounds.
+/// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
+/// However, ChaCha is still believed to have a comfortable security even with only with 8 rounds.
+pub const ChaCha8IETF = ChaChaIETF(8);
+
+/// Original ChaCha20 stream cipher.
+pub const ChaCha20With64BitNonce = ChaChaWith64BitNonce(20);
+
+/// Original ChaCha20 stream cipher, reduced to 12 rounds.
+/// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
+/// However, ChaCha is still believed to have a comfortable security even with only with 8 rounds.
+pub const ChaCha12With64BitNonce = ChaChaWith64BitNonce(12);
+
+/// Original ChaCha20 stream cipher, reduced to 8 rounds.
+/// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
+/// However, ChaCha is still believed to have a comfortable security even with only with 8 rounds.
+pub const ChaCha8With64BitNonce = ChaChaWith64BitNonce(8);
+
+/// XChaCha20 (nonce-extended version of the IETF ChaCha20 variant) stream cipher
+pub const XChaCha20IETF = XChaChaIETF(20);
+
+/// XChaCha20 (nonce-extended version of the IETF ChaCha20 variant) stream cipher, reduced to 12 rounds
+/// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
+/// However, ChaCha is still believed to have a comfortable security even with only with 8 rounds.
+pub const XChaCha12IETF = XChaChaIETF(12);
+
+/// XChaCha20 (nonce-extended version of the IETF ChaCha20 variant) stream cipher, reduced to 8 rounds
+/// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
+/// However, ChaCha is still believed to have a comfortable security even with only with 8 rounds.
+pub const XChaCha8IETF = XChaChaIETF(8);
+
+/// ChaCha20-Poly1305 authenticated cipher, as designed for TLS
+pub const ChaCha20Poly1305 = ChaChaPoly1305(20);
+
+/// ChaCha20-Poly1305 authenticated cipher, reduced to 12 rounds
+/// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
+/// However, ChaCha is still believed to have a comfortable security even with only with 8 rounds.
+pub const ChaCha12Poly1305 = ChaChaPoly1305(12);
+
+/// ChaCha20-Poly1305 authenticated cipher, reduced to 8 rounds
+/// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
+/// However, ChaCha is still believed to have a comfortable security even with only with 8 rounds.
+pub const ChaCha8Poly1305 = ChaChaPoly1305(8);
+
+/// XChaCha20-Poly1305 authenticated cipher
+pub const XChaCha20Poly1305 = XChaChaPoly1305(20);
+
+/// XChaCha20-Poly1305 authenticated cipher
+/// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
+/// However, ChaCha is still believed to have a comfortable security even with only with 8 rounds.
+pub const XChaCha12Poly1305 = XChaChaPoly1305(12);
+
+/// XChaCha20-Poly1305 authenticated cipher
+/// Reduced-rounds versions are faster than the full-round version, but have a lower security margin.
+/// However, ChaCha is still believed to have a comfortable security even with only with 8 rounds.
+pub const XChaCha8Poly1305 = XChaChaPoly1305(8);
+
 // Vectorized implementation of the core function
-const ChaCha20VecImpl = struct {
-    const Lane = Vector(4, u32);
-    const BlockVec = [4]Lane;
+fn ChaChaVecImpl(comptime rounds_nb: usize) type {
+    return struct {
+        const Lane = Vector(4, u32);
+        const BlockVec = [4]Lane;
 
-    fn initContext(key: [8]u32, d: [4]u32) BlockVec {
-        const c = "expand 32-byte k";
-        const constant_le = comptime Lane{
-            mem.readIntLittle(u32, c[0..4]),
-            mem.readIntLittle(u32, c[4..8]),
-            mem.readIntLittle(u32, c[8..12]),
-            mem.readIntLittle(u32, c[12..16]),
-        };
-        return BlockVec{
-            constant_le,
-            Lane{ key[0], key[1], key[2], key[3] },
-            Lane{ key[4], key[5], key[6], key[7] },
-            Lane{ d[0], d[1], d[2], d[3] },
-        };
-    }
-
-    fn chacha20Core(x: *BlockVec, input: BlockVec) callconv(.Inline) void {
-        x.* = input;
-
-        var r: usize = 0;
-        while (r < 20) : (r += 2) {
-            x[0] +%= x[1];
-            x[3] ^= x[0];
-            x[3] = math.rotl(Lane, x[3], 16);
-
-            x[2] +%= x[3];
-            x[1] ^= x[2];
-            x[1] = math.rotl(Lane, x[1], 12);
-
-            x[0] +%= x[1];
-            x[3] ^= x[0];
-            x[0] = @shuffle(u32, x[0], undefined, [_]i32{ 3, 0, 1, 2 });
-            x[3] = math.rotl(Lane, x[3], 8);
-
-            x[2] +%= x[3];
-            x[3] = @shuffle(u32, x[3], undefined, [_]i32{ 2, 3, 0, 1 });
-            x[1] ^= x[2];
-            x[2] = @shuffle(u32, x[2], undefined, [_]i32{ 1, 2, 3, 0 });
-            x[1] = math.rotl(Lane, x[1], 7);
-
-            x[0] +%= x[1];
-            x[3] ^= x[0];
-            x[3] = math.rotl(Lane, x[3], 16);
-
-            x[2] +%= x[3];
-            x[1] ^= x[2];
-            x[1] = math.rotl(Lane, x[1], 12);
-
-            x[0] +%= x[1];
-            x[3] ^= x[0];
-            x[0] = @shuffle(u32, x[0], undefined, [_]i32{ 1, 2, 3, 0 });
-            x[3] = math.rotl(Lane, x[3], 8);
-
-            x[2] +%= x[3];
-            x[3] = @shuffle(u32, x[3], undefined, [_]i32{ 2, 3, 0, 1 });
-            x[1] ^= x[2];
-            x[2] = @shuffle(u32, x[2], undefined, [_]i32{ 3, 0, 1, 2 });
-            x[1] = math.rotl(Lane, x[1], 7);
+        fn initContext(key: [8]u32, d: [4]u32) BlockVec {
+            const c = "expand 32-byte k";
+            const constant_le = comptime Lane{
+                mem.readIntLittle(u32, c[0..4]),
+                mem.readIntLittle(u32, c[4..8]),
+                mem.readIntLittle(u32, c[8..12]),
+                mem.readIntLittle(u32, c[12..16]),
+            };
+            return BlockVec{
+                constant_le,
+                Lane{ key[0], key[1], key[2], key[3] },
+                Lane{ key[4], key[5], key[6], key[7] },
+                Lane{ d[0], d[1], d[2], d[3] },
+            };
         }
-    }
 
-    fn hashToBytes(out: *[64]u8, x: BlockVec) callconv(.Inline) void {
-        var i: usize = 0;
-        while (i < 4) : (i += 1) {
-            mem.writeIntLittle(u32, out[16 * i + 0 ..][0..4], x[i][0]);
-            mem.writeIntLittle(u32, out[16 * i + 4 ..][0..4], x[i][1]);
-            mem.writeIntLittle(u32, out[16 * i + 8 ..][0..4], x[i][2]);
-            mem.writeIntLittle(u32, out[16 * i + 12 ..][0..4], x[i][3]);
+        fn chacha20Core(x: *BlockVec, input: BlockVec) callconv(.Inline) void {
+            x.* = input;
+
+            var r: usize = 0;
+            while (r < rounds_nb) : (r += 2) {
+                x[0] +%= x[1];
+                x[3] ^= x[0];
+                x[3] = math.rotl(Lane, x[3], 16);
+
+                x[2] +%= x[3];
+                x[1] ^= x[2];
+                x[1] = math.rotl(Lane, x[1], 12);
+
+                x[0] +%= x[1];
+                x[3] ^= x[0];
+                x[0] = @shuffle(u32, x[0], undefined, [_]i32{ 3, 0, 1, 2 });
+                x[3] = math.rotl(Lane, x[3], 8);
+
+                x[2] +%= x[3];
+                x[3] = @shuffle(u32, x[3], undefined, [_]i32{ 2, 3, 0, 1 });
+                x[1] ^= x[2];
+                x[2] = @shuffle(u32, x[2], undefined, [_]i32{ 1, 2, 3, 0 });
+                x[1] = math.rotl(Lane, x[1], 7);
+
+                x[0] +%= x[1];
+                x[3] ^= x[0];
+                x[3] = math.rotl(Lane, x[3], 16);
+
+                x[2] +%= x[3];
+                x[1] ^= x[2];
+                x[1] = math.rotl(Lane, x[1], 12);
+
+                x[0] +%= x[1];
+                x[3] ^= x[0];
+                x[0] = @shuffle(u32, x[0], undefined, [_]i32{ 1, 2, 3, 0 });
+                x[3] = math.rotl(Lane, x[3], 8);
+
+                x[2] +%= x[3];
+                x[3] = @shuffle(u32, x[3], undefined, [_]i32{ 2, 3, 0, 1 });
+                x[1] ^= x[2];
+                x[2] = @shuffle(u32, x[2], undefined, [_]i32{ 3, 0, 1, 2 });
+                x[1] = math.rotl(Lane, x[1], 7);
+            }
         }
-    }
 
-    fn contextFeedback(x: *BlockVec, ctx: BlockVec) callconv(.Inline) void {
-        x[0] +%= ctx[0];
-        x[1] +%= ctx[1];
-        x[2] +%= ctx[2];
-        x[3] +%= ctx[3];
-    }
+        fn hashToBytes(out: *[64]u8, x: BlockVec) callconv(.Inline) void {
+            var i: usize = 0;
+            while (i < 4) : (i += 1) {
+                mem.writeIntLittle(u32, out[16 * i + 0 ..][0..4], x[i][0]);
+                mem.writeIntLittle(u32, out[16 * i + 4 ..][0..4], x[i][1]);
+                mem.writeIntLittle(u32, out[16 * i + 8 ..][0..4], x[i][2]);
+                mem.writeIntLittle(u32, out[16 * i + 12 ..][0..4], x[i][3]);
+            }
+        }
 
-    fn chacha20Xor(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) void {
-        var ctx = initContext(key, counter);
-        var x: BlockVec = undefined;
-        var buf: [64]u8 = undefined;
-        var i: usize = 0;
-        while (i + 64 <= in.len) : (i += 64) {
+        fn contextFeedback(x: *BlockVec, ctx: BlockVec) callconv(.Inline) void {
+            x[0] +%= ctx[0];
+            x[1] +%= ctx[1];
+            x[2] +%= ctx[2];
+            x[3] +%= ctx[3];
+        }
+
+        fn chacha20Xor(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) void {
+            var ctx = initContext(key, counter);
+            var x: BlockVec = undefined;
+            var buf: [64]u8 = undefined;
+            var i: usize = 0;
+            while (i + 64 <= in.len) : (i += 64) {
+                chacha20Core(x[0..], ctx);
+                contextFeedback(&x, ctx);
+                hashToBytes(buf[0..], x);
+
+                var xout = out[i..];
+                const xin = in[i..];
+                var j: usize = 0;
+                while (j < 64) : (j += 1) {
+                    xout[j] = xin[j];
+                }
+                j = 0;
+                while (j < 64) : (j += 1) {
+                    xout[j] ^= buf[j];
+                }
+                ctx[3][0] += 1;
+            }
+            if (i < in.len) {
+                chacha20Core(x[0..], ctx);
+                contextFeedback(&x, ctx);
+                hashToBytes(buf[0..], x);
+
+                var xout = out[i..];
+                const xin = in[i..];
+                var j: usize = 0;
+                while (j < in.len % 64) : (j += 1) {
+                    xout[j] = xin[j] ^ buf[j];
+                }
+            }
+        }
+
+        fn hchacha20(input: [16]u8, key: [32]u8) [32]u8 {
+            var c: [4]u32 = undefined;
+            for (c) |_, i| {
+                c[i] = mem.readIntLittle(u32, input[4 * i ..][0..4]);
+            }
+            const ctx = initContext(keyToWords(key), c);
+            var x: BlockVec = undefined;
             chacha20Core(x[0..], ctx);
-            contextFeedback(&x, ctx);
-            hashToBytes(buf[0..], x);
-
-            var xout = out[i..];
-            const xin = in[i..];
-            var j: usize = 0;
-            while (j < 64) : (j += 1) {
-                xout[j] = xin[j];
-            }
-            j = 0;
-            while (j < 64) : (j += 1) {
-                xout[j] ^= buf[j];
-            }
-            ctx[3][0] += 1;
+            var out: [32]u8 = undefined;
+            mem.writeIntLittle(u32, out[0..4], x[0][0]);
+            mem.writeIntLittle(u32, out[4..8], x[0][1]);
+            mem.writeIntLittle(u32, out[8..12], x[0][2]);
+            mem.writeIntLittle(u32, out[12..16], x[0][3]);
+            mem.writeIntLittle(u32, out[16..20], x[3][0]);
+            mem.writeIntLittle(u32, out[20..24], x[3][1]);
+            mem.writeIntLittle(u32, out[24..28], x[3][2]);
+            mem.writeIntLittle(u32, out[28..32], x[3][3]);
+            return out;
         }
-        if (i < in.len) {
-            chacha20Core(x[0..], ctx);
-            contextFeedback(&x, ctx);
-            hashToBytes(buf[0..], x);
-
-            var xout = out[i..];
-            const xin = in[i..];
-            var j: usize = 0;
-            while (j < in.len % 64) : (j += 1) {
-                xout[j] = xin[j] ^ buf[j];
-            }
-        }
-    }
-
-    fn hchacha20(input: [16]u8, key: [32]u8) [32]u8 {
-        var c: [4]u32 = undefined;
-        for (c) |_, i| {
-            c[i] = mem.readIntLittle(u32, input[4 * i ..][0..4]);
-        }
-        const ctx = initContext(keyToWords(key), c);
-        var x: BlockVec = undefined;
-        chacha20Core(x[0..], ctx);
-        var out: [32]u8 = undefined;
-        mem.writeIntLittle(u32, out[0..4], x[0][0]);
-        mem.writeIntLittle(u32, out[4..8], x[0][1]);
-        mem.writeIntLittle(u32, out[8..12], x[0][2]);
-        mem.writeIntLittle(u32, out[12..16], x[0][3]);
-        mem.writeIntLittle(u32, out[16..20], x[3][0]);
-        mem.writeIntLittle(u32, out[20..24], x[3][1]);
-        mem.writeIntLittle(u32, out[24..28], x[3][2]);
-        mem.writeIntLittle(u32, out[28..32], x[3][3]);
-        return out;
-    }
-};
+    };
+}
 
 // Non-vectorized implementation of the core function
-const ChaCha20NonVecImpl = struct {
-    const BlockVec = [16]u32;
+fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
+    return struct {
+        const BlockVec = [16]u32;
 
-    fn initContext(key: [8]u32, d: [4]u32) BlockVec {
-        const c = "expand 32-byte k";
-        const constant_le = comptime [4]u32{
-            mem.readIntLittle(u32, c[0..4]),
-            mem.readIntLittle(u32, c[4..8]),
-            mem.readIntLittle(u32, c[8..12]),
-            mem.readIntLittle(u32, c[12..16]),
-        };
-        return BlockVec{
-            constant_le[0], constant_le[1], constant_le[2], constant_le[3],
-            key[0],         key[1],         key[2],         key[3],
-            key[4],         key[5],         key[6],         key[7],
-            d[0],           d[1],           d[2],           d[3],
-        };
-    }
+        fn initContext(key: [8]u32, d: [4]u32) BlockVec {
+            const c = "expand 32-byte k";
+            const constant_le = comptime [4]u32{
+                mem.readIntLittle(u32, c[0..4]),
+                mem.readIntLittle(u32, c[4..8]),
+                mem.readIntLittle(u32, c[8..12]),
+                mem.readIntLittle(u32, c[12..16]),
+            };
+            return BlockVec{
+                constant_le[0], constant_le[1], constant_le[2], constant_le[3],
+                key[0],         key[1],         key[2],         key[3],
+                key[4],         key[5],         key[6],         key[7],
+                d[0],           d[1],           d[2],           d[3],
+            };
+        }
 
-    const QuarterRound = struct {
-        a: usize,
-        b: usize,
-        c: usize,
-        d: usize,
+        const QuarterRound = struct {
+            a: usize,
+            b: usize,
+            c: usize,
+            d: usize,
+        };
+
+        fn Rp(a: usize, b: usize, c: usize, d: usize) QuarterRound {
+            return QuarterRound{
+                .a = a,
+                .b = b,
+                .c = c,
+                .d = d,
+            };
+        }
+
+        fn chacha20Core(x: *BlockVec, input: BlockVec) callconv(.Inline) void {
+            x.* = input;
+
+            const rounds = comptime [_]QuarterRound{
+                Rp(0, 4, 8, 12),
+                Rp(1, 5, 9, 13),
+                Rp(2, 6, 10, 14),
+                Rp(3, 7, 11, 15),
+                Rp(0, 5, 10, 15),
+                Rp(1, 6, 11, 12),
+                Rp(2, 7, 8, 13),
+                Rp(3, 4, 9, 14),
+            };
+
+            comptime var j: usize = 0;
+            inline while (j < rounds_nb) : (j += 2) {
+                inline for (rounds) |r| {
+                    x[r.a] +%= x[r.b];
+                    x[r.d] = math.rotl(u32, x[r.d] ^ x[r.a], @as(u32, 16));
+                    x[r.c] +%= x[r.d];
+                    x[r.b] = math.rotl(u32, x[r.b] ^ x[r.c], @as(u32, 12));
+                    x[r.a] +%= x[r.b];
+                    x[r.d] = math.rotl(u32, x[r.d] ^ x[r.a], @as(u32, 8));
+                    x[r.c] +%= x[r.d];
+                    x[r.b] = math.rotl(u32, x[r.b] ^ x[r.c], @as(u32, 7));
+                }
+            }
+        }
+
+        fn hashToBytes(out: *[64]u8, x: BlockVec) callconv(.Inline) void {
+            var i: usize = 0;
+            while (i < 4) : (i += 1) {
+                mem.writeIntLittle(u32, out[16 * i + 0 ..][0..4], x[i * 4 + 0]);
+                mem.writeIntLittle(u32, out[16 * i + 4 ..][0..4], x[i * 4 + 1]);
+                mem.writeIntLittle(u32, out[16 * i + 8 ..][0..4], x[i * 4 + 2]);
+                mem.writeIntLittle(u32, out[16 * i + 12 ..][0..4], x[i * 4 + 3]);
+            }
+        }
+
+        fn contextFeedback(x: *BlockVec, ctx: BlockVec) callconv(.Inline) void {
+            var i: usize = 0;
+            while (i < 16) : (i += 1) {
+                x[i] +%= ctx[i];
+            }
+        }
+
+        fn chacha20Xor(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) void {
+            var ctx = initContext(key, counter);
+            var x: BlockVec = undefined;
+            var buf: [64]u8 = undefined;
+            var i: usize = 0;
+            while (i + 64 <= in.len) : (i += 64) {
+                chacha20Core(x[0..], ctx);
+                contextFeedback(&x, ctx);
+                hashToBytes(buf[0..], x);
+
+                var xout = out[i..];
+                const xin = in[i..];
+                var j: usize = 0;
+                while (j < 64) : (j += 1) {
+                    xout[j] = xin[j];
+                }
+                j = 0;
+                while (j < 64) : (j += 1) {
+                    xout[j] ^= buf[j];
+                }
+                ctx[12] += 1;
+            }
+            if (i < in.len) {
+                chacha20Core(x[0..], ctx);
+                contextFeedback(&x, ctx);
+                hashToBytes(buf[0..], x);
+
+                var xout = out[i..];
+                const xin = in[i..];
+                var j: usize = 0;
+                while (j < in.len % 64) : (j += 1) {
+                    xout[j] = xin[j] ^ buf[j];
+                }
+            }
+        }
+
+        fn hchacha20(input: [16]u8, key: [32]u8) [32]u8 {
+            var c: [4]u32 = undefined;
+            for (c) |_, i| {
+                c[i] = mem.readIntLittle(u32, input[4 * i ..][0..4]);
+            }
+            const ctx = initContext(keyToWords(key), c);
+            var x: BlockVec = undefined;
+            chacha20Core(x[0..], ctx);
+            var out: [32]u8 = undefined;
+            mem.writeIntLittle(u32, out[0..4], x[0]);
+            mem.writeIntLittle(u32, out[4..8], x[1]);
+            mem.writeIntLittle(u32, out[8..12], x[2]);
+            mem.writeIntLittle(u32, out[12..16], x[3]);
+            mem.writeIntLittle(u32, out[16..20], x[12]);
+            mem.writeIntLittle(u32, out[20..24], x[13]);
+            mem.writeIntLittle(u32, out[24..28], x[14]);
+            mem.writeIntLittle(u32, out[28..32], x[15]);
+            return out;
+        }
     };
+}
 
-    fn Rp(a: usize, b: usize, c: usize, d: usize) QuarterRound {
-        return QuarterRound{
-            .a = a,
-            .b = b,
-            .c = c,
-            .d = d,
-        };
-    }
-
-    fn chacha20Core(x: *BlockVec, input: BlockVec) callconv(.Inline) void {
-        x.* = input;
-
-        const rounds = comptime [_]QuarterRound{
-            Rp(0, 4, 8, 12),
-            Rp(1, 5, 9, 13),
-            Rp(2, 6, 10, 14),
-            Rp(3, 7, 11, 15),
-            Rp(0, 5, 10, 15),
-            Rp(1, 6, 11, 12),
-            Rp(2, 7, 8, 13),
-            Rp(3, 4, 9, 14),
-        };
-
-        comptime var j: usize = 0;
-        inline while (j < 20) : (j += 2) {
-            inline for (rounds) |r| {
-                x[r.a] +%= x[r.b];
-                x[r.d] = math.rotl(u32, x[r.d] ^ x[r.a], @as(u32, 16));
-                x[r.c] +%= x[r.d];
-                x[r.b] = math.rotl(u32, x[r.b] ^ x[r.c], @as(u32, 12));
-                x[r.a] +%= x[r.b];
-                x[r.d] = math.rotl(u32, x[r.d] ^ x[r.a], @as(u32, 8));
-                x[r.c] +%= x[r.d];
-                x[r.b] = math.rotl(u32, x[r.b] ^ x[r.c], @as(u32, 7));
-            }
-        }
-    }
-
-    fn hashToBytes(out: *[64]u8, x: BlockVec) callconv(.Inline) void {
-        var i: usize = 0;
-        while (i < 4) : (i += 1) {
-            mem.writeIntLittle(u32, out[16 * i + 0 ..][0..4], x[i * 4 + 0]);
-            mem.writeIntLittle(u32, out[16 * i + 4 ..][0..4], x[i * 4 + 1]);
-            mem.writeIntLittle(u32, out[16 * i + 8 ..][0..4], x[i * 4 + 2]);
-            mem.writeIntLittle(u32, out[16 * i + 12 ..][0..4], x[i * 4 + 3]);
-        }
-    }
-
-    fn contextFeedback(x: *BlockVec, ctx: BlockVec) callconv(.Inline) void {
-        var i: usize = 0;
-        while (i < 16) : (i += 1) {
-            x[i] +%= ctx[i];
-        }
-    }
-
-    fn chacha20Xor(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) void {
-        var ctx = initContext(key, counter);
-        var x: BlockVec = undefined;
-        var buf: [64]u8 = undefined;
-        var i: usize = 0;
-        while (i + 64 <= in.len) : (i += 64) {
-            chacha20Core(x[0..], ctx);
-            contextFeedback(&x, ctx);
-            hashToBytes(buf[0..], x);
-
-            var xout = out[i..];
-            const xin = in[i..];
-            var j: usize = 0;
-            while (j < 64) : (j += 1) {
-                xout[j] = xin[j];
-            }
-            j = 0;
-            while (j < 64) : (j += 1) {
-                xout[j] ^= buf[j];
-            }
-            ctx[12] += 1;
-        }
-        if (i < in.len) {
-            chacha20Core(x[0..], ctx);
-            contextFeedback(&x, ctx);
-            hashToBytes(buf[0..], x);
-
-            var xout = out[i..];
-            const xin = in[i..];
-            var j: usize = 0;
-            while (j < in.len % 64) : (j += 1) {
-                xout[j] = xin[j] ^ buf[j];
-            }
-        }
-    }
-
-    fn hchacha20(input: [16]u8, key: [32]u8) [32]u8 {
-        var c: [4]u32 = undefined;
-        for (c) |_, i| {
-            c[i] = mem.readIntLittle(u32, input[4 * i ..][0..4]);
-        }
-        const ctx = initContext(keyToWords(key), c);
-        var x: BlockVec = undefined;
-        chacha20Core(x[0..], ctx);
-        var out: [32]u8 = undefined;
-        mem.writeIntLittle(u32, out[0..4], x[0]);
-        mem.writeIntLittle(u32, out[4..8], x[1]);
-        mem.writeIntLittle(u32, out[8..12], x[2]);
-        mem.writeIntLittle(u32, out[12..16], x[3]);
-        mem.writeIntLittle(u32, out[16..20], x[12]);
-        mem.writeIntLittle(u32, out[20..24], x[13]);
-        mem.writeIntLittle(u32, out[24..28], x[14]);
-        mem.writeIntLittle(u32, out[28..32], x[15]);
-        return out;
-    }
-};
-
-const ChaCha20Impl = if (std.Target.current.cpu.arch == .x86_64) ChaCha20VecImpl else ChaCha20NonVecImpl;
+fn ChaChaImpl(comptime rounds_nb: usize) type {
+    return if (std.Target.current.cpu.arch == .x86_64) ChaChaVecImpl(rounds_nb) else ChaChaNonVecImpl(rounds_nb);
+}
 
 fn keyToWords(key: [32]u8) [8]u32 {
     var k: [8]u32 = undefined;
@@ -305,68 +376,239 @@ fn keyToWords(key: [32]u8) [8]u32 {
     return k;
 }
 
-/// ChaCha20 avoids the possibility of timing attacks, as there are no branches
-/// on secret key data.
-///
-/// in and out should be the same length.
-/// counter should generally be 0 or 1
-///
-/// ChaCha20 is self-reversing. To decrypt just run the cipher with the same
-/// counter, nonce, and key.
-pub const ChaCha20IETF = struct {
-    pub fn xor(out: []u8, in: []const u8, counter: u32, key: [32]u8, nonce: [12]u8) void {
-        assert(in.len == out.len);
-        assert((in.len >> 6) + counter <= maxInt(u32));
+fn extend(key: [32]u8, nonce: [24]u8, comptime rounds_nb: usize) struct { key: [32]u8, nonce: [12]u8 } {
+    var subnonce: [12]u8 = undefined;
+    mem.set(u8, subnonce[0..4], 0);
+    mem.copy(u8, subnonce[4..], nonce[16..24]);
+    return .{
+        .key = ChaChaImpl(rounds_nb).hchacha20(nonce[0..16].*, key),
+        .nonce = subnonce,
+    };
+}
 
-        var c: [4]u32 = undefined;
-        c[0] = counter;
-        c[1] = mem.readIntLittle(u32, nonce[0..4]);
-        c[2] = mem.readIntLittle(u32, nonce[4..8]);
-        c[3] = mem.readIntLittle(u32, nonce[8..12]);
-        ChaCha20Impl.chacha20Xor(out, in, keyToWords(key), c);
-    }
-};
+fn ChaChaIETF(comptime rounds_nb: usize) type {
+    return struct {
+        /// Nonce length in bytes.
+        pub const nonce_length = 12;
+        /// Key length in bytes.
+        pub const key_length = 32;
 
-/// This is the original ChaCha20 before RFC 7539, which recommends using the
-/// orgininal version on applications such as disk or file encryption that might
-/// exceed the 256 GiB limit of the 96-bit nonce version.
-pub const ChaCha20With64BitNonce = struct {
-    pub fn xor(out: []u8, in: []const u8, counter: u64, key: [32]u8, nonce: [8]u8) void {
-        assert(in.len == out.len);
-        assert(counter +% (in.len >> 6) >= counter);
+        /// Add the output of the ChaCha20 stream cipher to `in` and stores the result into `out`.
+        /// WARNING: This function doesn't provide authenticated encryption.
+        /// Using the AEAD or one of the `box` versions is usually preferred.
+        pub fn xor(out: []u8, in: []const u8, counter: u32, key: [key_length]u8, nonce: [nonce_length]u8) void {
+            assert(in.len == out.len);
+            assert(in.len / 64 <= (1 << 32 - 1) - counter);
 
-        var cursor: usize = 0;
-        const k = keyToWords(key);
-        var c: [4]u32 = undefined;
-        c[0] = @truncate(u32, counter);
-        c[1] = @truncate(u32, counter >> 32);
-        c[2] = mem.readIntLittle(u32, nonce[0..4]);
-        c[3] = mem.readIntLittle(u32, nonce[4..8]);
+            var d: [4]u32 = undefined;
+            d[0] = counter;
+            d[1] = mem.readIntLittle(u32, nonce[0..4]);
+            d[2] = mem.readIntLittle(u32, nonce[4..8]);
+            d[3] = mem.readIntLittle(u32, nonce[8..12]);
+            ChaChaImpl(rounds_nb).chacha20Xor(out, in, keyToWords(key), d);
+        }
+    };
+}
 
-        const block_length = (1 << 6);
-        // The full block size is greater than the address space on a 32bit machine
-        const big_block = if (@sizeOf(usize) > 4) (block_length << 32) else maxInt(usize);
+fn ChaChaWith64BitNonce(comptime rounds_nb: usize) type {
+    return struct {
+        /// Nonce length in bytes.
+        pub const nonce_length = 8;
+        /// Key length in bytes.
+        pub const key_length = 32;
 
-        // first partial big block
-        if (((@intCast(u64, maxInt(u32) - @truncate(u32, counter)) + 1) << 6) < in.len) {
-            ChaCha20Impl.chacha20Xor(out[cursor..big_block], in[cursor..big_block], k, c);
-            cursor = big_block - cursor;
-            c[1] += 1;
-            if (comptime @sizeOf(usize) > 4) {
-                // A big block is giant: 256 GiB, but we can avoid this limitation
-                var remaining_blocks: u32 = @intCast(u32, (in.len / big_block));
-                var i: u32 = 0;
-                while (remaining_blocks > 0) : (remaining_blocks -= 1) {
-                    ChaCha20Impl.chacha20Xor(out[cursor .. cursor + big_block], in[cursor .. cursor + big_block], k, c);
-                    c[1] += 1; // upper 32-bit of counter, generic chacha20Xor() doesn't know about this.
-                    cursor += big_block;
+        /// Add the output of the ChaCha20 stream cipher to `in` and stores the result into `out`.
+        /// WARNING: This function doesn't provide authenticated encryption.
+        /// Using the AEAD or one of the `box` versions is usually preferred.
+        pub fn xor(out: []u8, in: []const u8, counter: u64, key: [key_length]u8, nonce: [nonce_length]u8) void {
+            assert(in.len == out.len);
+            assert(in.len / 64 <= (1 << 64 - 1) - counter);
+
+            var cursor: usize = 0;
+            const k = keyToWords(key);
+            var c: [4]u32 = undefined;
+            c[0] = @truncate(u32, counter);
+            c[1] = @truncate(u32, counter >> 32);
+            c[2] = mem.readIntLittle(u32, nonce[0..4]);
+            c[3] = mem.readIntLittle(u32, nonce[4..8]);
+
+            const block_length = (1 << 6);
+            // The full block size is greater than the address space on a 32bit machine
+            const big_block = if (@sizeOf(usize) > 4) (block_length << 32) else maxInt(usize);
+
+            // first partial big block
+            if (((@intCast(u64, maxInt(u32) - @truncate(u32, counter)) + 1) << 6) < in.len) {
+                ChaChaImpl(rounds_nb).chacha20Xor(out[cursor..big_block], in[cursor..big_block], k, c);
+                cursor = big_block - cursor;
+                c[1] += 1;
+                if (comptime @sizeOf(usize) > 4) {
+                    // A big block is giant: 256 GiB, but we can avoid this limitation
+                    var remaining_blocks: u32 = @intCast(u32, (in.len / big_block));
+                    var i: u32 = 0;
+                    while (remaining_blocks > 0) : (remaining_blocks -= 1) {
+                        ChaChaImpl(rounds_nb).chacha20Xor(out[cursor .. cursor + big_block], in[cursor .. cursor + big_block], k, c);
+                        c[1] += 1; // upper 32-bit of counter, generic chacha20Xor() doesn't know about this.
+                        cursor += big_block;
+                    }
                 }
             }
+            ChaChaImpl(rounds_nb).chacha20Xor(out[cursor..], in[cursor..], k, c);
+        }
+    };
+}
+
+fn XChaChaIETF(comptime rounds_nb: usize) type {
+    return struct {
+        /// Nonce length in bytes.
+        pub const nonce_length = 24;
+        /// Key length in bytes.
+        pub const key_length = 32;
+
+        /// Add the output of the XChaCha20 stream cipher to `in` and stores the result into `out`.
+        /// WARNING: This function doesn't provide authenticated encryption.
+        /// Using the AEAD or one of the `box` versions is usually preferred.
+        pub fn xor(out: []u8, in: []const u8, counter: u32, key: [key_length]u8, nonce: [nonce_length]u8) void {
+            const extended = extend(key, nonce, rounds_nb);
+            ChaChaIETF(rounds_nb).xor(out, in, counter, extended.key, extended.nonce);
+        }
+    };
+}
+
+fn ChaChaPoly1305(comptime rounds_nb: usize) type {
+    return struct {
+        pub const tag_length = 16;
+        pub const nonce_length = 12;
+        pub const key_length = 32;
+
+        /// c: ciphertext: output buffer should be of size m.len
+        /// tag: authentication tag: output MAC
+        /// m: message
+        /// ad: Associated Data
+        /// npub: public nonce
+        /// k: private key
+        pub fn encrypt(c: []u8, tag: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
+            assert(c.len == m.len);
+
+            var polyKey = [_]u8{0} ** 32;
+            ChaChaIETF(rounds_nb).xor(polyKey[0..], polyKey[0..], 0, k, npub);
+
+            ChaChaIETF(rounds_nb).xor(c[0..m.len], m, 1, k, npub);
+
+            var mac = Poly1305.init(polyKey[0..]);
+            mac.update(ad);
+            if (ad.len % 16 != 0) {
+                const zeros = [_]u8{0} ** 16;
+                const padding = 16 - (ad.len % 16);
+                mac.update(zeros[0..padding]);
+            }
+            mac.update(c[0..m.len]);
+            if (m.len % 16 != 0) {
+                const zeros = [_]u8{0} ** 16;
+                const padding = 16 - (m.len % 16);
+                mac.update(zeros[0..padding]);
+            }
+            var lens: [16]u8 = undefined;
+            mem.writeIntLittle(u64, lens[0..8], ad.len);
+            mem.writeIntLittle(u64, lens[8..16], m.len);
+            mac.update(lens[0..]);
+            mac.final(tag);
         }
 
-        ChaCha20Impl.chacha20Xor(out[cursor..], in[cursor..], k, c);
+        /// m: message: output buffer should be of size c.len
+        /// c: ciphertext
+        /// tag: authentication tag
+        /// ad: Associated Data
+        /// npub: public nonce
+        /// k: private key
+        /// NOTE: the check of the authentication tag is currently not done in constant time
+        pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) Error!void {
+            assert(c.len == m.len);
+
+            var polyKey = [_]u8{0} ** 32;
+            ChaChaIETF(rounds_nb).xor(polyKey[0..], polyKey[0..], 0, k, npub);
+
+            var mac = Poly1305.init(polyKey[0..]);
+
+            mac.update(ad);
+            if (ad.len % 16 != 0) {
+                const zeros = [_]u8{0} ** 16;
+                const padding = 16 - (ad.len % 16);
+                mac.update(zeros[0..padding]);
+            }
+            mac.update(c);
+            if (c.len % 16 != 0) {
+                const zeros = [_]u8{0} ** 16;
+                const padding = 16 - (c.len % 16);
+                mac.update(zeros[0..padding]);
+            }
+            var lens: [16]u8 = undefined;
+            mem.writeIntLittle(u64, lens[0..8], ad.len);
+            mem.writeIntLittle(u64, lens[8..16], c.len);
+            mac.update(lens[0..]);
+            var computedTag: [16]u8 = undefined;
+            mac.final(computedTag[0..]);
+
+            var acc: u8 = 0;
+            for (computedTag) |_, i| {
+                acc |= computedTag[i] ^ tag[i];
+            }
+            if (acc != 0) {
+                return error.AuthenticationFailed;
+            }
+            ChaChaIETF(rounds_nb).xor(m[0..c.len], c, 1, k, npub);
+        }
+    };
+}
+
+fn XChaChaPoly1305(comptime rounds_nb: usize) type {
+    return struct {
+        pub const tag_length = 16;
+        pub const nonce_length = 24;
+        pub const key_length = 32;
+
+        /// c: ciphertext: output buffer should be of size m.len
+        /// tag: authentication tag: output MAC
+        /// m: message
+        /// ad: Associated Data
+        /// npub: public nonce
+        /// k: private key
+        pub fn encrypt(c: []u8, tag: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
+            const extended = extend(k, npub, rounds_nb);
+            return ChaChaPoly1305(rounds_nb).encrypt(c, tag, m, ad, extended.nonce, extended.key);
+        }
+
+        /// m: message: output buffer should be of size c.len
+        /// c: ciphertext
+        /// tag: authentication tag
+        /// ad: Associated Data
+        /// npub: public nonce
+        /// k: private key
+        pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) Error!void {
+            const extended = extend(k, npub, rounds_nb);
+            return ChaChaPoly1305(rounds_nb).decrypt(m, c, tag, ad, extended.nonce, extended.key);
+        }
+    };
+}
+
+test "chacha20 AEAD API" {
+    const aeads = [_]type{ ChaCha20Poly1305, XChaCha20Poly1305 };
+    const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
+    const ad = "Additional data";
+
+    inline for (aeads) |aead| {
+        const key = [_]u8{69} ** aead.key_length;
+        const nonce = [_]u8{42} ** aead.nonce_length;
+        var c: [m.len]u8 = undefined;
+        var tag: [aead.tag_length]u8 = undefined;
+        var out: [m.len]u8 = undefined;
+
+        aead.encrypt(c[0..], tag[0..], m, ad, nonce, key);
+        try aead.decrypt(out[0..], c[0..], tag, ad[0..], nonce, key);
+        testing.expectEqualSlices(u8, out[0..], m);
+        c[0] += 1;
+        testing.expectError(error.AuthenticationFailed, aead.decrypt(out[0..], c[0..], tag, ad[0..], nonce, key));
     }
-};
+}
 
 // https://tools.ietf.org/html/rfc7539#section-2.4.2
 test "crypto.chacha20 test vector sunscreen" {
@@ -387,7 +629,7 @@ test "crypto.chacha20 test vector sunscreen" {
         0xb4, 0x0b, 0x8e, 0xed, 0xf2, 0x78, 0x5e, 0x42,
         0x87, 0x4d,
     };
-    const input = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
+    const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     var result: [114]u8 = undefined;
     const key = [_]u8{
         0,  1,  2,  3,  4,  5,  6,  7,
@@ -401,13 +643,12 @@ test "crypto.chacha20 test vector sunscreen" {
         0, 0, 0, 0,
     };
 
-    ChaCha20IETF.xor(result[0..], input[0..], 1, key, nonce);
+    ChaCha20IETF.xor(result[0..], m[0..], 1, key, nonce);
     testing.expectEqualSlices(u8, &expected_result, &result);
 
-    // Chacha20 is self-reversing.
-    var plaintext: [114]u8 = undefined;
-    ChaCha20IETF.xor(plaintext[0..], result[0..], 1, key, nonce);
-    testing.expect(mem.order(u8, input, &plaintext) == .eq);
+    var m2: [114]u8 = undefined;
+    ChaCha20IETF.xor(m2[0..], result[0..], 1, key, nonce);
+    testing.expect(mem.order(u8, m, &m2) == .eq);
 }
 
 // https://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-04#section-7
@@ -422,7 +663,7 @@ test "crypto.chacha20 test vector 1" {
         0x6a, 0x43, 0xb8, 0xf4, 0x15, 0x18, 0xa1, 0x1c,
         0xc3, 0x87, 0xb6, 0x69, 0xb2, 0xee, 0x65, 0x86,
     };
-    const input = [_]u8{
+    const m = [_]u8{
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -441,7 +682,7 @@ test "crypto.chacha20 test vector 1" {
     };
     const nonce = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
 
-    ChaCha20With64BitNonce.xor(result[0..], input[0..], 0, key, nonce);
+    ChaCha20With64BitNonce.xor(result[0..], m[0..], 0, key, nonce);
     testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
@@ -456,7 +697,7 @@ test "crypto.chacha20 test vector 2" {
         0x53, 0xd7, 0x92, 0xb1, 0xc4, 0x3f, 0xea, 0x81,
         0x7e, 0x9a, 0xd2, 0x75, 0xae, 0x54, 0x69, 0x63,
     };
-    const input = [_]u8{
+    const m = [_]u8{
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -475,7 +716,7 @@ test "crypto.chacha20 test vector 2" {
     };
     const nonce = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
 
-    ChaCha20With64BitNonce.xor(result[0..], input[0..], 0, key, nonce);
+    ChaCha20With64BitNonce.xor(result[0..], m[0..], 0, key, nonce);
     testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
@@ -490,7 +731,7 @@ test "crypto.chacha20 test vector 3" {
         0x52, 0x77, 0x06, 0x2e, 0xb7, 0xa0, 0x43, 0x3e,
         0x44, 0x5f, 0x41, 0xe3,
     };
-    const input = [_]u8{
+    const m = [_]u8{
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -509,7 +750,7 @@ test "crypto.chacha20 test vector 3" {
     };
     const nonce = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 1 };
 
-    ChaCha20With64BitNonce.xor(result[0..], input[0..], 0, key, nonce);
+    ChaCha20With64BitNonce.xor(result[0..], m[0..], 0, key, nonce);
     testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
@@ -524,7 +765,7 @@ test "crypto.chacha20 test vector 4" {
         0x5d, 0xdc, 0x49, 0x7a, 0x0b, 0x46, 0x6e, 0x7d,
         0x6b, 0xbd, 0xb0, 0x04, 0x1b, 0x2f, 0x58, 0x6b,
     };
-    const input = [_]u8{
+    const m = [_]u8{
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -543,7 +784,7 @@ test "crypto.chacha20 test vector 4" {
     };
     const nonce = [_]u8{ 1, 0, 0, 0, 0, 0, 0, 0 };
 
-    ChaCha20With64BitNonce.xor(result[0..], input[0..], 0, key, nonce);
+    ChaCha20With64BitNonce.xor(result[0..], m[0..], 0, key, nonce);
     testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
@@ -585,7 +826,7 @@ test "crypto.chacha20 test vector 5" {
         0x87, 0x46, 0xd4, 0x52, 0x4d, 0x38, 0x40, 0x7a,
         0x6d, 0xeb, 0x3a, 0xb7, 0x8f, 0xab, 0x78, 0xc9,
     };
-    const input = [_]u8{
+    const m = [_]u8{
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -615,147 +856,14 @@ test "crypto.chacha20 test vector 5" {
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
     };
 
-    ChaCha20With64BitNonce.xor(result[0..], input[0..], 0, key, nonce);
+    ChaCha20With64BitNonce.xor(result[0..], m[0..], 0, key, nonce);
     testing.expectEqualSlices(u8, &expected_result, &result);
-}
-
-pub const chacha20poly1305_tag_length = 16;
-
-fn chacha20poly1305SealDetached(ciphertext: []u8, tag: *[chacha20poly1305_tag_length]u8, plaintext: []const u8, data: []const u8, key: [32]u8, nonce: [12]u8) void {
-    assert(ciphertext.len == plaintext.len);
-
-    // derive poly1305 key
-    var polyKey = [_]u8{0} ** 32;
-    ChaCha20IETF.xor(polyKey[0..], polyKey[0..], 0, key, nonce);
-
-    // encrypt plaintext
-    ChaCha20IETF.xor(ciphertext[0..plaintext.len], plaintext, 1, key, nonce);
-
-    // construct mac
-    var mac = Poly1305.init(polyKey[0..]);
-    mac.update(data);
-    if (data.len % 16 != 0) {
-        const zeros = [_]u8{0} ** 16;
-        const padding = 16 - (data.len % 16);
-        mac.update(zeros[0..padding]);
-    }
-    mac.update(ciphertext[0..plaintext.len]);
-    if (plaintext.len % 16 != 0) {
-        const zeros = [_]u8{0} ** 16;
-        const padding = 16 - (plaintext.len % 16);
-        mac.update(zeros[0..padding]);
-    }
-    var lens: [16]u8 = undefined;
-    mem.writeIntLittle(u64, lens[0..8], data.len);
-    mem.writeIntLittle(u64, lens[8..16], plaintext.len);
-    mac.update(lens[0..]);
-    mac.final(tag);
-}
-
-fn chacha20poly1305Seal(ciphertextAndTag: []u8, plaintext: []const u8, data: []const u8, key: [32]u8, nonce: [12]u8) void {
-    return chacha20poly1305SealDetached(ciphertextAndTag[0..plaintext.len], ciphertextAndTag[plaintext.len..][0..chacha20poly1305_tag_length], plaintext, data, key, nonce);
-}
-
-/// Verifies and decrypts an authenticated message produced by chacha20poly1305SealDetached.
-fn chacha20poly1305OpenDetached(dst: []u8, ciphertext: []const u8, tag: *const [chacha20poly1305_tag_length]u8, data: []const u8, key: [32]u8, nonce: [12]u8) Error!void {
-    // split ciphertext and tag
-    assert(dst.len == ciphertext.len);
-
-    // derive poly1305 key
-    var polyKey = [_]u8{0} ** 32;
-    ChaCha20IETF.xor(polyKey[0..], polyKey[0..], 0, key, nonce);
-
-    // construct mac
-    var mac = Poly1305.init(polyKey[0..]);
-
-    mac.update(data);
-    if (data.len % 16 != 0) {
-        const zeros = [_]u8{0} ** 16;
-        const padding = 16 - (data.len % 16);
-        mac.update(zeros[0..padding]);
-    }
-    mac.update(ciphertext);
-    if (ciphertext.len % 16 != 0) {
-        const zeros = [_]u8{0} ** 16;
-        const padding = 16 - (ciphertext.len % 16);
-        mac.update(zeros[0..padding]);
-    }
-    var lens: [16]u8 = undefined;
-    mem.writeIntLittle(u64, lens[0..8], data.len);
-    mem.writeIntLittle(u64, lens[8..16], ciphertext.len);
-    mac.update(lens[0..]);
-    var computedTag: [16]u8 = undefined;
-    mac.final(computedTag[0..]);
-
-    // verify mac in constant time
-    // TODO: we can't currently guarantee that this will run in constant time.
-    // See https://github.com/ziglang/zig/issues/1776
-    var acc: u8 = 0;
-    for (computedTag) |_, i| {
-        acc |= computedTag[i] ^ tag[i];
-    }
-    if (acc != 0) {
-        return error.AuthenticationFailed;
-    }
-
-    // decrypt ciphertext
-    ChaCha20IETF.xor(dst[0..ciphertext.len], ciphertext, 1, key, nonce);
-}
-
-/// Verifies and decrypts an authenticated message produced by chacha20poly1305Seal.
-fn chacha20poly1305Open(dst: []u8, ciphertextAndTag: []const u8, data: []const u8, key: [32]u8, nonce: [12]u8) Error!void {
-    if (ciphertextAndTag.len < chacha20poly1305_tag_length) {
-        return error.AuthenticationFailed;
-    }
-    const ciphertextLen = ciphertextAndTag.len - chacha20poly1305_tag_length;
-    return try chacha20poly1305OpenDetached(dst, ciphertextAndTag[0..ciphertextLen], ciphertextAndTag[ciphertextLen..][0..chacha20poly1305_tag_length], data, key, nonce);
-}
-
-fn extend(key: [32]u8, nonce: [24]u8) struct { key: [32]u8, nonce: [12]u8 } {
-    var subnonce: [12]u8 = undefined;
-    mem.set(u8, subnonce[0..4], 0);
-    mem.copy(u8, subnonce[4..], nonce[16..24]);
-    return .{
-        .key = ChaCha20Impl.hchacha20(nonce[0..16].*, key),
-        .nonce = subnonce,
-    };
-}
-
-pub const XChaCha20IETF = struct {
-    pub fn xor(out: []u8, in: []const u8, counter: u32, key: [32]u8, nonce: [24]u8) void {
-        const extended = extend(key, nonce);
-        ChaCha20IETF.xor(out, in, counter, extended.key, extended.nonce);
-    }
-};
-
-pub const xchacha20poly1305_tag_length = 16;
-
-fn xchacha20poly1305SealDetached(ciphertext: []u8, tag: *[chacha20poly1305_tag_length]u8, plaintext: []const u8, data: []const u8, key: [32]u8, nonce: [24]u8) void {
-    const extended = extend(key, nonce);
-    return chacha20poly1305SealDetached(ciphertext, tag, plaintext, data, extended.key, extended.nonce);
-}
-
-fn xchacha20poly1305Seal(ciphertextAndTag: []u8, plaintext: []const u8, data: []const u8, key: [32]u8, nonce: [24]u8) void {
-    const extended = extend(key, nonce);
-    return chacha20poly1305Seal(ciphertextAndTag, plaintext, data, extended.key, extended.nonce);
-}
-
-/// Verifies and decrypts an authenticated message produced by xchacha20poly1305SealDetached.
-fn xchacha20poly1305OpenDetached(plaintext: []u8, ciphertext: []const u8, tag: *const [chacha20poly1305_tag_length]u8, data: []const u8, key: [32]u8, nonce: [24]u8) Error!void {
-    const extended = extend(key, nonce);
-    return try chacha20poly1305OpenDetached(plaintext, ciphertext, tag, data, extended.key, extended.nonce);
-}
-
-/// Verifies and decrypts an authenticated message produced by xchacha20poly1305Seal.
-fn xchacha20poly1305Open(ciphertextAndTag: []u8, msgAndTag: []const u8, data: []const u8, key: [32]u8, nonce: [24]u8) Error!void {
-    const extended = extend(key, nonce);
-    return try chacha20poly1305Open(ciphertextAndTag, msgAndTag, data, extended.key, extended.nonce);
 }
 
 test "seal" {
     {
-        const plaintext = "";
-        const data = "";
+        const m = "";
+        const ad = "";
         const key = [_]u8{
             0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f,
             0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f,
@@ -764,11 +872,11 @@ test "seal" {
         const exp_out = [_]u8{ 0xa0, 0x78, 0x4d, 0x7a, 0x47, 0x16, 0xf3, 0xfe, 0xb4, 0xf6, 0x4e, 0x7f, 0x4b, 0x39, 0xbf, 0x4 };
 
         var out: [exp_out.len]u8 = undefined;
-        chacha20poly1305Seal(out[0..], plaintext, data, key, nonce);
+        ChaCha20Poly1305.encrypt(out[0..m.len], out[m.len..], m, ad, nonce, key);
         testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
     {
-        const plaintext = [_]u8{
+        const m = [_]u8{
             0x4c, 0x61, 0x64, 0x69, 0x65, 0x73, 0x20, 0x61, 0x6e, 0x64, 0x20, 0x47, 0x65, 0x6e, 0x74, 0x6c,
             0x65, 0x6d, 0x65, 0x6e, 0x20, 0x6f, 0x66, 0x20, 0x74, 0x68, 0x65, 0x20, 0x63, 0x6c, 0x61, 0x73,
             0x73, 0x20, 0x6f, 0x66, 0x20, 0x27, 0x39, 0x39, 0x3a, 0x20, 0x49, 0x66, 0x20, 0x49, 0x20, 0x63,
@@ -778,7 +886,7 @@ test "seal" {
             0x63, 0x72, 0x65, 0x65, 0x6e, 0x20, 0x77, 0x6f, 0x75, 0x6c, 0x64, 0x20, 0x62, 0x65, 0x20, 0x69,
             0x74, 0x2e,
         };
-        const data = [_]u8{ 0x50, 0x51, 0x52, 0x53, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7 };
+        const ad = [_]u8{ 0x50, 0x51, 0x52, 0x53, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7 };
         const key = [_]u8{
             0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f,
             0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f,
@@ -797,15 +905,15 @@ test "seal" {
         };
 
         var out: [exp_out.len]u8 = undefined;
-        chacha20poly1305Seal(out[0..], plaintext[0..], data[0..], key, nonce);
+        ChaCha20Poly1305.encrypt(out[0..m.len], out[m.len..], m[0..], ad[0..], nonce, key);
         testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
 }
 
 test "open" {
     {
-        const ciphertext = [_]u8{ 0xa0, 0x78, 0x4d, 0x7a, 0x47, 0x16, 0xf3, 0xfe, 0xb4, 0xf6, 0x4e, 0x7f, 0x4b, 0x39, 0xbf, 0x4 };
-        const data = "";
+        const c = [_]u8{ 0xa0, 0x78, 0x4d, 0x7a, 0x47, 0x16, 0xf3, 0xfe, 0xb4, 0xf6, 0x4e, 0x7f, 0x4b, 0x39, 0xbf, 0x4 };
+        const ad = "";
         const key = [_]u8{
             0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f,
             0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f,
@@ -814,11 +922,11 @@ test "open" {
         const exp_out = "";
 
         var out: [exp_out.len]u8 = undefined;
-        try chacha20poly1305Open(out[0..], ciphertext[0..], data, key, nonce);
+        try ChaCha20Poly1305.decrypt(out[0..], c[0..exp_out.len], c[exp_out.len..].*, ad[0..], nonce, key);
         testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
     {
-        const ciphertext = [_]u8{
+        const c = [_]u8{
             0xd3, 0x1a, 0x8d, 0x34, 0x64, 0x8e, 0x60, 0xdb, 0x7b, 0x86, 0xaf, 0xbc, 0x53, 0xef, 0x7e, 0xc2,
             0xa4, 0xad, 0xed, 0x51, 0x29, 0x6e, 0x8,  0xfe, 0xa9, 0xe2, 0xb5, 0xa7, 0x36, 0xee, 0x62, 0xd6,
             0x3d, 0xbe, 0xa4, 0x5e, 0x8c, 0xa9, 0x67, 0x12, 0x82, 0xfa, 0xfb, 0x69, 0xda, 0x92, 0x72, 0x8b,
@@ -829,7 +937,7 @@ test "open" {
             0x61, 0x16, 0x1a, 0xe1, 0xb,  0x59, 0x4f, 0x9,  0xe2, 0x6a, 0x7e, 0x90, 0x2e, 0xcb, 0xd0, 0x60,
             0x6,  0x91,
         };
-        const data = [_]u8{ 0x50, 0x51, 0x52, 0x53, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7 };
+        const ad = [_]u8{ 0x50, 0x51, 0x52, 0x53, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7 };
         const key = [_]u8{
             0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f,
             0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f,
@@ -847,126 +955,45 @@ test "open" {
         };
 
         var out: [exp_out.len]u8 = undefined;
-        try chacha20poly1305Open(out[0..], ciphertext[0..], data[0..], key, nonce);
+        try ChaCha20Poly1305.decrypt(out[0..], c[0..exp_out.len], c[exp_out.len..].*, ad[0..], nonce, key);
         testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
 
         // corrupting the ciphertext, data, key, or nonce should cause a failure
-        var bad_ciphertext = ciphertext;
-        bad_ciphertext[0] ^= 1;
-        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], bad_ciphertext[0..], data[0..], key, nonce));
-        var bad_data = data;
-        bad_data[0] ^= 1;
-        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], ciphertext[0..], bad_data[0..], key, nonce));
+        var bad_c = c;
+        bad_c[0] ^= 1;
+        testing.expectError(error.AuthenticationFailed, ChaCha20Poly1305.decrypt(out[0..], bad_c[0..out.len], bad_c[out.len..].*, ad[0..], nonce, key));
+        var bad_ad = ad;
+        bad_ad[0] ^= 1;
+        testing.expectError(error.AuthenticationFailed, ChaCha20Poly1305.decrypt(out[0..], c[0..out.len], c[out.len..].*, bad_ad[0..], nonce, key));
         var bad_key = key;
         bad_key[0] ^= 1;
-        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], ciphertext[0..], data[0..], bad_key, nonce));
+        testing.expectError(error.AuthenticationFailed, ChaCha20Poly1305.decrypt(out[0..], c[0..out.len], c[out.len..].*, ad[0..], nonce, bad_key));
         var bad_nonce = nonce;
         bad_nonce[0] ^= 1;
-        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], ciphertext[0..], data[0..], key, bad_nonce));
-
-        // a short ciphertext should result in a different error
-        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], "", data[0..], key, bad_nonce));
+        testing.expectError(error.AuthenticationFailed, ChaCha20Poly1305.decrypt(out[0..], c[0..out.len], c[out.len..].*, ad[0..], bad_nonce, key));
     }
 }
 
 test "crypto.xchacha20" {
     const key = [_]u8{69} ** 32;
     const nonce = [_]u8{42} ** 24;
-    const input = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
+    const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     {
-        var ciphertext: [input.len]u8 = undefined;
-        XChaCha20IETF.xor(ciphertext[0..], input[0..], 0, key, nonce);
-        var buf: [2 * ciphertext.len]u8 = undefined;
-        testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&ciphertext)}), "E0A1BCF939654AFDBDC1746EC49832647C19D891F0D1A81FC0C1703B4514BDEA584B512F6908C2C5E9DD18D5CBC1805DE5803FE3B9CA5F193FB8359E91FAB0C3BB40309A292EB1CF49685C65C4A3ADF4F11DB0CD2B6B67FBC174BC2E860E8F769FD3565BBFAD1C845E05A0FED9BE167C240D");
+        var c: [m.len]u8 = undefined;
+        XChaCha20IETF.xor(c[0..], m[0..], 0, key, nonce);
+        var buf: [2 * c.len]u8 = undefined;
+        testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&c)}), "E0A1BCF939654AFDBDC1746EC49832647C19D891F0D1A81FC0C1703B4514BDEA584B512F6908C2C5E9DD18D5CBC1805DE5803FE3B9CA5F193FB8359E91FAB0C3BB40309A292EB1CF49685C65C4A3ADF4F11DB0CD2B6B67FBC174BC2E860E8F769FD3565BBFAD1C845E05A0FED9BE167C240D");
     }
     {
-        const data = "Additional data";
-        var ciphertext: [input.len + xchacha20poly1305_tag_length]u8 = undefined;
-        xchacha20poly1305Seal(ciphertext[0..], input, data, key, nonce);
-        var out: [input.len]u8 = undefined;
-        try xchacha20poly1305Open(out[0..], ciphertext[0..], data, key, nonce);
-        var buf: [2 * ciphertext.len]u8 = undefined;
-        testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&ciphertext)}), "994D2DD32333F48E53650C02C7A2ABB8E018B0836D7175AEC779F52E961780768F815C58F1AA52D211498DB89B9216763F569C9433A6BBFCEFB4D4A49387A4C5207FBB3B5A92B5941294DF30588C6740D39DC16FA1F0E634F7246CF7CDCB978E44347D89381B7A74EB7084F754B90BDE9AAF5A94B8F2A85EFD0B50692AE2D425E234");
-        testing.expectEqualSlices(u8, out[0..], input);
-        ciphertext[0] += 1;
-        testing.expectError(error.AuthenticationFailed, xchacha20poly1305Open(out[0..], ciphertext[0..], data, key, nonce));
-    }
-}
-
-pub const Chacha20Poly1305 = struct {
-    pub const tag_length = 16;
-    pub const nonce_length = 12;
-    pub const key_length = 32;
-
-    /// c: ciphertext: output buffer should be of size m.len
-    /// tag: authentication tag: output MAC
-    /// m: message
-    /// ad: Associated Data
-    /// npub: public nonce
-    /// k: private key
-    pub fn encrypt(c: []u8, tag: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
-        assert(c.len == m.len);
-        return chacha20poly1305SealDetached(c, tag, m, ad, k, npub);
-    }
-
-    /// m: message: output buffer should be of size c.len
-    /// c: ciphertext
-    /// tag: authentication tag
-    /// ad: Associated Data
-    /// npub: public nonce
-    /// k: private key
-    /// NOTE: the check of the authentication tag is currently not done in constant time
-    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) Error!void {
-        assert(c.len == m.len);
-        return try chacha20poly1305OpenDetached(m, c, tag[0..], ad, k, npub);
-    }
-};
-
-pub const XChacha20Poly1305 = struct {
-    pub const tag_length = 16;
-    pub const nonce_length = 24;
-    pub const key_length = 32;
-
-    /// c: ciphertext: output buffer should be of size m.len
-    /// tag: authentication tag: output MAC
-    /// m: message
-    /// ad: Associated Data
-    /// npub: public nonce
-    /// k: private key
-    pub fn encrypt(c: []u8, tag: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
-        assert(c.len == m.len);
-        return xchacha20poly1305SealDetached(c, tag, m, ad, k, npub);
-    }
-
-    /// m: message: output buffer should be of size c.len
-    /// c: ciphertext
-    /// tag: authentication tag
-    /// ad: Associated Data
-    /// npub: public nonce
-    /// k: private key
-    /// NOTE: the check of the authentication tag is currently not done in constant time
-    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) Error!void {
-        assert(c.len == m.len);
-        return try xchacha20poly1305OpenDetached(m, c, tag[0..], ad, k, npub);
-    }
-};
-
-test "chacha20 AEAD API" {
-    const aeads = [_]type{ Chacha20Poly1305, XChacha20Poly1305 };
-    const input = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
-    const data = "Additional data";
-
-    inline for (aeads) |aead| {
-        const key = [_]u8{69} ** aead.key_length;
-        const nonce = [_]u8{42} ** aead.nonce_length;
-        var ciphertext: [input.len]u8 = undefined;
-        var tag: [aead.tag_length]u8 = undefined;
-        var out: [input.len]u8 = undefined;
-
-        aead.encrypt(ciphertext[0..], tag[0..], input, data, nonce, key);
-        try aead.decrypt(out[0..], ciphertext[0..], tag, data[0..], nonce, key);
-        testing.expectEqualSlices(u8, out[0..], input);
-        ciphertext[0] += 1;
-        testing.expectError(error.AuthenticationFailed, aead.decrypt(out[0..], ciphertext[0..], tag, data[0..], nonce, key));
+        const ad = "Additional data";
+        var c: [m.len + XChaCha20Poly1305.tag_length]u8 = undefined;
+        XChaCha20Poly1305.encrypt(c[0..m.len], c[m.len..], m, ad, nonce, key);
+        var out: [m.len]u8 = undefined;
+        try XChaCha20Poly1305.decrypt(out[0..], c[0..m.len], c[m.len..].*, ad, nonce, key);
+        var buf: [2 * c.len]u8 = undefined;
+        testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&c)}), "994D2DD32333F48E53650C02C7A2ABB8E018B0836D7175AEC779F52E961780768F815C58F1AA52D211498DB89B9216763F569C9433A6BBFCEFB4D4A49387A4C5207FBB3B5A92B5941294DF30588C6740D39DC16FA1F0E634F7246CF7CDCB978E44347D89381B7A74EB7084F754B90BDE9AAF5A94B8F2A85EFD0B50692AE2D425E234");
+        testing.expectEqualSlices(u8, out[0..], m);
+        c[0] += 1;
+        testing.expectError(error.AuthenticationFailed, XChaCha20Poly1305.decrypt(out[0..], c[0..m.len], c[m.len..].*, ad, nonce, key));
     }
 }

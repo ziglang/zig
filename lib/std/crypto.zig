@@ -24,8 +24,12 @@ pub const aead = struct {
     pub const Gimli = @import("crypto/gimli.zig").Aead;
 
     pub const chacha_poly = struct {
-        pub const ChaCha20Poly1305 = @import("crypto/chacha20.zig").Chacha20Poly1305;
-        pub const XChaCha20Poly1305 = @import("crypto/chacha20.zig").XChacha20Poly1305;
+        pub const ChaCha20Poly1305 = @import("crypto/chacha20.zig").ChaCha20Poly1305;
+        pub const ChaCha12Poly1305 = @import("crypto/chacha20.zig").ChaCha12Poly1305;
+        pub const ChaCha8Poly1305 = @import("crypto/chacha20.zig").ChaCha8Poly1305;
+        pub const XChaCha20Poly1305 = @import("crypto/chacha20.zig").XChaCha20Poly1305;
+        pub const XChaCha12Poly1305 = @import("crypto/chacha20.zig").XChaCha12Poly1305;
+        pub const XChaCha8Poly1305 = @import("crypto/chacha20.zig").XChaCha8Poly1305;
     };
 
     pub const isap = @import("crypto/isap.zig");
@@ -119,8 +123,14 @@ pub const sign = struct {
 pub const stream = struct {
     pub const chacha = struct {
         pub const ChaCha20IETF = @import("crypto/chacha20.zig").ChaCha20IETF;
+        pub const ChaCha12IETF = @import("crypto/chacha20.zig").ChaCha12IETF;
+        pub const ChaCha8IETF = @import("crypto/chacha20.zig").ChaCha8IETF;
         pub const ChaCha20With64BitNonce = @import("crypto/chacha20.zig").ChaCha20With64BitNonce;
+        pub const ChaCha12With64BitNonce = @import("crypto/chacha20.zig").ChaCha12With64BitNonce;
+        pub const ChaCha8With64BitNonce = @import("crypto/chacha20.zig").ChaCha8With64BitNonce;
         pub const XChaCha20IETF = @import("crypto/chacha20.zig").XChaCha20IETF;
+        pub const XChaCha12IETF = @import("crypto/chacha20.zig").XChaCha12IETF;
+        pub const XChaCha8IETF = @import("crypto/chacha20.zig").XChaCha8IETF;
     };
 
     pub const salsa = struct {

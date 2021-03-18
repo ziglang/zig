@@ -1159,8 +1159,29 @@ fn renderContainerField(
         try renderToken(ais, tree, rparen_token, .space); // )
     }
     const eq_token = tree.firstToken(field.ast.value_expr) - 1;
-    try renderToken(ais, tree, eq_token, .space); // =
-    return renderExpressionComma(gpa, ais, tree, field.ast.value_expr, space); // value
+    const eq_space: Space = if (tree.tokensOnSameLine(eq_token, eq_token + 1)) .space else .newline;
+    {
+        ais.pushIndent();
+        try renderToken(ais, tree, eq_token, eq_space); // =
+        ais.popIndent();
+    }
+
+    if (eq_space == .space)
+        return renderExpressionComma(gpa, ais, tree, field.ast.value_expr, space); // value
+
+    const token_tags = tree.tokens.items(.tag);
+    const maybe_comma = tree.lastToken(field.ast.value_expr) + 1;
+
+    if (token_tags[maybe_comma] == .comma) {
+        ais.pushIndent();
+        try renderExpression(gpa, ais, tree, field.ast.value_expr, .none); // value
+        ais.popIndent();
+        try renderToken(ais, tree, maybe_comma, space);
+    } else {
+        ais.pushIndent();
+        try renderExpression(gpa, ais, tree, field.ast.value_expr, space); // value
+        ais.popIndent();
+    }
 }
 
 fn renderBuiltinCall(
@@ -1423,6 +1444,7 @@ fn renderSwitchCase(
     switch_case: ast.full.SwitchCase,
     space: Space,
 ) Error!void {
+    const node_tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
     const trailing_comma = token_tags[switch_case.ast.arrow_token - 1] == .comma;
 
@@ -1445,17 +1467,23 @@ fn renderSwitchCase(
     }
 
     // Render the arrow and everything after it
-    try renderToken(ais, tree, switch_case.ast.arrow_token, .space);
+    const pre_target_space = if (node_tags[switch_case.ast.target_expr] == .multiline_string_literal)
+        // Newline gets inserted when rendering the target expr.
+        Space.none
+    else
+        Space.space;
+    const after_arrow_space: Space = if (switch_case.payload_token == null) pre_target_space else .space;
+    try renderToken(ais, tree, switch_case.ast.arrow_token, after_arrow_space);
 
     if (switch_case.payload_token) |payload_token| {
         try renderToken(ais, tree, payload_token - 1, .none); // pipe
         if (token_tags[payload_token] == .asterisk) {
             try renderToken(ais, tree, payload_token, .none); // asterisk
             try renderToken(ais, tree, payload_token + 1, .none); // identifier
-            try renderToken(ais, tree, payload_token + 2, .space); // pipe
+            try renderToken(ais, tree, payload_token + 2, pre_target_space); // pipe
         } else {
             try renderToken(ais, tree, payload_token, .none); // identifier
-            try renderToken(ais, tree, payload_token + 1, .space); // pipe
+            try renderToken(ais, tree, payload_token + 1, pre_target_space); // pipe
         }
     }
 

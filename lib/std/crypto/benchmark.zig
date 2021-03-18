@@ -202,6 +202,7 @@ pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime
 const aeads = [_]Crypto{
     Crypto{ .ty = crypto.aead.chacha_poly.ChaCha20Poly1305, .name = "chacha20Poly1305" },
     Crypto{ .ty = crypto.aead.chacha_poly.XChaCha20Poly1305, .name = "xchacha20Poly1305" },
+    Crypto{ .ty = crypto.aead.chacha_poly.XChaCha8Poly1305, .name = "xchacha8Poly1305" },
     Crypto{ .ty = crypto.aead.salsa_poly.XSalsa20Poly1305, .name = "xsalsa20Poly1305" },
     Crypto{ .ty = crypto.aead.Gimli, .name = "gimli-aead" },
     Crypto{ .ty = crypto.aead.aegis.Aegis128L, .name = "aegis-128l" },

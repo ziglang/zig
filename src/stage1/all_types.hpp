@@ -391,6 +391,8 @@ enum LazyValueId {
     LazyValueIdAlignOf,
     LazyValueIdSizeOf,
     LazyValueIdPtrType,
+    LazyValueIdPtrTypeSimple,
+    LazyValueIdPtrTypeSimpleConst,
     LazyValueIdOptType,
     LazyValueIdSliceType,
     LazyValueIdFnType,
@@ -465,6 +467,13 @@ struct LazyValuePtrType {
     bool is_const;
     bool is_volatile;
     bool is_allowzero;
+};
+
+struct LazyValuePtrTypeSimple {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstGen *elem_type;
 };
 
 struct LazyValueOptType {
@@ -2610,7 +2619,8 @@ enum IrInstSrcId {
     IrInstSrcIdEnumToInt,
     IrInstSrcIdIntToErr,
     IrInstSrcIdErrToInt,
-    IrInstSrcIdCheckSwitchProngs,
+    IrInstSrcIdCheckSwitchProngsUnderYes,
+    IrInstSrcIdCheckSwitchProngsUnderNo,
     IrInstSrcIdCheckStatementIsVoid,
     IrInstSrcIdTypeName,
     IrInstSrcIdDeclRef,
@@ -2624,12 +2634,15 @@ enum IrInstSrcId {
     IrInstSrcIdHasField,
     IrInstSrcIdSetEvalBranchQuota,
     IrInstSrcIdPtrType,
+    IrInstSrcIdPtrTypeSimple,
+    IrInstSrcIdPtrTypeSimpleConst,
     IrInstSrcIdAlignCast,
     IrInstSrcIdImplicitCast,
     IrInstSrcIdResolveResult,
     IrInstSrcIdResetResult,
     IrInstSrcIdSetAlignStack,
-    IrInstSrcIdArgType,
+    IrInstSrcIdArgTypeAllowVarFalse,
+    IrInstSrcIdArgTypeAllowVarTrue,
     IrInstSrcIdExport,
     IrInstSrcIdExtern,
     IrInstSrcIdErrorReturnTrace,
@@ -3291,6 +3304,12 @@ struct IrInstSrcArrayType {
 
     IrInstSrc *size;
     IrInstSrc *sentinel;
+    IrInstSrc *child_type;
+};
+
+struct IrInstSrcPtrTypeSimple {
+    IrInstSrc base;
+
     IrInstSrc *child_type;
 };
 
@@ -4020,7 +4039,6 @@ struct IrInstSrcCheckSwitchProngs {
     IrInstSrcCheckSwitchProngsRange *ranges;
     size_t range_count;
     AstNode* else_prong;
-    bool have_underscore_prong;
 };
 
 struct IrInstSrcCheckStatementIsVoid {
@@ -4144,7 +4162,6 @@ struct IrInstSrcArgType {
 
     IrInstSrc *fn_type;
     IrInstSrc *arg_index;
-    bool allow_var;
 };
 
 struct IrInstSrcExport {

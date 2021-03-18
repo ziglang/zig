@@ -221,7 +221,8 @@ pub const Instruction = union(enum) {
         offset: u12,
         opc: u2,
         op1: u2,
-        fixed: u4 = 0b111_0,
+        v: u1,
+        fixed: u3 = 0b111,
         size: u2,
     },
     LoadStorePairOfRegisters: packed struct {
@@ -505,6 +506,7 @@ pub const Instruction = union(enum) {
                         .offset = offset.toU12(),
                         .opc = opc,
                         .op1 = op1,
+                        .v = 0,
                         .size = 0b10,
                     },
                 };
@@ -517,6 +519,7 @@ pub const Instruction = union(enum) {
                         .offset = offset.toU12(),
                         .opc = opc,
                         .op1 = op1,
+                        .v = 0,
                         .size = 0b11,
                     },
                 };

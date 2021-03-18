@@ -4,6 +4,31 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
+test "zig fmt: respect line breaks in struct field value declaration" {
+    try testCanonical(
+        \\const Foo = struct {
+        \\    bar: u32 =
+        \\        42,
+        \\    bar: u32 =
+        \\        // a comment
+        \\        42,
+        \\    bar: u32 =
+        \\        42,
+        \\    // a comment
+        \\    bar: []const u8 =
+        \\        \\ foo
+        \\        \\ bar
+        \\        \\ baz
+        \\    ,
+        \\    bar: u32 =
+        \\        blk: {
+        \\            break :blk 42;
+        \\        },
+        \\};
+        \\
+    );
+}
+
 // TODO Remove this after zig 0.9.0 is released.
 test "zig fmt: rewrite inline functions as callconv(.Inline)" {
     try testTransform(
@@ -3035,6 +3060,54 @@ test "zig fmt: switch" {
         \\        Union.Int => |int| {},
         \\        Union.Float => |*float| unreachable,
         \\    }
+        \\}
+        \\
+    );
+
+    try testTransform(
+        \\test {
+        \\    switch (x) {
+        \\        foo =>
+        \\            "bar",
+        \\    }
+        \\}
+        \\
+    ,
+        \\test {
+        \\    switch (x) {
+        \\        foo => "bar",
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: switch multiline string" {
+    try testCanonical(
+        \\test "switch multiline string" {
+        \\    const x: u32 = 0;
+        \\    const str = switch (x) {
+        \\        1 => "one",
+        \\        2 =>
+        \\        \\ Comma after the multiline string
+        \\        \\ is needed
+        \\        ,
+        \\        3 => "three",
+        \\        else => "else",
+        \\    };
+        \\
+        \\    const Union = union(enum) {
+        \\        Int: i64,
+        \\        Float: f64,
+        \\    };
+        \\
+        \\    const str = switch (u) {
+        \\        Union.Int => |int|
+        \\        \\ Comma after the multiline string
+        \\        \\ is needed
+        \\        ,
+        \\        Union.Float => |*float| unreachable,
+        \\    };
         \\}
         \\
     );

@@ -1237,6 +1237,22 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
                         parent_type_val, is_zero_bits);
             }
         }
+        case LazyValueIdPtrTypeSimple:
+        case LazyValueIdPtrTypeSimpleConst: {
+            LazyValuePtrTypeSimple *lazy_ptr_type = reinterpret_cast<LazyValuePtrTypeSimple *>(type_val->data.x_lazy);
+
+            if (parent_type_val == lazy_ptr_type->elem_type->value) {
+                // Does a struct which contains a pointer field to itself have bits? Yes.
+                *is_zero_bits = false;
+                return ErrorNone;
+            } else {
+                if (parent_type_val == nullptr) {
+                    parent_type_val = type_val;
+                }
+                return type_val_resolve_zero_bits(g, lazy_ptr_type->elem_type->value, parent_type,
+                        parent_type_val, is_zero_bits);
+            }
+        }
         case LazyValueIdArrayType: {
             LazyValueArrayType *lazy_array_type =
                 reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
@@ -1285,6 +1301,8 @@ Error type_val_resolve_is_opaque_type(CodeGen *g, ZigValue *type_val, bool *is_o
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
+        case LazyValueIdPtrTypeSimple:
+        case LazyValueIdPtrTypeSimpleConst:
         case LazyValueIdFnType:
         case LazyValueIdOptType:
         case LazyValueIdErrUnionType:
@@ -1311,6 +1329,11 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ZigValue *type
         }
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
+            return type_val_resolve_requires_comptime(g, lazy_ptr_type->elem_type->value);
+        }
+        case LazyValueIdPtrTypeSimple:
+        case LazyValueIdPtrTypeSimpleConst: {
+            LazyValuePtrTypeSimple *lazy_ptr_type = reinterpret_cast<LazyValuePtrTypeSimple *>(type_val->data.x_lazy);
             return type_val_resolve_requires_comptime(g, lazy_ptr_type->elem_type->value);
         }
         case LazyValueIdOptType: {
@@ -1413,6 +1436,24 @@ start_over:
             }
             return ErrorNone;
         }
+        case LazyValueIdPtrTypeSimple:
+        case LazyValueIdPtrTypeSimpleConst: {
+            LazyValuePtrTypeSimple *lazy_ptr_type = reinterpret_cast<LazyValuePtrTypeSimple *>(type_val->data.x_lazy);
+            bool is_zero_bits;
+            if ((err = type_val_resolve_zero_bits(g, lazy_ptr_type->elem_type->value, nullptr,
+                nullptr, &is_zero_bits)))
+            {
+                return err;
+            }
+            if (is_zero_bits) {
+                *abi_size = 0;
+                *size_in_bits = 0;
+            } else {
+                *abi_size = g->builtin_types.entry_usize->abi_size;
+                *size_in_bits = g->builtin_types.entry_usize->size_in_bits;
+            }
+            return ErrorNone;
+        }
         case LazyValueIdFnType:
             *abi_size = g->builtin_types.entry_usize->abi_size;
             *size_in_bits = g->builtin_types.entry_usize->size_in_bits;
@@ -1449,6 +1490,8 @@ Error type_val_resolve_abi_align(CodeGen *g, AstNode *source_node, ZigValue *typ
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
+        case LazyValueIdPtrTypeSimple:
+        case LazyValueIdPtrTypeSimpleConst:
         case LazyValueIdFnType:
             *abi_align = g->builtin_types.entry_usize->abi_align;
             return ErrorNone;
@@ -1506,7 +1549,9 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ZigV
                 return OnePossibleValueYes;
             return type_val_resolve_has_one_possible_value(g, lazy_array_type->elem_type->value);
         }
-        case LazyValueIdPtrType: {
+        case LazyValueIdPtrType:
+        case LazyValueIdPtrTypeSimple:
+        case LazyValueIdPtrTypeSimpleConst: {
             Error err;
             bool zero_bits;
             if ((err = type_val_resolve_zero_bits(g, type_val, nullptr, nullptr, &zero_bits))) {
@@ -5758,6 +5803,8 @@ static bool can_mutate_comptime_var_state(ZigValue *value) {
             case LazyValueIdAlignOf:
             case LazyValueIdSizeOf:
             case LazyValueIdPtrType:
+            case LazyValueIdPtrTypeSimple:
+            case LazyValueIdPtrTypeSimpleConst:
             case LazyValueIdOptType:
             case LazyValueIdSliceType:
             case LazyValueIdFnType:
