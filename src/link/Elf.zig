@@ -2164,8 +2164,15 @@ fn allocateTextBlock(self: *Elf, block_list: *TextBlockList, text_block: *TextBl
 
 /// Get the block list corresponding to a specific decl
 /// For example, if the decl is a function, it returns the list of the section .text
-fn getDeclBlockList(self: *Elf, decl: *const Module.Decl) *TextBlockList {
-    const typed_value = decl.typed_value.most_recent.typed_value;
+fn getDeclBlockList(self: *Elf, decl: *const Module.Decl) ?*TextBlockList {
+    const typed_value = switch (decl.typed_value) {
+        .never_succeeded => return null,
+        .most_recent => |v| v.typed_value,
+    };
+    //const typed_value = decl.typed_value.most_recent.typed_value;
+    if (typed_value.val.tag() == .extern_fn) {
+        return null; // TODO Should we do more when front-end analyzed extern decl?
+    }
     const is_fn: bool = switch (typed_value.ty.zigTypeTag()) {
         .Fn => true,
         else => false,
@@ -2214,7 +2221,7 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
 pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
     if (self.llvm_ir_module) |_| return;
 
-    const block_list = self.getDeclBlockList(decl);
+    const block_list = self.getDeclBlockList(decl) orelse return;
 
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     self.freeTextBlock(block_list, &decl.link.elf);
@@ -2284,7 +2291,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         else => false,
     };
 
-    const block_list = self.getDeclBlockList(decl);
+    const block_list = self.getDeclBlockList(decl) orelse return;
 
     if (is_fn) {
         // For functions we need to add a prologue to the debug line program.
