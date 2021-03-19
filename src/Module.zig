@@ -2326,11 +2326,14 @@ fn astgenAndSemaVarDecl(
         };
         defer gen_scope.instructions.deinit(mod.gpa);
 
-        const init_result_loc: astgen.ResultLoc = if (var_decl.ast.type_node != 0) .{
-            .ty = try astgen.expr(mod, &gen_scope.base, .{
-                .ty = @enumToInt(zir.Const.type_type),
-            }, var_decl.ast.type_node),
-        } else .none;
+        const init_result_loc: astgen.ResultLoc = if (var_decl.ast.type_node != 0)
+            .{
+                .ty = try astgen.expr(mod, &gen_scope.base, .{
+                    .ty = @enumToInt(zir.Const.type_type),
+                }, var_decl.ast.type_node),
+            }
+        else
+            .none;
 
         const init_inst = try astgen.comptimeExpr(
             mod,

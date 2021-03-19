@@ -15,6 +15,9 @@ const Inst = ir.Inst;
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 
+const LazySrcLoc = Module.LazySrcLoc;
+const SrcLoc = Module.SrcLoc;
+
 pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
@@ -157,6 +160,10 @@ pub const LLVMIRModule = struct {
 
     // TODO: The fields below should really move into a different struct,
     //       because they are only valid when generating a function
+
+    /// TODO: this should not be undefined since it should be in another per-decl struct
+    /// Curent decl we are analysing. Stored to get source locations from relative info
+    decl: *Module.Decl = undefined,
 
     /// This stores the LLVM values used in a function, such that they can be
     /// referred to in other instructions. This table is cleared before every function is generated.
@@ -342,9 +349,9 @@ pub const LLVMIRModule = struct {
 
     fn gen(self: *LLVMIRModule, module: *Module, decl: *Module.Decl) !void {
         const typed_value = decl.typed_value.most_recent.typed_value;
-        const src = decl.src();
-
         self.src_loc = decl.srcLoc();
+        self.decl = decl;
+        const src = self.src_loc.lazy;
 
         log.debug("gen: {s} type: {}, value: {}", .{ decl.name, typed_value.ty, typed_value.val });
 
@@ -765,7 +772,7 @@ pub const LLVMIRModule = struct {
         return self.fail(inst.src, "TODO implement global llvm values (or the value is not in the func_inst_table table)", .{});
     }
 
-    fn genTypedValue(self: *LLVMIRModule, src: usize, tv: TypedValue) error{ OutOfMemory, CodegenFail }!*const llvm.Value {
+    fn genTypedValue(self: *LLVMIRModule, src: LazySrcLoc, tv: TypedValue) error{ OutOfMemory, CodegenFail }!*const llvm.Value {
         const llvm_type = try self.getLLVMType(tv.ty, src);
 
         if (tv.val.isUndef())
@@ -852,7 +859,7 @@ pub const LLVMIRModule = struct {
         }
     }
 
-    fn getLLVMType(self: *LLVMIRModule, t: Type, src: usize) error{ OutOfMemory, CodegenFail }!*const llvm.Type {
+    fn getLLVMType(self: *LLVMIRModule, t: Type, src: LazySrcLoc) error{ OutOfMemory, CodegenFail }!*const llvm.Type {
         switch (t.zigTypeTag()) {
             .Void => return self.context.voidType(),
             .NoReturn => return self.context.voidType(),
@@ -891,7 +898,7 @@ pub const LLVMIRModule = struct {
         }
     }
 
-    fn resolveGlobalDecl(self: *LLVMIRModule, decl: *Module.Decl, src: usize) error{ OutOfMemory, CodegenFail }!*const llvm.Value {
+    fn resolveGlobalDecl(self: *LLVMIRModule, decl: *Module.Decl, src: LazySrcLoc) error{ OutOfMemory, CodegenFail }!*const llvm.Value {
         // TODO: do we want to store this in our own datastructure?
         if (self.llvm_module.getNamedGlobal(decl.name)) |val| return val;
 
@@ -910,7 +917,7 @@ pub const LLVMIRModule = struct {
     }
 
     /// If the llvm function does not exist, create it
-    fn resolveLLVMFunction(self: *LLVMIRModule, func: *Module.Decl, src: usize) !*const llvm.Value {
+    fn resolveLLVMFunction(self: *LLVMIRModule, func: *Module.Decl, src: LazySrcLoc) !*const llvm.Value {
         // TODO: do we want to store this in our own datastructure?
         if (self.llvm_module.getNamedFunction(func.name)) |llvm_fn| return llvm_fn;
 
@@ -958,13 +965,11 @@ pub const LLVMIRModule = struct {
         self.addAttr(val, std.math.maxInt(llvm.AttributeIndex), attr_name);
     }
 
-    pub fn fail(self: *LLVMIRModule, src: usize, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
+    pub fn fail(self: *LLVMIRModule, src: LazySrcLoc, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
         @setCold(true);
         assert(self.err_msg == null);
-        self.err_msg = try Module.ErrorMsg.create(self.gpa, .{
-            .file_scope = self.src_loc.file_scope,
-            .byte_offset = src,
-        }, format, args);
+        const src_loc = src.toSrcLocWithDecl(self.decl);
+        self.err_msg = try Module.ErrorMsg.create(self.gpa, src_loc, format, args);
         return error.CodegenFail;
     }
 };
