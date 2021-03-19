@@ -267,6 +267,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
     const node_tags = tree.nodes.items(.tag);
     const token_starts = tree.tokens.items(.start);
 
+    const gz = scope.getGenZir();
+
     switch (node_tags[node]) {
         .root => unreachable, // Top-level declaration.
         .@"usingnamespace" => unreachable, // Top-level declaration.
@@ -443,56 +445,29 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .slice_sentinel => return sliceExpr(mod, scope, rl, tree.sliceSentinel(node)),
 
         .deref => {
-            if (true) @panic("TODO update for zir-memory-layout");
             const lhs = try expr(mod, scope, .none, node_datas[node].lhs);
-            const src = token_starts[main_tokens[node]];
-            const result = try addZIRUnOp(mod, scope, src, .deref, lhs);
-            return rvalue(mod, scope, rl, result);
+            const result = try gz.addUnNode(.deref_node, lhs, node);
+            return rvalue(mod, scope, rl, result, node);
         },
         .address_of => {
-            if (true) @panic("TODO update for zir-memory-layout");
             const result = try expr(mod, scope, .ref, node_datas[node].lhs);
-            return rvalue(mod, scope, rl, result);
+            return rvalue(mod, scope, rl, result, node);
         },
         .undefined_literal => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const main_token = main_tokens[node];
-            const src = token_starts[main_token];
-            const result = try addZIRInstConst(mod, scope, src, .{
-                .ty = Type.initTag(.@"undefined"),
-                .val = Value.initTag(.undef),
-            });
-            return rvalue(mod, scope, rl, result);
+            const result = @enumToInt(zir.Const.undef);
+            return rvalue(mod, scope, rl, result, node);
         },
         .true_literal => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const main_token = main_tokens[node];
-            const src = token_starts[main_token];
-            const result = try addZIRInstConst(mod, scope, src, .{
-                .ty = Type.initTag(.bool),
-                .val = Value.initTag(.bool_true),
-            });
-            return rvalue(mod, scope, rl, result);
+            const result = @enumToInt(zir.Const.bool_true);
+            return rvalue(mod, scope, rl, result, node);
         },
         .false_literal => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const main_token = main_tokens[node];
-            const src = token_starts[main_token];
-            const result = try addZIRInstConst(mod, scope, src, .{
-                .ty = Type.initTag(.bool),
-                .val = Value.initTag(.bool_false),
-            });
-            return rvalue(mod, scope, rl, result);
+            const result = @enumToInt(zir.Const.bool_false);
+            return rvalue(mod, scope, rl, result, node);
         },
         .null_literal => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const main_token = main_tokens[node];
-            const src = token_starts[main_token];
-            const result = try addZIRInstConst(mod, scope, src, .{
-                .ty = Type.initTag(.@"null"),
-                .val = Value.initTag(.null_value),
-            });
-            return rvalue(mod, scope, rl, result);
+            const result = @enumToInt(zir.Const.null_value);
+            return rvalue(mod, scope, rl, result, node);
         },
         .optional_type => {
             if (true) @panic("TODO update for zir-memory-layout");
