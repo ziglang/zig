@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const htest = @import("test.zig");
 const Vector = std.meta.Vector;
+const Error = std.crypto.Error;
 
 pub const State = struct {
     pub const BLOCKBYTES = 48;
@@ -392,7 +393,7 @@ pub const Aead = struct {
     /// npub: public nonce
     /// k: private key
     /// NOTE: the check of the authentication tag is currently not done in constant time
-    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) !void {
+    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) Error!void {
         assert(c.len == m.len);
 
         var state = Aead.init(ad, npub, k);
@@ -429,7 +430,7 @@ pub const Aead = struct {
         // TODO: use a constant-time equality check here, see https://github.com/ziglang/zig/issues/1776
         if (!mem.eql(u8, buf[0..State.RATE], &tag)) {
             @memset(m.ptr, undefined, m.len);
-            return error.InvalidMessage;
+            return error.AuthenticationFailed;
         }
     }
 };

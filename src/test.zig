@@ -868,11 +868,10 @@ pub const TestContext = struct {
                                 std.testing.zig_exe_path,
                                 "run",
                                 "-cflags",
-                                "-std=c89",
+                                "-std=c99",
                                 "-pedantic",
                                 "-Werror",
                                 "-Wno-incompatible-library-redeclaration", // https://github.com/ziglang/zig/issues/875
-                                "-Wno-declaration-after-statement",
                                 "--",
                                 "-lc",
                                 exe_path,

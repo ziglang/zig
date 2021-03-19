@@ -8,6 +8,7 @@ const std = @import("std");
 const mem = std.mem;
 const assert = std.debug.assert;
 const AesBlock = std.crypto.core.aes.Block;
+const Error = std.crypto.Error;
 
 const State128L = struct {
     blocks: [8]AesBlock,
@@ -136,7 +137,7 @@ pub const Aegis128L = struct {
     /// ad: Associated Data
     /// npub: public nonce
     /// k: private key
-    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) !void {
+    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) Error!void {
         assert(c.len == m.len);
         var state = State128L.init(key, npub);
         var src: [32]u8 align(16) = undefined;
@@ -298,7 +299,7 @@ pub const Aegis256 = struct {
     /// ad: Associated Data
     /// npub: public nonce
     /// k: private key
-    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) !void {
+    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) Error!void {
         assert(c.len == m.len);
         var state = State256.init(key, npub);
         var src: [16]u8 align(16) = undefined;

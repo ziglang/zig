@@ -28,8 +28,11 @@ pub fn MultiArrayList(comptime S: type) type {
             capacity: usize,
 
             pub fn items(self: Slice, comptime field: Field) []FieldType(field) {
-                const byte_ptr = self.ptrs[@enumToInt(field)];
                 const F = FieldType(field);
+                if (self.len == 0) {
+                    return &[_]F{};
+                }
+                const byte_ptr = self.ptrs[@enumToInt(field)];
                 const casted_ptr = @ptrCast([*]F, @alignCast(@alignOf(F), byte_ptr));
                 return casted_ptr[0..self.len];
             }
@@ -299,6 +302,8 @@ test "basic usage" {
 
     var list = MultiArrayList(Foo){};
     defer list.deinit(ally);
+
+    testing.expectEqual(@as(usize, 0), list.items(.a).len);
 
     try list.ensureCapacity(ally, 2);
 

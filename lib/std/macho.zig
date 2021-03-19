@@ -1227,6 +1227,24 @@ pub const S_ATTR_EXT_RELOC = 0x200;
 /// section has local relocation entries
 pub const S_ATTR_LOC_RELOC = 0x100;
 
+/// template of initial values for TLVs
+pub const S_THREAD_LOCAL_REGULAR = 0x11;
+
+/// template of initial values for TLVs
+pub const S_THREAD_LOCAL_ZEROFILL = 0x12;
+
+/// TLV descriptors
+pub const S_THREAD_LOCAL_VARIABLES = 0x13;
+
+/// pointers to TLV descriptors
+pub const S_THREAD_LOCAL_VARIABLE_POINTERS = 0x14;
+
+/// functions to call to initialize TLV values
+pub const S_THREAD_LOCAL_INIT_FUNCTION_POINTERS = 0x15;
+
+/// 32-bit offsets to initializers
+pub const S_INIT_FUNC_OFFSETS = 0x16;
+
 pub const cpu_type_t = integer_t;
 pub const cpu_subtype_t = integer_t;
 pub const integer_t = c_int;
@@ -1422,6 +1440,14 @@ pub const EXPORT_SYMBOL_FLAGS_KIND_WEAK_DEFINITION: u8 = 0x04;
 pub const EXPORT_SYMBOL_FLAGS_REEXPORT: u8 = 0x08;
 pub const EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER: u8 = 0x10;
 
+// An indirect symbol table entry is simply a 32bit index into the symbol table
+// to the symbol that the pointer or stub is refering to.  Unless it is for a
+// non-lazy symbol pointer section for a defined symbol which strip(1) as
+// removed.  In which case it has the value INDIRECT_SYMBOL_LOCAL.  If the
+// symbol was also absolute INDIRECT_SYMBOL_ABS is or'ed with that.
+pub const INDIRECT_SYMBOL_LOCAL: u32 = 0x80000000;
+pub const INDIRECT_SYMBOL_ABS: u32 = 0x40000000;
+
 // Codesign consts and structs taken from:
 // https://opensource.apple.com/source/xnu/xnu-6153.81.5/osfmk/kern/cs_blobs.h.auto.html
 
@@ -1588,4 +1614,18 @@ pub const GenericBlob = extern struct {
 
     /// Total length of blob
     length: u32,
+};
+
+/// The LC_DATA_IN_CODE load commands uses a linkedit_data_command
+/// to point to an array of data_in_code_entry entries. Each entry
+/// describes a range of data in a code section.
+pub const data_in_code_entry = extern struct {
+    /// From mach_header to start of data range.
+    offset: u32,
+
+    /// Number of bytes in data range.
+    length: u16,
+
+    /// A DICE_KIND value.
+    kind: u16,
 };

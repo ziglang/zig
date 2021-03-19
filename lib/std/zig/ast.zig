@@ -275,8 +275,10 @@ pub const Tree = struct {
             .extra_volatile_qualifier => {
                 return stream.writeAll("extra volatile qualifier");
             },
-            .invalid_align => {
-                return stream.writeAll("alignment not allowed on arrays");
+            .ptr_mod_on_array_child_type => {
+                return stream.print("pointer modifier '{s}' not allowed on array child type", .{
+                    token_tags[parse_error.token].symbol(),
+                });
             },
             .invalid_and => {
                 return stream.writeAll("`&&` is invalid; note that `and` is boolean AND");
@@ -2388,7 +2390,7 @@ pub const Error = struct {
         extra_allowzero_qualifier,
         extra_const_qualifier,
         extra_volatile_qualifier,
-        invalid_align,
+        ptr_mod_on_array_child_type,
         invalid_and,
         invalid_bit_range,
         invalid_token,

@@ -2445,6 +2445,11 @@ struct ZigClangQualType ZigClangFunctionType_getReturnType(const struct ZigClang
     return bitcast(casted->getReturnType());
 }
 
+const struct ZigClangExpr *ZigClangGenericSelectionExpr_getResultExpr(const struct ZigClangGenericSelectionExpr *self) {
+    auto casted = reinterpret_cast<const clang::GenericSelectionExpr *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getResultExpr());
+}
+
 bool ZigClangFunctionProtoType_isVariadic(const struct ZigClangFunctionProtoType *self) {
     auto casted = reinterpret_cast<const clang::FunctionProtoType *>(self);
     return casted->isVariadic();

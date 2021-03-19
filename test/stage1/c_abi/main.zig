@@ -284,3 +284,55 @@ test "C ABI structs of floats as parameter" {
     };
     c_big_struct_floats(v5);
 }
+
+export fn zig_ret_bool() bool {
+    return true;
+}
+export fn zig_ret_u8() u8 {
+    return 0xff;
+}
+export fn zig_ret_u16() u16 {
+    return 0xffff;
+}
+export fn zig_ret_u32() u32 {
+    return 0xffffffff;
+}
+export fn zig_ret_u64() u64 {
+    return 0xffffffffffffffff;
+}
+export fn zig_ret_i8() i8 {
+    return -1;
+}
+export fn zig_ret_i16() i16 {
+    return -1;
+}
+export fn zig_ret_i32() i32 {
+    return -1;
+}
+export fn zig_ret_i64() i64 {
+    return -1;
+}
+
+extern fn c_ret_bool() bool;
+extern fn c_ret_u8() u8;
+extern fn c_ret_u16() u16;
+extern fn c_ret_u32() u32;
+extern fn c_ret_u64() u64;
+extern fn c_ret_i8() i8;
+extern fn c_ret_i16() i16;
+extern fn c_ret_i32() i32;
+extern fn c_ret_i64() i64;
+
+test "C ABI integer return types" {
+    expect(c_ret_bool() == true);
+
+    expect(c_ret_u8() == 0xff);
+    expect(c_ret_u16() == 0xffff);
+    expect(c_ret_u32() == 0xffffffff);
+    expect(c_ret_u64() == 0xffffffffffffffff);
+
+    expect(c_ret_i8() == -1);
+    expect(c_ret_i16() == -1);
+    expect(c_ret_i32() == -1);
+    expect(c_ret_i64() == -1);
+}

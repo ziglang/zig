@@ -583,23 +583,6 @@ pub fn panicImpl(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, ms
     // we can't lock the writer (see above comment on panic_mutex)
     const writer = getWrit();
 
-    // As a workaround for not having threadlocal variable support in LLD for this target,
-    // we have a simpler panic implementation that does not use threadlocal variables.
-    // TODO https://github.com/ziglang/zig/issues/7527
-    if (comptime std.Target.current.isDarwin() and std.Target.current.cpu.arch == .aarch64) {
-        nosuspend blk: {
-            // We can't lock anything in this case because we might recursively panic!
-            if (panicking.incr() == 0) {
-                writer.print("panic: {s}\n", .{msg}) catch break :blk;
-
-                writeTracesForPanic(writer, getTTYConfig(), trace, first_trace_addr);
-            } else {
-                writer.print("Panicked during a panic. Terminating.\n", .{}) catch break :blk;
-            }
-        }
-        panicTerm();
-    }
-
     nosuspend switch (panic_stage) {
         0 => blk: {
             panic_stage = 1;
