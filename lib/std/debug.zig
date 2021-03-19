@@ -529,6 +529,8 @@ pub fn assert(ok: bool) void {
 }
 
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
+    @setCold(true);
+
     panicExtra(null, format, args);
 }
 
@@ -540,6 +542,7 @@ pub fn panicExtra(
     args: anytype,
 ) noreturn {
     @setCold(true);
+
     const size = 0x1000;
     const trunc_msg = "(msg truncated)";
     var buf: [size + trunc_msg.len]u8 = undefined;
