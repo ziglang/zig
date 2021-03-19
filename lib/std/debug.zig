@@ -544,8 +544,9 @@ pub fn panic(comptime format: []const u8, args: anytype) noreturn {
 }
 
 /// Non-zero whenever the program triggered a panic.
-/// The counter is incremented/decremented atomically.
-var panicking: u8 = 0;
+/// Counts the number of threads which are waiting on the `panic_mutex`
+/// to print out the stack traces and msg.
+var panicking: std.atomic.Int(u32) = std.atomic.Int(u32).init(0);
 
 /// Locked to avoid interleaving panic messages from multiple threads.
 ///
@@ -576,7 +577,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
     if (comptime std.Target.current.isDarwin() and std.Target.current.cpu.arch == .aarch64) {
         nosuspend blk: {
             // We can't lock anything in this case because we might recursively panic!
-            if (@atomicRmw(u8, &panicking, .Add, 1, .SeqCst) == 0) {
+            if (panicking.incr() == 0) {
                 writer.print("panic: " ++ format ++ "\n", args) catch break :blk;
 
                 // we don't use the dump functions because those lock the mutex
@@ -605,7 +606,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         0 => blk: {
             getPanicStageTL().* = 1;
 
-            _ = @atomicRmw(u8, &panicking, .Add, 1, .SeqCst);
+            _ = panicking.incr();
 
             // Make sure to release the mutex when done
             {
@@ -638,7 +639,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 };
             }
 
-            if (@atomicRmw(u8, &panicking, .Sub, 1, .SeqCst) != 1) {
+            if (panicking.decr() != 1) {
                 // Another thread is panicking, wait for the last one to finish
                 // and call panicTerm()
 
