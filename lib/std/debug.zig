@@ -93,9 +93,11 @@ pub const default_config = struct {
 
     /// A struct which maps from addresses to symbols (`SymbolInfo`).
     pub const SymbolMap = struct {
+        const Self = @This();
+
         debug_info: DebugInfo,
 
-        pub fn addressToSymbol(self: *@This(), address: usize) !SymbolInfo {
+        pub fn addressToSymbol(self: *Self, address: usize) !SymbolInfo {
             const module = self.debug_info.getModuleForAddress(address) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => {
                     return SymbolInfo{};
@@ -106,11 +108,11 @@ pub const default_config = struct {
             return module.addressToSymbol(address);
         }
 
-        pub fn init(allocator: *std.mem.Allocator) !@This() {
+        pub fn init(allocator: *std.mem.Allocator) !Self {
             return @This(){ .debug_info = try openSelfDebugInfo(allocator) };
         }
 
-        pub fn deinit(self: *@This()) void {
+        pub fn deinit(self: *Self) void {
             self.debug_info.deinit();
         }
     };
