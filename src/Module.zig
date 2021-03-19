@@ -1007,7 +1007,7 @@ pub const Scope = struct {
             return gz.zir_code.decl.tokSrcLoc(token_index);
         }
 
-        pub fn addFnTypeCc(gz: *GenZir, args: struct {
+        pub fn addFnTypeCc(gz: *GenZir, tag: zir.Inst.Tag, args: struct {
             param_types: []const zir.Inst.Ref,
             ret_ty: zir.Inst.Ref,
             cc: zir.Inst.Ref,
@@ -1026,24 +1026,24 @@ pub const Scope = struct {
             }) catch unreachable; // Capacity is ensured above.
             gz.zir_code.extra.appendSliceAssumeCapacity(args.param_types);
 
-            const new_index = gz.zir_code.instructions.len;
+            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(.{
-                .tag = .fn_type_cc,
+                .tag = tag,
                 .data = .{ .fn_type = .{
                     .return_type = args.ret_ty,
                     .payload_index = payload_index,
                 } },
             });
-            const result = @intCast(zir.Inst.Ref, new_index + gz.zir_code.ref_start_index);
-            gz.instructions.appendAssumeCapacity(result);
-            return result;
+            gz.instructions.appendAssumeCapacity(new_index);
+            return new_index + gz.zir_code.ref_start_index;
         }
 
         pub fn addFnType(
             gz: *GenZir,
+            tag: zir.Inst.Tag,
             ret_ty: zir.Inst.Ref,
             param_types: []const zir.Inst.Ref,
-        ) !zir.Inst.Index {
+        ) !zir.Inst.Ref {
             assert(ret_ty != 0);
             const gpa = gz.zir_code.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
@@ -1056,20 +1056,19 @@ pub const Scope = struct {
             }) catch unreachable; // Capacity is ensured above.
             gz.zir_code.extra.appendSliceAssumeCapacity(param_types);
 
-            const new_index = gz.zir_code.instructions.len;
+            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(.{
-                .tag = .fn_type_cc,
+                .tag = tag,
                 .data = .{ .fn_type = .{
                     .return_type = ret_ty,
                     .payload_index = payload_index,
                 } },
             });
-            const result = @intCast(zir.Inst.Ref, new_index + gz.zir_code.ref_start_index);
-            gz.instructions.appendAssumeCapacity(result);
-            return result;
+            gz.instructions.appendAssumeCapacity(new_index);
+            return new_index + gz.zir_code.ref_start_index;
         }
 
-        pub fn addInt(gz: *GenZir, integer: u64) !zir.Inst.Index {
+        pub fn addInt(gz: *GenZir, integer: u64) !zir.Inst.Ref {
             return gz.add(.{
                 .tag = .int,
                 .data = .{ .int = integer },
@@ -1171,11 +1170,10 @@ pub const Scope = struct {
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
 
-            const new_index = gz.zir_code.instructions.len;
+            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(inst);
-            const result = @intCast(zir.Inst.Ref, new_index + gz.zir_code.ref_start_index);
-            gz.instructions.appendAssumeCapacity(result);
-            return result;
+            gz.instructions.appendAssumeCapacity(new_index);
+            return new_index + gz.zir_code.ref_start_index;
         }
     };
 
@@ -1232,7 +1230,7 @@ pub const WipZirCode = struct {
     extra: std.ArrayListUnmanaged(u32) = .{},
     /// The end of special indexes. `zir.Inst.Ref` subtracts against this number to convert
     /// to `zir.Inst.Index`. The default here is correct if there are 0 parameters.
-    ref_start_index: usize = zir.const_inst_list.len,
+    ref_start_index: u32 = zir.const_inst_list.len,
     decl: *Decl,
     gpa: *Allocator,
     arena: *Allocator,
@@ -2034,14 +2032,14 @@ fn astgenAndSemaFn(
 
     const fn_type_inst: zir.Inst.Ref = if (cc != 0) fn_type: {
         const tag: zir.Inst.Tag = if (is_var_args) .fn_type_cc_var_args else .fn_type_cc;
-        break :fn_type try fn_type_scope.addFnTypeCc(.{
+        break :fn_type try fn_type_scope.addFnTypeCc(tag, .{
             .ret_ty = return_type_inst,
             .param_types = param_types,
             .cc = cc,
         });
     } else fn_type: {
         const tag: zir.Inst.Tag = if (is_var_args) .fn_type_var_args else .fn_type;
-        break :fn_type try fn_type_scope.addFnType(return_type_inst, param_types);
+        break :fn_type try fn_type_scope.addFnType(tag, return_type_inst, param_types);
     };
 
     // We need the memory for the Type to go into the arena for the Decl
