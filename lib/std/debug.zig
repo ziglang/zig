@@ -198,18 +198,6 @@ else
     default_config.captureStackTraceFrom;
 
 /// Slightly different name than in config to avoid redefinition in default.
-const getPanicStageTL = if (@hasDecl(config, "getPanicStage"))
-    config.getPanicStage
-else
-    default_config.getPanicStage;
-
-/// Slightly different name than in config to avoid redefinition in default.
-const sleepForev = if (@hasDecl(config, "sleepForever"))
-    config.sleepForever
-else
-    default_config.sleepForever;
-
-/// Slightly different name than in config to avoid redefinition in default.
 const panicTerm = if (@hasDecl(config, "panicTerminate"))
     config.panicTerminate
 else
