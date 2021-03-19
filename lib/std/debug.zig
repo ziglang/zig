@@ -529,6 +529,16 @@ pub fn assert(ok: bool) void {
 }
 
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
+    panicExtra(null, format, args);
+}
+
+/// `panicExtra` is useful when you want to print out an `@errorReturnTrace`
+/// and also print out some values.
+pub fn panicExtra(
+    trace: ?*builtin.StackTrace,
+    comptime format: []const u8,
+    args: anytype,
+) noreturn {
     @setCold(true);
     const size = 0x1000;
     const trunc_msg = "(msg truncated)";
@@ -542,7 +552,7 @@ pub fn panic(comptime format: []const u8, args: anytype) noreturn {
             break :blk &buf;
         },
     };
-    @panic(msg);
+    builtin.panic(msg, trace);
 }
 
 /// Non-zero whenever the program triggered a panic.
@@ -561,7 +571,7 @@ var panic_mutex = std.Thread.Mutex{};
 /// This is used to catch and handle panics triggered by the panic handler.
 threadlocal var panic_stage: usize = 0;
 
-pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, msg: []const u8) noreturn {
+pub fn panicImpl(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, msg: []const u8) noreturn {
     @setCold(true);
 
     if (enable_segfault_handler) {

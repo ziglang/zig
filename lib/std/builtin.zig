@@ -671,7 +671,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
         },
         else => {
             const first_trace_addr = @returnAddress();
-            std.debug.panicExtra(error_return_trace, first_trace_addr, msg);
+            std.debug.panicImpl(error_return_trace, first_trace_addr, msg);
         },
     }
 }
