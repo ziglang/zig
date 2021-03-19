@@ -1934,7 +1934,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() c_int {
         \\    var a: c_int = 5;
-        \\    while (true) a = 2;
+        \\    while (true) {
+        \\        a = 2;
+        \\    }
         \\    while (true) {
         \\        var a_1: c_int = 4;
         \\        a_1 = 9;
@@ -1947,7 +1949,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        var a_1: c_int = 2;
         \\        a_1 = 12;
         \\    }
-        \\    while (true) a = 7;
+        \\    while (true) {
+        \\        a = 7;
+        \\    }
         \\    return 0;
         \\}
     });
@@ -2008,7 +2012,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub export fn bar() c_int {
-        \\    if ((if (true) @as(c_int, 5) else if (true) @as(c_int, 4) else @as(c_int, 6)) != 0) _ = @as(c_int, 2);
+        \\    if ((if (true) @as(c_int, 5) else if (true) @as(c_int, 4) else @as(c_int, 6)) != 0) {
+        \\        _ = @as(c_int, 2);
+        \\    }
         \\    return if (true) @as(c_int, 5) else if (true) @as(c_int, 4) else @as(c_int, 6);
         \\}
     });
@@ -2389,7 +2395,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const yes = [*c]u8;
         \\pub export fn foo() void {
         \\    var a: yes = undefined;
-        \\    if (a != null) _ = @as(c_int, 2);
+        \\    if (a != null) {
+        \\        _ = @as(c_int, 2);
+        \\    }
         \\}
     });
 
