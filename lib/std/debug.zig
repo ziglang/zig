@@ -598,7 +598,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 writer.print("Panicked during a panic. Terminating.\n", .{}) catch break :blk;
             }
         }
-        os.abort();
+        panicTerm();
     }
 
     nosuspend switch (getPanicStageTL().*) {
