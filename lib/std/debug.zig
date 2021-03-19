@@ -7,9 +7,9 @@
 //! std.debug contains functions for capturing and printing out stack traces as
 //! well as misc. functions such as `print`, `assert`, and `panicExtra`.
 //!
-//! Many of the implementations can be overriden via declarations in the root
-//! `debug_config` namespace. See the `default_config` for documentation on
-//! everything which can be overriden. Note that functions can be overriden
+//! Many parts of the implementations can be overriden via declarations in the
+//! root `debug_config` namespace. See the `default_config` for documentation
+//! on everything which can be overriden. Note that functions can be overriden
 //! individually (except for `getWriter` which also requires
 //! `detectTTYConfig`).
 //!
