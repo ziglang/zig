@@ -1826,7 +1826,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
 
                 const code = try gen_scope.finish();
                 if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-                    zir.dumpZir(mod.gpa, "comptime_block", decl.name, code) catch {};
+                    code.dump(mod.gpa, "comptime_block", decl.name) catch {};
                 }
                 break :blk code;
             };
@@ -1836,13 +1836,11 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
                 .gpa = mod.gpa,
                 .arena = &analysis_arena.allocator,
                 .code = code,
-                .inst_map = try mod.gpa.alloc(*ir.Inst, code.instructions.len),
+                .inst_map = try analysis_arena.allocator.alloc(*ir.Inst, code.instructions.len),
                 .owner_decl = decl,
                 .func = null,
                 .param_inst_list = &.{},
             };
-            defer mod.gpa.free(sema.inst_map);
-
             var block_scope: Scope.Block = .{
                 .parent = null,
                 .sema = &sema,
@@ -2049,7 +2047,7 @@ fn astgenAndSemaFn(
 
     const fn_type_code = try fn_type_scope.finish();
     if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-        zir.dumpZir(mod.gpa, "fn_type", decl.name, fn_type_code) catch {};
+        fn_type_code.dump(mod.gpa, "fn_type", decl.name) catch {};
     }
 
     var fn_type_sema: Sema = .{
@@ -2057,13 +2055,11 @@ fn astgenAndSemaFn(
         .gpa = mod.gpa,
         .arena = &decl_arena.allocator,
         .code = fn_type_code,
-        .inst_map = try mod.gpa.alloc(*ir.Inst, fn_type_code.instructions.len),
+        .inst_map = try fn_type_scope_arena.allocator.alloc(*ir.Inst, fn_type_code.instructions.len),
         .owner_decl = decl,
         .func = null,
         .param_inst_list = &.{},
     };
-    defer mod.gpa.free(fn_type_sema.inst_map);
-
     var block_scope: Scope.Block = .{
         .parent = null,
         .sema = &fn_type_sema,
@@ -2174,7 +2170,7 @@ fn astgenAndSemaFn(
 
         const code = try gen_scope.finish();
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-            zir.dumpZir(mod.gpa, "fn_body", decl.name, code) catch {};
+            code.dump(mod.gpa, "fn_body", decl.name) catch {};
         }
 
         break :blk code;
@@ -2351,7 +2347,7 @@ fn astgenAndSemaVarDecl(
         );
         const code = try gen_scope.finish();
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-            zir.dumpZir(mod.gpa, "var_init", decl.name, code) catch {};
+            code.dump(mod.gpa, "var_init", decl.name) catch {};
         }
 
         var sema: Sema = .{
@@ -2359,13 +2355,11 @@ fn astgenAndSemaVarDecl(
             .gpa = mod.gpa,
             .arena = &gen_scope_arena.allocator,
             .code = code,
-            .inst_map = try mod.gpa.alloc(*ir.Inst, code.instructions.len),
+            .inst_map = try gen_scope_arena.allocator.alloc(*ir.Inst, code.instructions.len),
             .owner_decl = decl,
             .func = null,
             .param_inst_list = &.{},
         };
-        defer mod.gpa.free(sema.inst_map);
-
         var block_scope: Scope.Block = .{
             .parent = null,
             .sema = &sema,
@@ -2415,7 +2409,7 @@ fn astgenAndSemaVarDecl(
         const var_type = try astgen.typeExpr(mod, &type_scope.base, var_decl.ast.type_node);
         const code = try type_scope.finish();
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-            zir.dumpZir(mod.gpa, "var_type", decl.name, code) catch {};
+            code.dump(mod.gpa, "var_type", decl.name) catch {};
         }
 
         var sema: Sema = .{
@@ -2423,13 +2417,11 @@ fn astgenAndSemaVarDecl(
             .gpa = mod.gpa,
             .arena = &type_scope_arena.allocator,
             .code = code,
-            .inst_map = try mod.gpa.alloc(*ir.Inst, code.instructions.len),
+            .inst_map = try type_scope_arena.allocator.alloc(*ir.Inst, code.instructions.len),
             .owner_decl = decl,
             .func = null,
             .param_inst_list = &.{},
         };
-        defer mod.gpa.free(sema.inst_map);
-
         var block_scope: Scope.Block = .{
             .parent = null,
             .sema = &sema,
@@ -2985,9 +2977,6 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
     var arena = decl.typed_value.most_recent.arena.?.promote(mod.gpa);
     defer decl.typed_value.most_recent.arena.?.* = arena.state;
 
-    const inst_map = try mod.gpa.alloc(*ir.Inst, func.zir.instructions.len);
-    defer mod.gpa.free(inst_map);
-
     const fn_ty = decl.typed_value.most_recent.typed_value.ty;
     const param_inst_list = try mod.gpa.alloc(*ir.Inst, fn_ty.fnParamLen());
     defer mod.gpa.free(param_inst_list);
@@ -3012,11 +3001,12 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
         .gpa = mod.gpa,
         .arena = &arena.allocator,
         .code = func.zir,
-        .inst_map = inst_map,
+        .inst_map = try mod.gpa.alloc(*ir.Inst, func.zir.instructions.len),
         .owner_decl = decl,
         .func = func,
         .param_inst_list = param_inst_list,
     };
+    defer mod.gpa.free(sema.inst_map);
 
     var inner_block: Scope.Block = .{
         .parent = null,

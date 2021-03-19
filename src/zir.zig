@@ -1,4 +1,5 @@
-//! This file has to do with parsing and rendering the ZIR text format.
+//! Zig Intermediate Representation. astgen.zig converts AST nodes to these
+//! untyped IR instructions. Next, Sema.zig processes these into TZIR.
 
 const std = @import("std");
 const mem = std.mem;
@@ -6,12 +7,13 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
+const ast = std.zig.ast;
+
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const TypedValue = @import("TypedValue.zig");
 const ir = @import("ir.zig");
 const Module = @import("Module.zig");
-const ast = std.zig.ast;
 const LazySrcLoc = Module.LazySrcLoc;
 
 /// The minimum amount of information needed to represent a list of ZIR instructions.
@@ -63,6 +65,61 @@ pub const Code = struct {
             end += 1;
         }
         return code.string_bytes[index..end :0];
+    }
+
+    /// For debugging purposes, like dumpFn but for unanalyzed zir blocks
+    pub fn dump(code: Code, gpa: *Allocator, kind: []const u8, decl_name: [*:0]const u8) !void {
+        var arena = std.heap.ArenaAllocator.init(gpa);
+        defer arena.deinit();
+
+        if (true) @panic("TODO fix this function for zir-memory-layout branch");
+
+        var writer: Writer = .{
+            .gpa = gpa,
+            .arena = &arena.allocator,
+            .code = code,
+            .inst_map = try arena.allocator.alloc(*ir.Inst, code.instructions.len),
+            .owner_decl = decl,
+            .func = null,
+            .param_inst_list = &.{},
+        };
+        var write = Writer{
+            .inst_table = InstPtrTable.init(gpa),
+            .block_table = std.AutoHashMap(*Inst.Block, []const u8).init(gpa),
+            .loop_table = std.AutoHashMap(*Inst.Loop, []const u8).init(gpa),
+            .arena = std.heap.ArenaAllocator.init(gpa),
+            .indent = 4,
+            .next_instr_index = 0,
+        };
+        defer write.arena.deinit();
+        defer write.inst_table.deinit();
+        defer write.block_table.deinit();
+        defer write.loop_table.deinit();
+
+        try write.inst_table.ensureCapacity(@intCast(u32, instructions.len));
+
+        const stderr = std.io.getStdErr().writer();
+        try stderr.print("{s} {s} {{ // unanalyzed\n", .{ kind, decl_name });
+
+        for (instructions) |inst| {
+            const my_i = write.next_instr_index;
+            write.next_instr_index += 1;
+
+            if (inst.cast(Inst.Block)) |block| {
+                const name = try std.fmt.allocPrint(&write.arena.allocator, "label_{d}", .{my_i});
+                try write.block_table.put(block, name);
+            } else if (inst.cast(Inst.Loop)) |loop| {
+                const name = try std.fmt.allocPrint(&write.arena.allocator, "loop_{d}", .{my_i});
+                try write.loop_table.put(loop, name);
+            }
+
+            try write.inst_table.putNoClobber(inst, .{ .inst = inst, .index = my_i, .name = "inst" });
+            try stderr.print("  %{d} ", .{my_i});
+            try write.writeInstToStream(stderr, inst);
+            try stderr.writeByte('\n');
+        }
+
+        try stderr.print("}} // {s} {s}\n\n", .{ kind, decl_name });
     }
 };
 
@@ -1209,53 +1266,3 @@ pub const Inst = struct {
         field_name: Ref,
     };
 };
-
-/// For debugging purposes, like dumpFn but for unanalyzed zir blocks
-pub fn dumpZir(gpa: *Allocator, kind: []const u8, decl_name: [*:0]const u8, code: Code) !void {
-    if (true) @panic("TODO fix this function for zir-memory-layout branch");
-    var fib = std.heap.FixedBufferAllocator.init(&[_]u8{});
-    var module = Module{
-        .decls = &[_]*Module.Decl{},
-        .arena = std.heap.ArenaAllocator.init(&fib.allocator),
-        .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(&fib.allocator),
-        .body_metadata = std.AutoHashMap(*Body, Module.BodyMetaData).init(&fib.allocator),
-    };
-    var write = Writer{
-        .module = &module,
-        .inst_table = InstPtrTable.init(gpa),
-        .block_table = std.AutoHashMap(*Inst.Block, []const u8).init(gpa),
-        .loop_table = std.AutoHashMap(*Inst.Loop, []const u8).init(gpa),
-        .arena = std.heap.ArenaAllocator.init(gpa),
-        .indent = 4,
-        .next_instr_index = 0,
-    };
-    defer write.arena.deinit();
-    defer write.inst_table.deinit();
-    defer write.block_table.deinit();
-    defer write.loop_table.deinit();
-
-    try write.inst_table.ensureCapacity(@intCast(u32, instructions.len));
-
-    const stderr = std.io.getStdErr().writer();
-    try stderr.print("{s} {s} {{ // unanalyzed\n", .{ kind, decl_name });
-
-    for (instructions) |inst| {
-        const my_i = write.next_instr_index;
-        write.next_instr_index += 1;
-
-        if (inst.cast(Inst.Block)) |block| {
-            const name = try std.fmt.allocPrint(&write.arena.allocator, "label_{d}", .{my_i});
-            try write.block_table.put(block, name);
-        } else if (inst.cast(Inst.Loop)) |loop| {
-            const name = try std.fmt.allocPrint(&write.arena.allocator, "loop_{d}", .{my_i});
-            try write.loop_table.put(loop, name);
-        }
-
-        try write.inst_table.putNoClobber(inst, .{ .inst = inst, .index = my_i, .name = "inst" });
-        try stderr.print("  %{d} ", .{my_i});
-        try write.writeInstToStream(stderr, inst);
-        try stderr.writeByte('\n');
-    }
-
-    try stderr.print("}} // {s} {s}\n\n", .{ kind, decl_name });
-}
