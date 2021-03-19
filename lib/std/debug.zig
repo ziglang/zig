@@ -580,7 +580,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 writer.print("panic: " ++ format ++ "\n", args) catch break :blk;
 
                 // we don't use the dump functions because those lock the mutex
-                const write_trace = if (getStackTraceDumper(writer)) |wt| wt else break :blk;
+                const write_trace = getStackTraceDumper(writer) orelse break :blk;
                 // just to appease the compiler
                 if (is_stripped) unreachable;
 
@@ -621,7 +621,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 writer.print(format ++ "\n", args) catch break :blk;
 
                 // we don't use the dump functions because those lock the mutex
-                const write_trace = if (getStackTraceDumper(writer)) |wt| wt else break :blk;
+                const write_trace = getStackTraceDumper(writer) orelse break :blk;
 
                 // just to appease the compiler
                 if (is_stripped) unreachable;
