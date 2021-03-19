@@ -164,6 +164,7 @@ pub fn readLoadCommands(self: *Object, reader: anytype, offset: ReadOffset) !voi
             },
             macho.LC_DATA_IN_CODE => {
                 self.data_in_code_cmd_index = i;
+                cmd.LinkeditData.dataoff += offset_mod;
             },
             else => {
                 log.debug("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
