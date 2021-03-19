@@ -2835,23 +2835,22 @@ fn identifier(
     rl: ResultLoc,
     ident: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const tracy = trace(@src());
     defer tracy.end();
 
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
+
+    const gz = scope.getGenZir();
 
     const ident_token = main_tokens[ident];
     const ident_name = try mod.identifierTokenString(scope, ident_token);
-    const src = token_starts[ident_token];
     if (mem.eql(u8, ident_name, "_")) {
         return mod.failNode(scope, ident, "TODO implement '_' identifier", .{});
     }
 
     if (simple_types.get(ident_name)) |zir_const_tag| {
-        return rvalue(mod, scope, rl, @enumToInt(zir_const_tag));
+        return rvalue(mod, scope, rl, @enumToInt(zir_const_tag), ident);
     }
 
     if (ident_name.len >= 2) integer: {
@@ -2867,26 +2866,7 @@ fn identifier(
                 ),
                 error.InvalidCharacter => break :integer,
             };
-            const val = switch (bit_count) {
-                8 => if (is_signed) Value.initTag(.i8_type) else Value.initTag(.u8_type),
-                16 => if (is_signed) Value.initTag(.i16_type) else Value.initTag(.u16_type),
-                32 => if (is_signed) Value.initTag(.i32_type) else Value.initTag(.u32_type),
-                64 => if (is_signed) Value.initTag(.i64_type) else Value.initTag(.u64_type),
-                else => {
-                    return rvalue(mod, scope, rl, try addZIRInstConst(mod, scope, src, .{
-                        .ty = Type.initTag(.type),
-                        .val = try Value.Tag.int_type.create(scope.arena(), .{
-                            .signed = is_signed,
-                            .bits = bit_count,
-                        }),
-                    }));
-                },
-            };
-            const result = try addZIRInstConst(mod, scope, src, .{
-                .ty = Type.initTag(.type),
-                .val = val,
-            });
-            return rvalue(mod, scope, rl, result);
+            return rvalue(mod, scope, rl, try gz.addBin(.int_type, @boolToInt(is_signed), bit_count), ident);
         }
     }
 
@@ -2897,7 +2877,7 @@ fn identifier(
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
                 if (mem.eql(u8, local_val.name, ident_name)) {
-                    return rvalue(mod, scope, rl, local_val.inst);
+                    return rvalue(mod, scope, rl, local_val.inst, ident);
                 }
                 s = local_val.parent;
             },
@@ -2905,8 +2885,8 @@ fn identifier(
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (mem.eql(u8, local_ptr.name, ident_name)) {
                     if (rl == .ref) return local_ptr.ptr;
-                    const loaded = try addZIRUnOp(mod, scope, src, .deref, local_ptr.ptr);
-                    return rvalue(mod, scope, rl, loaded);
+                    const loaded = try gz.addUnNode(.deref_node, local_ptr.ptr, ident);
+                    return rvalue(mod, scope, rl, loaded, ident);
                 }
                 s = local_ptr.parent;
             },
@@ -2918,13 +2898,10 @@ fn identifier(
     }
 
     if (mod.lookupDeclName(scope, ident_name)) |decl| {
-        if (rl == .ref) {
-            return addZIRInst(mod, scope, src, zir.Inst.DeclRef, .{ .decl = decl }, .{});
-        } else {
-            return rvalue(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.DeclVal, .{
-                .decl = decl,
-            }, .{}));
-        }
+        return if (rl == .ref)
+            gz.addDecl(.decl_ref, decl)
+        else
+            rvalue(mod, scope, rl, try gz.addDecl(.decl_val, decl), ident);
     }
 
     return mod.failNode(scope, ident, "use of undeclared identifier '{s}'", .{ident_name});

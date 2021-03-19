@@ -564,6 +564,7 @@ pub const Inst = struct {
         intcast,
         /// Make an integer type out of signedness and bit count.
         /// lhs is signedness, rhs is bit count.
+        /// Payload is `Bin`
         int_type,
         /// Return a boolean false if an optional is null. `x != null`
         /// Uses the `un_tok` field.

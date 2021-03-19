@@ -1124,6 +1124,17 @@ pub const Scope = struct {
             });
         }
 
+        pub fn addDecl(
+            gz: *GenZir,
+            tag: zir.Inst.Tag,
+            decl: *Decl,
+        ) !zir.Inst.Ref {
+            return gz.add(.{
+                .tag = tag,
+                .data = .{ .decl = decl },
+            });
+        }
+
         pub fn addNode(
             gz: *GenZir,
             tag: zir.Inst.Tag,
