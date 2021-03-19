@@ -792,8 +792,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn dbgAdvancePCAndLine(self: *Self, src: usize) InnerError!void {
-            self.prev_di_src = src;
+        fn dbgAdvancePCAndLine(self: *Self, abs_byte_off: usize) InnerError!void {
+            self.prev_di_src = abs_byte_off;
             self.prev_di_pc = self.code.items.len;
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
@@ -801,7 +801,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // lookup table, and changing ir.Inst from storing byte offset to token. Currently
                     // this involves scanning over the source code for newlines
                     // (but only from the previous byte offset to the new one).
-                    const delta_line = std.zig.lineDelta(self.source, self.prev_di_src, src);
+                    const delta_line = std.zig.lineDelta(self.source, self.prev_di_src, abs_byte_off);
                     const delta_pc = self.code.items.len - self.prev_di_pc;
                     // TODO Look into using the DWARF special opcodes to compress this data. It lets you emit
                     // single-byte opcodes that add different numbers to both the PC and the line number
@@ -2315,8 +2315,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genDbgStmt(self: *Self, inst: *ir.Inst.NoOp) !MCValue {
-            try self.dbgAdvancePCAndLine(inst.base.src);
+        fn genDbgStmt(self: *Self, inst: *ir.Inst.DbgStmt) !MCValue {
+            // TODO when reworking tzir memory layout, rework source locations here as
+            // well to be more efficient, as well as support inlined function calls correctly.
+            // For now we convert LazySrcLoc to absolute byte offset, to match what the
+            // existing codegen code expects.
+            try self.dbgAdvancePCAndLine(inst.byte_offset);
             assert(inst.base.isUnused());
             return MCValue.dead;
         }

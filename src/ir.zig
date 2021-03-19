@@ -138,7 +138,6 @@ pub const Inst = struct {
                 .retvoid,
                 .unreach,
                 .breakpoint,
-                .dbg_stmt,
                 => NoOp,
 
                 .ref,
@@ -198,6 +197,7 @@ pub const Inst = struct {
                 .loop => Loop,
                 .varptr => VarPtr,
                 .switchbr => SwitchBr,
+                .dbg_stmt => DbgStmt,
             };
         }
 
@@ -582,6 +582,20 @@ pub const Inst = struct {
         }
         pub fn elseDeaths(self: *const SwitchBr) []*Inst {
             return (self.deaths + self.else_index)[0..self.else_deaths];
+        }
+    };
+
+    pub const DbgStmt = struct {
+        pub const base_tag = Tag.dbg_stmt;
+
+        base: Inst,
+        byte_offset: u32,
+
+        pub fn operandCount(self: *const DbgStmt) usize {
+            return 0;
+        }
+        pub fn getOperand(self: *const DbgStmt, index: usize) ?*Inst {
+            return null;
         }
     };
 };

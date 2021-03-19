@@ -1003,7 +1003,9 @@ fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
 
     const src_node = sema.code.instructions.items(.data)[inst].node;
     const src: LazySrcLoc = .{ .node_offset = src_node };
-    return block.addNoOp(src, Type.initTag(.void), .dbg_stmt);
+    const src_loc = src.toSrcLoc(&block.base);
+    const abs_byte_off = try src_loc.byteOffset(sema.mod);
+    return block.addDbgStmt(src, abs_byte_off);
 }
 
 fn zirDeclRef(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {

@@ -923,6 +923,20 @@ pub const Scope = struct {
             try block.instructions.append(block.sema.gpa, &inst.base);
             return &inst.base;
         }
+
+        pub fn addDbgStmt(block: *Scope.Block, src: LazySrcLoc, abs_byte_off: u32) !*ir.Inst {
+            const inst = try block.sema.arena.create(ir.Inst.DbgStmt);
+            inst.* = .{
+                .base = .{
+                    .tag = .dbg_stmt,
+                    .ty = Type.initTag(.void),
+                    .src = src,
+                },
+                .byte_offset = abs_byte_off,
+            };
+            try block.instructions.append(block.sema.gpa, &inst.base);
+            return &inst.base;
+        }
     };
 
     /// This is a temporary structure; references to it are valid only
@@ -1330,14 +1344,12 @@ pub const SrcLoc = struct {
             .byte_abs => |byte_index| return byte_index,
 
             .token_abs => |tok_index| {
-                const file_scope = src_loc.container.file_scope;
-                const tree = try mod.getAstTree(file_scope);
+                const tree = src_loc.container.file_scope.base.tree();
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_abs => |node_index| {
-                const file_scope = src_loc.container.file_scope;
-                const tree = try mod.getAstTree(file_scope);
+                const tree = src_loc.container.file_scope.base.tree();
                 const token_starts = tree.tokens.items(.start);
                 const tok_index = tree.firstToken(node_index);
                 return token_starts[tok_index];
@@ -1349,14 +1361,14 @@ pub const SrcLoc = struct {
             .token_offset => |tok_off| {
                 const decl = src_loc.container.decl;
                 const tok_index = decl.srcToken() + tok_off;
-                const tree = try mod.getAstTree(decl.container.file_scope);
+                const tree = src_loc.container.file_scope.base.tree();
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset => |node_off| {
                 const decl = src_loc.container.decl;
                 const node_index = decl.srcNode() + node_off;
-                const tree = try mod.getAstTree(decl.container.file_scope);
+                const tree = src_loc.container.file_scope.base.tree();
                 const tok_index = tree.firstToken(node_index);
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];

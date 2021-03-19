@@ -760,7 +760,7 @@ fn genCall(o: *Object, inst: *Inst.Call) !CValue {
     }
 }
 
-fn genDbgStmt(o: *Object, inst: *Inst.NoOp) !CValue {
+fn genDbgStmt(o: *Object, inst: *Inst.DbgStmt) !CValue {
     // TODO emit #line directive here with line number and filename
     return CValue.none;
 }
