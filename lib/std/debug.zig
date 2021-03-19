@@ -12,6 +12,11 @@
 //! everything which can be overriden. Note that functions can be overriden
 //! individually (except for `getWriter` which also requires
 //! `detectTTYConfig`).
+//!
+//! For the freestanding multithreaded use case, it is generally recommended to
+//! override the panic function itself (for instance by defining `root.panic`).
+//! You may still want to define some of the `debug_config` implementations
+//! that involve stack traces and use the `writeTracesForPanic` function.
 
 const std = @import("std.zig");
 const builtin = std.builtin;
@@ -134,19 +139,6 @@ pub const default_config = struct {
 
     /// Loads a stack trace into the provided argument.
     pub const captureStackTraceFrom = defaultCaptureStackTraceFrom;
-
-    /// Returns a pointer to a zero initialized threadlocal variable.
-    /// This config function exists because the `threadlocal` keyword
-    /// doesn't necessary work on freestanding.
-    pub fn getPanicStage() *usize {
-        return &panic_stage;
-    }
-
-    pub fn sleepForever() noreturn {
-        var event: std.Thread.StaticResetEvent = .{};
-        event.wait();
-        unreachable;
-    }
 
     /// This is the termination function for panic. It must be `noreturn`.
     ///
@@ -538,9 +530,19 @@ pub fn assert(ok: bool) void {
 
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
-    // TODO: remove conditional once wasi / LLVM defines __builtin_return_address
-    const first_trace_addr = if (builtin.os.tag == .wasi) null else @returnAddress();
-    panicExtra(null, first_trace_addr, format, args);
+    const size = 0x1000;
+    const trunc_msg = "(msg truncated)";
+    var buf: [size + trunc_msg.len]u8 = undefined;
+    // a minor annoyance with this is that it will result in the NoSpaceLeft
+    // error being part of the @panic stack trace (but that error should
+    // only happen rarely)
+    const msg = std.fmt.bufPrint(buf[0..size], format, args) catch |err| switch (err) {
+        std.fmt.BufPrintError.NoSpaceLeft => blk: {
+            std.mem.copy(u8, buf[size..], trunc_msg);
+            break :blk &buf;
+        },
+    };
+    @panic(msg);
 }
 
 /// Non-zero whenever the program triggered a panic.
@@ -559,7 +561,7 @@ var panic_mutex = std.Thread.Mutex{};
 /// This is used to catch and handle panics triggered by the panic handler.
 threadlocal var panic_stage: usize = 0;
 
-pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: anytype) noreturn {
+pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, msg: []const u8) noreturn {
     @setCold(true);
 
     if (enable_segfault_handler) {
@@ -578,23 +580,9 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         nosuspend blk: {
             // We can't lock anything in this case because we might recursively panic!
             if (panicking.incr() == 0) {
-                writer.print("panic: " ++ format ++ "\n", args) catch break :blk;
+                writer.print("panic: {s}\n", .{msg}) catch break :blk;
 
-                // we don't use the dump functions because those lock the mutex
-                const write_trace = getStackTraceDumper(writer) orelse break :blk;
-                // just to appease the compiler
-                if (is_stripped) unreachable;
-
-                if (trace) |t| {
-                    write_trace.stackTrace(t.*) catch |err| {
-                        dumpHandleError(writer, err);
-                        break :blk;
-                    };
-                }
-                write_trace.current(first_trace_addr) catch |err| {
-                    dumpHandleError(writer, err);
-                    break :blk;
-                };
+                writeTracesForPanic(writer, getTTYConfig(), trace, first_trace_addr);
             } else {
                 writer.print("Panicked during a panic. Terminating.\n", .{}) catch break :blk;
             }
@@ -602,9 +590,9 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         panicTerm();
     }
 
-    nosuspend switch (getPanicStageTL().*) {
+    nosuspend switch (panic_stage) {
         0 => blk: {
-            getPanicStageTL().* = 1;
+            panic_stage = 1;
 
             _ = panicking.incr();
 
@@ -619,24 +607,9 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                     const current_thread_id = std.Thread.getCurrentThreadId();
                     writer.print("thread {d} panic: ", .{current_thread_id}) catch break :blk;
                 }
-                writer.print(format ++ "\n", args) catch break :blk;
+                writer.print("{s}\n", .{msg}) catch break :blk;
 
-                // we don't use the dump functions because those lock the mutex
-                const write_trace = getStackTraceDumper(writer) orelse break :blk;
-
-                // just to appease the compiler
-                if (is_stripped) unreachable;
-
-                if (trace) |t| {
-                    write_trace.stackTrace(t.*) catch |err| {
-                        dumpHandleError(writer, err);
-                        break :blk;
-                    };
-                }
-                write_trace.current(first_trace_addr) catch |err| {
-                    dumpHandleError(writer, err);
-                    break :blk;
-                };
+                writeTracesForPanic(writer, getTTYConfig(), trace, first_trace_addr);
             }
 
             if (panicking.decr() != 1) {
@@ -644,11 +617,13 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 // and call panicTerm()
 
                 // Sleep forever without hammering the CPU
-                sleepForev();
+                var event: std.Thread.StaticResetEvent = .{};
+                event.wait();
+                unreachable;
             }
         },
         1 => blk: {
-            getPanicStageTL().* = 2;
+            panic_stage = 2;
 
             // A panic happened while trying to print a previous panic message,
             // we're still holding the mutex but that's fine as we're going to
@@ -661,6 +636,37 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
     };
 
     panicTerm();
+}
+
+/// Utility function for dumping out stack traces which swallows errors.
+/// This may be useful for writing your own panic implementation.
+pub fn writeTracesForPanic(
+    writer: anytype,
+    tty_config: TTY.Config,
+    trace: ?*const builtin.StackTrace,
+    first_trace_addr: ?usize,
+) void {
+    // we don't use the dump functions because those lock the mutex
+    const mapping = getMappingForDump(writer) orelse return;
+    const write_trace = StackTraceDumper(@TypeOf(writer)){
+        .writer = writer,
+        .tty_config = tty_config,
+        .mapping = mapping,
+    };
+
+    // just to appease the compiler
+    if (is_stripped) unreachable;
+
+    if (trace) |t| {
+        write_trace.stackTrace(t.*) catch |err| {
+            dumpHandleError(writer, err);
+            return;
+        };
+    }
+    write_trace.current(first_trace_addr) catch |err| {
+        dumpHandleError(writer, err);
+        return;
+    };
 }
 
 const RED = "\x1b[31;1m";
