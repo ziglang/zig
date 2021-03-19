@@ -551,7 +551,7 @@ pub fn panicExtra(
 /// Non-zero whenever the program triggered a panic.
 /// Counts the number of threads which are waiting on the `panic_mutex`
 /// to print out the stack traces and msg.
-var panicking: std.atomic.Int(u32) = std.atomic.Int(u32).init(0);
+var panicking = std.atomic.Int(u32).init(0);
 
 /// Locked to avoid interleaving panic messages from multiple threads.
 ///
