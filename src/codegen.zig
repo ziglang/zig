@@ -18,6 +18,7 @@ const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 const LazySrcLoc = Module.LazySrcLoc;
+const RegisterManager = @import("register_manager.zig").RegisterManager;
 
 /// The codegen-related data that is stored in `ir.Inst.Block` instructions.
 pub const BlockData = struct {
@@ -286,11 +287,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// across each runtime branch upon joining.
         branch_stack: *std.ArrayList(Branch),
 
-        /// The key must be canonical register.
-        registers: std.AutoHashMapUnmanaged(Register, *ir.Inst) = .{},
-        free_registers: FreeRegInt = math.maxInt(FreeRegInt),
-        /// Tracks all registers allocated in the course of this function
-        allocated_registers: FreeRegInt = 0,
+        register_manager: RegisterManager(Self, Register, &callee_preserved_regs) = .{},
         /// Maps offset to what is stored there.
         stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
 
@@ -382,49 +379,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         };
 
-        fn markRegUsed(self: *Self, reg: Register) void {
-            if (FreeRegInt == u0) return;
-            const index = reg.allocIndex() orelse return;
-            const ShiftInt = math.Log2Int(FreeRegInt);
-            const shift = @intCast(ShiftInt, index);
-            const mask = @as(FreeRegInt, 1) << shift;
-            self.free_registers &= ~mask;
-            self.allocated_registers |= mask;
-        }
-
-        fn markRegFree(self: *Self, reg: Register) void {
-            if (FreeRegInt == u0) return;
-            const index = reg.allocIndex() orelse return;
-            const ShiftInt = math.Log2Int(FreeRegInt);
-            const shift = @intCast(ShiftInt, index);
-            self.free_registers |= @as(FreeRegInt, 1) << shift;
-        }
-
-        /// Before calling, must ensureCapacity + 1 on self.registers.
-        /// Returns `null` if all registers are allocated.
-        fn allocReg(self: *Self, inst: *ir.Inst) ?Register {
-            const free_index = @ctz(FreeRegInt, self.free_registers);
-            if (free_index >= callee_preserved_regs.len) {
-                return null;
-            }
-            const mask = @as(FreeRegInt, 1) << free_index;
-            self.free_registers &= ~mask;
-            self.allocated_registers |= mask;
-            const reg = callee_preserved_regs[free_index];
-            self.registers.putAssumeCapacityNoClobber(reg, inst);
-            log.debug("alloc {} => {*}", .{ reg, inst });
-            return reg;
-        }
-
-        /// Does not track the register.
-        fn findUnusedReg(self: *Self) ?Register {
-            const free_index = @ctz(FreeRegInt, self.free_registers);
-            if (free_index >= callee_preserved_regs.len) {
-                return null;
-            }
-            return callee_preserved_regs[free_index];
-        }
-
         const StackAllocation = struct {
             inst: *ir.Inst,
             /// TODO do we need size? should be determined by inst.ty.abiSize()
@@ -495,7 +449,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .rbrace_src = src_data.rbrace_src,
                 .source = src_data.source,
             };
-            defer function.registers.deinit(bin_file.allocator);
+            defer function.register_manager.deinit(bin_file.allocator);
             defer function.stack.deinit(bin_file.allocator);
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
@@ -607,10 +561,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             .r14 = true, // lr
                         };
                         inline for (callee_preserved_regs) |reg, i| {
-                            const ShiftInt = math.Log2Int(FreeRegInt);
-                            const shift = @intCast(ShiftInt, i);
-                            const mask = @as(FreeRegInt, 1) << shift;
-                            if (self.allocated_registers & mask != 0) {
+                            if (self.register_manager.isRegAllocated(reg)) {
                                 @field(saved_regs, @tagName(reg)) = true;
                             }
                         }
@@ -829,8 +780,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (prev_value) {
                 .register => |reg| {
                     const canon_reg = toCanonicalReg(reg);
-                    _ = self.registers.remove(canon_reg);
-                    self.markRegFree(canon_reg);
+                    self.register_manager.freeReg(canon_reg);
                 },
                 else => {}, // TODO process stack allocation death
             }
@@ -969,8 +919,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 const ptr_bits = arch.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 if (abi_size <= ptr_bytes) {
-                    try self.registers.ensureCapacity(self.gpa, self.registers.count() + 1);
-                    if (self.allocReg(inst)) |reg| {
+                    try self.register_manager.registers.ensureCapacity(self.gpa, self.register_manager.registers.count() + 1);
+                    if (self.register_manager.tryAllocReg(inst)) |reg| {
                         return MCValue{ .register = registerAlias(reg, abi_size) };
                     }
                 }
@@ -979,26 +929,20 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return MCValue{ .stack_offset = stack_offset };
         }
 
+        pub fn spillInstruction(self: *Self, src: usize, reg: Register, inst: *ir.Inst) !void {
+            const stack_mcv = try self.allocRegOrMem(inst, false);
+            const reg_mcv = self.getResolvedInstValue(inst);
+            assert(reg == toCanonicalReg(reg_mcv.register));
+            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+            try branch.inst_table.put(self.gpa, inst, stack_mcv);
+            try self.genSetStack(src, inst.ty, stack_mcv.stack_offset, reg_mcv);
+        }
+
         /// Copies a value to a register without tracking the register. The register is not considered
         /// allocated. A second call to `copyToTmpRegister` may return the same register.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
         fn copyToTmpRegister(self: *Self, src: LazySrcLoc, ty: Type, mcv: MCValue) !Register {
-            const reg = self.findUnusedReg() orelse b: {
-                // We'll take over the first register. Move the instruction that was previously
-                // there to a stack allocation.
-                const reg = callee_preserved_regs[0];
-                const regs_entry = self.registers.remove(reg).?;
-                const spilled_inst = regs_entry.value;
-
-                const stack_mcv = try self.allocRegOrMem(spilled_inst, false);
-                const reg_mcv = self.getResolvedInstValue(spilled_inst);
-                assert(reg == toCanonicalReg(reg_mcv.register));
-                const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-                try branch.inst_table.put(self.gpa, spilled_inst, stack_mcv);
-                try self.genSetStack(src, spilled_inst.ty, stack_mcv.stack_offset, reg_mcv);
-
-                break :b reg;
-            };
+            const reg = try self.register_manager.allocRegWithoutTracking();
             try self.genSetReg(src, ty, reg, mcv);
             return reg;
         }
@@ -1007,25 +951,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// `reg_owner` is the instruction that gets associated with the register in the register table.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
         fn copyToNewRegister(self: *Self, reg_owner: *ir.Inst, mcv: MCValue) !MCValue {
-            try self.registers.ensureCapacity(self.gpa, @intCast(u32, self.registers.count() + 1));
+            try self.register_manager.registers.ensureCapacity(self.gpa, @intCast(u32, self.register_manager.registers.count() + 1));
 
-            const reg = self.allocReg(reg_owner) orelse b: {
-                // We'll take over the first register. Move the instruction that was previously
-                // there to a stack allocation.
-                const reg = callee_preserved_regs[0];
-                const regs_entry = self.registers.getEntry(reg).?;
-                const spilled_inst = regs_entry.value;
-                regs_entry.value = reg_owner;
-
-                const stack_mcv = try self.allocRegOrMem(spilled_inst, false);
-                const reg_mcv = self.getResolvedInstValue(spilled_inst);
-                assert(reg == toCanonicalReg(reg_mcv.register));
-                const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-                try branch.inst_table.put(self.gpa, spilled_inst, stack_mcv);
-                try self.genSetStack(reg_owner.src, spilled_inst.ty, stack_mcv.stack_offset, reg_mcv);
-
-                break :b reg;
-            };
+            const reg = try self.register_manager.allocReg(reg_owner);
             try self.genSetReg(reg_owner.src, reg_owner.ty, reg, mcv);
             return MCValue{ .register = reg };
         }
@@ -1302,7 +1230,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .register => |reg| {
                     // If it's in the registers table, need to associate the register with the
                     // new instruction.
-                    if (self.registers.getEntry(toCanonicalReg(reg))) |entry| {
+                    if (self.register_manager.registers.getEntry(toCanonicalReg(reg))) |entry| {
                         entry.value = inst;
                     }
                     log.debug("reusing {} => {*}", .{ reg, inst });
@@ -1795,7 +1723,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const arg_index = self.arg_index;
             self.arg_index += 1;
 
-            if (FreeRegInt == u0) {
+            if (callee_preserved_regs.len == 0) {
                 return self.fail(inst.base.src, "TODO implement Register enum for {}", .{self.target.cpu.arch});
             }
 
@@ -1807,8 +1735,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             switch (result) {
                 .register => |reg| {
-                    try self.registers.putNoClobber(self.gpa, toCanonicalReg(reg), &inst.base);
-                    self.markRegUsed(reg);
+                    try self.register_manager.getRegAssumeFree(toCanonicalReg(reg), &inst.base);
                 },
                 else => {},
             }
@@ -2431,10 +2358,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             // Capture the state of register and stack allocation state so that we can revert to it.
             const parent_next_stack_offset = self.next_stack_offset;
-            const parent_free_registers = self.free_registers;
+            const parent_free_registers = self.register_manager.free_registers;
             var parent_stack = try self.stack.clone(self.gpa);
             defer parent_stack.deinit(self.gpa);
-            var parent_registers = try self.registers.clone(self.gpa);
+            var parent_registers = try self.register_manager.registers.clone(self.gpa);
             defer parent_registers.deinit(self.gpa);
 
             try self.branch_stack.append(.{});
@@ -2451,8 +2378,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             var saved_then_branch = self.branch_stack.pop();
             defer saved_then_branch.deinit(self.gpa);
 
-            self.registers.deinit(self.gpa);
-            self.registers = parent_registers;
+            self.register_manager.registers.deinit(self.gpa);
+            self.register_manager.registers = parent_registers;
             parent_registers = .{};
 
             self.stack.deinit(self.gpa);
@@ -2460,7 +2387,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             parent_stack = .{};
 
             self.next_stack_offset = parent_next_stack_offset;
-            self.free_registers = parent_free_registers;
+            self.register_manager.free_registers = parent_free_registers;
 
             try self.performReloc(inst.base.src, reloc);
             const else_branch = self.branch_stack.addOneAssumeCapacity();
@@ -4048,9 +3975,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 pub const callee_preserved_regs = [_]Register{};
             },
         };
-
-        /// An integer whose bits represent all the registers and whether they are free.
-        const FreeRegInt = std.meta.Int(.unsigned, callee_preserved_regs.len);
 
         fn parseRegName(name: []const u8) ?Register {
             if (@hasDecl(Register, "parseRegName")) {
