@@ -237,6 +237,10 @@ pub const Decl = struct {
         }
     }
 
+    pub fn tokSrcLoc(decl: *Decl, token_index: ast.TokenIndex) LazySrcLoc {
+        return .{ .token_offset = token_index - decl.srcToken() };
+    }
+
     pub fn srcLoc(decl: *Decl) SrcLoc {
         return .{
             .container = .{ .decl = decl },
@@ -1000,8 +1004,7 @@ pub const Scope = struct {
         }
 
         pub fn tokSrcLoc(gz: *GenZir, token_index: ast.TokenIndex) LazySrcLoc {
-            const decl_token = gz.zir_code.decl.srcToken();
-            return .{ .token_offset = token_index - decl_token };
+            return gz.zir_code.decl.tokSrcLoc(token_index);
         }
 
         pub fn addFnTypeCc(gz: *GenZir, args: struct {
@@ -2244,8 +2247,7 @@ fn astgenAndSemaFn(
                     .{},
                 );
             }
-            // TODO use a Decl-local source location instead.
-            const export_src: LazySrcLoc = .{ .token_abs = maybe_export_token };
+            const export_src = decl.tokSrcLoc(maybe_export_token);
             const name = tree.tokenSlice(fn_proto.name_token.?); // TODO identifierTokenString
             // The scope needs to have the decl in it.
             try mod.analyzeExport(&block_scope.base, export_src, name, decl);
@@ -2337,14 +2339,11 @@ fn astgenAndSemaVarDecl(
         };
         defer gen_scope.instructions.deinit(mod.gpa);
 
-        const init_result_loc: astgen.ResultLoc = if (var_decl.ast.type_node != 0)
-            .{
-                .ty = try astgen.expr(mod, &gen_scope.base, .{
-                    .ty = @enumToInt(zir.Const.type_type),
-                }, var_decl.ast.type_node),
-            }
-        else
-            .none;
+        const init_result_loc: astgen.ResultLoc = if (var_decl.ast.type_node != 0) .{
+            .ty = try astgen.expr(mod, &gen_scope.base, .{
+                .ty = @enumToInt(zir.Const.type_type),
+            }, var_decl.ast.type_node),
+        } else .none;
 
         const init_inst = try astgen.comptimeExpr(
             mod,
@@ -2499,8 +2498,7 @@ fn astgenAndSemaVarDecl(
 
     if (var_decl.extern_export_token) |maybe_export_token| {
         if (token_tags[maybe_export_token] == .keyword_export) {
-            // TODO make this src relative to containing Decl
-            const export_src: LazySrcLoc = .{ .token_abs = maybe_export_token };
+            const export_src = decl.tokSrcLoc(maybe_export_token);
             const name_token = var_decl.ast.mut_token + 1;
             const name = tree.tokenSlice(name_token); // TODO identifierTokenString
             // The scope needs to have the decl in it.
