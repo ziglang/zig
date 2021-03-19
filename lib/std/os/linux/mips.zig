@@ -115,6 +115,9 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
     );
 }
 
+// NOTE: The o32 calling convention requires the callee to reserve 16 bytes for
+// the first four arguments even though they're passed in $a0-$a3.
+
 pub fn syscall6(
     number: SYS,
     arg1: usize,
@@ -142,6 +145,40 @@ pub fn syscall6(
           [arg4] "{$7}" (arg4),
           [arg5] "r" (arg5),
           [arg6] "r" (arg6)
+        : "memory", "cc", "$7"
+    );
+}
+
+pub fn syscall7(
+    number: SYS,
+    arg1: usize,
+    arg2: usize,
+    arg3: usize,
+    arg4: usize,
+    arg5: usize,
+    arg6: usize,
+    arg7: usize,
+) usize {
+    return asm volatile (
+        \\ .set noat
+        \\ subu $sp, $sp, 32
+        \\ sw %[arg5], 16($sp)
+        \\ sw %[arg6], 20($sp)
+        \\ sw %[arg7], 24($sp)
+        \\ syscall
+        \\ addu $sp, $sp, 32
+        \\ blez $7, 1f
+        \\ subu $2, $0, $2
+        \\ 1:
+        : [ret] "={$2}" (-> usize)
+        : [number] "{$2}" (@enumToInt(number)),
+          [arg1] "{$4}" (arg1),
+          [arg2] "{$5}" (arg2),
+          [arg3] "{$6}" (arg3),
+          [arg4] "{$7}" (arg4),
+          [arg5] "r" (arg5),
+          [arg6] "r" (arg6),
+          [arg7] "r" (arg7)
         : "memory", "cc", "$7"
     );
 }
