@@ -2707,7 +2707,15 @@ fn writeDebugInfo(self: *Zld) !void {
         };
         defer debug_info.deinit(self.allocator);
 
-        const compile_unit = try debug_info.inner.findCompileUnit(0x0); // We assume there is only one CU.
+        // We assume there is only one CU.
+        const compile_unit = debug_info.inner.findCompileUnit(0x0) catch |err| switch (err) {
+            error.MissingDebugInfo => {
+                // TODO audit cases with missing debug info and audit our dwarf.zig module.
+                log.debug("invalid or missing debug info in {s}; skipping", .{object.name});
+                continue;
+            },
+            else => |e| return e,
+        };
         const name = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT_name);
         const comp_dir = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT_comp_dir);
 
