@@ -1063,6 +1063,7 @@ fn transStmt(
             const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, stmt);
             return transExpr(c, scope, gen_sel.getResultExpr(), result_used);
         },
+        // When adding new cases here, see comment for maybeBlockify()
         else => {
             return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)});
         },
@@ -2242,6 +2243,35 @@ fn transImplicitValueInitExpr(
     return transZeroInitExpr(c, scope, source_loc, ty);
 }
 
+/// If a statement can possibly translate to a Zig assignment (either directly because it's
+/// an assignment in C or indirectly via result assignment to `_`) AND it's the sole statement
+/// in the body of an if statement or loop, then we need to put the statement into its own block.
+/// The `else` case here corresponds to statements that could result in an assignment. If a statement
+/// class never needs a block, add its enum to the top prong.
+fn maybeBlockify(c: *Context, scope: *Scope, stmt: *const clang.Stmt) TransError!Node {
+    switch (stmt.getStmtClass()) {
+        .BreakStmtClass,
+        .CompoundStmtClass,
+        .ContinueStmtClass,
+        .DeclRefExprClass,
+        .DeclStmtClass,
+        .DoStmtClass,
+        .ForStmtClass,
+        .IfStmtClass,
+        .ReturnStmtClass,
+        .NullStmtClass,
+        .WhileStmtClass,
+        => return transStmt(c, scope, stmt, .unused),
+        else => {
+            var block_scope = try Scope.Block.init(c, scope, false);
+            defer block_scope.deinit();
+            const result = try transStmt(c, &block_scope.base, stmt, .unused);
+            try block_scope.statements.append(result);
+            return block_scope.complete(c);
+        },
+    }
+}
+
 fn transIfStmt(
     c: *Context,
     scope: *Scope,
@@ -2259,9 +2289,10 @@ fn transIfStmt(
     const cond_expr = @ptrCast(*const clang.Expr, stmt.getCond());
     const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
 
-    const then_body = try transStmt(c, scope, stmt.getThen(), .unused);
+    const then_body = try maybeBlockify(c, scope, stmt.getThen());
+
     const else_body = if (stmt.getElse()) |expr|
-        try transStmt(c, scope, expr, .unused)
+        try maybeBlockify(c, scope, expr)
     else
         null;
     return Tag.@"if".create(c.arena, .{ .cond = cond, .then = then_body, .@"else" = else_body });
@@ -2286,7 +2317,7 @@ fn transWhileLoop(
         .parent = scope,
         .id = .loop,
     };
-    const body = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
+    const body = try maybeBlockify(c, &loop_scope, stmt.getBody());
     return Tag.@"while".create(c.arena, .{ .cond = cond, .body = body, .cont_expr = null });
 }
 
@@ -2312,7 +2343,7 @@ fn transDoWhileLoop(
     const if_not_break = switch (cond.tag()) {
         .false_literal => return transStmt(c, scope, stmt.getBody(), .unused),
         .true_literal => {
-            const body_node = try transStmt(c, scope, stmt.getBody(), .unused);
+            const body_node = try maybeBlockify(c, scope, stmt.getBody());
             return Tag.while_true.create(c.arena, body_node);
         },
         else => try Tag.if_not_break.create(c.arena, cond),
@@ -2388,7 +2419,7 @@ fn transForLoop(
     else
         null;
 
-    const body = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
+    const body = try maybeBlockify(c, &loop_scope, stmt.getBody());
     const while_node = try Tag.@"while".create(c.arena, .{ .cond = cond, .body = body, .cont_expr = cont_expr });
     if (block_scope) |*bs| {
         try bs.statements.append(while_node);
