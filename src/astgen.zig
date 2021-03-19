@@ -58,20 +58,14 @@ pub const ResultLoc = union(enum) {
     };
 };
 
-pub fn typeExpr(mod: *Module, scope: *Scope, type_node: ast.Node.Index) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const token_starts = tree.tokens.items(.start);
+const void_inst: zir.Inst.Ref = @enumToInt(zir.Const.void_value);
 
-    const type_src = token_starts[tree.firstToken(type_node)];
-    const type_type = try addZIRInstConst(mod, scope, type_src, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.type_type),
-    });
-    const type_rl: ResultLoc = .{ .ty = type_type };
+pub fn typeExpr(mod: *Module, scope: *Scope, type_node: ast.Node.Index) InnerError!zir.Inst.Ref {
+    const type_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.type_type) };
     return expr(mod, scope, type_rl, type_node);
 }
 
-fn lvalExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.Inst {
+fn lvalExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
@@ -265,7 +259,7 @@ fn lvalExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.I
 /// When `rl` is discard, ptr, inferred_ptr, bitcasted_ptr, or inferred_ptr, the
 /// result instruction can be used to inspect whether it is isNoReturn() but that is it,
 /// it must otherwise not be used.
-pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!*zir.Inst {
+pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
@@ -294,20 +288,62 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .asm_output => unreachable, // Handled in `asmExpr`.
         .asm_input => unreachable, // Handled in `asmExpr`.
 
-        .assign => return rvalueVoid(mod, scope, rl, node, try assign(mod, scope, node)),
-        .assign_bit_and => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .bit_and)),
-        .assign_bit_or => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .bit_or)),
-        .assign_bit_shift_left => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .shl)),
-        .assign_bit_shift_right => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .shr)),
-        .assign_bit_xor => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .xor)),
-        .assign_div => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .div)),
-        .assign_sub => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .sub)),
-        .assign_sub_wrap => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .subwrap)),
-        .assign_mod => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .mod_rem)),
-        .assign_add => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .add)),
-        .assign_add_wrap => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .addwrap)),
-        .assign_mul => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .mul)),
-        .assign_mul_wrap => return rvalueVoid(mod, scope, rl, node, try assignOp(mod, scope, node, .mulwrap)),
+        .assign => {
+            try assign(mod, scope, node);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_bit_and => {
+            try assignOp(mod, scope, node, .bit_and);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_bit_or => {
+            try assignOp(mod, scope, node, .bit_or);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_bit_shift_left => {
+            try assignOp(mod, scope, node, .shl);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_bit_shift_right => {
+            try assignOp(mod, scope, node, .shr);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_bit_xor => {
+            try assignOp(mod, scope, node, .xor);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_div => {
+            try assignOp(mod, scope, node, .div);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_sub => {
+            try assignOp(mod, scope, node, .sub);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_sub_wrap => {
+            try assignOp(mod, scope, node, .subwrap);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_mod => {
+            try assignOp(mod, scope, node, .mod_rem);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_add => {
+            try assignOp(mod, scope, node, .add);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_add_wrap => {
+            try assignOp(mod, scope, node, .addwrap);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_mul => {
+            try assignOp(mod, scope, node, .mul);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
+        .assign_mul_wrap => {
+            try assignOp(mod, scope, node, .mulwrap);
+            return rvalue(mod, scope, rl, void_inst, node);
+        },
 
         .add => return simpleBinOp(mod, scope, rl, node, .add),
         .add_wrap => return simpleBinOp(mod, scope, rl, node, .addwrap),
@@ -336,10 +372,14 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .bool_and => return boolBinOp(mod, scope, rl, node, true),
         .bool_or => return boolBinOp(mod, scope, rl, node, false),
 
-        .bool_not => return rvalue(mod, scope, rl, try boolNot(mod, scope, node)),
-        .bit_not => return rvalue(mod, scope, rl, try bitNot(mod, scope, node)),
-        .negation => return rvalue(mod, scope, rl, try negation(mod, scope, node, .sub)),
-        .negation_wrap => return rvalue(mod, scope, rl, try negation(mod, scope, node, .subwrap)),
+        .bool_not => @panic("TODO"),
+        .bit_not => @panic("TODO"),
+        .negation => @panic("TODO"),
+        .negation_wrap => @panic("TODO"),
+        //.bool_not => return rvalue(mod, scope, rl, try boolNot(mod, scope, node)),
+        //.bit_not => return rvalue(mod, scope, rl, try bitNot(mod, scope, node)),
+        //.negation => return rvalue(mod, scope, rl, try negation(mod, scope, node, .sub)),
+        //.negation_wrap => return rvalue(mod, scope, rl, try negation(mod, scope, node, .subwrap)),
 
         .identifier => return identifier(mod, scope, rl, node),
 
@@ -377,6 +417,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         },
 
         .unreachable_literal => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const main_token = main_tokens[node];
             const src = token_starts[main_token];
             return addZIRNoOp(mod, scope, src, .unreachable_safe);
@@ -402,16 +443,19 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .slice_sentinel => return sliceExpr(mod, scope, rl, tree.sliceSentinel(node)),
 
         .deref => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const lhs = try expr(mod, scope, .none, node_datas[node].lhs);
             const src = token_starts[main_tokens[node]];
             const result = try addZIRUnOp(mod, scope, src, .deref, lhs);
             return rvalue(mod, scope, rl, result);
         },
         .address_of => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const result = try expr(mod, scope, .ref, node_datas[node].lhs);
             return rvalue(mod, scope, rl, result);
         },
         .undefined_literal => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const main_token = main_tokens[node];
             const src = token_starts[main_token];
             const result = try addZIRInstConst(mod, scope, src, .{
@@ -421,6 +465,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result);
         },
         .true_literal => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const main_token = main_tokens[node];
             const src = token_starts[main_token];
             const result = try addZIRInstConst(mod, scope, src, .{
@@ -430,6 +475,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result);
         },
         .false_literal => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const main_token = main_tokens[node];
             const src = token_starts[main_token];
             const result = try addZIRInstConst(mod, scope, src, .{
@@ -439,6 +485,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result);
         },
         .null_literal => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const main_token = main_tokens[node];
             const src = token_starts[main_token];
             const result = try addZIRInstConst(mod, scope, src, .{
@@ -448,12 +495,14 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result);
         },
         .optional_type => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const src = token_starts[main_tokens[node]];
             const operand = try typeExpr(mod, scope, node_datas[node].lhs);
             const result = try addZIRUnOp(mod, scope, src, .optional_type, operand);
             return rvalue(mod, scope, rl, result);
         },
         .unwrap_optional => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const src = token_starts[main_tokens[node]];
             switch (rl) {
                 .ref => return addZIRUnOp(
@@ -473,6 +522,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             }
         },
         .block_two, .block_two_semicolon => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const statements = [2]ast.Node.Index{ node_datas[node].lhs, node_datas[node].rhs };
             if (node_datas[node].lhs == 0) {
                 return blockExpr(mod, scope, rl, node, statements[0..0]);
@@ -483,10 +533,12 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             }
         },
         .block, .block_semicolon => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const statements = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
             return blockExpr(mod, scope, rl, node, statements);
         },
         .enum_literal => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const ident_token = main_tokens[node];
             const gen_zir = scope.getGenZir();
             const string_bytes = &gen_zir.zir_exec.string_bytes;
@@ -497,6 +549,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result);
         },
         .error_value => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const ident_token = node_datas[node].rhs;
             const name = try mod.identifierTokenString(scope, ident_token);
             const src = token_starts[ident_token];
@@ -504,6 +557,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result);
         },
         .error_union => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const error_set = try typeExpr(mod, scope, node_datas[node].lhs);
             const payload = try typeExpr(mod, scope, node_datas[node].rhs);
             const src = token_starts[main_tokens[node]];
@@ -511,6 +565,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result);
         },
         .merge_error_sets => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const lhs = try typeExpr(mod, scope, node_datas[node].lhs);
             const rhs = try typeExpr(mod, scope, node_datas[node].rhs);
             const src = token_starts[main_tokens[node]];
@@ -518,6 +573,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result);
         },
         .anyframe_literal => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const main_token = main_tokens[node];
             const src = token_starts[main_token];
             const result = try addZIRInstConst(mod, scope, src, .{
@@ -527,12 +583,14 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result);
         },
         .anyframe_type => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const src = token_starts[node_datas[node].lhs];
             const return_type = try typeExpr(mod, scope, node_datas[node].rhs);
             const result = try addZIRUnOp(mod, scope, src, .anyframe_type, return_type);
             return rvalue(mod, scope, rl, result);
         },
         .@"catch" => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const catch_token = main_tokens[node];
             const payload_token: ?ast.TokenIndex = if (token_tags[catch_token + 1] == .pipe)
                 catch_token + 2
@@ -631,9 +689,11 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .@"switch", .switch_comma => return switchExpr(mod, scope, rl, node),
 
         .@"nosuspend" => return nosuspendExpr(mod, scope, rl, node),
-        .@"suspend" => return rvalue(mod, scope, rl, try suspendExpr(mod, scope, node)),
+        .@"suspend" => @panic("TODO"),
+        //.@"suspend" => return rvalue(mod, scope, rl, try suspendExpr(mod, scope, node)),
         .@"await" => return awaitExpr(mod, scope, rl, node),
-        .@"resume" => return rvalue(mod, scope, rl, try resumeExpr(mod, scope, node)),
+        .@"resume" => @panic("TODO"),
+        //.@"resume" => return rvalue(mod, scope, rl, try resumeExpr(mod, scope, node)),
 
         .@"defer" => return mod.failNode(scope, node, "TODO implement astgen.expr for .defer", .{}),
         .@"errdefer" => return mod.failNode(scope, node, "TODO implement astgen.expr for .errdefer", .{}),
@@ -673,20 +733,22 @@ pub fn comptimeExpr(
     parent_scope: *Scope,
     rl: ResultLoc,
     node: ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout branch");
+
     // If we are already in a comptime scope, no need to make another one.
     if (parent_scope.isComptime()) {
         return expr(mod, parent_scope, rl, node);
     }
 
+    const gz = parent_scope.getGenZir();
     const tree = parent_scope.tree();
     const token_starts = tree.tokens.items(.start);
 
     // Make a scope to collect generated instructions in the sub-expression.
     var block_scope: Scope.GenZir = .{
         .parent = parent_scope,
-        .decl = parent_scope.ownerDecl().?,
-        .arena = parent_scope.arena(),
+        .zir_code = gz.zir_code,
         .force_comptime = true,
         .instructions = .{},
     };
@@ -698,7 +760,7 @@ pub fn comptimeExpr(
 
     const src = token_starts[tree.firstToken(node)];
     const block = try addZIRInstBlock(mod, parent_scope, src, .block_comptime_flat, .{
-        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+        .instructions = try block_scope.arena.dupe(zir.Inst.Ref, block_scope.instructions.items),
     });
 
     return &block.base;
@@ -709,7 +771,8 @@ fn breakExpr(
     parent_scope: *Scope,
     rl: ResultLoc,
     node: ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = parent_scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
@@ -787,7 +850,8 @@ fn continueExpr(
     parent_scope: *Scope,
     rl: ResultLoc,
     node: ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = parent_scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
@@ -843,7 +907,7 @@ pub fn blockExpr(
     rl: ResultLoc,
     block_node: ast.Node.Index,
     statements: []const ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -859,7 +923,7 @@ pub fn blockExpr(
     }
 
     try blockExprStmts(mod, scope, block_node, statements);
-    return rvalueVoid(mod, scope, rl, block_node, {});
+    return rvalue(mod, scope, rl, void_inst, block_node);
 }
 
 fn checkLabelRedefinition(mod: *Module, parent_scope: *Scope, label: ast.TokenIndex) !void {
@@ -875,21 +939,18 @@ fn checkLabelRedefinition(mod: *Module, parent_scope: *Scope, label: ast.TokenIn
                         const main_tokens = tree.nodes.items(.main_token);
                         const token_starts = tree.tokens.items(.start);
 
-                        const label_src = token_starts[label];
-                        const prev_label_src = token_starts[prev_label.token];
-
                         const label_name = try mod.identifierTokenString(parent_scope, label);
                         const msg = msg: {
                             const msg = try mod.errMsg(
                                 parent_scope,
-                                label_src,
+                                gen_zir.tokSrcLoc(label),
                                 "redefinition of label '{s}'",
                                 .{label_name},
                             );
                             errdefer msg.destroy(mod.gpa);
                             try mod.errNote(
                                 parent_scope,
-                                prev_label_src,
+                                gen_zir.tokSrcLoc(prev_label.token),
                                 msg,
                                 "previous definition is here",
                                 .{},
@@ -917,7 +978,7 @@ fn labeledBlockExpr(
     block_node: ast.Node.Index,
     statements: []const ast.Node.Index,
     zir_tag: zir.Inst.Tag,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1285,6 +1346,7 @@ fn assignOp(
     infix_node: ast.Node.Index,
     op_inst_tag: zir.Inst.Tag,
 ) InnerError!void {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
@@ -1299,7 +1361,7 @@ fn assignOp(
     _ = try addZIRBinOp(mod, scope, src, .store, lhs_ptr, result);
 }
 
-fn boolNot(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.Inst {
+fn boolNot(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
@@ -1314,7 +1376,7 @@ fn boolNot(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.In
     return addZIRUnOp(mod, scope, src, .bool_not, operand);
 }
 
-fn bitNot(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.Inst {
+fn bitNot(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
@@ -1330,7 +1392,7 @@ fn negation(
     scope: *Scope,
     node: ast.Node.Index,
     op_inst_tag: zir.Inst.Tag,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
@@ -1350,7 +1412,8 @@ fn ptrType(
     scope: *Scope,
     rl: ResultLoc,
     ptr_info: ast.full.PtrType,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const token_starts = tree.tokens.items(.start);
 
@@ -1394,7 +1457,8 @@ fn ptrType(
     return rvalue(mod, scope, rl, result);
 }
 
-fn arrayType(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !*zir.Inst {
+fn arrayType(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const node_datas = tree.nodes.items(.data);
@@ -1421,7 +1485,8 @@ fn arrayType(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !
     }
 }
 
-fn arrayTypeSentinel(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !*zir.Inst {
+fn arrayTypeSentinel(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const token_starts = tree.tokens.items(.start);
@@ -1454,7 +1519,8 @@ fn containerDecl(
     scope: *Scope,
     rl: ResultLoc,
     container_decl: ast.full.ContainerDecl,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     return mod.failTok(scope, container_decl.ast.main_token, "TODO implement container decls", .{});
 }
 
@@ -1463,7 +1529,8 @@ fn errorSetDecl(
     scope: *Scope,
     rl: ResultLoc,
     node: ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
@@ -1516,7 +1583,9 @@ fn orelseCatchExpr(
     unwrap_code_op: zir.Inst.Tag,
     rhs: ast.Node.Index,
     payload_token: ?ast.TokenIndex,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
+
     const tree = scope.tree();
     const token_starts = tree.tokens.items(.start);
 
@@ -1548,7 +1617,7 @@ fn orelseCatchExpr(
     }, .{});
 
     const block = try addZIRInstBlock(mod, scope, src, .block, .{
-        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+        .instructions = try block_scope.arena.dupe(zir.Inst.Ref, block_scope.instructions.items),
     });
 
     var then_scope: Scope.GenZir = .{
@@ -1624,11 +1693,11 @@ fn finishThenElseBlock(
     else_body: *zir.Body,
     then_src: usize,
     else_src: usize,
-    then_result: *zir.Inst,
+    then_result: zir.Inst.Ref,
     else_result: ?*zir.Inst,
-    main_block: *zir.Inst.Block,
-    then_break_block: *zir.Inst.Block,
-) InnerError!*zir.Inst {
+    main_block: zir.Inst.Ref.Block,
+    then_break_block: zir.Inst.Ref.Block,
+) InnerError!zir.Inst.Ref {
     // We now have enough information to decide whether the result instruction should
     // be communicated via result location pointer or break instructions.
     const strat = rlStrategy(rl, block_scope);
@@ -1699,7 +1768,8 @@ fn tokenIdentEql(mod: *Module, scope: *Scope, token1: ast.TokenIndex, token2: as
     return mem.eql(u8, ident_name_1, ident_name_2);
 }
 
-pub fn fieldAccess(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!*zir.Inst {
+pub fn fieldAccess(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const token_starts = tree.tokens.items(.start);
     const main_tokens = tree.nodes.items(.main_token);
@@ -1727,7 +1797,8 @@ fn arrayAccess(
     scope: *Scope,
     rl: ResultLoc,
     node: ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const token_starts = tree.tokens.items(.start);
@@ -1756,7 +1827,8 @@ fn sliceExpr(
     scope: *Scope,
     rl: ResultLoc,
     slice: ast.full.Slice,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const token_starts = tree.tokens.items(.start);
 
@@ -1805,7 +1877,8 @@ fn simpleBinOp(
     rl: ResultLoc,
     infix_node: ast.Node.Index,
     op_inst_tag: zir.Inst.Tag,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
@@ -1824,7 +1897,8 @@ fn boolBinOp(
     rl: ResultLoc,
     infix_node: ast.Node.Index,
     is_bool_and: bool,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
@@ -1853,7 +1927,7 @@ fn boolBinOp(
     }, .{});
 
     const block = try addZIRInstBlock(mod, scope, src, .block, .{
-        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+        .instructions = try block_scope.arena.dupe(zir.Inst.Ref, block_scope.instructions.items),
     });
 
     var rhs_scope: Scope.GenZir = .{
@@ -1893,15 +1967,15 @@ fn boolBinOp(
         //     break rhs
         // else
         //     break false
-        condbr.positionals.then_body = .{ .instructions = try rhs_scope.arena.dupe(*zir.Inst, rhs_scope.instructions.items) };
-        condbr.positionals.else_body = .{ .instructions = try const_scope.arena.dupe(*zir.Inst, const_scope.instructions.items) };
+        condbr.positionals.then_body = .{ .instructions = try rhs_scope.arena.dupe(zir.Inst.Ref, rhs_scope.instructions.items) };
+        condbr.positionals.else_body = .{ .instructions = try const_scope.arena.dupe(zir.Inst.Ref, const_scope.instructions.items) };
     } else {
         // if lhs // OR
         //     break true
         // else
         //     break rhs
-        condbr.positionals.then_body = .{ .instructions = try const_scope.arena.dupe(*zir.Inst, const_scope.instructions.items) };
-        condbr.positionals.else_body = .{ .instructions = try rhs_scope.arena.dupe(*zir.Inst, rhs_scope.instructions.items) };
+        condbr.positionals.then_body = .{ .instructions = try const_scope.arena.dupe(zir.Inst.Ref, const_scope.instructions.items) };
+        condbr.positionals.else_body = .{ .instructions = try rhs_scope.arena.dupe(zir.Inst.Ref, rhs_scope.instructions.items) };
     }
 
     return rvalue(mod, scope, rl, &block.base);
@@ -1912,7 +1986,8 @@ fn ifExpr(
     scope: *Scope,
     rl: ResultLoc,
     if_full: ast.full.If,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     var block_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
@@ -1951,7 +2026,7 @@ fn ifExpr(
     }, .{});
 
     const block = try addZIRInstBlock(mod, scope, if_src, .block, .{
-        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+        .instructions = try block_scope.arena.dupe(zir.Inst.Ref, block_scope.instructions.items),
     });
 
     const then_src = token_starts[tree.lastToken(if_full.ast.then_expr)];
@@ -2016,7 +2091,7 @@ fn ifExpr(
 /// Expects to find exactly 1 .store_to_block_ptr instruction.
 fn copyBodyWithElidedStoreBlockPtr(body: *zir.Body, scope: Module.Scope.GenZir) !void {
     body.* = .{
-        .instructions = try scope.arena.alloc(*zir.Inst, scope.instructions.items.len - 1),
+        .instructions = try scope.arena.alloc(zir.Inst.Ref, scope.instructions.items.len - 1),
     };
     var dst_index: usize = 0;
     for (scope.instructions.items) |src_inst| {
@@ -2030,7 +2105,7 @@ fn copyBodyWithElidedStoreBlockPtr(body: *zir.Body, scope: Module.Scope.GenZir) 
 
 fn copyBodyNoEliding(body: *zir.Body, scope: Module.Scope.GenZir) !void {
     body.* = .{
-        .instructions = try scope.arena.dupe(*zir.Inst, scope.instructions.items),
+        .instructions = try scope.arena.dupe(zir.Inst.Ref, scope.instructions.items),
     };
 }
 
@@ -2039,7 +2114,8 @@ fn whileExpr(
     scope: *Scope,
     rl: ResultLoc,
     while_full: ast.full.While,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     if (while_full.label_token) |label_token| {
         try checkLabelRedefinition(mod, scope, label_token);
     }
@@ -2096,7 +2172,7 @@ fn whileExpr(
         .else_body = undefined, // populated below
     }, .{});
     const cond_block = try addZIRInstBlock(mod, &loop_scope.base, while_src, .block, .{
-        .instructions = try loop_scope.arena.dupe(*zir.Inst, continue_scope.instructions.items),
+        .instructions = try loop_scope.arena.dupe(zir.Inst.Ref, continue_scope.instructions.items),
     });
     // TODO avoid emitting the continue expr when there
     // are no jumps to it. This happens when the last statement of a while body is noreturn
@@ -2113,13 +2189,13 @@ fn whileExpr(
         },
         .positionals = .{
             .body = .{
-                .instructions = try scope.arena().dupe(*zir.Inst, loop_scope.instructions.items),
+                .instructions = try scope.arena().dupe(zir.Inst.Ref, loop_scope.instructions.items),
             },
         },
         .kw_args = .{},
     };
     const while_block = try addZIRInstBlock(mod, scope, while_src, .block, .{
-        .instructions = try scope.arena().dupe(*zir.Inst, &[1]*zir.Inst{&loop.base}),
+        .instructions = try scope.arena().dupe(zir.Inst.Ref, &[1]zir.Inst.Ref{&loop.base}),
     });
     loop_scope.break_block = while_block;
     loop_scope.continue_block = cond_block;
@@ -2195,7 +2271,8 @@ fn forExpr(
     scope: *Scope,
     rl: ResultLoc,
     for_full: ast.full.While,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     if (for_full.label_token) |label_token| {
         try checkLabelRedefinition(mod, scope, label_token);
     }
@@ -2258,7 +2335,7 @@ fn forExpr(
         .else_body = undefined, // populated below
     }, .{});
     const cond_block = try addZIRInstBlock(mod, &loop_scope.base, for_src, .block, .{
-        .instructions = try loop_scope.arena.dupe(*zir.Inst, cond_scope.instructions.items),
+        .instructions = try loop_scope.arena.dupe(zir.Inst.Ref, cond_scope.instructions.items),
     });
 
     // increment index variable
@@ -2278,13 +2355,13 @@ fn forExpr(
         },
         .positionals = .{
             .body = .{
-                .instructions = try scope.arena().dupe(*zir.Inst, loop_scope.instructions.items),
+                .instructions = try scope.arena().dupe(zir.Inst.Ref, loop_scope.instructions.items),
             },
         },
         .kw_args = .{},
     };
     const for_block = try addZIRInstBlock(mod, scope, for_src, .block, .{
-        .instructions = try scope.arena().dupe(*zir.Inst, &[1]*zir.Inst{&loop.base}),
+        .instructions = try scope.arena().dupe(zir.Inst.Ref, &[1]zir.Inst.Ref{&loop.base}),
     });
     loop_scope.break_block = for_block;
     loop_scope.continue_block = cond_block;
@@ -2407,7 +2484,8 @@ fn switchExpr(
     scope: *Scope,
     rl: ResultLoc,
     switch_node: ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
@@ -2432,7 +2510,7 @@ fn switchExpr(
     setBlockResultLoc(&block_scope, rl);
     defer block_scope.instructions.deinit(mod.gpa);
 
-    var items = std.ArrayList(*zir.Inst).init(mod.gpa);
+    var items = std.ArrayList(zir.Inst.Ref).init(mod.gpa);
     defer items.deinit();
 
     // First we gather all the switch items and check else/'_' prongs.
@@ -2549,13 +2627,13 @@ fn switchExpr(
     const switch_inst = try addZirInstT(mod, &block_scope.base, switch_src, zir.Inst.SwitchBr, rl_and_tag.tag, .{
         .target = target,
         .cases = cases,
-        .items = try block_scope.arena.dupe(*zir.Inst, items.items),
+        .items = try block_scope.arena.dupe(zir.Inst.Ref, items.items),
         .else_body = undefined, // populated below
         .range = first_range,
         .special_prong = special_prong,
     });
     const block = try addZIRInstBlock(mod, scope, switch_src, .block, .{
-        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+        .instructions = try block_scope.arena.dupe(zir.Inst.Ref, block_scope.instructions.items),
     });
 
     var case_scope: Scope.GenZir = .{
@@ -2611,7 +2689,7 @@ fn switchExpr(
 
             cases[case_index] = .{
                 .item = item,
-                .body = .{ .instructions = try scope.arena().dupe(*zir.Inst, case_scope.instructions.items) },
+                .body = .{ .instructions = try scope.arena().dupe(zir.Inst.Ref, case_scope.instructions.items) },
             };
             case_index += 1;
             continue;
@@ -2658,14 +2736,14 @@ fn switchExpr(
             .else_body = undefined, // populated below
         }, .{});
         const cond_block = try addZIRInstBlock(mod, &else_scope.base, case_src, .block, .{
-            .instructions = try scope.arena().dupe(*zir.Inst, case_scope.instructions.items),
+            .instructions = try scope.arena().dupe(zir.Inst.Ref, case_scope.instructions.items),
         });
 
         // reset cond_scope for then_body
         case_scope.instructions.items.len = 0;
         try switchCaseExpr(mod, &case_scope.base, block_scope.break_result_loc, block, case, target);
         condbr.positionals.then_body = .{
-            .instructions = try scope.arena().dupe(*zir.Inst, case_scope.instructions.items),
+            .instructions = try scope.arena().dupe(zir.Inst.Ref, case_scope.instructions.items),
         };
 
         // reset cond_scope for else_body
@@ -2674,7 +2752,7 @@ fn switchExpr(
             .block = cond_block,
         }, .{});
         condbr.positionals.else_body = .{
-            .instructions = try scope.arena().dupe(*zir.Inst, case_scope.instructions.items),
+            .instructions = try scope.arena().dupe(zir.Inst.Ref, case_scope.instructions.items),
         };
     }
 
@@ -2686,7 +2764,7 @@ fn switchExpr(
         _ = try addZIRNoOp(mod, &else_scope.base, switch_src, .unreachable_unsafe);
     }
     switch_inst.positionals.else_body = .{
-        .instructions = try block_scope.arena.dupe(*zir.Inst, else_scope.instructions.items),
+        .instructions = try block_scope.arena.dupe(zir.Inst.Ref, else_scope.instructions.items),
     };
 
     return &block.base;
@@ -2698,7 +2776,7 @@ fn switchCaseExpr(
     rl: ResultLoc,
     block: *zir.Inst.Block,
     case: ast.full.SwitchCase,
-    target: *zir.Inst,
+    target: zir.Inst.Ref,
 ) !void {
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
@@ -2733,27 +2811,22 @@ fn switchCaseExpr(
     }
 }
 
-fn ret(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.Inst {
+fn ret(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
 
-    const src = token_starts[main_tokens[node]];
-    const rhs_node = node_datas[node].lhs;
-    if (rhs_node != 0) {
-        if (nodeMayNeedMemoryLocation(scope, rhs_node)) {
-            const ret_ptr = try addZIRNoOp(mod, scope, src, .ret_ptr);
-            const operand = try expr(mod, scope, .{ .ptr = ret_ptr }, rhs_node);
-            return addZIRUnOp(mod, scope, src, .@"return", operand);
-        } else {
-            const fn_ret_ty = try addZIRNoOp(mod, scope, src, .ret_type);
-            const operand = try expr(mod, scope, .{ .ty = fn_ret_ty }, rhs_node);
-            return addZIRUnOp(mod, scope, src, .@"return", operand);
-        }
-    } else {
-        return addZIRNoOp(mod, scope, src, .return_void);
-    }
+    const operand_node = node_datas[node].lhs;
+    const gz = scope.getGenZir();
+    const operand: zir.Inst.Ref = if (operand_node != 0) operand: {
+        const rl: ResultLoc = if (nodeMayNeedMemoryLocation(scope, operand_node)) .{
+            .ptr = try gz.addNode(.ret_ptr, node),
+        } else .{
+            .ty = try gz.addNode(.ret_type, node),
+        };
+        break :operand try expr(mod, scope, rl, operand_node);
+    } else void_inst;
+    return gz.addUnNode(.ret_node, operand, node);
 }
 
 fn identifier(
@@ -2761,7 +2834,8 @@ fn identifier(
     scope: *Scope,
     rl: ResultLoc,
     ident: ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2882,7 +2956,8 @@ fn stringLiteral(
     scope: *Scope,
     rl: ResultLoc,
     str_lit: ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const token_starts = tree.tokens.items(.start);
@@ -2899,7 +2974,8 @@ fn multilineStringLiteral(
     scope: *Scope,
     rl: ResultLoc,
     str_lit: ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
@@ -2943,7 +3019,8 @@ fn multilineStringLiteral(
     return rvalue(mod, scope, rl, str_inst);
 }
 
-fn charLiteral(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !*zir.Inst {
+fn charLiteral(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const main_token = main_tokens[node];
@@ -2970,11 +3047,11 @@ fn integerLiteral(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
-    int_lit: ast.Node.Index,
-) InnerError!*zir.Inst {
+    node: ast.Node.Index,
+) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const int_token = main_tokens[int_lit];
+    const int_token = main_tokens[node];
     const prefixed_bytes = tree.tokenSlice(int_token);
     const gz = scope.getGenZir();
     if (std.fmt.parseInt(u64, prefixed_bytes, 0)) |small_int| {
@@ -2983,9 +3060,9 @@ fn integerLiteral(
             1 => @enumToInt(zir.Const.one),
             else => try gz.addInt(small_int),
         };
-        return rvalue(mod, scope, rl, result);
+        return rvalue(mod, scope, rl, result, node);
     } else |err| {
-        return mod.failTok(scope, int_token, "TODO implement int literals that don't fit in a u64", .{});
+        return mod.failNode(scope, node, "TODO implement int literals that don't fit in a u64", .{});
     }
 }
 
@@ -2994,7 +3071,8 @@ fn floatLiteral(
     scope: *Scope,
     rl: ResultLoc,
     float_lit: ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const arena = scope.arena();
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
@@ -3016,7 +3094,8 @@ fn floatLiteral(
     return rvalue(mod, scope, rl, result);
 }
 
-fn asmExpr(mod: *Module, scope: *Scope, rl: ResultLoc, full: ast.full.Asm) InnerError!*zir.Inst {
+fn asmExpr(mod: *Module, scope: *Scope, rl: ResultLoc, full: ast.full.Asm) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const arena = scope.arena();
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
@@ -3028,7 +3107,7 @@ fn asmExpr(mod: *Module, scope: *Scope, rl: ResultLoc, full: ast.full.Asm) Inner
     }
 
     const inputs = try arena.alloc([]const u8, full.inputs.len);
-    const args = try arena.alloc(*zir.Inst, full.inputs.len);
+    const args = try arena.alloc(zir.Inst.Ref, full.inputs.len);
 
     const src = token_starts[full.ast.asm_token];
     const str_type = try addZIRInstConst(mod, scope, src, .{
@@ -3068,7 +3147,7 @@ fn as(
     src: usize,
     lhs: ast.Node.Index,
     rhs: ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
     const dest_type = try typeExpr(mod, scope, lhs);
     switch (rl) {
         .none, .discard, .ref, .ty => {
@@ -3099,10 +3178,10 @@ fn asRlPtr(
     scope: *Scope,
     rl: ResultLoc,
     src: usize,
-    result_ptr: *zir.Inst,
+    result_ptr: zir.Inst.Ref,
     operand_node: ast.Node.Index,
-    dest_type: *zir.Inst,
-) InnerError!*zir.Inst {
+    dest_type: zir.Inst.Ref,
+) InnerError!zir.Inst.Ref {
     // Detect whether this expr() call goes into rvalue() to store the result into the
     // result location. If it does, elide the coerce_result_ptr instruction
     // as well as the store instruction, instead passing the result as an rvalue.
@@ -3146,7 +3225,7 @@ fn bitCast(
     src: usize,
     lhs: ast.Node.Index,
     rhs: ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
     const dest_type = try typeExpr(mod, scope, lhs);
     switch (rl) {
         .none => {
@@ -3193,7 +3272,7 @@ fn typeOf(
     builtin_token: ast.TokenIndex,
     src: usize,
     params: []const ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
     if (params.len < 1) {
         return mod.failTok(scope, builtin_token, "expected at least 1 argument, found 0", .{});
     }
@@ -3201,7 +3280,7 @@ fn typeOf(
         return rvalue(mod, scope, rl, try addZIRUnOp(mod, scope, src, .typeof, try expr(mod, scope, .none, params[0])));
     }
     const arena = scope.arena();
-    var items = try arena.alloc(*zir.Inst, params.len);
+    var items = try arena.alloc(zir.Inst.Ref, params.len);
     for (params) |param, param_i|
         items[param_i] = try expr(mod, scope, .none, param);
     return rvalue(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.TypeOfPeer, .{ .items = items }, .{}));
@@ -3213,7 +3292,8 @@ fn builtinCall(
     rl: ResultLoc,
     call: ast.Node.Index,
     params: []const ast.Node.Index,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const token_starts = tree.tokens.items(.start);
@@ -3284,7 +3364,7 @@ fn builtinCall(
         },
         .compile_log => {
             const arena = scope.arena();
-            var targets = try arena.alloc(*zir.Inst, params.len);
+            var targets = try arena.alloc(zir.Inst.Ref, params.len);
             for (params) |param, param_i|
                 targets[param_i] = try expr(mod, scope, .none, param);
             const result = try addZIRInst(mod, scope, src, zir.Inst.CompileLog, .{ .to_log = targets }, .{});
@@ -3414,7 +3494,7 @@ fn callExpr(
     rl: ResultLoc,
     node: ast.Node.Index,
     call: ast.full.Call,
-) InnerError!*zir.Inst {
+) InnerError!zir.Inst.Ref {
     if (true) {
         @panic("TODO update for zir-memory-layout branch");
     }
@@ -3459,7 +3539,7 @@ fn callExpr(
     return rvalue(mod, scope, rl, result); // TODO function call with result location
 }
 
-fn suspendExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.Inst {
+fn suspendExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]];
 
@@ -3504,12 +3584,13 @@ fn suspendExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zi
     }
 
     const block = try addZIRInstBlock(mod, scope, src, .suspend_block, .{
-        .instructions = try scope.arena().dupe(*zir.Inst, suspend_scope.instructions.items),
+        .instructions = try scope.arena().dupe(zir.Inst.Ref, suspend_scope.instructions.items),
     });
     return &block.base;
 }
 
-fn nosuspendExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!*zir.Inst {
+fn nosuspendExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     var child_scope = Scope.Nosuspend{
         .parent = scope,
@@ -3520,7 +3601,8 @@ fn nosuspendExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Inde
     return expr(mod, &child_scope.base, rl, tree.nodes.items(.data)[node].lhs);
 }
 
-fn awaitExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!*zir.Inst {
+fn awaitExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]];
     const is_nosuspend = scope.getNosuspend() != null;
@@ -3542,7 +3624,7 @@ fn awaitExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) I
     return addZIRUnOp(mod, scope, src, if (is_nosuspend) .nosuspend_await else .@"await", operand);
 }
 
-fn resumeExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!*zir.Inst {
+fn resumeExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]];
 
@@ -3828,7 +3910,7 @@ fn rvalue(
             // We need a pointer but we have a value.
             const tree = scope.tree();
             const src_token = tree.firstToken(src_node);
-            return gz.addUnTok(.ref, result, src_tok);
+            return gz.addUnTok(.ref, result, src_token);
         },
         .ty => |ty_inst| return gz.addBin(.as, ty_inst, result),
         .ptr => |ptr_inst| {
@@ -3844,29 +3926,10 @@ fn rvalue(
         },
         .block_ptr => |block_scope| {
             block_scope.rvalue_rl_count += 1;
-            _ = try gz.addBin(.store_to_block_ptr, block_scope.rl_ptr.?, result);
+            _ = try gz.addBin(.store_to_block_ptr, block_scope.rl_ptr, result);
             return result;
         },
     }
-}
-
-/// TODO when reworking ZIR memory layout, make the void value correspond to a hard coded
-/// index; that way this does not actually need to allocate anything.
-fn rvalueVoid(
-    mod: *Module,
-    scope: *Scope,
-    rl: ResultLoc,
-    node: ast.Node.Index,
-    result: void,
-) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const main_tokens = tree.nodes.items(.main_token);
-    const src = tree.tokens.items(.start)[tree.firstToken(node)];
-    const void_inst = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.void),
-        .val = Value.initTag(.void_value),
-    });
-    return rvalue(mod, scope, rl, void_inst);
 }
 
 fn rlStrategy(rl: ResultLoc, block_scope: *Scope.GenZir) ResultLoc.Strategy {
@@ -3952,191 +4015,4 @@ fn setBlockResultLoc(block_scope: *Scope.GenZir, parent_rl: ResultLoc) void {
             block_scope.break_result_loc = .{ .block_ptr = block_scope };
         },
     }
-}
-
-pub fn addZirInstTag(
-    mod: *Module,
-    scope: *Scope,
-    src: usize,
-    comptime tag: zir.Inst.Tag,
-    positionals: std.meta.fieldInfo(tag.Type(), .positionals).field_type,
-) !*zir.Inst {
-    const gen_zir = scope.getGenZir();
-    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
-    const inst = try gen_zir.arena.create(tag.Type());
-    inst.* = .{
-        .base = .{
-            .tag = tag,
-            .src = src,
-        },
-        .positionals = positionals,
-        .kw_args = .{},
-    };
-    gen_zir.instructions.appendAssumeCapacity(&inst.base);
-    return &inst.base;
-}
-
-pub fn addZirInstT(
-    mod: *Module,
-    scope: *Scope,
-    src: usize,
-    comptime T: type,
-    tag: zir.Inst.Tag,
-    positionals: std.meta.fieldInfo(T, .positionals).field_type,
-) !*T {
-    const gen_zir = scope.getGenZir();
-    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
-    const inst = try gen_zir.arena.create(T);
-    inst.* = .{
-        .base = .{
-            .tag = tag,
-            .src = src,
-        },
-        .positionals = positionals,
-        .kw_args = .{},
-    };
-    gen_zir.instructions.appendAssumeCapacity(&inst.base);
-    return inst;
-}
-
-pub fn addZIRInstSpecial(
-    mod: *Module,
-    scope: *Scope,
-    src: usize,
-    comptime T: type,
-    positionals: std.meta.fieldInfo(T, .positionals).field_type,
-    kw_args: std.meta.fieldInfo(T, .kw_args).field_type,
-) !*T {
-    const gen_zir = scope.getGenZir();
-    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
-    const inst = try gen_zir.arena.create(T);
-    inst.* = .{
-        .base = .{
-            .tag = T.base_tag,
-            .src = src,
-        },
-        .positionals = positionals,
-        .kw_args = kw_args,
-    };
-    gen_zir.instructions.appendAssumeCapacity(&inst.base);
-    return inst;
-}
-
-pub fn addZIRNoOpT(mod: *Module, scope: *Scope, src: usize, tag: zir.Inst.Tag) !*zir.Inst.NoOp {
-    const gen_zir = scope.getGenZir();
-    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
-    const inst = try gen_zir.arena.create(zir.Inst.NoOp);
-    inst.* = .{
-        .base = .{
-            .tag = tag,
-            .src = src,
-        },
-        .positionals = .{},
-        .kw_args = .{},
-    };
-    gen_zir.instructions.appendAssumeCapacity(&inst.base);
-    return inst;
-}
-
-pub fn addZIRNoOp(mod: *Module, scope: *Scope, src: usize, tag: zir.Inst.Tag) !*zir.Inst {
-    const inst = try addZIRNoOpT(mod, scope, src, tag);
-    return &inst.base;
-}
-
-pub fn addZIRUnOp(
-    mod: *Module,
-    scope: *Scope,
-    src: usize,
-    tag: zir.Inst.Tag,
-    operand: *zir.Inst,
-) !*zir.Inst {
-    const gen_zir = scope.getGenZir();
-    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
-    const inst = try gen_zir.arena.create(zir.Inst.UnOp);
-    inst.* = .{
-        .base = .{
-            .tag = tag,
-            .src = src,
-        },
-        .positionals = .{
-            .operand = operand,
-        },
-        .kw_args = .{},
-    };
-    gen_zir.instructions.appendAssumeCapacity(&inst.base);
-    return &inst.base;
-}
-
-pub fn addZIRBinOp(
-    mod: *Module,
-    scope: *Scope,
-    src: usize,
-    tag: zir.Inst.Tag,
-    lhs: *zir.Inst,
-    rhs: *zir.Inst,
-) !*zir.Inst {
-    const gen_zir = scope.getGenZir();
-    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
-    const inst = try gen_zir.arena.create(zir.Inst.BinOp);
-    inst.* = .{
-        .base = .{
-            .tag = tag,
-            .src = src,
-        },
-        .positionals = .{
-            .lhs = lhs,
-            .rhs = rhs,
-        },
-        .kw_args = .{},
-    };
-    gen_zir.instructions.appendAssumeCapacity(&inst.base);
-    return &inst.base;
-}
-
-pub fn addZIRInstBlock(
-    mod: *Module,
-    scope: *Scope,
-    src: usize,
-    tag: zir.Inst.Tag,
-    body: zir.Body,
-) !*zir.Inst.Block {
-    const gen_zir = scope.getGenZir();
-    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
-    const inst = try gen_zir.arena.create(zir.Inst.Block);
-    inst.* = .{
-        .base = .{
-            .tag = tag,
-            .src = src,
-        },
-        .positionals = .{
-            .body = body,
-        },
-        .kw_args = .{},
-    };
-    gen_zir.instructions.appendAssumeCapacity(&inst.base);
-    return inst;
-}
-
-pub fn addZIRInst(
-    mod: *Module,
-    scope: *Scope,
-    src: usize,
-    comptime T: type,
-    positionals: std.meta.fieldInfo(T, .positionals).field_type,
-    kw_args: std.meta.fieldInfo(T, .kw_args).field_type,
-) !*zir.Inst {
-    const inst_special = try addZIRInstSpecial(mod, scope, src, T, positionals, kw_args);
-    return &inst_special.base;
-}
-
-/// TODO The existence of this function is a workaround for a bug in stage1.
-pub fn addZIRInstConst(mod: *Module, scope: *Scope, src: usize, typed_value: TypedValue) !*zir.Inst {
-    const P = std.meta.fieldInfo(zir.Inst.Const, .positionals).field_type;
-    return addZIRInst(mod, scope, src, zir.Inst.Const, P{ .typed_value = typed_value }, .{});
-}
-
-/// TODO The existence of this function is a workaround for a bug in stage1.
-pub fn addZIRInstLoop(mod: *Module, scope: *Scope, src: usize, body: zir.Body) !*zir.Inst.Loop {
-    const P = std.meta.fieldInfo(zir.Inst.Loop, .positionals).field_type;
-    return addZIRInstSpecial(mod, scope, src, zir.Inst.Loop, P{ .body = body }, .{});
 }

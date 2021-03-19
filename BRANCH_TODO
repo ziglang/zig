@@ -27,6 +27,8 @@ Performance optimizations to look into:
    and have it reference source code bytes. Another idea: null terminated
    string variants which avoid having to store the length.
    - Look into this for enum literals too
+ * make ret_type and ret_ptr instructions be implied indexes; no need to have
+   tags associated with them.
 
 
 Random snippets of code that I deleted and need to make sure get

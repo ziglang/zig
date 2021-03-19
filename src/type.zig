@@ -3150,7 +3150,7 @@ pub const Type = extern union {
             => unreachable,
 
             .empty_struct => self.castTag(.empty_struct).?.data,
-            .@"opaque" => &self.castTag(.@"opaque").?.scope,
+            .@"opaque" => &self.castTag(.@"opaque").?.data,
         };
     }
 

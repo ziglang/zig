@@ -12,7 +12,7 @@ gpa: *Allocator,
 arena: *Allocator,
 code: zir.Code,
 /// Maps ZIR to TZIR.
-inst_map: []*const Inst,
+inst_map: []*Inst,
 /// When analyzing an inline function call, owner_decl is the Decl of the caller
 /// and `src_decl` of `Scope.Block` is the `Decl` of the callee.
 /// This `Decl` owns the arena memory of this `Sema`.
@@ -58,15 +58,10 @@ pub fn root(sema: *Sema, root_block: *Scope.Block) !void {
     return sema.analyzeBody(root_block, root_body);
 }
 
-pub fn rootAsType(
-    sema: *Sema,
-    root_block: *Scope.Block,
-    zir_result_inst: zir.Inst.Index,
-) !Type {
+pub fn rootAsType(sema: *Sema, root_block: *Scope.Block, result_inst: zir.Inst.Ref) !Type {
     const root_body = sema.code.extra[sema.code.root_start..][0..sema.code.root_len];
     try sema.analyzeBody(root_block, root_body);
 
-    const result_inst = sema.inst_map[zir_result_inst];
     // Source location is unneeded because resolveConstValue must have already
     // been successfully called when coercing the value to a type, from the
     // result location.
@@ -203,6 +198,7 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .array_type => try sema.zirArrayType(block, zir_inst),
             .array_type_sentinel => try sema.zirArrayTypeSentinel(block, zir_inst),
             .enum_literal => try sema.zirEnumLiteral(block, zir_inst),
+            .enum_literal_small => try sema.zirEnumLiteralSmall(block, zir_inst),
             .merge_error_sets => try sema.zirMergeErrorSets(block, zir_inst),
             .error_union_type => try sema.zirErrorUnionType(block, zir_inst),
             .anyframe_type => try sema.zirAnyframeType(block, zir_inst),
@@ -232,7 +228,7 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
 
 /// TODO when we rework TZIR memory layout, this function will no longer have a possible error.
 pub fn resolveInst(sema: *Sema, zir_ref: zir.Inst.Ref) error{OutOfMemory}!*ir.Inst {
-    var i = zir_ref;
+    var i: usize = zir_ref;
 
     // First section of indexes correspond to a set number of constant values.
     if (i < zir.const_inst_list.len) {
@@ -1429,6 +1425,19 @@ fn zirEnumLiteral(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
     const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
     const src = inst_data.src();
     const duped_name = try sema.arena.dupe(u8, inst_data.get(sema.code));
+    return sema.mod.constInst(sema.arena, src, .{
+        .ty = Type.initTag(.enum_literal),
+        .val = try Value.Tag.enum_literal.create(sema.arena, duped_name),
+    });
+}
+
+fn zirEnumLiteralSmall(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const name = sema.code.instructions.items(.data)[inst].small_str.get();
+    const src: LazySrcLoc = .unneeded;
+    const duped_name = try sema.arena.dupe(u8, name);
     return sema.mod.constInst(sema.arena, src, .{
         .ty = Type.initTag(.enum_literal),
         .val = try Value.Tag.enum_literal.create(sema.arena, duped_name),

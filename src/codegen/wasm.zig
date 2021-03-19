@@ -14,6 +14,7 @@ const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;
 const Compilation = @import("../Compilation.zig");
 const AnyMCValue = @import("../codegen.zig").AnyMCValue;
+const LazySrcLoc = Module.LazySrcLoc;
 
 /// Wasm Value, created when generating an instruction
 const WValue = union(enum) {
@@ -70,11 +71,9 @@ pub const Context = struct {
     }
 
     /// Sets `err_msg` on `Context` and returns `error.CodegemFail` which is caught in link/Wasm.zig
-    fn fail(self: *Context, src: usize, comptime fmt: []const u8, args: anytype) InnerError {
-        self.err_msg = try Module.ErrorMsg.create(self.gpa, .{
-            .file_scope = self.decl.getFileScope(),
-            .byte_offset = src,
-        }, fmt, args);
+    fn fail(self: *Context, src: LazySrcLoc, comptime fmt: []const u8, args: anytype) InnerError {
+        const src_loc = src.toSrcLocWithDecl(self.decl);
+        self.err_msg = try Module.ErrorMsg.create(self.gpa, src_loc, fmt, args);
         return error.CodegenFail;
     }
 
@@ -91,7 +90,7 @@ pub const Context = struct {
     }
 
     /// Using a given `Type`, returns the corresponding wasm value type
-    fn genValtype(self: *Context, src: usize, ty: Type) InnerError!u8 {
+    fn genValtype(self: *Context, src: LazySrcLoc, ty: Type) InnerError!u8 {
         return switch (ty.tag()) {
             .f32 => wasm.valtype(.f32),
             .f64 => wasm.valtype(.f64),
@@ -104,7 +103,7 @@ pub const Context = struct {
     /// Using a given `Type`, returns the corresponding wasm value type
     /// Differently from `genValtype` this also allows `void` to create a block
     /// with no return type
-    fn genBlockType(self: *Context, src: usize, ty: Type) InnerError!u8 {
+    fn genBlockType(self: *Context, src: LazySrcLoc, ty: Type) InnerError!u8 {
         return switch (ty.tag()) {
             .void, .noreturn => wasm.block_empty,
             else => self.genValtype(src, ty),
@@ -139,7 +138,7 @@ pub const Context = struct {
             ty.fnParamTypes(params);
             for (params) |param_type| {
                 // Can we maybe get the source index of each param?
-                const val_type = try self.genValtype(self.decl.src(), param_type);
+                const val_type = try self.genValtype(.{ .node_offset = 0 }, param_type);
                 try writer.writeByte(val_type);
             }
         }
@@ -151,7 +150,7 @@ pub const Context = struct {
             else => |ret_type| {
                 try leb.writeULEB128(writer, @as(u32, 1));
                 // Can we maybe get the source index of the return type?
-                const val_type = try self.genValtype(self.decl.src(), return_type);
+                const val_type = try self.genValtype(.{ .node_offset = 0 }, return_type);
                 try writer.writeByte(val_type);
             },
         }
@@ -168,7 +167,7 @@ pub const Context = struct {
         const mod_fn = blk: {
             if (tv.val.castTag(.function)) |func| break :blk func.data;
             if (tv.val.castTag(.extern_fn)) |ext_fn| return; // don't need codegen for extern functions
-            return self.fail(self.decl.src(), "TODO: Wasm codegen for decl type '{s}'", .{tv.ty.tag()});
+            return self.fail(.{ .node_offset = 0 }, "TODO: Wasm codegen for decl type '{s}'", .{tv.ty.tag()});
         };
 
         // Reserve space to write the size after generating the code as well as space for locals count

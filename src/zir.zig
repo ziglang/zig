@@ -35,7 +35,7 @@ pub const Code = struct {
     extra: []u32,
     /// First ZIR instruction in this `Code`.
     /// `extra` at this index contains a `Ref` for every root member.
-    root_start: Inst.Index,
+    root_start: u32,
     /// Number of ZIR instructions in the implicit root block of the `Code`.
     root_len: u32,
 
@@ -138,204 +138,205 @@ pub const Const = enum {
     bool_false,
 };
 
-pub const const_inst_list = enumArray(Const, .{
-    .u8_type = @as(TypedValue, .{
+pub const const_inst_list = std.enums.directEnumArray(Const, TypedValue, 0, .{
+    .unused = undefined,
+    .u8_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.u8_type),
-    }),
-    .i8_type = @as(TypedValue, .{
+    },
+    .i8_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.i8_type),
-    }),
-    .u16_type = @as(TypedValue, .{
+    },
+    .u16_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.u16_type),
-    }),
-    .i16_type = @as(TypedValue, .{
+    },
+    .i16_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.i16_type),
-    }),
-    .u32_type = @as(TypedValue, .{
+    },
+    .u32_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.u32_type),
-    }),
-    .i32_type = @as(TypedValue, .{
+    },
+    .i32_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.i32_type),
-    }),
-    .u64_type = @as(TypedValue, .{
+    },
+    .u64_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.u64_type),
-    }),
-    .i64_type = @as(TypedValue, .{
+    },
+    .i64_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.i64_type),
-    }),
-    .usize_type = @as(TypedValue, .{
+    },
+    .usize_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.usize_type),
-    }),
-    .isize_type = @as(TypedValue, .{
+    },
+    .isize_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.isize_type),
-    }),
-    .c_short_type = @as(TypedValue, .{
+    },
+    .c_short_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.c_short_type),
-    }),
-    .c_ushort_type = @as(TypedValue, .{
+    },
+    .c_ushort_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.c_ushort_type),
-    }),
-    .c_int_type = @as(TypedValue, .{
+    },
+    .c_int_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.c_int_type),
-    }),
-    .c_uint_type = @as(TypedValue, .{
+    },
+    .c_uint_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.c_uint_type),
-    }),
-    .c_long_type = @as(TypedValue, .{
+    },
+    .c_long_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.c_long_type),
-    }),
-    .c_ulong_type = @as(TypedValue, .{
+    },
+    .c_ulong_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.c_ulong_type),
-    }),
-    .c_longlong_type = @as(TypedValue, .{
+    },
+    .c_longlong_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.c_longlong_type),
-    }),
-    .c_ulonglong_type = @as(TypedValue, .{
+    },
+    .c_ulonglong_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.c_ulonglong_type),
-    }),
-    .c_longdouble_type = @as(TypedValue, .{
+    },
+    .c_longdouble_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.c_longdouble_type),
-    }),
-    .f16_type = @as(TypedValue, .{
+    },
+    .f16_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.f16_type),
-    }),
-    .f32_type = @as(TypedValue, .{
+    },
+    .f32_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.f32_type),
-    }),
-    .f64_type = @as(TypedValue, .{
+    },
+    .f64_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.f64_type),
-    }),
-    .f128_type = @as(TypedValue, .{
+    },
+    .f128_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.f128_type),
-    }),
-    .c_void_type = @as(TypedValue, .{
+    },
+    .c_void_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.c_void_type),
-    }),
-    .bool_type = @as(TypedValue, .{
+    },
+    .bool_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.bool_type),
-    }),
-    .void_type = @as(TypedValue, .{
+    },
+    .void_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.void_type),
-    }),
-    .type_type = @as(TypedValue, .{
+    },
+    .type_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.type_type),
-    }),
-    .anyerror_type = @as(TypedValue, .{
+    },
+    .anyerror_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.anyerror_type),
-    }),
-    .comptime_int_type = @as(TypedValue, .{
+    },
+    .comptime_int_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.comptime_int_type),
-    }),
-    .comptime_float_type = @as(TypedValue, .{
+    },
+    .comptime_float_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.comptime_float_type),
-    }),
-    .noreturn_type = @as(TypedValue, .{
+    },
+    .noreturn_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.noreturn_type),
-    }),
-    .null_type = @as(TypedValue, .{
+    },
+    .null_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.null_type),
-    }),
-    .undefined_type = @as(TypedValue, .{
+    },
+    .undefined_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.undefined_type),
-    }),
-    .fn_noreturn_no_args_type = @as(TypedValue, .{
+    },
+    .fn_noreturn_no_args_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.fn_noreturn_no_args_type),
-    }),
-    .fn_void_no_args_type = @as(TypedValue, .{
+    },
+    .fn_void_no_args_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.fn_void_no_args_type),
-    }),
-    .fn_naked_noreturn_no_args_type = @as(TypedValue, .{
+    },
+    .fn_naked_noreturn_no_args_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.fn_naked_noreturn_no_args_type),
-    }),
-    .fn_ccc_void_no_args_type = @as(TypedValue, .{
+    },
+    .fn_ccc_void_no_args_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.fn_ccc_void_no_args_type),
-    }),
-    .single_const_pointer_to_comptime_int_type = @as(TypedValue, .{
+    },
+    .single_const_pointer_to_comptime_int_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.single_const_pointer_to_comptime_int_type),
-    }),
-    .const_slice_u8_type = @as(TypedValue, .{
+    },
+    .const_slice_u8_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.const_slice_u8_type),
-    }),
-    .enum_literal_type = @as(TypedValue, .{
+    },
+    .enum_literal_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.enum_literal_type),
-    }),
-    .anyframe_type = @as(TypedValue, .{
+    },
+    .anyframe_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.anyframe_type),
-    }),
+    },
 
-    .undef = @as(TypedValue, .{
+    .undef = .{
         .ty = Type.initTag(.@"undefined"),
         .val = Value.initTag(.undef),
-    }),
-    .zero = @as(TypedValue, .{
+    },
+    .zero = .{
         .ty = Type.initTag(.comptime_int),
         .val = Value.initTag(.zero),
-    }),
-    .one = @as(TypedValue, .{
+    },
+    .one = .{
         .ty = Type.initTag(.comptime_int),
         .val = Value.initTag(.one),
-    }),
-    .void_value = @as(TypedValue, .{
+    },
+    .void_value = .{
         .ty = Type.initTag(.void),
         .val = Value.initTag(.void_value),
-    }),
-    .unreachable_value = @as(TypedValue, .{
+    },
+    .unreachable_value = .{
         .ty = Type.initTag(.noreturn),
         .val = Value.initTag(.unreachable_value),
-    }),
-    .null_value = @as(TypedValue, .{
+    },
+    .null_value = .{
         .ty = Type.initTag(.@"null"),
         .val = Value.initTag(.null_value),
-    }),
-    .bool_true = @as(TypedValue, .{
+    },
+    .bool_true = .{
         .ty = Type.initTag(.bool),
         .val = Value.initTag(.bool_true),
-    }),
-    .bool_false = @as(TypedValue, .{
+    },
+    .bool_false = .{
         .ty = Type.initTag(.bool),
         .val = Value.initTag(.bool_false),
-    }),
+    },
 });
 
 /// These are untyped instructions generated from an Abstract Syntax Tree.
@@ -633,7 +634,7 @@ pub const Inst = struct {
         /// Sends control flow back to the function's callee.
         /// Includes an operand as the return value.
         /// Includes a token source location.
-        /// Uses the un_tok union field.
+        /// Uses the `un_tok` union field.
         ret_tok,
         /// Changes the maximum number of backwards branches that compile-time
         /// code execution can use before giving up and making a compile error.
@@ -755,6 +756,9 @@ pub const Inst = struct {
         ensure_err_payload_void,
         /// An enum literal. Uses the `str_tok` union field.
         enum_literal,
+        /// An enum literal 8 or fewer bytes. No source location.
+        /// Uses the `small_str` field.
+        enum_literal_small,
         /// Suspend an async function. The suspend block has 0 or 1 statements in it.
         /// Uses the `un_node` union field.
         suspend_block_one,
@@ -816,6 +820,7 @@ pub const Inst = struct {
                 .indexable_ptr_len,
                 .as,
                 .@"asm",
+                .asm_volatile,
                 .bit_and,
                 .bitcast,
                 .bitcast_ref,
@@ -831,12 +836,9 @@ pub const Inst = struct {
                 .breakpoint,
                 .call,
                 .call_async_kw,
-                .call_never_tail,
-                .call_never_inline,
                 .call_no_async,
-                .call_always_tail,
-                .call_always_inline,
                 .call_compile_time,
+                .call_none,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -845,13 +847,15 @@ pub const Inst = struct {
                 .cmp_neq,
                 .coerce_result_ptr,
                 .@"const",
-                .dbg_stmt,
+                .dbg_stmt_node,
                 .decl_ref,
                 .decl_val,
                 .deref_node,
                 .div,
                 .elem_ptr,
                 .elem_val,
+                .elem_ptr_node,
+                .elem_val_node,
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .floatcast,
@@ -882,14 +886,6 @@ pub const Inst = struct {
                 .ret_type,
                 .shl,
                 .shr,
-                .single_const_ptr_type,
-                .single_mut_ptr_type,
-                .many_const_ptr_type,
-                .many_mut_ptr_type,
-                .c_const_ptr_type,
-                .c_mut_ptr_type,
-                .mut_slice_type,
-                .const_slice_type,
                 .store,
                 .store_to_block_ptr,
                 .store_to_inferred_ptr,
@@ -914,20 +910,21 @@ pub const Inst = struct {
                 .ptr_type_simple,
                 .ensure_err_payload_void,
                 .enum_literal,
+                .enum_literal_small,
                 .merge_error_sets,
                 .anyframe_type,
                 .error_union_type,
                 .bit_not,
                 .error_set,
                 .error_value,
-                .slice,
                 .slice_start,
+                .slice_end,
+                .slice_sentinel,
                 .import,
                 .typeof_peer,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
                 .compile_log,
-                .switch_range,
                 .@"resume",
                 .@"await",
                 .nosuspend_await,
@@ -942,11 +939,8 @@ pub const Inst = struct {
                 .unreachable_unsafe,
                 .unreachable_safe,
                 .loop,
-                .container_field_named,
-                .container_field_typed,
-                .container_field,
-                .@"suspend",
                 .suspend_block,
+                .suspend_block_one,
                 => true,
             };
         }
@@ -1015,6 +1009,17 @@ pub const Inst = struct {
 
             pub fn get(self: @This(), code: Code) []const u8 {
                 return code.string_bytes[self.start..][0..self.len];
+            }
+        },
+        /// Strings 8 or fewer bytes which may not contain null bytes.
+        small_str: struct {
+            bytes: [8]u8,
+
+            pub fn get(self: @This()) []const u8 {
+                const end = for (self.bytes) |byte, i| {
+                    if (byte == 0) break i;
+                } else self.bytes.len;
+                return self.bytes[0..end];
             }
         },
         str_tok: struct {
@@ -1205,7 +1210,8 @@ pub const Inst = struct {
 };
 
 /// For debugging purposes, like dumpFn but for unanalyzed zir blocks
-pub fn dumpZir(gpa: *Allocator, kind: []const u8, decl_name: [*:0]const u8, instructions: []*Inst) !void {
+pub fn dumpZir(gpa: *Allocator, kind: []const u8, decl_name: [*:0]const u8, code: Code) !void {
+    if (true) @panic("TODO fix this function for zir-memory-layout branch");
     var fib = std.heap.FixedBufferAllocator.init(&[_]u8{});
     var module = Module{
         .decls = &[_]*Module.Decl{},

@@ -499,7 +499,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             defer function.stack.deinit(bin_file.allocator);
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
-            var call_info = function.resolveCallingConventionValues(src_loc.byte_offset, fn_type) catch |err| switch (err) {
+            var call_info = function.resolveCallingConventionValues(src_loc.lazy, fn_type) catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
                 else => |e| return e,
             };
@@ -2850,7 +2850,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
                     }
 
-                    if (inst.output) |output| {
+                    if (inst.output_name) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
