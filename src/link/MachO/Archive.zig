@@ -248,8 +248,8 @@ fn getName(allocator: *Allocator, header: ar_hdr, reader: anytype) ![]u8 {
             var n = try allocator.alloc(u8, len);
             defer allocator.free(n);
             try reader.readNoEof(n);
-            const actual_len = mem.indexOfScalar(u8, n, @as(u8, 0));
-            name = try allocator.dupe(u8, n[0..actual_len.?]);
+            const actual_len = mem.indexOfScalar(u8, n, @as(u8, 0)) orelse n.len;
+            name = try allocator.dupe(u8, n[0..actual_len]);
         },
     }
     return name;
