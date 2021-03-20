@@ -135,36 +135,62 @@ test "std.meta.errorInSet" {
     testing.expect(errorInSet(error.OtherError, anyerror));
 }
 
-pub fn lookupDecl(comptime T: type, comptime names: []const []const u8) ?type {
+fn lookupDeclType(comptime T: type, comptime names: []const []const u8) ?type {
     comptime var Running = T;
-    for (names) |name| {
-        if (@hasDecl(Running, name))
-            Running = @field(Running, name)
-        else
-            return null;
+    inline for (names) |name, i| {
+        if (@hasDecl(Running, name)) {
+            const next = @field(Running, name);
+            if (@TypeOf(next) == type) {
+                Running = next;
+                continue;
+            }
+            return if (i == names.len - 1) @TypeOf(next) else null;
+        } else return null;
     }
 
-    return Running;
+    return type;
+}
+
+pub fn lookupDecl(comptime T: type, comptime names: []const []const u8) ?(lookupDeclType(T, names) orelse type) {
+    if (lookupDeclType(T, names) == null) return null;
+
+    comptime var Running = T;
+    inline for (names) |name, i| {
+        const next = @field(Running, name);
+        if (i == names.len - 1) {
+            return next;
+        }
+        Running = next;
+    }
+    comptime std.debug.assert(names.len == 0);
+    return T;
 }
 
 test "std.meta.lookupDecl" {
     const empty = struct {};
-    testing.expectEqual(@as(?type, empty), lookupDecl(empty, &.{}));
-    testing.expectEqual(@as(?type, null), lookupDecl(empty, &.{"a"}));
-    testing.expectEqual(@as(?type, null), lookupDecl(empty, &.{ "a", "b", "c" }));
+
+    // we flip the order of "expectEqual" because we need casting to go
+    // the opposite way
+
+    testing.expectEqual(lookupDecl(empty, &.{}), empty);
+    testing.expectEqual(lookupDecl(empty, &.{"a"}), null);
+    testing.expectEqual(lookupDecl(empty, &.{ "a", "b", "c" }), null);
+
     const has_decls = struct {
         const a = struct {
             const b = struct {
-                const c = struct {};
+                pub fn c() void {}
             };
         };
     };
 
-    testing.expectEqual(@as(?type, has_decls), lookupDecl(has_decls, &.{}));
-    testing.expectEqual(@as(?type, has_decls.a), lookupDecl(has_decls, &.{"a"}));
-    testing.expectEqual(@as(?type, has_decls.a.b.c), lookupDecl(has_decls, &.{ "a", "b", "c" }));
-    testing.expectEqual(@as(?type, null), lookupDecl(has_decls, &.{"b"}));
-    testing.expectEqual(@as(?type, null), lookupDecl(has_decls, &.{ "a", "b", "d" }));
+    testing.expectEqual(lookupDecl(has_decls, &.{}), has_decls);
+    testing.expectEqual(lookupDecl(has_decls, &.{"a"}), has_decls.a);
+    testing.expectEqual(lookupDecl(has_decls, &.{ "a", "b" }), has_decls.a.b);
+    testing.expectEqual(lookupDecl(has_decls, &.{ "a", "b", "c" }), has_decls.a.b.c);
+    testing.expectEqual(lookupDecl(has_decls, &.{"b"}), null);
+    testing.expectEqual(lookupDecl(has_decls, &.{ "a", "b", "d" }), null);
+    testing.expectEqual(lookupDecl(has_decls, &.{ "a", "b", "d" }) orelse 8, 8);
 }
 
 pub fn bitCount(comptime T: type) comptime_int {
