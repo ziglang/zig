@@ -99,7 +99,10 @@ pub const default_config = struct {
 
         pub fn addressToSymbol(self: *Self, address: usize) !SymbolInfo {
             const module = self.debug_info.getModuleForAddress(address) catch |err| switch (err) {
-                ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => {
+                ModuleDebugError.MissingDebugInfo,
+                ModuleDebugError.InvalidDebugInfo,
+                ModuleDebugError.UnsupportedOperatingSystem,
+                => {
                     return SymbolInfo{};
                 },
                 else => return err,
@@ -896,6 +899,7 @@ else switch (builtin.os.tag) {
 pub const ModuleDebugError = error{
     MissingDebugInfo,
     InvalidDebugInfo,
+    UnsupportedOperatingSystem,
 };
 
 /// This is so collecting a stack trace on an unsupported platform returns
@@ -903,7 +907,7 @@ pub const ModuleDebugError = error{
 /// GeneralPurposeAllocator and similar.
 const UnsupportedModuleDebugInfo = struct {
     fn lookup(debug_info: *DebugInfo, address: usize) !*ModuleDebugInfo {
-        return ModuleDebugError.MissingDebugInfo;
+        return ModuleDebugError.UnsupportedOperatingSystem;
     }
 
     pub fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
@@ -1753,7 +1757,7 @@ const PDBModuleDebugInfo = struct {
 
     fn lookup(debug_info: *DebugInfo, address: usize) !*ModuleDebugInfo {
         if (builtin.os.tag != .windows) {
-            return error.UnsupportedOperatingSystem;
+            return ModuleDebugError.UnsupportedOperatingSystem;
         }
 
         return lookupModuleWin32(debug_info, address);
