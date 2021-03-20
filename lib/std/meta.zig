@@ -144,7 +144,10 @@ fn lookupDeclType(comptime T: type, comptime names: []const []const u8) ?type {
                 Running = next;
                 continue;
             }
-            return if (i == names.len - 1) @TypeOf(next) else null;
+            return if (i == names.len - 1)
+                @TypeOf(next)
+            else
+                @compileError("lookupDecl expected type and found value!");
         } else return null;
     }
 
