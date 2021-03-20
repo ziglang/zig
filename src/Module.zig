@@ -1826,7 +1826,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
 
                 const code = try gen_scope.finish();
                 if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-                    code.dump(mod.gpa, "comptime_block", decl.name) catch {};
+                    code.dump(mod.gpa, "comptime_block", decl.name, 0) catch {};
                 }
                 break :blk code;
             };
@@ -2047,7 +2047,7 @@ fn astgenAndSemaFn(
 
     const fn_type_code = try fn_type_scope.finish();
     if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-        fn_type_code.dump(mod.gpa, "fn_type", decl.name) catch {};
+        fn_type_code.dump(mod.gpa, "fn_type", decl.name, 0) catch {};
     }
 
     var fn_type_sema: Sema = .{
@@ -2170,7 +2170,7 @@ fn astgenAndSemaFn(
 
         const code = try gen_scope.finish();
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-            code.dump(mod.gpa, "fn_body", decl.name) catch {};
+            code.dump(mod.gpa, "fn_body", decl.name, param_count) catch {};
         }
 
         break :blk code;
@@ -2347,7 +2347,7 @@ fn astgenAndSemaVarDecl(
         );
         const code = try gen_scope.finish();
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-            code.dump(mod.gpa, "var_init", decl.name) catch {};
+            code.dump(mod.gpa, "var_init", decl.name, 0) catch {};
         }
 
         var sema: Sema = .{
@@ -2409,7 +2409,7 @@ fn astgenAndSemaVarDecl(
         const var_type = try astgen.typeExpr(mod, &type_scope.base, var_decl.ast.type_node);
         const code = try type_scope.finish();
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-            code.dump(mod.gpa, "var_type", decl.name) catch {};
+            code.dump(mod.gpa, "var_type", decl.name, 0) catch {};
         }
 
         var sema: Sema = .{

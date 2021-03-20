@@ -68,58 +68,35 @@ pub const Code = struct {
     }
 
     /// For debugging purposes, like dumpFn but for unanalyzed zir blocks
-    pub fn dump(code: Code, gpa: *Allocator, kind: []const u8, decl_name: [*:0]const u8) !void {
+    pub fn dump(
+        code: Code,
+        gpa: *Allocator,
+        kind: []const u8,
+        decl_name: [*:0]const u8,
+        param_count: usize,
+    ) !void {
         var arena = std.heap.ArenaAllocator.init(gpa);
         defer arena.deinit();
-
-        if (true) @panic("TODO fix this function for zir-memory-layout branch");
 
         var writer: Writer = .{
             .gpa = gpa,
             .arena = &arena.allocator,
             .code = code,
-            .inst_map = try arena.allocator.alloc(*ir.Inst, code.instructions.len),
-            .owner_decl = decl,
-            .func = null,
-            .param_inst_list = &.{},
-        };
-        var write = Writer{
-            .inst_table = InstPtrTable.init(gpa),
-            .block_table = std.AutoHashMap(*Inst.Block, []const u8).init(gpa),
-            .loop_table = std.AutoHashMap(*Inst.Loop, []const u8).init(gpa),
-            .arena = std.heap.ArenaAllocator.init(gpa),
             .indent = 4,
-            .next_instr_index = 0,
+            .param_count = param_count,
         };
-        defer write.arena.deinit();
-        defer write.inst_table.deinit();
-        defer write.block_table.deinit();
-        defer write.loop_table.deinit();
-
-        try write.inst_table.ensureCapacity(@intCast(u32, instructions.len));
 
         const stderr = std.io.getStdErr().writer();
-        try stderr.print("{s} {s} {{ // unanalyzed\n", .{ kind, decl_name });
+        try stderr.print("ZIR {s} {s} {{\n", .{ kind, decl_name });
 
-        for (instructions) |inst| {
-            const my_i = write.next_instr_index;
-            write.next_instr_index += 1;
-
-            if (inst.cast(Inst.Block)) |block| {
-                const name = try std.fmt.allocPrint(&write.arena.allocator, "label_{d}", .{my_i});
-                try write.block_table.put(block, name);
-            } else if (inst.cast(Inst.Loop)) |loop| {
-                const name = try std.fmt.allocPrint(&write.arena.allocator, "loop_{d}", .{my_i});
-                try write.loop_table.put(loop, name);
-            }
-
-            try write.inst_table.putNoClobber(inst, .{ .inst = inst, .index = my_i, .name = "inst" });
-            try stderr.print("  %{d} ", .{my_i});
-            try write.writeInstToStream(stderr, inst);
+        const root_body = code.extra[code.root_start..][0..code.root_len];
+        for (root_body) |inst| {
+            try stderr.print("  %{d} ", .{inst});
+            try writer.writeInstToStream(stderr, inst);
             try stderr.writeByte('\n');
         }
 
-        try stderr.print("}} // {s} {s}\n\n", .{ kind, decl_name });
+        try stderr.print("}} // ZIR {s} {s}\n\n", .{ kind, decl_name });
     }
 };
 
@@ -679,10 +656,10 @@ pub const Inst = struct {
         /// Resume an async function.
         @"resume",
         /// Obtains a pointer to the return value.
-        /// lhs and rhs unused.
+        /// Uses the `node` union field.
         ret_ptr,
         /// Obtains the return type of the in-scope function.
-        /// lhs and rhs unused.
+        /// Uses the `node` union field.
         ret_type,
         /// Sends control flow back to the function's callee.
         /// Includes an operand as the return value.
@@ -821,7 +798,7 @@ pub const Inst = struct {
         /// Uses the `un_node` union field.
         suspend_block_one,
         /// Suspend an async function. The suspend block has any number of statements in it.
-        /// Uses the `block` union field.
+        /// Uses the `pl_node` union field. Payload is `MultiOp`.
         suspend_block,
         // /// A switch expression.
         // /// lhs is target, SwitchBr[rhs]
@@ -1265,4 +1242,405 @@ pub const Inst = struct {
         lhs: Ref,
         field_name: Ref,
     };
+};
+
+const Writer = struct {
+    gpa: *Allocator,
+    arena: *Allocator,
+    code: Code,
+    indent: usize,
+    param_count: usize,
+
+    fn writeInstToStream(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const tags = self.code.instructions.items(.tag);
+        const tag = tags[inst];
+        try stream.print("= {s}(", .{@tagName(tags[inst])});
+        switch (tag) {
+            .add,
+            .addwrap,
+            .array_cat,
+            .array_mul,
+            .mul,
+            .mulwrap,
+            .sub,
+            .subwrap,
+            .array_type,
+            .bit_and,
+            .bit_or,
+            .as,
+            .bool_and,
+            .bool_or,
+            .@"break",
+            .cmp_lt,
+            .cmp_lte,
+            .cmp_eq,
+            .cmp_gte,
+            .cmp_gt,
+            .cmp_neq,
+            .coerce_result_ptr,
+            .div,
+            .mod_rem,
+            .shl,
+            .shr,
+            .xor,
+            .elem_ptr,
+            .elem_val,
+            .intcast,
+            .int_type,
+            .merge_error_sets,
+            => try self.writeBin(stream, inst),
+
+            .alloc,
+            .alloc_mut,
+            .alloc_inferred,
+            .alloc_inferred_mut,
+            .anyframe_type,
+            .indexable_ptr_len,
+            .@"await",
+            .bit_not,
+            .call_none,
+            .compile_error,
+            .deref_node,
+            .ensure_result_used,
+            .ensure_result_non_error,
+            .import,
+            .ptrtoint,
+            .ret_node,
+            .set_eval_branch_quota,
+            .resolve_inferred_alloc,
+            .suspend_block_one,
+            => try self.writeUnNode(stream, inst),
+
+            .bool_not,
+            .break_void_tok,
+            .is_non_null,
+            .is_null,
+            .is_non_null_ptr,
+            .is_null_ptr,
+            .is_err,
+            .is_err_ptr,
+            .ref,
+            .ret_tok,
+            .typeof,
+            .optional_type,
+            .optional_type_from_ptr_elem,
+            .optional_payload_safe,
+            .optional_payload_unsafe,
+            .optional_payload_safe_ptr,
+            .optional_payload_unsafe_ptr,
+            .err_union_payload_safe,
+            .err_union_payload_unsafe,
+            .err_union_payload_safe_ptr,
+            .err_union_payload_unsafe_ptr,
+            .err_union_code,
+            .err_union_code_ptr,
+            .ensure_err_payload_void,
+            => try self.writeUnTok(stream, inst),
+
+            .array_type_sentinel => try self.writeArrayTypeSentinel(stream, inst),
+            .@"const" => try self.writeConst(stream, inst),
+            .param_type => try self.writeParamType(stream, inst),
+            .ptr_type_simple => try self.writePtrTypeSimple(stream, inst),
+            .ptr_type => try self.writePtrType(stream, inst),
+            .int => try self.writeInt(stream, inst),
+            .str => try self.writeStr(stream, inst),
+
+            .@"asm",
+            .asm_volatile,
+            .block,
+            .block_flat,
+            .block_comptime,
+            .block_comptime_flat,
+            .call,
+            .call_async_kw,
+            .call_no_async,
+            .call_compile_time,
+            .compile_log,
+            .condbr,
+            .elem_ptr_node,
+            .elem_val_node,
+            .field_ptr,
+            .field_val,
+            .field_ptr_named,
+            .field_val_named,
+            .floatcast,
+            .loop,
+            .slice_start,
+            .slice_end,
+            .slice_sentinel,
+            .typeof_peer,
+            .suspend_block,
+            => try self.writePlNode(stream, inst),
+
+            .breakpoint,
+            .dbg_stmt_node,
+            .ret_ptr,
+            .ret_type,
+            .unreachable_unsafe,
+            .unreachable_safe,
+            => try self.writeNode(stream, inst),
+
+            .decl_ref,
+            .decl_val,
+            => try self.writeDecl(stream, inst),
+
+            .error_value,
+            .enum_literal,
+            => try self.writeStrTok(stream, inst),
+
+            .fn_type => try self.writeFnType(stream, inst, false),
+            .fn_type_cc => try self.writeFnTypeCc(stream, inst, false),
+            .fn_type_var_args => try self.writeFnType(stream, inst, true),
+            .fn_type_cc_var_args => try self.writeFnTypeCc(stream, inst, true),
+
+            .enum_literal_small => try self.writeSmallStr(stream, inst),
+
+            .bitcast,
+            .bitcast_ref,
+            .bitcast_result_ptr,
+            .error_union_type,
+            .error_set,
+            .nosuspend_await,
+            .@"resume",
+            .store,
+            .store_to_block_ptr,
+            .store_to_inferred_ptr,
+            => try stream.writeAll("TODO)"),
+        }
+    }
+
+    fn writeBin(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].bin;
+        try self.writeInstRef(stream, inst_data.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, inst_data.rhs);
+        try stream.writeByte(')');
+    }
+
+    fn writeUnNode(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].un_node;
+        try self.writeInstRef(stream, inst_data.operand);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeUnTok(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].un_tok;
+        try self.writeInstRef(stream, inst_data.operand);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeArrayTypeSentinel(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].array_type_sentinel;
+        try stream.writeAll("TODO)");
+    }
+
+    fn writeConst(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].@"const";
+        try stream.writeAll("TODO)");
+    }
+
+    fn writeParamType(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].param_type;
+        try stream.writeAll("TODO)");
+    }
+
+    fn writePtrTypeSimple(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].ptr_type_simple;
+        try stream.writeAll("TODO)");
+    }
+
+    fn writePtrType(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].ptr_type;
+        try stream.writeAll("TODO)");
+    }
+
+    fn writeInt(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].int;
+        try stream.print("{d})", .{inst_data});
+    }
+
+    fn writeStr(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].str;
+        const str = inst_data.get(self.code);
+        try stream.print("\"{}\")", .{std.zig.fmtEscapes(str)});
+    }
+
+    fn writePlNode(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        try stream.writeAll("TODO) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeNode(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const src_node = self.code.instructions.items(.data)[inst].node;
+        const src: LazySrcLoc = .{ .node_offset = src_node };
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, src);
+    }
+
+    fn writeDecl(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].decl;
+        try stream.writeAll("TODO)");
+    }
+
+    fn writeStrTok(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].str_tok;
+        const str = inst_data.get(self.code);
+        try stream.print("\"{}\") ", .{std.zig.fmtEscapes(str)});
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeFnType(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+        var_args: bool,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].fn_type;
+        const extra = self.code.extraData(Inst.FnType, inst_data.payload_index);
+        const param_types = self.code.extra[extra.end..][0..extra.data.param_types_len];
+        const cc: Inst.Ref = 0;
+        return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, cc);
+    }
+
+    fn writeFnTypeCc(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+        var_args: bool,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].fn_type;
+        const extra = self.code.extraData(Inst.FnTypeCc, inst_data.payload_index);
+        const param_types = self.code.extra[extra.end..][0..extra.data.param_types_len];
+        const cc = extra.data.cc;
+        return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, cc);
+    }
+
+    fn writeFnTypeCommon(
+        self: *Writer,
+        stream: anytype,
+        param_types: []const Inst.Ref,
+        ret_ty: Inst.Ref,
+        var_args: bool,
+        cc: Inst.Ref,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        try stream.writeAll("(");
+        for (param_types) |param_type, i| {
+            if (i != 0) try stream.writeAll(", ");
+            try self.writeInstRef(stream, param_type);
+        }
+        try stream.writeAll("), ");
+        try self.writeInstRef(stream, ret_ty);
+        try self.writeOptionalInstRef(stream, ", cc=", cc);
+        try self.writeFlag(stream, ", var_args", var_args);
+        try stream.writeAll(")");
+    }
+
+    fn writeSmallStr(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const str = self.code.instructions.items(.data)[inst].small_str.get();
+        try stream.print("\"{}\")", .{std.zig.fmtEscapes(str)});
+    }
+
+    fn writeInstRef(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        var i: usize = inst;
+
+        if (i < const_inst_list.len) {
+            return stream.print("@{d}", .{i});
+        }
+        i -= const_inst_list.len;
+
+        if (i < self.param_count) {
+            return stream.print("${d}", .{i});
+        }
+        i -= self.param_count;
+
+        return stream.print("%{d}", .{i});
+    }
+
+    fn writeOptionalInstRef(
+        self: *Writer,
+        stream: anytype,
+        prefix: []const u8,
+        inst: Inst.Index,
+    ) !void {
+        if (inst == 0) return;
+        try stream.writeAll(prefix);
+        try self.writeInstRef(stream, inst);
+    }
+
+    fn writeFlag(
+        self: *Writer,
+        stream: anytype,
+        name: []const u8,
+        flag: bool,
+    ) !void {
+        if (!flag) return;
+        try stream.writeAll(name);
+    }
+
+    fn writeSrc(self: *Writer, stream: anytype, src: LazySrcLoc) !void {
+        try stream.print("TODOsrc({s})", .{@tagName(src)});
+    }
 };
