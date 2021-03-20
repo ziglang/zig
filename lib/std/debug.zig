@@ -891,8 +891,8 @@ pub const ModuleDebugInfo =
     root.os.debug.ModuleDebugInfo
 else switch (builtin.os.tag) {
     .macos, .ios, .watchos, .tvos => DarwinModuleDebugInfo,
-    .uefi, .windows => PDBModuleDebugInfo,
     .linux, .netbsd, .freebsd, .dragonfly, .openbsd => DwarfModuleDebugInfo,
+    .uefi, .windows => PDBModuleDebugInfo,
     else => UnsupportedModuleDebugInfo,
 };
 
@@ -957,6 +957,27 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
         errdefer os.munmap(mapped_mem);
 
         return mapped_mem;
+    }
+}
+
+pub fn dwarfAddressToSymbolInfo(dwarf: *DW.DwarfInfo, relocated_address: usize) !SymbolInfo {
+    if (nosuspend dwarf.findCompileUnit(relocated_address)) |compile_unit| {
+        return SymbolInfo{
+            .symbol_name = nosuspend dwarf.getSymbolName(relocated_address) orelse "???",
+            .compile_unit_name = compile_unit.die.getAttrString(dwarf, DW.AT_name) catch |err| switch (err) {
+                ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => "???",
+                else => return err,
+            },
+            .line_info = nosuspend dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
+                ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => null,
+                else => return err,
+            },
+        };
+    } else |err| switch (err) {
+        ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => {
+            return SymbolInfo{};
+        },
+        else => return err,
     }
 }
 
@@ -1127,26 +1148,7 @@ const DarwinModuleDebugInfo = struct {
             // .o file
             const relocated_address_o = relocated_address - symbol.reloc;
 
-            if (o_file_di.findCompileUnit(relocated_address_o)) |compile_unit| {
-                return SymbolInfo{
-                    .symbol_name = o_file_di.getSymbolName(relocated_address_o) orelse "???",
-                    .compile_unit_name = compile_unit.die.getAttrString(&o_file_di, DW.AT_name) catch |err| switch (err) {
-                        ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => "???",
-                        else => return err,
-                    },
-                    .line_info = o_file_di.getLineNumberInfo(compile_unit.*, relocated_address_o) catch |err| switch (err) {
-                        ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => null,
-                        else => return err,
-                    },
-                };
-            } else |err| switch (err) {
-                ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => {
-                    return SymbolInfo{ .symbol_name = stab_symbol };
-                },
-                else => return err,
-            }
-
-            unreachable;
+            return dwarfAddressToSymbolInfo(o_file_di, relocated_address);
         }
     }
 
@@ -1294,6 +1296,158 @@ const DarwinModuleDebugInfo = struct {
         }
 
         return ModuleDebugError.MissingDebugInfo;
+    }
+};
+
+/// TODO: better name for this struct (seems like *nix - darwin)
+const DwarfModuleDebugInfo = struct {
+    base_address: usize,
+    dwarf: DW.DwarfInfo,
+    mapped_memory: []const u8,
+
+    pub fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
+        // Translate the VA into an address into this object
+        const relocated_address = address - self.base_address;
+
+        return dwarfAddressToSymbolInfo(&self.dwarf, relocated_address);
+    }
+
+    /// This takes ownership of elf_file: users of this function should not close
+    /// it themselves, even on error.
+    /// TODO resources https://github.com/ziglang/zig/issues/4353
+    /// TODO it's weird to take ownership even on error, rework this code.
+    fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugInfo {
+        nosuspend {
+            const mapped_mem = try mapWholeFile(elf_file);
+            const hdr = @ptrCast(*const elf.Ehdr, &mapped_mem[0]);
+            if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
+            if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
+
+            const endian: builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
+                elf.ELFDATA2LSB => .Little,
+                elf.ELFDATA2MSB => .Big,
+                else => return error.InvalidElfEndian,
+            };
+            assert(endian == std.builtin.endian); // this is our own debug info
+
+            const shoff = hdr.e_shoff;
+            const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
+            const str_shdr = @ptrCast(
+                *const elf.Shdr,
+                @alignCast(@alignOf(elf.Shdr), &mapped_mem[try math.cast(usize, str_section_off)]),
+            );
+            const header_strings = mapped_mem[str_shdr.sh_offset .. str_shdr.sh_offset + str_shdr.sh_size];
+            const shdrs = @ptrCast(
+                [*]const elf.Shdr,
+                @alignCast(@alignOf(elf.Shdr), &mapped_mem[shoff]),
+            )[0..hdr.e_shnum];
+
+            var opt_debug_info: ?[]const u8 = null;
+            var opt_debug_abbrev: ?[]const u8 = null;
+            var opt_debug_str: ?[]const u8 = null;
+            var opt_debug_line: ?[]const u8 = null;
+            var opt_debug_ranges: ?[]const u8 = null;
+
+            for (shdrs) |*shdr| {
+                if (shdr.sh_type == elf.SHT_NULL) continue;
+
+                const name = std.mem.span(std.meta.assumeSentinel(header_strings[shdr.sh_name..].ptr, 0));
+                if (mem.eql(u8, name, ".debug_info")) {
+                    opt_debug_info = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                } else if (mem.eql(u8, name, ".debug_abbrev")) {
+                    opt_debug_abbrev = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                } else if (mem.eql(u8, name, ".debug_str")) {
+                    opt_debug_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                } else if (mem.eql(u8, name, ".debug_line")) {
+                    opt_debug_line = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                } else if (mem.eql(u8, name, ".debug_ranges")) {
+                    opt_debug_ranges = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                }
+            }
+
+            var di = DW.DwarfInfo{
+                .endian = endian,
+                .debug_info = opt_debug_info orelse return ModuleDebugError.MissingDebugInfo,
+                .debug_abbrev = opt_debug_abbrev orelse return ModuleDebugError.MissingDebugInfo,
+                .debug_str = opt_debug_str orelse return ModuleDebugError.MissingDebugInfo,
+                .debug_line = opt_debug_line orelse return ModuleDebugError.MissingDebugInfo,
+                .debug_ranges = opt_debug_ranges,
+            };
+
+            try DW.openDwarfDebugInfo(&di, allocator);
+
+            return ModuleDebugInfo{
+                .base_address = undefined,
+                .dwarf = di,
+                .mapped_memory = mapped_mem,
+            };
+        }
+    }
+
+    fn lookup(debug_info: *DebugInfo, address: usize) !*ModuleDebugInfo {
+        var ctx: struct {
+            // Input
+            address: usize,
+            // Output
+            base_address: usize = undefined,
+            name: []const u8 = undefined,
+        } = .{ .address = address };
+        const CtxTy = @TypeOf(ctx);
+
+        if (os.dl_iterate_phdr(&ctx, anyerror, struct {
+            fn callback(info: *os.dl_phdr_info, size: usize, context: *CtxTy) !void {
+                // The base address is too high
+                if (context.address < info.dlpi_addr)
+                    return;
+
+                const phdrs = info.dlpi_phdr[0..info.dlpi_phnum];
+                for (phdrs) |*phdr| {
+                    if (phdr.p_type != elf.PT_LOAD) continue;
+
+                    const seg_start = info.dlpi_addr + phdr.p_vaddr;
+                    const seg_end = seg_start + phdr.p_memsz;
+
+                    if (context.address >= seg_start and context.address < seg_end) {
+                        // Android libc uses NULL instead of an empty string to mark the
+                        // main program
+                        context.name = mem.spanZ(info.dlpi_name) orelse "";
+                        context.base_address = info.dlpi_addr;
+                        // Stop the iteration
+                        return error.Found;
+                    }
+                }
+            }
+        }.callback)) {
+            return ModuleDebugError.MissingDebugInfo;
+        } else |err| switch (err) {
+            error.Found => {},
+            else => return ModuleDebugError.MissingDebugInfo,
+        }
+
+        if (debug_info.address_map.get(ctx.base_address)) |obj_di| {
+            return obj_di;
+        }
+
+        const obj_di = try debug_info.allocator.create(ModuleDebugInfo);
+        errdefer debug_info.allocator.destroy(obj_di);
+
+        // TODO https://github.com/ziglang/zig/issues/5525
+        const copy = if (ctx.name.len > 0)
+            fs.cwd().openFile(ctx.name, .{ .intended_io_mode = .blocking })
+        else
+            fs.openSelfExe(.{ .intended_io_mode = .blocking });
+
+        const elf_file = copy catch |err| switch (err) {
+            error.FileNotFound => return ModuleDebugError.MissingDebugInfo,
+            else => return err,
+        };
+
+        obj_di.* = try readElfDebugInfo(debug_info.allocator, elf_file);
+        obj_di.base_address = ctx.base_address;
+
+        try debug_info.address_map.putNoClobber(ctx.base_address, obj_di);
+
+        return obj_di;
     }
 };
 
@@ -1761,174 +1915,6 @@ const PDBModuleDebugInfo = struct {
         }
 
         return lookupModuleWin32(debug_info, address);
-    }
-};
-
-const DwarfModuleDebugInfo = struct {
-    base_address: usize,
-    dwarf: DW.DwarfInfo,
-    mapped_memory: []const u8,
-
-    pub fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
-        // Translate the VA into an address into this object
-        const relocated_address = address - self.base_address;
-
-        if (nosuspend self.dwarf.findCompileUnit(relocated_address)) |compile_unit| {
-            return SymbolInfo{
-                .symbol_name = nosuspend self.dwarf.getSymbolName(relocated_address) orelse "???",
-                .compile_unit_name = compile_unit.die.getAttrString(&self.dwarf, DW.AT_name) catch |err| switch (err) {
-                    ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => "???",
-                    else => return err,
-                },
-                .line_info = nosuspend self.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
-                    ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => null,
-                    else => return err,
-                },
-            };
-        } else |err| switch (err) {
-            ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => {
-                return SymbolInfo{};
-            },
-            else => return err,
-        }
-    }
-
-    /// This takes ownership of elf_file: users of this function should not close
-    /// it themselves, even on error.
-    /// TODO resources https://github.com/ziglang/zig/issues/4353
-    /// TODO it's weird to take ownership even on error, rework this code.
-    fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugInfo {
-        nosuspend {
-            const mapped_mem = try mapWholeFile(elf_file);
-            const hdr = @ptrCast(*const elf.Ehdr, &mapped_mem[0]);
-            if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
-            if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
-
-            const endian: builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
-                elf.ELFDATA2LSB => .Little,
-                elf.ELFDATA2MSB => .Big,
-                else => return error.InvalidElfEndian,
-            };
-            assert(endian == std.builtin.endian); // this is our own debug info
-
-            const shoff = hdr.e_shoff;
-            const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
-            const str_shdr = @ptrCast(
-                *const elf.Shdr,
-                @alignCast(@alignOf(elf.Shdr), &mapped_mem[try math.cast(usize, str_section_off)]),
-            );
-            const header_strings = mapped_mem[str_shdr.sh_offset .. str_shdr.sh_offset + str_shdr.sh_size];
-            const shdrs = @ptrCast(
-                [*]const elf.Shdr,
-                @alignCast(@alignOf(elf.Shdr), &mapped_mem[shoff]),
-            )[0..hdr.e_shnum];
-
-            var opt_debug_info: ?[]const u8 = null;
-            var opt_debug_abbrev: ?[]const u8 = null;
-            var opt_debug_str: ?[]const u8 = null;
-            var opt_debug_line: ?[]const u8 = null;
-            var opt_debug_ranges: ?[]const u8 = null;
-
-            for (shdrs) |*shdr| {
-                if (shdr.sh_type == elf.SHT_NULL) continue;
-
-                const name = std.mem.span(std.meta.assumeSentinel(header_strings[shdr.sh_name..].ptr, 0));
-                if (mem.eql(u8, name, ".debug_info")) {
-                    opt_debug_info = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-                } else if (mem.eql(u8, name, ".debug_abbrev")) {
-                    opt_debug_abbrev = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-                } else if (mem.eql(u8, name, ".debug_str")) {
-                    opt_debug_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-                } else if (mem.eql(u8, name, ".debug_line")) {
-                    opt_debug_line = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-                } else if (mem.eql(u8, name, ".debug_ranges")) {
-                    opt_debug_ranges = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-                }
-            }
-
-            var di = DW.DwarfInfo{
-                .endian = endian,
-                .debug_info = opt_debug_info orelse return ModuleDebugError.MissingDebugInfo,
-                .debug_abbrev = opt_debug_abbrev orelse return ModuleDebugError.MissingDebugInfo,
-                .debug_str = opt_debug_str orelse return ModuleDebugError.MissingDebugInfo,
-                .debug_line = opt_debug_line orelse return ModuleDebugError.MissingDebugInfo,
-                .debug_ranges = opt_debug_ranges,
-            };
-
-            try DW.openDwarfDebugInfo(&di, allocator);
-
-            return ModuleDebugInfo{
-                .base_address = undefined,
-                .dwarf = di,
-                .mapped_memory = mapped_mem,
-            };
-        }
-    }
-
-    fn lookup(debug_info: *DebugInfo, address: usize) !*ModuleDebugInfo {
-        var ctx: struct {
-            // Input
-            address: usize,
-            // Output
-            base_address: usize = undefined,
-            name: []const u8 = undefined,
-        } = .{ .address = address };
-        const CtxTy = @TypeOf(ctx);
-
-        if (os.dl_iterate_phdr(&ctx, anyerror, struct {
-            fn callback(info: *os.dl_phdr_info, size: usize, context: *CtxTy) !void {
-                // The base address is too high
-                if (context.address < info.dlpi_addr)
-                    return;
-
-                const phdrs = info.dlpi_phdr[0..info.dlpi_phnum];
-                for (phdrs) |*phdr| {
-                    if (phdr.p_type != elf.PT_LOAD) continue;
-
-                    const seg_start = info.dlpi_addr + phdr.p_vaddr;
-                    const seg_end = seg_start + phdr.p_memsz;
-
-                    if (context.address >= seg_start and context.address < seg_end) {
-                        // Android libc uses NULL instead of an empty string to mark the
-                        // main program
-                        context.name = mem.spanZ(info.dlpi_name) orelse "";
-                        context.base_address = info.dlpi_addr;
-                        // Stop the iteration
-                        return error.Found;
-                    }
-                }
-            }
-        }.callback)) {
-            return ModuleDebugError.MissingDebugInfo;
-        } else |err| switch (err) {
-            error.Found => {},
-            else => return ModuleDebugError.MissingDebugInfo,
-        }
-
-        if (debug_info.address_map.get(ctx.base_address)) |obj_di| {
-            return obj_di;
-        }
-
-        const obj_di = try debug_info.allocator.create(ModuleDebugInfo);
-        errdefer debug_info.allocator.destroy(obj_di);
-
-        // TODO https://github.com/ziglang/zig/issues/5525
-        const copy = if (ctx.name.len > 0)
-            fs.cwd().openFile(ctx.name, .{ .intended_io_mode = .blocking })
-        else
-            fs.openSelfExe(.{ .intended_io_mode = .blocking });
-
-        const elf_file = copy catch |err| switch (err) {
-            error.FileNotFound => return ModuleDebugError.MissingDebugInfo,
-            else => return err,
-        };
-
-        obj_di.* = try readElfDebugInfo(debug_info.allocator, elf_file);
-        obj_di.base_address = ctx.base_address;
-
-        try debug_info.address_map.putNoClobber(ctx.base_address, obj_di);
-
-        return obj_di;
     }
 };
 
