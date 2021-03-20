@@ -661,10 +661,6 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
                 @breakpoint();
             }
         },
-        .wasi => {
-            std.debug.warn("{s}", .{msg});
-            std.os.abort();
-        },
         .uefi => {
             // TODO look into using the debug info and logging helpful messages
             std.os.abort();
