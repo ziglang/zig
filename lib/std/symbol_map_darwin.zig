@@ -326,12 +326,4 @@ const Module = struct {
 
         return di;
     }
-
-    test {
-        std.testing.refAllDecls(Self);
-    }
 };
-
-test {
-    std.testing.refAllDecls(@This());
-}

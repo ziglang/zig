@@ -497,14 +497,4 @@ const Module = struct {
 
         mod.populated = true;
     }
-
-    test {
-        if (builtin.os.tag == .windows) {
-            std.testing.refAllDecls(Self);
-        }
-    }
 };
-
-test {
-    std.testing.refAllDecls(@This());
-}

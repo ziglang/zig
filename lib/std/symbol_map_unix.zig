@@ -169,12 +169,4 @@ const Module = struct {
 
         return debug_info.dwarfAddressToSymbolInfo(&self.dwarf, relocated_address);
     }
-
-    test {
-        std.testing.refAllDecls(Self);
-    }
 };
-
-test {
-    std.testing.refAllDecls(@This());
-}
