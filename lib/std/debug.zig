@@ -1791,8 +1791,6 @@ const DwarfModuleDebugInfo = struct {
             },
             else => return err,
         }
-
-        unreachable;
     }
 
     /// This takes ownership of elf_file: users of this function should not close
