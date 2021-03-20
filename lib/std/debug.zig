@@ -27,14 +27,7 @@ const os = std.os;
 const fs = std.fs;
 const lookupDecl = std.meta.lookupDecl;
 const process = std.process;
-const elf = std.elf;
-const DW = std.dwarf;
-const macho = std.macho;
-const coff = std.coff;
-const pdb = std.pdb;
-const ArrayList = std.ArrayList;
 const root = @import("root");
-const maxInt = std.math.maxInt;
 const File = fs.File;
 const windows = os.windows;
 
@@ -93,24 +86,11 @@ pub const default_config = struct {
     }
 
     /// A struct which maps from addresses to symbols (`SymbolInfo`).
-    pub const SymbolMap = struct {
-        const Self = @This();
-
-        debug_info: DebugInfo,
-
-        pub fn addressToSymbol(self: *Self, address: usize) !SymbolInfo {
-            const module = self.debug_info.getModuleForAddress(address) catch |err|
-                return if (std.meta.errorInSet(err, ModuleDebugError)) SymbolInfo{} else return err;
-            return module.addressToSymbol(address);
-        }
-
-        pub fn init(allocator: *std.mem.Allocator) !Self {
-            return @This(){ .debug_info = DebugInfo.init(allocator) };
-        }
-
-        pub fn deinit(self: *Self) void {
-            self.debug_info.deinit();
-        }
+    pub const SymbolMap = switch (builtin.os.tag) {
+        .macos, .ios, .watchos, .tvos => std.SymbolMapDarwin,
+        .linux, .netbsd, .freebsd, .dragonfly, .openbsd => std.SymbolMapUnix,
+        .uefi, .windows => std.SymbolMapPDB,
+        else => std.SymbolMapUnsupported,
     };
 
     /// Try to write a line from a source file. If the line couldn't be written but
