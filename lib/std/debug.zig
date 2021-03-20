@@ -1385,8 +1385,6 @@ pub const DebugInfo = struct {
             return self.lookupModuleDyld(address);
         } else if (builtin.os.tag == .windows) {
             return self.lookupModuleWin32(address);
-        } else if (builtin.os.tag == .haiku) {
-            return self.lookupModuleHaiku(address);
         } else {
             return self.lookupModuleDl(address);
         }
@@ -1594,10 +1592,6 @@ pub const DebugInfo = struct {
         try self.address_map.putNoClobber(ctx.base_address, obj_di);
 
         return obj_di;
-    }
-
-    fn lookupModuleHaiku(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
-        @panic("TODO implement lookup module for Haiku");
     }
 };
 
