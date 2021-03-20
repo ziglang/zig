@@ -194,6 +194,10 @@ test "std.meta.lookupDecl" {
     testing.expectEqual(lookupDecl(has_decls, &.{"a"}), has_decls.a);
     testing.expectEqual(lookupDecl(has_decls, &.{ "a", "b" }), has_decls.a.b);
     testing.expectEqual(lookupDecl(has_decls, &.{ "a", "b", "c" }), has_decls.a.b.c);
+    testing.expectEqual(
+        @TypeOf(lookupDecl(has_decls, &.{ "a", "b", "c" })),
+        ?@TypeOf(has_decls.a.b.c),
+    );
     testing.expectEqual(lookupDecl(has_decls, &.{"b"}), null);
     testing.expectEqual(lookupDecl(has_decls, &.{ "a", "b", "d" }), null);
     testing.expectEqual(lookupDecl(has_decls, &.{ "a", "b", "d" }) orelse 8, 8);
