@@ -902,9 +902,12 @@ pub const ModuleDebugError = error{
     UnsupportedOperatingSystem,
 };
 
-/// This is so collecting a stack trace on an unsupported platform returns
-/// empty instead of failing to build. This is important for
+/// This is so printing a stack trace on an unsupported platform just prints
+/// with empty symbols instead of failing to build. This is important for
 /// GeneralPurposeAllocator and similar.
+///
+/// To implement actual debug symbols, use `root.debug_config.SymbolMap`
+/// or `root.os.debug.ModuleDebugInfo`.
 const UnsupportedModuleDebugInfo = struct {
     fn lookup(debug_info: *DebugInfo, address: usize) !*ModuleDebugInfo {
         return ModuleDebugError.UnsupportedOperatingSystem;
