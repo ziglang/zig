@@ -865,11 +865,11 @@ pub const StackIterator = struct {
     }
 };
 
-pub const DebugInfo = struct {
+const DebugInfo = struct {
     allocator: *mem.Allocator,
     address_map: std.AutoHashMap(usize, *ModuleDebugInfo),
 
-    pub fn init(allocator: *mem.Allocator) DebugInfo {
+    fn init(allocator: *mem.Allocator) DebugInfo {
         return DebugInfo{
             .allocator = allocator,
             .address_map = std.AutoHashMap(usize, *ModuleDebugInfo).init(allocator),
@@ -877,16 +877,16 @@ pub const DebugInfo = struct {
     }
 
     // TODO: resources https://github.com/ziglang/zig/issues/4353
-    pub fn deinit(self: *DebugInfo) void {
+    fn deinit(self: *DebugInfo) void {
         self.address_map.deinit();
     }
 
-    pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+    fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
         return ModuleDebugInfo.lookup(self, address);
     }
 };
 
-pub const ModuleDebugInfo =
+const ModuleDebugInfo =
     if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "ModuleDebugInfo"))
     root.os.debug.ModuleDebugInfo
 else switch (builtin.os.tag) {
@@ -896,6 +896,7 @@ else switch (builtin.os.tag) {
     else => UnsupportedModuleDebugInfo,
 };
 
+/// only needs to be pub for internal std usage
 pub const ModuleDebugError = error{
     MissingDebugInfo,
     InvalidDebugInfo,
@@ -913,7 +914,7 @@ const UnsupportedModuleDebugInfo = struct {
         return ModuleDebugError.UnsupportedOperatingSystem;
     }
 
-    pub fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
+    fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
         unreachable;
     }
 };
@@ -1008,7 +1009,7 @@ const DarwinModuleDebugInfo = struct {
 
     const OFileTable = std.StringHashMap(DW.DwarfInfo);
 
-    pub fn allocator(self: ModuleDebugInfo) *mem.Allocator {
+    fn allocator(self: ModuleDebugInfo) *mem.Allocator {
         return self.ofiles.allocator;
     }
 
@@ -1120,7 +1121,7 @@ const DarwinModuleDebugInfo = struct {
         return null;
     }
 
-    pub fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
+    fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
         nosuspend {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
@@ -1308,7 +1309,7 @@ const DwarfModuleDebugInfo = struct {
     dwarf: DW.DwarfInfo,
     mapped_memory: []const u8,
 
-    pub fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
+    fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
         // Translate the VA into an address into this object
         const relocated_address = address - self.base_address;
 
@@ -1461,7 +1462,7 @@ const PDBModuleDebugInfo = struct {
     sect_contribs: []pdb.SectionContribEntry,
     modules: []Module,
 
-    pub fn allocator(self: ModuleDebugInfo) *mem.Allocator {
+    fn allocator(self: ModuleDebugInfo) *mem.Allocator {
         return self.coff.allocator;
     }
 
@@ -1523,7 +1524,7 @@ const PDBModuleDebugInfo = struct {
         mod.populated = true;
     }
 
-    pub fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
+    fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
         // Translate the VA into an address into this object
         const relocated_address = address - self.base_address;
 
