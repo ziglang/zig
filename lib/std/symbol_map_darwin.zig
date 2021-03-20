@@ -1,6 +1,8 @@
 const std = @import("std.zig");
 const SymbolInfo = std.debug.SymbolInfo;
+const assert = std.debug.assert;
 const debug_info = std.debug_info;
+const BaseError = debug_info.BaseError;
 const chopSlice = debug_info.chopSlice;
 const mem = std.mem;
 const macho = std.macho;
@@ -36,7 +38,7 @@ const Module = struct {
 
     const OFileTable = std.StringHashMap(DW.DwarfInfo);
 
-    pub fn lookup(allocator: *mem.Allocator, address_map: SymbolMap.AddressMap, address: usize) !*Self {
+    pub fn lookup(allocator: *mem.Allocator, address_map: *SymbolMap.AddressMap, address: usize) !*Self {
         const image_count = std.c._dyld_image_count();
 
         var i: u32 = 0;
@@ -77,7 +79,7 @@ const Module = struct {
 
                     const macho_path = mem.spanZ(std.c._dyld_get_image_name(i));
                     const macho_file = fs.cwd().openFile(macho_path, .{ .intended_io_mode = .blocking }) catch |err| switch (err) {
-                        error.FileNotFound => return ModuleDebugError.MissingDebugInfo,
+                        error.FileNotFound => return BaseError.MissingDebugInfo,
                         else => return err,
                     };
                     obj_di.* = try readMachODebugInfo(allocator, macho_file);
@@ -90,7 +92,7 @@ const Module = struct {
             }
         }
 
-        return ModuleDebugError.MissingDebugInfo;
+        return BaseError.MissingDebugInfo;
     }
 
     /// TODO resources https://github.com/ziglang/zig/issues/4353
@@ -105,7 +107,7 @@ const Module = struct {
             @alignCast(@alignOf(macho.mach_header_64), mapped_mem.ptr),
         );
         if (hdr.magic != macho.MH_MAGIC_64)
-            return ModuleDebugError.InvalidDebugInfo;
+            return BaseError.InvalidDebugInfo;
 
         const hdr_base = @ptrCast([*]const u8, hdr);
         var ptr = hdr_base + @sizeOf(macho.mach_header_64);
@@ -118,12 +120,12 @@ const Module = struct {
             }
             ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
         } else {
-            return ModuleDebugError.MissingDebugInfo;
+            return BaseError.MissingDebugInfo;
         };
         const syms = @ptrCast([*]const macho.nlist_64, @alignCast(@alignOf(macho.nlist_64), hdr_base + symtab.symoff))[0..symtab.nsyms];
         const strings = @ptrCast([*]const u8, hdr_base + symtab.stroff)[0 .. symtab.strsize - 1 :0];
 
-        const symbols_buf = try allocator.allocator(MachoSymbol, syms.len);
+        const symbols_buf = try allocator.alloc(MachoSymbol, syms.len);
 
         var ofile: ?*const macho.nlist_64 = null;
         var reloc: u64 = 0;
@@ -237,14 +239,14 @@ const Module = struct {
 
     fn loadOFile(self: *Self, o_file_path: []const u8) !DW.DwarfInfo {
         const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
-        const mapped_mem = try mapWholeFile(o_file);
+        const mapped_mem = try debug_info.mapWholeFile(o_file);
 
         const hdr = @ptrCast(
             *const macho.mach_header_64,
             @alignCast(@alignOf(macho.mach_header_64), mapped_mem.ptr),
         );
         if (hdr.magic != std.macho.MH_MAGIC_64)
-            return ModuleDebugError.InvalidDebugInfo;
+            return BaseError.InvalidDebugInfo;
 
         const hdr_base = @ptrCast([*]const u8, hdr);
         var ptr = hdr_base + @sizeOf(macho.mach_header_64);
@@ -262,7 +264,7 @@ const Module = struct {
             }
             ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
         } else {
-            return ModuleDebugError.MissingDebugInfo;
+            return BaseError.MissingDebugInfo;
         };
 
         var opt_debug_line: ?*const macho.section_64 = null;
@@ -297,17 +299,17 @@ const Module = struct {
         }
 
         const debug_line = opt_debug_line orelse
-            return ModuleDebugError.MissingDebugInfo;
-        const debug_info = opt_debug_info orelse
-            return ModuleDebugError.MissingDebugInfo;
+            return BaseError.MissingDebugInfo;
+        const debug_info_v = opt_debug_info orelse
+            return BaseError.MissingDebugInfo;
         const debug_str = opt_debug_str orelse
-            return ModuleDebugError.MissingDebugInfo;
+            return BaseError.MissingDebugInfo;
         const debug_abbrev = opt_debug_abbrev orelse
-            return ModuleDebugError.MissingDebugInfo;
+            return BaseError.MissingDebugInfo;
 
         var di = DW.DwarfInfo{
             .endian = .Little,
-            .debug_info = try chopSlice(mapped_mem, debug_info.offset, debug_info.size),
+            .debug_info = try chopSlice(mapped_mem, debug_info_v.offset, debug_info_v.size),
             .debug_abbrev = try chopSlice(mapped_mem, debug_abbrev.offset, debug_abbrev.size),
             .debug_str = try chopSlice(mapped_mem, debug_str.offset, debug_str.size),
             .debug_line = try chopSlice(mapped_mem, debug_line.offset, debug_line.size),
@@ -324,4 +326,12 @@ const Module = struct {
 
         return di;
     }
+
+    test {
+        std.testing.refAllDecls(Self);
+    }
 };
+
+test {
+    std.testing.refAllDecls(@This());
+}

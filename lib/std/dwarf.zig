@@ -16,7 +16,7 @@ const ArrayList = std.ArrayList;
 
 pub usingnamespace @import("dwarf_bits.zig");
 
-const Error = std.debug.ModuleDebugError;
+const Error = std.debug_info.BaseError;
 
 const PcRange = struct {
     start: u64,

@@ -11,12 +11,16 @@ const mem = std.mem;
 
 const Self = @This();
 
-pub fn init(allocator: *mem.Allocator) Self {
-    return .{};
+pub fn init(allocator: *mem.Allocator) !Self {
+    return Self{};
 }
 
 pub fn deinit(self: *Self) void {}
 
-fn addressToSymbol(self: *Self, address: usize) !SymbolInfo {
+pub fn addressToSymbol(self: *Self, address: usize) !SymbolInfo {
     return SymbolInfo{};
+}
+
+test {
+    std.testing.refAllDecls(Self);
 }

@@ -1,10 +1,17 @@
 const std = @import("std.zig");
+const builtin = std.builtin;
+const assert = std.debug.assert;
 const SymbolInfo = std.debug.SymbolInfo;
+const LineInfo = std.debug.LineInfo;
 const debug_info = std.debug_info;
+const BaseError = debug_info.BaseError;
 const mem = std.mem;
 const math = std.math;
 const fs = std.fs;
+const File = std.fs.File;
 const pdb = std.pdb;
+const coff = std.coff;
+const windows = std.os.windows;
 const ArrayList = std.ArrayList;
 
 pub const SymbolMap = debug_info.SymbolMapFromModuleInfo(Module);
@@ -29,16 +36,16 @@ const Module = struct {
         checksum_offset: ?usize,
     };
 
-    pub fn lookup(debug_info: *DebugInfo, address: usize) !*Self {
+    pub fn lookup(allocator: *mem.Allocator, address_map: *SymbolMap.AddressMap, address: usize) !*Self {
         if (builtin.os.tag != .windows) {
             // TODO: implement uefi case
-            return ModuleDebugError.UnsupportedOperatingSystem;
+            return BaseError.UnsupportedOperatingSystem;
         }
 
-        return lookupModuleWin32(debug_info, address);
+        return lookupModuleWin32(allocator, address_map, address);
     }
 
-    fn lookupModuleWin32(allocator: *mem.Allocator, address_map: SymbolMap.AddressMap, address: usize) !*Self {
+    fn lookupModuleWin32(allocator: *mem.Allocator, address_map: *SymbolMap.AddressMap, address: usize) !*Self {
         const process_handle = windows.kernel32.GetCurrentProcess();
 
         // Find how many modules are actually loaded
@@ -50,7 +57,7 @@ const Module = struct {
             0,
             &bytes_needed,
         ) == 0)
-            return ModuleDebugError.MissingDebugInfo;
+            return BaseError.MissingDebugInfo;
 
         const needed_modules = bytes_needed / @sizeOf(windows.HMODULE);
 
@@ -63,7 +70,7 @@ const Module = struct {
             try math.cast(windows.DWORD, modules.len * @sizeOf(windows.HMODULE)),
             &bytes_needed,
         ) == 0)
-            return ModuleDebugError.MissingDebugInfo;
+            return BaseError.MissingDebugInfo;
 
         // There's an unavoidable TOCTOU problem here, the module list may have
         // changed between the two EnumProcessModules call.
@@ -79,13 +86,13 @@ const Module = struct {
                 &info,
                 @sizeOf(@TypeOf(info)),
             ) == 0)
-                return ModuleDebugError.MissingDebugInfo;
+                return BaseError.MissingDebugInfo;
 
             const seg_start = @ptrToInt(info.lpBaseOfDll);
             const seg_end = seg_start + info.SizeOfImage;
 
             if (address >= seg_start and address < seg_end) {
-                if (debug_info.address_map.get(seg_start)) |obj_di| {
+                if (address_map.get(seg_start)) |obj_di| {
                     return obj_di;
                 }
 
@@ -104,19 +111,19 @@ const Module = struct {
                 errdefer allocator.destroy(obj_di);
 
                 const coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
-                    error.FileNotFound => return ModuleDebugError.MissingDebugInfo,
+                    error.FileNotFound => return BaseError.MissingDebugInfo,
                     else => return err,
                 };
                 obj_di.* = try readCoffDebugInfo(allocator, coff_file);
                 obj_di.base_address = seg_start;
 
-                try debug_info.address_map.putNoClobber(seg_start, obj_di);
+                try address_map.putNoClobber(seg_start, obj_di);
 
                 return obj_di;
             }
         }
 
-        return ModuleDebugError.MissingDebugInfo;
+        return BaseError.MissingDebugInfo;
     }
 
     /// This takes ownership of coff_file: users of this function should not close
@@ -148,7 +155,7 @@ const Module = struct {
 
             try di.pdb.openFile(di.coff, path);
 
-            var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return ModuleDebugError.InvalidDebugInfo;
+            var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return BaseError.InvalidDebugInfo;
             const version = try pdb_stream.reader().readIntLittle(u32);
             const signature = try pdb_stream.reader().readIntLittle(u32);
             const age = try pdb_stream.reader().readIntLittle(u32);
@@ -162,7 +169,7 @@ const Module = struct {
 
             const string_table_index = str_tab_index: {
                 const name_bytes_len = try pdb_stream.reader().readIntLittle(u32);
-                const name_bytes = try allocator.allocator(u8, name_bytes_len);
+                const name_bytes = try allocator.alloc(u8, name_bytes_len);
                 try pdb_stream.reader().readNoEof(name_bytes);
 
                 const HashTableHeader = packed struct {
@@ -175,21 +182,21 @@ const Module = struct {
                 };
                 const hash_tbl_hdr = try pdb_stream.reader().readStruct(HashTableHeader);
                 if (hash_tbl_hdr.Capacity == 0)
-                    return ModuleDebugError.InvalidDebugInfo;
+                    return BaseError.InvalidDebugInfo;
 
                 if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
-                    return ModuleDebugError.InvalidDebugInfo;
+                    return BaseError.InvalidDebugInfo;
 
                 const present = try readSparseBitVector(&pdb_stream.reader(), allocator);
                 if (present.len != hash_tbl_hdr.Size)
-                    return ModuleDebugError.InvalidDebugInfo;
+                    return BaseError.InvalidDebugInfo;
                 const deleted = try readSparseBitVector(&pdb_stream.reader(), allocator);
 
                 const Bucket = struct {
                     first: u32,
                     second: u32,
                 };
-                const bucket_list = try allocator.allocator(Bucket, present.len);
+                const bucket_list = try allocator.alloc(Bucket, present.len);
                 for (present) |_| {
                     const name_offset = try pdb_stream.reader().readIntLittle(u32);
                     const name_index = try pdb_stream.reader().readIntLittle(u32);
@@ -198,11 +205,11 @@ const Module = struct {
                         break :str_tab_index name_index;
                     }
                 }
-                return ModuleDebugError.MissingDebugInfo;
+                return BaseError.MissingDebugInfo;
             };
 
-            di.pdb.string_table = di.pdb.getStreamById(string_table_index) orelse return ModuleDebugError.MissingDebugInfo;
-            di.pdb.dbi = di.pdb.getStream(pdb.StreamType.Dbi) orelse return ModuleDebugError.MissingDebugInfo;
+            di.pdb.string_table = di.pdb.getStreamById(string_table_index) orelse return BaseError.MissingDebugInfo;
+            di.pdb.dbi = di.pdb.getStream(pdb.StreamType.Dbi) orelse return BaseError.MissingDebugInfo;
 
             const dbi = di.pdb.dbi;
 
@@ -216,7 +223,7 @@ const Module = struct {
             const mod_info_size = dbi_stream_header.ModInfoSize;
             const section_contrib_size = dbi_stream_header.SectionContributionSize;
 
-            var modules = ArrayList(Module).init(allocator);
+            var modules = ArrayList(PDBModule).init(allocator);
 
             // Module Info Substream
             var mod_info_offset: usize = 0;
@@ -250,7 +257,7 @@ const Module = struct {
 
                 mod_info_offset += this_record_len;
                 if (mod_info_offset > mod_info_size)
-                    return ModuleDebugError.InvalidDebugInfo;
+                    return BaseError.InvalidDebugInfo;
             }
 
             di.modules = modules.toOwnedSlice();
@@ -261,7 +268,7 @@ const Module = struct {
             if (section_contrib_size != 0) {
                 const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi.reader().readIntLittle(u32));
                 if (ver != pdb.SectionContrSubstreamVersion.Ver60)
-                    return ModuleDebugError.InvalidDebugInfo;
+                    return BaseError.InvalidDebugInfo;
                 sect_cont_offset += @sizeOf(u32);
             }
             while (sect_cont_offset != section_contrib_size) {
@@ -270,7 +277,7 @@ const Module = struct {
                 sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
 
                 if (sect_cont_offset > section_contrib_size)
-                    return ModuleDebugError.InvalidDebugInfo;
+                    return BaseError.InvalidDebugInfo;
             }
 
             di.sect_contribs = sect_contribs.toOwnedSlice();
@@ -326,7 +333,7 @@ const Module = struct {
         const symbol_name = if (!mod.populated) "???" else while (symbol_i != mod.symbols.len) {
             const prefix = @ptrCast(*pdb.RecordPrefix, &mod.symbols[symbol_i]);
             if (prefix.RecordLen < 2)
-                return ModuleDebugError.InvalidDebugInfo;
+                return BaseError.InvalidDebugInfo;
             switch (prefix.RecordKind) {
                 .S_LPROC32, .S_GPROC32 => {
                     const proc_sym = @ptrCast(*pdb.ProcSym, &mod.symbols[symbol_i + @sizeOf(pdb.RecordPrefix)]);
@@ -340,7 +347,7 @@ const Module = struct {
             }
             symbol_i += prefix.RecordLen + @sizeOf(u16);
             if (symbol_i > mod.symbols.len)
-                return ModuleDebugError.InvalidDebugInfo;
+                return BaseError.InvalidDebugInfo;
         } else "???";
 
         const subsect_info = mod.subsect_info;
@@ -360,7 +367,7 @@ const Module = struct {
 
                         const line_hdr = @ptrCast(*pdb.LineFragmentHeader, &subsect_info[line_index]);
                         if (line_hdr.RelocSegment == 0)
-                            return ModuleDebugError.MissingDebugInfo;
+                            return BaseError.MissingDebugInfo;
                         line_index += @sizeOf(pdb.LineFragmentHeader);
                         const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
                         const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
@@ -425,7 +432,7 @@ const Module = struct {
 
                             // Checking that we are not reading garbage after the (possibly) multiple block fragments.
                             if (line_index != subsection_end_index) {
-                                return ModuleDebugError.InvalidDebugInfo;
+                                return BaseError.InvalidDebugInfo;
                             }
                         }
                     },
@@ -433,7 +440,7 @@ const Module = struct {
                 }
 
                 if (sect_offset > subsect_info.len)
-                    return ModuleDebugError.InvalidDebugInfo;
+                    return BaseError.InvalidDebugInfo;
             } else {
                 break :subsections null;
             }
@@ -450,25 +457,23 @@ const Module = struct {
     fn populateModule(di: *Self, allocator: *mem.Allocator, mod: *PDBModule) !void {
         if (mod.populated)
             return;
-        const alloc = getDebugInfoAllocator();
-
         // At most one can be non-zero.
         if (mod.mod_info.C11ByteSize != 0 and mod.mod_info.C13ByteSize != 0)
-            return ModuleDebugError.InvalidDebugInfo;
+            return BaseError.InvalidDebugInfo;
 
         if (mod.mod_info.C13ByteSize == 0)
             return;
 
-        const modi = di.pdb.getStreamById(mod.mod_info.ModuleSymStream) orelse return ModuleDebugError.MissingDebugInfo;
+        const modi = di.pdb.getStreamById(mod.mod_info.ModuleSymStream) orelse return BaseError.MissingDebugInfo;
 
         const signature = try modi.reader().readIntLittle(u32);
         if (signature != 4)
-            return ModuleDebugError.InvalidDebugInfo;
+            return BaseError.InvalidDebugInfo;
 
-        mod.symbols = try alloc.alloc(u8, mod.mod_info.SymByteSize - 4);
+        mod.symbols = try allocator.alloc(u8, mod.mod_info.SymByteSize - 4);
         try modi.reader().readNoEof(mod.symbols);
 
-        mod.subsect_info = try alloc.alloc(u8, mod.mod_info.C13ByteSize);
+        mod.subsect_info = try allocator.alloc(u8, mod.mod_info.C13ByteSize);
         try modi.reader().readNoEof(mod.subsect_info);
 
         var sect_offset: usize = 0;
@@ -487,9 +492,19 @@ const Module = struct {
             }
 
             if (sect_offset > mod.subsect_info.len)
-                return ModuleDebugError.InvalidDebugInfo;
+                return BaseError.InvalidDebugInfo;
         }
 
         mod.populated = true;
     }
+
+    test {
+        if (builtin.os.tag == .windows) {
+            std.testing.refAllDecls(Self);
+        }
+    }
 };
+
+test {
+    std.testing.refAllDecls(@This());
+}

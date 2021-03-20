@@ -2,10 +2,19 @@
 //! *nix - darwin, but unix_other_than_darwin is too long.
 
 const std = @import("std.zig");
+const builtin = std.builtin;
+const assert = std.debug.assert;
+const SymbolInfo = std.debug.SymbolInfo;
 const debug_info = std.debug_info;
+const BaseError = debug_info.BaseError;
 const chopSlice = debug_info.chopSlice;
+const mem = std.mem;
 const DW = std.dwarf;
 const elf = std.elf;
+const os = std.os;
+const math = std.math;
+const fs = std.fs;
+const File = fs.File;
 
 pub const SymbolMap = debug_info.SymbolMapFromModuleInfo(Module);
 
@@ -16,7 +25,7 @@ const Module = struct {
     dwarf: DW.DwarfInfo,
     mapped_memory: []const u8,
 
-    pub fn lookup(allocator: *mem.Allocator, address_map: SymbolMap.AddressMap, address: usize) !*Self {
+    pub fn lookup(allocator: *mem.Allocator, address_map: *SymbolMap.AddressMap, address: usize) !*Self {
         var ctx: struct {
             // Input
             address: usize,
@@ -50,10 +59,10 @@ const Module = struct {
                 }
             }
         }.callback)) {
-            return ModuleDebugError.MissingDebugInfo;
+            return BaseError.MissingDebugInfo;
         } else |err| switch (err) {
             error.Found => {},
-            else => return ModuleDebugError.MissingDebugInfo,
+            else => return BaseError.MissingDebugInfo,
         }
 
         if (address_map.get(ctx.base_address)) |obj_di| {
@@ -70,7 +79,7 @@ const Module = struct {
             fs.openSelfExe(.{ .intended_io_mode = .blocking });
 
         const elf_file = copy catch |err| switch (err) {
-            error.FileNotFound => return ModuleDebugError.MissingDebugInfo,
+            error.FileNotFound => return BaseError.MissingDebugInfo,
             else => return err,
         };
 
@@ -137,10 +146,10 @@ const Module = struct {
 
             var di = DW.DwarfInfo{
                 .endian = endian,
-                .debug_info = opt_debug_info orelse return ModuleDebugError.MissingDebugInfo,
-                .debug_abbrev = opt_debug_abbrev orelse return ModuleDebugError.MissingDebugInfo,
-                .debug_str = opt_debug_str orelse return ModuleDebugError.MissingDebugInfo,
-                .debug_line = opt_debug_line orelse return ModuleDebugError.MissingDebugInfo,
+                .debug_info = opt_debug_info orelse return BaseError.MissingDebugInfo,
+                .debug_abbrev = opt_debug_abbrev orelse return BaseError.MissingDebugInfo,
+                .debug_str = opt_debug_str orelse return BaseError.MissingDebugInfo,
+                .debug_line = opt_debug_line orelse return BaseError.MissingDebugInfo,
                 .debug_ranges = opt_debug_ranges,
             };
 
@@ -160,4 +169,12 @@ const Module = struct {
 
         return debug_info.dwarfAddressToSymbolInfo(&self.dwarf, relocated_address);
     }
+
+    test {
+        std.testing.refAllDecls(Self);
+    }
 };
+
+test {
+    std.testing.refAllDecls(@This());
+}

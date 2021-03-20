@@ -5,8 +5,11 @@ const std = @import("std.zig");
 const SymbolInfo = std.debug.SymbolInfo;
 const mem = std.mem;
 const DW = std.dwarf;
+const os = std.os;
+const math = std.math;
+const File = std.fs.File;
 
-pub fn SymbolMapFromModuleInfo(Module: type) type {
+pub fn SymbolMapFromModuleInfo(comptime Module: type) type {
     return struct {
         const Self = @This();
 
@@ -15,8 +18,8 @@ pub fn SymbolMapFromModuleInfo(Module: type) type {
         allocator: *mem.Allocator,
         address_map: AddressMap,
 
-        pub fn init(allocator: *mem.Allocator) DebugInfo {
-            return DebugInfo{
+        pub fn init(allocator: *mem.Allocator) !Self {
+            return Self{
                 .allocator = allocator,
                 .address_map = std.AutoHashMap(usize, *Module).init(allocator),
             };
@@ -26,7 +29,7 @@ pub fn SymbolMapFromModuleInfo(Module: type) type {
             self.address_map.deinit();
         }
 
-        fn addressToSymbol(self: *Self, address: usize) !SymbolInfo {
+        pub fn addressToSymbol(self: *Self, address: usize) !SymbolInfo {
             const module = Module.lookup(self.allocator, &self.address_map, address) catch |err|
                 return if (std.meta.errorInSet(err, BaseError)) SymbolInfo{} else return err;
             return module.addressToSymbol(address);

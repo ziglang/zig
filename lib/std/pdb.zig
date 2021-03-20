@@ -16,7 +16,7 @@ const File = std.fs.File;
 
 const ArrayList = std.ArrayList;
 
-const ModuleDebugError = std.debug.ModuleDebugError;
+const BaseError = std.debug_info.BaseError;
 
 // Note: most of this is based on information gathered from LLVM source code,
 // documentation and/or contributors.
@@ -508,15 +508,15 @@ const Msf = struct {
 
         // Sanity checks
         if (!mem.eql(u8, &superblock.FileMagic, SuperBlock.file_magic))
-            return ModuleDebugError.InvalidDebugInfo;
+            return BaseError.InvalidDebugInfo;
         if (superblock.FreeBlockMapBlock != 1 and superblock.FreeBlockMapBlock != 2)
-            return ModuleDebugError.InvalidDebugInfo;
+            return BaseError.InvalidDebugInfo;
         if (superblock.NumBlocks * superblock.BlockSize != try file.getEndPos())
-            return ModuleDebugError.InvalidDebugInfo;
+            return BaseError.InvalidDebugInfo;
         switch (superblock.BlockSize) {
             // llvm only supports 4096 but we can handle any of these values
             512, 1024, 2048, 4096 => {},
-            else => return ModuleDebugError.InvalidDebugInfo,
+            else => return BaseError.InvalidDebugInfo,
         }
 
         const dir_block_count = blockCountFromSize(superblock.NumDirectoryBytes, superblock.BlockSize);
