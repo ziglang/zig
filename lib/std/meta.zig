@@ -128,8 +128,8 @@ test "std.meta.errorInSet" {
     testing.expect(!errorInSet(error.A, error{}));
     testing.expect(!errorInSet(error.B, error{A}));
     testing.expect(errorInSet(error.A, error{A}));
-    testing.expect(!errorInSet(error.D, error{A, B, C}));
-    testing.expect(errorInSet(error.B, error{A, B, C}));
+    testing.expect(!errorInSet(error.D, error{ A, B, C }));
+    testing.expect(errorInSet(error.B, error{ A, B, C }));
     testing.expect(errorInSet(error.B, anyerror));
     testing.expect(errorInSet(error.ErrorName, anyerror));
     testing.expect(errorInSet(error.OtherError, anyerror));
