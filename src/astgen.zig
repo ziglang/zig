@@ -374,12 +374,10 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .bool_and => return boolBinOp(mod, scope, rl, node, true),
         .bool_or => return boolBinOp(mod, scope, rl, node, false),
 
-        .bool_not => @panic("TODO"),
-        .bit_not => @panic("TODO"),
         .negation => @panic("TODO"),
         .negation_wrap => @panic("TODO"),
-        //.bool_not => return rvalue(mod, scope, rl, try boolNot(mod, scope, node)),
-        //.bit_not => return rvalue(mod, scope, rl, try bitNot(mod, scope, node)),
+        .bool_not => return rvalue(mod, scope, rl, try boolNot(mod, scope, node), node),
+        .bit_not => return rvalue(mod, scope, rl, try bitNot(mod, scope, node), node),
         //.negation => return rvalue(mod, scope, rl, try negation(mod, scope, node, .sub)),
         //.negation_wrap => return rvalue(mod, scope, rl, try negation(mod, scope, node, .subwrap)),
 
@@ -419,10 +417,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         },
 
         .unreachable_literal => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const main_token = main_tokens[node];
-            const src = token_starts[main_token];
-            return addZIRNoOp(mod, scope, src, .unreachable_safe);
+            const result = @enumToInt(zir.Const.unreachable_value);
+            return rvalue(mod, scope, rl, result, node);
         },
         .@"return" => return ret(mod, scope, node),
         .field_access => return fieldAccess(mod, scope, rl, node),
@@ -470,30 +466,27 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result, node);
         },
         .optional_type => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const src = token_starts[main_tokens[node]];
+            const src_token = tree.firstToken(node);
+
             const operand = try typeExpr(mod, scope, node_datas[node].lhs);
-            const result = try addZIRUnOp(mod, scope, src, .optional_type, operand);
-            return rvalue(mod, scope, rl, result);
+            const result = try gz.addUnTok(.optional_type, operand, src_token);
+            return rvalue(mod, scope, rl, result, node);
         },
         .unwrap_optional => {
-            if (true) @panic("TODO update for zir-memory-layout");
+            const src_token = tree.firstToken(node);
+
             const src = token_starts[main_tokens[node]];
             switch (rl) {
-                .ref => return addZIRUnOp(
-                    mod,
-                    scope,
-                    src,
+                .ref => return gz.addUnTok(
                     .optional_payload_safe_ptr,
                     try expr(mod, scope, .ref, node_datas[node].lhs),
+                    src_token,
                 ),
-                else => return rvalue(mod, scope, rl, try addZIRUnOp(
-                    mod,
-                    scope,
-                    src,
+                else => return rvalue(mod, scope, rl, try gz.addUnTok(
                     .optional_payload_safe,
                     try expr(mod, scope, .none, node_datas[node].lhs),
-                )),
+                    src_token,
+                ), node),
             }
         },
         .block_two, .block_two_semicolon => {
@@ -1336,27 +1329,24 @@ fn assignOp(
 fn boolNot(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
+    const src_token = tree.firstToken(node);
 
-    const src = token_starts[main_tokens[node]];
-    const bool_type = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.bool_type),
-    });
-    const operand = try expr(mod, scope, .{ .ty = bool_type }, node_datas[node].lhs);
-    return addZIRUnOp(mod, scope, src, .bool_not, operand);
+    const gz = scope.getGenZir();
+
+    const operand = try expr(mod, scope, .{ .ty = @enumToInt(zir.Const.bool_type) }, node_datas[node].lhs);
+
+    return gz.addUnTok(.bool_not, operand, src_token);
 }
 
 fn bitNot(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
+    const src_token = tree.firstToken(node);
 
-    const src = token_starts[main_tokens[node]];
+    const gz = scope.getGenZir();
+
     const operand = try expr(mod, scope, .none, node_datas[node].lhs);
-    return addZIRUnOp(mod, scope, src, .bit_not, operand);
+    return gz.addUnTok(.bit_not, operand, src_token);
 }
 
 fn negation(

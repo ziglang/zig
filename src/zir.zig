@@ -445,6 +445,7 @@ pub const Inst = struct {
         /// The new result location pointer has an inferred type.
         bitcast_result_ptr,
         /// Bitwise NOT. `~`
+        /// uses `un_tok`
         bit_not,
         /// Bitwise OR. `|`
         bit_or,
