@@ -99,7 +99,7 @@ pub const default_config = struct {
 
         pub fn addressToSymbol(self: *Self, address: usize) !SymbolInfo {
             const module = self.debug_info.getModuleForAddress(address) catch |err| switch (err) {
-                error.MissingDebugInfo, error.InvalidDebugInfo => {
+                ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => {
                     return SymbolInfo{};
                 },
                 else => return err,
@@ -109,7 +109,7 @@ pub const default_config = struct {
         }
 
         pub fn init(allocator: *std.mem.Allocator) !Self {
-            return @This(){ .debug_info = try openSelfDebugInfo(allocator) };
+            return @This(){ .debug_info = DebugInfo.init(allocator) };
         }
 
         pub fn deinit(self: *Self) void {
@@ -121,6 +121,11 @@ pub const default_config = struct {
     /// the error is acceptable (end of file, file not found, etc.), returns false.
     /// If the line was correctly writen it returns true.
     pub fn attemptWriteLineFromSourceFile(writer: anytype, line_info: LineInfo) !bool {
+        // TODO: is this the right place to check?
+        if (comptime builtin.arch.isWasm()) {
+            return false;
+        }
+
         writeLineFromFileAnyOs(writer, line_info) catch |err| {
             switch (err) {
                 error.EndOfFile, error.FileNotFound => {},
@@ -239,13 +244,7 @@ pub fn getSymbolMap() !*SymMap {
     }
 }
 
-const is_stripped = using_default_symbol_map and builtin.strip_debug_info;
-
 fn getMappingForDump(writer: anytype) ?*SymMap {
-    if (is_stripped) {
-        writer.print("Unable to dump stack trace: debug info stripped\n", .{}) catch {};
-        return null;
-    }
     return getSymbolMap() catch |err| {
         writer.print(
             "Unable to dump stack trace: Unable to open debug info: {s}\n",
@@ -274,9 +273,6 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     defer held.release();
     const writer = getWrit();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
-        // just to appease the compiler
-        if (is_stripped) unreachable;
-
         write_trace.current(start_addr) catch |err| dumpHandleError(writer, err);
     };
 }
@@ -289,9 +285,6 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     defer held.release();
     const writer = getWrit();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
-        // just to appease the compiler
-        if (is_stripped) unreachable;
-
         write_trace.fromBase(bp, ip) catch |err| dumpHandleError(writer, err);
     };
 }
@@ -303,9 +296,6 @@ pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     defer held.release();
     const writer = getWrit();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
-        // just to appease the compiler
-        if (is_stripped) unreachable;
-
         write_trace.stackTrace(stack_trace) catch |err| dumpHandleError(writer, err);
     };
 }
@@ -322,9 +312,6 @@ fn formatStackTraceWithTTYConfig(
     writer: anytype,
 ) !void {
     if (getMappingForDump(writer)) |mapping| {
-        // just to appease the compiler
-        if (is_stripped) unreachable;
-
         const dumper = std.debug.StackTraceDumper(@TypeOf(writer)){
             .writer = writer,
             .tty_config = self.tty_config,
@@ -640,9 +627,6 @@ pub fn writeTracesForPanic(
         .mapping = mapping,
     };
 
-    // just to appease the compiler
-    if (is_stripped) unreachable;
-
     if (trace) |t| {
         write_trace.stackTrace(t.*) catch |err| {
             dumpHandleError(writer, err);
@@ -878,270 +862,54 @@ pub const StackIterator = struct {
     }
 };
 
-const Module = struct {
-    mod_info: pdb.ModInfo,
-    module_name: []u8,
-    obj_file_name: []u8,
+pub const DebugInfo = struct {
+    allocator: *mem.Allocator,
+    address_map: std.AutoHashMap(usize, *ModuleDebugInfo),
 
-    populated: bool,
-    symbols: []u8,
-    subsect_info: []u8,
-    checksum_offset: ?usize,
+    pub fn init(allocator: *mem.Allocator) DebugInfo {
+        return DebugInfo{
+            .allocator = allocator,
+            .address_map = std.AutoHashMap(usize, *ModuleDebugInfo).init(allocator),
+        };
+    }
+
+    // TODO: resources https://github.com/ziglang/zig/issues/4353
+    pub fn deinit(self: *DebugInfo) void {
+        self.address_map.deinit();
+    }
+
+    pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+        return ModuleDebugInfo.lookup(self, address);
+    }
 };
 
-/// TODO resources https://github.com/ziglang/zig/issues/4353
-fn populateModule(di: *ModuleDebugInfo, mod: *Module) !void {
-    if (mod.populated)
-        return;
-    const allocator = getDebugInfoAllocator();
+pub const ModuleDebugInfo =
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "ModuleDebugInfo"))
+    root.os.debug.ModuleDebugInfo
+else switch (builtin.os.tag) {
+    .macos, .ios, .watchos, .tvos => DarwinModuleDebugInfo,
+    .uefi, .windows => PDBModuleDebugInfo,
+    .linux, .netbsd, .freebsd, .dragonfly, .openbsd => DwarfModuleDebugInfo,
+    else => UnsupportedModuleDebugInfo,
+};
 
-    // At most one can be non-zero.
-    if (mod.mod_info.C11ByteSize != 0 and mod.mod_info.C13ByteSize != 0)
-        return error.InvalidDebugInfo;
-
-    if (mod.mod_info.C13ByteSize == 0)
-        return;
-
-    const modi = di.pdb.getStreamById(mod.mod_info.ModuleSymStream) orelse return error.MissingDebugInfo;
-
-    const signature = try modi.reader().readIntLittle(u32);
-    if (signature != 4)
-        return error.InvalidDebugInfo;
-
-    mod.symbols = try allocator.alloc(u8, mod.mod_info.SymByteSize - 4);
-    try modi.reader().readNoEof(mod.symbols);
-
-    mod.subsect_info = try allocator.alloc(u8, mod.mod_info.C13ByteSize);
-    try modi.reader().readNoEof(mod.subsect_info);
-
-    var sect_offset: usize = 0;
-    var skip_len: usize = undefined;
-    while (sect_offset != mod.subsect_info.len) : (sect_offset += skip_len) {
-        const subsect_hdr = @ptrCast(*pdb.DebugSubsectionHeader, &mod.subsect_info[sect_offset]);
-        skip_len = subsect_hdr.Length;
-        sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
-
-        switch (subsect_hdr.Kind) {
-            .FileChecksums => {
-                mod.checksum_offset = sect_offset;
-                break;
-            },
-            else => {},
-        }
-
-        if (sect_offset > mod.subsect_info.len)
-            return error.InvalidDebugInfo;
-    }
-
-    mod.populated = true;
-}
-
-fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const MachoSymbol {
-    var min: usize = 0;
-    var max: usize = symbols.len - 1; // Exclude sentinel.
-    while (min < max) {
-        const mid = min + (max - min) / 2;
-        const curr = &symbols[mid];
-        const next = &symbols[mid + 1];
-        if (address >= next.address()) {
-            min = mid + 1;
-        } else if (address < curr.address()) {
-            max = mid;
-        } else {
-            return curr;
-        }
-    }
-    return null;
-}
-
-// TODO use this
-pub const OpenSelfDebugInfoError = error{
+pub const ModuleDebugError = error{
     MissingDebugInfo,
-    OutOfMemory,
-    UnsupportedOperatingSystem,
+    InvalidDebugInfo,
 };
 
-/// TODO resources https://github.com/ziglang/zig/issues/4353
-pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
-    nosuspend {
-        if (builtin.strip_debug_info)
-            return error.MissingDebugInfo;
-        if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
-            return root.os.debug.openSelfDebugInfo(allocator);
-        }
-        switch (builtin.os.tag) {
-            .linux,
-            .freebsd,
-            .netbsd,
-            .dragonfly,
-            .openbsd,
-            .macos,
-            .windows,
-            => return DebugInfo.init(allocator),
-            else => return error.UnsupportedDebugInfo,
-        }
+/// This is so collecting a stack trace on an unsupported platform returns
+/// empty instead of failing to build. This is important for
+/// GeneralPurposeAllocator and similar.
+const UnsupportedModuleDebugInfo = struct {
+    fn lookup(debug_info: *DebugInfo, address: usize) !*ModuleDebugInfo {
+        return ModuleDebugError.MissingDebugInfo;
     }
-}
 
-/// This takes ownership of coff_file: users of this function should not close
-/// it themselves, even on error.
-/// TODO resources https://github.com/ziglang/zig/issues/4353
-/// TODO it's weird to take ownership even on error, rework this code.
-fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: File) !ModuleDebugInfo {
-    nosuspend {
-        errdefer coff_file.close();
-
-        const coff_obj = try allocator.create(coff.Coff);
-        coff_obj.* = coff.Coff.init(allocator, coff_file);
-
-        var di = ModuleDebugInfo{
-            .base_address = undefined,
-            .coff = coff_obj,
-            .pdb = undefined,
-            .sect_contribs = undefined,
-            .modules = undefined,
-        };
-
-        try di.coff.loadHeader();
-
-        var path_buf: [windows.MAX_PATH]u8 = undefined;
-        const len = try di.coff.getPdbPath(path_buf[0..]);
-        const raw_path = path_buf[0..len];
-
-        const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
-
-        try di.pdb.openFile(di.coff, path);
-
-        var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return error.InvalidDebugInfo;
-        const version = try pdb_stream.reader().readIntLittle(u32);
-        const signature = try pdb_stream.reader().readIntLittle(u32);
-        const age = try pdb_stream.reader().readIntLittle(u32);
-        var guid: [16]u8 = undefined;
-        try pdb_stream.reader().readNoEof(&guid);
-        if (version != 20000404) // VC70, only value observed by LLVM team
-            return error.UnknownPDBVersion;
-        if (!mem.eql(u8, &di.coff.guid, &guid) or di.coff.age != age)
-            return error.PDBMismatch;
-        // We validated the executable and pdb match.
-
-        const string_table_index = str_tab_index: {
-            const name_bytes_len = try pdb_stream.reader().readIntLittle(u32);
-            const name_bytes = try allocator.alloc(u8, name_bytes_len);
-            try pdb_stream.reader().readNoEof(name_bytes);
-
-            const HashTableHeader = packed struct {
-                Size: u32,
-                Capacity: u32,
-
-                fn maxLoad(cap: u32) u32 {
-                    return cap * 2 / 3 + 1;
-                }
-            };
-            const hash_tbl_hdr = try pdb_stream.reader().readStruct(HashTableHeader);
-            if (hash_tbl_hdr.Capacity == 0)
-                return error.InvalidDebugInfo;
-
-            if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
-                return error.InvalidDebugInfo;
-
-            const present = try readSparseBitVector(&pdb_stream.reader(), allocator);
-            if (present.len != hash_tbl_hdr.Size)
-                return error.InvalidDebugInfo;
-            const deleted = try readSparseBitVector(&pdb_stream.reader(), allocator);
-
-            const Bucket = struct {
-                first: u32,
-                second: u32,
-            };
-            const bucket_list = try allocator.alloc(Bucket, present.len);
-            for (present) |_| {
-                const name_offset = try pdb_stream.reader().readIntLittle(u32);
-                const name_index = try pdb_stream.reader().readIntLittle(u32);
-                const name = mem.spanZ(std.meta.assumeSentinel(name_bytes.ptr + name_offset, 0));
-                if (mem.eql(u8, name, "/names")) {
-                    break :str_tab_index name_index;
-                }
-            }
-            return error.MissingDebugInfo;
-        };
-
-        di.pdb.string_table = di.pdb.getStreamById(string_table_index) orelse return error.MissingDebugInfo;
-        di.pdb.dbi = di.pdb.getStream(pdb.StreamType.Dbi) orelse return error.MissingDebugInfo;
-
-        const dbi = di.pdb.dbi;
-
-        // Dbi Header
-        const dbi_stream_header = try dbi.reader().readStruct(pdb.DbiStreamHeader);
-        if (dbi_stream_header.VersionHeader != 19990903) // V70, only value observed by LLVM team
-            return error.UnknownPDBVersion;
-        if (dbi_stream_header.Age != age)
-            return error.UnmatchingPDB;
-
-        const mod_info_size = dbi_stream_header.ModInfoSize;
-        const section_contrib_size = dbi_stream_header.SectionContributionSize;
-
-        var modules = ArrayList(Module).init(allocator);
-
-        // Module Info Substream
-        var mod_info_offset: usize = 0;
-        while (mod_info_offset != mod_info_size) {
-            const mod_info = try dbi.reader().readStruct(pdb.ModInfo);
-            var this_record_len: usize = @sizeOf(pdb.ModInfo);
-
-            const module_name = try dbi.readNullTermString(allocator);
-            this_record_len += module_name.len + 1;
-
-            const obj_file_name = try dbi.readNullTermString(allocator);
-            this_record_len += obj_file_name.len + 1;
-
-            if (this_record_len % 4 != 0) {
-                const round_to_next_4 = (this_record_len | 0x3) + 1;
-                const march_forward_bytes = round_to_next_4 - this_record_len;
-                try dbi.seekBy(@intCast(isize, march_forward_bytes));
-                this_record_len += march_forward_bytes;
-            }
-
-            try modules.append(Module{
-                .mod_info = mod_info,
-                .module_name = module_name,
-                .obj_file_name = obj_file_name,
-
-                .populated = false,
-                .symbols = undefined,
-                .subsect_info = undefined,
-                .checksum_offset = null,
-            });
-
-            mod_info_offset += this_record_len;
-            if (mod_info_offset > mod_info_size)
-                return error.InvalidDebugInfo;
-        }
-
-        di.modules = modules.toOwnedSlice();
-
-        // Section Contribution Substream
-        var sect_contribs = ArrayList(pdb.SectionContribEntry).init(allocator);
-        var sect_cont_offset: usize = 0;
-        if (section_contrib_size != 0) {
-            const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi.reader().readIntLittle(u32));
-            if (ver != pdb.SectionContrSubstreamVersion.Ver60)
-                return error.InvalidDebugInfo;
-            sect_cont_offset += @sizeOf(u32);
-        }
-        while (sect_cont_offset != section_contrib_size) {
-            const entry = try sect_contribs.addOne();
-            entry.* = try dbi.reader().readStruct(pdb.SectionContribEntry);
-            sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
-
-            if (sect_cont_offset > section_contrib_size)
-                return error.InvalidDebugInfo;
-        }
-
-        di.sect_contribs = sect_contribs.toOwnedSlice();
-
-        return di;
+    pub fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
+        unreachable;
     }
-}
+};
 
 fn readSparseBitVector(stream: anytype, allocator: *mem.Allocator) ![]usize {
     const num_words = try stream.readIntLittle(u32);
@@ -1166,182 +934,6 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) ![]const u8 {
     return ptr[start..end];
 }
 
-/// This takes ownership of elf_file: users of this function should not close
-/// it themselves, even on error.
-/// TODO resources https://github.com/ziglang/zig/issues/4353
-/// TODO it's weird to take ownership even on error, rework this code.
-pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugInfo {
-    nosuspend {
-        const mapped_mem = try mapWholeFile(elf_file);
-        const hdr = @ptrCast(*const elf.Ehdr, &mapped_mem[0]);
-        if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
-        if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
-
-        const endian: builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
-            elf.ELFDATA2LSB => .Little,
-            elf.ELFDATA2MSB => .Big,
-            else => return error.InvalidElfEndian,
-        };
-        assert(endian == std.builtin.endian); // this is our own debug info
-
-        const shoff = hdr.e_shoff;
-        const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
-        const str_shdr = @ptrCast(
-            *const elf.Shdr,
-            @alignCast(@alignOf(elf.Shdr), &mapped_mem[try math.cast(usize, str_section_off)]),
-        );
-        const header_strings = mapped_mem[str_shdr.sh_offset .. str_shdr.sh_offset + str_shdr.sh_size];
-        const shdrs = @ptrCast(
-            [*]const elf.Shdr,
-            @alignCast(@alignOf(elf.Shdr), &mapped_mem[shoff]),
-        )[0..hdr.e_shnum];
-
-        var opt_debug_info: ?[]const u8 = null;
-        var opt_debug_abbrev: ?[]const u8 = null;
-        var opt_debug_str: ?[]const u8 = null;
-        var opt_debug_line: ?[]const u8 = null;
-        var opt_debug_ranges: ?[]const u8 = null;
-
-        for (shdrs) |*shdr| {
-            if (shdr.sh_type == elf.SHT_NULL) continue;
-
-            const name = std.mem.span(std.meta.assumeSentinel(header_strings[shdr.sh_name..].ptr, 0));
-            if (mem.eql(u8, name, ".debug_info")) {
-                opt_debug_info = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_abbrev")) {
-                opt_debug_abbrev = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_str")) {
-                opt_debug_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_line")) {
-                opt_debug_line = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_ranges")) {
-                opt_debug_ranges = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            }
-        }
-
-        var di = DW.DwarfInfo{
-            .endian = endian,
-            .debug_info = opt_debug_info orelse return error.MissingDebugInfo,
-            .debug_abbrev = opt_debug_abbrev orelse return error.MissingDebugInfo,
-            .debug_str = opt_debug_str orelse return error.MissingDebugInfo,
-            .debug_line = opt_debug_line orelse return error.MissingDebugInfo,
-            .debug_ranges = opt_debug_ranges,
-        };
-
-        try DW.openDwarfDebugInfo(&di, allocator);
-
-        return ModuleDebugInfo{
-            .base_address = undefined,
-            .dwarf = di,
-            .mapped_memory = mapped_mem,
-        };
-    }
-}
-
-/// TODO resources https://github.com/ziglang/zig/issues/4353
-/// This takes ownership of coff_file: users of this function should not close
-/// it themselves, even on error.
-/// TODO it's weird to take ownership even on error, rework this code.
-fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !ModuleDebugInfo {
-    const mapped_mem = try mapWholeFile(macho_file);
-
-    const hdr = @ptrCast(
-        *const macho.mach_header_64,
-        @alignCast(@alignOf(macho.mach_header_64), mapped_mem.ptr),
-    );
-    if (hdr.magic != macho.MH_MAGIC_64)
-        return error.InvalidDebugInfo;
-
-    const hdr_base = @ptrCast([*]const u8, hdr);
-    var ptr = hdr_base + @sizeOf(macho.mach_header_64);
-    var ncmd: u32 = hdr.ncmds;
-    const symtab = while (ncmd != 0) : (ncmd -= 1) {
-        const lc = @ptrCast(*const std.macho.load_command, ptr);
-        switch (lc.cmd) {
-            std.macho.LC_SYMTAB => break @ptrCast(*const std.macho.symtab_command, ptr),
-            else => {},
-        }
-        ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
-    } else {
-        return error.MissingDebugInfo;
-    };
-    const syms = @ptrCast([*]const macho.nlist_64, @alignCast(@alignOf(macho.nlist_64), hdr_base + symtab.symoff))[0..symtab.nsyms];
-    const strings = @ptrCast([*]const u8, hdr_base + symtab.stroff)[0 .. symtab.strsize - 1 :0];
-
-    const symbols_buf = try allocator.alloc(MachoSymbol, syms.len);
-
-    var ofile: ?*const macho.nlist_64 = null;
-    var reloc: u64 = 0;
-    var symbol_index: usize = 0;
-    var last_len: u64 = 0;
-    for (syms) |*sym| {
-        if (sym.n_type & std.macho.N_STAB != 0) {
-            switch (sym.n_type) {
-                std.macho.N_OSO => {
-                    ofile = sym;
-                    reloc = 0;
-                },
-                std.macho.N_FUN => {
-                    if (sym.n_sect == 0) {
-                        last_len = sym.n_value;
-                    } else {
-                        symbols_buf[symbol_index] = MachoSymbol{
-                            .nlist = sym,
-                            .ofile = ofile,
-                            .reloc = reloc,
-                        };
-                        symbol_index += 1;
-                    }
-                },
-                std.macho.N_BNSYM => {
-                    if (reloc == 0) {
-                        reloc = sym.n_value;
-                    }
-                },
-                else => continue,
-            }
-        }
-    }
-    const sentinel = try allocator.create(macho.nlist_64);
-    sentinel.* = macho.nlist_64{
-        .n_strx = 0,
-        .n_type = 36,
-        .n_sect = 0,
-        .n_desc = 0,
-        .n_value = symbols_buf[symbol_index - 1].nlist.n_value + last_len,
-    };
-
-    const symbols = allocator.shrink(symbols_buf, symbol_index);
-
-    // Even though lld emits symbols in ascending order, this debug code
-    // should work for programs linked in any valid way.
-    // This sort is so that we can binary search later.
-    std.sort.sort(MachoSymbol, symbols, {}, MachoSymbol.addressLessThan);
-
-    return ModuleDebugInfo{
-        .base_address = undefined,
-        .mapped_memory = mapped_mem,
-        .ofiles = ModuleDebugInfo.OFileTable.init(allocator),
-        .symbols = symbols,
-        .strings = strings,
-    };
-}
-
-const MachoSymbol = struct {
-    nlist: *const macho.nlist_64,
-    ofile: ?*const macho.nlist_64,
-    reloc: u64,
-
-    /// Returns the address from the macho file
-    fn address(self: MachoSymbol) u64 {
-        return self.nlist.n_value;
-    }
-
-    fn addressLessThan(context: void, lhs: MachoSymbol, rhs: MachoSymbol) bool {
-        return lhs.address() < rhs.address();
-    }
-};
-
 /// `file` is expected to have been opened with .intended_io_mode == .blocking.
 /// Takes ownership of file, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
@@ -1364,33 +956,286 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
     }
 }
 
-pub const DebugInfo = struct {
-    allocator: *mem.Allocator,
-    address_map: std.AutoHashMap(usize, *ModuleDebugInfo),
+const DarwinModuleDebugInfo = struct {
+    base_address: usize,
+    mapped_memory: []const u8,
+    symbols: []const MachoSymbol,
+    strings: [:0]const u8,
+    ofiles: OFileTable,
 
-    pub fn init(allocator: *mem.Allocator) DebugInfo {
-        return DebugInfo{
-            .allocator = allocator,
-            .address_map = std.AutoHashMap(usize, *ModuleDebugInfo).init(allocator),
-        };
+    const MachoSymbol = struct {
+        nlist: *const macho.nlist_64,
+        ofile: ?*const macho.nlist_64,
+        reloc: u64,
+
+        /// Returns the address from the macho file
+        fn address(self: MachoSymbol) u64 {
+            return self.nlist.n_value;
+        }
+
+        fn addressLessThan(context: void, lhs: MachoSymbol, rhs: MachoSymbol) bool {
+            return lhs.address() < rhs.address();
+        }
+    };
+
+    const OFileTable = std.StringHashMap(DW.DwarfInfo);
+
+    pub fn allocator(self: ModuleDebugInfo) *mem.Allocator {
+        return self.ofiles.allocator;
     }
 
-    pub fn deinit(self: *DebugInfo) void {
-        // TODO: resources https://github.com/ziglang/zig/issues/4353
-        self.address_map.deinit();
-    }
+    fn loadOFile(self: *ModuleDebugInfo, o_file_path: []const u8) !DW.DwarfInfo {
+        const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
+        const mapped_mem = try mapWholeFile(o_file);
 
-    pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
-        if (comptime std.Target.current.isDarwin()) {
-            return self.lookupModuleDyld(address);
-        } else if (builtin.os.tag == .windows) {
-            return self.lookupModuleWin32(address);
+        const hdr = @ptrCast(
+            *const macho.mach_header_64,
+            @alignCast(@alignOf(macho.mach_header_64), mapped_mem.ptr),
+        );
+        if (hdr.magic != std.macho.MH_MAGIC_64)
+            return ModuleDebugError.InvalidDebugInfo;
+
+        const hdr_base = @ptrCast([*]const u8, hdr);
+        var ptr = hdr_base + @sizeOf(macho.mach_header_64);
+        var ncmd: u32 = hdr.ncmds;
+        const segcmd = while (ncmd != 0) : (ncmd -= 1) {
+            const lc = @ptrCast(*const std.macho.load_command, ptr);
+            switch (lc.cmd) {
+                std.macho.LC_SEGMENT_64 => {
+                    break @ptrCast(
+                        *const std.macho.segment_command_64,
+                        @alignCast(@alignOf(std.macho.segment_command_64), ptr),
+                    );
+                },
+                else => {},
+            }
+            ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
         } else {
-            return self.lookupModuleDl(address);
+            return ModuleDebugError.MissingDebugInfo;
+        };
+
+        var opt_debug_line: ?*const macho.section_64 = null;
+        var opt_debug_info: ?*const macho.section_64 = null;
+        var opt_debug_abbrev: ?*const macho.section_64 = null;
+        var opt_debug_str: ?*const macho.section_64 = null;
+        var opt_debug_ranges: ?*const macho.section_64 = null;
+
+        const sections = @ptrCast(
+            [*]const macho.section_64,
+            @alignCast(@alignOf(macho.section_64), ptr + @sizeOf(std.macho.segment_command_64)),
+        )[0..segcmd.nsects];
+        for (sections) |*sect| {
+            // The section name may not exceed 16 chars and a trailing null may
+            // not be present
+            const name = if (mem.indexOfScalar(u8, sect.sectname[0..], 0)) |last|
+                sect.sectname[0..last]
+            else
+                sect.sectname[0..];
+
+            if (mem.eql(u8, name, "__debug_line")) {
+                opt_debug_line = sect;
+            } else if (mem.eql(u8, name, "__debug_info")) {
+                opt_debug_info = sect;
+            } else if (mem.eql(u8, name, "__debug_abbrev")) {
+                opt_debug_abbrev = sect;
+            } else if (mem.eql(u8, name, "__debug_str")) {
+                opt_debug_str = sect;
+            } else if (mem.eql(u8, name, "__debug_ranges")) {
+                opt_debug_ranges = sect;
+            }
+        }
+
+        const debug_line = opt_debug_line orelse
+            return ModuleDebugError.MissingDebugInfo;
+        const debug_info = opt_debug_info orelse
+            return ModuleDebugError.MissingDebugInfo;
+        const debug_str = opt_debug_str orelse
+            return ModuleDebugError.MissingDebugInfo;
+        const debug_abbrev = opt_debug_abbrev orelse
+            return ModuleDebugError.MissingDebugInfo;
+
+        var di = DW.DwarfInfo{
+            .endian = .Little,
+            .debug_info = try chopSlice(mapped_mem, debug_info.offset, debug_info.size),
+            .debug_abbrev = try chopSlice(mapped_mem, debug_abbrev.offset, debug_abbrev.size),
+            .debug_str = try chopSlice(mapped_mem, debug_str.offset, debug_str.size),
+            .debug_line = try chopSlice(mapped_mem, debug_line.offset, debug_line.size),
+            .debug_ranges = if (opt_debug_ranges) |debug_ranges|
+                try chopSlice(mapped_mem, debug_ranges.offset, debug_ranges.size)
+            else
+                null,
+        };
+
+        try DW.openDwarfDebugInfo(&di, self.allocator());
+
+        // Add the debug info to the cache
+        try self.ofiles.putNoClobber(o_file_path, di);
+
+        return di;
+    }
+
+    fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const MachoSymbol {
+        var min: usize = 0;
+        var max: usize = symbols.len - 1; // Exclude sentinel.
+        while (min < max) {
+            const mid = min + (max - min) / 2;
+            const curr = &symbols[mid];
+            const next = &symbols[mid + 1];
+            if (address >= next.address()) {
+                min = mid + 1;
+            } else if (address < curr.address()) {
+                max = mid;
+            } else {
+                return curr;
+            }
+        }
+        return null;
+    }
+
+    pub fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
+        nosuspend {
+            // Translate the VA into an address into this object
+            const relocated_address = address - self.base_address;
+            assert(relocated_address >= 0x100000000);
+
+            // Find the .o file where this symbol is defined
+            const symbol = machoSearchSymbols(self.symbols, relocated_address) orelse
+                return SymbolInfo{};
+
+            // Take the symbol name from the N_FUN STAB entry, we're going to
+            // use it if we fail to find the DWARF infos
+            const stab_symbol = mem.spanZ(self.strings[symbol.nlist.n_strx..]);
+
+            if (symbol.ofile == null)
+                return SymbolInfo{ .symbol_name = stab_symbol };
+
+            const o_file_path = mem.spanZ(self.strings[symbol.ofile.?.n_strx..]);
+
+            // Check if its debug infos are already in the cache
+            var o_file_di = self.ofiles.get(o_file_path) orelse (self.loadOFile(o_file_path) catch |err| switch (err) {
+                error.FileNotFound, ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => {
+                    return SymbolInfo{ .symbol_name = stab_symbol };
+                },
+                else => return err,
+            });
+
+            // Translate again the address, this time into an address inside the
+            // .o file
+            const relocated_address_o = relocated_address - symbol.reloc;
+
+            if (o_file_di.findCompileUnit(relocated_address_o)) |compile_unit| {
+                return SymbolInfo{
+                    .symbol_name = o_file_di.getSymbolName(relocated_address_o) orelse "???",
+                    .compile_unit_name = compile_unit.die.getAttrString(&o_file_di, DW.AT_name) catch |err| switch (err) {
+                        ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => "???",
+                        else => return err,
+                    },
+                    .line_info = o_file_di.getLineNumberInfo(compile_unit.*, relocated_address_o) catch |err| switch (err) {
+                        ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => null,
+                        else => return err,
+                    },
+                };
+            } else |err| switch (err) {
+                ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => {
+                    return SymbolInfo{ .symbol_name = stab_symbol };
+                },
+                else => return err,
+            }
+
+            unreachable;
         }
     }
 
-    fn lookupModuleDyld(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+    /// TODO resources https://github.com/ziglang/zig/issues/4353
+    /// This takes ownership of coff_file: users of this function should not close
+    /// it themselves, even on error.
+    /// TODO it's weird to take ownership even on error, rework this code.
+    fn readMachODebugInfo(alloc: *mem.Allocator, macho_file: File) !ModuleDebugInfo {
+        const mapped_mem = try mapWholeFile(macho_file);
+
+        const hdr = @ptrCast(
+            *const macho.mach_header_64,
+            @alignCast(@alignOf(macho.mach_header_64), mapped_mem.ptr),
+        );
+        if (hdr.magic != macho.MH_MAGIC_64)
+            return ModuleDebugError.InvalidDebugInfo;
+
+        const hdr_base = @ptrCast([*]const u8, hdr);
+        var ptr = hdr_base + @sizeOf(macho.mach_header_64);
+        var ncmd: u32 = hdr.ncmds;
+        const symtab = while (ncmd != 0) : (ncmd -= 1) {
+            const lc = @ptrCast(*const std.macho.load_command, ptr);
+            switch (lc.cmd) {
+                std.macho.LC_SYMTAB => break @ptrCast(*const std.macho.symtab_command, ptr),
+                else => {},
+            }
+            ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
+        } else {
+            return ModuleDebugError.MissingDebugInfo;
+        };
+        const syms = @ptrCast([*]const macho.nlist_64, @alignCast(@alignOf(macho.nlist_64), hdr_base + symtab.symoff))[0..symtab.nsyms];
+        const strings = @ptrCast([*]const u8, hdr_base + symtab.stroff)[0 .. symtab.strsize - 1 :0];
+
+        const symbols_buf = try alloc.alloc(MachoSymbol, syms.len);
+
+        var ofile: ?*const macho.nlist_64 = null;
+        var reloc: u64 = 0;
+        var symbol_index: usize = 0;
+        var last_len: u64 = 0;
+        for (syms) |*sym| {
+            if (sym.n_type & std.macho.N_STAB != 0) {
+                switch (sym.n_type) {
+                    std.macho.N_OSO => {
+                        ofile = sym;
+                        reloc = 0;
+                    },
+                    std.macho.N_FUN => {
+                        if (sym.n_sect == 0) {
+                            last_len = sym.n_value;
+                        } else {
+                            symbols_buf[symbol_index] = MachoSymbol{
+                                .nlist = sym,
+                                .ofile = ofile,
+                                .reloc = reloc,
+                            };
+                            symbol_index += 1;
+                        }
+                    },
+                    std.macho.N_BNSYM => {
+                        if (reloc == 0) {
+                            reloc = sym.n_value;
+                        }
+                    },
+                    else => continue,
+                }
+            }
+        }
+        const sentinel = try alloc.create(macho.nlist_64);
+        sentinel.* = macho.nlist_64{
+            .n_strx = 0,
+            .n_type = 36,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_value = symbols_buf[symbol_index - 1].nlist.n_value + last_len,
+        };
+
+        const symbols = alloc.shrink(symbols_buf, symbol_index);
+
+        // Even though lld emits symbols in ascending order, this debug code
+        // should work for programs linked in any valid way.
+        // This sort is so that we can binary search later.
+        std.sort.sort(MachoSymbol, symbols, {}, MachoSymbol.addressLessThan);
+
+        return ModuleDebugInfo{
+            .base_address = undefined,
+            .mapped_memory = mapped_mem,
+            .ofiles = OFileTable.init(alloc),
+            .symbols = symbols,
+            .strings = strings,
+        };
+    }
+
+    fn lookup(debug_info: *DebugInfo, address: usize) !*ModuleDebugInfo {
         const image_count = std.c._dyld_image_count();
 
         var i: u32 = 0;
@@ -1422,32 +1267,410 @@ pub const DebugInfo = struct {
                 const seg_end = seg_start + segment_cmd.vmsize;
 
                 if (rebased_address >= seg_start and rebased_address < seg_end) {
-                    if (self.address_map.get(base_address)) |obj_di| {
+                    if (debug_info.address_map.get(base_address)) |obj_di| {
                         return obj_di;
                     }
 
-                    const obj_di = try self.allocator.create(ModuleDebugInfo);
-                    errdefer self.allocator.destroy(obj_di);
+                    const obj_di = try debug_info.allocator.create(ModuleDebugInfo);
+                    errdefer debug_info.allocator.destroy(obj_di);
 
                     const macho_path = mem.spanZ(std.c._dyld_get_image_name(i));
                     const macho_file = fs.cwd().openFile(macho_path, .{ .intended_io_mode = .blocking }) catch |err| switch (err) {
-                        error.FileNotFound => return error.MissingDebugInfo,
+                        error.FileNotFound => return ModuleDebugError.MissingDebugInfo,
                         else => return err,
                     };
-                    obj_di.* = try readMachODebugInfo(self.allocator, macho_file);
+                    obj_di.* = try readMachODebugInfo(debug_info.allocator, macho_file);
                     obj_di.base_address = base_address;
 
-                    try self.address_map.putNoClobber(base_address, obj_di);
+                    try debug_info.address_map.putNoClobber(base_address, obj_di);
 
                     return obj_di;
                 }
             }
         }
 
-        return error.MissingDebugInfo;
+        return ModuleDebugError.MissingDebugInfo;
+    }
+};
+
+const PDBModuleDebugInfo = struct {
+    base_address: usize,
+    pdb: pdb.Pdb,
+    coff: *coff.Coff,
+    sect_contribs: []pdb.SectionContribEntry,
+    modules: []Module,
+
+    pub fn allocator(self: ModuleDebugInfo) *mem.Allocator {
+        return self.coff.allocator;
     }
 
-    fn lookupModuleWin32(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+    const Module = struct {
+        mod_info: pdb.ModInfo,
+        module_name: []u8,
+        obj_file_name: []u8,
+
+        populated: bool,
+        symbols: []u8,
+        subsect_info: []u8,
+        checksum_offset: ?usize,
+    };
+
+    /// TODO resources https://github.com/ziglang/zig/issues/4353
+    fn populateModule(di: *ModuleDebugInfo, mod: *Module) !void {
+        if (mod.populated)
+            return;
+        const alloc = getDebugInfoAllocator();
+
+        // At most one can be non-zero.
+        if (mod.mod_info.C11ByteSize != 0 and mod.mod_info.C13ByteSize != 0)
+            return ModuleDebugError.InvalidDebugInfo;
+
+        if (mod.mod_info.C13ByteSize == 0)
+            return;
+
+        const modi = di.pdb.getStreamById(mod.mod_info.ModuleSymStream) orelse return ModuleDebugError.MissingDebugInfo;
+
+        const signature = try modi.reader().readIntLittle(u32);
+        if (signature != 4)
+            return ModuleDebugError.InvalidDebugInfo;
+
+        mod.symbols = try alloc.alloc(u8, mod.mod_info.SymByteSize - 4);
+        try modi.reader().readNoEof(mod.symbols);
+
+        mod.subsect_info = try alloc.alloc(u8, mod.mod_info.C13ByteSize);
+        try modi.reader().readNoEof(mod.subsect_info);
+
+        var sect_offset: usize = 0;
+        var skip_len: usize = undefined;
+        while (sect_offset != mod.subsect_info.len) : (sect_offset += skip_len) {
+            const subsect_hdr = @ptrCast(*pdb.DebugSubsectionHeader, &mod.subsect_info[sect_offset]);
+            skip_len = subsect_hdr.Length;
+            sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
+
+            switch (subsect_hdr.Kind) {
+                .FileChecksums => {
+                    mod.checksum_offset = sect_offset;
+                    break;
+                },
+                else => {},
+            }
+
+            if (sect_offset > mod.subsect_info.len)
+                return ModuleDebugError.InvalidDebugInfo;
+        }
+
+        mod.populated = true;
+    }
+
+    pub fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
+        // Translate the VA into an address into this object
+        const relocated_address = address - self.base_address;
+
+        var coff_section: *coff.Section = undefined;
+        const mod_index = for (self.sect_contribs) |sect_contrib| {
+            if (sect_contrib.Section > self.coff.sections.items.len) continue;
+            // Remember that SectionContribEntry.Section is 1-based.
+            coff_section = &self.coff.sections.items[sect_contrib.Section - 1];
+
+            const vaddr_start = coff_section.header.virtual_address + sect_contrib.Offset;
+            const vaddr_end = vaddr_start + sect_contrib.Size;
+            if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
+                break sect_contrib.ModuleIndex;
+            }
+        } else {
+            // we have no information to add to the address
+            return SymbolInfo{};
+        };
+
+        const mod = &self.modules[mod_index];
+        try populateModule(self, mod);
+        const obj_basename = fs.path.basename(mod.obj_file_name);
+
+        var symbol_i: usize = 0;
+        const symbol_name = if (!mod.populated) "???" else while (symbol_i != mod.symbols.len) {
+            const prefix = @ptrCast(*pdb.RecordPrefix, &mod.symbols[symbol_i]);
+            if (prefix.RecordLen < 2)
+                return ModuleDebugError.InvalidDebugInfo;
+            switch (prefix.RecordKind) {
+                .S_LPROC32, .S_GPROC32 => {
+                    const proc_sym = @ptrCast(*pdb.ProcSym, &mod.symbols[symbol_i + @sizeOf(pdb.RecordPrefix)]);
+                    const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
+                    const vaddr_end = vaddr_start + proc_sym.CodeSize;
+                    if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
+                        break mem.spanZ(@ptrCast([*:0]u8, proc_sym) + @sizeOf(pdb.ProcSym));
+                    }
+                },
+                else => {},
+            }
+            symbol_i += prefix.RecordLen + @sizeOf(u16);
+            if (symbol_i > mod.symbols.len)
+                return ModuleDebugError.InvalidDebugInfo;
+        } else "???";
+
+        const subsect_info = mod.subsect_info;
+
+        var sect_offset: usize = 0;
+        var skip_len: usize = undefined;
+        const opt_line_info = subsections: {
+            const checksum_offset = mod.checksum_offset orelse break :subsections null;
+            while (sect_offset != subsect_info.len) : (sect_offset += skip_len) {
+                const subsect_hdr = @ptrCast(*pdb.DebugSubsectionHeader, &subsect_info[sect_offset]);
+                skip_len = subsect_hdr.Length;
+                sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
+
+                switch (subsect_hdr.Kind) {
+                    .Lines => {
+                        var line_index = sect_offset;
+
+                        const line_hdr = @ptrCast(*pdb.LineFragmentHeader, &subsect_info[line_index]);
+                        if (line_hdr.RelocSegment == 0)
+                            return ModuleDebugError.MissingDebugInfo;
+                        line_index += @sizeOf(pdb.LineFragmentHeader);
+                        const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
+                        const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
+
+                        if (relocated_address >= frag_vaddr_start and relocated_address < frag_vaddr_end) {
+                            // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
+                            // from now on. We will iterate through them, and eventually find a LineInfo that we're interested in,
+                            // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.
+                            const subsection_end_index = sect_offset + subsect_hdr.Length;
+
+                            while (line_index < subsection_end_index) {
+                                const block_hdr = @ptrCast(*pdb.LineBlockFragmentHeader, &subsect_info[line_index]);
+                                line_index += @sizeOf(pdb.LineBlockFragmentHeader);
+                                const start_line_index = line_index;
+
+                                const has_column = line_hdr.Flags.LF_HaveColumns;
+
+                                // All line entries are stored inside their line block by ascending start address.
+                                // Heuristic: we want to find the last line entry
+                                // that has a vaddr_start <= relocated_address.
+                                // This is done with a simple linear search.
+                                var line_i: u32 = 0;
+                                while (line_i < block_hdr.NumLines) : (line_i += 1) {
+                                    const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[line_index]);
+                                    line_index += @sizeOf(pdb.LineNumberEntry);
+
+                                    const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
+                                    if (relocated_address < vaddr_start) {
+                                        break;
+                                    }
+                                }
+
+                                // line_i == 0 would mean that no matching LineNumberEntry was found.
+                                if (line_i > 0) {
+                                    const subsect_index = checksum_offset + block_hdr.NameIndex;
+                                    const chksum_hdr = @ptrCast(*pdb.FileChecksumEntryHeader, &mod.subsect_info[subsect_index]);
+                                    const strtab_offset = @sizeOf(pdb.PDBStringTableHeader) + chksum_hdr.FileNameOffset;
+                                    try self.pdb.string_table.seekTo(strtab_offset);
+                                    const source_file_name = try self.pdb.string_table.readNullTermString(self.allocator());
+
+                                    const line_entry_idx = line_i - 1;
+
+                                    const column = if (has_column) blk: {
+                                        const start_col_index = start_line_index + @sizeOf(pdb.LineNumberEntry) * block_hdr.NumLines;
+                                        const col_index = start_col_index + @sizeOf(pdb.ColumnNumberEntry) * line_entry_idx;
+                                        const col_num_entry = @ptrCast(*pdb.ColumnNumberEntry, &subsect_info[col_index]);
+                                        break :blk col_num_entry.StartColumn;
+                                    } else 0;
+
+                                    const found_line_index = start_line_index + line_entry_idx * @sizeOf(pdb.LineNumberEntry);
+                                    const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[found_line_index]);
+                                    const flags = @ptrCast(*pdb.LineNumberEntry.Flags, &line_num_entry.Flags);
+
+                                    break :subsections LineInfo{
+                                        .allocator = self.allocator(),
+                                        .file_name = source_file_name,
+                                        .line = flags.Start,
+                                        .column = column,
+                                    };
+                                }
+                            }
+
+                            // Checking that we are not reading garbage after the (possibly) multiple block fragments.
+                            if (line_index != subsection_end_index) {
+                                return ModuleDebugError.InvalidDebugInfo;
+                            }
+                        }
+                    },
+                    else => {},
+                }
+
+                if (sect_offset > subsect_info.len)
+                    return ModuleDebugError.InvalidDebugInfo;
+            } else {
+                break :subsections null;
+            }
+        };
+
+        return SymbolInfo{
+            .symbol_name = symbol_name,
+            .compile_unit_name = obj_basename,
+            .line_info = opt_line_info,
+        };
+    }
+
+    /// This takes ownership of coff_file: users of this function should not close
+    /// it themselves, even on error.
+    /// TODO resources https://github.com/ziglang/zig/issues/4353
+    /// TODO it's weird to take ownership even on error, rework this code.
+    fn readCoffDebugInfo(alloc: *mem.Allocator, coff_file: File) !ModuleDebugInfo {
+        nosuspend {
+            errdefer coff_file.close();
+
+            const coff_obj = try alloc.create(coff.Coff);
+            coff_obj.* = coff.Coff.init(alloc, coff_file);
+
+            var di = ModuleDebugInfo{
+                .base_address = undefined,
+                .coff = coff_obj,
+                .pdb = undefined,
+                .sect_contribs = undefined,
+                .modules = undefined,
+            };
+
+            try di.coff.loadHeader();
+
+            var path_buf: [windows.MAX_PATH]u8 = undefined;
+            const len = try di.coff.getPdbPath(path_buf[0..]);
+            const raw_path = path_buf[0..len];
+
+            const path = try fs.path.resolve(alloc, &[_][]const u8{raw_path});
+
+            try di.pdb.openFile(di.coff, path);
+
+            var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return ModuleDebugError.InvalidDebugInfo;
+            const version = try pdb_stream.reader().readIntLittle(u32);
+            const signature = try pdb_stream.reader().readIntLittle(u32);
+            const age = try pdb_stream.reader().readIntLittle(u32);
+            var guid: [16]u8 = undefined;
+            try pdb_stream.reader().readNoEof(&guid);
+            if (version != 20000404) // VC70, only value observed by LLVM team
+                return error.UnknownPDBVersion;
+            if (!mem.eql(u8, &di.coff.guid, &guid) or di.coff.age != age)
+                return error.PDBMismatch;
+            // We validated the executable and pdb match.
+
+            const string_table_index = str_tab_index: {
+                const name_bytes_len = try pdb_stream.reader().readIntLittle(u32);
+                const name_bytes = try alloc.alloc(u8, name_bytes_len);
+                try pdb_stream.reader().readNoEof(name_bytes);
+
+                const HashTableHeader = packed struct {
+                    Size: u32,
+                    Capacity: u32,
+
+                    fn maxLoad(cap: u32) u32 {
+                        return cap * 2 / 3 + 1;
+                    }
+                };
+                const hash_tbl_hdr = try pdb_stream.reader().readStruct(HashTableHeader);
+                if (hash_tbl_hdr.Capacity == 0)
+                    return ModuleDebugError.InvalidDebugInfo;
+
+                if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
+                    return ModuleDebugError.InvalidDebugInfo;
+
+                const present = try readSparseBitVector(&pdb_stream.reader(), alloc);
+                if (present.len != hash_tbl_hdr.Size)
+                    return ModuleDebugError.InvalidDebugInfo;
+                const deleted = try readSparseBitVector(&pdb_stream.reader(), alloc);
+
+                const Bucket = struct {
+                    first: u32,
+                    second: u32,
+                };
+                const bucket_list = try alloc.alloc(Bucket, present.len);
+                for (present) |_| {
+                    const name_offset = try pdb_stream.reader().readIntLittle(u32);
+                    const name_index = try pdb_stream.reader().readIntLittle(u32);
+                    const name = mem.spanZ(std.meta.assumeSentinel(name_bytes.ptr + name_offset, 0));
+                    if (mem.eql(u8, name, "/names")) {
+                        break :str_tab_index name_index;
+                    }
+                }
+                return ModuleDebugError.MissingDebugInfo;
+            };
+
+            di.pdb.string_table = di.pdb.getStreamById(string_table_index) orelse return ModuleDebugError.MissingDebugInfo;
+            di.pdb.dbi = di.pdb.getStream(pdb.StreamType.Dbi) orelse return ModuleDebugError.MissingDebugInfo;
+
+            const dbi = di.pdb.dbi;
+
+            // Dbi Header
+            const dbi_stream_header = try dbi.reader().readStruct(pdb.DbiStreamHeader);
+            if (dbi_stream_header.VersionHeader != 19990903) // V70, only value observed by LLVM team
+                return error.UnknownPDBVersion;
+            if (dbi_stream_header.Age != age)
+                return error.UnmatchingPDB;
+
+            const mod_info_size = dbi_stream_header.ModInfoSize;
+            const section_contrib_size = dbi_stream_header.SectionContributionSize;
+
+            var modules = ArrayList(Module).init(alloc);
+
+            // Module Info Substream
+            var mod_info_offset: usize = 0;
+            while (mod_info_offset != mod_info_size) {
+                const mod_info = try dbi.reader().readStruct(pdb.ModInfo);
+                var this_record_len: usize = @sizeOf(pdb.ModInfo);
+
+                const module_name = try dbi.readNullTermString(alloc);
+                this_record_len += module_name.len + 1;
+
+                const obj_file_name = try dbi.readNullTermString(alloc);
+                this_record_len += obj_file_name.len + 1;
+
+                if (this_record_len % 4 != 0) {
+                    const round_to_next_4 = (this_record_len | 0x3) + 1;
+                    const march_forward_bytes = round_to_next_4 - this_record_len;
+                    try dbi.seekBy(@intCast(isize, march_forward_bytes));
+                    this_record_len += march_forward_bytes;
+                }
+
+                try modules.append(Module{
+                    .mod_info = mod_info,
+                    .module_name = module_name,
+                    .obj_file_name = obj_file_name,
+
+                    .populated = false,
+                    .symbols = undefined,
+                    .subsect_info = undefined,
+                    .checksum_offset = null,
+                });
+
+                mod_info_offset += this_record_len;
+                if (mod_info_offset > mod_info_size)
+                    return ModuleDebugError.InvalidDebugInfo;
+            }
+
+            di.modules = modules.toOwnedSlice();
+
+            // Section Contribution Substream
+            var sect_contribs = ArrayList(pdb.SectionContribEntry).init(alloc);
+            var sect_cont_offset: usize = 0;
+            if (section_contrib_size != 0) {
+                const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi.reader().readIntLittle(u32));
+                if (ver != pdb.SectionContrSubstreamVersion.Ver60)
+                    return ModuleDebugError.InvalidDebugInfo;
+                sect_cont_offset += @sizeOf(u32);
+            }
+            while (sect_cont_offset != section_contrib_size) {
+                const entry = try sect_contribs.addOne();
+                entry.* = try dbi.reader().readStruct(pdb.SectionContribEntry);
+                sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
+
+                if (sect_cont_offset > section_contrib_size)
+                    return ModuleDebugError.InvalidDebugInfo;
+            }
+
+            di.sect_contribs = sect_contribs.toOwnedSlice();
+
+            return di;
+        }
+    }
+
+    fn lookupModuleWin32(debug_info: *DebugInfo, address: usize) !*ModuleDebugInfo {
         const process_handle = windows.kernel32.GetCurrentProcess();
 
         // Find how many modules are actually loaded
@@ -1459,20 +1682,20 @@ pub const DebugInfo = struct {
             0,
             &bytes_needed,
         ) == 0)
-            return error.MissingDebugInfo;
+            return ModuleDebugError.MissingDebugInfo;
 
         const needed_modules = bytes_needed / @sizeOf(windows.HMODULE);
 
         // Fetch the complete module list
-        var modules = try self.allocator.alloc(windows.HMODULE, needed_modules);
-        defer self.allocator.free(modules);
+        var modules = try debug_info.allocator.alloc(windows.HMODULE, needed_modules);
+        defer debug_info.allocator.free(modules);
         if (windows.kernel32.K32EnumProcessModules(
             process_handle,
             modules.ptr,
             try math.cast(windows.DWORD, modules.len * @sizeOf(windows.HMODULE)),
             &bytes_needed,
         ) == 0)
-            return error.MissingDebugInfo;
+            return ModuleDebugError.MissingDebugInfo;
 
         // There's an unavoidable TOCTOU problem here, the module list may have
         // changed between the two EnumProcessModules call.
@@ -1488,13 +1711,13 @@ pub const DebugInfo = struct {
                 &info,
                 @sizeOf(@TypeOf(info)),
             ) == 0)
-                return error.MissingDebugInfo;
+                return ModuleDebugError.MissingDebugInfo;
 
             const seg_start = @ptrToInt(info.lpBaseOfDll);
             const seg_end = seg_start + info.SizeOfImage;
 
             if (address >= seg_start and address < seg_end) {
-                if (self.address_map.get(seg_start)) |obj_di| {
+                if (debug_info.address_map.get(seg_start)) |obj_di| {
                     return obj_di;
                 }
 
@@ -1509,26 +1732,138 @@ pub const DebugInfo = struct {
                 );
                 assert(len > 0);
 
-                const obj_di = try self.allocator.create(ModuleDebugInfo);
-                errdefer self.allocator.destroy(obj_di);
+                const obj_di = try debug_info.allocator.create(ModuleDebugInfo);
+                errdefer debug_info.allocator.destroy(obj_di);
 
                 const coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
-                    error.FileNotFound => return error.MissingDebugInfo,
+                    error.FileNotFound => return ModuleDebugError.MissingDebugInfo,
                     else => return err,
                 };
-                obj_di.* = try readCoffDebugInfo(self.allocator, coff_file);
+                obj_di.* = try readCoffDebugInfo(debug_info.allocator, coff_file);
                 obj_di.base_address = seg_start;
 
-                try self.address_map.putNoClobber(seg_start, obj_di);
+                try debug_info.address_map.putNoClobber(seg_start, obj_di);
 
                 return obj_di;
             }
         }
 
-        return error.MissingDebugInfo;
+        return ModuleDebugError.MissingDebugInfo;
     }
 
-    fn lookupModuleDl(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+    fn lookup(debug_info: *DebugInfo, address: usize) !*ModuleDebugInfo {
+        if (builtin.os.tag != .windows) {
+            return error.UnsupportedOperatingSystem;
+        }
+
+        return lookupModuleWin32(debug_info, address);
+    }
+};
+
+const DwarfModuleDebugInfo = struct {
+    base_address: usize,
+    dwarf: DW.DwarfInfo,
+    mapped_memory: []const u8,
+
+    pub fn addressToSymbol(self: *ModuleDebugInfo, address: usize) !SymbolInfo {
+        // Translate the VA into an address into this object
+        const relocated_address = address - self.base_address;
+
+        if (nosuspend self.dwarf.findCompileUnit(relocated_address)) |compile_unit| {
+            return SymbolInfo{
+                .symbol_name = nosuspend self.dwarf.getSymbolName(relocated_address) orelse "???",
+                .compile_unit_name = compile_unit.die.getAttrString(&self.dwarf, DW.AT_name) catch |err| switch (err) {
+                    ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => "???",
+                    else => return err,
+                },
+                .line_info = nosuspend self.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
+                    ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => null,
+                    else => return err,
+                },
+            };
+        } else |err| switch (err) {
+            ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => {
+                return SymbolInfo{};
+            },
+            else => return err,
+        }
+
+        unreachable;
+    }
+
+    /// This takes ownership of elf_file: users of this function should not close
+    /// it themselves, even on error.
+    /// TODO resources https://github.com/ziglang/zig/issues/4353
+    /// TODO it's weird to take ownership even on error, rework this code.
+    fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugInfo {
+        nosuspend {
+            const mapped_mem = try mapWholeFile(elf_file);
+            const hdr = @ptrCast(*const elf.Ehdr, &mapped_mem[0]);
+            if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) return error.InvalidElfMagic;
+            if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
+
+            const endian: builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
+                elf.ELFDATA2LSB => .Little,
+                elf.ELFDATA2MSB => .Big,
+                else => return error.InvalidElfEndian,
+            };
+            assert(endian == std.builtin.endian); // this is our own debug info
+
+            const shoff = hdr.e_shoff;
+            const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
+            const str_shdr = @ptrCast(
+                *const elf.Shdr,
+                @alignCast(@alignOf(elf.Shdr), &mapped_mem[try math.cast(usize, str_section_off)]),
+            );
+            const header_strings = mapped_mem[str_shdr.sh_offset .. str_shdr.sh_offset + str_shdr.sh_size];
+            const shdrs = @ptrCast(
+                [*]const elf.Shdr,
+                @alignCast(@alignOf(elf.Shdr), &mapped_mem[shoff]),
+            )[0..hdr.e_shnum];
+
+            var opt_debug_info: ?[]const u8 = null;
+            var opt_debug_abbrev: ?[]const u8 = null;
+            var opt_debug_str: ?[]const u8 = null;
+            var opt_debug_line: ?[]const u8 = null;
+            var opt_debug_ranges: ?[]const u8 = null;
+
+            for (shdrs) |*shdr| {
+                if (shdr.sh_type == elf.SHT_NULL) continue;
+
+                const name = std.mem.span(std.meta.assumeSentinel(header_strings[shdr.sh_name..].ptr, 0));
+                if (mem.eql(u8, name, ".debug_info")) {
+                    opt_debug_info = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                } else if (mem.eql(u8, name, ".debug_abbrev")) {
+                    opt_debug_abbrev = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                } else if (mem.eql(u8, name, ".debug_str")) {
+                    opt_debug_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                } else if (mem.eql(u8, name, ".debug_line")) {
+                    opt_debug_line = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                } else if (mem.eql(u8, name, ".debug_ranges")) {
+                    opt_debug_ranges = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                }
+            }
+
+            var di = DW.DwarfInfo{
+                .endian = endian,
+                .debug_info = opt_debug_info orelse return ModuleDebugError.MissingDebugInfo,
+                .debug_abbrev = opt_debug_abbrev orelse return ModuleDebugError.MissingDebugInfo,
+                .debug_str = opt_debug_str orelse return ModuleDebugError.MissingDebugInfo,
+                .debug_line = opt_debug_line orelse return ModuleDebugError.MissingDebugInfo,
+                .debug_ranges = opt_debug_ranges,
+            };
+
+            try DW.openDwarfDebugInfo(&di, allocator);
+
+            return ModuleDebugInfo{
+                .base_address = undefined,
+                .dwarf = di,
+                .mapped_memory = mapped_mem,
+            };
+        }
+    }
+
+    fn lookup(debug_info: *DebugInfo, address: usize) !*ModuleDebugInfo {
         var ctx: struct {
             // Input
             address: usize,
@@ -1562,18 +1897,18 @@ pub const DebugInfo = struct {
                 }
             }
         }.callback)) {
-            return error.MissingDebugInfo;
+            return ModuleDebugError.MissingDebugInfo;
         } else |err| switch (err) {
             error.Found => {},
-            else => return error.MissingDebugInfo,
+            else => return ModuleDebugError.MissingDebugInfo,
         }
 
-        if (self.address_map.get(ctx.base_address)) |obj_di| {
+        if (debug_info.address_map.get(ctx.base_address)) |obj_di| {
             return obj_di;
         }
 
-        const obj_di = try self.allocator.create(ModuleDebugInfo);
-        errdefer self.allocator.destroy(obj_di);
+        const obj_di = try debug_info.allocator.create(ModuleDebugInfo);
+        errdefer debug_info.allocator.destroy(obj_di);
 
         // TODO https://github.com/ziglang/zig/issues/5525
         const copy = if (ctx.name.len > 0)
@@ -1582,372 +1917,17 @@ pub const DebugInfo = struct {
             fs.openSelfExe(.{ .intended_io_mode = .blocking });
 
         const elf_file = copy catch |err| switch (err) {
-            error.FileNotFound => return error.MissingDebugInfo,
+            error.FileNotFound => return ModuleDebugError.MissingDebugInfo,
             else => return err,
         };
 
-        obj_di.* = try readElfDebugInfo(self.allocator, elf_file);
+        obj_di.* = try readElfDebugInfo(debug_info.allocator, elf_file);
         obj_di.base_address = ctx.base_address;
 
-        try self.address_map.putNoClobber(ctx.base_address, obj_di);
+        try debug_info.address_map.putNoClobber(ctx.base_address, obj_di);
 
         return obj_di;
     }
-};
-
-pub const ModuleDebugInfo = switch (builtin.os.tag) {
-    .macos, .ios, .watchos, .tvos => struct {
-        base_address: usize,
-        mapped_memory: []const u8,
-        symbols: []const MachoSymbol,
-        strings: [:0]const u8,
-        ofiles: OFileTable,
-
-        const OFileTable = std.StringHashMap(DW.DwarfInfo);
-
-        pub fn allocator(self: @This()) *mem.Allocator {
-            return self.ofiles.allocator;
-        }
-
-        fn loadOFile(self: *@This(), o_file_path: []const u8) !DW.DwarfInfo {
-            const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
-            const mapped_mem = try mapWholeFile(o_file);
-
-            const hdr = @ptrCast(
-                *const macho.mach_header_64,
-                @alignCast(@alignOf(macho.mach_header_64), mapped_mem.ptr),
-            );
-            if (hdr.magic != std.macho.MH_MAGIC_64)
-                return error.InvalidDebugInfo;
-
-            const hdr_base = @ptrCast([*]const u8, hdr);
-            var ptr = hdr_base + @sizeOf(macho.mach_header_64);
-            var ncmd: u32 = hdr.ncmds;
-            const segcmd = while (ncmd != 0) : (ncmd -= 1) {
-                const lc = @ptrCast(*const std.macho.load_command, ptr);
-                switch (lc.cmd) {
-                    std.macho.LC_SEGMENT_64 => {
-                        break @ptrCast(
-                            *const std.macho.segment_command_64,
-                            @alignCast(@alignOf(std.macho.segment_command_64), ptr),
-                        );
-                    },
-                    else => {},
-                }
-                ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
-            } else {
-                return error.MissingDebugInfo;
-            };
-
-            var opt_debug_line: ?*const macho.section_64 = null;
-            var opt_debug_info: ?*const macho.section_64 = null;
-            var opt_debug_abbrev: ?*const macho.section_64 = null;
-            var opt_debug_str: ?*const macho.section_64 = null;
-            var opt_debug_ranges: ?*const macho.section_64 = null;
-
-            const sections = @ptrCast(
-                [*]const macho.section_64,
-                @alignCast(@alignOf(macho.section_64), ptr + @sizeOf(std.macho.segment_command_64)),
-            )[0..segcmd.nsects];
-            for (sections) |*sect| {
-                // The section name may not exceed 16 chars and a trailing null may
-                // not be present
-                const name = if (mem.indexOfScalar(u8, sect.sectname[0..], 0)) |last|
-                    sect.sectname[0..last]
-                else
-                    sect.sectname[0..];
-
-                if (mem.eql(u8, name, "__debug_line")) {
-                    opt_debug_line = sect;
-                } else if (mem.eql(u8, name, "__debug_info")) {
-                    opt_debug_info = sect;
-                } else if (mem.eql(u8, name, "__debug_abbrev")) {
-                    opt_debug_abbrev = sect;
-                } else if (mem.eql(u8, name, "__debug_str")) {
-                    opt_debug_str = sect;
-                } else if (mem.eql(u8, name, "__debug_ranges")) {
-                    opt_debug_ranges = sect;
-                }
-            }
-
-            const debug_line = opt_debug_line orelse
-                return error.MissingDebugInfo;
-            const debug_info = opt_debug_info orelse
-                return error.MissingDebugInfo;
-            const debug_str = opt_debug_str orelse
-                return error.MissingDebugInfo;
-            const debug_abbrev = opt_debug_abbrev orelse
-                return error.MissingDebugInfo;
-
-            var di = DW.DwarfInfo{
-                .endian = .Little,
-                .debug_info = try chopSlice(mapped_mem, debug_info.offset, debug_info.size),
-                .debug_abbrev = try chopSlice(mapped_mem, debug_abbrev.offset, debug_abbrev.size),
-                .debug_str = try chopSlice(mapped_mem, debug_str.offset, debug_str.size),
-                .debug_line = try chopSlice(mapped_mem, debug_line.offset, debug_line.size),
-                .debug_ranges = if (opt_debug_ranges) |debug_ranges|
-                    try chopSlice(mapped_mem, debug_ranges.offset, debug_ranges.size)
-                else
-                    null,
-            };
-
-            try DW.openDwarfDebugInfo(&di, self.allocator());
-
-            // Add the debug info to the cache
-            try self.ofiles.putNoClobber(o_file_path, di);
-
-            return di;
-        }
-
-        pub fn addressToSymbol(self: *@This(), address: usize) !SymbolInfo {
-            nosuspend {
-                // Translate the VA into an address into this object
-                const relocated_address = address - self.base_address;
-                assert(relocated_address >= 0x100000000);
-
-                // Find the .o file where this symbol is defined
-                const symbol = machoSearchSymbols(self.symbols, relocated_address) orelse
-                    return SymbolInfo{};
-
-                // Take the symbol name from the N_FUN STAB entry, we're going to
-                // use it if we fail to find the DWARF infos
-                const stab_symbol = mem.spanZ(self.strings[symbol.nlist.n_strx..]);
-
-                if (symbol.ofile == null)
-                    return SymbolInfo{ .symbol_name = stab_symbol };
-
-                const o_file_path = mem.spanZ(self.strings[symbol.ofile.?.n_strx..]);
-
-                // Check if its debug infos are already in the cache
-                var o_file_di = self.ofiles.get(o_file_path) orelse
-                    (self.loadOFile(o_file_path) catch |err| switch (err) {
-                    error.FileNotFound,
-                    error.MissingDebugInfo,
-                    error.InvalidDebugInfo,
-                    => {
-                        return SymbolInfo{ .symbol_name = stab_symbol };
-                    },
-                    else => return err,
-                });
-
-                // Translate again the address, this time into an address inside the
-                // .o file
-                const relocated_address_o = relocated_address - symbol.reloc;
-
-                if (o_file_di.findCompileUnit(relocated_address_o)) |compile_unit| {
-                    return SymbolInfo{
-                        .symbol_name = o_file_di.getSymbolName(relocated_address_o) orelse "???",
-                        .compile_unit_name = compile_unit.die.getAttrString(&o_file_di, DW.AT_name) catch |err| switch (err) {
-                            error.MissingDebugInfo, error.InvalidDebugInfo => "???",
-                            else => return err,
-                        },
-                        .line_info = o_file_di.getLineNumberInfo(compile_unit.*, relocated_address_o) catch |err| switch (err) {
-                            error.MissingDebugInfo, error.InvalidDebugInfo => null,
-                            else => return err,
-                        },
-                    };
-                } else |err| switch (err) {
-                    error.MissingDebugInfo, error.InvalidDebugInfo => {
-                        return SymbolInfo{ .symbol_name = stab_symbol };
-                    },
-                    else => return err,
-                }
-
-                unreachable;
-            }
-        }
-    },
-    .uefi, .windows => struct {
-        base_address: usize,
-        pdb: pdb.Pdb,
-        coff: *coff.Coff,
-        sect_contribs: []pdb.SectionContribEntry,
-        modules: []Module,
-
-        pub fn allocator(self: @This()) *mem.Allocator {
-            return self.coff.allocator;
-        }
-
-        pub fn addressToSymbol(self: *@This(), address: usize) !SymbolInfo {
-            // Translate the VA into an address into this object
-            const relocated_address = address - self.base_address;
-
-            var coff_section: *coff.Section = undefined;
-            const mod_index = for (self.sect_contribs) |sect_contrib| {
-                if (sect_contrib.Section > self.coff.sections.items.len) continue;
-                // Remember that SectionContribEntry.Section is 1-based.
-                coff_section = &self.coff.sections.items[sect_contrib.Section - 1];
-
-                const vaddr_start = coff_section.header.virtual_address + sect_contrib.Offset;
-                const vaddr_end = vaddr_start + sect_contrib.Size;
-                if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
-                    break sect_contrib.ModuleIndex;
-                }
-            } else {
-                // we have no information to add to the address
-                return SymbolInfo{};
-            };
-
-            const mod = &self.modules[mod_index];
-            try populateModule(self, mod);
-            const obj_basename = fs.path.basename(mod.obj_file_name);
-
-            var symbol_i: usize = 0;
-            const symbol_name = if (!mod.populated) "???" else while (symbol_i != mod.symbols.len) {
-                const prefix = @ptrCast(*pdb.RecordPrefix, &mod.symbols[symbol_i]);
-                if (prefix.RecordLen < 2)
-                    return error.InvalidDebugInfo;
-                switch (prefix.RecordKind) {
-                    .S_LPROC32, .S_GPROC32 => {
-                        const proc_sym = @ptrCast(*pdb.ProcSym, &mod.symbols[symbol_i + @sizeOf(pdb.RecordPrefix)]);
-                        const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
-                        const vaddr_end = vaddr_start + proc_sym.CodeSize;
-                        if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
-                            break mem.spanZ(@ptrCast([*:0]u8, proc_sym) + @sizeOf(pdb.ProcSym));
-                        }
-                    },
-                    else => {},
-                }
-                symbol_i += prefix.RecordLen + @sizeOf(u16);
-                if (symbol_i > mod.symbols.len)
-                    return error.InvalidDebugInfo;
-            } else "???";
-
-            const subsect_info = mod.subsect_info;
-
-            var sect_offset: usize = 0;
-            var skip_len: usize = undefined;
-            const opt_line_info = subsections: {
-                const checksum_offset = mod.checksum_offset orelse break :subsections null;
-                while (sect_offset != subsect_info.len) : (sect_offset += skip_len) {
-                    const subsect_hdr = @ptrCast(*pdb.DebugSubsectionHeader, &subsect_info[sect_offset]);
-                    skip_len = subsect_hdr.Length;
-                    sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
-
-                    switch (subsect_hdr.Kind) {
-                        .Lines => {
-                            var line_index = sect_offset;
-
-                            const line_hdr = @ptrCast(*pdb.LineFragmentHeader, &subsect_info[line_index]);
-                            if (line_hdr.RelocSegment == 0)
-                                return error.MissingDebugInfo;
-                            line_index += @sizeOf(pdb.LineFragmentHeader);
-                            const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
-                            const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
-
-                            if (relocated_address >= frag_vaddr_start and relocated_address < frag_vaddr_end) {
-                                // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
-                                // from now on. We will iterate through them, and eventually find a LineInfo that we're interested in,
-                                // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.
-                                const subsection_end_index = sect_offset + subsect_hdr.Length;
-
-                                while (line_index < subsection_end_index) {
-                                    const block_hdr = @ptrCast(*pdb.LineBlockFragmentHeader, &subsect_info[line_index]);
-                                    line_index += @sizeOf(pdb.LineBlockFragmentHeader);
-                                    const start_line_index = line_index;
-
-                                    const has_column = line_hdr.Flags.LF_HaveColumns;
-
-                                    // All line entries are stored inside their line block by ascending start address.
-                                    // Heuristic: we want to find the last line entry
-                                    // that has a vaddr_start <= relocated_address.
-                                    // This is done with a simple linear search.
-                                    var line_i: u32 = 0;
-                                    while (line_i < block_hdr.NumLines) : (line_i += 1) {
-                                        const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[line_index]);
-                                        line_index += @sizeOf(pdb.LineNumberEntry);
-
-                                        const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
-                                        if (relocated_address < vaddr_start) {
-                                            break;
-                                        }
-                                    }
-
-                                    // line_i == 0 would mean that no matching LineNumberEntry was found.
-                                    if (line_i > 0) {
-                                        const subsect_index = checksum_offset + block_hdr.NameIndex;
-                                        const chksum_hdr = @ptrCast(*pdb.FileChecksumEntryHeader, &mod.subsect_info[subsect_index]);
-                                        const strtab_offset = @sizeOf(pdb.PDBStringTableHeader) + chksum_hdr.FileNameOffset;
-                                        try self.pdb.string_table.seekTo(strtab_offset);
-                                        const source_file_name = try self.pdb.string_table.readNullTermString(self.allocator());
-
-                                        const line_entry_idx = line_i - 1;
-
-                                        const column = if (has_column) blk: {
-                                            const start_col_index = start_line_index + @sizeOf(pdb.LineNumberEntry) * block_hdr.NumLines;
-                                            const col_index = start_col_index + @sizeOf(pdb.ColumnNumberEntry) * line_entry_idx;
-                                            const col_num_entry = @ptrCast(*pdb.ColumnNumberEntry, &subsect_info[col_index]);
-                                            break :blk col_num_entry.StartColumn;
-                                        } else 0;
-
-                                        const found_line_index = start_line_index + line_entry_idx * @sizeOf(pdb.LineNumberEntry);
-                                        const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[found_line_index]);
-                                        const flags = @ptrCast(*pdb.LineNumberEntry.Flags, &line_num_entry.Flags);
-
-                                        break :subsections LineInfo{
-                                            .allocator = self.allocator(),
-                                            .file_name = source_file_name,
-                                            .line = flags.Start,
-                                            .column = column,
-                                        };
-                                    }
-                                }
-
-                                // Checking that we are not reading garbage after the (possibly) multiple block fragments.
-                                if (line_index != subsection_end_index) {
-                                    return error.InvalidDebugInfo;
-                                }
-                            }
-                        },
-                        else => {},
-                    }
-
-                    if (sect_offset > subsect_info.len)
-                        return error.InvalidDebugInfo;
-                } else {
-                    break :subsections null;
-                }
-            };
-
-            return SymbolInfo{
-                .symbol_name = symbol_name,
-                .compile_unit_name = obj_basename,
-                .line_info = opt_line_info,
-            };
-        }
-    },
-    .linux, .netbsd, .freebsd, .dragonfly, .openbsd => struct {
-        base_address: usize,
-        dwarf: DW.DwarfInfo,
-        mapped_memory: []const u8,
-
-        pub fn addressToSymbol(self: *@This(), address: usize) !SymbolInfo {
-            // Translate the VA into an address into this object
-            const relocated_address = address - self.base_address;
-
-            if (nosuspend self.dwarf.findCompileUnit(relocated_address)) |compile_unit| {
-                return SymbolInfo{
-                    .symbol_name = nosuspend self.dwarf.getSymbolName(relocated_address) orelse "???",
-                    .compile_unit_name = compile_unit.die.getAttrString(&self.dwarf, DW.AT_name) catch |err| switch (err) {
-                        error.MissingDebugInfo, error.InvalidDebugInfo => "???",
-                        else => return err,
-                    },
-                    .line_info = nosuspend self.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
-                        error.MissingDebugInfo, error.InvalidDebugInfo => null,
-                        else => return err,
-                    },
-                };
-            } else |err| switch (err) {
-                error.MissingDebugInfo, error.InvalidDebugInfo => {
-                    return SymbolInfo{};
-                },
-                else => return err,
-            }
-
-            unreachable;
-        }
-    },
-    else => DW.DwarfInfo,
 };
 
 /// TODO multithreaded awareness
