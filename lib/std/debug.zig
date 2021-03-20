@@ -7,10 +7,10 @@
 //! std.debug contains functions for capturing and printing out stack traces as
 //! well as misc. functions such as `print`, `assert`, and `panicExtra`.
 //!
-//! Many parts of the implementations can be overriden via declarations in the
-//! root `debug_config` namespace. See the `default_config` for documentation
-//! on everything which can be overriden. Note that functions can be overriden
-//! individually (except for `getWriter` which also requires
+//! Many parts of the implementations can be overriden via declarations in
+//! `root.debug_config` or `root.os.debug` namespaces. See the `default_config`
+//! for documentation on everything which can be overriden. Note that functions
+//! can be overriden individually (except for `getWriter` which also requires
 //! `detectTTYConfig`).
 //!
 //! For the freestanding multithreaded use case, it is generally recommended to
@@ -132,37 +132,37 @@ pub const default_config = struct {
 };
 
 const config = lookupDecl(root, &.{"debug_config"}) orelse struct {};
+const os_config = lookupDecl(root, &.{ "os", "debug" }) orelse struct {};
 
-/// Slightly different name than in config to avoid redefinition in default.
-const getWrit = lookupDecl(config, &.{"getWriter"}) orelse default_config.getWriter;
+fn lookupConfigItem(
+    comptime name: []const u8,
+) @TypeOf(lookupDecl(config, &.{name}) orelse
+    (lookupDecl(os_config, &.{name}) orelse
+    @field(default_config, name))) {
+    return lookupDecl(config, &.{name}) orelse
+        (lookupDecl(os_config, &.{name}) orelse
+        @field(default_config, name));
+}
 
-/// Slightly different name than in config to avoid redefinition in default.
+// Slightly different names than in config to avoid redefinition in default.
+
+const getWrit = lookupConfigItem("getWriter");
+
 const getTTYConfig = lookupDecl(config, &.{"detectTTYConfig"}) orelse
     if (@hasDecl(config, "getWriter"))
-    @compileError("getWriter exists in config, so detectTTYConfig must also exist")
+    @compileError("getWriter exists in debug_config, so detectTTYConfig must also exist")
 else
-    default_config.detectTTYConfig;
+    lookupDecl(os_config, &.{"detectTTYConfig"}) orelse
+        if (@hasDecl(os_config, "getWriter"))
+        @compileError("getWriter exists in os.debug, so detectTTYConfig must also exist")
+    else
+        default_config.detectTTYConfig;
 
-/// Slightly different name than in config to avoid redefinition in default.
-const SymMap = lookupDecl(config, &.{"SymbolMap"}) orelse
-    lookupDecl(root, &.{ "os", "debug", "SymbolMap" }) orelse
-    default_config.SymbolMap;
-
-/// Slightly different name than in config to avoid redefinition in default.
-const writeLineFromSourceFile = lookupDecl(config, &.{"attemptWriteLineFromSourceFile"}) orelse
-    default_config.attemptWriteLineFromSourceFile;
-
-/// Slightly different name than in config to avoid redefinition in default.
-const fmtStackTraceLine = lookupDecl(config, &.{"formatStackTraceLine"}) orelse
-    default_config.formatStackTraceLine;
-
-/// Slightly different name than in config to avoid redefinition in default.
-const capStackTraceFrom = lookupDecl(config, &.{"captureStackTraceFrom"}) orelse
-    default_config.captureStackTraceFrom;
-
-/// Slightly different name than in config to avoid redefinition in default.
-const panicTerm = lookupDecl(config, &.{"panicTerminate"}) orelse
-    default_config.panicTerminate;
+const SymMap = lookupConfigItem("SymbolMap");
+const writeLineFromSourceFile = lookupConfigItem("attemptWriteLineFromSourceFile");
+const fmtStackTraceLine = lookupConfigItem("formatStackTraceLine");
+const capStackTraceFrom = lookupConfigItem("captureStackTraceFrom");
+const panicTerm = lookupConfigItem("panicTerminate");
 
 var print_mutex = std.Thread.Mutex{};
 
