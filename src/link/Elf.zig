@@ -2419,7 +2419,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         local_sym.st_name = try self.updateString(local_sym.st_name, mem.spanZ(decl.name));
         local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
         local_sym.st_other = 0;
-        local_sym.st_shndx = self.text_block_list.section_index.?;
+        local_sym.st_shndx = block_list.section_index.?;
         // TODO this write could be avoided if no fields of the symbol were changed.
         try self.writeSymbol(decl.link.elf.local_sym_index);
     } else {
@@ -2433,7 +2433,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
             .st_name = name_str_index,
             .st_info = (elf.STB_LOCAL << 4) | stt_bits,
             .st_other = 0,
-            .st_shndx = self.text_block_list.section_index.?,
+            .st_shndx = block_list.section_index.?,
             .st_value = vaddr,
             .st_size = code.len,
         };
@@ -2758,6 +2758,8 @@ pub fn updateDeclExports(
     if (decl.link.elf.local_sym_index == 0) return;
     const decl_sym = self.local_symbols.items[decl.link.elf.local_sym_index];
 
+    const block_list = self.getDeclBlockList(decl) orelse return;
+
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
@@ -2794,7 +2796,7 @@ pub fn updateDeclExports(
                 .st_name = try self.updateString(sym.st_name, exp.options.name),
                 .st_info = (stb_bits << 4) | stt_bits,
                 .st_other = 0,
-                .st_shndx = self.text_block_list.section_index.?,
+                .st_shndx = block_list.section_index.?,
                 .st_value = decl_sym.st_value,
                 .st_size = decl_sym.st_size,
             };
@@ -2808,7 +2810,7 @@ pub fn updateDeclExports(
                 .st_name = name,
                 .st_info = (stb_bits << 4) | stt_bits,
                 .st_other = 0,
-                .st_shndx = self.text_block_list.section_index.?,
+                .st_shndx = block_list.section_index.?,
                 .st_value = decl_sym.st_value,
                 .st_size = decl_sym.st_size,
             };
