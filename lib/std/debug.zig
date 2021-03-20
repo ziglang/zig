@@ -69,7 +69,7 @@ pub const SymbolInfo = struct {
 pub const default_config = struct {
     /// Get the writer used for `print`, `panicExtra`, and stack trace dumping.
     pub fn getWriter() File.Writer {
-        return std.io.getStdErr().writer();
+        return io.getStdErr().writer();
     }
 
     /// Detect the `TTY.Config` for the writer returned by `getWriter`.
