@@ -98,16 +98,8 @@ pub const default_config = struct {
         debug_info: DebugInfo,
 
         pub fn addressToSymbol(self: *Self, address: usize) !SymbolInfo {
-            const module = self.debug_info.getModuleForAddress(address) catch |err| switch (err) {
-                ModuleDebugError.MissingDebugInfo,
-                ModuleDebugError.InvalidDebugInfo,
-                ModuleDebugError.UnsupportedOperatingSystem,
-                => {
-                    return SymbolInfo{};
-                },
-                else => return err,
-            };
-
+            const module = self.debug_info.getModuleForAddress(address) catch |err|
+                return if (std.meta.errorInSet(err, ModuleDebugError)) SymbolInfo{} else return err;
             return module.addressToSymbol(address);
         }
 
@@ -965,24 +957,16 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
 }
 
 pub fn dwarfAddressToSymbolInfo(dwarf: *DW.DwarfInfo, relocated_address: usize) !SymbolInfo {
-    if (nosuspend dwarf.findCompileUnit(relocated_address)) |compile_unit| {
-        return SymbolInfo{
-            .symbol_name = nosuspend dwarf.getSymbolName(relocated_address) orelse "???",
-            .compile_unit_name = compile_unit.die.getAttrString(dwarf, DW.AT_name) catch |err| switch (err) {
-                ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => "???",
-                else => return err,
-            },
-            .line_info = nosuspend dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
-                ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => null,
-                else => return err,
-            },
-        };
-    } else |err| switch (err) {
-        ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => {
-            return SymbolInfo{};
-        },
-        else => return err,
-    }
+    const compile_unit = nosuspend dwarf.findCompileUnit(relocated_address) catch |err|
+        return if (std.meta.errorInSet(err, ModuleDebugError)) SymbolInfo{} else err;
+
+    return SymbolInfo{
+        .symbol_name = nosuspend dwarf.getSymbolName(relocated_address) orelse "???",
+        .compile_unit_name = compile_unit.die.getAttrString(dwarf, DW.AT_name) catch |err|
+            if (std.meta.errorInSet(err, ModuleDebugError)) "???" else return err,
+        .line_info = nosuspend dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err|
+            if (std.meta.errorInSet(err, ModuleDebugError)) null else return err,
+    };
 }
 
 const DarwinModuleDebugInfo = struct {
@@ -1141,12 +1125,12 @@ const DarwinModuleDebugInfo = struct {
             const o_file_path = mem.spanZ(self.strings[symbol.ofile.?.n_strx..]);
 
             // Check if its debug infos are already in the cache
-            var o_file_di = self.ofiles.get(o_file_path) orelse (self.loadOFile(o_file_path) catch |err| switch (err) {
-                error.FileNotFound, ModuleDebugError.MissingDebugInfo, ModuleDebugError.InvalidDebugInfo => {
-                    return SymbolInfo{ .symbol_name = stab_symbol };
-                },
-                else => return err,
-            });
+            var o_file_di = self.ofiles.get(o_file_path) orelse
+                (self.loadOFile(o_file_path) catch |err|
+                return if (std.meta.errorInSet(err, ModuleDebugError || error{FileNotFound}))
+                SymbolInfo{ .symbol_name = stab_symbol }
+            else
+                err);
 
             // Translate again the address, this time into an address inside the
             // .o file
