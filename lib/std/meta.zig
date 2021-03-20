@@ -154,6 +154,9 @@ fn lookupDeclType(comptime T: type, comptime names: []const []const u8) ?type {
     return type;
 }
 
+/// Get a decl on T by indexing into each field. Returns null if one of the
+/// sub-decls doesn't exist, `compileError` if a sub-decl other than the last one
+/// is a value instead of a type.
 pub fn lookupDecl(comptime T: type, comptime names: []const []const u8) ?(lookupDeclType(T, names) orelse type) {
     if (lookupDeclType(T, names) == null) return null;
 
