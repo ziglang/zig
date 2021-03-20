@@ -135,6 +135,38 @@ test "std.meta.errorInSet" {
     testing.expect(errorInSet(error.OtherError, anyerror));
 }
 
+pub fn lookupDecl(comptime T: type, comptime names: []const []const u8) ?type {
+    comptime var Running = T;
+    for (names) |name| {
+        if (@hasDecl(Running, name))
+            Running = @field(Running, name)
+        else
+            return null;
+    }
+
+    return Running;
+}
+
+test "std.meta.lookupDecl" {
+    const empty = struct {};
+    testing.expectEqual(@as(?type, empty), lookupDecl(empty, &.{}));
+    testing.expectEqual(@as(?type, null), lookupDecl(empty, &.{"a"}));
+    testing.expectEqual(@as(?type, null), lookupDecl(empty, &.{ "a", "b", "c" }));
+    const has_decls = struct {
+        const a = struct {
+            const b = struct {
+                const c = struct {};
+            };
+        };
+    };
+
+    testing.expectEqual(@as(?type, has_decls), lookupDecl(has_decls, &.{}));
+    testing.expectEqual(@as(?type, has_decls.a), lookupDecl(has_decls, &.{"a"}));
+    testing.expectEqual(@as(?type, has_decls.a.b.c), lookupDecl(has_decls, &.{ "a", "b", "c" }));
+    testing.expectEqual(@as(?type, null), lookupDecl(has_decls, &.{"b"}));
+    testing.expectEqual(@as(?type, null), lookupDecl(has_decls, &.{ "a", "b", "d" }));
+}
+
 pub fn bitCount(comptime T: type) comptime_int {
     return switch (@typeInfo(T)) {
         .Bool => 1,
