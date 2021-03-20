@@ -475,7 +475,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .unwrap_optional => {
             const src_token = tree.firstToken(node);
 
-            const src = token_starts[main_tokens[node]];
             switch (rl) {
                 .ref => return gz.addUnTok(
                     .optional_payload_safe_ptr,
@@ -518,7 +517,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             if (true) @panic("TODO update for zir-memory-layout");
             const ident_token = node_datas[node].rhs;
             const name = try mod.identifierTokenString(scope, ident_token);
-            const src = token_starts[ident_token];
             const result = try addZirInstTag(mod, scope, src, .error_value, .{ .name = name });
             return rvalue(mod, scope, rl, result);
         },
@@ -526,7 +524,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             if (true) @panic("TODO update for zir-memory-layout");
             const error_set = try typeExpr(mod, scope, node_datas[node].lhs);
             const payload = try typeExpr(mod, scope, node_datas[node].rhs);
-            const src = token_starts[main_tokens[node]];
             const result = try addZIRBinOp(mod, scope, src, .error_union_type, error_set, payload);
             return rvalue(mod, scope, rl, result);
         },
@@ -534,14 +531,12 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             if (true) @panic("TODO update for zir-memory-layout");
             const lhs = try typeExpr(mod, scope, node_datas[node].lhs);
             const rhs = try typeExpr(mod, scope, node_datas[node].rhs);
-            const src = token_starts[main_tokens[node]];
             const result = try addZIRBinOp(mod, scope, src, .merge_error_sets, lhs, rhs);
             return rvalue(mod, scope, rl, result);
         },
         .anyframe_literal => {
             if (true) @panic("TODO update for zir-memory-layout");
             const main_token = main_tokens[node];
-            const src = token_starts[main_token];
             const result = try addZIRInstConst(mod, scope, src, .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.anyframe_type),
@@ -550,7 +545,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         },
         .anyframe_type => {
             if (true) @panic("TODO update for zir-memory-layout");
-            const src = token_starts[node_datas[node].lhs];
             const return_type = try typeExpr(mod, scope, node_datas[node].rhs);
             const result = try addZIRUnOp(mod, scope, src, .anyframe_type, return_type);
             return rvalue(mod, scope, rl, result);
@@ -724,7 +718,6 @@ pub fn comptimeExpr(
     // instruction is the block's result value.
     _ = try expr(mod, &block_scope.base, rl, node);
 
-    const src = token_starts[tree.firstToken(node)];
     const block = try addZIRInstBlock(mod, parent_scope, src, .block_comptime_flat, .{
         .instructions = try block_scope.arena.dupe(zir.Inst.Ref, block_scope.instructions.items),
     });
@@ -744,7 +737,6 @@ fn breakExpr(
     const main_tokens = tree.nodes.items(.main_token);
     const token_starts = tree.tokens.items(.start);
 
-    const src = token_starts[main_tokens[node]];
     const break_label = node_datas[node].lhs;
     const rhs = node_datas[node].rhs;
 
@@ -823,7 +815,6 @@ fn continueExpr(
     const main_tokens = tree.nodes.items(.main_token);
     const token_starts = tree.tokens.items(.start);
 
-    const src = token_starts[main_tokens[node]];
     const break_label = node_datas[node].lhs;
 
     // Look for the label in the scope.
@@ -958,7 +949,6 @@ fn labeledBlockExpr(
     const lbrace = main_tokens[block_node];
     const label_token = lbrace - 2;
     assert(token_tags[label_token] == .identifier);
-    const src = token_starts[lbrace];
 
     try checkLabelRedefinition(mod, parent_scope, label_token);
 
@@ -1321,7 +1311,6 @@ fn assignOp(
     const lhs = try addZIRUnOp(mod, scope, lhs_ptr.src, .deref, lhs_ptr);
     const lhs_type = try addZIRUnOp(mod, scope, lhs_ptr.src, .typeof, lhs);
     const rhs = try expr(mod, scope, .{ .ty = lhs_type }, node_datas[infix_node].rhs);
-    const src = token_starts[main_tokens[infix_node]];
     const result = try addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
     _ = try addZIRBinOp(mod, scope, src, .store, lhs_ptr, result);
 }
@@ -1360,7 +1349,6 @@ fn negation(
     const main_tokens = tree.nodes.items(.main_token);
     const token_starts = tree.tokens.items(.start);
 
-    const src = token_starts[main_tokens[node]];
     const lhs = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.comptime_int),
         .val = Value.initTag(.zero),
@@ -1378,8 +1366,6 @@ fn ptrType(
     if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const token_starts = tree.tokens.items(.start);
-
-    const src = token_starts[ptr_info.ast.main_token];
 
     const simple = ptr_info.allowzero_token == null and
         ptr_info.ast.align_node == 0 and
@@ -1426,7 +1412,6 @@ fn arrayType(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !
     const node_datas = tree.nodes.items(.data);
     const token_starts = tree.tokens.items(.start);
 
-    const src = token_starts[main_tokens[node]];
     const usize_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.usize_type),
@@ -1456,7 +1441,6 @@ fn arrayTypeSentinel(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.
 
     const len_node = node_datas[node].lhs;
     const extra = tree.extraData(node_datas[node].rhs, ast.Node.ArrayTypeSentinel);
-    const src = token_starts[main_tokens[node]];
     const usize_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.usize_type),
@@ -1529,7 +1513,6 @@ fn errorSetDecl(
             }
         }
     }
-    const src = token_starts[error_token];
     const result = try addZIRInst(mod, scope, src, zir.Inst.ErrorSet, .{ .fields = fields }, .{});
     return rvalue(mod, scope, rl, result);
 }
@@ -1550,8 +1533,6 @@ fn orelseCatchExpr(
 
     const tree = scope.tree();
     const token_starts = tree.tokens.items(.start);
-
-    const src = token_starts[op_token];
 
     var block_scope: Scope.GenZir = .{
         .parent = scope,
@@ -1738,7 +1719,6 @@ pub fn fieldAccess(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.In
     const node_datas = tree.nodes.items(.data);
 
     const dot_token = main_tokens[node];
-    const src = token_starts[dot_token];
     const field_ident = dot_token + 1;
     const field_name = try mod.identifierTokenString(scope, field_ident);
     if (rl == .ref) {
@@ -1766,7 +1746,6 @@ fn arrayAccess(
     const token_starts = tree.tokens.items(.start);
     const node_datas = tree.nodes.items(.data);
 
-    const src = token_starts[main_tokens[node]];
     const usize_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.usize_type),
@@ -1793,8 +1772,6 @@ fn sliceExpr(
     if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const token_starts = tree.tokens.items(.start);
-
-    const src = token_starts[slice.ast.lbracket];
 
     const usize_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
@@ -1848,7 +1825,6 @@ fn simpleBinOp(
 
     const lhs = try expr(mod, scope, .none, node_datas[infix_node].lhs);
     const rhs = try expr(mod, scope, .none, node_datas[infix_node].rhs);
-    const src = token_starts[main_tokens[infix_node]];
     const result = try addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
     return rvalue(mod, scope, rl, result);
 }
@@ -1866,7 +1842,6 @@ fn boolBinOp(
     const main_tokens = tree.nodes.items(.main_token);
     const token_starts = tree.tokens.items(.start);
 
-    const src = token_starts[main_tokens[infix_node]];
     const bool_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.bool_type),
@@ -2880,7 +2855,6 @@ fn parseStringLiteral(mod: *Module, scope: *Scope, token: ast.TokenIndex) ![]u8 
     const bytes = std.zig.parseStringLiteral(arena, unparsed, &bad_index) catch |err| switch (err) {
         error.InvalidCharacter => {
             const bad_byte = unparsed[bad_index];
-            const src = token_starts[token];
             return mod.fail(scope, src + bad_index, "invalid string literal character: '{c}'", .{
                 bad_byte,
             });
@@ -2903,7 +2877,6 @@ fn stringLiteral(
 
     const str_lit_token = main_tokens[str_lit];
     const bytes = try parseStringLiteral(mod, scope, str_lit_token);
-    const src = token_starts[str_lit_token];
     const str_inst = try addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = bytes }, .{});
     return rvalue(mod, scope, rl, str_inst);
 }
@@ -2953,7 +2926,6 @@ fn multilineStringLiteral(
         mem.copy(u8, bytes[byte_i..], line_bytes);
         byte_i += line_bytes.len;
     }
-    const src = token_starts[start];
     const str_inst = try addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = bytes }, .{});
     return rvalue(mod, scope, rl, str_inst);
 }
@@ -2965,7 +2937,6 @@ fn charLiteral(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index)
     const main_token = main_tokens[node];
     const token_starts = tree.tokens.items(.start);
 
-    const src = token_starts[main_token];
     const slice = tree.tokenSlice(main_token);
 
     var bad_index: usize = undefined;
@@ -3025,7 +2996,6 @@ fn floatLiteral(
     const float_number = std.fmt.parseFloat(f128, bytes) catch |e| switch (e) {
         error.InvalidCharacter => unreachable, // validated by tokenizer
     };
-    const src = token_starts[main_token];
     const result = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.comptime_float),
         .val = try Value.Tag.float_128.create(arena, float_number),
@@ -3048,7 +3018,6 @@ fn asmExpr(mod: *Module, scope: *Scope, rl: ResultLoc, full: ast.full.Asm) Inner
     const inputs = try arena.alloc([]const u8, full.inputs.len);
     const args = try arena.alloc(zir.Inst.Ref, full.inputs.len);
 
-    const src = token_starts[full.ast.asm_token];
     const str_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.const_slice_u8_type),
@@ -3258,7 +3227,6 @@ fn builtinCall(
             });
         }
     }
-    const src = token_starts[builtin_token];
 
     switch (info.tag) {
         .ptr_to_int => {
