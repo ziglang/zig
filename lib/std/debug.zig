@@ -25,6 +25,7 @@ const mem = std.mem;
 const io = std.io;
 const os = std.os;
 const fs = std.fs;
+const lookupDecl = std.meta.lookupDecl;
 const process = std.process;
 const elf = std.elf;
 const DW = std.dwarf;
@@ -150,59 +151,37 @@ pub const default_config = struct {
     pub const panicTerminate = os.abort;
 };
 
-const is_root_config = @hasDecl(root, "debug_config");
-const config = if (is_root_config)
-    root.debug_config
-else
-    default_config;
-
-const has_writer_decl = @hasDecl(config, "getWriter");
+const config = lookupDecl(root, &.{"debug_config"}) orelse struct {};
 
 /// Slightly different name than in config to avoid redefinition in default.
-const getWrit = if (has_writer_decl)
-    config.getWriter
-else
-    default_config.getWriter;
+const getWrit = lookupDecl(config, &.{"getWriter"}) orelse default_config.getWriter;
 
 /// Slightly different name than in config to avoid redefinition in default.
-const getTTYConfig = if (@hasDecl(config, "detectTTYConfig"))
-    config.detectTTYConfig
-else if (has_writer_decl)
+const getTTYConfig = lookupDecl(config, &.{"detectTTYConfig"}) orelse
+    if (@hasDecl(config, "getWriter"))
     @compileError("getWriter exists in config, so detectTTYConfig must also exist")
 else
     default_config.detectTTYConfig;
 
-const has_symbol_map_decl = @hasDecl(config, "SymbolMap");
-const using_default_symbol_map = !(is_root_config and has_symbol_map_decl);
-
 /// Slightly different name than in config to avoid redefinition in default.
-const SymMap = if (has_symbol_map_decl)
-    config.SymbolMap
-else
+const SymMap = lookupDecl(config, &.{"SymbolMap"}) orelse
+    lookupDecl(root, &.{ "os", "debug", "SymbolMap" }) orelse
     default_config.SymbolMap;
 
 /// Slightly different name than in config to avoid redefinition in default.
-const writeLineFromSourceFile = if (@hasDecl(config, "attemptWriteLineFromSourceFile"))
-    config.attemptWriteLineFromSourceFile
-else
+const writeLineFromSourceFile = lookupDecl(config, &.{"attemptWriteLineFromSourceFile"}) orelse
     default_config.attemptWriteLineFromSourceFile;
 
 /// Slightly different name than in config to avoid redefinition in default.
-const fmtStackTraceLine = if (@hasDecl(config, "formatStackTraceLine"))
-    config.formatStackTraceLine
-else
+const fmtStackTraceLine = lookupDecl(config, &.{"formatStackTraceLine"}) orelse
     default_config.formatStackTraceLine;
 
 /// Slightly different name than in config to avoid redefinition in default.
-const capStackTraceFrom = if (@hasDecl(config, "captureStackTraceFrom"))
-    config.captureStackTraceFrom
-else
+const capStackTraceFrom = lookupDecl(config, &.{"captureStackTraceFrom"}) orelse
     default_config.captureStackTraceFrom;
 
 /// Slightly different name than in config to avoid redefinition in default.
-const panicTerm = if (@hasDecl(config, "panicTerminate"))
-    config.panicTerminate
-else
+const panicTerm = lookupDecl(config, &.{"panicTerminate"}) orelse
     default_config.panicTerminate;
 
 var print_mutex = std.Thread.Mutex{};
