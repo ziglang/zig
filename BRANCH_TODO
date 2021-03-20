@@ -1,9 +1,6 @@
 this is my WIP branch scratch pad, to be deleted before merging into master
 
 Merge TODO list:
- * fix discrepancy between TZIR wanting src: usize (byte offset) and Sema
-   now providing LazySrcLoc
- * fix compile errors
  * don't have an explicit dbg_stmt zir instruction - instead merge it with
    var decl and assignment instructions, etc.
    - make it set sema.src where appropriate
@@ -13,6 +10,7 @@ Merge TODO list:
  * finish implementing SrcLoc byteOffset function
  * audit Module.zig for use of token_starts - it should only be when
    resolving LazySrcLoc
+ * audit astgen.zig for use of token_starts - I think there should be no uses
  * audit all the .unneeded src locations
  * audit the calls in codegen toSrcLocWithDecl specifically if there is inlined function
    calls from other files.
@@ -29,20 +27,6 @@ Performance optimizations to look into:
    - Look into this for enum literals too
  * make ret_type and ret_ptr instructions be implied indexes; no need to have
    tags associated with them.
-
-
-Random snippets of code that I deleted and need to make sure get
-re-integrated appropriately:
-
-
-
-    /// Each Decl gets its own string interning, in order to avoid contention when
-    /// using multiple threads to analyze Decls in parallel. Any particular Decl will only
-    /// be touched by a single thread at one time.
-    strings: StringTable = .{},
-
-    /// The string memory referenced here is stored inside the Decl's arena.
-    pub const StringTable = std.StringArrayHashMapUnmanaged(void);
-
-
+ * use a smaller encoding for the auto generated return void at the end of
+   function ZIR.
 

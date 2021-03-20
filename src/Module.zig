@@ -241,6 +241,10 @@ pub const Decl = struct {
         return .{ .token_offset = token_index - decl.srcToken() };
     }
 
+    pub fn nodeSrcLoc(decl: *Decl, node_index: ast.Node.Index) LazySrcLoc {
+        return .{ .node_offset = node_index - decl.srcNode() };
+    }
+
     pub fn srcLoc(decl: *Decl) SrcLoc {
         return .{
             .container = .{ .decl = decl },
@@ -1003,8 +1007,12 @@ pub const Scope = struct {
             };
         }
 
-        pub fn tokSrcLoc(gz: *GenZir, token_index: ast.TokenIndex) LazySrcLoc {
+        pub fn tokSrcLoc(gz: GenZir, token_index: ast.TokenIndex) LazySrcLoc {
             return gz.zir_code.decl.tokSrcLoc(token_index);
+        }
+
+        pub fn nodeSrcLoc(gz: GenZir, node_index: ast.Node.Index) LazySrcLoc {
+            return gz.zir_code.decl.nodeSrcLoc(node_index);
         }
 
         pub fn addFnTypeCc(gz: *GenZir, tag: zir.Inst.Tag, args: struct {
@@ -1092,6 +1100,30 @@ pub const Scope = struct {
             });
         }
 
+        pub fn addPlNode(
+            gz: *GenZir,
+            tag: zir.Inst.Tag,
+            /// Absolute node index. This function does the conversion to offset from Decl.
+            abs_node_index: ast.Node.Index,
+            extra: anytype,
+        ) !zir.Inst.Ref {
+            const gpa = gz.zir_code.gpa;
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
+            try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
+
+            const payload_index = try gz.zir_code.addExtra(extra);
+            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+            gz.zir_code.instructions.appendAssumeCapacity(.{
+                .tag = tag,
+                .data = .{ .pl_node = .{
+                    .src_node = gz.zir_code.decl.srcNode() - abs_node_index,
+                    .payload_index = payload_index,
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+            return new_index + gz.zir_code.ref_start_index;
+        }
+
         pub fn addUnTok(
             gz: *GenZir,
             tag: zir.Inst.Tag,
@@ -1165,6 +1197,21 @@ pub const Scope = struct {
             });
         }
 
+        /// Note that this returns a `zir.Inst.Index` not a ref.
+        /// Does *not* append the block instruction to the scope.
+        /// Leaves the `payload_index` field undefined.
+        pub fn addBlock(gz: *GenZir, tag: zir.Inst.Tag, node: ast.Node.Index) !zir.Inst.Index {
+            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+            try gz.zir_code.instructions.append(gz.zir_code.gpa, .{
+                .tag = tag,
+                .data = .{ .pl_node = .{
+                    .src_node = node - gz.zir_code.decl.srcNode(),
+                    .payload_index = undefined,
+                } },
+            });
+            return new_index;
+        }
+
         fn add(gz: *GenZir, inst: zir.Inst) !zir.Inst.Ref {
             const gpa = gz.zir_code.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
@@ -1188,6 +1235,8 @@ pub const Scope = struct {
         gen_zir: *GenZir,
         name: []const u8,
         inst: zir.Inst.Index,
+        /// Source location of the corresponding variable declaration.
+        src: LazySrcLoc,
     };
 
     /// This could be a `const` or `var` local. It has a pointer instead of a value.
@@ -1201,6 +1250,8 @@ pub const Scope = struct {
         gen_zir: *GenZir,
         name: []const u8,
         ptr: zir.Inst.Index,
+        /// Source location of the corresponding variable declaration.
+        src: LazySrcLoc,
     };
 
     pub const Nosuspend = struct {
@@ -1244,6 +1295,169 @@ pub const WipZirCode = struct {
             wzc.extra.appendAssumeCapacity(@field(extra, field.name));
         }
         return result;
+    }
+
+    /// Returns `true` if and only if the instruction *always* has a void type, or
+    /// *always* has a NoReturn type. Function calls return false because
+    /// the answer depends on their type.
+    /// This is used to elide unnecessary `ensure_result_used` instructions.
+    pub fn isVoidOrNoReturn(wzc: WipZirCode, inst_ref: zir.Inst.Ref) bool {
+        if (inst_ref >= wzc.ref_start_index) {
+            const inst = inst_ref - wzc.ref_start_index;
+            const tags = wzc.instructions.items(.tag);
+            switch (tags[inst]) {
+                .@"const" => {
+                    const tv = wzc.instructions.items(.data)[inst].@"const";
+                    return switch (tv.ty.zigTypeTag()) {
+                        .NoReturn, .Void => true,
+                        else => false,
+                    };
+                },
+
+                .add,
+                .addwrap,
+                .alloc,
+                .alloc_mut,
+                .alloc_inferred,
+                .alloc_inferred_mut,
+                .array_cat,
+                .array_mul,
+                .array_type,
+                .array_type_sentinel,
+                .indexable_ptr_len,
+                .as,
+                .as_node,
+                .@"asm",
+                .asm_volatile,
+                .bit_and,
+                .bitcast,
+                .bitcast_ref,
+                .bitcast_result_ptr,
+                .bit_or,
+                .block,
+                .block_flat,
+                .block_comptime,
+                .block_comptime_flat,
+                .bool_not,
+                .bool_and,
+                .bool_or,
+                .call,
+                .call_async_kw,
+                .call_no_async,
+                .call_compile_time,
+                .call_none,
+                .cmp_lt,
+                .cmp_lte,
+                .cmp_eq,
+                .cmp_gte,
+                .cmp_gt,
+                .cmp_neq,
+                .coerce_result_ptr,
+                .decl_ref,
+                .decl_val,
+                .deref_node,
+                .div,
+                .elem_ptr,
+                .elem_val,
+                .elem_ptr_node,
+                .elem_val_node,
+                .floatcast,
+                .field_ptr,
+                .field_val,
+                .field_ptr_named,
+                .field_val_named,
+                .fn_type,
+                .fn_type_var_args,
+                .fn_type_cc,
+                .fn_type_cc_var_args,
+                .int,
+                .intcast,
+                .int_type,
+                .is_non_null,
+                .is_null,
+                .is_non_null_ptr,
+                .is_null_ptr,
+                .is_err,
+                .is_err_ptr,
+                .mod_rem,
+                .mul,
+                .mulwrap,
+                .param_type,
+                .ptrtoint,
+                .ref,
+                .ret_ptr,
+                .ret_type,
+                .shl,
+                .shr,
+                .store,
+                .store_to_block_ptr,
+                .store_to_inferred_ptr,
+                .str,
+                .sub,
+                .subwrap,
+                .typeof,
+                .xor,
+                .optional_type,
+                .optional_type_from_ptr_elem,
+                .optional_payload_safe,
+                .optional_payload_unsafe,
+                .optional_payload_safe_ptr,
+                .optional_payload_unsafe_ptr,
+                .err_union_payload_safe,
+                .err_union_payload_unsafe,
+                .err_union_payload_safe_ptr,
+                .err_union_payload_unsafe_ptr,
+                .err_union_code,
+                .err_union_code_ptr,
+                .ptr_type,
+                .ptr_type_simple,
+                .enum_literal,
+                .enum_literal_small,
+                .merge_error_sets,
+                .anyframe_type,
+                .error_union_type,
+                .bit_not,
+                .error_set,
+                .error_value,
+                .slice_start,
+                .slice_end,
+                .slice_sentinel,
+                .import,
+                .typeof_peer,
+                .resolve_inferred_alloc,
+                .@"resume",
+                .@"await",
+                .nosuspend_await,
+                => return false,
+
+                .breakpoint,
+                .dbg_stmt_node,
+                .ensure_result_used,
+                .ensure_result_non_error,
+                .set_eval_branch_quota,
+                .compile_log,
+                .ensure_err_payload_void,
+                .@"break",
+                .break_void_tok,
+                .condbr,
+                .compile_error,
+                .ret_node,
+                .ret_tok,
+                .ret_coerce,
+                .unreachable_unsafe,
+                .unreachable_safe,
+                .loop,
+                .suspend_block,
+                .suspend_block_one,
+                .elided,
+                => return true,
+            }
+        }
+        return switch (inst_ref) {
+            @enumToInt(zir.Const.unused) => unreachable,
+            @enumToInt(zir.Const.void_value), @enumToInt(zir.Const.unreachable_value) => true,
+            else => false,
+        };
     }
 
     pub fn deinit(wzc: *WipZirCode) void {
@@ -1348,7 +1562,7 @@ pub const SrcLoc = struct {
         };
     }
 
-    pub fn byteOffset(src_loc: SrcLoc, mod: *Module) !u32 {
+    pub fn byteOffset(src_loc: SrcLoc) !u32 {
         switch (src_loc.lazy) {
             .unneeded => unreachable,
             .todo => unreachable,
@@ -1373,14 +1587,14 @@ pub const SrcLoc = struct {
             .token_offset => |tok_off| {
                 const decl = src_loc.container.decl;
                 const tok_index = decl.srcToken() + tok_off;
-                const tree = src_loc.container.file_scope.base.tree();
+                const tree = decl.container.file_scope.base.tree();
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset => |node_off| {
                 const decl = src_loc.container.decl;
                 const node_index = decl.srcNode() + node_off;
-                const tree = src_loc.container.file_scope.base.tree();
+                const tree = decl.container.file_scope.base.tree();
                 const tok_index = tree.firstToken(node_index);
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
@@ -1826,7 +2040,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
 
                 const code = try gen_scope.finish();
                 if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-                    code.dump(mod.gpa, "comptime_block", decl.name, 0) catch {};
+                    code.dump(mod.gpa, "comptime_block", &gen_scope.base, 0) catch {};
                 }
                 break :blk code;
             };
@@ -2047,7 +2261,7 @@ fn astgenAndSemaFn(
 
     const fn_type_code = try fn_type_scope.finish();
     if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-        fn_type_code.dump(mod.gpa, "fn_type", decl.name, 0) catch {};
+        fn_type_code.dump(mod.gpa, "fn_type", &fn_type_scope.base, 0) catch {};
     }
 
     var fn_type_sema: Sema = .{
@@ -2146,6 +2360,7 @@ fn astgenAndSemaFn(
                 .name = param_name,
                 // Implicit const list first, then implicit arg list.
                 .inst = @intCast(u32, zir.const_inst_list.len + i),
+                .src = decl.tokSrcLoc(name_token),
             };
             params_scope = &sub_scope.base;
 
@@ -2164,13 +2379,16 @@ fn astgenAndSemaFn(
             !wip_zir_code.instructions.items(.tag)[gen_scope.instructions.items.len - 1]
             .isNoReturn())
         {
-            const void_operand = @enumToInt(zir.Const.void_value);
-            _ = try gen_scope.addUnTok(.ret_tok, void_operand, tree.lastToken(body_node));
+            // astgen uses result location semantics to coerce return operands.
+            // Since we are adding the return instruction here, we must handle the coercion.
+            // We do this by using the `ret_coerce` instruction.
+            const void_inst: zir.Inst.Ref = @enumToInt(zir.Const.void_value);
+            _ = try gen_scope.addUnTok(.ret_coerce, void_inst, tree.lastToken(body_node));
         }
 
         const code = try gen_scope.finish();
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-            code.dump(mod.gpa, "fn_body", decl.name, param_count) catch {};
+            code.dump(mod.gpa, "fn_body", &gen_scope.base, param_count) catch {};
         }
 
         break :blk code;
@@ -2347,7 +2565,7 @@ fn astgenAndSemaVarDecl(
         );
         const code = try gen_scope.finish();
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-            code.dump(mod.gpa, "var_init", decl.name, 0) catch {};
+            code.dump(mod.gpa, "var_init", &gen_scope.base, 0) catch {};
         }
 
         var sema: Sema = .{
@@ -2409,7 +2627,7 @@ fn astgenAndSemaVarDecl(
         const var_type = try astgen.typeExpr(mod, &type_scope.base, var_decl.ast.type_node);
         const code = try type_scope.finish();
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-            code.dump(mod.gpa, "var_type", decl.name, 0) catch {};
+            code.dump(mod.gpa, "var_type", &type_scope.base, 0) catch {};
         }
 
         var sema: Sema = .{
@@ -3475,7 +3693,7 @@ pub fn failNode(
     args: anytype,
 ) InnerError {
     const decl_node = scope.srcDecl().?.srcNode();
-    const src: LazySrcLoc = .{ .node_offset = node_index - decl_node };
+    const src: LazySrcLoc = .{ .node_offset = decl_node - node_index };
     return mod.fail(scope, src, format, args);
 }
 

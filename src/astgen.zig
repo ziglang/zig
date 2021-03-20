@@ -497,7 +497,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             }
         },
         .block_two, .block_two_semicolon => {
-            if (true) @panic("TODO update for zir-memory-layout");
             const statements = [2]ast.Node.Index{ node_datas[node].lhs, node_datas[node].rhs };
             if (node_datas[node].lhs == 0) {
                 return blockExpr(mod, scope, rl, node, statements[0..0]);
@@ -508,7 +507,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             }
         },
         .block, .block_semicolon => {
-            if (true) @panic("TODO update for zir-memory-layout");
             const statements = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
             return blockExpr(mod, scope, rl, node, statements);
         },
@@ -808,7 +806,7 @@ fn breakExpr(
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
-            .gen_suspend => scope = scope.cast(Scope.GenZIR).?.parent,
+            .gen_suspend => scope = scope.cast(Scope.GenZir).?.parent,
             .gen_nosuspend => scope = scope.cast(Scope.Nosuspend).?.parent,
             else => if (break_label != 0) {
                 const label_name = try mod.identifierTokenString(parent_scope, break_label);
@@ -864,7 +862,7 @@ fn continueExpr(
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
-            .gen_suspend => scope = scope.cast(Scope.GenZIR).?.parent,
+            .gen_suspend => scope = scope.cast(Scope.GenZir).?.parent,
             .gen_nosuspend => scope = scope.cast(Scope.Nosuspend).?.parent,
             else => if (break_label != 0) {
                 const label_name = try mod.identifierTokenString(parent_scope, break_label);
@@ -939,7 +937,7 @@ fn checkLabelRedefinition(mod: *Module, parent_scope: *Scope, label: ast.TokenIn
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
-            .gen_suspend => scope = scope.cast(Scope.GenZIR).?.parent,
+            .gen_suspend => scope = scope.cast(Scope.GenZir).?.parent,
             .gen_nosuspend => scope = scope.cast(Scope.Nosuspend).?.parent,
             else => return,
         }
@@ -971,25 +969,14 @@ fn labeledBlockExpr(
 
     try checkLabelRedefinition(mod, parent_scope, label_token);
 
-    // Create the Block ZIR instruction so that we can put it into the GenZir struct
+    // Reserve the Block ZIR instruction index so that we can put it into the GenZir struct
     // so that break statements can reference it.
-    const gen_zir = parent_scope.getGenZir();
-    const block_inst = try gen_zir.arena.create(zir.Inst.Block);
-    block_inst.* = .{
-        .base = .{
-            .tag = zir_tag,
-            .src = src,
-        },
-        .positionals = .{
-            .body = .{ .instructions = undefined },
-        },
-        .kw_args = .{},
-    };
+    const gz = parent_scope.getGenZir();
+    const block_inst = try gz.addBlock(zir_tag, block_node);
 
     var block_scope: Scope.GenZir = .{
         .parent = parent_scope,
-        .decl = parent_scope.ownerDecl().?,
-        .arena = gen_zir.arena,
+        .zir_code = gz.zir_code,
         .force_comptime = parent_scope.isComptime(),
         .instructions = .{},
         // TODO @as here is working around a stage1 miscompilation bug :(
@@ -1009,35 +996,40 @@ fn labeledBlockExpr(
         return mod.failTok(parent_scope, label_token, "unused block label", .{});
     }
 
-    try gen_zir.instructions.append(mod.gpa, &block_inst.base);
+    try gz.instructions.append(mod.gpa, block_inst);
+
+    const zir_tags = gz.zir_code.instructions.items(.tag);
+    const zir_datas = gz.zir_code.instructions.items(.data);
 
     const strat = rlStrategy(rl, &block_scope);
     switch (strat.tag) {
         .break_void => {
             // The code took advantage of the result location as a pointer.
-            // Turn the break instructions into break_void instructions.
+            // Turn the break instruction operands into void.
             for (block_scope.labeled_breaks.items) |br| {
-                br.base.tag = .break_void;
+                zir_datas[br].bin.rhs = 0;
             }
             // TODO technically not needed since we changed the tag to break_void but
             // would be better still to elide the ones that are in this list.
-            try copyBodyNoEliding(&block_inst.positionals.body, block_scope);
+            try copyBodyNoEliding(block_inst, block_scope);
 
-            return &block_inst.base;
+            return gz.zir_code.ref_start_index + block_inst;
         },
         .break_operand => {
             // All break operands are values that did not use the result location pointer.
             if (strat.elide_store_to_block_ptr_instructions) {
                 for (block_scope.labeled_store_to_block_ptr_list.items) |inst| {
-                    inst.base.tag = .void_value;
+                    zir_tags[inst] = .elided;
+                    zir_datas[inst] = undefined;
                 }
-                // TODO technically not needed since we changed the tag to void_value but
+                // TODO technically not needed since we changed the tag to elided but
                 // would be better still to elide the ones that are in this list.
             }
-            try copyBodyNoEliding(&block_inst.positionals.body, block_scope);
+            try copyBodyNoEliding(block_inst, block_scope);
+            const block_ref = gz.zir_code.ref_start_index + block_inst;
             switch (rl) {
-                .ref => return &block_inst.base,
-                else => return rvalue(mod, parent_scope, rl, &block_inst.base),
+                .ref => return block_ref,
+                else => return rvalue(mod, parent_scope, rl, block_ref, block_node),
             }
         },
     }
@@ -1057,15 +1049,16 @@ fn blockExprStmts(
     var block_arena = std.heap.ArenaAllocator.init(mod.gpa);
     defer block_arena.deinit();
 
+    const gz = parent_scope.getGenZir();
+
     var scope = parent_scope;
     for (statements) |statement| {
-        const src = token_starts[tree.firstToken(statement)];
-        _ = try addZIRNoOp(mod, scope, src, .dbg_stmt);
+        _ = try gz.addNode(.dbg_stmt_node, statement);
         switch (node_tags[statement]) {
-            .global_var_decl => scope = try varDecl(mod, scope, &block_arena.allocator, tree.globalVarDecl(statement)),
-            .local_var_decl => scope = try varDecl(mod, scope, &block_arena.allocator, tree.localVarDecl(statement)),
-            .simple_var_decl => scope = try varDecl(mod, scope, &block_arena.allocator, tree.simpleVarDecl(statement)),
-            .aligned_var_decl => scope = try varDecl(mod, scope, &block_arena.allocator, tree.alignedVarDecl(statement)),
+            .global_var_decl => scope = try varDecl(mod, scope, statement, &block_arena.allocator, tree.globalVarDecl(statement)),
+            .local_var_decl => scope = try varDecl(mod, scope, statement, &block_arena.allocator, tree.localVarDecl(statement)),
+            .simple_var_decl => scope = try varDecl(mod, scope, statement, &block_arena.allocator, tree.simpleVarDecl(statement)),
+            .aligned_var_decl => scope = try varDecl(mod, scope, statement, &block_arena.allocator, tree.alignedVarDecl(statement)),
 
             .assign => try assign(mod, scope, statement),
             .assign_bit_and => try assignOp(mod, scope, statement, .bit_and),
@@ -1084,8 +1077,8 @@ fn blockExprStmts(
 
             else => {
                 const possibly_unused_result = try expr(mod, scope, .none, statement);
-                if (!possibly_unused_result.tag.isNoReturn()) {
-                    _ = try addZIRUnOp(mod, scope, src, .ensure_result_used, possibly_unused_result);
+                if (!gz.zir_code.isVoidOrNoReturn(possibly_unused_result)) {
+                    _ = try gz.addUnNode(.ensure_result_used, possibly_unused_result, statement);
                 }
             },
         }
@@ -1095,22 +1088,24 @@ fn blockExprStmts(
 fn varDecl(
     mod: *Module,
     scope: *Scope,
+    node: ast.Node.Index,
     block_arena: *Allocator,
     var_decl: ast.full.VarDecl,
 ) InnerError!*Scope {
+    if (true) @panic("TODO update for zir-memory-layout");
+
     if (var_decl.comptime_token) |comptime_token| {
         return mod.failTok(scope, comptime_token, "TODO implement comptime locals", .{});
     }
     if (var_decl.ast.align_node != 0) {
         return mod.failNode(scope, var_decl.ast.align_node, "TODO implement alignment on locals", .{});
     }
+    const gz = scope.getGenZir();
     const tree = scope.tree();
-    const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
     const token_tags = tree.tokens.items(.tag);
 
     const name_token = var_decl.ast.mut_token + 1;
-    const name_src = token_starts[name_token];
+    const name_src = gz.tokSrcLoc(name_token);
     const ident_name = try mod.identifierTokenString(scope, name_token);
 
     // Local variables shadowing detection, including function parameters.
@@ -1125,7 +1120,7 @@ fn varDecl(
                             ident_name,
                         });
                         errdefer msg.destroy(mod.gpa);
-                        try mod.errNote(scope, local_val.inst.src, msg, "previous definition is here", .{});
+                        try mod.errNote(scope, local_val.src, msg, "previous definition is here", .{});
                         break :msg msg;
                     };
                     return mod.failWithOwnedErrorMsg(scope, msg);
@@ -1140,7 +1135,7 @@ fn varDecl(
                             ident_name,
                         });
                         errdefer msg.destroy(mod.gpa);
-                        try mod.errNote(scope, local_ptr.ptr.src, msg, "previous definition is here", .{});
+                        try mod.errNote(scope, local_ptr.src, msg, "previous definition is here", .{});
                         break :msg msg;
                     };
                     return mod.failWithOwnedErrorMsg(scope, msg);
@@ -1176,9 +1171,10 @@ fn varDecl(
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
                     .parent = scope,
-                    .gen_zir = scope.getGenZir(),
+                    .gen_zir = gz,
                     .name = ident_name,
                     .inst = init_inst,
+                    .src = gz.nodeSrcLoc(node),
                 };
                 return &sub_scope.base;
             }
@@ -1207,7 +1203,7 @@ fn varDecl(
             }
             const init_result_loc: ResultLoc = .{ .block_ptr = &init_scope };
             const init_inst = try expr(mod, &init_scope.base, init_result_loc, var_decl.ast.init_node);
-            const parent_zir = &scope.getGenZir().instructions;
+            const parent_zir = &gz.instructions;
             if (init_scope.rvalue_rl_count == 1) {
                 // Result location pointer not used. We don't need an alloc for this
                 // const local, and type inference becomes trivial.
@@ -1231,7 +1227,7 @@ fn varDecl(
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
                     .parent = scope,
-                    .gen_zir = scope.getGenZir(),
+                    .gen_zir = gz,
                     .name = ident_name,
                     .inst = casted_init,
                 };
@@ -1258,7 +1254,7 @@ fn varDecl(
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
                 .parent = scope,
-                .gen_zir = scope.getGenZir(),
+                .gen_zir = gz,
                 .name = ident_name,
                 .ptr = init_scope.rl_ptr.?,
             };
@@ -1285,9 +1281,10 @@ fn varDecl(
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
                 .parent = scope,
-                .gen_zir = scope.getGenZir(),
+                .gen_zir = gz,
                 .name = ident_name,
                 .ptr = var_data.alloc,
+                .src = gz.nodeSrcLoc(node),
             };
             return &sub_scope.base;
         },
@@ -2078,10 +2075,10 @@ fn copyBodyWithElidedStoreBlockPtr(body: *zir.Body, scope: Module.Scope.GenZir) 
     assert(dst_index == body.instructions.len);
 }
 
-fn copyBodyNoEliding(body: *zir.Body, scope: Module.Scope.GenZir) !void {
-    body.* = .{
-        .instructions = try scope.arena.dupe(zir.Inst.Ref, scope.instructions.items),
-    };
+fn copyBodyNoEliding(block_inst: zir.Inst.Index, gz: Module.Scope.GenZir) !void {
+    const zir_datas = gz.zir_code.instructions.items(.data);
+    zir_datas[block_inst].pl_node.payload_index = @intCast(u32, gz.zir_code.extra.items.len);
+    try gz.zir_code.extra.appendSlice(gz.zir_code.gpa, gz.instructions.items);
 }
 
 fn whileExpr(
@@ -3515,7 +3512,7 @@ fn suspendExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir
         return mod.failWithOwnedErrorMsg(scope, msg);
     }
 
-    var suspend_scope: Scope.GenZIR = .{
+    var suspend_scope: Scope.GenZir = .{
         .base = .{ .tag = .gen_suspend },
         .parent = scope,
         .decl = scope.ownerDecl().?,
@@ -3864,7 +3861,10 @@ fn rvalue(
             const src_token = tree.firstToken(src_node);
             return gz.addUnTok(.ref, result, src_token);
         },
-        .ty => |ty_inst| return gz.addBin(.as, ty_inst, result),
+        .ty => |ty_inst| return gz.addPlNode(.as_node, src_node, zir.Inst.As{
+            .dest_type = ty_inst,
+            .operand = result,
+        }),
         .ptr => |ptr_inst| {
             _ = try gz.addBin(.store, ptr_inst, result);
             return result;
@@ -3953,17 +3953,17 @@ fn setBlockResultLoc(block_scope: *Scope.GenZir, parent_rl: ResultLoc) void {
         },
 
         .inferred_ptr => |ptr| {
-            block_scope.rl_ptr = &ptr.base;
+            block_scope.rl_ptr = ptr;
             block_scope.break_result_loc = .{ .block_ptr = block_scope };
         },
 
         .bitcasted_ptr => |ptr| {
-            block_scope.rl_ptr = &ptr.base;
+            block_scope.rl_ptr = ptr;
             block_scope.break_result_loc = .{ .block_ptr = block_scope };
         },
 
         .block_ptr => |parent_block_scope| {
-            block_scope.rl_ptr = parent_block_scope.rl_ptr.?;
+            block_scope.rl_ptr = parent_block_scope.rl_ptr;
             block_scope.break_result_loc = .{ .block_ptr = block_scope };
         },
     }

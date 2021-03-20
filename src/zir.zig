@@ -72,7 +72,7 @@ pub const Code = struct {
         code: Code,
         gpa: *Allocator,
         kind: []const u8,
-        decl_name: [*:0]const u8,
+        scope: *Module.Scope,
         param_count: usize,
     ) !void {
         var arena = std.heap.ArenaAllocator.init(gpa);
@@ -81,11 +81,13 @@ pub const Code = struct {
         var writer: Writer = .{
             .gpa = gpa,
             .arena = &arena.allocator,
+            .scope = scope,
             .code = code,
             .indent = 4,
             .param_count = param_count,
         };
 
+        const decl_name = scope.srcDecl().?.name;
         const stderr = std.io.getStdErr().writer();
         try stderr.print("ZIR {s} {s} {{\n", .{ kind, decl_name });
 
@@ -416,9 +418,12 @@ pub const Inst = struct {
         /// error if the indexable object is not indexable.
         /// Uses the `un_node` field. The AST node is the for loop node.
         indexable_ptr_len,
-        /// Type coercion.
+        /// Type coercion. No source location attached.
         /// Uses the `bin` field.
         as,
+        /// Type coercion to the function's return type.
+        /// Uses the `pl_node` field. Payload is `As`. AST node could be many things.
+        as_node,
         /// Inline assembly. Non-volatile.
         /// Uses the `pl_node` union field. Payload is `Asm`. AST node is the assembly node.
         @"asm",
@@ -464,12 +469,14 @@ pub const Inst = struct {
         /// Uses the `bin` field.
         bool_or,
         /// Return a value from a block.
-        /// Uses the `bin` union field: `lhs` is `Ref` to the block, `rhs` is operand.
+        /// Uses the `bin` union field: `lhs` is `Index` to the block (*not* `Ref`!),
+        /// `rhs` is operand.
         /// Uses the source information from previous instruction.
         @"break",
         /// Same as `break` but has source information in the form of a token, and
         /// the operand is assumed to be the void value.
         /// Uses the `un_tok` union field.
+        /// Note that the block operand is a `Index`, not `Ref`.
         break_void_tok,
         /// Uses the `node` union field.
         breakpoint,
@@ -543,6 +550,9 @@ pub const Inst = struct {
         /// Same as `elem_val` except also stores a source location node.
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
         elem_val_node,
+        /// This instruction has been deleted late in the astgen phase. It must
+        /// be ignored, and the corresponding `Data` is undefined.
+        elided,
         /// Emits a compile error if the operand is not `void`.
         /// Uses the `un_node` field.
         ensure_result_used,
@@ -671,6 +681,9 @@ pub const Inst = struct {
         /// Includes a token source location.
         /// Uses the `un_tok` union field.
         ret_tok,
+        /// Same as `ret_tok` except the operand needs to get coerced to the function's
+        /// return type.
+        ret_coerce,
         /// Changes the maximum number of backwards branches that compile-time
         /// code execution can use before giving up and making a compile error.
         /// Uses the `un_node` union field.
@@ -704,6 +717,7 @@ pub const Inst = struct {
         store,
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the block type. The LHS is the pointer to store to.
+        /// Uses the `bin` union field.
         store_to_block_ptr,
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the pointer type.
@@ -854,6 +868,7 @@ pub const Inst = struct {
                 .array_type_sentinel,
                 .indexable_ptr_len,
                 .as,
+                .as_node,
                 .@"asm",
                 .asm_volatile,
                 .bit_and,
@@ -963,6 +978,7 @@ pub const Inst = struct {
                 .@"resume",
                 .@"await",
                 .nosuspend_await,
+                .elided,
                 => false,
 
                 .@"break",
@@ -971,6 +987,7 @@ pub const Inst = struct {
                 .compile_error,
                 .ret_node,
                 .ret_tok,
+                .ret_coerce,
                 .unreachable_unsafe,
                 .unreachable_safe,
                 .loop,
@@ -1242,11 +1259,17 @@ pub const Inst = struct {
         lhs: Ref,
         field_name: Ref,
     };
+
+    pub const As = struct {
+        dest_type: Ref,
+        operand: Ref,
+    };
 };
 
 const Writer = struct {
     gpa: *Allocator,
     arena: *Allocator,
+    scope: *Module.Scope,
     code: Code,
     indent: usize,
     param_count: usize,
@@ -1325,6 +1348,7 @@ const Writer = struct {
             .is_err_ptr,
             .ref,
             .ret_tok,
+            .ret_coerce,
             .typeof,
             .optional_type,
             .optional_type_from_ptr_elem,
@@ -1348,6 +1372,7 @@ const Writer = struct {
             .ptr_type => try self.writePtrType(stream, inst),
             .int => try self.writeInt(stream, inst),
             .str => try self.writeStr(stream, inst),
+            .elided => try stream.writeAll(")"),
 
             .@"asm",
             .asm_volatile,
@@ -1374,6 +1399,7 @@ const Writer = struct {
             .slice_sentinel,
             .typeof_peer,
             .suspend_block,
+            .as_node,
             => try self.writePlNode(stream, inst),
 
             .breakpoint,
@@ -1641,6 +1667,12 @@ const Writer = struct {
     }
 
     fn writeSrc(self: *Writer, stream: anytype, src: LazySrcLoc) !void {
-        try stream.print("TODOsrc({s})", .{@tagName(src)});
+        const tree = self.scope.tree();
+        const src_loc = src.toSrcLoc(self.scope);
+        const abs_byte_off = try src_loc.byteOffset();
+        const delta_line = std.zig.findLineColumn(tree.source, abs_byte_off);
+        try stream.print("{s}:{d}:{d}", .{
+            @tagName(src), delta_line.line + 1, delta_line.column + 1,
+        });
     }
 };

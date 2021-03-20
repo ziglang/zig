@@ -108,6 +108,7 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .dbg_stmt_node => try sema.zirDbgStmtNode(block, zir_inst),
             .decl_ref => try sema.zirDeclRef(block, zir_inst),
             .decl_val => try sema.zirDeclVal(block, zir_inst),
+            .elided => continue,
             .ensure_result_used => try sema.zirEnsureResultUsed(block, zir_inst),
             .ensure_result_non_error => try sema.zirEnsureResultNonError(block, zir_inst),
             .indexable_ptr_len => try sema.zirIndexablePtrLen(block, zir_inst),
@@ -133,11 +134,13 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .field_val_named => try sema.zirFieldValNamed(block, zir_inst),
             .deref_node => try sema.zirDerefNode(block, zir_inst),
             .as => try sema.zirAs(block, zir_inst),
+            .as_node => try sema.zirAsNode(block, zir_inst),
             .@"asm" => try sema.zirAsm(block, zir_inst, false),
             .asm_volatile => try sema.zirAsm(block, zir_inst, true),
             .unreachable_safe => try sema.zirUnreachable(block, zir_inst, true),
             .unreachable_unsafe => try sema.zirUnreachable(block, zir_inst, false),
-            .ret_tok => try sema.zirRetTok(block, zir_inst),
+            .ret_coerce => try sema.zirRetTok(block, zir_inst, true),
+            .ret_tok => try sema.zirRetTok(block, zir_inst, false),
             .ret_node => try sema.zirRetNode(block, zir_inst),
             .fn_type => try sema.zirFnType(block, zir_inst, false),
             .fn_type_cc => try sema.zirFnTypeCc(block, zir_inst, false),
@@ -1004,7 +1007,7 @@ fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
     const src_node = sema.code.instructions.items(.data)[inst].node;
     const src: LazySrcLoc = .{ .node_offset = src_node };
     const src_loc = src.toSrcLoc(&block.base);
-    const abs_byte_off = try src_loc.byteOffset(sema.mod);
+    const abs_byte_off = try src_loc.byteOffset();
     return block.addDbgStmt(src, abs_byte_off);
 }
 
@@ -1767,9 +1770,29 @@ fn zirAs(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Ins
     defer tracy.end();
 
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const dest_type = try sema.resolveType(block, .todo, bin_inst.lhs);
-    const tzir_inst = try sema.resolveInst(bin_inst.rhs);
-    return sema.coerce(block, dest_type, tzir_inst, .todo);
+    return sema.analyzeAs(block, .unneeded, bin_inst.lhs, bin_inst.rhs);
+}
+
+fn zirAsNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(zir.Inst.As, inst_data.payload_index).data;
+    return sema.analyzeAs(block, src, extra.dest_type, extra.operand);
+}
+
+fn analyzeAs(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    zir_dest_type: zir.Inst.Ref,
+    zir_operand: zir.Inst.Ref,
+) InnerError!*Inst {
+    const dest_type = try sema.resolveType(block, src, zir_dest_type);
+    const operand = try sema.resolveInst(zir_operand);
+    return sema.coerce(block, dest_type, operand, src);
 }
 
 fn zirPtrtoint(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -2850,7 +2873,12 @@ fn zirUnreachable(
     }
 }
 
-fn zirRetTok(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirRetTok(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: zir.Inst.Index,
+    need_coercion: bool,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2858,7 +2886,7 @@ fn zirRetTok(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!
     const operand = try sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
-    return sema.analyzeRet(block, operand, src);
+    return sema.analyzeRet(block, operand, src, need_coercion);
 }
 
 fn zirRetNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -2869,10 +2897,16 @@ fn zirRetNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const operand = try sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
-    return sema.analyzeRet(block, operand, src);
+    return sema.analyzeRet(block, operand, src, false);
 }
 
-fn analyzeRet(sema: *Sema, block: *Scope.Block, operand: *Inst, src: LazySrcLoc) InnerError!*Inst {
+fn analyzeRet(
+    sema: *Sema,
+    block: *Scope.Block,
+    operand: *Inst,
+    src: LazySrcLoc,
+    need_coercion: bool,
+) InnerError!*Inst {
     if (block.inlining) |inlining| {
         // We are inlining a function call; rewrite the `ret` as a `break`.
         try inlining.merges.results.append(sema.gpa, operand);
@@ -2880,7 +2914,13 @@ fn analyzeRet(sema: *Sema, block: *Scope.Block, operand: *Inst, src: LazySrcLoc)
         return &br.base;
     }
 
-    try sema.requireFunctionBlock(block, src);
+    if (need_coercion) {
+        if (sema.func) |func| {
+            const fn_ty = func.owner_decl.typed_value.most_recent.typed_value.ty;
+            const casted_operand = try sema.coerce(block, fn_ty.fnReturnType(), operand, src);
+            return block.addUnOp(src, Type.initTag(.noreturn), .ret, casted_operand);
+        }
+    }
     return block.addUnOp(src, Type.initTag(.noreturn), .ret, operand);
 }
 
