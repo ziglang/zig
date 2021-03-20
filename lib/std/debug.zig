@@ -7,16 +7,15 @@
 //! std.debug contains functions for capturing and printing out stack traces as
 //! well as misc. functions such as `print`, `assert`, and `panicExtra`.
 //!
-//! Many parts of the implementations can be overriden via declarations in
-//! `root.debug_config` or `root.os.debug` namespaces. See the `default_config`
-//! for documentation on everything which can be overriden. Note that functions
-//! can be overriden individually (except for `getWriter` which also requires
-//! `detectTTYConfig`).
+//! You can override how addresses are mapped to symbols via
+//! `root.debug_config.SymbolMap` or `root.os.debug.SymbolMap`.
 //!
-//! For the freestanding multithreaded use case, it is generally recommended to
-//! override the panic function itself (for instance by defining `root.panic`).
-//! You may still want to define some of the `debug_config` implementations
-//! that involve stack traces and use the `writeTracesForPanic` function.
+//! You can override how stack traces are collected via
+//! `root.debug_config.captureStackTraceFrom` or
+//! `root.os.debug.captureStackTraceFrom`
+//!
+//! To see what these functions should look like look at the implementations
+//! in `debug_config`.
 
 const std = @import("std.zig");
 const builtin = std.builtin;
@@ -61,30 +60,6 @@ pub const SymbolInfo = struct {
 };
 
 pub const default_config = struct {
-    /// Get the writer used for `print`, `panicExtra`, and stack trace dumping.
-    pub fn getWriter() File.Writer {
-        return io.getStdErr().writer();
-    }
-
-    /// Detect the `TTY.Config` for the writer returned by `getWriter`.
-    /// This determines which escape codes can be used.
-    pub fn detectTTYConfig() TTY.Config {
-        var bytes: [128]u8 = undefined;
-        const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
-        if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| {
-            return .escape_codes;
-        } else |_| {
-            const stderr_file = io.getStdErr();
-            if (stderr_file.supportsAnsiEscapeCodes()) {
-                return .escape_codes;
-            } else if (builtin.os.tag == .windows and stderr_file.isTty()) {
-                return .{ .windows_api = stderr_file };
-            } else {
-                return .no_color;
-            }
-        }
-    }
-
     /// A struct which maps from addresses to symbols (`SymbolInfo`).
     pub const SymbolMap = switch (builtin.os.tag) {
         .macos, .ios, .watchos, .tvos => std.SymbolMapDarwin,
@@ -93,42 +68,8 @@ pub const default_config = struct {
         else => std.SymbolMapUnsupported,
     };
 
-    /// Try to write a line from a source file. If the line couldn't be written but
-    /// the error is acceptable (end of file, file not found, etc.), returns false.
-    /// If the line was correctly writen it returns true.
-    pub fn attemptWriteLineFromSourceFile(writer: anytype, line_info: LineInfo) !bool {
-        // TODO: is this the right place to check?
-        if (comptime builtin.arch.isWasm()) {
-            return false;
-        }
-
-        writeLineFromFileAnyOs(writer, line_info) catch |err| {
-            switch (err) {
-                error.EndOfFile, error.FileNotFound => {},
-                error.BadPathName => {},
-                error.AccessDenied => {},
-                else => return err,
-            }
-            return false;
-        };
-        return true;
-    }
-
-    // We define some of the bulkier functions outside of this namespace to
-    // avoid clutter.
-
-    /// Formats a single line for a stack trace.
-    pub const formatStackTraceLine = defaultFormatStackTraceLine;
-
     /// Loads a stack trace into the provided argument.
     pub const captureStackTraceFrom = defaultCaptureStackTraceFrom;
-
-    /// This is the termination function for panic. It must be `noreturn`.
-    ///
-    /// When overriding panicTerminate, if you *must* lock a mutex, be careful
-    /// not to panic!  Otherwise, this will would call panicTerminate
-    /// recursively and deadlock.
-    pub const panicTerminate = os.abort;
 };
 
 const config = lookupDecl(root, &.{"debug_config"}) orelse struct {};
@@ -146,23 +87,32 @@ fn lookupConfigItem(
 
 // Slightly different names than in config to avoid redefinition in default.
 
-const getWrit = lookupConfigItem("getWriter");
-
-const getTTYConfig = lookupDecl(config, &.{"detectTTYConfig"}) orelse
-    if (@hasDecl(config, "getWriter"))
-    @compileError("getWriter exists in debug_config, so detectTTYConfig must also exist")
-else
-    lookupDecl(os_config, &.{"detectTTYConfig"}) orelse
-        if (@hasDecl(os_config, "getWriter"))
-        @compileError("getWriter exists in os.debug, so detectTTYConfig must also exist")
-    else
-        default_config.detectTTYConfig;
-
 const SymMap = lookupConfigItem("SymbolMap");
-const writeLineFromSourceFile = lookupConfigItem("attemptWriteLineFromSourceFile");
-const fmtStackTraceLine = lookupConfigItem("formatStackTraceLine");
 const capStackTraceFrom = lookupConfigItem("captureStackTraceFrom");
-const panicTerm = lookupConfigItem("panicTerminate");
+
+/// Get the writer used for `print`, `panicExtra`, and stack trace dumping.
+pub fn getWriter() File.Writer {
+    return io.getStdErr().writer();
+}
+
+/// Detect the `TTY.Config` for the writer returned by `getWriter`.
+/// This determines which escape codes can be used.
+pub fn detectTTYConfig() TTY.Config {
+    var bytes: [128]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+    if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| {
+        return .escape_codes;
+    } else |_| {
+        const stderr_file = io.getStdErr();
+        if (stderr_file.supportsAnsiEscapeCodes()) {
+            return .escape_codes;
+        } else if (builtin.os.tag == .windows and stderr_file.isTty()) {
+            return .{ .windows_api = stderr_file };
+        } else {
+            return .no_color;
+        }
+    }
+}
 
 var print_mutex = std.Thread.Mutex{};
 
@@ -182,7 +132,7 @@ pub const warn = print;
 pub fn print(comptime fmt: []const u8, args: anytype) void {
     const held = print_mutex.acquire();
     defer held.release();
-    const writer = getWrit();
+    const writer = getWriter();
     nosuspend writer.print(fmt, args) catch {};
 }
 
@@ -211,7 +161,7 @@ fn getMappingForDump(writer: anytype) ?*SymMap {
 /// Should be called with the writer locked.
 fn getStackTraceDumper(writer: anytype) ?StackTraceDumper(@TypeOf(writer)) {
     return if (getMappingForDump(writer)) |mapping|
-        .{ .writer = writer, .tty_config = getTTYConfig(), .mapping = mapping }
+        .{ .writer = writer, .tty_config = detectTTYConfig(), .mapping = mapping }
     else
         null;
 }
@@ -225,7 +175,7 @@ fn dumpHandleError(writer: anytype, err: anytype) void {
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     const held = print_mutex.acquire();
     defer held.release();
-    const writer = getWrit();
+    const writer = getWriter();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
         write_trace.current(start_addr) catch |err| dumpHandleError(writer, err);
     };
@@ -237,7 +187,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     const held = print_mutex.acquire();
     defer held.release();
-    const writer = getWrit();
+    const writer = getWriter();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
         write_trace.fromBase(bp, ip) catch |err| dumpHandleError(writer, err);
     };
@@ -248,7 +198,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     const held = print_mutex.acquire();
     defer held.release();
-    const writer = getWrit();
+    const writer = getWriter();
     nosuspend if (getStackTraceDumper(writer)) |write_trace| {
         write_trace.stackTrace(stack_trace) catch |err| dumpHandleError(writer, err);
     };
@@ -360,19 +310,19 @@ fn StackTraceDumper(comptime Writer: type) type {
             const tty_config = self.tty_config;
 
             nosuspend {
-                try fmtStackTraceLine(
+                try formatStackTraceLine(
                     writer,
                     tty_config,
                     address,
                     symbol_info,
-                    writeLineFromSourceFile,
+                    attemptWriteLineFromSourceFile,
                 );
             }
         }
     };
 }
 
-fn defaultFormatStackTraceLine(
+fn formatStackTraceLine(
     writer: anytype,
     tty_config: TTY.Config,
     address: usize,
@@ -409,6 +359,27 @@ fn defaultFormatStackTraceLine(
             try writer.writeAll("\n");
         }
     }
+}
+
+/// Try to write a line from a source file. If the line couldn't be written but
+/// the error is acceptable (end of file, file not found, etc.), returns false.
+/// If the line was correctly writen it returns true.
+pub fn attemptWriteLineFromSourceFile(writer: anytype, line_info: LineInfo) !bool {
+    // TODO: is this the right place to check?
+    if (comptime builtin.arch.isWasm()) {
+        return false;
+    }
+
+    writeLineFromFileAnyOs(writer, line_info) catch |err| {
+        switch (err) {
+            error.EndOfFile, error.FileNotFound => {},
+            error.BadPathName => {},
+            error.AccessDenied => {},
+            else => return err,
+        }
+        return false;
+    };
+    return true;
 }
 
 fn writeLineFromFileAnyOs(writer: anytype, line_info: LineInfo) !void {
@@ -515,7 +486,7 @@ pub fn panicImpl(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, ms
     }
 
     // we can't lock the writer (see above comment on panic_mutex)
-    const writer = getWrit();
+    const writer = getWriter();
 
     nosuspend switch (panic_stage) {
         0 => blk: {
@@ -536,12 +507,12 @@ pub fn panicImpl(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, ms
                 }
                 writer.print("{s}\n", .{msg}) catch break :blk;
 
-                writeTracesForPanic(writer, getTTYConfig(), trace, first_trace_addr);
+                writeTracesForPanic(writer, detectTTYConfig(), trace, first_trace_addr);
             }
 
             if (panicking.decr() != 1) {
                 // Another thread is panicking, wait for the last one to finish
-                // and call panicTerm()
+                // and call abort()
 
                 // Sleep forever without hammering the CPU
                 var event: std.Thread.StaticResetEvent = .{};
@@ -554,7 +525,7 @@ pub fn panicImpl(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, ms
 
             // A panic happened while trying to print a previous panic message,
             // we're still holding the mutex but that's fine as we're going to
-            // call panicTerm()
+            // call abort()
             writer.print("Panicked during a panic. Terminating.\n", .{}) catch break :blk;
         },
         else => {
@@ -562,7 +533,7 @@ pub fn panicImpl(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, ms
         },
     };
 
-    panicTerm();
+    os.abort();
 }
 
 /// Utility function for dumping out stack traces which swallows errors.
@@ -903,7 +874,7 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
 
     // Don't use std.debug.print() as print_mutex may still be locked.
     nosuspend {
-        const writer = getWrit();
+        const writer = getWriter();
         _ = switch (sig) {
             os.SIGSEGV => writer.print("Segmentation fault at address 0x{x}\n", .{addr}),
             os.SIGILL => writer.print("Illegal instruction at address 0x{x}\n", .{addr}),
@@ -974,7 +945,7 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u
         const regs = info.ContextRecord.getRegs();
         // Don't use std.debug.print() as print_mutex may still be locked.
         nosuspend {
-            const writer = getWrit();
+            const writer = getWriter();
             _ = switch (msg) {
                 0 => writer.print("{s}\n", .{format.?}),
                 1 => writer.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
