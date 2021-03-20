@@ -68,7 +68,7 @@ pub const SymbolInfo = struct {
 
 pub const default_config = struct {
     /// Get the writer used for `print`, `panicExtra`, and stack trace dumping.
-    pub fn getWriter() std.fs.File.Writer {
+    pub fn getWriter() File.Writer {
         return std.io.getStdErr().writer();
     }
 
@@ -658,7 +658,7 @@ pub const TTY = struct {
         // TODO: should be noreturn instead of void, see
         // https://github.com/ziglang/zig/issues/3257
         // making this noreturn right now causes a crash
-        windows_api: if (builtin.os.tag == .windows) std.fs.File else void,
+        windows_api: if (builtin.os.tag == .windows) File else void,
 
         pub fn setColor(conf: Config, writer: anytype, color: Color) void {
             nosuspend switch (conf) {
