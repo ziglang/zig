@@ -377,7 +377,7 @@ fn StackTraceDumper(comptime Writer: type) type {
             stack_trace: builtin.StackTrace,
         ) !void {
             var frame_index: usize = 0;
-            var frames_left: usize = std.math.min(stack_trace.index, stack_trace.instruction_addresses.len);
+            var frames_left: usize = math.min(stack_trace.index, stack_trace.instruction_addresses.len);
 
             while (frames_left != 0) : ({
                 frames_left -= 1;
