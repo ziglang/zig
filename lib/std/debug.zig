@@ -1148,7 +1148,7 @@ const DarwinModuleDebugInfo = struct {
             // .o file
             const relocated_address_o = relocated_address - symbol.reloc;
 
-            return dwarfAddressToSymbolInfo(o_file_di, relocated_address);
+            return dwarfAddressToSymbolInfo(&o_file_di, relocated_address);
         }
     }
 
