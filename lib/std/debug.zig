@@ -34,7 +34,7 @@ const pdb = std.pdb;
 const ArrayList = std.ArrayList;
 const root = @import("root");
 const maxInt = std.math.maxInt;
-const File = std.fs.File;
+const File = fs.File;
 const windows = std.os.windows;
 
 pub const runtime_safety = switch (builtin.mode) {
