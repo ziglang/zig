@@ -22,22 +22,16 @@ pub const hash_length: usize = 60;
 /// Algorithm for PhcEncoding
 pub const phc_alg_id = "bcrypt";
 
+const Error = crypto.Error;
 const PhcParser = phc.Parser(Params);
 const PhcHasher = phc.Hasher(
     PhcParser,
     Params,
-    phc_kdf,
+    phcKdf,
     phc_alg_id,
     salt_length,
     derived_key_length,
 );
-
-pub const BcryptError = error{
-    /// The hashed password cannot be decoded.
-    InvalidEncoding,
-    /// The hash is not valid for the given password.
-    InvalidPassword,
-};
 
 const State = struct {
     sboxes: [4][256]u32 = [4][256]u32{
@@ -196,7 +190,7 @@ const Codec = struct {
         debug.assert(j == b64.len);
     }
 
-    fn decode(bin: []u8, b64: []const u8) BcryptError!void {
+    fn decode(bin: []u8, b64: []const u8) Error!void {
         var i: usize = 0;
         var j: usize = 0;
         while (j < bin.len) {
@@ -227,16 +221,16 @@ pub const Params = struct {
     log_rounds: u6,
 
     /// Public interface for PhcEncoding
-    pub fn fromPhcEncoding(it: *phc.ParamsIterator) phc.Error!Self {
+    pub fn fromPhcEncoding(it: *phc.ParamsIterator) Error!Self {
         var lr: ?u6 = null;
         while (try it.next()) |param| {
             if (mem.eql(u8, param.key, "lr")) {
                 lr = try param.decimal(u6);
             } else {
-                return error.ParseError;
+                return error.InvalidEncoding;
             }
         }
-        return Self{ .log_rounds = lr orelse return error.ParseError };
+        return Self{ .log_rounds = lr orelse return error.InvalidEncoding };
     }
 
     /// Public interface for PhcEncoding
@@ -246,11 +240,11 @@ pub const Params = struct {
         out: []?phc.Param,
     ) mem.Allocator.Error!void {
         const lr = try fmt.allocPrint(allocator, "{d}", .{self.log_rounds});
-        out[0] = phc.Param.new("lr", lr);
+        out[0] = phc.Param{ .key = "lr", .value = lr };
     }
 };
 
-fn phc_kdf(
+fn phcKdf(
     allocator: *mem.Allocator,
     derived_key: []u8,
     password: []const u8,
@@ -300,7 +294,7 @@ pub const CryptHasher = struct {
     const derived_key_str_length: usize = 31;
     const prefix = "$2";
 
-    fn parseParams(encoded: *const [7]u8) BcryptError!Params {
+    fn parseParams(encoded: *const [7]u8) Error!Params {
         if (!mem.eql(u8, prefix, encoded[0..2])) {
             return error.InvalidEncoding;
         }
@@ -315,7 +309,7 @@ pub const CryptHasher = struct {
     pub const pwhash_str_length: usize = 60;
 
     /// Verify password against crypt encoded string
-    pub fn verify(str: []const u8, password: []const u8) BcryptError!void {
+    pub fn verify(str: []const u8, password: []const u8) Error!void {
         if (str.len != pwhash_str_length) {
             return error.InvalidEncoding;
         }
@@ -339,7 +333,7 @@ pub const CryptHasher = struct {
         );
         crypto.utils.secureZero(u8, &derived_key);
         if (!passed) {
-            return error.InvalidPassword;
+            return error.PasswordVerificationFailed;
         }
     }
 
@@ -434,13 +428,23 @@ test "strHash && strVerify" {
     defer alloc.free(s);
 
     try strVerify(alloc, s, "password");
-    std.testing.expectError(error.InvalidPassword, strVerify(alloc, s, "invalid password"));
+    std.testing.expectError(
+        Error.PasswordVerificationFailed,
+        strVerify(alloc, s, "invalid password"),
+    );
 
-    const s1 = try strHash(alloc, "password", Options{ .kdf_params = params, .encoding = .phc });
+    const s1 = try strHash(
+        alloc,
+        "password",
+        Options{ .kdf_params = params, .encoding = .phc },
+    );
     defer alloc.free(s1);
 
     try strVerify(alloc, s1, "password");
-    std.testing.expectError(phc.Error.VerificationError, strVerify(alloc, s1, "invalid password"));
+    std.testing.expectError(
+        Error.PasswordVerificationFailed,
+        strVerify(alloc, s1, "invalid password"),
+    );
 
     const long_s = try strHash(
         alloc,

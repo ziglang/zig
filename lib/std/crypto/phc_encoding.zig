@@ -13,6 +13,7 @@ const crypto = std.crypto;
 const fmt = std.fmt;
 const mem = std.mem;
 
+const Error = crypto.Error;
 const b64enc = base64.standard_encoder;
 const b64dec = base64.standard_decoder;
 
@@ -21,23 +22,14 @@ const version_prefix = "v=";
 const params_delimiter = ",";
 const kv_delimiter = "=";
 
-const ParserError = error{
-    ParseError,
-    InvalidAlgorithm,
-    VerificationError,
-    NullSalt,
-};
-
-pub const Error = ParserError || mem.Allocator.Error || fmt.ParseIntError;
-
-pub fn Parser(comptime T: type) type {
+pub fn Parser(comptime Params: type) type {
     return struct {
         const Self = @This();
 
         allocator: *mem.Allocator,
         alg_id: []const u8,
         version: ?u32 = null,
-        params: ?T = null,
+        params: ?Params = null,
         salt: ?[]u8 = null,
         derived_key: ?[]u8 = null,
 
@@ -47,9 +39,9 @@ pub fn Parser(comptime T: type) type {
         pub fn fromString(allocator: *mem.Allocator, str: []const u8) !Self {
             var it = mem.split(str, fields_delimiter);
             _ = it.next();
-            const alg_id = it.next() orelse return Error.ParseError;
+            const alg_id = it.next() orelse return Error.InvalidEncoding;
             if (alg_id.len == 0 or alg_id.len > 32) {
-                return Error.ParseError;
+                return Error.InvalidEncoding;
             }
             var res = Self{ .allocator = allocator, .alg_id = try allocator.dupe(u8, alg_id) };
             errdefer allocator.free(res.alg_id);
@@ -61,8 +53,8 @@ pub fn Parser(comptime T: type) type {
                 s = it.next() orelse return res;
             }
             if (mem.indexOf(u8, s, kv_delimiter) != null) {
-                var params_it = ParamsIterator.new(s, @typeInfo(T).Struct.fields.len);
-                res.params = try T.fromPhcEncoding(&params_it);
+                var params_it = ParamsIterator.new(s, @typeInfo(Params).Struct.fields.len);
+                res.params = try Params.fromPhcEncoding(&params_it);
                 s = it.next() orelse return res;
             }
             res.salt = try b64decode(allocator, s);
@@ -73,7 +65,7 @@ pub fn Parser(comptime T: type) type {
             );
             errdefer allocator.free(res.derived_key.?);
             if (it.next() != null) {
-                return Error.ParseError;
+                return Error.InvalidEncoding;
             }
             return res;
         }
@@ -94,7 +86,7 @@ pub fn Parser(comptime T: type) type {
         /// Create phc encoded string
         ///
         /// You have to free result after use.
-        pub fn toString(self: *Self) Error![]u8 {
+        pub fn toString(self: *Self) ![]u8 {
             var i: usize = self.alg_id.len + fields_delimiter.len;
             var versionLen: usize = 0;
             if (self.version) |v| {
@@ -107,7 +99,7 @@ pub fn Parser(comptime T: type) type {
             }
             var params: ?[]const u8 = null;
             if (self.params) |v| {
-                var params_arr: [@typeInfo(T).Struct.fields.len]?Param = undefined;
+                var params_arr: [@typeInfo(Params).Struct.fields.len]?Param = undefined;
                 try v.toPhcEncoding(self.allocator, &params_arr);
                 var j: usize = 0;
                 var sep_cnt: usize = 0;
@@ -165,7 +157,7 @@ pub fn Parser(comptime T: type) type {
             var derived_key: ?[]const u8 = null;
             if (self.derived_key) |v| {
                 if (salt == null) {
-                    return error.NullSalt;
+                    return Error.InvalidEncoding;
                 }
                 const s = try b64encode(self.allocator, v);
                 i += s.len + fields_delimiter.len;
@@ -196,9 +188,9 @@ pub fn Parser(comptime T: type) type {
 
 /// For strHash && strVerify usage
 pub fn Hasher(
-    comptime T: type,
-    comptime P: type,
-    comptime KdfFn: anytype,
+    comptime PhcParser: type,
+    comptime Params: type,
+    comptime kdf: anytype,
     comptime algorithm_id: []const u8,
     comptime salt_len: usize,
     comptime derived_key_len: usize,
@@ -206,19 +198,19 @@ pub fn Hasher(
     return struct {
         /// Verify password against phc encoded string
         pub fn verify(allocator: *mem.Allocator, str: []const u8, password: []const u8) !void {
-            var self = try T.fromString(allocator, str);
+            var self = try PhcParser.fromString(allocator, str);
             defer self.deinit();
             if (!mem.eql(u8, self.alg_id, algorithm_id)) {
-                return Error.VerificationError;
+                return Error.InvalidEncoding;
             }
-            const params = self.params orelse return Error.VerificationError;
-            const salt = self.salt orelse return Error.VerificationError;
-            const derived_key = self.derived_key orelse return Error.VerificationError;
+            const params = self.params orelse return Error.InvalidEncoding;
+            const salt = self.salt orelse return Error.InvalidEncoding;
+            const derived_key = self.derived_key orelse return Error.InvalidEncoding;
             if (derived_key.len != derived_key_len) {
-                return Error.VerificationError;
+                return Error.InvalidEncoding;
             }
             var dk: [derived_key_len]u8 = undefined;
-            try KdfFn(allocator, &dk, password, salt, params);
+            try kdf(allocator, &dk, password, salt, params);
             const ok = crypto.utils.timingSafeEql(
                 [derived_key_len]u8,
                 dk,
@@ -226,19 +218,19 @@ pub fn Hasher(
             );
             crypto.utils.secureZero(u8, &dk);
             if (!ok) {
-                return Error.VerificationError;
+                return Error.PasswordVerificationFailed;
             }
         }
 
         /// Derive key from password and return phc encoded string
         ///
         /// You have to free result after use.
-        pub fn create(allocator: *mem.Allocator, password: []const u8, params: P) ![]u8 {
+        pub fn create(allocator: *mem.Allocator, password: []const u8, params: Params) ![]u8 {
             var salt: [salt_len]u8 = undefined;
             crypto.random.bytes(&salt);
             var derived_key: [derived_key_len]u8 = undefined;
-            try KdfFn(allocator, &derived_key, password, &salt, params);
-            return (T{
+            try kdf(allocator, &derived_key, password, &salt, params);
+            return (PhcParser{
                 .allocator = allocator,
                 .alg_id = algorithm_id,
                 .params = params,
@@ -274,7 +266,7 @@ fn b64encode(allocator: *mem.Allocator, v: []const u8) mem.Allocator.Error![]u8 
 
 fn b64decode(allocator: *mem.Allocator, s: []const u8) ![]u8 {
     if (s.len == 0) {
-        return Error.ParseError;
+        return Error.InvalidEncoding;
     }
     var buf: []u8 = undefined;
     if (s.len % 4 != 0) {
@@ -300,12 +292,8 @@ pub const Param = struct {
     key: []const u8,
     value: []const u8,
 
-    pub fn new(key: []const u8, value: []const u8) Self {
-        return Self{ .key = key, .value = value };
-    }
-
-    pub fn decimal(self: Self, comptime T: type) fmt.ParseIntError!T {
-        return fmt.parseInt(T, self.value, 10);
+    pub fn decimal(self: Self, comptime T: type) Error!T {
+        return fmt.parseInt(T, self.value, 10) catch return error.InvalidEncoding;
     }
 };
 
@@ -324,19 +312,19 @@ pub const ParamsIterator = struct {
     pub fn next(self: *Self) Error!?Param {
         const s = self.it.next() orelse return null;
         if (self.pos == self.limit) {
-            return error.ParseError;
+            return error.InvalidEncoding;
         }
         var it = mem.split(s, kv_delimiter);
-        const key = it.next() orelse return error.ParseError;
+        const key = it.next() orelse return error.InvalidEncoding;
         if (key.len == 0 or key.len > 32) {
-            return error.ParseError;
+            return error.InvalidEncoding;
         }
-        const value = it.next() orelse return error.ParseError;
+        const value = it.next() orelse return error.InvalidEncoding;
         if (it.next() != null) {
-            return error.ParseError;
+            return error.InvalidEncoding;
         }
         self.pos += 1;
-        return Param.new(key, value);
+        return Param{ .key = key, .value = value };
     }
 };
 

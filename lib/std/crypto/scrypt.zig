@@ -19,24 +19,12 @@ const phc = @import("phc_encoding.zig");
 /// Algorithm for PhcEncoding
 pub const phc_alg_id = "scrypt";
 
+const Error = crypto.Error;
 const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
 const max_size = math.maxInt(usize);
 const max_int = max_size >> 1;
 const PhcParser = phc.Parser(Params);
 const PhcHasher = phc.Hasher(PhcParser, Params, kdf, phc_alg_id, 32, 32);
-
-const ScryptError = error{
-    InvalidParams,
-    InvalidDerivedKeyLen,
-};
-
-pub const Error = ScryptError || mem.Allocator.Error;
-
-pub const CryptHasherError = error{
-    ParseError,
-    InvalidAlgorithm,
-    VerificationError,
-};
 
 fn blockCopy(dst: []align(16) u32, src: []align(16) const u32, n: usize) void {
     mem.copy(u32, dst, src[0 .. n * 16]);
@@ -163,7 +151,7 @@ pub const Params = struct {
     }
 
     /// Public interface for PhcEncoding
-    pub fn fromPhcEncoding(it: *phc.ParamsIterator) phc.Error!Self {
+    pub fn fromPhcEncoding(it: *phc.ParamsIterator) Error!Self {
         var ln: ?u6 = null;
         var r: ?u30 = null;
         var p: ?u30 = null;
@@ -175,13 +163,13 @@ pub const Params = struct {
             } else if (mem.eql(u8, param.key, "p")) {
                 p = try param.decimal(u30);
             } else {
-                return error.ParseError;
+                return error.InvalidEncoding;
             }
         }
         return Self{
-            .log_n = ln orelse return error.ParseError,
-            .r = r orelse return error.ParseError,
-            .p = p orelse return error.ParseError,
+            .log_n = ln orelse return error.InvalidEncoding,
+            .r = r orelse return error.InvalidEncoding,
+            .p = p orelse return error.InvalidEncoding,
         };
     }
 
@@ -196,9 +184,9 @@ pub const Params = struct {
         const r = try fmt.allocPrint(allocator, "{d}", .{self.r});
         errdefer allocator.free(r);
         const p = try fmt.allocPrint(allocator, "{d}", .{self.p});
-        out[0] = phc.Param.new("ln", ln);
-        out[1] = phc.Param.new("r", r);
-        out[2] = phc.Param.new("p", p);
+        out[0] = phc.Param{ .key = "ln", .value = ln };
+        out[1] = phc.Param{ .key = "r", .value = r };
+        out[2] = phc.Param{ .key = "p", .value = p };
     }
 };
 
@@ -225,15 +213,15 @@ pub fn kdf(
     params: Params,
 ) !void {
     if (derived_key.len == 0 or derived_key.len / 32 > 0xffff_ffff) {
-        return Error.InvalidDerivedKeyLen;
+        return Error.OutputTooLong;
     }
     if (params.log_n == 0 or params.r == 0 or params.p == 0) {
-        return Error.InvalidParams;
+        return Error.WeakParameters;
     }
     // 32bit check
     const n64 = @as(u64, 1) << params.log_n;
     if (n64 > max_size) {
-        return Error.InvalidParams;
+        return Error.WeakParameters;
     }
     const n = @intCast(usize, n64);
     if (@as(u64, params.r) * @as(u64, params.p) >= 1 << 30 or
@@ -241,7 +229,7 @@ pub fn kdf(
         params.r > max_int / 256 or
         n > max_int / 128 / @as(u64, params.r))
     {
-        return Error.InvalidParams;
+        return Error.WeakParameters;
     }
 
     var xy = try allocator.alignedAlloc(u32, 16, 64 * params.r);
@@ -279,10 +267,10 @@ fn CustomB64Codec(comptime map: [64]u8) type {
             }
         }
 
-        fn intDecode(comptime T: type, src: *const [(meta.bitCount(T) + 5) / 6]u8) CryptHasherError!T {
+        fn intDecode(comptime T: type, src: *const [(meta.bitCount(T) + 5) / 6]u8) Error!T {
             var v: T = 0;
             for (src) |x, i| {
-                const vi = mem.indexOfScalar(u8, &map64, x) orelse return error.ParseError;
+                const vi = mem.indexOfScalar(u8, &map64, x) orelse return error.InvalidEncoding;
                 v |= @intCast(T, vi) << @intCast(math.Log2Int(T), i * 6);
             }
             return v;
@@ -301,7 +289,7 @@ fn CustomB64Codec(comptime map: [64]u8) type {
             intEncode(dst[i * 4 ..], v);
         }
 
-        fn sliceDecode(comptime len: usize, dst: *[decodedLen(len)]u8, src: *const [len]u8) !void {
+        fn sliceDecode(comptime len: usize, dst: *[decodedLen(len)]u8, src: *const [len]u8) Error!void {
             var i: usize = 0;
             while (i < src.len / 4) : (i += 1) {
                 mem.writeIntSliceLittle(u24, dst[i * 3 ..], try intDecode(u24, src[i * 4 ..][0..4]));
@@ -324,9 +312,9 @@ pub const CryptHasher = struct {
     const Codec = CustomB64Codec("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".*);
     const prefix = "$7$";
 
-    fn parseParams(encoded: *const [14]u8) CryptHasherError!Params {
+    fn parseParams(encoded: *const [14]u8) Error!Params {
         if (!mem.eql(u8, prefix, encoded[0..3])) {
-            return error.InvalidAlgorithm;
+            return error.InvalidEncoding;
         }
         return Params{
             .log_n = try Codec.intDecode(u6, encoded[3..4]),
@@ -338,14 +326,14 @@ pub const CryptHasher = struct {
     /// Verify password against crypt encoded string
     pub fn verify(allocator: *mem.Allocator, str: []const u8, password: []const u8) !void {
         if (str.len < 58) {
-            return error.ParseError;
+            return Error.InvalidEncoding;
         }
         const params = try parseParams(str[0..14]);
         var salt = str[14..];
-        salt = salt[0 .. mem.indexOfScalar(u8, salt, '$') orelse return error.ParseError];
+        salt = salt[0 .. mem.indexOfScalar(u8, salt, '$') orelse return Error.InvalidEncoding];
         const str_dk = str[14 + salt.len + 1 ..];
         if (str_dk.len < 43) {
-            return error.ParseError;
+            return Error.InvalidEncoding;
         }
         const expected_encoded_dk = str_dk[0..43];
 
@@ -358,7 +346,7 @@ pub const CryptHasher = struct {
         const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk[0..].*, expected_encoded_dk[0..].*);
         crypto.utils.secureZero(u8, &encoded_dk);
         if (!passed) {
-            return CryptHasherError.VerificationError;
+            return Error.PasswordVerificationFailed;
         }
     }
 
