@@ -370,8 +370,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .array_cat => return simpleBinOp(mod, scope, rl, node, .array_cat),
         .array_mult => return simpleBinOp(mod, scope, rl, node, .array_mul),
 
-        .bool_and => return boolBinOp(mod, scope, rl, node, true),
-        .bool_or => return boolBinOp(mod, scope, rl, node, false),
+        .bool_and => return boolBinOp(mod, scope, rl, node, .bool_and),
+        .bool_or => return boolBinOp(mod, scope, rl, node, .bool_or),
 
         .bool_not => return boolNot(mod, scope, rl, node),
         .bit_not => return bitNot(mod, scope, rl, node),
@@ -1805,87 +1805,71 @@ fn boolBinOp(
     scope: *Scope,
     rl: ResultLoc,
     infix_node: ast.Node.Index,
-    is_bool_and: bool,
+    kind: enum { bool_and, bool_or },
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
+    const bool_type = @enumToInt(zir.Const.bool_type);
+    const gz = scope.getGenZir();
 
-    const bool_type = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.bool_type),
-    });
+    const lhs = try expr(mod, scope, .{ .ty = bool_type }, node_datas[infix_node].lhs);
 
+    const block_inst = try gz.addBlock(.block, infix_node);
+    const block_ref = gz.zir_code.ref_start_index + block_inst;
     var block_scope: Scope.GenZir = .{
         .parent = scope,
-        .decl = scope.ownerDecl().?,
-        .arena = scope.arena(),
-        .force_comptime = scope.isComptime(),
-        .instructions = .{},
+        .zir_code = gz.zir_code,
+        .force_comptime = gz.force_comptime,
     };
     defer block_scope.instructions.deinit(mod.gpa);
 
-    const lhs = try expr(mod, scope, .{ .ty = bool_type }, node_datas[infix_node].lhs);
-    const condbr = try addZIRInstSpecial(mod, &block_scope.base, src, zir.Inst.CondBr, .{
-        .condition = lhs,
-        .then_body = undefined, // populated below
-        .else_body = undefined, // populated below
-    }, .{});
-
-    const block = try addZIRInstBlock(mod, scope, src, .block, .{
-        .instructions = try block_scope.arena.dupe(zir.Inst.Ref, block_scope.instructions.items),
-    });
-
     var rhs_scope: Scope.GenZir = .{
-        .parent = scope,
-        .decl = block_scope.decl,
-        .arena = block_scope.arena,
-        .force_comptime = block_scope.force_comptime,
-        .instructions = .{},
+        .parent = &block_scope.base,
+        .zir_code = gz.zir_code,
+        .force_comptime = gz.force_comptime,
     };
     defer rhs_scope.instructions.deinit(mod.gpa);
-
     const rhs = try expr(mod, &rhs_scope.base, .{ .ty = bool_type }, node_datas[infix_node].rhs);
-    _ = try addZIRInst(mod, &rhs_scope.base, src, zir.Inst.Break, .{
-        .block = block,
-        .operand = rhs,
-    }, .{});
+    _ = try rhs_scope.addBin(.@"break", block_inst, rhs);
 
-    var const_scope: Scope.GenZir = .{
-        .parent = scope,
-        .decl = block_scope.decl,
-        .arena = block_scope.arena,
-        .force_comptime = block_scope.force_comptime,
-        .instructions = .{},
-    };
-    defer const_scope.instructions.deinit(mod.gpa);
+    // TODO: should we have zir.Const instructions for `break true` and `break false`?
+    const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+    const break_true_false_ref = new_index + gz.zir_code.ref_start_index;
+    try gz.zir_code.instructions.append(gz.zir_code.gpa, .{ .tag = .@"break", .data = .{ .bin = .{
+        .lhs = block_inst,
+        .rhs = switch (kind) {
+            .bool_and => @enumToInt(zir.Const.bool_false),
+            .bool_or => @enumToInt(zir.Const.bool_true),
+        },
+    } } });
 
-    _ = try addZIRInst(mod, &const_scope.base, src, zir.Inst.Break, .{
-        .block = block,
-        .operand = try addZIRInstConst(mod, &const_scope.base, src, .{
-            .ty = Type.initTag(.bool),
-            .val = if (is_bool_and) Value.initTag(.bool_false) else Value.initTag(.bool_true),
-        }),
-    }, .{});
-
-    if (is_bool_and) {
+    switch (kind) {
         // if lhs // AND
         //     break rhs
         // else
         //     break false
-        condbr.positionals.then_body = .{ .instructions = try rhs_scope.arena.dupe(zir.Inst.Ref, rhs_scope.instructions.items) };
-        condbr.positionals.else_body = .{ .instructions = try const_scope.arena.dupe(zir.Inst.Ref, const_scope.instructions.items) };
-    } else {
+        .bool_and => _ = try block_scope.addCondBr(
+            lhs,
+            rhs_scope.instructions.items,
+            &[_]zir.Inst.Ref{break_true_false_ref},
+            infix_node,
+        ),
         // if lhs // OR
         //     break true
         // else
         //     break rhs
-        condbr.positionals.then_body = .{ .instructions = try const_scope.arena.dupe(zir.Inst.Ref, const_scope.instructions.items) };
-        condbr.positionals.else_body = .{ .instructions = try rhs_scope.arena.dupe(zir.Inst.Ref, rhs_scope.instructions.items) };
+        .bool_or => _ = try block_scope.addCondBr(
+            lhs,
+            &[_]zir.Inst.Ref{break_true_false_ref},
+            rhs_scope.instructions.items,
+            infix_node,
+        ),
     }
 
-    return rvalue(mod, scope, rl, &block.base);
+    try gz.instructions.append(mod.gpa, block_inst);
+    try copyBodyNoEliding(block_inst, block_scope);
+
+    return rvalue(mod, scope, rl, block_ref, infix_node);
 }
 
 fn ifExpr(

@@ -1045,10 +1045,10 @@ pub const Scope = struct {
             try gz.zir_code.extra.ensureCapacity(gpa, gz.zir_code.extra.items.len +
                 @typeInfo(zir.Inst.FnTypeCc).Struct.fields.len + args.param_types.len);
 
-            const payload_index = gz.zir_code.addExtra(zir.Inst.FnTypeCc{
+            const payload_index = gz.zir_code.addExtraAssumeCapacity(zir.Inst.FnTypeCc{
                 .cc = args.cc,
                 .param_types_len = @intCast(u32, args.param_types.len),
-            }) catch unreachable; // Capacity is ensured above.
+            });
             gz.zir_code.extra.appendSliceAssumeCapacity(args.param_types);
 
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
@@ -1076,9 +1076,9 @@ pub const Scope = struct {
             try gz.zir_code.extra.ensureCapacity(gpa, gz.zir_code.extra.items.len +
                 @typeInfo(zir.Inst.FnType).Struct.fields.len + param_types.len);
 
-            const payload_index = gz.zir_code.addExtra(zir.Inst.FnType{
+            const payload_index = gz.zir_code.addExtraAssumeCapacity(zir.Inst.FnType{
                 .param_types_len = @intCast(u32, param_types.len),
-            }) catch unreachable; // Capacity is ensured above.
+            });
             gz.zir_code.extra.appendSliceAssumeCapacity(param_types);
 
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
@@ -1090,6 +1090,41 @@ pub const Scope = struct {
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
+            return new_index + gz.zir_code.ref_start_index;
+        }
+
+        pub fn addCondBr(
+            gz: *GenZir,
+            condition: zir.Inst.Ref,
+            then_body: []const zir.Inst.Ref,
+            else_body: []const zir.Inst.Ref,
+            /// Absolute node index. This function does the conversion to offset from Decl.
+            abs_node_index: ast.Node.Index,
+        ) !zir.Inst.Ref {
+            const gpa = gz.zir_code.gpa;
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
+            try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
+            try gz.zir_code.extra.ensureCapacity(gpa, gz.zir_code.extra.items.len +
+                @typeInfo(zir.Inst.CondBr).Struct.fields.len + then_body.len + else_body.len);
+
+            const payload_index = gz.zir_code.addExtraAssumeCapacity(zir.Inst.CondBr{
+                .condition = condition,
+                .then_body_len = @intCast(u32, then_body.len),
+                .else_body_len = @intCast(u32, else_body.len),
+            });
+            gz.zir_code.extra.appendSliceAssumeCapacity(then_body);
+            gz.zir_code.extra.appendSliceAssumeCapacity(else_body);
+
+            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+            gz.zir_code.instructions.appendAssumeCapacity(.{
+                .tag = .condbr,
+                .data = .{ .pl_node = .{
+                    .src_node = gz.zir_code.decl.nodeIndexToRelative(abs_node_index),
+                    .payload_index = payload_index,
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+
             return new_index + gz.zir_code.ref_start_index;
         }
 
@@ -1109,10 +1144,10 @@ pub const Scope = struct {
             try gz.zir_code.extra.ensureCapacity(gpa, gz.zir_code.extra.items.len +
                 @typeInfo(zir.Inst.Call).Struct.fields.len + args.len);
 
-            const payload_index = gz.zir_code.addExtra(zir.Inst.Call{
+            const payload_index = gz.zir_code.addExtraAssumeCapacity(zir.Inst.Call{
                 .callee = callee,
                 .args_len = @intCast(u32, args.len),
-            }) catch unreachable; // Capacity is ensured above.
+            });
             gz.zir_code.extra.appendSliceAssumeCapacity(args);
 
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
@@ -1356,6 +1391,11 @@ pub const WipZirCode = struct {
     pub fn addExtra(wzc: *WipZirCode, extra: anytype) Allocator.Error!u32 {
         const fields = std.meta.fields(@TypeOf(extra));
         try wzc.extra.ensureCapacity(wzc.gpa, wzc.extra.items.len + fields.len);
+        return addExtraAssumeCapacity(wzc, extra);
+    }
+
+    pub fn addExtraAssumeCapacity(wzc: *WipZirCode, extra: anytype) u32 {
+        const fields = std.meta.fields(@TypeOf(extra));
         const result = @intCast(u32, wzc.extra.items.len);
         inline for (fields) |field| {
             comptime assert(field.field_type == u32);
