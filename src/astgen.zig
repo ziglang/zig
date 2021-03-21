@@ -2994,7 +2994,7 @@ fn asmExpr(
     }
 
     const tag: zir.Inst.Tag = if (full.volatile_token != null) .asm_volatile else .@"asm";
-    const result = try gz.addPlNode(.@"asm", node, zir.Inst.Asm{
+    const result = try gz.addPlNode(tag, node, zir.Inst.Asm{
         .asm_source = asm_source,
         .return_type = return_type,
         .output = 0,
