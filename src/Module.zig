@@ -237,12 +237,20 @@ pub const Decl = struct {
         }
     }
 
-    pub fn tokSrcLoc(decl: *Decl, token_index: ast.TokenIndex) LazySrcLoc {
+    pub fn relativeToNodeIndex(decl: Decl, offset: i32) ast.Node.Index {
+        return @bitCast(ast.Node.Index, offset + @bitCast(i32, decl.srcNode()));
+    }
+
+    pub fn nodeIndexToRelative(decl: Decl, node_index: ast.Node.Index) i32 {
+        return @bitCast(i32, node_index) - @bitCast(i32, decl.srcNode());
+    }
+
+    pub fn tokSrcLoc(decl: Decl, token_index: ast.TokenIndex) LazySrcLoc {
         return .{ .token_offset = token_index - decl.srcToken() };
     }
 
-    pub fn nodeSrcLoc(decl: *Decl, node_index: ast.Node.Index) LazySrcLoc {
-        return .{ .node_offset = node_index - decl.srcNode() };
+    pub fn nodeSrcLoc(decl: Decl, node_index: ast.Node.Index) LazySrcLoc {
+        return .{ .node_offset = decl.nodeIndexToRelative(node_index) };
     }
 
     pub fn srcLoc(decl: *Decl) SrcLoc {
@@ -1076,6 +1084,40 @@ pub const Scope = struct {
             return new_index + gz.zir_code.ref_start_index;
         }
 
+        pub fn addCall(
+            gz: *GenZir,
+            tag: zir.Inst.Tag,
+            callee: zir.Inst.Ref,
+            args: []const zir.Inst.Ref,
+            /// Absolute node index. This function does the conversion to offset from Decl.
+            abs_node_index: ast.Node.Index,
+        ) !zir.Inst.Index {
+            assert(callee != 0);
+            assert(abs_node_index != 0);
+            const gpa = gz.zir_code.gpa;
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
+            try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
+            try gz.zir_code.extra.ensureCapacity(gpa, gz.zir_code.extra.items.len +
+                @typeInfo(zir.Inst.Call).Struct.fields.len + args.len);
+
+            const payload_index = gz.zir_code.addExtra(zir.Inst.Call{
+                .callee = callee,
+                .args_len = @intCast(u32, args.len),
+            }) catch unreachable; // Capacity is ensured above.
+            gz.zir_code.extra.appendSliceAssumeCapacity(args);
+
+            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+            gz.zir_code.instructions.appendAssumeCapacity(.{
+                .tag = tag,
+                .data = .{ .pl_node = .{
+                    .src_node = gz.zir_code.decl.nodeIndexToRelative(abs_node_index),
+                    .payload_index = payload_index,
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+            return new_index + gz.zir_code.ref_start_index;
+        }
+
         pub fn addInt(gz: *GenZir, integer: u64) !zir.Inst.Ref {
             return gz.add(.{
                 .tag = .int,
@@ -1095,7 +1137,7 @@ pub const Scope = struct {
                 .tag = tag,
                 .data = .{ .un_node = .{
                     .operand = operand,
-                    .src_node = abs_node_index - gz.zir_code.decl.srcNode(),
+                    .src_node = gz.zir_code.decl.nodeIndexToRelative(abs_node_index),
                 } },
             });
         }
@@ -1116,7 +1158,7 @@ pub const Scope = struct {
             gz.zir_code.instructions.appendAssumeCapacity(.{
                 .tag = tag,
                 .data = .{ .pl_node = .{
-                    .src_node = gz.zir_code.decl.srcNode() - abs_node_index,
+                    .src_node = gz.zir_code.decl.nodeIndexToRelative(abs_node_index),
                     .payload_index = payload_index,
                 } },
             });
@@ -1177,7 +1219,7 @@ pub const Scope = struct {
         ) !zir.Inst.Ref {
             return gz.add(.{
                 .tag = tag,
-                .data = .{ .node = abs_node_index - gz.zir_code.decl.srcNode() },
+                .data = .{ .node = gz.zir_code.decl.nodeIndexToRelative(abs_node_index) },
             });
         }
 
@@ -1205,14 +1247,14 @@ pub const Scope = struct {
             try gz.zir_code.instructions.append(gz.zir_code.gpa, .{
                 .tag = tag,
                 .data = .{ .pl_node = .{
-                    .src_node = node - gz.zir_code.decl.srcNode(),
+                    .src_node = gz.zir_code.decl.nodeIndexToRelative(node),
                     .payload_index = undefined,
                 } },
             });
             return new_index;
         }
 
-        fn add(gz: *GenZir, inst: zir.Inst) !zir.Inst.Ref {
+        pub fn add(gz: *GenZir, inst: zir.Inst) !zir.Inst.Ref {
             const gpa = gz.zir_code.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
@@ -1593,7 +1635,7 @@ pub const SrcLoc = struct {
             },
             .node_offset => |node_off| {
                 const decl = src_loc.container.decl;
-                const node_index = decl.srcNode() + node_off;
+                const node_index = decl.relativeToNodeIndex(node_off);
                 const tree = decl.container.file_scope.base.tree();
                 const tok_index = tree.firstToken(node_index);
                 const token_starts = tree.tokens.items(.start);
@@ -1659,84 +1701,84 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to an AST node, which is this value offset
     /// from its containing Decl node AST index.
     /// The Decl is determined contextually.
-    node_offset: u32,
+    node_offset: i32,
     /// The source location points to a variable declaration type expression,
     /// found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a variable declaration AST node. Next, navigate
     /// to the type expression.
     /// The Decl is determined contextually.
-    node_offset_var_decl_ty: u32,
+    node_offset_var_decl_ty: i32,
     /// The source location points to a for loop condition expression,
     /// found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a for loop AST node. Next, navigate
     /// to the condition expression.
     /// The Decl is determined contextually.
-    node_offset_for_cond: u32,
+    node_offset_for_cond: i32,
     /// The source location points to the first parameter of a builtin
     /// function call, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a builtin call AST node. Next, navigate
     /// to the first parameter.
     /// The Decl is determined contextually.
-    node_offset_builtin_call_arg0: u32,
+    node_offset_builtin_call_arg0: i32,
     /// Same as `node_offset_builtin_call_arg0` except arg index 1.
-    node_offset_builtin_call_arg1: u32,
+    node_offset_builtin_call_arg1: i32,
     /// Same as `node_offset_builtin_call_arg0` except the arg index is contextually
     /// determined.
-    node_offset_builtin_call_argn: u32,
+    node_offset_builtin_call_argn: i32,
     /// The source location points to the index expression of an array access
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to an array access AST node. Next, navigate
     /// to the index expression.
     /// The Decl is determined contextually.
-    node_offset_array_access_index: u32,
+    node_offset_array_access_index: i32,
     /// The source location points to the sentinel expression of a slice
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a slice AST node. Next, navigate
     /// to the sentinel expression.
     /// The Decl is determined contextually.
-    node_offset_slice_sentinel: u32,
+    node_offset_slice_sentinel: i32,
     /// The source location points to the callee expression of a function
     /// call expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a function call AST node. Next, navigate
     /// to the callee expression.
     /// The Decl is determined contextually.
-    node_offset_call_func: u32,
+    node_offset_call_func: i32,
     /// The source location points to the field name of a field access expression,
     /// found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a field access AST node. Next, navigate
     /// to the field name token.
     /// The Decl is determined contextually.
-    node_offset_field_name: u32,
+    node_offset_field_name: i32,
     /// The source location points to the pointer of a pointer deref expression,
     /// found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a pointer deref AST node. Next, navigate
     /// to the pointer expression.
     /// The Decl is determined contextually.
-    node_offset_deref_ptr: u32,
+    node_offset_deref_ptr: i32,
     /// The source location points to the assembly source code of an inline assembly
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to inline assembly AST node. Next, navigate
     /// to the asm template source code.
     /// The Decl is determined contextually.
-    node_offset_asm_source: u32,
+    node_offset_asm_source: i32,
     /// The source location points to the return type of an inline assembly
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to inline assembly AST node. Next, navigate
     /// to the return type expression.
     /// The Decl is determined contextually.
-    node_offset_asm_ret_ty: u32,
+    node_offset_asm_ret_ty: i32,
     /// The source location points to the condition expression of an if
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to an if expression AST node. Next, navigate
     /// to the condition expression.
     /// The Decl is determined contextually.
-    node_offset_if_cond: u32,
+    node_offset_if_cond: i32,
     /// The source location points to the type expression of an `anyframe->T`
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a `anyframe->T` expression AST node. Next, navigate
     /// to the type expression.
     /// The Decl is determined contextually.
-    node_offset_anyframe_type: u32,
+    node_offset_anyframe_type: i32,
 
     /// Upgrade to a `SrcLoc` based on the `Decl` or file in the provided scope.
     pub fn toSrcLoc(lazy: LazySrcLoc, scope: *Scope) SrcLoc {
@@ -3678,8 +3720,7 @@ pub fn failTok(
     comptime format: []const u8,
     args: anytype,
 ) InnerError {
-    const decl_token = scope.srcDecl().?.srcToken();
-    const src: LazySrcLoc = .{ .token_offset = token_index - decl_token };
+    const src = scope.srcDecl().?.tokSrcLoc(token_index);
     return mod.fail(scope, src, format, args);
 }
 
@@ -3692,8 +3733,7 @@ pub fn failNode(
     comptime format: []const u8,
     args: anytype,
 ) InnerError {
-    const decl_node = scope.srcDecl().?.srcNode();
-    const src: LazySrcLoc = .{ .node_offset = decl_node - node_index };
+    const src = scope.srcDecl().?.nodeSrcLoc(node_index);
     return mod.fail(scope, src, format, args);
 }
 

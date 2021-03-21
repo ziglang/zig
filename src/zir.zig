@@ -1019,7 +1019,7 @@ pub const Inst = struct {
         /// Used for unary operators, with an AST node source location.
         un_node: struct {
             /// Offset from Decl AST node index.
-            src_node: ast.Node.Index,
+            src_node: i32,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
 
@@ -1041,7 +1041,7 @@ pub const Inst = struct {
         pl_node: struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
-            src_node: ast.Node.Index,
+            src_node: i32,
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
@@ -1092,7 +1092,7 @@ pub const Inst = struct {
         /// Offset from Decl AST token index.
         tok: ast.TokenIndex,
         /// Offset from Decl AST node index.
-        node: ast.Node.Index,
+        node: i32,
         int: u64,
         array_type_sentinel: struct {
             len: Ref,
@@ -1400,8 +1400,9 @@ const Writer = struct {
             .slice_sentinel,
             .typeof_peer,
             .suspend_block,
-            .as_node,
             => try self.writePlNode(stream, inst),
+
+            .as_node => try self.writeAs(stream, inst),
 
             .breakpoint,
             .dbg_stmt_node,
@@ -1544,6 +1545,16 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
+    fn writeAs(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.As, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.dest_type);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.operand);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
     fn writeNode(
         self: *Writer,
         stream: anytype,
@@ -1560,8 +1571,8 @@ const Writer = struct {
         stream: anytype,
         inst: Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].decl;
-        try stream.writeAll("TODO)");
+        const decl = self.code.instructions.items(.data)[inst].decl;
+        try stream.print("{s})", .{decl.name});
     }
 
     fn writeStrTok(

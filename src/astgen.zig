@@ -3402,10 +3402,6 @@ fn callExpr(
     node: ast.Node.Index,
     call: ast.full.Call,
 ) InnerError!zir.Inst.Ref {
-    if (true) {
-        @panic("TODO update for zir-memory-layout branch");
-    }
-
     if (call.async_token) |async_token| {
         return mod.failTok(scope, async_token, "TODO implement async fn call", .{});
     }
@@ -3414,11 +3410,14 @@ fn callExpr(
     const args = try mod.gpa.alloc(zir.Inst.Index, call.ast.params.len);
     defer mod.gpa.free(args);
 
-    const gen_zir = scope.getGenZir();
+    const gz = scope.getGenZir();
     for (call.ast.params) |param_node, i| {
-        const param_type = try gen_zir.addParamType(.{
-            .callee = lhs,
-            .param_index = i,
+        const param_type = try gz.add(.{
+            .tag = .param_type,
+            .data = .{ .param_type = .{
+                .callee = lhs,
+                .param_index = @intCast(u32, i),
+            } },
         });
         args[i] = try expr(mod, scope, .{ .ty = param_type }, param_node);
     }
@@ -3430,7 +3429,7 @@ fn callExpr(
     const result: zir.Inst.Index = res: {
         const tag: zir.Inst.Tag = switch (modifier) {
             .auto => switch (args.len == 0) {
-                true => break :res try gen_zir.addCallNone(lhs, node),
+                true => break :res try gz.addUnNode(.call_none, lhs, node),
                 false => .call,
             },
             .async_kw => .call_async_kw,
@@ -3441,9 +3440,9 @@ fn callExpr(
             .always_inline => unreachable,
             .compile_time => .call_compile_time,
         };
-        break :res try gen_zir.addCall(tag, lhs, args, node);
+        break :res try gz.addCall(tag, lhs, args, node);
     };
-    return rvalue(mod, scope, rl, result); // TODO function call with result location
+    return rvalue(mod, scope, rl, result, node); // TODO function call with result location
 }
 
 fn suspendExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {

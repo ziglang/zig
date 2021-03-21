@@ -618,7 +618,7 @@ fn zirParamType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErr
     const tracy = trace(@src());
     defer tracy.end();
 
-    const src: LazySrcLoc = .todo;
+    const src: LazySrcLoc = .unneeded;
     const inst_data = sema.code.instructions.items(.data)[inst].param_type;
     const fn_inst = try sema.resolveInst(inst_data.callee);
     const param_index = inst_data.param_index;
