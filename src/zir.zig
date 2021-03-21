@@ -392,8 +392,10 @@ pub const Inst = struct {
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
         /// Arithmetic addition, asserts no integer overflow.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         add,
         /// Twos complement wrapping integer addition.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         addwrap,
         /// Allocates stack local memory.
         /// Uses the `un_node` union field. The operand is the type of the allocated object.
@@ -411,8 +413,10 @@ pub const Inst = struct {
         /// Uses the `un_node` field. AST node is the `anyframe->T` syntax. Operand is the type.
         anyframe_type,
         /// Array concatenation. `a ++ b`
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         array_cat,
         /// Array multiplication `a ** b`
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         array_mul,
         /// `[N]T` syntax. No source location provided.
         /// Uses the `bin` union field. lhs is length, rhs is element type.
@@ -468,13 +472,13 @@ pub const Inst = struct {
         /// Same as `block_flat` but additionally makes the inner instructions execute at comptime.
         block_comptime_flat,
         /// Boolean AND. See also `bit_and`.
-        /// Uses the `bin` field.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         bool_and,
         /// Boolean NOT. See also `bit_not`.
         /// Uses the `un_node` field.
         bool_not,
         /// Boolean OR. See also `bit_or`.
-        /// Uses the `bin` field.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         bool_or,
         /// Return a value from a block.
         /// Uses the `bin` union field: `lhs` is `Index` to the block (*not* `Ref`!),
@@ -501,16 +505,22 @@ pub const Inst = struct {
         /// Uses the `un_node` field. Operand is callee. AST node is the function call.
         call_none,
         /// `<`
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         cmp_lt,
         /// `<=`
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         cmp_lte,
         /// `==`
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         cmp_eq,
         /// `>=`
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         cmp_gte,
         /// `>`
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         cmp_gt,
         /// `!=`
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         cmp_neq,
         /// Coerces a result location pointer to a new element type. It is evaluated "backwards"-
         /// as type coercion from the new element type to the old element type.
@@ -543,6 +553,7 @@ pub const Inst = struct {
         /// Uses `un_node` field. AST node is the `x.*` syntax.
         deref_node,
         /// Arithmetic division. Asserts no integer overflow.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         div,
         /// Given a pointer to an array, slice, or pointer, returns a pointer to the element at
         /// the provided index. Uses the `bin` union field. Source location is implied
@@ -646,10 +657,13 @@ pub const Inst = struct {
         /// Ambiguously remainder division or modulus. If the computation would possibly have
         /// a different value depending on whether the operation is remainder division or modulus,
         /// a compile error is emitted. Otherwise the computation is performed.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         mod_rem,
         /// Arithmetic multiplication. Asserts no integer overflow.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         mul,
         /// Twos complement wrapping integer multiplication.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         mulwrap,
         /// An await inside a nosuspend scope.
         nosuspend_await,
@@ -697,8 +711,10 @@ pub const Inst = struct {
         /// Uses the `un_node` union field.
         set_eval_branch_quota,
         /// Integer shift-left. Zeroes are shifted in from the right hand side.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         shl,
         /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         shr,
         /// Create a pointer type that does not have a sentinel, alignment, or bit range specified.
         /// Uses the `ptr_type_simple` union field.
@@ -734,8 +750,10 @@ pub const Inst = struct {
         /// Uses the `str` union field.
         str,
         /// Arithmetic subtraction. Asserts no integer overflow.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         sub,
         /// Twos complement wrapping integer subtraction.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         subwrap,
         /// Arithmetic negation. Asserts no integer overflow.
         /// Same as sub with a lhs of 0, split into a separate instruction to save memory.
@@ -756,6 +774,7 @@ pub const Inst = struct {
         /// Uses the `unreachable` union field.
         @"unreachable",
         /// Bitwise XOR. `^`
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         xor,
         /// Create an optional type '?T'
         /// Uses the `un_node` field.
