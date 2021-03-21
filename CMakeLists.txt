@@ -89,6 +89,7 @@ set(ZIG_TARGET_MCPU "baseline" CACHE STRING "-mcpu parameter to output binaries 
 set(ZIG_EXECUTABLE "" CACHE STRING "(when cross compiling) path to already-built zig binary")
 set(ZIG_SINGLE_THREADED off CACHE BOOL "limit the zig compiler to use only 1 thread")
 set(ZIG_OMIT_STAGE2 off CACHE BOOL "omit the stage2 backend from stage1")
+set(ZIG_ENABLE_LOGGING off CACHE BOOL "enable logging")
 
 if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
     set(ZIG_USE_LLVM_CONFIG ON CACHE BOOL "use llvm-config to find LLVM libraries")
@@ -605,6 +606,12 @@ if(ZIG_OMIT_STAGE2)
   set(ZIG_OMIT_STAGE2_BOOL "true")
 else()
   set(ZIG_OMIT_STAGE2_BOOL "false")
+endif()
+
+if(ZIG_ENABLE_LOGGING)
+  set(ZIG_ENABLE_LOGGING_BOOL "true")
+else()
+  set(ZIG_ENABLE_LOGGING_BOOL "false")
 endif()
 
 configure_file (
