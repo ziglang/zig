@@ -265,7 +265,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
     const token_tags = tree.tokens.items(.tag);
     const node_datas = tree.nodes.items(.data);
     const node_tags = tree.nodes.items(.tag);
-    const token_starts = tree.tokens.items(.start);
 
     const gz = scope.getGenZir();
 
@@ -695,7 +694,6 @@ pub fn comptimeExpr(
 
     const gz = parent_scope.getGenZir();
     const tree = parent_scope.tree();
-    const token_starts = tree.tokens.items(.start);
 
     // Make a scope to collect generated instructions in the sub-expression.
     var block_scope: Scope.GenZir = .{
@@ -727,7 +725,6 @@ fn breakExpr(
     const tree = parent_scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
 
     const break_label = node_datas[node].lhs;
     const rhs = node_datas[node].rhs;
@@ -805,7 +802,6 @@ fn continueExpr(
     const tree = parent_scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
 
     const break_label = node_datas[node].lhs;
 
@@ -886,7 +882,6 @@ fn checkLabelRedefinition(mod: *Module, parent_scope: *Scope, label: ast.TokenIn
                     if (try tokenIdentEql(mod, parent_scope, label, prev_label.token)) {
                         const tree = parent_scope.tree();
                         const main_tokens = tree.nodes.items(.main_token);
-                        const token_starts = tree.tokens.items(.start);
 
                         const label_name = try mod.identifierTokenString(parent_scope, label);
                         const msg = msg: {
@@ -935,7 +930,6 @@ fn labeledBlockExpr(
 
     const tree = parent_scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
     const token_tags = tree.tokens.items(.tag);
 
     const lbrace = main_tokens[block_node];
@@ -1018,7 +1012,6 @@ fn blockExprStmts(
 ) !void {
     const tree = parent_scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
     const node_tags = tree.nodes.items(.tag);
 
     var block_arena = std.heap.ArenaAllocator.init(mod.gpa);
@@ -1297,7 +1290,6 @@ fn assignOp(
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
 
     const lhs_ptr = try lvalExpr(mod, scope, node_datas[infix_node].lhs);
     const lhs = try addZIRUnOp(mod, scope, lhs_ptr.src, .deref, lhs_ptr);
@@ -1336,7 +1328,6 @@ fn negation(
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
 
     const lhs = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.comptime_int),
@@ -1354,7 +1345,6 @@ fn ptrType(
 ) InnerError!zir.Inst.Ref {
     if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
-    const token_starts = tree.tokens.items(.start);
 
     const simple = ptr_info.allowzero_token == null and
         ptr_info.ast.align_node == 0 and
@@ -1399,7 +1389,6 @@ fn arrayType(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const node_datas = tree.nodes.items(.data);
-    const token_starts = tree.tokens.items(.start);
 
     const usize_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
@@ -1425,7 +1414,6 @@ fn arrayTypeSentinel(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.
     if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
     const node_datas = tree.nodes.items(.data);
 
     const len_node = node_datas[node].lhs;
@@ -1469,7 +1457,6 @@ fn errorSetDecl(
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
-    const token_starts = tree.tokens.items(.start);
 
     // Count how many fields there are.
     const error_token = main_tokens[node];
@@ -1521,7 +1508,6 @@ fn orelseCatchExpr(
     if (true) @panic("TODO update for zir-memory-layout");
 
     const tree = scope.tree();
-    const token_starts = tree.tokens.items(.start);
 
     var block_scope: Scope.GenZir = .{
         .parent = scope,
@@ -1703,7 +1689,6 @@ fn tokenIdentEql(mod: *Module, scope: *Scope, token1: ast.TokenIndex, token2: as
 pub fn fieldAccess(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
-    const token_starts = tree.tokens.items(.start);
     const main_tokens = tree.nodes.items(.main_token);
     const node_datas = tree.nodes.items(.data);
 
@@ -1732,7 +1717,6 @@ fn arrayAccess(
     if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
     const node_datas = tree.nodes.items(.data);
 
     const usize_type = try addZIRInstConst(mod, scope, src, .{
@@ -1760,7 +1744,6 @@ fn sliceExpr(
 ) InnerError!zir.Inst.Ref {
     if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
-    const token_starts = tree.tokens.items(.start);
 
     const usize_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
@@ -1810,7 +1793,6 @@ fn simpleBinOp(
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
 
     const lhs = try expr(mod, scope, .none, node_datas[infix_node].lhs);
     const rhs = try expr(mod, scope, .none, node_datas[infix_node].rhs);
@@ -1829,7 +1811,6 @@ fn boolBinOp(
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
 
     const bool_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
@@ -1926,7 +1907,6 @@ fn ifExpr(
 
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
 
     const if_src = token_starts[if_full.ast.if_token];
 
@@ -2070,7 +2050,6 @@ fn whileExpr(
 
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
 
     const while_src = token_starts[while_full.ast.while_token];
     const void_type = try addZIRInstConst(mod, scope, while_src, .{
@@ -2210,7 +2189,6 @@ fn forExpr(
     // Set up variables and constants.
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
     const token_tags = tree.tokens.items(.tag);
 
     const for_src = token_starts[for_full.ast.while_token];
@@ -2416,7 +2394,6 @@ fn switchExpr(
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
-    const token_starts = tree.tokens.items(.start);
     const node_tags = tree.nodes.items(.tag);
 
     const switch_token = main_tokens[switch_node];
@@ -2707,7 +2684,6 @@ fn switchCaseExpr(
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
     const token_tags = tree.tokens.items(.tag);
 
     const case_src = token_starts[case.ast.arrow_token];
@@ -2833,41 +2809,29 @@ fn identifier(
     return mod.failNode(scope, ident, "use of undeclared identifier '{s}'", .{ident_name});
 }
 
-fn parseStringLiteral(mod: *Module, scope: *Scope, token: ast.TokenIndex) ![]u8 {
-    const tree = scope.tree();
-    const token_tags = tree.tokens.items(.tag);
-    const token_starts = tree.tokens.items(.start);
-    assert(token_tags[token] == .string_literal);
-    const unparsed = tree.tokenSlice(token);
-    const arena = scope.arena();
-    var bad_index: usize = undefined;
-    const bytes = std.zig.parseStringLiteral(arena, unparsed, &bad_index) catch |err| switch (err) {
-        error.InvalidCharacter => {
-            const bad_byte = unparsed[bad_index];
-            return mod.fail(scope, src + bad_index, "invalid string literal character: '{c}'", .{
-                bad_byte,
-            });
-        },
-        else => |e| return e,
-    };
-    return bytes;
-}
-
 fn stringLiteral(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
-    str_lit: ast.Node.Index,
+    node: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
-
-    const str_lit_token = main_tokens[str_lit];
-    const bytes = try parseStringLiteral(mod, scope, str_lit_token);
-    const str_inst = try addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = bytes }, .{});
-    return rvalue(mod, scope, rl, str_inst);
+    const gz = scope.getGenZir();
+    const string_bytes = &gz.zir_code.string_bytes;
+    const str_index = string_bytes.items.len;
+    const str_lit_token = main_tokens[node];
+    const token_bytes = tree.tokenSlice(str_lit_token);
+    try mod.parseStrLit(scope, str_lit_token, string_bytes, token_bytes, 0);
+    const str_len = string_bytes.items.len - str_index;
+    const result = try gz.add(.{
+        .tag = .str,
+        .data = .{ .str = .{
+            .start = @intCast(u32, str_index),
+            .len = @intCast(u32, str_len),
+        } },
+    });
+    return rvalue(mod, scope, rl, result, node);
 }
 
 fn multilineStringLiteral(
@@ -2880,7 +2844,6 @@ fn multilineStringLiteral(
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
 
     const start = node_datas[str_lit].lhs;
     const end = node_datas[str_lit].rhs;
@@ -2924,7 +2887,6 @@ fn charLiteral(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index)
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const main_token = main_tokens[node];
-    const token_starts = tree.tokens.items(.start);
 
     const slice = tree.tokenSlice(main_token);
 
@@ -2975,7 +2937,6 @@ fn floatLiteral(
     const arena = scope.arena();
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
 
     const main_token = main_tokens[float_lit];
     const bytes = tree.tokenSlice(main_token);
@@ -3002,7 +2963,6 @@ fn asmExpr(
     const arena = scope.arena();
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
     const node_datas = tree.nodes.items(.data);
     const gz = scope.getGenZir();
 
@@ -3022,7 +2982,8 @@ fn asmExpr(
         const constraint_token = main_tokens[input] + 2;
         const string_bytes = &gz.zir_code.string_bytes;
         constraints[i] = @intCast(u32, string_bytes.items.len);
-        try mod.appendIdentStr(scope, constraint_token, string_bytes);
+        const token_bytes = tree.tokenSlice(constraint_token);
+        try mod.parseStrLit(scope, constraint_token, string_bytes, token_bytes, 0);
         try string_bytes.append(mod.gpa, 0);
 
         const usize_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.usize_type) };
@@ -3203,7 +3164,6 @@ fn builtinCall(
     if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
 
     const builtin_token = main_tokens[call];
     const builtin_name = tree.tokenSlice(builtin_token);

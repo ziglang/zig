@@ -30,3 +30,4 @@ Performance optimizations to look into:
  * use a smaller encoding for the auto generated return void at the end of
    function ZIR.
  * enum literals can use small strings
+ * string literals can use small strings
