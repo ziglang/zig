@@ -1789,15 +1789,15 @@ fn simpleBinOp(
     infix_node: ast.Node.Index,
     op_inst_tag: zir.Inst.Tag,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
 
-    const lhs = try expr(mod, scope, .none, node_datas[infix_node].lhs);
-    const rhs = try expr(mod, scope, .none, node_datas[infix_node].rhs);
-    const result = try addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
-    return rvalue(mod, scope, rl, result);
+    const gz = scope.getGenZir();
+    const result = try gz.addPlNode(op_inst_tag, infix_node, zir.Inst.Bin{
+        .lhs = try expr(mod, scope, .none, node_datas[infix_node].lhs),
+        .rhs = try expr(mod, scope, .none, node_datas[infix_node].rhs),
+    });
+    return rvalue(mod, scope, rl, result, infix_node);
 }
 
 fn boolBinOp(
