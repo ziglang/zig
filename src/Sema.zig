@@ -787,8 +787,7 @@ fn zirBlockFlat(
     try parent_block.instructions.appendSlice(sema.gpa, copied_instructions);
 
     // The result of a flat block is the last instruction.
-    const last_zir_inst = body[body.len - 1];
-    return sema.resolveInst(last_zir_inst);
+    return sema.inst_map[body[body.len - 1]];
 }
 
 fn zirBlock(

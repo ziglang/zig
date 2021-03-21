@@ -383,8 +383,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
 
         .identifier => return identifier(mod, scope, rl, node),
 
-        .asm_simple => return asmExpr(mod, scope, rl, tree.asmSimple(node)),
-        .@"asm" => return asmExpr(mod, scope, rl, tree.asmFull(node)),
+        .asm_simple => return asmExpr(mod, scope, rl, node, tree.asmSimple(node)),
+        .@"asm" => return asmExpr(mod, scope, rl, node, tree.asmFull(node)),
 
         .string_literal => return stringLiteral(mod, scope, rl, node),
         .multiline_string_literal => return multilineStringLiteral(mod, scope, rl, node),
@@ -497,15 +497,13 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return blockExpr(mod, scope, rl, node, statements);
         },
         .enum_literal => {
-            if (true) @panic("TODO update for zir-memory-layout");
             const ident_token = main_tokens[node];
-            const gen_zir = scope.getGenZir();
-            const string_bytes = &gen_zir.zir_exec.string_bytes;
-            const str_index = string_bytes.items.len;
+            const string_bytes = &gz.zir_code.string_bytes;
+            const str_index = @intCast(u32, string_bytes.items.len);
             try mod.appendIdentStr(scope, ident_token, string_bytes);
-            const str_len = string_bytes.items.len - str_index;
-            const result = try gen_zir.addStr(.enum_literal, str_index, str_len);
-            return rvalue(mod, scope, rl, result);
+            try string_bytes.append(mod.gpa, 0);
+            const result = try gz.addStrTok(.enum_literal, str_index, ident_token);
+            return rvalue(mod, scope, rl, result, node);
         },
         .error_value => {
             if (true) @panic("TODO update for zir-memory-layout");
@@ -2994,48 +2992,58 @@ fn floatLiteral(
     return rvalue(mod, scope, rl, result);
 }
 
-fn asmExpr(mod: *Module, scope: *Scope, rl: ResultLoc, full: ast.full.Asm) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
+fn asmExpr(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+    full: ast.full.Asm,
+) InnerError!zir.Inst.Ref {
     const arena = scope.arena();
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const token_starts = tree.tokens.items(.start);
     const node_datas = tree.nodes.items(.data);
+    const gz = scope.getGenZir();
+
+    const str_type = @enumToInt(zir.Const.const_slice_u8_type);
+    const str_type_rl: ResultLoc = .{ .ty = str_type };
+    const asm_source = try expr(mod, scope, str_type_rl, full.ast.template);
 
     if (full.outputs.len != 0) {
         return mod.failTok(scope, full.ast.asm_token, "TODO implement asm with an output", .{});
     }
+    const return_type = @enumToInt(zir.Const.void_type);
 
-    const inputs = try arena.alloc([]const u8, full.inputs.len);
+    const constraints = try arena.alloc(u32, full.inputs.len);
     const args = try arena.alloc(zir.Inst.Ref, full.inputs.len);
 
-    const str_type = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.const_slice_u8_type),
-    });
-    const str_type_rl: ResultLoc = .{ .ty = str_type };
-
     for (full.inputs) |input, i| {
-        // TODO semantically analyze constraints
         const constraint_token = main_tokens[input] + 2;
-        inputs[i] = try parseStringLiteral(mod, scope, constraint_token);
-        args[i] = try expr(mod, scope, .none, node_datas[input].lhs);
+        const string_bytes = &gz.zir_code.string_bytes;
+        constraints[i] = @intCast(u32, string_bytes.items.len);
+        try mod.appendIdentStr(scope, constraint_token, string_bytes);
+        try string_bytes.append(mod.gpa, 0);
+
+        const usize_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.usize_type) };
+        args[i] = try expr(mod, scope, usize_rl, node_datas[input].lhs);
     }
 
-    const return_type = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.void_type),
-    });
-    const asm_inst = try addZIRInst(mod, scope, src, zir.Inst.Asm, .{
-        .asm_source = try expr(mod, scope, str_type_rl, full.ast.template),
+    const tag: zir.Inst.Tag = if (full.volatile_token != null) .asm_volatile else .@"asm";
+    const result = try gz.addPlNode(.@"asm", node, zir.Inst.Asm{
+        .asm_source = asm_source,
         .return_type = return_type,
-    }, .{
-        .@"volatile" = full.volatile_token != null,
-        //.clobbers =  TODO handle clobbers
-        .inputs = inputs,
-        .args = args,
+        .output = 0,
+        .args_len = @intCast(u32, full.inputs.len),
+        .clobbers_len = 0, // TODO implement asm clobbers
     });
-    return rvalue(mod, scope, rl, asm_inst);
+
+    try gz.zir_code.extra.ensureCapacity(mod.gpa, gz.zir_code.extra.items.len +
+        args.len + constraints.len);
+    gz.zir_code.extra.appendSliceAssumeCapacity(args);
+    gz.zir_code.extra.appendSliceAssumeCapacity(constraints);
+
+    return rvalue(mod, scope, rl, result, node);
 }
 
 fn as(

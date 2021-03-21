@@ -1183,6 +1183,22 @@ pub const Scope = struct {
             });
         }
 
+        pub fn addStrTok(
+            gz: *GenZir,
+            tag: zir.Inst.Tag,
+            str_index: u32,
+            /// Absolute token index. This function does the conversion to Decl offset.
+            abs_tok_index: ast.TokenIndex,
+        ) !zir.Inst.Ref {
+            return gz.add(.{
+                .tag = tag,
+                .data = .{ .str_tok = .{
+                    .start = str_index,
+                    .src_tok = abs_tok_index - gz.zir_code.decl.srcToken(),
+                } },
+            });
+        }
+
         pub fn addBin(
             gz: *GenZir,
             tag: zir.Inst.Tag,
@@ -4090,10 +4106,10 @@ pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex)
     if (!mem.startsWith(u8, ident_name, "@")) {
         return ident_name;
     }
-    var buf = std.ArrayList(u8).init(mod.gpa);
-    defer buf.deinit();
+    var buf: std.ArrayListUnmanaged(u8) = .{};
+    defer buf.deinit(mod.gpa);
     try parseStrLit(mod, scope, token, &buf, ident_name, 1);
-    return buf.toOwnedSlice();
+    return buf.toOwnedSlice(mod.gpa);
 }
 
 /// Given an identifier token, obtain the string for it (possibly parsing as a string
@@ -4103,16 +4119,16 @@ pub fn appendIdentStr(
     mod: *Module,
     scope: *Scope,
     token: ast.TokenIndex,
-    buf: *ArrayList(u8),
+    buf: *std.ArrayListUnmanaged(u8),
 ) InnerError!void {
     const tree = scope.tree();
     const token_tags = tree.tokens.items(.tag);
     assert(token_tags[token] == .identifier);
     const ident_name = tree.tokenSlice(token);
     if (!mem.startsWith(u8, ident_name, "@")) {
-        return buf.appendSlice(ident_name);
+        return buf.appendSlice(mod.gpa, ident_name);
     } else {
-        return parseStrLit(scope, token, buf, ident_name, 1);
+        return mod.parseStrLit(scope, token, buf, ident_name, 1);
     }
 }
 
@@ -4121,14 +4137,17 @@ pub fn parseStrLit(
     mod: *Module,
     scope: *Scope,
     token: ast.TokenIndex,
-    buf: *std.ArrayList(u8),
+    buf: *std.ArrayListUnmanaged(u8),
     bytes: []const u8,
     offset: u32,
 ) InnerError!void {
     const tree = scope.tree();
     const token_starts = tree.tokens.items(.start);
     const raw_string = bytes[offset..];
-    switch (try std.zig.string_literal.parseAppend(buf, raw_string)) {
+    var buf_managed = buf.toManaged(mod.gpa);
+    const result = std.zig.string_literal.parseAppend(&buf_managed, raw_string);
+    buf.* = buf_managed.toUnmanaged();
+    switch (try result) {
         .success => return,
         .invalid_character => |bad_index| {
             return mod.failOff(

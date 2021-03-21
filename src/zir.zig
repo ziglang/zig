@@ -1145,7 +1145,7 @@ pub const Inst = struct {
     /// Stored in extra. Trailing is:
     /// * output_name: u32 // index into string_bytes (null terminated) if output is present
     /// * arg: Ref // for every args_len.
-    /// * arg_name: u32 // index into string_bytes (null terminated) for every args_len.
+    /// * constraint: u32 // index into string_bytes (null terminated) for every args_len.
     /// * clobber: u32 // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
         asm_source: Ref,

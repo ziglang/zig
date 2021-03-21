@@ -29,4 +29,4 @@ Performance optimizations to look into:
    tags associated with them.
  * use a smaller encoding for the auto generated return void at the end of
    function ZIR.
-
+ * enum literals can use small strings
