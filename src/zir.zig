@@ -737,6 +737,14 @@ pub const Inst = struct {
         sub,
         /// Twos complement wrapping integer subtraction.
         subwrap,
+        /// Arithmetic negation. Asserts no integer overflow.
+        /// Same as sub with a lhs of 0, split into a separate instruction to save memory.
+        /// Uses `un_node`.
+        negate,
+        /// Twos complement wrapping integer negation.
+        /// Same as subwrap with a lhs of 0, split into a separate instruction to save memory.
+        /// Uses `un_node`.
+        negate_wrap,
         /// Returns the type of a value.
         /// Uses the `un_tok` field.
         typeof,
@@ -944,6 +952,8 @@ pub const Inst = struct {
                 .str,
                 .sub,
                 .subwrap,
+                .negate,
+                .negate_wrap,
                 .typeof,
                 .xor,
                 .optional_type,
@@ -1341,6 +1351,8 @@ const Writer = struct {
             .@"await",
             .bit_not,
             .bool_not,
+            .negate,
+            .negate_wrap,
             .call_none,
             .compile_error,
             .deref_node,

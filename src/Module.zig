@@ -1462,6 +1462,8 @@ pub const WipZirCode = struct {
                 .str,
                 .sub,
                 .subwrap,
+                .negate,
+                .negate_wrap,
                 .typeof,
                 .xor,
                 .optional_type,

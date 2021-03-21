@@ -373,12 +373,11 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .bool_and => return boolBinOp(mod, scope, rl, node, true),
         .bool_or => return boolBinOp(mod, scope, rl, node, false),
 
-        .negation => @panic("TODO"),
-        .negation_wrap => @panic("TODO"),
         .bool_not => return boolNot(mod, scope, rl, node),
         .bit_not => return bitNot(mod, scope, rl, node),
-        //.negation => return rvalue(mod, scope, rl, try negation(mod, scope, node, .sub)),
-        //.negation_wrap => return rvalue(mod, scope, rl, try negation(mod, scope, node, .subwrap)),
+
+        .negation => return negation(mod, scope, rl, node, .negate),
+        .negation_wrap => return negation(mod, scope, rl, node, .negate_wrap),
 
         .identifier => return identifier(mod, scope, rl, node),
 
@@ -1318,26 +1317,24 @@ fn bitNot(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inne
 
     const gz = scope.getGenZir();
     const operand = try expr(mod, scope, .none, node_datas[node].lhs);
-    const result = try gz.addUnTok(.bit_not, operand, node);
+    const result = try gz.addUnNode(.bit_not, operand, node);
     return rvalue(mod, scope, rl, result, node);
 }
 
 fn negation(
     mod: *Module,
     scope: *Scope,
+    rl: ResultLoc,
     node: ast.Node.Index,
-    op_inst_tag: zir.Inst.Tag,
+    tag: zir.Inst.Tag,
 ) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
 
-    const lhs = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.comptime_int),
-        .val = Value.initTag(.zero),
-    });
-    const rhs = try expr(mod, scope, .none, node_datas[node].lhs);
-    return addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
+    const gz = scope.getGenZir();
+    const operand = try expr(mod, scope, .none, node_datas[node].lhs);
+    const result = try gz.addUnNode(tag, operand, node);
+    return rvalue(mod, scope, rl, result, node);
 }
 
 fn ptrType(

@@ -156,6 +156,8 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .addwrap => try sema.zirArithmetic(block, zir_inst),
             .sub => try sema.zirArithmetic(block, zir_inst),
             .subwrap => try sema.zirArithmetic(block, zir_inst),
+            .negate => @panic("TODO"),
+            .negate_wrap => @panic("TODO"),
             .mul => try sema.zirArithmetic(block, zir_inst),
             .mulwrap => try sema.zirArithmetic(block, zir_inst),
             .div => try sema.zirArithmetic(block, zir_inst),
