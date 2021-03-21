@@ -376,8 +376,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
 
         .negation => @panic("TODO"),
         .negation_wrap => @panic("TODO"),
-        .bool_not => return rvalue(mod, scope, rl, try boolNot(mod, scope, node), node),
-        .bit_not => return rvalue(mod, scope, rl, try bitNot(mod, scope, node), node),
+        .bool_not => return boolNot(mod, scope, rl, node),
+        .bit_not => return bitNot(mod, scope, rl, node),
         //.negation => return rvalue(mod, scope, rl, try negation(mod, scope, node, .sub)),
         //.negation_wrap => return rvalue(mod, scope, rl, try negation(mod, scope, node, .subwrap)),
 
@@ -466,27 +466,21 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result, node);
         },
         .optional_type => {
-            const src_token = tree.firstToken(node);
-
             const operand = try typeExpr(mod, scope, node_datas[node].lhs);
-            const result = try gz.addUnTok(.optional_type, operand, src_token);
+            const result = try gz.addUnNode(.optional_type, operand, node);
             return rvalue(mod, scope, rl, result, node);
         },
-        .unwrap_optional => {
-            const src_token = tree.firstToken(node);
-
-            switch (rl) {
-                .ref => return gz.addUnTok(
-                    .optional_payload_safe_ptr,
-                    try expr(mod, scope, .ref, node_datas[node].lhs),
-                    src_token,
-                ),
-                else => return rvalue(mod, scope, rl, try gz.addUnTok(
-                    .optional_payload_safe,
-                    try expr(mod, scope, .none, node_datas[node].lhs),
-                    src_token,
-                ), node),
-            }
+        .unwrap_optional => switch (rl) {
+            .ref => return gz.addUnNode(
+                .optional_payload_safe_ptr,
+                try expr(mod, scope, .ref, node_datas[node].lhs),
+                node,
+            ),
+            else => return rvalue(mod, scope, rl, try gz.addUnNode(
+                .optional_payload_safe,
+                try expr(mod, scope, .none, node_datas[node].lhs),
+                node,
+            ), node),
         },
         .block_two, .block_two_semicolon => {
             const statements = [2]ast.Node.Index{ node_datas[node].lhs, node_datas[node].rhs };
@@ -1315,27 +1309,24 @@ fn assignOp(
     _ = try addZIRBinOp(mod, scope, src, .store, lhs_ptr, result);
 }
 
-fn boolNot(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
+fn boolNot(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
-    const src_token = tree.firstToken(node);
-
-    const gz = scope.getGenZir();
 
     const operand = try expr(mod, scope, .{ .ty = @enumToInt(zir.Const.bool_type) }, node_datas[node].lhs);
-
-    return gz.addUnTok(.bool_not, operand, src_token);
+    const gz = scope.getGenZir();
+    const result = try gz.addUnNode(.bool_not, operand, node);
+    return rvalue(mod, scope, rl, result, node);
 }
 
-fn bitNot(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
+fn bitNot(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
-    const src_token = tree.firstToken(node);
 
     const gz = scope.getGenZir();
-
     const operand = try expr(mod, scope, .none, node_datas[node].lhs);
-    return gz.addUnTok(.bit_not, operand, src_token);
+    const result = try gz.addUnTok(.bit_not, operand, node);
+    return rvalue(mod, scope, rl, result, node);
 }
 
 fn negation(

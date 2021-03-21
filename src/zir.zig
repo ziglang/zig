@@ -445,7 +445,7 @@ pub const Inst = struct {
         /// The new result location pointer has an inferred type.
         bitcast_result_ptr,
         /// Bitwise NOT. `~`
-        /// uses `un_tok`
+        /// Uses `un_node`.
         bit_not,
         /// Bitwise OR. `|`
         bit_or,
@@ -464,7 +464,7 @@ pub const Inst = struct {
         /// Uses the `bin` field.
         bool_and,
         /// Boolean NOT. See also `bit_not`.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         bool_not,
         /// Boolean OR. See also `bit_or`.
         /// Uses the `bin` field.
@@ -749,57 +749,57 @@ pub const Inst = struct {
         /// Bitwise XOR. `^`
         xor,
         /// Create an optional type '?T'
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         optional_type,
         /// Create an optional type '?T'. The operand is a pointer value. The optional type will
         /// be the type of the pointer element, wrapped in an optional.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         optional_type_from_ptr_elem,
         /// ?T => T with safety.
         /// Given an optional value, returns the payload value, with a safety check that
         /// the value is non-null. Used for `orelse`, `if` and `while`.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         optional_payload_safe,
         /// ?T => T without safety.
         /// Given an optional value, returns the payload value. No safety checks.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         optional_payload_unsafe,
         /// *?T => *T with safety.
         /// Given a pointer to an optional value, returns a pointer to the payload value,
         /// with a safety check that the value is non-null. Used for `orelse`, `if` and `while`.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         optional_payload_safe_ptr,
         /// *?T => *T without safety.
         /// Given a pointer to an optional value, returns a pointer to the payload value.
         /// No safety checks.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         optional_payload_unsafe_ptr,
         /// E!T => T with safety.
         /// Given an error union value, returns the payload value, with a safety check
         /// that the value is not an error. Used for catch, if, and while.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         err_union_payload_safe,
         /// E!T => T without safety.
         /// Given an error union value, returns the payload value. No safety checks.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         err_union_payload_unsafe,
         /// *E!T => *T with safety.
         /// Given a pointer to an error union value, returns a pointer to the payload value,
         /// with a safety check that the value is not an error. Used for catch, if, and while.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         err_union_payload_safe_ptr,
         /// *E!T => *T without safety.
         /// Given a pointer to a error union value, returns a pointer to the payload value.
         /// No safety checks.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         err_union_payload_unsafe_ptr,
         /// E!T => E without safety.
         /// Given an error union value, returns the error code. No safety checks.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         err_union_code,
         /// *E!T => E without safety.
         /// Given a pointer to an error union value, returns the error code. No safety checks.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         err_union_code_ptr,
         /// Takes a *E!T and raises a compiler error if T != void
         /// Uses the `un_tok` field.
@@ -1326,6 +1326,7 @@ const Writer = struct {
             .indexable_ptr_len,
             .@"await",
             .bit_not,
+            .bool_not,
             .call_none,
             .compile_error,
             .deref_node,
@@ -1337,20 +1338,6 @@ const Writer = struct {
             .set_eval_branch_quota,
             .resolve_inferred_alloc,
             .suspend_block_one,
-            => try self.writeUnNode(stream, inst),
-
-            .bool_not,
-            .break_void_tok,
-            .is_non_null,
-            .is_null,
-            .is_non_null_ptr,
-            .is_null_ptr,
-            .is_err,
-            .is_err_ptr,
-            .ref,
-            .ret_tok,
-            .ret_coerce,
-            .typeof,
             .optional_type,
             .optional_type_from_ptr_elem,
             .optional_payload_safe,
@@ -1363,6 +1350,19 @@ const Writer = struct {
             .err_union_payload_unsafe_ptr,
             .err_union_code,
             .err_union_code_ptr,
+            => try self.writeUnNode(stream, inst),
+
+            .break_void_tok,
+            .is_non_null,
+            .is_null,
+            .is_non_null_ptr,
+            .is_null_ptr,
+            .is_err,
+            .is_err_ptr,
+            .ref,
+            .ret_tok,
+            .ret_coerce,
+            .typeof,
             .ensure_err_payload_void,
             => try self.writeUnTok(stream, inst),
 

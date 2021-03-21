@@ -1212,7 +1212,7 @@ fn zirOptionalType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inner
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const child_type = try sema.resolveType(block, src, inst_data.operand);
     const opt_type = try sema.mod.optionalType(sema.arena, child_type);
@@ -1224,7 +1224,7 @@ fn zirOptionalTypeFromPtrElem(sema: *Sema, block: *Scope.Block, inst: zir.Inst.I
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const ptr = try sema.resolveInst(inst_data.operand);
     const elem_ty = ptr.ty.elemType();
     const opt_ty = try sema.mod.optionalType(sema.arena, elem_ty);
@@ -1459,7 +1459,7 @@ fn zirOptionalPayloadPtr(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const optional_ptr = try sema.resolveInst(inst_data.operand);
     assert(optional_ptr.ty.zigTypeTag() == .Pointer);
     const src = inst_data.src();
@@ -1502,7 +1502,7 @@ fn zirOptionalPayload(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     const opt_type = operand.ty;
@@ -1540,7 +1540,7 @@ fn zirErrUnionPayload(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     if (operand.ty.zigTypeTag() != .ErrorUnion)
@@ -1574,7 +1574,7 @@ fn zirErrUnionPayloadPtr(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     assert(operand.ty.zigTypeTag() == .Pointer);
@@ -1613,7 +1613,7 @@ fn zirErrUnionCode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inner
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     if (operand.ty.zigTypeTag() != .ErrorUnion)
@@ -1637,7 +1637,7 @@ fn zirErrUnionCodePtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) In
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     assert(operand.ty.zigTypeTag() == .Pointer);
@@ -2710,7 +2710,7 @@ fn zirBoolNot(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const uncasted_operand = try sema.resolveInst(inst_data.operand);
 
