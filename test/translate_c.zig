@@ -3,6 +3,28 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("unnamed child types of typedef receive typedef's name",
+        \\typedef enum {
+        \\    FooA,
+        \\    FooB,
+        \\} Foo;
+        \\typedef struct {
+        \\    int a, b;
+        \\} Bar;
+    , &[_][]const u8{
+        \\pub const Foo = extern enum(c_int) {
+        \\    A,
+        \\    B,
+        \\    _,
+        \\};
+        \\pub const FooA = @enumToInt(Foo.A);
+        \\pub const FooB = @enumToInt(Foo.B);
+        \\pub const Bar = extern struct {
+        \\    a: c_int,
+        \\    b: c_int,
+        \\};
+    });
+
     cases.add("if as while stmt has semicolon",
         \\void foo() {
         \\    while (1) if (1) {
@@ -218,9 +240,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\} Bar;
     , &[_][]const u8{
         \\source.h:1:9: warning: struct demoted to opaque type - unable to translate type of field foo
-        \\const struct_unnamed_1 = opaque {};
-        \\pub const Foo = struct_unnamed_1;
-        \\const struct_unnamed_2 = extern struct {
+        \\pub const Foo = opaque {};
+        \\pub const Bar = extern struct {
         \\    bar: ?*Foo,
         \\};
     });
@@ -519,17 +540,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\} outer;
         \\void foo(outer *x) { x->y = x->x; }
     , &[_][]const u8{
-        \\const struct_unnamed_3 = extern struct {
+        \\const struct_unnamed_2 = extern struct {
         \\    y: c_int,
         \\};
-        \\const union_unnamed_2 = extern union {
+        \\const union_unnamed_1 = extern union {
         \\    x: u8,
-        \\    unnamed_0: struct_unnamed_3,
+        \\    unnamed_0: struct_unnamed_2,
         \\};
-        \\const struct_unnamed_1 = extern struct {
-        \\    unnamed_0: union_unnamed_2,
+        \\pub const outer = extern struct {
+        \\    unnamed_0: union_unnamed_1,
         \\};
-        \\pub const outer = struct_unnamed_1;
         \\pub export fn foo(arg_x: [*c]outer) void {
         \\    var x = arg_x;
         \\    x.*.unnamed_0.unnamed_0.y = @bitCast(c_int, @as(c_uint, x.*.unnamed_0.x));
@@ -565,21 +585,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\struct {int x,y;} s2 = {.y = 2, .x=1};
         \\foo s3 = { 123 };
     , &[_][]const u8{
-        \\const struct_unnamed_1 = extern struct {
+        \\pub const foo = extern struct {
         \\    x: c_int,
         \\};
-        \\pub const foo = struct_unnamed_1;
-        \\const struct_unnamed_2 = extern struct {
+        \\const struct_unnamed_1 = extern struct {
         \\    x: f64,
         \\    y: f64,
         \\    z: f64,
         \\};
-        \\pub export var s0: struct_unnamed_2 = struct_unnamed_2{
+        \\pub export var s0: struct_unnamed_1 = struct_unnamed_1{
         \\    .x = 1.2,
         \\    .y = 1.3,
         \\    .z = 0,
         \\};
-        \\const struct_unnamed_3 = extern struct {
+        \\const struct_unnamed_2 = extern struct {
         \\    sec: c_int,
         \\    min: c_int,
         \\    hour: c_int,
@@ -587,7 +606,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    mon: c_int,
         \\    year: c_int,
         \\};
-        \\pub export var s1: struct_unnamed_3 = struct_unnamed_3{
+        \\pub export var s1: struct_unnamed_2 = struct_unnamed_2{
         \\    .sec = @as(c_int, 30),
         \\    .min = @as(c_int, 15),
         \\    .hour = @as(c_int, 17),
@@ -595,11 +614,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    .mon = @as(c_int, 12),
         \\    .year = @as(c_int, 2014),
         \\};
-        \\const struct_unnamed_4 = extern struct {
+        \\const struct_unnamed_3 = extern struct {
         \\    x: c_int,
         \\    y: c_int,
         \\};
-        \\pub export var s2: struct_unnamed_4 = struct_unnamed_4{
+        \\pub export var s2: struct_unnamed_3 = struct_unnamed_3{
         \\    .x = @as(c_int, 1),
         \\    .y = @as(c_int, 2),
         \\};
@@ -1639,37 +1658,36 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    p,
         \\};
     , &[_][]const u8{
-        \\const enum_unnamed_1 = extern enum(c_int) {
+        \\pub const d = extern enum(c_int) {
         \\    a,
         \\    b,
         \\    c,
         \\    _,
         \\};
-        \\pub const a = @enumToInt(enum_unnamed_1.a);
-        \\pub const b = @enumToInt(enum_unnamed_1.b);
-        \\pub const c = @enumToInt(enum_unnamed_1.c);
-        \\pub const d = enum_unnamed_1;
-        \\const enum_unnamed_2 = extern enum(c_int) {
+        \\pub const a = @enumToInt(d.a);
+        \\pub const b = @enumToInt(d.b);
+        \\pub const c = @enumToInt(d.c);
+        \\const enum_unnamed_1 = extern enum(c_int) {
         \\    e = 0,
         \\    f = 4,
         \\    g = 5,
         \\    _,
         \\};
-        \\pub const e = @enumToInt(enum_unnamed_2.e);
-        \\pub const f = @enumToInt(enum_unnamed_2.f);
-        \\pub const g = @enumToInt(enum_unnamed_2.g);
-        \\pub export var h: enum_unnamed_2 = @intToEnum(enum_unnamed_2, e);
-        \\const enum_unnamed_3 = extern enum(c_int) {
+        \\pub const e = @enumToInt(enum_unnamed_1.e);
+        \\pub const f = @enumToInt(enum_unnamed_1.f);
+        \\pub const g = @enumToInt(enum_unnamed_1.g);
+        \\pub export var h: enum_unnamed_1 = @intToEnum(enum_unnamed_1, e);
+        \\const enum_unnamed_2 = extern enum(c_int) {
         \\    i,
         \\    j,
         \\    k,
         \\    _,
         \\};
-        \\pub const i = @enumToInt(enum_unnamed_3.i);
-        \\pub const j = @enumToInt(enum_unnamed_3.j);
-        \\pub const k = @enumToInt(enum_unnamed_3.k);
+        \\pub const i = @enumToInt(enum_unnamed_2.i);
+        \\pub const j = @enumToInt(enum_unnamed_2.j);
+        \\pub const k = @enumToInt(enum_unnamed_2.k);
         \\pub const struct_Baz = extern struct {
-        \\    l: enum_unnamed_3,
+        \\    l: enum_unnamed_2,
         \\    m: d,
         \\};
         \\pub const enum_i = extern enum(c_int) {
