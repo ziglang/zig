@@ -300,7 +300,7 @@ pub fn benchmarkAes8(comptime Aes: anytype, comptime count: comptime_int) !u64 {
     return throughput;
 }
 
-fn bcrypt_kdf(
+fn bcryptKdf(
     allocator: *mem.Allocator,
     derived_key: []u8,
     password: []const u8,
@@ -315,39 +315,40 @@ fn bcrypt_kdf(
     );
 }
 
-const pwhash_ty = struct {
+const PwhashCrypto = struct {
     kdf: anytype,
     params: anytype,
+    name: []const u8,
 };
 
-const pwhash = [_]Crypto{
-    Crypto{
-        .ty = pwhash_ty{
-            .kdf = bcrypt_kdf,
-            .params = crypto.pwhash.bcrypt.Params{ .log_rounds = 5 },
-        },
+const pwhash = [_]PwhashCrypto{
+    PwhashCrypto{
+        .kdf = bcryptKdf,
+        .params = crypto.pwhash.bcrypt.Params{ .log_rounds = 5 },
         .name = "bcrypt",
     },
-    Crypto{
-        .ty = pwhash_ty{
-            .kdf = crypto.pwhash.scrypt.kdf,
-            .params = crypto.pwhash.scrypt.Params.interactive,
-        },
+    PwhashCrypto{
+        .kdf = crypto.pwhash.scrypt.kdf,
+        .params = crypto.pwhash.scrypt.Params.interactive,
         .name = "scrypt",
     },
 };
 
-pub fn benchmarkPwhash(comptime ty: anytype, comptime count: comptime_int) !u64 {
+pub fn benchmarkPwhash(
+    comptime kdf: anytype,
+    comptime params: anytype,
+    comptime count: comptime_int,
+) !u64 {
     const password = "testpass";
     const salt = "saltsalt" ** 2;
-    var dk: [24]u8 = undefined;
+    var dk: [32]u8 = undefined;
 
     var timer = try Timer.start();
     const start = timer.lap();
     {
         var i: usize = 0;
         while (i < count) : (i += 1) {
-            try ty.kdf(std.testing.allocator, &dk, password, salt, ty.params);
+            try kdf(std.testing.allocator, &dk, password, salt, params);
             mem.doNotOptimizeAway(&dk);
         }
     }
@@ -480,7 +481,7 @@ pub fn main() !void {
 
     inline for (pwhash) |K| {
         if (filter == null or std.mem.indexOf(u8, K.name, filter.?) != null) {
-            const throughput = try benchmarkPwhash(K.ty, mode(16));
+            const throughput = try benchmarkPwhash(K.kdf, K.params, mode(16));
             try stdout.print("{s:>17}: {:10} ops/s\n", .{ K.name, throughput });
         }
     }
