@@ -67,6 +67,13 @@ pub const Code = struct {
         return code.string_bytes[index..end :0];
     }
 
+    pub fn deinit(code: *Code, gpa: *Allocator) void {
+        code.instructions.deinit(gpa);
+        gpa.free(code.string_bytes);
+        gpa.free(code.extra);
+        code.* = undefined;
+    }
+
     /// For debugging purposes, like dumpFn but for unanalyzed zir blocks
     pub fn dump(
         code: Code,
@@ -737,15 +744,9 @@ pub const Inst = struct {
         /// of one or more params.
         /// Uses the `pl_node` field. AST node is the `@TypeOf` call. Payload is `MultiOp`.
         typeof_peer,
-        /// Asserts control-flow will not reach this instruction. Not safety checked - the compiler
-        /// will assume the correctness of this instruction.
-        /// Uses the `node` union field.
-        unreachable_unsafe,
-        /// Asserts control-flow will not reach this instruction. In safety-checked modes,
-        /// this will generate a call to the panic function unless it can be proven unreachable
-        /// by the compiler.
-        /// Uses the `node` union field.
-        unreachable_safe,
+        /// Asserts control-flow will not reach this instruction (`unreachable`).
+        /// Uses the `unreachable` union field.
+        @"unreachable",
         /// Bitwise XOR. `^`
         xor,
         /// Create an optional type '?T'
@@ -989,8 +990,7 @@ pub const Inst = struct {
                 .ret_node,
                 .ret_tok,
                 .ret_coerce,
-                .unreachable_unsafe,
-                .unreachable_safe,
+                .@"unreachable",
                 .loop,
                 .suspend_block,
                 .suspend_block_one,
@@ -1130,6 +1130,20 @@ pub const Inst = struct {
         param_type: struct {
             callee: Ref,
             param_index: u32,
+        },
+        @"unreachable": struct {
+            /// Offset from Decl AST node index.
+            /// `Tag` determines which kind of AST node this points to.
+            src_node: i32,
+            /// `false`: Not safety checked - the compiler will assume the
+            /// correctness of this instruction.
+            /// `true`: In safety-checked modes, this will generate a call
+            /// to the panic function unless it can be proven unreachable by the compiler.
+            safety: bool,
+
+            pub fn src(self: @This()) LazySrcLoc {
+                return .{ .node_offset = self.src_node };
+            }
         },
 
         // Make sure we don't accidentally add a field to make this union
@@ -1408,8 +1422,6 @@ const Writer = struct {
             .dbg_stmt_node,
             .ret_ptr,
             .ret_type,
-            .unreachable_unsafe,
-            .unreachable_safe,
             => try self.writeNode(stream, inst),
 
             .decl_ref,
@@ -1424,6 +1436,7 @@ const Writer = struct {
             .fn_type_cc => try self.writeFnTypeCc(stream, inst, false),
             .fn_type_var_args => try self.writeFnType(stream, inst, true),
             .fn_type_cc_var_args => try self.writeFnTypeCc(stream, inst, true),
+            .@"unreachable" => try self.writeUnreachable(stream, inst),
 
             .enum_literal_small => try self.writeSmallStr(stream, inst),
 
@@ -1610,6 +1623,13 @@ const Writer = struct {
         const param_types = self.code.extra[extra.end..][0..extra.data.param_types_len];
         const cc = extra.data.cc;
         return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, cc);
+    }
+
+    fn writeUnreachable(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].@"unreachable";
+        const safety_str = if (inst_data.safety) "safe" else "unsafe";
+        try stream.print("{s}) ", .{safety_str});
+        try self.writeSrc(stream, inst_data.src());
     }
 
     fn writeFnTypeCommon(

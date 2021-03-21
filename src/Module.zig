@@ -224,6 +224,10 @@ pub const Decl = struct {
         const gpa = module.gpa;
         gpa.free(mem.spanZ(decl.name));
         if (decl.typedValueManaged()) |tvm| {
+            if (tvm.typed_value.val.castTag(.function)) |payload| {
+                const func = payload.data;
+                func.deinit(gpa);
+            }
             tvm.deinit(gpa);
         }
         decl.dependants.deinit(gpa);
@@ -334,7 +338,7 @@ pub const EmitH = struct {
     fwd_decl: std.ArrayListUnmanaged(u8) = .{},
 };
 
-/// Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.
+/// Some Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.
 /// Extern functions do not have this data structure; they are represented by
 /// the `Decl` only, with a `Value` tag of `extern_fn`.
 pub const Fn = struct {
@@ -347,6 +351,7 @@ pub const Fn = struct {
     /// The number of parameters is determined by referring to the type.
     /// The first N elements of `extra` are indexes into `string_bytes` to
     /// a null-terminated string.
+    /// This memory is managed with gpa, must be freed when the function is freed.
     zir: zir.Code,
     /// undefined unless analysis state is `success`.
     body: ir.Body,
@@ -369,6 +374,10 @@ pub const Fn = struct {
     /// For debugging purposes.
     pub fn dump(func: *Fn, mod: Module) void {
         ir.dumpFn(mod, func);
+    }
+
+    pub fn deinit(func: *Fn, gpa: *Allocator) void {
+        func.zir.deinit(gpa);
     }
 };
 
@@ -1502,8 +1511,7 @@ pub const WipZirCode = struct {
                 .ret_node,
                 .ret_tok,
                 .ret_coerce,
-                .unreachable_unsafe,
-                .unreachable_safe,
+                .@"unreachable",
                 .loop,
                 .suspend_block,
                 .suspend_block_one,
@@ -1521,6 +1529,7 @@ pub const WipZirCode = struct {
     pub fn deinit(wzc: *WipZirCode) void {
         wzc.instructions.deinit(wzc.gpa);
         wzc.extra.deinit(wzc.gpa);
+        wzc.string_bytes.deinit(wzc.gpa);
     }
 };
 
@@ -2078,7 +2087,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
             var analysis_arena = std.heap.ArenaAllocator.init(mod.gpa);
             defer analysis_arena.deinit();
 
-            const code: zir.Code = blk: {
+            var code: zir.Code = blk: {
                 var wip_zir_code: WipZirCode = .{
                     .decl = decl,
                     .arena = &analysis_arena.allocator,
@@ -2102,6 +2111,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
                 }
                 break :blk code;
             };
+            defer code.deinit(mod.gpa);
 
             var sema: Sema = .{
                 .mod = mod,
@@ -2154,17 +2164,17 @@ fn astgenAndSemaFn(
     var fn_type_scope_arena = std.heap.ArenaAllocator.init(mod.gpa);
     defer fn_type_scope_arena.deinit();
 
-    var fn_type_wip_zir_exec: WipZirCode = .{
+    var fn_type_wip_zir_code: WipZirCode = .{
         .decl = decl,
         .arena = &fn_type_scope_arena.allocator,
         .gpa = mod.gpa,
     };
-    defer fn_type_wip_zir_exec.deinit();
+    defer fn_type_wip_zir_code.deinit();
 
     var fn_type_scope: Scope.GenZir = .{
         .force_comptime = true,
         .parent = &decl.container.base,
-        .zir_code = &fn_type_wip_zir_exec,
+        .zir_code = &fn_type_wip_zir_code,
     };
     defer fn_type_scope.instructions.deinit(mod.gpa);
 
@@ -2317,7 +2327,8 @@ fn astgenAndSemaFn(
     errdefer decl_arena.deinit();
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
-    const fn_type_code = try fn_type_scope.finish();
+    var fn_type_code = try fn_type_scope.finish();
+    defer fn_type_code.deinit(mod.gpa);
     if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
         fn_type_code.dump(mod.gpa, "fn_type", &fn_type_scope.base, 0) catch {};
     }
@@ -2621,7 +2632,8 @@ fn astgenAndSemaVarDecl(
             init_result_loc,
             var_decl.ast.init_node,
         );
-        const code = try gen_scope.finish();
+        var code = try gen_scope.finish();
+        defer code.deinit(mod.gpa);
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
             code.dump(mod.gpa, "var_init", &gen_scope.base, 0) catch {};
         }
@@ -2683,7 +2695,8 @@ fn astgenAndSemaVarDecl(
         defer type_scope.instructions.deinit(mod.gpa);
 
         const var_type = try astgen.typeExpr(mod, &type_scope.base, var_decl.ast.type_node);
-        const code = try type_scope.finish();
+        var code = try type_scope.finish();
+        defer code.deinit(mod.gpa);
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
             code.dump(mod.gpa, "var_type", &type_scope.base, 0) catch {};
         }

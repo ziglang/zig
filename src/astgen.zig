@@ -415,10 +415,13 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return callExpr(mod, scope, rl, node, tree.callFull(node));
         },
 
-        .unreachable_literal => {
-            const result = @enumToInt(zir.Const.unreachable_value);
-            return rvalue(mod, scope, rl, result, node);
-        },
+        .unreachable_literal => return gz.add(.{
+            .tag = .@"unreachable",
+            .data = .{ .@"unreachable" = .{
+                .safety = true,
+                .src_node = gz.zir_code.decl.nodeIndexToRelative(node),
+            } },
+        }),
         .@"return" => return ret(mod, scope, node),
         .field_access => return fieldAccess(mod, scope, rl, node),
         .float_literal => return floatLiteral(mod, scope, rl, node),
@@ -3012,10 +3015,11 @@ fn as(
     scope: *Scope,
     rl: ResultLoc,
     builtin_token: ast.TokenIndex,
-    src: usize,
+    node: ast.Node.Index,
     lhs: ast.Node.Index,
     rhs: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const dest_type = try typeExpr(mod, scope, lhs);
     switch (rl) {
         .none, .discard, .ref, .ty => {
@@ -3090,10 +3094,11 @@ fn bitCast(
     scope: *Scope,
     rl: ResultLoc,
     builtin_token: ast.TokenIndex,
-    src: usize,
+    node: ast.Node.Index,
     lhs: ast.Node.Index,
     rhs: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     const dest_type = try typeExpr(mod, scope, lhs);
     switch (rl) {
         .none => {
@@ -3138,9 +3143,10 @@ fn typeOf(
     scope: *Scope,
     rl: ResultLoc,
     builtin_token: ast.TokenIndex,
-    src: usize,
+    node: ast.Node.Index,
     params: []const ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
+    if (true) @panic("TODO update for zir-memory-layout");
     if (params.len < 1) {
         return mod.failTok(scope, builtin_token, "expected at least 1 argument, found 0", .{});
     }
@@ -3158,14 +3164,13 @@ fn builtinCall(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
-    call: ast.Node.Index,
+    node: ast.Node.Index,
     params: []const ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
 
-    const builtin_token = main_tokens[call];
+    const builtin_token = main_tokens[node];
     const builtin_name = tree.tokenSlice(builtin_token);
 
     // We handle the different builtins manually because they have different semantics depending
@@ -3187,56 +3192,60 @@ fn builtinCall(
         }
     }
 
+    const gz = scope.getGenZir();
+
     switch (info.tag) {
         .ptr_to_int => {
             const operand = try expr(mod, scope, .none, params[0]);
-            const result = try addZIRUnOp(mod, scope, src, .ptrtoint, operand);
-            return rvalue(mod, scope, rl, result);
+            const result = try gz.addUnNode(.ptrtoint, operand, node);
+            return rvalue(mod, scope, rl, result, node);
         },
         .float_cast => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const dest_type = try typeExpr(mod, scope, params[0]);
             const rhs = try expr(mod, scope, .none, params[1]);
             const result = try addZIRBinOp(mod, scope, src, .floatcast, dest_type, rhs);
-            return rvalue(mod, scope, rl, result);
+            return rvalue(mod, scope, rl, result, node);
         },
         .int_cast => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const dest_type = try typeExpr(mod, scope, params[0]);
             const rhs = try expr(mod, scope, .none, params[1]);
             const result = try addZIRBinOp(mod, scope, src, .intcast, dest_type, rhs);
-            return rvalue(mod, scope, rl, result);
+            return rvalue(mod, scope, rl, result, node);
         },
         .breakpoint => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const result = try addZIRNoOp(mod, scope, src, .breakpoint);
-            return rvalue(mod, scope, rl, result);
+            return rvalue(mod, scope, rl, result, node);
         },
         .import => {
             const target = try expr(mod, scope, .none, params[0]);
-            const result = try addZIRUnOp(mod, scope, src, .import, target);
-            return rvalue(mod, scope, rl, result);
+            const result = try gz.addUnNode(.import, target, node);
+            return rvalue(mod, scope, rl, result, node);
         },
         .compile_error => {
             const target = try expr(mod, scope, .none, params[0]);
-            const result = try addZIRUnOp(mod, scope, src, .compile_error, target);
-            return rvalue(mod, scope, rl, result);
+            const result = try gz.addUnNode(.compile_error, target, node);
+            return rvalue(mod, scope, rl, result, node);
         },
         .set_eval_branch_quota => {
-            const u32_type = try addZIRInstConst(mod, scope, src, .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u32_type),
-            });
-            const quota = try expr(mod, scope, .{ .ty = u32_type }, params[0]);
-            const result = try addZIRUnOp(mod, scope, src, .set_eval_branch_quota, quota);
-            return rvalue(mod, scope, rl, result);
+            const u32_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.u32_type) };
+            const quota = try expr(mod, scope, u32_rl, params[0]);
+            const result = try gz.addUnNode(.set_eval_branch_quota, quota, node);
+            return rvalue(mod, scope, rl, result, node);
         },
         .compile_log => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const arena = scope.arena();
             var targets = try arena.alloc(zir.Inst.Ref, params.len);
             for (params) |param, param_i|
                 targets[param_i] = try expr(mod, scope, .none, param);
             const result = try addZIRInst(mod, scope, src, zir.Inst.CompileLog, .{ .to_log = targets }, .{});
-            return rvalue(mod, scope, rl, result);
+            return rvalue(mod, scope, rl, result, node);
         },
         .field => {
+            if (true) @panic("TODO update for zir-memory-layout");
             const string_type = try addZIRInstConst(mod, scope, src, .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.const_slice_u8_type),
@@ -3252,11 +3261,11 @@ fn builtinCall(
             return rvalue(mod, scope, rl, try addZirInstTag(mod, scope, src, .field_val_named, .{
                 .object = try expr(mod, scope, .none, params[0]),
                 .field_name = try comptimeExpr(mod, scope, string_rl, params[1]),
-            }));
+            }), node);
         },
-        .as => return as(mod, scope, rl, builtin_token, src, params[0], params[1]),
-        .bit_cast => return bitCast(mod, scope, rl, builtin_token, src, params[0], params[1]),
-        .TypeOf => return typeOf(mod, scope, rl, builtin_token, src, params),
+        .as => return as(mod, scope, rl, builtin_token, node, params[0], params[1]),
+        .bit_cast => return bitCast(mod, scope, rl, builtin_token, node, params[0], params[1]),
+        .TypeOf => return typeOf(mod, scope, rl, builtin_token, node, params),
 
         .add_with_overflow,
         .align_cast,

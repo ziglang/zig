@@ -137,8 +137,7 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .as_node => try sema.zirAsNode(block, zir_inst),
             .@"asm" => try sema.zirAsm(block, zir_inst, false),
             .asm_volatile => try sema.zirAsm(block, zir_inst, true),
-            .unreachable_safe => try sema.zirUnreachable(block, zir_inst, true),
-            .unreachable_unsafe => try sema.zirUnreachable(block, zir_inst, false),
+            .@"unreachable" => try sema.zirUnreachable(block, zir_inst),
             .ret_coerce => try sema.zirRetTok(block, zir_inst, true),
             .ret_tok => try sema.zirRetTok(block, zir_inst, false),
             .ret_node => try sema.zirRetNode(block, zir_inst),
@@ -2852,17 +2851,13 @@ fn zirCondbr(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) Inne
     return parent_block.addCondBr(src, cond, tzir_then_body, tzir_else_body);
 }
 
-fn zirUnreachable(
-    sema: *Sema,
-    block: *Scope.Block,
-    inst: zir.Inst.Index,
-    safety_check: bool,
-) InnerError!*Inst {
+fn zirUnreachable(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const src_node = sema.code.instructions.items(.data)[inst].node;
-    const src: LazySrcLoc = .{ .node_offset = src_node };
+    const inst_data = sema.code.instructions.items(.data)[inst].@"unreachable";
+    const src = inst_data.src();
+    const safety_check = inst_data.safety;
     try sema.requireRuntimeBlock(block, src);
     // TODO Add compile error for @optimizeFor occurring too late in a scope.
     if (safety_check and block.wantSafety()) {
