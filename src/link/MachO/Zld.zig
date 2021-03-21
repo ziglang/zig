@@ -60,13 +60,17 @@ stub_helper_section_index: ?u16 = null,
 text_const_section_index: ?u16 = null,
 cstring_section_index: ?u16 = null,
 
-// __DATA segment sections
+// __DATA_CONST segment sections
 got_section_index: ?u16 = null,
+mod_init_func_section_index: ?u16 = null,
+mod_term_func_section_index: ?u16 = null,
+data_const_section_index: ?u16 = null,
+
+// __DATA segment sections
 tlv_section_index: ?u16 = null,
 tlv_data_section_index: ?u16 = null,
 tlv_bss_section_index: ?u16 = null,
 la_symbol_ptr_section_index: ?u16 = null,
-data_const_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
 bss_section_index: ?u16 = null,
 
@@ -448,6 +452,46 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
                     .reserved3 = 0,
                 });
             },
+            macho.S_MOD_INIT_FUNC_POINTERS => {
+                if (!mem.eql(u8, segname, "__DATA")) continue;
+                if (self.mod_init_func_section_index != null) continue;
+
+                self.mod_init_func_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                try data_const_seg.addSection(self.allocator, .{
+                    .sectname = makeStaticString("__mod_init_func"),
+                    .segname = makeStaticString("__DATA_CONST"),
+                    .addr = 0,
+                    .size = 0,
+                    .offset = 0,
+                    .@"align" = 0,
+                    .reloff = 0,
+                    .nreloc = 0,
+                    .flags = macho.S_MOD_INIT_FUNC_POINTERS,
+                    .reserved1 = 0,
+                    .reserved2 = 0,
+                    .reserved3 = 0,
+                });
+            },
+            macho.S_MOD_TERM_FUNC_POINTERS => {
+                if (!mem.eql(u8, segname, "__DATA")) continue;
+                if (self.mod_term_func_section_index != null) continue;
+
+                self.mod_term_func_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                try data_const_seg.addSection(self.allocator, .{
+                    .sectname = makeStaticString("__mod_term_func"),
+                    .segname = makeStaticString("__DATA_CONST"),
+                    .addr = 0,
+                    .size = 0,
+                    .offset = 0,
+                    .@"align" = 0,
+                    .reloff = 0,
+                    .nreloc = 0,
+                    .flags = macho.S_MOD_TERM_FUNC_POINTERS,
+                    .reserved1 = 0,
+                    .reserved2 = 0,
+                    .reserved3 = 0,
+                });
+            },
             macho.S_ZEROFILL => {
                 if (!mem.eql(u8, segname, "__DATA")) continue;
                 if (self.bss_section_index != null) continue;
@@ -583,6 +627,18 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
                     .sect = self.cstring_section_index.?,
                 };
             },
+            macho.S_MOD_INIT_FUNC_POINTERS => {
+                break :blk .{
+                    .seg = self.data_const_segment_cmd_index.?,
+                    .sect = self.mod_init_func_section_index.?,
+                };
+            },
+            macho.S_MOD_TERM_FUNC_POINTERS => {
+                break :blk .{
+                    .seg = self.data_const_segment_cmd_index.?,
+                    .sect = self.mod_term_func_section_index.?,
+                };
+            },
             macho.S_ZEROFILL => {
                 break :blk .{
                     .seg = self.data_segment_cmd_index.?,
@@ -684,6 +740,8 @@ fn sortSections(self: *Zld) !void {
 
         const indices = &[_]*?u16{
             &self.got_section_index,
+            &self.mod_init_func_section_index,
+            &self.mod_term_func_section_index,
             &self.data_const_section_index,
         };
         for (indices) |maybe_index| {
@@ -2466,6 +2524,42 @@ fn writeRebaseInfoTable(self: *Zld) !void {
             const index = index_offset + entry.value.index;
             pointers.appendAssumeCapacity(.{
                 .offset = base_offset + index * @sizeOf(u64),
+                .segment_id = segment_id,
+            });
+        }
+    }
+
+    if (self.mod_init_func_section_index) |idx| {
+        // TODO audit and investigate this.
+        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const npointers = sect.size * @sizeOf(u64);
+        const base_offset = sect.addr - seg.inner.vmaddr;
+        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
+
+        try pointers.ensureCapacity(pointers.items.len + npointers);
+        var i: usize = 0;
+        while (i < npointers) : (i += 1) {
+            pointers.appendAssumeCapacity(.{
+                .offset = base_offset + i * @sizeOf(u64),
+                .segment_id = segment_id,
+            });
+        }
+    }
+
+    if (self.mod_term_func_section_index) |idx| {
+        // TODO audit and investigate this.
+        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const sect = seg.sections.items[idx];
+        const npointers = sect.size * @sizeOf(u64);
+        const base_offset = sect.addr - seg.inner.vmaddr;
+        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
+
+        try pointers.ensureCapacity(pointers.items.len + npointers);
+        var i: usize = 0;
+        while (i < npointers) : (i += 1) {
+            pointers.appendAssumeCapacity(.{
+                .offset = base_offset + i * @sizeOf(u64),
                 .segment_id = segment_id,
             });
         }
