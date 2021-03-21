@@ -270,7 +270,10 @@ pub const Context = struct {
     global_scope: *Scope.Root,
     clang_context: *clang.ASTContext,
     mangle_count: u32 = 0,
+    /// Table of record decls that have been demoted to opaques.
     opaque_demotes: std.AutoHashMapUnmanaged(usize, void) = .{},
+    /// Table of unnamed enums and records that are child types of typedefs.
+    unnamed_typedefs: std.AutoHashMapUnmanaged(usize, []const u8) = .{},
 
     /// This one is different than the root scope's name table. This contains
     /// a list of names that we found by visiting all the top level decls without
@@ -338,6 +341,7 @@ pub fn translate(
         context.alias_list.deinit();
         context.global_names.deinit(gpa);
         context.opaque_demotes.deinit(gpa);
+        context.unnamed_typedefs.deinit(gpa);
         context.global_scope.deinit();
     }
 
@@ -401,6 +405,51 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
     if (decl.castToNamedDecl()) |named_decl| {
         const decl_name = try c.str(named_decl.getName_bytes_begin());
         try c.global_names.put(c.gpa, decl_name, {});
+
+        // Check for typedefs with unnamed enum/record child types.
+        if (decl.getKind() == .Typedef) {
+            const typedef_decl = @ptrCast(*const clang.TypedefNameDecl, decl);
+            var child_ty = typedef_decl.getUnderlyingType().getTypePtr();
+            const addr: usize = while (true) switch (child_ty.getTypeClass()) {
+                .Enum => {
+                    const enum_ty = @ptrCast(*const clang.EnumType, child_ty);
+                    const enum_decl = enum_ty.getDecl();
+                    // check if this decl is unnamed
+                    if (@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin()[0] != 0) return;
+                    break @ptrToInt(enum_decl.getCanonicalDecl());
+                },
+                .Record => {
+                    const record_ty = @ptrCast(*const clang.RecordType, child_ty);
+                    const record_decl = record_ty.getDecl();
+                    // check if this decl is unnamed
+                    if (@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin()[0] != 0) return;
+                    break @ptrToInt(record_decl.getCanonicalDecl());
+                },
+                .Elaborated => {
+                    const elaborated_ty = @ptrCast(*const clang.ElaboratedType, child_ty);
+                    child_ty = elaborated_ty.getNamedType().getTypePtr();
+                },
+                .Decayed => {
+                    const decayed_ty = @ptrCast(*const clang.DecayedType, child_ty);
+                    child_ty = decayed_ty.getDecayedType().getTypePtr();
+                },
+                .Attributed => {
+                    const attributed_ty = @ptrCast(*const clang.AttributedType, child_ty);
+                    child_ty = attributed_ty.getEquivalentType().getTypePtr();
+                },
+                .MacroQualified => {
+                    const macroqualified_ty = @ptrCast(*const clang.MacroQualifiedType, child_ty);
+                    child_ty = macroqualified_ty.getModifiedType().getTypePtr();
+                },
+                else => return,
+            } else unreachable;
+            // TODO https://github.com/ziglang/zig/issues/3756
+            // TODO https://github.com/ziglang/zig/issues/1802
+            const name = if (isZigPrimitiveType(decl_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ decl_name, c.getMangle() }) else decl_name;
+            try c.unnamed_typedefs.putNoClobber(c.gpa, addr, name);
+            // Put this typedef in the decl_table to avoid redefinitions.
+            try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), name);
+        }
     }
 }
 
@@ -752,17 +801,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
-    var bare_name = try c.str(@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin());
-    var is_unnamed = false;
-    // Record declarations such as `struct {...} x` have no name but they're not
-    // anonymous hence here isAnonymousStructOrUnion is not needed
-    if (bare_name.len == 0) {
-        bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
-        is_unnamed = true;
-    }
-
-    var container_kind_name: []const u8 = undefined;
     var is_union = false;
+    var container_kind_name: []const u8 = undefined;
+    var bare_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin());
+
     if (record_decl.isUnion()) {
         container_kind_name = "union";
         is_union = true;
@@ -773,7 +815,20 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         return failDecl(c, record_loc, bare_name, "record {s} is not a struct or union", .{bare_name});
     }
 
-    var name: []const u8 = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
+    var is_unnamed = false;
+    var name = bare_name;
+    if (c.unnamed_typedefs.get(@ptrToInt(record_decl.getCanonicalDecl()))) |typedef_name| {
+        bare_name = typedef_name;
+        name = typedef_name;
+    } else {
+        // Record declarations such as `struct {...} x` have no name but they're not
+        // anonymous hence here isAnonymousStructOrUnion is not needed
+        if (bare_name.len == 0) {
+            bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
+            is_unnamed = true;
+        }
+        name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
+    }
     if (!toplevel) name = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), name);
 
@@ -874,14 +929,19 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
-    var bare_name = try c.str(@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin());
     var is_unnamed = false;
-    if (bare_name.len == 0) {
-        bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
-        is_unnamed = true;
+    var bare_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin());
+    var name = bare_name;
+    if (c.unnamed_typedefs.get(@ptrToInt(enum_decl.getCanonicalDecl()))) |typedef_name| {
+        bare_name = typedef_name;
+        name = typedef_name;
+    } else {
+        if (bare_name.len == 0) {
+            bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
+            is_unnamed = true;
+        }
+        name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     }
-
-    var name: []const u8 = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     if (!toplevel) _ = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), name);
 
