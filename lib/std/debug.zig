@@ -72,6 +72,8 @@ pub const default_config = struct {
     pub const captureStackTraceFrom = defaultCaptureStackTraceFrom;
 };
 
+// TODO(rgreenblatt): make these interfaces, this needs to be done before
+// merging the PR
 const config = lookupDecl(root, &.{"debug_config"}) orelse struct {};
 const os_config = lookupDecl(root, &.{ "os", "debug" }) orelse struct {};
 
