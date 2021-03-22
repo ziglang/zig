@@ -1093,6 +1093,37 @@ pub const Scope = struct {
             return new_index + gz.zir_code.ref_start_index;
         }
 
+        pub fn addPtrType(
+            gz: *GenZir,
+            ptr_type_data: std.meta.fieldInfo(zir.Inst.Data, .ptr_type).field_type,
+            child_type: zir.Inst.Ref,
+            extra_data: []const zir.Inst.Ref,
+        ) !zir.Inst.Ref {
+            assert(child_type != 0);
+            const gpa = gz.zir_code.gpa;
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
+            try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
+            try gz.zir_code.extra.ensureCapacity(gpa, gz.zir_code.extra.items.len +
+                @typeInfo(zir.Inst.PtrType).Struct.fields.len + extra_data.len);
+
+            const payload_index = gz.zir_code.addExtraAssumeCapacity(zir.Inst.PtrType{
+                .elem_type = child_type,
+            });
+            gz.zir_code.extra.appendSliceAssumeCapacity(extra_data);
+
+            var ptr_type = ptr_type_data;
+            ptr_type.payload_index = payload_index;
+
+            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+            gz.zir_code.instructions.appendAssumeCapacity(.{
+                .tag = .ptr_type,
+                .data = .{ .ptr_type = ptr_type },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+
+            return new_index + gz.zir_code.ref_start_index;
+        }
+
         pub fn addCondBr(
             gz: *GenZir,
             condition: zir.Inst.Ref,
