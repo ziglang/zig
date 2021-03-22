@@ -746,6 +746,9 @@ pub const Inst = struct {
         store_to_block_ptr,
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the pointer type.
+        /// Uses the `bin` union field - astgen.zig depends on the ability to change
+        /// the tag of an instruction from `store_to_block_ptr` to `store_to_inferred_ptr`
+        /// without changing the data.
         store_to_inferred_ptr,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
         /// Uses the `str` union field.
