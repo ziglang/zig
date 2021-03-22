@@ -4405,6 +4405,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             };
             return target;
         },
+        .freebsd => unreachable,
         else => @compileError("querying for canonical path of a handle is unsupported on this host"),
     }
 }
