@@ -1393,6 +1393,8 @@ pub const LibExeObjStep = struct {
     /// safely garbage-collected during the linking phase.
     link_function_sections: bool = false,
 
+    linker_allow_shlib_undefined: ?bool = null,
+
     /// Uses system Wine installation to run cross compiled Windows build artifacts.
     enable_wine: bool = false,
 
@@ -2335,6 +2337,9 @@ pub const LibExeObjStep = struct {
         }
         if (self.link_function_sections) {
             try zig_args.append("-ffunction-sections");
+        }
+        if (self.linker_allow_shlib_undefined) |x| {
+            try zig_args.append(if (x) "--allow-shlib-undefined" else "--no-allow-shlib-undefined");
         }
         if (self.single_threaded) {
             try zig_args.append("--single-threaded");
