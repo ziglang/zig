@@ -524,6 +524,7 @@ pub const Inst = struct {
         cmp_neq,
         /// Coerces a result location pointer to a new element type. It is evaluated "backwards"-
         /// as type coercion from the new element type to the old element type.
+        /// Uses the `bin` union field.
         /// LHS is destination element type, RHS is result pointer.
         coerce_result_ptr,
         /// Emit an error message and fail compilation.
@@ -1327,33 +1328,12 @@ const Writer = struct {
         const tag = tags[inst];
         try stream.print("= {s}(", .{@tagName(tags[inst])});
         switch (tag) {
-            .add,
-            .addwrap,
-            .array_cat,
-            .array_mul,
-            .mul,
-            .mulwrap,
-            .sub,
-            .subwrap,
             .array_type,
             .bit_and,
             .bit_or,
             .as,
-            .bool_and,
-            .bool_or,
             .@"break",
-            .cmp_lt,
-            .cmp_lte,
-            .cmp_eq,
-            .cmp_gte,
-            .cmp_gt,
-            .cmp_neq,
             .coerce_result_ptr,
-            .div,
-            .mod_rem,
-            .shl,
-            .shr,
-            .xor,
             .elem_ptr,
             .elem_val,
             .intcast,
@@ -1446,6 +1426,29 @@ const Writer = struct {
             .typeof_peer,
             .suspend_block,
             => try self.writePlNode(stream, inst),
+
+            .add,
+            .addwrap,
+            .array_cat,
+            .array_mul,
+            .mul,
+            .mulwrap,
+            .sub,
+            .subwrap,
+            .bool_and,
+            .bool_or,
+            .cmp_lt,
+            .cmp_lte,
+            .cmp_eq,
+            .cmp_gte,
+            .cmp_gt,
+            .cmp_neq,
+            .div,
+            .mod_rem,
+            .shl,
+            .shr,
+            .xor,
+            => try self.writePlNodeBin(stream, inst),
 
             .as_node => try self.writeAs(stream, inst),
 
@@ -1586,6 +1589,16 @@ const Writer = struct {
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         try stream.writeAll("TODO) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeBin(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.Bin, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.rhs);
+        try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
 

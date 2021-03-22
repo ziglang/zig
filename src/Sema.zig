@@ -2419,17 +2419,18 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (true) @panic("TODO rework with zir-memory-layout in mind");
-
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const src: LazySrcLoc = .todo;
-    const lhs = try sema.resolveInst(bin_inst.lhs);
-    const rhs = try sema.resolveInst(bin_inst.rhs);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = try sema.resolveInst(extra.lhs);
+    const rhs = try sema.resolveInst(extra.rhs);
 
     const instructions = &[_]*Inst{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, instructions);
-    const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs.src);
-    const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs.src);
+    const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
+    const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
     const scalar_type = if (resolved_type.zigTypeTag() == .Vector)
         resolved_type.elemType()
@@ -2455,8 +2456,9 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
 
     const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
     const is_float = scalar_tag == .Float or scalar_tag == .ComptimeFloat;
+    const zir_tags = block.sema.code.instructions.items(.tag);
 
-    if (!is_int and !(is_float and floatOpAllowed(inst.base.tag))) {
+    if (!is_int and !(is_float and floatOpAllowed(zir_tags[inst]))) {
         return sema.mod.fail(&block.base, src, "invalid operands to binary expression: '{s}' and '{s}'", .{ @tagName(lhs.ty.zigTypeTag()), @tagName(rhs.ty.zigTypeTag()) });
     }
 
@@ -2468,69 +2470,54 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
                     .val = Value.initTag(.undef),
                 });
             }
-            return sema.analyzeInstComptimeOp(block, scalar_type, inst, lhs_val, rhs_val);
+            // incase rhs is 0, simply return lhs without doing any calculations
+            // TODO Once division is implemented we should throw an error when dividing by 0.
+            if (rhs_val.compareWithZero(.eq)) {
+                return sema.mod.constInst(sema.arena, src, .{
+                    .ty = scalar_type,
+                    .val = lhs_val,
+                });
+            }
+
+            const value = switch (zir_tags[inst]) {
+                .add => blk: {
+                    const val = if (is_int)
+                        try Module.intAdd(sema.arena, lhs_val, rhs_val)
+                    else
+                        try Module.floatAdd(sema.arena, scalar_type, src, lhs_val, rhs_val);
+                    break :blk val;
+                },
+                .sub => blk: {
+                    const val = if (is_int)
+                        try Module.intSub(sema.arena, lhs_val, rhs_val)
+                    else
+                        try Module.floatSub(sema.arena, scalar_type, src, lhs_val, rhs_val);
+                    break :blk val;
+                },
+                else => return sema.mod.fail(&block.base, src, "TODO Implement arithmetic operand '{s}'", .{@tagName(zir_tags[inst])}),
+            };
+
+            log.debug("{s}({}, {}) result: {}", .{ @tagName(zir_tags[inst]), lhs_val, rhs_val, value });
+
+            return sema.mod.constInst(sema.arena, src, .{
+                .ty = scalar_type,
+                .val = value,
+            });
         }
     }
 
     try sema.requireRuntimeBlock(block, src);
-    const ir_tag: Inst.Tag = switch (inst.base.tag) {
+    const ir_tag: Inst.Tag = switch (zir_tags[inst]) {
         .add => .add,
         .addwrap => .addwrap,
         .sub => .sub,
         .subwrap => .subwrap,
         .mul => .mul,
         .mulwrap => .mulwrap,
-        else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}''", .{@tagName(inst.base.tag)}),
+        else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}''", .{@tagName(zir_tags[inst])}),
     };
 
     return block.addBinOp(src, scalar_type, ir_tag, casted_lhs, casted_rhs);
-}
-
-/// Analyzes operands that are known at comptime
-fn analyzeInstComptimeOp(
-    sema: *Sema,
-    block: *Scope.Block,
-    res_type: Type,
-    inst: zir.Inst.Index,
-    lhs_val: Value,
-    rhs_val: Value,
-) InnerError!*Inst {
-    if (true) @panic("TODO rework analyzeInstComptimeOp for zir-memory-layout");
-
-    // incase rhs is 0, simply return lhs without doing any calculations
-    // TODO Once division is implemented we should throw an error when dividing by 0.
-    if (rhs_val.compareWithZero(.eq)) {
-        return sema.mod.constInst(sema.arena, inst.base.src, .{
-            .ty = res_type,
-            .val = lhs_val,
-        });
-    }
-    const is_int = res_type.isInt() or res_type.zigTypeTag() == .ComptimeInt;
-
-    const value = switch (inst.base.tag) {
-        .add => blk: {
-            const val = if (is_int)
-                try Module.intAdd(sema.arena, lhs_val, rhs_val)
-            else
-                try Module.floatAdd(sema.arena, res_type, inst.base.src, lhs_val, rhs_val);
-            break :blk val;
-        },
-        .sub => blk: {
-            const val = if (is_int)
-                try Module.intSub(sema.arena, lhs_val, rhs_val)
-            else
-                try Module.floatSub(sema.arena, res_type, inst.base.src, lhs_val, rhs_val);
-            break :blk val;
-        },
-        else => return sema.mod.fail(&block.base, inst.base.src, "TODO Implement arithmetic operand '{s}'", .{@tagName(inst.base.tag)}),
-    };
-
-    log.debug("{s}({}, {}) result: {}", .{ @tagName(inst.base.tag), lhs_val, rhs_val, value });
-
-    return sema.mod.constInst(sema.arena, inst.base.src, .{
-        .ty = res_type,
-        .val = value,
-    });
 }
 
 fn zirDerefNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {

@@ -1667,6 +1667,9 @@ pub const SrcLoc = struct {
             .node_offset_asm_ret_ty,
             .node_offset_if_cond,
             .node_offset_anyframe_type,
+            .node_offset_bin_op,
+            .node_offset_bin_lhs,
+            .node_offset_bin_rhs,
             => src_loc.container.decl.container.file_scope,
         };
     }
@@ -1722,6 +1725,9 @@ pub const SrcLoc = struct {
             .node_offset_asm_ret_ty => @panic("TODO"),
             .node_offset_if_cond => @panic("TODO"),
             .node_offset_anyframe_type => @panic("TODO"),
+            .node_offset_bin_op => @panic("TODO"),
+            .node_offset_bin_lhs => @panic("TODO"),
+            .node_offset_bin_rhs => @panic("TODO"),
         }
     }
 };
@@ -1846,6 +1852,20 @@ pub const LazySrcLoc = union(enum) {
     /// to the type expression.
     /// The Decl is determined contextually.
     node_offset_anyframe_type: i32,
+    /// The source location points to a binary expression, such as `a + b`, found
+    /// by taking this AST node index offset from the containing Decl AST node.
+    /// The Decl is determined contextually.
+    node_offset_bin_op: i32,
+    /// The source location points to the LHS of a binary expression, found
+    /// by taking this AST node index offset from the containing Decl AST node,
+    /// which points to a binary expression AST node. Next, nagivate to the LHS.
+    /// The Decl is determined contextually.
+    node_offset_bin_lhs: i32,
+    /// The source location points to the RHS of a binary expression, found
+    /// by taking this AST node index offset from the containing Decl AST node,
+    /// which points to a binary expression AST node. Next, nagivate to the RHS.
+    /// The Decl is determined contextually.
+    node_offset_bin_rhs: i32,
 
     /// Upgrade to a `SrcLoc` based on the `Decl` or file in the provided scope.
     pub fn toSrcLoc(lazy: LazySrcLoc, scope: *Scope) SrcLoc {
@@ -1877,6 +1897,9 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_asm_ret_ty,
             .node_offset_if_cond,
             .node_offset_anyframe_type,
+            .node_offset_bin_op,
+            .node_offset_bin_lhs,
+            .node_offset_bin_rhs,
             => .{
                 .container = .{ .decl = scope.srcDecl().? },
                 .lazy = lazy,
@@ -1914,6 +1937,9 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_asm_ret_ty,
             .node_offset_if_cond,
             .node_offset_anyframe_type,
+            .node_offset_bin_op,
+            .node_offset_bin_lhs,
+            .node_offset_bin_rhs,
             => .{
                 .container = .{ .decl = decl },
                 .lazy = lazy,

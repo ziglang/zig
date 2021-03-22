@@ -3000,19 +3000,18 @@ fn as(
     lhs: ast.Node.Index,
     rhs: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const dest_type = try typeExpr(mod, scope, lhs);
     switch (rl) {
         .none, .discard, .ref, .ty => {
             const result = try expr(mod, scope, .{ .ty = dest_type }, rhs);
-            return rvalue(mod, scope, rl, result);
+            return rvalue(mod, scope, rl, result, node);
         },
 
         .ptr => |result_ptr| {
-            return asRlPtr(mod, scope, rl, src, result_ptr, rhs, dest_type);
+            return asRlPtr(mod, scope, rl, result_ptr, rhs, dest_type);
         },
         .block_ptr => |block_scope| {
-            return asRlPtr(mod, scope, rl, src, block_scope.rl_ptr.?, rhs, dest_type);
+            return asRlPtr(mod, scope, rl, block_scope.rl_ptr, rhs, dest_type);
         },
 
         .bitcasted_ptr => |bitcasted_ptr| {
@@ -3030,7 +3029,6 @@ fn asRlPtr(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
-    src: usize,
     result_ptr: zir.Inst.Ref,
     operand_node: ast.Node.Index,
     dest_type: zir.Inst.Ref,
@@ -3038,32 +3036,35 @@ fn asRlPtr(
     // Detect whether this expr() call goes into rvalue() to store the result into the
     // result location. If it does, elide the coerce_result_ptr instruction
     // as well as the store instruction, instead passing the result as an rvalue.
+    const parent_gz = scope.getGenZir();
+
     var as_scope: Scope.GenZir = .{
         .parent = scope,
-        .decl = scope.ownerDecl().?,
-        .arena = scope.arena(),
+        .zir_code = parent_gz.zir_code,
         .force_comptime = scope.isComptime(),
         .instructions = .{},
     };
     defer as_scope.instructions.deinit(mod.gpa);
 
-    as_scope.rl_ptr = try addZIRBinOp(mod, &as_scope.base, src, .coerce_result_ptr, dest_type, result_ptr);
+    as_scope.rl_ptr = try as_scope.addBin(.coerce_result_ptr, dest_type, result_ptr);
     const result = try expr(mod, &as_scope.base, .{ .block_ptr = &as_scope }, operand_node);
-    const parent_zir = &scope.getGenZir().instructions;
+    const parent_zir = &parent_gz.instructions;
     if (as_scope.rvalue_rl_count == 1) {
         // Busted! This expression didn't actually need a pointer.
+        const zir_tags = parent_gz.zir_code.instructions.items(.tag);
+        const zir_datas = parent_gz.zir_code.instructions.items(.data);
         const expected_len = parent_zir.items.len + as_scope.instructions.items.len - 2;
         try parent_zir.ensureCapacity(mod.gpa, expected_len);
         for (as_scope.instructions.items) |src_inst| {
-            if (src_inst == as_scope.rl_ptr.?) continue;
-            if (src_inst.castTag(.store_to_block_ptr)) |store| {
-                if (store.positionals.lhs == as_scope.rl_ptr.?) continue;
+            if (src_inst == as_scope.rl_ptr) continue;
+            if (zir_tags[src_inst] == .store_to_block_ptr) {
+                if (zir_datas[src_inst].bin.lhs == as_scope.rl_ptr) continue;
             }
             parent_zir.appendAssumeCapacity(src_inst);
         }
         assert(parent_zir.items.len == expected_len);
-        const casted_result = try addZIRBinOp(mod, scope, dest_type.src, .as, dest_type, result);
-        return rvalue(mod, scope, rl, casted_result);
+        const casted_result = try parent_gz.addBin(.as, dest_type, result);
+        return rvalue(mod, scope, rl, casted_result, operand_node);
     } else {
         try parent_zir.appendSlice(mod.gpa, as_scope.instructions.items);
         return result;
