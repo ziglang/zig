@@ -1062,8 +1062,6 @@ fn varDecl(
     block_arena: *Allocator,
     var_decl: ast.full.VarDecl,
 ) InnerError!*Scope {
-    if (true) @panic("TODO update for zir-memory-layout");
-
     if (var_decl.comptime_token) |comptime_token| {
         return mod.failTok(scope, comptime_token, "TODO implement comptime locals", .{});
     }
@@ -1153,23 +1151,21 @@ fn varDecl(
             // result location pointer.
             var init_scope: Scope.GenZir = .{
                 .parent = scope,
-                .decl = scope.ownerDecl().?,
-                .arena = scope.arena(),
                 .force_comptime = scope.isComptime(),
-                .instructions = .{},
+                .zir_code = scope.getGenZir().zir_code,
             };
             defer init_scope.instructions.deinit(mod.gpa);
 
-            var resolve_inferred_alloc: ?*zir.Inst = null;
-            var opt_type_inst: ?*zir.Inst = null;
+            var resolve_inferred_alloc: ?zir.Inst.Ref = null;
+            var opt_type_inst: ?zir.Inst.Ref = null;
             if (var_decl.ast.type_node != 0) {
                 const type_inst = try typeExpr(mod, &init_scope.base, var_decl.ast.type_node);
                 opt_type_inst = type_inst;
-                init_scope.rl_ptr = try addZIRUnOp(mod, &init_scope.base, name_src, .alloc, type_inst);
+                init_scope.rl_ptr = try init_scope.addUnNode(.alloc, type_inst, node);
             } else {
-                const alloc = try addZIRNoOpT(mod, &init_scope.base, name_src, .alloc_inferred);
-                resolve_inferred_alloc = &alloc.base;
-                init_scope.rl_ptr = &alloc.base;
+                const alloc = try init_scope.addUnNode(.alloc_inferred, undefined, node);
+                resolve_inferred_alloc = alloc;
+                init_scope.rl_ptr = alloc;
             }
             const init_result_loc: ResultLoc = .{ .block_ptr = &init_scope };
             const init_inst = try expr(mod, &init_scope.base, init_result_loc, var_decl.ast.init_node);
@@ -1182,15 +1178,19 @@ fn varDecl(
                 const expected_len = parent_zir.items.len + init_scope.instructions.items.len - 2;
                 try parent_zir.ensureCapacity(mod.gpa, expected_len);
                 for (init_scope.instructions.items) |src_inst| {
-                    if (src_inst == init_scope.rl_ptr.?) continue;
-                    if (src_inst.castTag(.store_to_block_ptr)) |store| {
-                        if (store.positionals.lhs == init_scope.rl_ptr.?) continue;
+                    if (src_inst == init_scope.rl_ptr) continue;
+                    const src_inst_dtag = init_scope.zir_code.instructions.get(src_inst);
+                    if (src_inst_dtag.tag == .store_to_block_ptr) {
+                        if (src_inst_dtag.data.bin.lhs == init_scope.rl_ptr) continue;
                     }
                     parent_zir.appendAssumeCapacity(src_inst);
                 }
                 assert(parent_zir.items.len == expected_len);
                 const casted_init = if (opt_type_inst) |type_inst|
-                    try addZIRBinOp(mod, scope, type_inst.src, .as, type_inst, init_inst)
+                    try gz.addPlNode(.as_node, var_decl.ast.type_node, zir.Inst.As{
+                        .dest_type = type_inst,
+                        .operand = init_inst,
+                    })
                 else
                     init_inst;
 
@@ -1200,6 +1200,7 @@ fn varDecl(
                     .gen_zir = gz,
                     .name = ident_name,
                     .inst = casted_init,
+                    .src = gz.nodeSrcLoc(node),
                 };
                 return &sub_scope.base;
             }
@@ -1210,43 +1211,46 @@ fn varDecl(
             const expected_len = parent_zir.items.len + init_scope.instructions.items.len;
             try parent_zir.ensureCapacity(mod.gpa, expected_len);
             for (init_scope.instructions.items) |src_inst| {
-                if (src_inst.castTag(.store_to_block_ptr)) |store| {
-                    if (store.positionals.lhs == init_scope.rl_ptr.?) {
-                        src_inst.tag = .store_to_inferred_ptr;
+                const src_inst_dtag = init_scope.zir_code.instructions.get(src_inst);
+                if (src_inst_dtag.tag == .store_to_block_ptr) {
+                    if (src_inst_dtag.data.bin.lhs == init_scope.rl_ptr) {
+                        init_scope.zir_code.instructions.items(.tag)[src_inst] = .store_to_inferred_ptr;
                     }
                 }
                 parent_zir.appendAssumeCapacity(src_inst);
             }
             assert(parent_zir.items.len == expected_len);
             if (resolve_inferred_alloc) |inst| {
-                _ = try addZIRUnOp(mod, scope, name_src, .resolve_inferred_alloc, inst);
+                _ = try gz.addUnTok(.resolve_inferred_alloc, inst, tree.firstToken(node));
             }
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
                 .parent = scope,
                 .gen_zir = gz,
                 .name = ident_name,
-                .ptr = init_scope.rl_ptr.?,
+                .ptr = init_scope.rl_ptr,
+                .src = gz.nodeSrcLoc(node),
             };
             return &sub_scope.base;
         },
         .keyword_var => {
-            var resolve_inferred_alloc: ?*zir.Inst = null;
+            var resolve_inferred_alloc: ?zir.Inst.Ref = null;
             const var_data: struct {
                 result_loc: ResultLoc,
-                alloc: *zir.Inst,
+                alloc: zir.Inst.Ref,
             } = if (var_decl.ast.type_node != 0) a: {
                 const type_inst = try typeExpr(mod, scope, var_decl.ast.type_node);
-                const alloc = try addZIRUnOp(mod, scope, name_src, .alloc_mut, type_inst);
+
+                const alloc = try gz.addUnNode(.alloc_mut, type_inst, node);
                 break :a .{ .alloc = alloc, .result_loc = .{ .ptr = alloc } };
             } else a: {
-                const alloc = try addZIRNoOpT(mod, scope, name_src, .alloc_inferred_mut);
-                resolve_inferred_alloc = &alloc.base;
-                break :a .{ .alloc = &alloc.base, .result_loc = .{ .inferred_ptr = alloc } };
+                const alloc = try gz.addUnNode(.alloc_inferred_mut, undefined, node);
+                resolve_inferred_alloc = alloc;
+                break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };
             const init_inst = try expr(mod, scope, var_data.result_loc, var_decl.ast.init_node);
             if (resolve_inferred_alloc) |inst| {
-                _ = try addZIRUnOp(mod, scope, name_src, .resolve_inferred_alloc, inst);
+                _ = try gz.addUnNode(.resolve_inferred_alloc, inst, node);
             }
             const sub_scope = try block_arena.create(Scope.LocalPtr);
             sub_scope.* = .{
