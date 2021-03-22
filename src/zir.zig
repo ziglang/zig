@@ -1146,9 +1146,8 @@ pub const Inst = struct {
                 is_volatile: bool,
                 has_sentinel: bool,
                 has_align: bool,
-                has_bit_start: bool,
-                has_bit_end: bool,
-                _: u1 = undefined,
+                has_bit_range: bool,
+                _: u2 = undefined,
             },
             size: std.builtin.TypeInfo.Pointer.Size,
             /// Index into extra. See `PtrType`.
@@ -1244,8 +1243,8 @@ pub const Inst = struct {
     /// trailing Ref fields:
     /// 0. sentinel: Ref // if `has_sentinel` flag is set
     /// 1. align: Ref // if `has_align` flag is set
-    /// 2. bit_start: Ref // if `has_bit_start` flag is set
-    /// 3. bit_end: Ref // if `has_bit_end` flag is set
+    /// 2. bit_start: Ref // if `has_bit_range` flag is set
+    /// 3. bit_end: Ref // if `has_bit_range` flag is set
     pub const PtrType = struct {
         elem_type: Ref,
     };

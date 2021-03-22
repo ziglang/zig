@@ -2957,13 +2957,13 @@ fn zirPtrType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
         break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u32);
     } else 0;
 
-    const bit_start = if (inst_data.flags.has_bit_start) blk: {
+    const bit_start = if (inst_data.flags.has_bit_range) blk: {
         const ref = sema.code.extra[extra_i];
         extra_i += 1;
         break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u16);
     } else 0;
 
-    const bit_end = if (inst_data.flags.has_bit_end) blk: {
+    const bit_end = if (inst_data.flags.has_bit_range) blk: {
         const ref = sema.code.extra[extra_i];
         extra_i += 1;
         break :blk try sema.resolveAlreadyCoercedInt(block, .unneeded, ref, u16);

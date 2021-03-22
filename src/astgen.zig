@@ -603,10 +603,10 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             ),
         },
 
-        .ptr_type_aligned => return ptrType(mod, scope, rl, tree.ptrTypeAligned(node)),
-        .ptr_type_sentinel => return ptrType(mod, scope, rl, tree.ptrTypeSentinel(node)),
-        .ptr_type => return ptrType(mod, scope, rl, tree.ptrType(node)),
-        .ptr_type_bit_range => return ptrType(mod, scope, rl, tree.ptrTypeBitRange(node)),
+        .ptr_type_aligned => return ptrType(mod, scope, rl, node, tree.ptrTypeAligned(node)),
+        .ptr_type_sentinel => return ptrType(mod, scope, rl, node, tree.ptrTypeSentinel(node)),
+        .ptr_type => return ptrType(mod, scope, rl, node, tree.ptrType(node)),
+        .ptr_type_bit_range => return ptrType(mod, scope, rl, node, tree.ptrTypeBitRange(node)),
 
         .container_decl,
         .container_decl_trailing,
@@ -1346,47 +1346,85 @@ fn ptrType(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
+    node: ast.Node.Index,
     ptr_info: ast.full.PtrType,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
+    const gz = scope.getGenZir();
 
-    const simple = ptr_info.allowzero_token == null and
-        ptr_info.ast.align_node == 0 and
-        ptr_info.volatile_token == null and
-        ptr_info.ast.sentinel == 0;
+    const elem_type = try typeExpr(mod, scope, ptr_info.ast.child_type);
+
+    const simple = ptr_info.ast.align_node == 0 and
+        ptr_info.ast.sentinel == 0 and
+        ptr_info.ast.bit_range_start == 0;
 
     if (simple) {
-        const child_type = try typeExpr(mod, scope, ptr_info.ast.child_type);
-        const mutable = ptr_info.const_token == null;
-        const T = zir.Inst.Tag;
-        const result = try addZIRUnOp(mod, scope, src, switch (ptr_info.size) {
-            .One => if (mutable) T.single_mut_ptr_type else T.single_const_ptr_type,
-            .Many => if (mutable) T.many_mut_ptr_type else T.many_const_ptr_type,
-            .C => if (mutable) T.c_mut_ptr_type else T.c_const_ptr_type,
-            .Slice => if (mutable) T.mut_slice_type else T.const_slice_type,
-        }, child_type);
-        return rvalue(mod, scope, rl, result);
+        const result = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
+            .ptr_type_simple = .{
+                .is_allowzero = ptr_info.allowzero_token != null,
+                .is_mutable = ptr_info.const_token == null,
+                .is_volatile = ptr_info.volatile_token != null,
+                .size = ptr_info.size,
+                .elem_type = elem_type,
+            },
+        } });
+        return rvalue(mod, scope, rl, result, node);
     }
 
-    var kw_args: std.meta.fieldInfo(zir.Inst.PtrType, .kw_args).field_type = .{};
-    kw_args.size = ptr_info.size;
-    kw_args.@"allowzero" = ptr_info.allowzero_token != null;
-    if (ptr_info.ast.align_node != 0) {
-        kw_args.@"align" = try expr(mod, scope, .none, ptr_info.ast.align_node);
-        if (ptr_info.ast.bit_range_start != 0) {
-            kw_args.align_bit_start = try expr(mod, scope, .none, ptr_info.ast.bit_range_start);
-            kw_args.align_bit_end = try expr(mod, scope, .none, ptr_info.ast.bit_range_end);
-        }
-    }
-    kw_args.mutable = ptr_info.const_token == null;
-    kw_args.@"volatile" = ptr_info.volatile_token != null;
-    const child_type = try typeExpr(mod, scope, ptr_info.ast.child_type);
+    var sentinel_ref: zir.Inst.Ref = 0;
+    var align_ref: zir.Inst.Ref = 0;
+    var bit_start_ref: zir.Inst.Ref = 0;
+    var bit_end_ref: zir.Inst.Ref = 0;
+    var trailing_count: u32 = 0;
+
     if (ptr_info.ast.sentinel != 0) {
-        kw_args.sentinel = try expr(mod, scope, .{ .ty = child_type }, ptr_info.ast.sentinel);
+        sentinel_ref = try expr(mod, scope, .{ .ty = elem_type }, ptr_info.ast.sentinel);
+        trailing_count += 1;
     }
-    const result = try addZIRInst(mod, scope, src, zir.Inst.PtrType, .{ .child_type = child_type }, kw_args);
-    return rvalue(mod, scope, rl, result);
+    if (ptr_info.ast.align_node != 0) {
+        align_ref = try expr(mod, scope, .none, ptr_info.ast.align_node);
+        trailing_count += 1;
+    }
+    if (ptr_info.ast.bit_range_start != 0) {
+        assert(ptr_info.ast.bit_range_end != 0);
+        bit_start_ref = try expr(mod, scope, .none, ptr_info.ast.bit_range_start);
+        bit_end_ref = try expr(mod, scope, .none, ptr_info.ast.bit_range_end);
+        trailing_count += 2;
+    }
+
+    const gpa = gz.zir_code.gpa;
+    try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
+    try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
+    try gz.zir_code.extra.ensureCapacity(gpa, gz.zir_code.extra.items.len +
+        @typeInfo(zir.Inst.PtrType).Struct.fields.len + trailing_count);
+
+    const payload_index = gz.zir_code.addExtraAssumeCapacity(zir.Inst.PtrType{ .elem_type = elem_type });
+    if (sentinel_ref != 0) gz.zir_code.extra.appendAssumeCapacity(sentinel_ref);
+    if (align_ref != 0) gz.zir_code.extra.appendAssumeCapacity(align_ref);
+    if (bit_start_ref != 0) {
+        gz.zir_code.extra.appendAssumeCapacity(bit_start_ref);
+        gz.zir_code.extra.appendAssumeCapacity(bit_end_ref);
+    }
+
+    const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+    const result = new_index + gz.zir_code.ref_start_index;
+    gz.zir_code.instructions.appendAssumeCapacity(.{ .tag = .ptr_type, .data = .{
+        .ptr_type = .{
+            .flags = .{
+                .is_allowzero = ptr_info.allowzero_token != null,
+                .is_mutable = ptr_info.const_token == null,
+                .is_volatile = ptr_info.volatile_token != null,
+                .has_sentinel = sentinel_ref != 0,
+                .has_align = align_ref != 0,
+                .has_bit_range = bit_start_ref != 0,
+            },
+            .size = ptr_info.size,
+            .payload_index = payload_index,
+        },
+    } });
+    gz.instructions.appendAssumeCapacity(new_index);
+
+    return rvalue(mod, scope, rl, result, node);
 }
 
 fn arrayType(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !zir.Inst.Ref {
