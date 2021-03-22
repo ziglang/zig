@@ -527,21 +527,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             const result = try addZIRBinOp(mod, scope, src, .merge_error_sets, lhs, rhs);
             return rvalue(mod, scope, rl, result);
         },
-        .anyframe_literal => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const main_token = main_tokens[node];
-            const result = try addZIRInstConst(mod, scope, src, .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.anyframe_type),
-            });
-            return rvalue(mod, scope, rl, result);
-        },
-        .anyframe_type => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const return_type = try typeExpr(mod, scope, node_datas[node].rhs);
-            const result = try addZIRUnOp(mod, scope, src, .anyframe_type, return_type);
-            return rvalue(mod, scope, rl, result);
-        },
+        .anyframe_literal => return mod.failNode(scope, node, "async and related features are not yet supported", .{}),
+        .anyframe_type => return mod.failNode(scope, node, "async and related features are not yet supported", .{}),
         .@"catch" => {
             if (true) @panic("TODO update for zir-memory-layout");
             const catch_token = main_tokens[node];
@@ -641,12 +628,10 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .@"comptime" => return comptimeExpr(mod, scope, rl, node_datas[node].lhs),
         .@"switch", .switch_comma => return switchExpr(mod, scope, rl, node),
 
-        .@"nosuspend" => return nosuspendExpr(mod, scope, rl, node),
-        .@"suspend" => @panic("TODO"),
-        //.@"suspend" => return rvalue(mod, scope, rl, try suspendExpr(mod, scope, node)),
-        .@"await" => return awaitExpr(mod, scope, rl, node),
-        .@"resume" => @panic("TODO"),
-        //.@"resume" => return rvalue(mod, scope, rl, try resumeExpr(mod, scope, node)),
+        .@"nosuspend" => return mod.failNode(scope, node, "async and related features are not yet supported", .{}),
+        .@"suspend" => return mod.failNode(scope, node, "async and related features are not yet supported", .{}),
+        .@"await" => return mod.failNode(scope, node, "async and related features are not yet supported", .{}),
+        .@"resume" => return mod.failNode(scope, node, "async and related features are not yet supported", .{}),
 
         .@"defer" => return mod.failNode(scope, node, "TODO implement astgen.expr for .defer", .{}),
         .@"errdefer" => return mod.failNode(scope, node, "TODO implement astgen.expr for .errdefer", .{}),
@@ -782,8 +767,6 @@ fn breakExpr(
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
-            .gen_suspend => scope = scope.cast(Scope.GenZir).?.parent,
-            .gen_nosuspend => scope = scope.cast(Scope.Nosuspend).?.parent,
             else => if (break_label != 0) {
                 const label_name = try mod.identifierTokenString(parent_scope, break_label);
                 return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
@@ -836,8 +819,6 @@ fn continueExpr(
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
-            .gen_suspend => scope = scope.cast(Scope.GenZir).?.parent,
-            .gen_nosuspend => scope = scope.cast(Scope.Nosuspend).?.parent,
             else => if (break_label != 0) {
                 const label_name = try mod.identifierTokenString(parent_scope, break_label);
                 return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
@@ -910,8 +891,6 @@ fn checkLabelRedefinition(mod: *Module, parent_scope: *Scope, label: ast.TokenIn
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
-            .gen_suspend => scope = scope.cast(Scope.GenZir).?.parent,
-            .gen_nosuspend => scope = scope.cast(Scope.Nosuspend).?.parent,
             else => return,
         }
     }
@@ -1111,8 +1090,6 @@ fn varDecl(
                 s = local_ptr.parent;
             },
             .gen_zir => s = s.cast(Scope.GenZir).?.parent,
-            .gen_suspend => s = s.cast(Scope.GenZir).?.parent,
-            .gen_nosuspend => s = s.cast(Scope.Nosuspend).?.parent,
             else => break,
         };
     }
@@ -2797,8 +2774,6 @@ fn identifier(
                 s = local_ptr.parent;
             },
             .gen_zir => s = s.cast(Scope.GenZir).?.parent,
-            .gen_suspend => s = s.cast(Scope.GenZir).?.parent,
-            .gen_nosuspend => s = s.cast(Scope.Nosuspend).?.parent,
             else => break,
         };
     }
@@ -3272,7 +3247,6 @@ fn builtinCall(
         .add_with_overflow,
         .align_cast,
         .align_of,
-        .async_call,
         .atomic_load,
         .atomic_rmw,
         .atomic_store,
@@ -3305,10 +3279,6 @@ fn builtinCall(
         .fence,
         .field_parent_ptr,
         .float_to_int,
-        .frame,
-        .Frame,
-        .frame_address,
-        .frame_size,
         .has_decl,
         .has_field,
         .int_to_enum,
@@ -3362,6 +3332,13 @@ fn builtinCall(
         => return mod.failTok(scope, builtin_token, "TODO: implement builtin function {s}", .{
             builtin_name,
         }),
+
+        .async_call,
+        .frame,
+        .Frame,
+        .frame_address,
+        .frame_size,
+        => return mod.failTok(scope, builtin_token, "async and related features are not yet supported", .{}),
     }
 }
 
@@ -3373,7 +3350,7 @@ fn callExpr(
     call: ast.full.Call,
 ) InnerError!zir.Inst.Ref {
     if (call.async_token) |async_token| {
-        return mod.failTok(scope, async_token, "TODO implement async fn call", .{});
+        return mod.failTok(scope, async_token, "async and related features are not yet supported", .{});
     }
     const lhs = try expr(mod, scope, .none, call.ast.fn_expr);
 
@@ -3402,10 +3379,10 @@ fn callExpr(
                 true => break :res try gz.addUnNode(.call_none, lhs, node),
                 false => .call,
             },
-            .async_kw => .call_async_kw,
+            .async_kw => return mod.failNode(scope, node, "async and related features are not yet supported", .{}),
             .never_tail => unreachable,
             .never_inline => unreachable,
-            .no_async => .call_no_async,
+            .no_async => return mod.failNode(scope, node, "async and related features are not yet supported", .{}),
             .always_tail => unreachable,
             .always_inline => unreachable,
             .compile_time => .call_compile_time,
@@ -3413,99 +3390,6 @@ fn callExpr(
         break :res try gz.addCall(tag, lhs, args, node);
     };
     return rvalue(mod, scope, rl, result, node); // TODO function call with result location
-}
-
-fn suspendExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
-    const tree = scope.tree();
-    const src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]];
-
-    if (scope.getNosuspend()) |some| {
-        const msg = msg: {
-            const msg = try mod.errMsg(scope, src, "suspend in nosuspend block", .{});
-            errdefer msg.destroy(mod.gpa);
-            try mod.errNote(scope, some.src, msg, "nosuspend block here", .{});
-            break :msg msg;
-        };
-        return mod.failWithOwnedErrorMsg(scope, msg);
-    }
-
-    if (scope.getSuspend()) |some| {
-        const msg = msg: {
-            const msg = try mod.errMsg(scope, src, "cannot suspend inside suspend block", .{});
-            errdefer msg.destroy(mod.gpa);
-            try mod.errNote(scope, some.src, msg, "other suspend block here", .{});
-            break :msg msg;
-        };
-        return mod.failWithOwnedErrorMsg(scope, msg);
-    }
-
-    var suspend_scope: Scope.GenZir = .{
-        .base = .{ .tag = .gen_suspend },
-        .parent = scope,
-        .decl = scope.ownerDecl().?,
-        .arena = scope.arena(),
-        .force_comptime = scope.isComptime(),
-        .instructions = .{},
-    };
-    defer suspend_scope.instructions.deinit(mod.gpa);
-
-    const operand = tree.nodes.items(.data)[node].lhs;
-    if (operand != 0) {
-        const possibly_unused_result = try expr(mod, &suspend_scope.base, .none, operand);
-        if (!possibly_unused_result.tag.isNoReturn()) {
-            _ = try addZIRUnOp(mod, &suspend_scope.base, src, .ensure_result_used, possibly_unused_result);
-        }
-    } else {
-        return addZIRNoOp(mod, scope, src, .@"suspend");
-    }
-
-    const block = try addZIRInstBlock(mod, scope, src, .suspend_block, .{
-        .instructions = try scope.arena().dupe(zir.Inst.Ref, suspend_scope.instructions.items),
-    });
-    return &block.base;
-}
-
-fn nosuspendExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
-    const tree = scope.tree();
-    var child_scope = Scope.Nosuspend{
-        .parent = scope,
-        .gen_zir = scope.getGenZir(),
-        .src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]],
-    };
-
-    return expr(mod, &child_scope.base, rl, tree.nodes.items(.data)[node].lhs);
-}
-
-fn awaitExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
-    const tree = scope.tree();
-    const src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]];
-    const is_nosuspend = scope.getNosuspend() != null;
-
-    // TODO some @asyncCall stuff
-
-    if (scope.getSuspend()) |some| {
-        const msg = msg: {
-            const msg = try mod.errMsg(scope, src, "cannot await inside suspend block", .{});
-            errdefer msg.destroy(mod.gpa);
-            try mod.errNote(scope, some.src, msg, "suspend block here", .{});
-            break :msg msg;
-        };
-        return mod.failWithOwnedErrorMsg(scope, msg);
-    }
-
-    const operand = try expr(mod, scope, .ref, tree.nodes.items(.data)[node].lhs);
-    // TODO pass result location
-    return addZIRUnOp(mod, scope, src, if (is_nosuspend) .nosuspend_await else .@"await", operand);
-}
-
-fn resumeExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
-    const tree = scope.tree();
-    const src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]];
-
-    const operand = try expr(mod, scope, .ref, tree.nodes.items(.data)[node].lhs);
-    return addZIRUnOp(mod, scope, src, .@"resume", operand);
 }
 
 pub const simple_types = std.ComptimeStringMap(zir.Const, .{
@@ -3542,7 +3426,6 @@ pub const simple_types = std.ComptimeStringMap(zir.Const, .{
     .{ "noreturn", .noreturn_type },
     .{ "null", .null_type },
     .{ "undefined", .undefined_type },
-    .{ "anyframe", .anyframe_type },
     .{ "undefined", .undef },
     .{ "null", .null_value },
     .{ "true", .bool_true },

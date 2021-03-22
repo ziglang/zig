@@ -410,8 +410,6 @@ pub const Scope = struct {
             .gen_zir => return scope.cast(GenZir).?.zir_code.arena,
             .local_val => return scope.cast(LocalVal).?.gen_zir.zir_code.arena,
             .local_ptr => return scope.cast(LocalPtr).?.gen_zir.zir_code.arena,
-            .gen_suspend => return scope.cast(GenZir).?.zir_code.arena,
-            .gen_nosuspend => return scope.cast(Nosuspend).?.gen_zir.zir_code.arena,
             .file => unreachable,
             .container => unreachable,
             .decl_ref => unreachable,
@@ -428,8 +426,6 @@ pub const Scope = struct {
             .gen_zir => scope.cast(GenZir).?.zir_code.decl,
             .local_val => scope.cast(LocalVal).?.gen_zir.zir_code.decl,
             .local_ptr => scope.cast(LocalPtr).?.gen_zir.zir_code.decl,
-            .gen_suspend => return scope.cast(GenZir).?.zir_code.decl,
-            .gen_nosuspend => return scope.cast(Nosuspend).?.gen_zir.zir_code.decl,
             .file => null,
             .container => null,
             .decl_ref => scope.cast(DeclRef).?.decl,
@@ -442,8 +438,6 @@ pub const Scope = struct {
             .gen_zir => scope.cast(GenZir).?.zir_code.decl,
             .local_val => scope.cast(LocalVal).?.gen_zir.zir_code.decl,
             .local_ptr => scope.cast(LocalPtr).?.gen_zir.zir_code.decl,
-            .gen_suspend => return scope.cast(GenZir).?.zir_code.decl,
-            .gen_nosuspend => return scope.cast(Nosuspend).?.gen_zir.zir_code.decl,
             .file => null,
             .container => null,
             .decl_ref => scope.cast(DeclRef).?.decl,
@@ -459,8 +453,6 @@ pub const Scope = struct {
             .local_ptr => return scope.cast(LocalPtr).?.gen_zir.zir_code.decl.container,
             .file => return &scope.cast(File).?.root_container,
             .container => return scope.cast(Container).?,
-            .gen_suspend => return scope.cast(GenZir).?.zir_code.decl.container,
-            .gen_nosuspend => return scope.cast(Nosuspend).?.gen_zir.zir_code.decl.container,
             .decl_ref => return scope.cast(DeclRef).?.decl.container,
         }
     }
@@ -474,8 +466,6 @@ pub const Scope = struct {
             .gen_zir => unreachable,
             .local_val => unreachable,
             .local_ptr => unreachable,
-            .gen_suspend => unreachable,
-            .gen_nosuspend => unreachable,
             .file => unreachable,
             .container => return scope.cast(Container).?.fullyQualifiedNameHash(name),
             .decl_ref => unreachable,
@@ -491,8 +481,6 @@ pub const Scope = struct {
             .local_val => return &scope.cast(LocalVal).?.gen_zir.zir_code.decl.container.file_scope.tree,
             .local_ptr => return &scope.cast(LocalPtr).?.gen_zir.zir_code.decl.container.file_scope.tree,
             .container => return &scope.cast(Container).?.file_scope.tree,
-            .gen_suspend => return &scope.cast(GenZir).?.zir_code.decl.container.file_scope.tree,
-            .gen_nosuspend => return &scope.cast(Nosuspend).?.gen_zir.zir_code.decl.container.file_scope.tree,
             .decl_ref => return &scope.cast(DeclRef).?.decl.container.file_scope.tree,
         }
     }
@@ -501,10 +489,9 @@ pub const Scope = struct {
     pub fn getGenZir(scope: *Scope) *GenZir {
         return switch (scope.tag) {
             .block => unreachable,
-            .gen_zir, .gen_suspend => scope.cast(GenZir).?,
+            .gen_zir => scope.cast(GenZir).?,
             .local_val => return scope.cast(LocalVal).?.gen_zir,
             .local_ptr => return scope.cast(LocalPtr).?.gen_zir,
-            .gen_nosuspend => return scope.cast(Nosuspend).?.gen_zir,
             .file => unreachable,
             .container => unreachable,
             .decl_ref => unreachable,
@@ -521,8 +508,6 @@ pub const Scope = struct {
             .gen_zir => unreachable,
             .local_val => unreachable,
             .local_ptr => unreachable,
-            .gen_suspend => unreachable,
-            .gen_nosuspend => unreachable,
             .decl_ref => unreachable,
         }
     }
@@ -535,8 +520,6 @@ pub const Scope = struct {
             .local_val => unreachable,
             .local_ptr => unreachable,
             .block => unreachable,
-            .gen_suspend => unreachable,
-            .gen_nosuspend => unreachable,
             .decl_ref => unreachable,
         }
     }
@@ -552,37 +535,7 @@ pub const Scope = struct {
                 .local_val => @fieldParentPtr(LocalVal, "base", cur).parent,
                 .local_ptr => @fieldParentPtr(LocalPtr, "base", cur).parent,
                 .block => return @fieldParentPtr(Block, "base", cur).src_decl.container.file_scope,
-                .gen_suspend => @fieldParentPtr(GenZir, "base", cur).parent,
-                .gen_nosuspend => @fieldParentPtr(Nosuspend, "base", cur).parent,
                 .decl_ref => return @fieldParentPtr(DeclRef, "base", cur).decl.container.file_scope,
-            };
-        }
-    }
-
-    pub fn getSuspend(base: *Scope) ?*Scope.GenZir {
-        var cur = base;
-        while (true) {
-            cur = switch (cur.tag) {
-                .gen_zir => @fieldParentPtr(GenZir, "base", cur).parent,
-                .local_val => @fieldParentPtr(LocalVal, "base", cur).parent,
-                .local_ptr => @fieldParentPtr(LocalPtr, "base", cur).parent,
-                .gen_nosuspend => @fieldParentPtr(Nosuspend, "base", cur).parent,
-                .gen_suspend => return @fieldParentPtr(GenZir, "base", cur),
-                else => return null,
-            };
-        }
-    }
-
-    pub fn getNosuspend(base: *Scope) ?*Scope.Nosuspend {
-        var cur = base;
-        while (true) {
-            cur = switch (cur.tag) {
-                .gen_zir => @fieldParentPtr(GenZir, "base", cur).parent,
-                .local_val => @fieldParentPtr(LocalVal, "base", cur).parent,
-                .local_ptr => @fieldParentPtr(LocalPtr, "base", cur).parent,
-                .gen_suspend => @fieldParentPtr(GenZir, "base", cur).parent,
-                .gen_nosuspend => return @fieldParentPtr(Nosuspend, "base", cur),
-                else => return null,
             };
         }
     }
@@ -604,8 +557,6 @@ pub const Scope = struct {
         gen_zir,
         local_val,
         local_ptr,
-        gen_suspend,
-        gen_nosuspend,
         /// Used for simple error reporting. Only contains a reference to a
         /// `Decl` for use with `srcDecl` and `ownerDecl`.
         /// Has no parents or children.
@@ -1382,16 +1333,6 @@ pub const Scope = struct {
         src: LazySrcLoc,
     };
 
-    pub const Nosuspend = struct {
-        pub const base_tag: Tag = .gen_nosuspend;
-
-        base: Scope = Scope{ .tag = base_tag },
-        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`.
-        parent: *Scope,
-        gen_zir: *GenZir,
-        src: LazySrcLoc,
-    };
-
     pub const DeclRef = struct {
         pub const base_tag: Tag = .decl_ref;
         base: Scope = Scope{ .tag = base_tag },
@@ -1475,8 +1416,6 @@ pub const WipZirCode = struct {
                 .bool_and,
                 .bool_or,
                 .call,
-                .call_async_kw,
-                .call_no_async,
                 .call_compile_time,
                 .call_none,
                 .cmp_lt,
@@ -1549,7 +1488,6 @@ pub const WipZirCode = struct {
                 .enum_literal,
                 .enum_literal_small,
                 .merge_error_sets,
-                .anyframe_type,
                 .error_union_type,
                 .bit_not,
                 .error_set,
@@ -1560,9 +1498,6 @@ pub const WipZirCode = struct {
                 .import,
                 .typeof_peer,
                 .resolve_inferred_alloc,
-                .@"resume",
-                .@"await",
-                .nosuspend_await,
                 => return false,
 
                 .breakpoint,
@@ -1581,8 +1516,6 @@ pub const WipZirCode = struct {
                 .ret_coerce,
                 .@"unreachable",
                 .loop,
-                .suspend_block,
-                .suspend_block_one,
                 .elided,
                 => return true,
             }
@@ -1692,7 +1625,6 @@ pub const SrcLoc = struct {
             .node_offset_asm_source,
             .node_offset_asm_ret_ty,
             .node_offset_if_cond,
-            .node_offset_anyframe_type,
             .node_offset_bin_op,
             .node_offset_bin_lhs,
             .node_offset_bin_rhs,
@@ -1750,7 +1682,6 @@ pub const SrcLoc = struct {
             .node_offset_asm_source => @panic("TODO"),
             .node_offset_asm_ret_ty => @panic("TODO"),
             .node_offset_if_cond => @panic("TODO"),
-            .node_offset_anyframe_type => @panic("TODO"),
             .node_offset_bin_op => @panic("TODO"),
             .node_offset_bin_lhs => @panic("TODO"),
             .node_offset_bin_rhs => @panic("TODO"),
@@ -1872,12 +1803,6 @@ pub const LazySrcLoc = union(enum) {
     /// to the condition expression.
     /// The Decl is determined contextually.
     node_offset_if_cond: i32,
-    /// The source location points to the type expression of an `anyframe->T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a `anyframe->T` expression AST node. Next, navigate
-    /// to the type expression.
-    /// The Decl is determined contextually.
-    node_offset_anyframe_type: i32,
     /// The source location points to a binary expression, such as `a + b`, found
     /// by taking this AST node index offset from the containing Decl AST node.
     /// The Decl is determined contextually.
@@ -1922,7 +1847,6 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_asm_source,
             .node_offset_asm_ret_ty,
             .node_offset_if_cond,
-            .node_offset_anyframe_type,
             .node_offset_bin_op,
             .node_offset_bin_lhs,
             .node_offset_bin_rhs,
@@ -1962,7 +1886,6 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_asm_source,
             .node_offset_asm_ret_ty,
             .node_offset_if_cond,
-            .node_offset_anyframe_type,
             .node_offset_bin_op,
             .node_offset_bin_lhs,
             .node_offset_bin_rhs,
@@ -3888,7 +3811,7 @@ pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) In
             }
             mod.failed_decls.putAssumeCapacityNoClobber(block.sema.owner_decl, err_msg);
         },
-        .gen_zir, .gen_suspend => {
+        .gen_zir => {
             const gen_zir = scope.cast(Scope.GenZir).?;
             gen_zir.zir_code.decl.analysis = .sema_failure;
             gen_zir.zir_code.decl.generation = mod.generation;
@@ -3902,12 +3825,6 @@ pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) In
         },
         .local_ptr => {
             const gen_zir = scope.cast(Scope.LocalPtr).?.gen_zir;
-            gen_zir.zir_code.decl.analysis = .sema_failure;
-            gen_zir.zir_code.decl.generation = mod.generation;
-            mod.failed_decls.putAssumeCapacityNoClobber(gen_zir.zir_code.decl, err_msg);
-        },
-        .gen_nosuspend => {
-            const gen_zir = scope.cast(Scope.Nosuspend).?.gen_zir;
             gen_zir.zir_code.decl.analysis = .sema_failure;
             gen_zir.zir_code.decl.generation = mod.generation;
             mod.failed_decls.putAssumeCapacityNoClobber(gen_zir.zir_code.decl, err_msg);
@@ -4155,10 +4072,6 @@ pub fn errorUnionType(
         .error_set = error_set,
         .payload = payload,
     });
-}
-
-pub fn anyframeType(mod: *Module, arena: *Allocator, return_type: Type) Allocator.Error!Type {
-    return Type.Tag.anyframe_T.create(arena, return_type);
 }
 
 pub fn dumpInst(mod: *Module, scope: *Scope, inst: *ir.Inst) void {

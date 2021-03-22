@@ -161,7 +161,6 @@ pub const Const = enum {
     single_const_pointer_to_comptime_int_type,
     const_slice_u8_type,
     enum_literal_type,
-    anyframe_type,
 
     /// `undefined` (untyped)
     undef,
@@ -343,10 +342,6 @@ pub const const_inst_list = std.enums.directEnumArray(Const, TypedValue, 0, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.enum_literal_type),
     },
-    .anyframe_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.anyframe_type),
-    },
 
     .undef = .{
         .ty = Type.initTag(.@"undefined"),
@@ -409,9 +404,6 @@ pub const Inst = struct {
         alloc_inferred,
         /// Same as `alloc_inferred` except mutable.
         alloc_inferred_mut,
-        /// Create an `anyframe->T`.
-        /// Uses the `un_node` field. AST node is the `anyframe->T` syntax. Operand is the type.
-        anyframe_type,
         /// Array concatenation. `a ++ b`
         /// Uses the `pl_node` union field. Payload is `Bin`.
         array_cat,
@@ -441,8 +433,6 @@ pub const Inst = struct {
         /// Inline assembly with the volatile attribute.
         /// Uses the `pl_node` union field. Payload is `Asm`. AST node is the assembly node.
         asm_volatile,
-        /// `await x` syntax. Uses the `un_node` union field.
-        @"await",
         /// Bitwise AND. `&`
         bit_and,
         /// TODO delete this instruction, it has no purpose.
@@ -495,10 +485,6 @@ pub const Inst = struct {
         /// Function call with modifier `.auto`.
         /// Uses `pl_node`. AST node is the function call. Payload is `Call`.
         call,
-        /// Same as `call` but with modifier `.async_kw`.
-        call_async_kw,
-        /// Same as `call` but with modifier `.no_async`.
-        call_no_async,
         /// Same as `call` but with modifier `.compile_time`.
         call_compile_time,
         /// Function call with modifier `.auto`, empty parameter list.
@@ -666,8 +652,6 @@ pub const Inst = struct {
         /// Twos complement wrapping integer multiplication.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         mulwrap,
-        /// An await inside a nosuspend scope.
-        nosuspend_await,
         /// Given a reference to a function and a parameter index, returns the
         /// type of the parameter. The only usage of this instruction is for the
         /// result location of parameters of function calls. In the case of a function's
@@ -686,8 +670,6 @@ pub const Inst = struct {
         /// instruction.
         /// Uses the `un_tok` union field.
         ref,
-        /// Resume an async function.
-        @"resume",
         /// Obtains a pointer to the return value.
         /// Uses the `node` union field.
         ret_ptr,
@@ -841,12 +823,6 @@ pub const Inst = struct {
         /// An enum literal 8 or fewer bytes. No source location.
         /// Uses the `small_str` field.
         enum_literal_small,
-        /// Suspend an async function. The suspend block has 0 or 1 statements in it.
-        /// Uses the `un_node` union field.
-        suspend_block_one,
-        /// Suspend an async function. The suspend block has any number of statements in it.
-        /// Uses the `pl_node` union field. Payload is `MultiOp`.
-        suspend_block,
         // /// A switch expression.
         // /// lhs is target, SwitchBr[rhs]
         // /// All prongs of target handled.
@@ -918,8 +894,6 @@ pub const Inst = struct {
                 .bool_or,
                 .breakpoint,
                 .call,
-                .call_async_kw,
-                .call_no_async,
                 .call_compile_time,
                 .call_none,
                 .cmp_lt,
@@ -997,7 +971,6 @@ pub const Inst = struct {
                 .enum_literal,
                 .enum_literal_small,
                 .merge_error_sets,
-                .anyframe_type,
                 .error_union_type,
                 .bit_not,
                 .error_set,
@@ -1010,9 +983,6 @@ pub const Inst = struct {
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
                 .compile_log,
-                .@"resume",
-                .@"await",
-                .nosuspend_await,
                 .elided,
                 => false,
 
@@ -1025,8 +995,6 @@ pub const Inst = struct {
                 .ret_coerce,
                 .@"unreachable",
                 .loop,
-                .suspend_block,
-                .suspend_block_one,
                 => true,
             };
         }
@@ -1347,9 +1315,7 @@ const Writer = struct {
             .alloc_mut,
             .alloc_inferred,
             .alloc_inferred_mut,
-            .anyframe_type,
             .indexable_ptr_len,
-            .@"await",
             .bit_not,
             .bool_not,
             .negate,
@@ -1364,7 +1330,6 @@ const Writer = struct {
             .ret_node,
             .set_eval_branch_quota,
             .resolve_inferred_alloc,
-            .suspend_block_one,
             .optional_type,
             .optional_type_from_ptr_elem,
             .optional_payload_safe,
@@ -1409,8 +1374,6 @@ const Writer = struct {
             .block_comptime,
             .block_comptime_flat,
             .call,
-            .call_async_kw,
-            .call_no_async,
             .call_compile_time,
             .compile_log,
             .condbr,
@@ -1426,7 +1389,6 @@ const Writer = struct {
             .slice_end,
             .slice_sentinel,
             .typeof_peer,
-            .suspend_block,
             => try self.writePlNode(stream, inst),
 
             .add,
@@ -1481,8 +1443,6 @@ const Writer = struct {
             .bitcast_result_ptr,
             .error_union_type,
             .error_set,
-            .nosuspend_await,
-            .@"resume",
             .store,
             .store_to_block_ptr,
             .store_to_inferred_ptr,

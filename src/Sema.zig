@@ -97,8 +97,6 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .break_void_tok => try sema.zirBreakVoidTok(block, zir_inst),
             .breakpoint => try sema.zirBreakpoint(block, zir_inst),
             .call => try sema.zirCall(block, zir_inst, .auto),
-            .call_async_kw => try sema.zirCall(block, zir_inst, .async_kw),
-            .call_no_async => try sema.zirCall(block, zir_inst, .no_async),
             .call_compile_time => try sema.zirCall(block, zir_inst, .compile_time),
             .call_none => try sema.zirCallNone(block, zir_inst),
             .coerce_result_ptr => try sema.zirCoerceResultPtr(block, zir_inst),
@@ -205,7 +203,6 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .enum_literal_small => try sema.zirEnumLiteralSmall(block, zir_inst),
             .merge_error_sets => try sema.zirMergeErrorSets(block, zir_inst),
             .error_union_type => try sema.zirErrorUnionType(block, zir_inst),
-            .anyframe_type => try sema.zirAnyframeType(block, zir_inst),
             .error_set => try sema.zirErrorSet(block, zir_inst),
             .error_value => try sema.zirErrorValue(block, zir_inst),
             .slice_start => try sema.zirSliceStart(block, zir_inst),
@@ -214,11 +211,6 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .import => try sema.zirImport(block, zir_inst),
             .bool_and => try sema.zirBoolOp(block, zir_inst, false),
             .bool_or => try sema.zirBoolOp(block, zir_inst, true),
-            .@"await" => try sema.zirAwait(block, zir_inst),
-            .nosuspend_await => try sema.zirNosuspendAwait(block, zir_inst),
-            .suspend_block_one => @panic("TODO"),
-            .suspend_block => @panic("TODO"),
-            .@"resume" => @panic("TODO"),
             // TODO
             //.switchbr => try sema.zirSwitchBr(block, zir_inst, false),
             //.switchbr_ref => try sema.zirSwitchBr(block, zir_inst, true),
@@ -1274,19 +1266,6 @@ fn zirErrorUnionType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inn
     const err_union_ty = try sema.mod.errorUnionType(sema.arena, error_union, payload);
 
     return sema.mod.constType(sema.arena, .unneeded, err_union_ty);
-}
-
-fn zirAnyframeType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .node_offset_anyframe_type = inst_data.src_node };
-    const return_type = try sema.resolveType(block, operand_src, inst_data.operand);
-    const anyframe_type = try sema.mod.anyframeType(sema.arena, return_type);
-
-    return sema.mod.constType(sema.arena, src, anyframe_type);
 }
 
 fn zirErrorSet(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -2987,16 +2966,6 @@ fn zirPtrType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
         inst_data.size,
     );
     return sema.mod.constType(sema.arena, src, ty);
-}
-
-fn zirAwait(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    return sema.mod.fail(&block.base, inst_data.src(), "TODO implement Sema await", .{});
-}
-
-fn zirNosuspendAwait(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    return sema.mod.fail(&block.base, inst_data.src(), "TODO implement Sema nosuspend_await", .{});
 }
 
 fn requireFunctionBlock(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void {
