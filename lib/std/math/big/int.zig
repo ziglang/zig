@@ -316,7 +316,9 @@ pub const Mutable = struct {
         }
 
         if (a.limbs.len == 1 and b.limbs.len == 1 and a.positive == b.positive) {
-            if (!@addWithOverflow(Limb, a.limbs[0], b.limbs[0], &r.limbs[0])) {
+            var o: Limb = undefined;
+            if (!@addWithOverflow(Limb, a.limbs[0], b.limbs[0], &o)) {
+                r.limbs[0] = o;
                 r.len = 1;
                 r.positive = a.positive;
                 return;
