@@ -1390,56 +1390,33 @@ fn ptrType(
 }
 
 fn arrayType(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
-    const main_tokens = tree.nodes.items(.main_token);
     const node_datas = tree.nodes.items(.data);
+    const gz = scope.getGenZir();
+    const usize_type = @enumToInt(zir.Const.usize_type);
 
-    const usize_type = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.usize_type),
-    });
-    const len_node = node_datas[node].lhs;
-    const elem_node = node_datas[node].rhs;
-    if (len_node == 0) {
-        const elem_type = try typeExpr(mod, scope, elem_node);
-        const result = try addZIRUnOp(mod, scope, src, .mut_slice_type, elem_type);
-        return rvalue(mod, scope, rl, result);
-    } else {
-        // TODO check for [_]T
-        const len = try expr(mod, scope, .{ .ty = usize_type }, len_node);
-        const elem_type = try typeExpr(mod, scope, elem_node);
+    // TODO check for [_]T
+    const len = try expr(mod, scope, .{ .ty = usize_type }, node_datas[node].lhs);
+    const elem_type = try typeExpr(mod, scope, node_datas[node].rhs);
 
-        const result = try addZIRBinOp(mod, scope, src, .array_type, len, elem_type);
-        return rvalue(mod, scope, rl, result);
-    }
+    const result = try gz.addBin(.array_type, len, elem_type);
+    return rvalue(mod, scope, rl, result, node);
 }
 
 fn arrayTypeSentinel(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
-    const main_tokens = tree.nodes.items(.main_token);
     const node_datas = tree.nodes.items(.data);
-
-    const len_node = node_datas[node].lhs;
     const extra = tree.extraData(node_datas[node].rhs, ast.Node.ArrayTypeSentinel);
-    const usize_type = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.usize_type),
-    });
+    const gz = scope.getGenZir();
+    const usize_type = @enumToInt(zir.Const.usize_type);
 
     // TODO check for [_]T
-    const len = try expr(mod, scope, .{ .ty = usize_type }, len_node);
-    const sentinel_uncasted = try expr(mod, scope, .none, extra.sentinel);
+    const len = try expr(mod, scope, .{ .ty = usize_type }, node_datas[node].lhs);
     const elem_type = try typeExpr(mod, scope, extra.elem_type);
-    const sentinel = try addZIRBinOp(mod, scope, src, .as, elem_type, sentinel_uncasted);
+    const sentinel = try expr(mod, scope, .{ .ty = elem_type }, extra.sentinel);
 
-    const result = try addZIRInst(mod, scope, src, zir.Inst.ArrayTypeSentinel, .{
-        .len = len,
-        .sentinel = sentinel,
-        .elem_type = elem_type,
-    }, .{});
-    return rvalue(mod, scope, rl, result);
+    const result = try gz.addArrayTypeSentinel(len, elem_type, sentinel);
+    return rvalue(mod, scope, rl, result, node);
 }
 
 fn containerDecl(

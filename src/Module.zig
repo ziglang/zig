@@ -1210,6 +1210,32 @@ pub const Scope = struct {
             return new_index + gz.zir_code.ref_start_index;
         }
 
+        pub fn addArrayTypeSentinel(
+            gz: *GenZir,
+            len: zir.Inst.Ref,
+            sentinel: zir.Inst.Ref,
+            elem_type: zir.Inst.Ref,
+        ) !zir.Inst.Ref {
+            const gpa = gz.zir_code.gpa;
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
+            try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
+
+            const payload_index = try gz.zir_code.addExtra(zir.Inst.ArrayTypeSentinel{
+                .sentinel = sentinel,
+                .elem_type = elem_type,
+            });
+            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+            gz.zir_code.instructions.appendAssumeCapacity(.{
+                .tag = .array_type_sentinel,
+                .data = .{ .array_type_sentinel = .{
+                    .len = len,
+                    .payload_index = payload_index,
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+            return new_index + gz.zir_code.ref_start_index;
+        }
+
         pub fn addUnTok(
             gz: *GenZir,
             tag: zir.Inst.Tag,
