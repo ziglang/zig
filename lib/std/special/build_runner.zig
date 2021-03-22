@@ -60,6 +60,7 @@ pub fn main() !void {
     const stderr_stream = io.getStdErr().writer();
     const stdout_stream = io.getStdOut().writer();
 
+    var install_prefix: ?[]const u8 = null;
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
@@ -82,7 +83,7 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                 return usage(builder, false, stdout_stream);
             } else if (mem.eql(u8, arg, "--prefix")) {
-                builder.install_prefix = nextArg(args, &arg_idx) orelse {
+                install_prefix = nextArg(args, &arg_idx) orelse {
                     warn("Expected argument after --prefix\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
@@ -134,7 +135,7 @@ pub fn main() !void {
         }
     }
 
-    builder.resolveInstallPrefix();
+    builder.resolveInstallPrefix(install_prefix);
     try runBuild(builder);
 
     if (builder.validateUserInputDidItFail())
@@ -162,8 +163,7 @@ fn runBuild(builder: *Builder) anyerror!void {
 fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void {
     // run the build script to collect the options
     if (!already_ran_build) {
-        builder.setInstallPrefix(null);
-        builder.resolveInstallPrefix();
+        builder.resolveInstallPrefix(null);
         try runBuild(builder);
     }
 
