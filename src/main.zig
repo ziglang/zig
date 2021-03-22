@@ -344,6 +344,8 @@ const usage_build_generic =
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
+    \\  --allow-shlib-undefined        Allows undefined symbols in shared libraries
+    \\  --no-allow-shlib-undefined     Disallows undefined symbols in shared libraries
     \\  -Bsymbolic                     Bind global references locally
     \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker
     \\  --stack [size]                 Override default stack size
@@ -981,6 +983,10 @@ fn buildOutputType(
                         link_eh_frame_hdr = true;
                     } else if (mem.eql(u8, arg, "--emit-relocs")) {
                         link_emit_relocs = true;
+                    } else if (mem.eql(u8, arg, "--allow-shlib-undefined")) {
+                        linker_allow_shlib_undefined = true;
+                    } else if (mem.eql(u8, arg, "--no-allow-shlib-undefined")) {
+                        linker_allow_shlib_undefined = false;
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
                     } else if (mem.eql(u8, arg, "--verbose-link")) {
