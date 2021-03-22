@@ -642,11 +642,9 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .@"switch", .switch_comma => return switchExpr(mod, scope, rl, node),
 
         .@"nosuspend" => return nosuspendExpr(mod, scope, rl, node),
-        .@"suspend" => @panic("TODO"),
-        //.@"suspend" => return rvalue(mod, scope, rl, try suspendExpr(mod, scope, node)),
+        .@"suspend" => return rvalue(mod, scope, rl, try suspendExpr(mod, scope, node), node),
         .@"await" => return awaitExpr(mod, scope, rl, node),
-        .@"resume" => @panic("TODO"),
-        //.@"resume" => return rvalue(mod, scope, rl, try resumeExpr(mod, scope, node)),
+        .@"resume" => return rvalue(mod, scope, rl, try resumeExpr(mod, scope, node), node),
 
         .@"defer" => return mod.failNode(scope, node, "TODO implement astgen.expr for .defer", .{}),
         .@"errdefer" => return mod.failNode(scope, node, "TODO implement astgen.expr for .errdefer", .{}),
@@ -3417,11 +3415,11 @@ fn callExpr(
 
 fn suspendExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
-    const src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]];
+    const gz = scope.getGenZir();
 
     if (scope.getNosuspend()) |some| {
         const msg = msg: {
-            const msg = try mod.errMsg(scope, src, "suspend in nosuspend block", .{});
+            const msg = try mod.errMsg(scope, gz.nodeSrcLoc(node), "suspend in nosuspend block", .{});
             errdefer msg.destroy(mod.gpa);
             try mod.errNote(scope, some.src, msg, "nosuspend block here", .{});
             break :msg msg;
@@ -3431,9 +3429,13 @@ fn suspendExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir
 
     if (scope.getSuspend()) |some| {
         const msg = msg: {
-            const msg = try mod.errMsg(scope, src, "cannot suspend inside suspend block", .{});
+            const msg = try mod.errMsg(scope, gz.nodeSrcLoc(node), "cannot suspend inside suspend block", .{});
             errdefer msg.destroy(mod.gpa);
-            try mod.errNote(scope, some.src, msg, "other suspend block here", .{});
+            // TODO: suspend scopes are just genZir so they do not have src
+            // We either need to add a src to genZir scope, or make a new Suspend
+            // scope.
+            // try mod.errNote(scope, some.src, msg, "suspend block here", .{});
+            // try mod.errNote(scope, some.src, msg, "other suspend block here", .{});
             break :msg msg;
         };
         return mod.failWithOwnedErrorMsg(scope, msg);
@@ -3442,54 +3444,56 @@ fn suspendExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir
     var suspend_scope: Scope.GenZir = .{
         .base = .{ .tag = .gen_suspend },
         .parent = scope,
-        .decl = scope.ownerDecl().?,
-        .arena = scope.arena(),
+        .zir_code = gz.zir_code,
         .force_comptime = scope.isComptime(),
-        .instructions = .{},
     };
     defer suspend_scope.instructions.deinit(mod.gpa);
 
     const operand = tree.nodes.items(.data)[node].lhs;
+    const tags = gz.zir_code.instructions.items(.tag);
     if (operand != 0) {
         const possibly_unused_result = try expr(mod, &suspend_scope.base, .none, operand);
-        if (!possibly_unused_result.tag.isNoReturn()) {
-            _ = try addZIRUnOp(mod, &suspend_scope.base, src, .ensure_result_used, possibly_unused_result);
+        if (!tags[possibly_unused_result].isNoReturn()) {
+            _ = try suspend_scope.addUnNode(.ensure_result_used, possibly_unused_result, operand);
         }
     } else {
-        return addZIRNoOp(mod, scope, src, .@"suspend");
+        return gz.addUnNode(.suspend_block_one, 0, node);
     }
 
-    const block = try addZIRInstBlock(mod, scope, src, .suspend_block, .{
-        .instructions = try scope.arena().dupe(zir.Inst.Ref, suspend_scope.instructions.items),
-    });
-    return &block.base;
+    // TODO: how do I do this
+    // const block = try gz.addBlock(.suspend_block, .{
+    //     .instructions = try scope.arena().dupe(zir.Inst.Ref, suspend_scope.instructions.items),
+    // });
+    return gz.addPlNode(.suspend_block, node, zir.Inst.MultiOp{});;
 }
 
 fn nosuspendExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
+    const gz = scope.getGenZir();
     var child_scope = Scope.Nosuspend{
         .parent = scope,
         .gen_zir = scope.getGenZir(),
-        .src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]],
+        .src = gz.nodeSrcLoc(node),
     };
 
     return expr(mod, &child_scope.base, rl, tree.nodes.items(.data)[node].lhs);
 }
 
 fn awaitExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
-    const src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]];
+    const gz = scope.getGenZir();
     const is_nosuspend = scope.getNosuspend() != null;
 
     // TODO some @asyncCall stuff
 
     if (scope.getSuspend()) |some| {
         const msg = msg: {
-            const msg = try mod.errMsg(scope, src, "cannot await inside suspend block", .{});
+            const msg = try mod.errMsg(scope, gz.nodeSrcLoc(node), "cannot await inside suspend block", .{});
             errdefer msg.destroy(mod.gpa);
-            try mod.errNote(scope, some.src, msg, "suspend block here", .{});
+            // TODO: suspend scopes are just genZir so they do not have src
+            // We either need to add a src to genZir scope, or make a new Suspend
+            // scope.
+            // try mod.errNote(scope, some.src, msg, "suspend block here", .{});
             break :msg msg;
         };
         return mod.failWithOwnedErrorMsg(scope, msg);
@@ -3497,15 +3501,15 @@ fn awaitExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) I
 
     const operand = try expr(mod, scope, .ref, tree.nodes.items(.data)[node].lhs);
     // TODO pass result location
-    return addZIRUnOp(mod, scope, src, if (is_nosuspend) .nosuspend_await else .@"await", operand);
+    return gz.addUnNode(if (is_nosuspend) .nosuspend_await else .@"await", operand, node);
 }
 
 fn resumeExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
     const tree = scope.tree();
-    const src = tree.tokens.items(.start)[tree.nodes.items(.main_token)[node]];
+    const gz = scope.getGenZir();
 
     const operand = try expr(mod, scope, .ref, tree.nodes.items(.data)[node].lhs);
-    return addZIRUnOp(mod, scope, src, .@"resume", operand);
+    return gz.addUnNode(.@"resume", operand, node);
 }
 
 pub const simple_types = std.ComptimeStringMap(zir.Const, .{

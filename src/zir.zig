@@ -687,6 +687,7 @@ pub const Inst = struct {
         /// Uses the `un_tok` union field.
         ref,
         /// Resume an async function.
+        /// Uses the `un_node` union field.
         @"resume",
         /// Obtains a pointer to the return value.
         /// Uses the `node` union field.
