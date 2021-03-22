@@ -1562,3 +1562,29 @@ test "big.int pow" {
         try testing.expectEqual(@as(i32, 1), try a.to(i32));
     }
 }
+
+test "bigint regression test for 1 limb overflow with alias" {
+    // Note these happen to be two consecutive Fibonacci sequence numbers, the
+    // first two whose sum exceeds 2**64.
+    var a = try Managed.initSet(testing.allocator, 7540113804746346429);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 12200160415121876738);
+    defer b.deinit();
+
+    try a.add(a.toConst(), b.toConst());
+
+    try testing.expect(a.toConst().orderAgainstScalar(19740274219868223167) == .eq);
+}
+
+test "bigint regression test for something else with alias" {
+    // Note these happen to be two consecutive Fibonacci sequence numbers, the
+    // second of which is the first such number to exceed 2**192.
+    var a = try Managed.initSet(testing.allocator, 5611500259351924431073312796924978741056961814867751431689);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 9079598147510263717870894449029933369491131786514446266146);
+    defer b.deinit();
+
+    try a.add(a.toConst(), b.toConst());
+
+    try testing.expect(a.toConst().orderAgainstScalar(14691098406862188148944207245954912110548093601382197697835) == .eq);
+}
