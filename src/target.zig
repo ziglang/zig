@@ -51,6 +51,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .sparc, .os = .linux, .abi = .gnu },
     .{ .arch = .sparcv9, .os = .linux, .abi = .gnu },
     .{ .arch = .wasm32, .os = .freestanding, .abi = .musl },
+    .{ .arch = .x86_64, .os = .freebsd, .abi = .gnu },
     .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
     .{ .arch = .x86_64, .os = .linux, .abi = .gnux32 },
     .{ .arch = .x86_64, .os = .linux, .abi = .musl },
@@ -62,6 +63,7 @@ pub fn libCGenericName(target: std.Target) [:0]const u8 {
     switch (target.os.tag) {
         .windows => return "mingw",
         .macos, .ios, .tvos, .watchos => return "darwin",
+        .freebsd => return "bsd",
         else => {},
     }
     switch (target.abi) {
