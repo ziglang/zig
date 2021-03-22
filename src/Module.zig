@@ -2531,7 +2531,8 @@ fn astgenAndSemaFn(
             // `extra` so that we have access to the data in codegen, for debug info.
             const str_index = @intCast(u32, wip_zir_code.string_bytes.items.len);
             wip_zir_code.extra.appendAssumeCapacity(str_index);
-            try wip_zir_code.string_bytes.ensureCapacity(mod.gpa, param_name.len + 1);
+            const used_bytes = wip_zir_code.string_bytes.items.len;
+            try wip_zir_code.string_bytes.ensureCapacity(mod.gpa, used_bytes + param_name.len + 1);
             wip_zir_code.string_bytes.appendSliceAssumeCapacity(param_name);
             wip_zir_code.string_bytes.appendAssumeCapacity(0);
         }
