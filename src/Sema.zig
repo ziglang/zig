@@ -2577,9 +2577,8 @@ fn zirAsm(
     const clobbers = try sema.arena.alloc([]const u8, extra.data.clobbers_len);
 
     for (args) |*arg| {
-        const uncasted = try sema.resolveInst(sema.code.extra[extra_i]);
+        arg.* = try sema.resolveInst(sema.code.extra[extra_i]);
         extra_i += 1;
-        arg.* = try sema.coerce(block, Type.initTag(.usize), uncasted, uncasted.src);
     }
     for (inputs) |*name| {
         name.* = sema.code.nullTerminatedString(sema.code.extra[extra_i]);
