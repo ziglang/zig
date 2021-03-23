@@ -7193,7 +7193,32 @@ pub const CallOptions = struct {
           <li>To avoid a symbol collision, for example if foo.h and bar.h both <code>#define CONNECTION_COUNT</code></li>
         <li>To analyze the C code with different preprocessor defines</li>
       </ul>
-      {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef#}
+      <p>
+      {#syntax#}@cDefine{#endsyntax#} can be used to pass options to {#syntax#}@cImport{#endsyntax#}:
+      </p>
+      <pre>{#syntax#}@cDefine("__ZIG_TRANSLATE_C_RUNTIME_SAFETY_OFF", {}){#endsyntax#}</pre>
+      <p>If the preprocessor symbol {#syntax#}__ZIG_TRANSLATE_C_RUNTIME_SAFETY_OFF{#endsyntax#}
+      is defined, any function definitions in the current translation buffer will contain a call to
+      {#syntax#}@setRuntimeSafety(false){#endsyntax#} as the first statement. Note that
+      {#syntax#}__ZIG_TRANSLATE_C_RUNTIME_SAFETY_OFF{#endsyntax#} is a global option for the current
+      {#syntax#}@cImport{#endsyntax#} temporary buffer - if it is defined, it applies to the entire buffer
+      regardless of its textual position (i.e. it does not matter whether it is defined before or after
+      a particular {#syntax#}@cImport{#endsyntax#} call). It will not affect your {#link|Build Mode#}.
+      </p>
+      <p>By default, it is not defined and no calls to {#syntax#}@setRuntimeSafety{#endsyntax#}
+        will be inserted in translated functions.
+      </p>
+      <pre>{#syntax#}@cDefine("__ZIG_TRANSLATE_C_RUNTIME_SAFETY_ON", {}){#endsyntax#}</pre>
+      <p>
+      Like {#syntax#}__ZIG_TRANSLATE_C_RUNTIME_SAFETY_OFF{#endsyntax#}, except calls to
+      {#syntax#}@setRuntimeSafety(true){#endsyntax#} will be inserted. The same rules and caveats
+      as {#syntax#}__ZIG_TRANSLATE_C_RUNTIME_SAFETY_OFF{#endsyntax#} apply. If both
+      {#syntax#}__ZIG_TRANSLATE_C_RUNTIME_SAFETY_ON{#endsyntax#} and
+      {#syntax#}__ZIG_TRANSLATE_C_RUNTIME_SAFETY_OFF{#endsyntax#} are defined, whichever is defined
+      last will take effect.
+      </p>
+
+      {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef|@setRuntimeSafety|Build Mode#}
       {#header_close#}
       {#header_open|@cInclude#}
       <pre>{#syntax#}@cInclude(comptime path: []u8){#endsyntax#}</pre>

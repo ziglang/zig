@@ -126,6 +126,8 @@ pub const Node = extern union {
         div_trunc,
         /// @boolToInt(operand)
         bool_to_int,
+        /// @setRuntimeSafety(operand)
+        set_runtime_safety,
         /// @as(lhs, rhs)
         as,
         /// @truncate(lhs, rhs)
@@ -252,6 +254,7 @@ pub const Node = extern union {
                 .block_single,
                 .std_meta_sizeof,
                 .bool_to_int,
+                .set_runtime_safety,
                 .sizeof,
                 .alignof,
                 .typeof,
@@ -1156,6 +1159,10 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .bool_to_int => {
             const payload = node.castTag(.bool_to_int).?.data;
             return renderBuiltinCall(c, "@boolToInt", &.{payload});
+        },
+        .set_runtime_safety => {
+            const payload = node.castTag(.set_runtime_safety).?.data;
+            return renderBuiltinCall(c, "@setRuntimeSafety", &.{payload});
         },
         .as => {
             const payload = node.castTag(.as).?.data;
@@ -2116,6 +2123,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .array_type,
         .null_sentinel_array_type,
         .bool_to_int,
+        .set_runtime_safety,
         .div_exact,
         .byte_offset_of,
         => {

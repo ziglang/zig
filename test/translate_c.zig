@@ -3450,4 +3450,52 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    '\u{1f4af}',
         \\};
     });
+
+    cases.add("Explicit runtime safety on, regular function",
+        \\#include <stdint.h>
+        \\#define __ZIG_TRANSLATE_C_RUNTIME_SAFETY_ON
+        \\uint32_t mymul(uint16_t x, uint16_t y) { return x * y; }
+    , &[_][]const u8{
+        \\pub export fn mymul(arg_x: u16, arg_y: u16) u32 {
+        \\    @setRuntimeSafety(true);
+        \\    var x = arg_x;
+        \\    var y = arg_y;
+        \\    return @bitCast(u32, @bitCast(c_int, @as(c_uint, x)) * @bitCast(c_int, @as(c_uint, y)));
+        \\}
+    });
+
+    cases.add("Explicit runtime safety on, macro function",
+        \\#include <stdint.h>
+        \\#define __ZIG_TRANSLATE_C_RUNTIME_SAFETY_ON
+        \\#define MYMUL(x, y) (x) * (y)
+    , &[_][]const u8{
+        \\pub fn MYMUL(x: anytype, y: anytype) callconv(.Inline) @TypeOf(x * y) {
+        \\    @setRuntimeSafety(true);
+        \\    return x * y;
+        \\}
+    });
+
+    cases.add("Explicit runtime safety off, regular function",
+        \\#include <stdint.h>
+        \\#define __ZIG_TRANSLATE_C_RUNTIME_SAFETY_OFF
+        \\uint32_t mymul(uint16_t x, uint16_t y) { return x * y; }
+    , &[_][]const u8{
+        \\pub export fn mymul(arg_x: u16, arg_y: u16) u32 {
+        \\    @setRuntimeSafety(false);
+        \\    var x = arg_x;
+        \\    var y = arg_y;
+        \\    return @bitCast(u32, @bitCast(c_int, @as(c_uint, x)) * @bitCast(c_int, @as(c_uint, y)));
+        \\}
+    });
+
+    cases.add("Explicit runtime safety off, macro function",
+        \\#include <stdint.h>
+        \\#define __ZIG_TRANSLATE_C_RUNTIME_SAFETY_OFF
+        \\#define MYMUL(x, y) (x) * (y)
+    , &[_][]const u8{
+        \\pub fn MYMUL(x: anytype, y: anytype) callconv(.Inline) @TypeOf(x * y) {
+        \\    @setRuntimeSafety(false);
+        \\    return x * y;
+        \\}
+    });
 }

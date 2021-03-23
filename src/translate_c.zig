@@ -27,6 +27,16 @@ const AliasList = std.ArrayList(struct {
     name: []const u8,
 });
 
+const TranslationOptions = enum {
+    safety_on,
+    safety_off,
+};
+
+const TranslationOptionMap = std.ComptimeStringMap(TranslationOptions, .{
+    .{ "__ZIG_TRANSLATE_C_RUNTIME_SAFETY_ON", .safety_on },
+    .{ "__ZIG_TRANSLATE_C_RUNTIME_SAFETY_OFF", .safety_off },
+});
+
 const Scope = struct {
     id: Id,
     parent: ?*Scope,
@@ -278,6 +288,13 @@ pub const Context = struct {
     /// up front in a pre-processing step.
     global_names: std.StringArrayHashMapUnmanaged(void) = .{},
 
+    /// If .on or .off, insert a call to @setRuntimeSafety(true) / @setRuntimeSafety(false)
+    /// as the first statement of each translated function. If .unspecified (the default),
+    /// do not insert explicit @setRuntimeSafety calls.
+    /// Controlled via -D__ZIG_TRANSLATE_C_RUNTIME_SAFETY_ON / -D__ZIG_TRANSLATE_C_RUNTIME_SAFETY_OFF
+    /// or @cDefine("__ZIG_TRANSLATE_C_RUNTIME_SAFETY_ON", {}) / @cDefine("__ZIG_TRANSLATE_C_RUNTIME_SAFETY_OFF", {})
+    runtime_safety: enum { on, off, unspecified } = .unspecified,
+
     fn getMangle(c: *Context) u32 {
         c.mangle_count += 1;
         return c.mangle_count;
@@ -378,7 +395,11 @@ fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
                 const macro = @ptrCast(*clang.MacroDefinitionRecord, entity);
                 const raw_name = macro.getName_getNameStart();
                 const name = try c.str(raw_name);
-                try c.global_names.put(c.gpa, name, {});
+
+                if (TranslationOptionMap.get(name)) |option| switch (option) {
+                    .safety_on => c.runtime_safety = .on,
+                    .safety_off => c.runtime_safety = .off,
+                } else try c.global_names.put(c.gpa, name, {});
             },
             else => {},
         }
@@ -429,6 +450,16 @@ fn declVisitor(c: *Context, decl: *const clang.Decl) Error!void {
             try warn(c, &c.global_scope.base, decl.getLocation(), "ignoring {s} declaration", .{decl_name});
         },
     }
+}
+
+fn setBlockRuntimeSafety(c: *Context, block: *Scope.Block) Error!void {
+    const safety_setting = switch (c.runtime_safety) {
+        .on => Tag.true_literal.init(),
+        .off => Tag.false_literal.init(),
+        .unspecified => return,
+    };
+    const safety_node = try Tag.set_runtime_safety.create(c.arena, safety_setting);
+    try block.statements.append(safety_node);
 }
 
 fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
@@ -515,6 +546,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     var block_scope = try Scope.Block.init(c, &c.global_scope.base, false);
     block_scope.return_type = return_qt;
     defer block_scope.deinit();
+    try setBlockRuntimeSafety(c, &block_scope);
 
     var scope = &block_scope.base;
 
@@ -4346,6 +4378,9 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                 const begin_loc = macro.getSourceRange_getBegin();
 
                 const name = try c.str(raw_name);
+
+                if (TranslationOptionMap.has(name)) continue;
+
                 // TODO https://github.com/ziglang/zig/issues/3756
                 // TODO https://github.com/ziglang/zig/issues/1802
                 const mangled_name = if (isZigPrimitiveType(name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ name, c.getMangle() }) else name;
@@ -4431,6 +4466,8 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     var block_scope = try Scope.Block.init(c, &c.global_scope.base, false);
     defer block_scope.deinit();
     const scope = &block_scope.base;
+
+    try setBlockRuntimeSafety(c, &block_scope);
 
     if (m.next().? != .LParen) {
         return m.fail(c, "unable to translate C expr: expected '('", .{});
