@@ -1306,11 +1306,11 @@ fn varDecl(
             if (var_decl.ast.type_node != 0) {
                 const type_inst = try typeExpr(mod, &init_scope.base, var_decl.ast.type_node);
                 opt_type_inst = type_inst;
-                init_scope.rl_ptr = try init_scope.addUnNode(.alloc, type_inst, node);
+                init_scope.rl_ptr = (try init_scope.addUnNode(.alloc, type_inst, node)) - init_scope.zir_code.ref_start_index;
             } else {
                 const alloc = try init_scope.addUnNode(.alloc_inferred, undefined, node);
                 resolve_inferred_alloc = alloc;
-                init_scope.rl_ptr = alloc;
+                init_scope.rl_ptr = alloc - init_scope.zir_code.ref_start_index;
             }
             const init_result_loc: ResultLoc = .{ .block_ptr = &init_scope };
             const init_inst = try expr(mod, &init_scope.base, init_result_loc, var_decl.ast.init_node);
@@ -3201,7 +3201,7 @@ fn asRlPtr(
     };
     defer as_scope.instructions.deinit(mod.gpa);
 
-    as_scope.rl_ptr = try as_scope.addBin(.coerce_result_ptr, dest_type, result_ptr);
+    as_scope.rl_ptr = (try as_scope.addBin(.coerce_result_ptr, dest_type, result_ptr)) - as_scope.zir_code.ref_start_index;
     const result = try expr(mod, &as_scope.base, .{ .block_ptr = &as_scope }, operand_node);
     const parent_zir = &parent_gz.instructions;
     if (as_scope.rvalue_rl_count == 1) {
