@@ -1438,17 +1438,20 @@ fn assignOp(
     infix_node: ast.Node.Index,
     op_inst_tag: zir.Inst.Tag,
 ) InnerError!void {
-    if (true) @panic("TODO update for zir-memory-layout");
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
+    const gz = scope.getGenZir();
 
     const lhs_ptr = try lvalExpr(mod, scope, node_datas[infix_node].lhs);
-    const lhs = try addZIRUnOp(mod, scope, lhs_ptr.src, .deref, lhs_ptr);
-    const lhs_type = try addZIRUnOp(mod, scope, lhs_ptr.src, .typeof, lhs);
+    const lhs = try gz.addUnNode(.deref_node, lhs_ptr, infix_node);
+    const lhs_type = try gz.addUnTok(.typeof, lhs, infix_node);
     const rhs = try expr(mod, scope, .{ .ty = lhs_type }, node_datas[infix_node].rhs);
-    const result = try addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
-    _ = try addZIRBinOp(mod, scope, src, .store, lhs_ptr, result);
+
+    const result = try gz.addPlNode(op_inst_tag, infix_node, zir.Inst.Bin{
+        .lhs = lhs,
+        .rhs = rhs,
+    });
+    _ = try gz.addBin(.store, lhs_ptr, result);
 }
 
 fn boolNot(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
