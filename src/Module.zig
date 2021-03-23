@@ -1011,7 +1011,7 @@ pub const Scope = struct {
             param_types: []const zir.Inst.Ref,
             ret_ty: zir.Inst.Ref,
             cc: zir.Inst.Ref,
-        }) !zir.Inst.Index {
+        }) !zir.Inst.Ref {
             assert(args.ret_ty != 0);
             assert(args.cc != 0);
             const gpa = gz.zir_code.gpa;
@@ -1075,7 +1075,7 @@ pub const Scope = struct {
             args: []const zir.Inst.Ref,
             /// Absolute node index. This function does the conversion to offset from Decl.
             abs_node_index: ast.Node.Index,
-        ) !zir.Inst.Index {
+        ) !zir.Inst.Ref {
             assert(callee != 0);
             assert(abs_node_index != 0);
             const gpa = gz.zir_code.gpa;
