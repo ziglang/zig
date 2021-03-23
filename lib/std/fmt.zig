@@ -696,6 +696,11 @@ fn formatFloatValue(
             error.NoSpaceLeft => unreachable,
             else => |e| return e,
         };
+    } else if (comptime std.mem.eql(u8, fmt, "x")) {
+        formatFloatHexadecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
+            error.NoSpaceLeft => unreachable,
+            else => |e| return e,
+        };
     } else {
         @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
     }
@@ -1021,6 +1026,112 @@ pub fn formatFloatScientific(
         }
         try formatInt(-exp, 10, false, FormatOptions{ .width = 0 }, writer);
     }
+}
+
+pub fn formatFloatHexadecimal(
+    value: anytype,
+    options: FormatOptions,
+    writer: anytype,
+) !void {
+    if (math.signbit(value)) {
+        try writer.writeByte('-');
+    }
+    if (math.isNan(value)) {
+        return writer.writeAll("nan");
+    }
+    if (math.isInf(value)) {
+        return writer.writeAll("inf");
+    }
+
+    const T = @TypeOf(value);
+    const TU = std.meta.Int(.unsigned, std.meta.bitCount(T));
+
+    const mantissa_bits = math.floatMantissaBits(T);
+    const exponent_bits = math.floatExponentBits(T);
+    const mantissa_mask = (1 << mantissa_bits) - 1;
+    const exponent_mask = (1 << exponent_bits) - 1;
+    const exponent_bias = (1 << (exponent_bits - 1)) - 1;
+
+    const as_bits = @bitCast(TU, value);
+    var mantissa = as_bits & mantissa_mask;
+    var exponent: i32 = @truncate(u16, (as_bits >> mantissa_bits) & exponent_mask);
+
+    const is_denormal = exponent == 0 and mantissa != 0;
+    const is_zero = exponent == 0 and mantissa == 0;
+
+    if (is_zero) {
+        // Handle this case here to simplify the logic below.
+        try writer.writeAll("0x0");
+        if (options.precision) |precision| {
+            if (precision > 0) {
+                try writer.writeAll(".");
+                try writer.writeByteNTimes('0', precision);
+            }
+        } else {
+            try writer.writeAll(".0");
+        }
+        try writer.writeAll("p0");
+        return;
+    }
+
+    if (is_denormal) {
+        // Adjust the exponent for printing.
+        exponent += 1;
+    } else {
+        // Add the implicit 1.
+        mantissa |= 1 << mantissa_bits;
+    }
+
+    // Fill in zeroes to round the mantissa width to a multiple of 4.
+    if (T == f16) mantissa <<= 2 else if (T == f32) mantissa <<= 1;
+
+    const mantissa_digits = (mantissa_bits + 3) / 4;
+
+    if (options.precision) |precision| {
+        // Round if needed.
+        if (precision < mantissa_digits) {
+            // We always have at least 4 extra bits.
+            var extra_bits = (mantissa_digits - precision) * 4;
+            // The result LSB is the Guard bit, we need two more (Round and
+            // Sticky) to round the value.
+            while (extra_bits > 2) {
+                mantissa = (mantissa >> 1) | (mantissa & 1);
+                extra_bits -= 1;
+            }
+            // Round to nearest, tie to even.
+            mantissa |= @boolToInt(mantissa & 0b100 != 0);
+            mantissa += 1;
+            // Drop the excess bits.
+            mantissa >>= 2;
+            // Restore the alignment.
+            mantissa <<= @intCast(math.Log2Int(TU), (mantissa_digits - precision) * 4);
+
+            const overflow = mantissa & (1 << 1 + mantissa_digits * 4) != 0;
+            // Prefer a normalized result in case of overflow.
+            if (overflow) {
+                mantissa >>= 1;
+                exponent += 1;
+            }
+        }
+    }
+
+    // +1 for the decimal part.
+    var buf: [1 + mantissa_digits]u8 = undefined;
+    const N = formatIntBuf(&buf, mantissa, 16, false, .{ .fill = '0', .width = 1 + mantissa_digits });
+
+    try writer.writeAll("0x");
+    try writer.writeByte(buf[0]);
+    if (options.precision != @as(usize, 0))
+        try writer.writeAll(".");
+    const trimmed = mem.trimRight(u8, buf[1..], "0");
+    try writer.writeAll(trimmed);
+    // Add trailing zeros if explicitly requested.
+    if (options.precision) |precision| if (precision > 0) {
+        if (precision > trimmed.len)
+            try writer.writeByteNTimes('0', precision - trimmed.len);
+    };
+    try writer.writeAll("p");
+    try formatInt(exponent - exponent_bias, 10, false, .{}, writer);
 }
 
 /// Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
@@ -1898,6 +2009,54 @@ test "float.special" {
     }
     try expectFmt("f64: inf", "f64: {}", .{math.inf_f64});
     try expectFmt("f64: -inf", "f64: {}", .{-math.inf_f64});
+}
+
+test "float.hexadecimal.special" {
+    try expectFmt("f64: nan", "f64: {x}", .{math.nan_f64});
+    // negative nan is not defined by IEE 754,
+    // and ARM thus normalizes it to positive nan
+    if (builtin.arch != builtin.Arch.arm) {
+        try expectFmt("f64: -nan", "f64: {x}", .{-math.nan_f64});
+    }
+    try expectFmt("f64: inf", "f64: {x}", .{math.inf_f64});
+    try expectFmt("f64: -inf", "f64: {x}", .{-math.inf_f64});
+
+    try expectFmt("f64: 0x0.0p0", "f64: {x}", .{@as(f64, 0)});
+    try expectFmt("f64: -0x0.0p0", "f64: {x}", .{-@as(f64, 0)});
+}
+
+test "float.hexadecimal" {
+    try expectFmt("f16: 0x1.554p-2", "f16: {x}", .{@as(f16, 1.0 / 3.0)});
+    try expectFmt("f32: 0x1.555556p-2", "f32: {x}", .{@as(f32, 1.0 / 3.0)});
+    try expectFmt("f64: 0x1.5555555555555p-2", "f64: {x}", .{@as(f64, 1.0 / 3.0)});
+    try expectFmt("f128: 0x1.5555555555555555555555555555p-2", "f128: {x}", .{@as(f128, 1.0 / 3.0)});
+
+    try expectFmt("f16: 0x1.p-14", "f16: {x}", .{@as(f16, math.f16_min)});
+    try expectFmt("f32: 0x1.p-126", "f32: {x}", .{@as(f32, math.f32_min)});
+    try expectFmt("f64: 0x1.p-1022", "f64: {x}", .{@as(f64, math.f64_min)});
+    try expectFmt("f128: 0x1.p-16382", "f128: {x}", .{@as(f128, math.f128_min)});
+
+    try expectFmt("f16: 0x0.004p-14", "f16: {x}", .{@as(f16, math.f16_true_min)});
+    try expectFmt("f32: 0x0.000002p-126", "f32: {x}", .{@as(f32, math.f32_true_min)});
+    try expectFmt("f64: 0x0.0000000000001p-1022", "f64: {x}", .{@as(f64, math.f64_true_min)});
+    try expectFmt("f128: 0x0.0000000000000000000000000001p-16382", "f128: {x}", .{@as(f128, math.f128_true_min)});
+
+    try expectFmt("f16: 0x1.ffcp15", "f16: {x}", .{@as(f16, math.f16_max)});
+    try expectFmt("f32: 0x1.fffffep127", "f32: {x}", .{@as(f32, math.f32_max)});
+    try expectFmt("f64: 0x1.fffffffffffffp1023", "f64: {x}", .{@as(f64, math.f64_max)});
+    try expectFmt("f128: 0x1.ffffffffffffffffffffffffffffp16383", "f128: {x}", .{@as(f128, math.f128_max)});
+}
+
+test "float.hexadecimal.precision" {
+    try expectFmt("f16: 0x1.5p-2", "f16: {x:.1}", .{@as(f16, 1.0 / 3.0)});
+    try expectFmt("f32: 0x1.555p-2", "f32: {x:.3}", .{@as(f32, 1.0 / 3.0)});
+    try expectFmt("f64: 0x1.55555p-2", "f64: {x:.5}", .{@as(f64, 1.0 / 3.0)});
+    try expectFmt("f128: 0x1.5555555p-2", "f128: {x:.7}", .{@as(f128, 1.0 / 3.0)});
+
+    try expectFmt("f16: 0x1.00000p0", "f16: {x:.5}", .{@as(f16, 1.0)});
+    try expectFmt("f32: 0x1.00000p0", "f32: {x:.5}", .{@as(f32, 1.0)});
+    try expectFmt("f64: 0x1.00000p0", "f64: {x:.5}", .{@as(f64, 1.0)});
+    try expectFmt("f128: 0x1.00000p0", "f128: {x:.5}", .{@as(f128, 1.0)});
 }
 
 test "float.decimal" {
