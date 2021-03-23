@@ -1732,9 +1732,10 @@ fn orelseCatchExpr(
 
     return finishThenElseBlock(
         mod,
-        &block_scope,
+        scope,
         rl,
         node,
+        &block_scope,
         &then_scope,
         &else_scope,
         condbr,
@@ -1750,9 +1751,10 @@ fn orelseCatchExpr(
 
 fn finishThenElseBlock(
     mod: *Module,
-    block_scope: *Scope.GenZir,
+    parent_scope: *Scope,
     rl: ResultLoc,
     node: ast.Node.Index,
+    block_scope: *Scope.GenZir,
     then_scope: *Scope.GenZir,
     else_scope: *Scope.GenZir,
     condbr: zir.Inst.Index,
@@ -1830,7 +1832,7 @@ fn finishThenElseBlock(
             const block_ref = wzc.ref_start_index + main_block;
             switch (rl) {
                 .ref => return block_ref,
-                else => return rvalue(mod, &block_scope.base, rl, block_ref, node),
+                else => return rvalue(mod, parent_scope, rl, block_ref, node),
             }
         },
     }
@@ -2066,9 +2068,10 @@ fn ifExpr(
 
     return finishThenElseBlock(
         mod,
-        &block_scope,
+        scope,
         rl,
         node,
+        &block_scope,
         &then_scope,
         &else_scope,
         condbr,
@@ -2277,9 +2280,10 @@ fn whileExpr(
     }
     return finishThenElseBlock(
         mod,
-        &loop_scope,
+        scope,
         rl,
         node,
+        &loop_scope,
         &then_scope,
         &else_scope,
         condbr,
@@ -2476,9 +2480,10 @@ fn forExpr(
     }
     return finishThenElseBlock(
         mod,
-        &loop_scope,
+        scope,
         rl,
         node,
+        &loop_scope,
         &then_scope,
         &else_scope,
         condbr,
