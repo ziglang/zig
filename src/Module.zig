@@ -930,7 +930,7 @@ pub const Scope = struct {
         /// Only valid when setBlockResultLoc is called.
         break_result_loc: astgen.ResultLoc = undefined,
         /// When a block has a pointer result location, here it is.
-        rl_ptr: zir.Inst.Index = 0,
+        rl_ptr: zir.Inst.Ref = 0,
         /// Keeps track of how many branches of a block did not actually
         /// consume the result location. astgen uses this to figure out
         /// whether to rely on break instructions or writing to the result
@@ -1136,18 +1136,8 @@ pub const Scope = struct {
             /// Absolute node index. This function does the conversion to offset from Decl.
             src_node: ast.Node.Index,
         ) !zir.Inst.Ref {
-            return gz.zir_code.ref_start_index + try gz.addUnNodeAsIndex(tag, operand, src_node);
-        }
-
-        pub fn addUnNodeAsIndex(
-            gz: *GenZir,
-            tag: zir.Inst.Tag,
-            operand: zir.Inst.Ref,
-            /// Absolute node index. This function does the conversion to offset from Decl.
-            src_node: ast.Node.Index,
-        ) !zir.Inst.Index {
             assert(operand != 0);
-            return gz.addAsIndex(.{
+            return gz.add(.{
                 .tag = tag,
                 .data = .{ .un_node = .{
                     .operand = operand,
@@ -1245,18 +1235,9 @@ pub const Scope = struct {
             lhs: zir.Inst.Ref,
             rhs: zir.Inst.Ref,
         ) !zir.Inst.Ref {
-            return gz.zir_code.ref_start_index + try gz.addBinAsIndex(tag, lhs, rhs);
-        }
-
-        pub fn addBinAsIndex(
-            gz: *GenZir,
-            tag: zir.Inst.Tag,
-            lhs: zir.Inst.Ref,
-            rhs: zir.Inst.Ref,
-        ) !zir.Inst.Index {
             assert(lhs != 0);
             assert(rhs != 0);
-            return gz.addAsIndex(.{
+            return gz.add(.{
                 .tag = tag,
                 .data = .{ .bin = .{
                     .lhs = lhs,
@@ -1336,10 +1317,6 @@ pub const Scope = struct {
         }
 
         pub fn add(gz: *GenZir, inst: zir.Inst) !zir.Inst.Ref {
-            return gz.zir_code.ref_start_index + try gz.addAsIndex(inst);
-        }
-
-        pub fn addAsIndex(gz: *GenZir, inst: zir.Inst) !zir.Inst.Index {
             const gpa = gz.zir_code.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
@@ -1347,7 +1324,7 @@ pub const Scope = struct {
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(inst);
             gz.instructions.appendAssumeCapacity(new_index);
-            return new_index;
+            return gz.zir_code.ref_start_index + new_index;
         }
     };
 

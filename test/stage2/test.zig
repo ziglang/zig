@@ -355,7 +355,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    const z = @TypeOf(true, 1);
             \\    unreachable;
             \\}
-        , &[_][]const u8{":2:29: error: incompatible types: 'bool' and 'comptime_int'"});
+        , &[_][]const u8{":2:15: error: incompatible types: 'bool' and 'comptime_int'"});
     }
 
     {

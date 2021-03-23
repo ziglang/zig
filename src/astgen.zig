@@ -1195,6 +1195,7 @@ fn varDecl(
         return mod.failNode(scope, var_decl.ast.align_node, "TODO implement alignment on locals", .{});
     }
     const gz = scope.getGenZir();
+    const wzc = gz.zir_code;
     const tree = scope.tree();
     const token_tags = tree.tokens.items(.tag);
 
@@ -1276,7 +1277,7 @@ fn varDecl(
             var init_scope: Scope.GenZir = .{
                 .parent = scope,
                 .force_comptime = gz.force_comptime,
-                .zir_code = gz.zir_code,
+                .zir_code = wzc,
             };
             defer init_scope.instructions.deinit(mod.gpa);
 
@@ -1285,16 +1286,16 @@ fn varDecl(
             if (var_decl.ast.type_node != 0) {
                 const type_inst = try typeExpr(mod, &init_scope.base, var_decl.ast.type_node);
                 opt_type_inst = type_inst;
-                init_scope.rl_ptr = try init_scope.addUnNodeAsIndex(.alloc, type_inst, node);
+                init_scope.rl_ptr = try init_scope.addUnNode(.alloc, type_inst, node);
             } else {
-                const alloc = try init_scope.addUnNodeAsIndex(.alloc_inferred, undefined, node);
-                resolve_inferred_alloc = init_scope.zir_code.ref_start_index + alloc;
+                const alloc = try init_scope.addUnNode(.alloc_inferred, undefined, node);
+                resolve_inferred_alloc = alloc;
                 init_scope.rl_ptr = alloc;
             }
             const init_result_loc: ResultLoc = .{ .block_ptr = &init_scope };
             const init_inst = try expr(mod, &init_scope.base, init_result_loc, var_decl.ast.init_node);
-            const zir_tags = gz.zir_code.instructions.items(.tag);
-            const zir_datas = gz.zir_code.instructions.items(.data);
+            const zir_tags = wzc.instructions.items(.tag);
+            const zir_datas = wzc.instructions.items(.data);
 
             const parent_zir = &gz.instructions;
             if (init_scope.rvalue_rl_count == 1) {
@@ -1305,7 +1306,7 @@ fn varDecl(
                 const expected_len = parent_zir.items.len + init_scope.instructions.items.len - 2;
                 try parent_zir.ensureCapacity(mod.gpa, expected_len);
                 for (init_scope.instructions.items) |src_inst| {
-                    if (src_inst == init_scope.rl_ptr) continue;
+                    if (wzc.ref_start_index + src_inst == init_scope.rl_ptr) continue;
                     if (zir_tags[src_inst] == .store_to_block_ptr) {
                         if (zir_datas[src_inst].bin.lhs == init_scope.rl_ptr) continue;
                     }
@@ -3192,26 +3193,27 @@ fn asRlPtr(
     // result location. If it does, elide the coerce_result_ptr instruction
     // as well as the store instruction, instead passing the result as an rvalue.
     const parent_gz = scope.getGenZir();
+    const wzc = parent_gz.zir_code;
 
     var as_scope: Scope.GenZir = .{
         .parent = scope,
-        .zir_code = parent_gz.zir_code,
+        .zir_code = wzc,
         .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
     defer as_scope.instructions.deinit(mod.gpa);
 
-    as_scope.rl_ptr = try as_scope.addBinAsIndex(.coerce_result_ptr, dest_type, result_ptr);
+    as_scope.rl_ptr = try as_scope.addBin(.coerce_result_ptr, dest_type, result_ptr);
     const result = try expr(mod, &as_scope.base, .{ .block_ptr = &as_scope }, operand_node);
     const parent_zir = &parent_gz.instructions;
     if (as_scope.rvalue_rl_count == 1) {
         // Busted! This expression didn't actually need a pointer.
-        const zir_tags = parent_gz.zir_code.instructions.items(.tag);
-        const zir_datas = parent_gz.zir_code.instructions.items(.data);
+        const zir_tags = wzc.instructions.items(.tag);
+        const zir_datas = wzc.instructions.items(.data);
         const expected_len = parent_zir.items.len + as_scope.instructions.items.len - 2;
         try parent_zir.ensureCapacity(mod.gpa, expected_len);
         for (as_scope.instructions.items) |src_inst| {
-            if (src_inst == as_scope.rl_ptr) continue;
+            if (wzc.ref_start_index + src_inst == as_scope.rl_ptr) continue;
             if (zir_tags[src_inst] == .store_to_block_ptr) {
                 if (zir_datas[src_inst].bin.lhs == as_scope.rl_ptr) continue;
             }
