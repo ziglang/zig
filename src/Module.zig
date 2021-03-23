@@ -1307,6 +1307,7 @@ pub const Scope = struct {
         /// Note that this returns a `zir.Inst.Index` not a ref.
         /// Leaves the `payload_index` field undefined.
         pub fn addCondBr(gz: *GenZir, node: ast.Node.Index) !zir.Inst.Index {
+            try gz.instructions.ensureCapacity(gz.zir_code.gpa, gz.instructions.items.len + 1);
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             try gz.zir_code.instructions.append(gz.zir_code.gpa, .{
                 .tag = .condbr,
@@ -1315,6 +1316,7 @@ pub const Scope = struct {
                     .payload_index = undefined,
                 } },
             });
+            gz.instructions.appendAssumeCapacity(new_index);
             return new_index;
         }
 
@@ -1396,6 +1398,14 @@ pub const WipZirCode = struct {
             wzc.extra.appendAssumeCapacity(@field(extra, field.name));
         }
         return result;
+    }
+
+    pub fn refIsNoReturn(wzc: WipZirCode, zir_inst_ref: zir.Inst.Ref) bool {
+        if (zir_inst_ref >= wzc.ref_start_index) {
+            const zir_inst = zir_inst_ref - wzc.ref_start_index;
+            return wzc.instructions.items(.tag)[zir_inst].isNoReturn();
+        }
+        return false;
     }
 
     pub fn deinit(wzc: *WipZirCode) void {
@@ -2290,6 +2300,7 @@ fn astgenAndSemaFn(
             .decl = decl,
             .arena = &decl_arena.allocator,
             .gpa = mod.gpa,
+            .ref_start_index = @intCast(u32, zir.const_inst_list.len + param_count),
         };
         defer wip_zir_code.deinit();
 
@@ -3198,6 +3209,9 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
         .is_comptime = false,
     };
     defer inner_block.instructions.deinit(mod.gpa);
+
+    // TZIR currently requires the arg parameters to be the first N instructions
+    try inner_block.instructions.appendSlice(mod.gpa, param_inst_list);
 
     func.state = .in_progress;
     log.debug("set {s} to in_progress", .{decl.name});

@@ -90,7 +90,7 @@ pub const Code = struct {
             .arena = &arena.allocator,
             .scope = scope,
             .code = code,
-            .indent = 4,
+            .indent = 2,
             .param_count = param_count,
         };
 
@@ -469,15 +469,13 @@ pub const Inst = struct {
         /// Uses the `bool_br` union field.
         bool_br_or,
         /// Return a value from a block.
-        /// Uses the `bin` union field: `lhs` is `Index` to the block (*not* `Ref`!),
-        /// `rhs` is operand.
+        /// Uses the `break` union field.
         /// Uses the source information from previous instruction.
         @"break",
-        /// Same as `break` but has source information in the form of a token, and
+        /// Same as `break` but has source information in the form of an AST node, and
         /// the operand is assumed to be the void value.
-        /// Uses the `un_tok` union field.
-        /// Note that the block operand is a `Index`, not `Ref`.
-        break_void_tok,
+        /// Uses the `break_void_node` union field.
+        break_void_node,
         /// Return a value from a block. This is a special form that is only valid
         /// when there is exactly 1 break from a block (this one). This instruction
         /// allows using the return value from `Sema.analyzeBody`. The block is
@@ -997,7 +995,7 @@ pub const Inst = struct {
                 => false,
 
                 .@"break",
-                .break_void_tok,
+                .break_void_node,
                 .break_flat,
                 .condbr,
                 .compile_error,
@@ -1023,10 +1021,9 @@ pub const Inst = struct {
     /// This logic is implemented in `Sema.resolveRef`.
     pub const Ref = u32;
 
-    /// For instructions whose payload fits into 8 bytes, this is used.
-    /// When an instruction's payload does not fit, bin_op is used, and
-    /// lhs and rhs refer to `Tag`-specific values, with one of the operands
-    /// used to index into a separate array specific to that instruction.
+    /// All instructions have an 8-byte payload, which is contained within
+    /// this union. `Tag` determines which union field is active, as well as
+    /// how to interpret the data within.
     pub const Data = union {
         /// Used for unary operators, with an AST node source location.
         un_node: struct {
@@ -1160,6 +1157,20 @@ pub const Inst = struct {
             pub fn src(self: @This()) LazySrcLoc {
                 return .{ .node_offset = self.src_node };
             }
+        },
+        break_void_node: struct {
+            /// Offset from Decl AST node index.
+            /// `Tag` determines which kind of AST node this points to.
+            src_node: i32,
+            block_inst: Index,
+
+            pub fn src(self: @This()) LazySrcLoc {
+                return .{ .node_offset = self.src_node };
+            }
+        },
+        @"break": struct {
+            block_inst: Index,
+            operand: Ref,
         },
 
         // Make sure we don't accidentally add a field to make this union
@@ -1368,7 +1379,6 @@ const Writer = struct {
             .break_flat,
             => try self.writeUnNode(stream, inst),
 
-            .break_void_tok,
             .is_non_null,
             .is_null,
             .is_non_null_ptr,
@@ -1394,16 +1404,11 @@ const Writer = struct {
             .int => try self.writeInt(stream, inst),
             .str => try self.writeStr(stream, inst),
             .elided => try stream.writeAll(")"),
+            .break_void_node => try self.writeBreakVoidNode(stream, inst),
 
             .@"asm",
             .asm_volatile,
-            .block,
-            .block_comptime,
-            .call,
-            .call_chkused,
-            .call_compile_time,
             .compile_log,
-            .condbr,
             .elem_ptr_node,
             .elem_val_node,
             .field_ptr,
@@ -1440,6 +1445,17 @@ const Writer = struct {
             .shr,
             .xor,
             => try self.writePlNodeBin(stream, inst),
+
+            .call,
+            .call_chkused,
+            .call_compile_time,
+            => try self.writePlNodeCall(stream, inst),
+
+            .block,
+            .block_comptime,
+            => try self.writePlNodeBlock(stream, inst),
+
+            .condbr => try self.writePlNodeCondBr(stream, inst),
 
             .as_node => try self.writeAs(stream, inst),
 
@@ -1531,7 +1547,8 @@ const Writer = struct {
         inst: Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].param_type;
-        try stream.writeAll("TODO)");
+        try self.writeInstRef(stream, inst_data.callee);
+        try stream.print(", {d})", .{inst_data.param_index});
     }
 
     fn writePtrTypeSimple(
@@ -1588,6 +1605,53 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
         try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeCall(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.Call, inst_data.payload_index);
+        const args = self.code.extra[extra.end..][0..extra.data.args_len];
+        try self.writeInstRef(stream, extra.data.callee);
+        try stream.writeAll(", [");
+        for (args) |arg, i| {
+            if (i != 0) try stream.writeAll(", ");
+            try self.writeInstRef(stream, arg);
+        }
+        try stream.writeAll("]) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeBlock(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.Block, inst_data.payload_index);
+        const body = self.code.extra[extra.end..][0..extra.data.body_len];
+        try stream.writeAll("{\n");
+        self.indent += 2;
+        try self.writeBody(stream, body);
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
+        try stream.writeAll("}) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeCondBr(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.CondBr, inst_data.payload_index);
+        const then_body = self.code.extra[extra.end..][0..extra.data.then_body_len];
+        const else_body = self.code.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+        try self.writeInstRef(stream, extra.data.condition);
+        try stream.writeAll(", {\n");
+        self.indent += 2;
+        try self.writeBody(stream, then_body);
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
+        try stream.writeAll("}, {\n");
+        self.indent += 2;
+        try self.writeBody(stream, else_body);
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
+        try stream.writeAll("}) ");
         try self.writeSrc(stream, inst_data.src());
     }
 
@@ -1671,6 +1735,13 @@ const Writer = struct {
         return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, cc);
     }
 
+    fn writeBreakVoidNode(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].break_void_node;
+        try self.writeInstIndex(stream, inst_data.block_inst);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
     fn writeUnreachable(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].@"unreachable";
         const safety_str = if (inst_data.safety) "safe" else "unsafe";
@@ -1686,12 +1757,12 @@ const Writer = struct {
         var_args: bool,
         cc: Inst.Ref,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        try stream.writeAll("(");
+        try stream.writeAll("[");
         for (param_types) |param_type, i| {
             if (i != 0) try stream.writeAll(", ");
             try self.writeInstRef(stream, param_type);
         }
-        try stream.writeAll("), ");
+        try stream.writeAll("], ");
         try self.writeInstRef(stream, ret_ty);
         try self.writeOptionalInstRef(stream, ", cc=", cc);
         try self.writeFlag(stream, ", var_args", var_args);
@@ -1707,7 +1778,7 @@ const Writer = struct {
         try stream.print("\"{}\")", .{std.zig.fmtEscapes(str)});
     }
 
-    fn writeInstRef(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+    fn writeInstRef(self: *Writer, stream: anytype, inst: Inst.Ref) !void {
         var i: usize = inst;
 
         if (i < const_inst_list.len) {
@@ -1720,7 +1791,11 @@ const Writer = struct {
         }
         i -= self.param_count;
 
-        return stream.print("%{d}", .{i});
+        return self.writeInstIndex(stream, @intCast(Inst.Index, i));
+    }
+
+    fn writeInstIndex(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        return stream.print("%{d}", .{inst});
     }
 
     fn writeOptionalInstRef(

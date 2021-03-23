@@ -428,12 +428,12 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .if_simple => return ifExpr(mod, scope, rl, node, tree.ifSimple(node)),
         .@"if" => return ifExpr(mod, scope, rl, node, tree.ifFull(node)),
 
-        .while_simple => return whileExpr(mod, scope, rl, tree.whileSimple(node)),
-        .while_cont => return whileExpr(mod, scope, rl, tree.whileCont(node)),
-        .@"while" => return whileExpr(mod, scope, rl, tree.whileFull(node)),
+        .while_simple => return whileExpr(mod, scope, rl, node, tree.whileSimple(node)),
+        .while_cont => return whileExpr(mod, scope, rl, node, tree.whileCont(node)),
+        .@"while" => return whileExpr(mod, scope, rl, node, tree.whileFull(node)),
 
-        .for_simple => return forExpr(mod, scope, rl, tree.forSimple(node)),
-        .@"for" => return forExpr(mod, scope, rl, tree.forFull(node)),
+        .for_simple => return forExpr(mod, scope, rl, node, tree.forSimple(node)),
+        .@"for" => return forExpr(mod, scope, rl, node, tree.forFull(node)),
 
         // TODO handling these separately would actually be simpler & have fewer branches
         // once we have a ZIR instruction for each of these 3 cases.
@@ -956,7 +956,7 @@ fn labeledBlockExpr(
             // The code took advantage of the result location as a pointer.
             // Turn the break instruction operands into void.
             for (block_scope.labeled_breaks.items) |br| {
-                zir_datas[br].bin.rhs = 0;
+                zir_datas[br].@"break".operand = @enumToInt(zir.Const.void_value);
             }
             // TODO technically not needed since we changed the tag to break_void but
             // would be better still to elide the ones that are in this list.
@@ -1169,7 +1169,7 @@ fn blockExprStmts(
                         .compile_log,
                         .ensure_err_payload_void,
                         .@"break",
-                        .break_void_tok,
+                        .break_void_node,
                         .break_flat,
                         .condbr,
                         .compile_error,
@@ -1749,13 +1749,13 @@ fn orelseCatchExpr(
 
     return finishThenElseBlock(
         mod,
-        scope,
-        rl,
         &block_scope,
+        rl,
+        node,
         &then_scope,
         &else_scope,
-        &condbr.positionals.then_body,
-        &condbr.positionals.else_body,
+        condbr,
+        cond,
         src,
         src,
         then_result,
@@ -1767,75 +1767,87 @@ fn orelseCatchExpr(
 
 fn finishThenElseBlock(
     mod: *Module,
-    parent_scope: *Scope,
-    rl: ResultLoc,
     block_scope: *Scope.GenZir,
+    rl: ResultLoc,
+    node: ast.Node.Index,
     then_scope: *Scope.GenZir,
     else_scope: *Scope.GenZir,
-    then_body: *zir.Body,
-    else_body: *zir.Body,
-    then_src: usize,
-    else_src: usize,
+    condbr: zir.Inst.Index,
+    cond: zir.Inst.Ref,
+    then_src: ast.Node.Index,
+    else_src: ast.Node.Index,
     then_result: zir.Inst.Ref,
-    else_result: ?*zir.Inst,
-    main_block: zir.Inst.Ref.Block,
-    then_break_block: zir.Inst.Ref.Block,
+    else_result: zir.Inst.Ref,
+    main_block: zir.Inst.Index,
+    then_break_block: zir.Inst.Index,
 ) InnerError!zir.Inst.Ref {
     // We now have enough information to decide whether the result instruction should
     // be communicated via result location pointer or break instructions.
     const strat = rlStrategy(rl, block_scope);
+    const wzc = block_scope.zir_code;
     switch (strat.tag) {
         .break_void => {
-            if (!then_result.tag.isNoReturn()) {
-                _ = try addZirInstTag(mod, &then_scope.base, then_src, .break_void, .{
-                    .block = then_break_block,
+            if (!wzc.refIsNoReturn(then_result)) {
+                _ = try then_scope.add(.{
+                    .tag = .break_void_node,
+                    .data = .{ .break_void_node = .{
+                        .src_node = wzc.decl.nodeIndexToRelative(then_src),
+                        .block_inst = then_break_block,
+                    } },
                 });
             }
-            if (else_result) |inst| {
-                if (!inst.tag.isNoReturn()) {
-                    _ = try addZirInstTag(mod, &else_scope.base, else_src, .break_void, .{
-                        .block = main_block,
-                    });
-                }
-            } else {
-                _ = try addZirInstTag(mod, &else_scope.base, else_src, .break_void, .{
-                    .block = main_block,
+            const elide_else = if (else_result != 0) wzc.refIsNoReturn(else_result) else false;
+            if (!elide_else) {
+                _ = try else_scope.add(.{
+                    .tag = .break_void_node,
+                    .data = .{ .break_void_node = .{
+                        .src_node = wzc.decl.nodeIndexToRelative(else_src),
+                        .block_inst = main_block,
+                    } },
                 });
             }
             assert(!strat.elide_store_to_block_ptr_instructions);
-            try then_scope.setBlockBody(then_body);
-            try else_scope.setBlockBody(else_body);
-            return &main_block.base;
+            try setCondBrPayload(condbr, cond, then_scope, else_scope);
+            return wzc.ref_start_index + main_block;
         },
         .break_operand => {
-            if (!then_result.tag.isNoReturn()) {
-                _ = try addZirInstTag(mod, &then_scope.base, then_src, .@"break", .{
-                    .block = then_break_block,
-                    .operand = then_result,
+            if (!wzc.refIsNoReturn(then_result)) {
+                _ = try then_scope.add(.{
+                    .tag = .@"break",
+                    .data = .{ .@"break" = .{
+                        .block_inst = then_break_block,
+                        .operand = then_result,
+                    } },
                 });
             }
-            if (else_result) |inst| {
-                if (!inst.tag.isNoReturn()) {
-                    _ = try addZirInstTag(mod, &else_scope.base, else_src, .@"break", .{
-                        .block = main_block,
-                        .operand = inst,
+            if (else_result != 0) {
+                if (!wzc.refIsNoReturn(else_result)) {
+                    _ = try else_scope.add(.{
+                        .tag = .@"break",
+                        .data = .{ .@"break" = .{
+                            .block_inst = main_block,
+                            .operand = else_result,
+                        } },
                     });
                 }
             } else {
-                _ = try addZirInstTag(mod, &else_scope.base, else_src, .break_void, .{
-                    .block = main_block,
+                _ = try else_scope.add(.{
+                    .tag = .break_void_node,
+                    .data = .{ .break_void_node = .{
+                        .src_node = wzc.decl.nodeIndexToRelative(else_src),
+                        .block_inst = main_block,
+                    } },
                 });
             }
             if (strat.elide_store_to_block_ptr_instructions) {
-                try copyBodyWithElidedStoreBlockPtr(then_body, then_scope.*);
-                try copyBodyWithElidedStoreBlockPtr(else_body, else_scope.*);
+                try setCondBrPayloadElideBlockStorePtr(condbr, cond, then_scope, else_scope);
             } else {
-                try then_scope.setBlockBody(then_body);
-                try else_scope.setBlockBody(else_body);
+                try setCondBrPayload(condbr, cond, then_scope, else_scope);
             }
+            const block_ref = wzc.ref_start_index + main_block;
             switch (rl) {
-                .ref => return &main_block.base,
-                else => return rvalue(mod, parent_scope, rl, &main_block.base),
+                .ref => return block_ref,
+                else => return rvalue(mod, &block_scope.base, rl, block_ref, node),
             }
         },
     }
@@ -1951,18 +1963,18 @@ fn simpleBinOp(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
-    infix_node: ast.Node.Index,
+    node: ast.Node.Index,
     op_inst_tag: zir.Inst.Tag,
 ) InnerError!zir.Inst.Ref {
-    const tree = scope.tree();
+    const gz = scope.getGenZir();
+    const tree = gz.tree();
     const node_datas = tree.nodes.items(.data);
 
-    const gz = scope.getGenZir();
-    const result = try gz.addPlNode(op_inst_tag, infix_node, zir.Inst.Bin{
-        .lhs = try expr(mod, scope, .none, node_datas[infix_node].lhs),
-        .rhs = try expr(mod, scope, .none, node_datas[infix_node].rhs),
+    const result = try gz.addPlNode(op_inst_tag, node, zir.Inst.Bin{
+        .lhs = try expr(mod, scope, .none, node_datas[node].lhs),
+        .rhs = try expr(mod, scope, .none, node_datas[node].rhs),
     });
-    return rvalue(mod, scope, rl, result, infix_node);
+    return rvalue(mod, scope, rl, result, node);
 }
 
 fn boolBinOp(
@@ -2000,7 +2012,6 @@ fn ifExpr(
     node: ast.Node.Index,
     if_full: ast.full.If,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const parent_gz = scope.getGenZir();
     var block_scope: Scope.GenZir = .{
         .parent = scope,
@@ -2010,8 +2021,6 @@ fn ifExpr(
     };
     setBlockResultLoc(&block_scope, rl);
     defer block_scope.instructions.deinit(mod.gpa);
-
-    const tree = parent_gz.tree();
 
     const cond = c: {
         // TODO https://github.com/ziglang/zig/issues/7929
@@ -2031,11 +2040,9 @@ fn ifExpr(
     try parent_gz.instructions.append(mod.gpa, block);
     try block_scope.setBlockBody(block);
 
-    const then_src = token_starts[tree.lastToken(if_full.ast.then_expr)];
     var then_scope: Scope.GenZir = .{
         .parent = scope,
-        .decl = block_scope.decl,
-        .arena = block_scope.arena,
+        .zir_code = parent_gz.zir_code,
         .force_comptime = block_scope.force_comptime,
         .instructions = .{},
     };
@@ -2052,36 +2059,38 @@ fn ifExpr(
 
     var else_scope: Scope.GenZir = .{
         .parent = scope,
-        .decl = block_scope.decl,
-        .arena = block_scope.arena,
+        .zir_code = parent_gz.zir_code,
         .force_comptime = block_scope.force_comptime,
         .instructions = .{},
     };
     defer else_scope.instructions.deinit(mod.gpa);
 
     const else_node = if_full.ast.else_expr;
-    const else_info: struct { src: usize, result: ?*zir.Inst } = if (else_node != 0) blk: {
+    const else_info: struct {
+        src: ast.Node.Index,
+        result: zir.Inst.Ref,
+    } = if (else_node != 0) blk: {
         block_scope.break_count += 1;
         const sub_scope = &else_scope.base;
         break :blk .{
-            .src = token_starts[tree.lastToken(else_node)],
+            .src = else_node,
             .result = try expr(mod, sub_scope, block_scope.break_result_loc, else_node),
         };
     } else .{
-        .src = token_starts[tree.lastToken(if_full.ast.then_expr)],
-        .result = null,
+        .src = if_full.ast.then_expr,
+        .result = 0,
     };
 
     return finishThenElseBlock(
         mod,
-        scope,
-        rl,
         &block_scope,
+        rl,
+        node,
         &then_scope,
         &else_scope,
-        &condbr.positionals.then_body,
-        &condbr.positionals.else_body,
-        then_src,
+        condbr,
+        cond,
+        if_full.ast.then_expr,
         else_info.src,
         then_result,
         else_info.result,
@@ -2090,25 +2099,63 @@ fn ifExpr(
     );
 }
 
-/// Expects to find exactly 1 .store_to_block_ptr instruction.
-fn copyBodyWithElidedStoreBlockPtr(body: *zir.Body, scope: Module.Scope.GenZir) !void {
-    body.* = .{
-        .instructions = try scope.arena.alloc(zir.Inst.Ref, scope.instructions.items.len - 1),
-    };
-    var dst_index: usize = 0;
-    for (scope.instructions.items) |src_inst| {
-        if (src_inst.tag != .store_to_block_ptr) {
-            body.instructions[dst_index] = src_inst;
-            dst_index += 1;
+fn setCondBrPayload(
+    condbr: zir.Inst.Index,
+    cond: zir.Inst.Ref,
+    then_scope: *Scope.GenZir,
+    else_scope: *Scope.GenZir,
+) !void {
+    const wzc = then_scope.zir_code;
+
+    try wzc.extra.ensureCapacity(wzc.gpa, wzc.extra.items.len +
+        @typeInfo(zir.Inst.CondBr).Struct.fields.len +
+        then_scope.instructions.items.len + else_scope.instructions.items.len);
+
+    const zir_datas = wzc.instructions.items(.data);
+    zir_datas[condbr].pl_node.payload_index = wzc.addExtraAssumeCapacity(zir.Inst.CondBr{
+        .condition = cond,
+        .then_body_len = @intCast(u32, then_scope.instructions.items.len),
+        .else_body_len = @intCast(u32, else_scope.instructions.items.len),
+    });
+    wzc.extra.appendSliceAssumeCapacity(then_scope.instructions.items);
+    wzc.extra.appendSliceAssumeCapacity(else_scope.instructions.items);
+}
+
+/// If `elide_block_store_ptr` is set, expects to find exactly 1 .store_to_block_ptr instruction.
+fn setCondBrPayloadElideBlockStorePtr(
+    condbr: zir.Inst.Index,
+    cond: zir.Inst.Ref,
+    then_scope: *Scope.GenZir,
+    else_scope: *Scope.GenZir,
+) !void {
+    const wzc = then_scope.zir_code;
+
+    try wzc.extra.ensureCapacity(wzc.gpa, wzc.extra.items.len +
+        @typeInfo(zir.Inst.CondBr).Struct.fields.len +
+        then_scope.instructions.items.len + else_scope.instructions.items.len - 2);
+
+    const zir_datas = wzc.instructions.items(.data);
+    zir_datas[condbr].pl_node.payload_index = wzc.addExtraAssumeCapacity(zir.Inst.CondBr{
+        .condition = cond,
+        .then_body_len = @intCast(u32, then_scope.instructions.items.len - 1),
+        .else_body_len = @intCast(u32, else_scope.instructions.items.len - 1),
+    });
+
+    const zir_tags = wzc.instructions.items(.tag);
+    for ([_]*Scope.GenZir{ then_scope, else_scope }) |scope| {
+        for (scope.instructions.items) |src_inst| {
+            if (zir_tags[src_inst] != .store_to_block_ptr) {
+                wzc.extra.appendAssumeCapacity(src_inst);
+            }
         }
     }
-    assert(dst_index == body.instructions.len);
 }
 
 fn whileExpr(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
+    node: ast.Node.Index,
     while_full: ast.full.While,
 ) InnerError!zir.Inst.Ref {
     if (true) @panic("TODO update for zir-memory-layout");
@@ -2245,13 +2292,13 @@ fn whileExpr(
     }
     return finishThenElseBlock(
         mod,
-        scope,
-        rl,
         &loop_scope,
+        rl,
+        node,
         &then_scope,
         &else_scope,
-        &condbr.positionals.then_body,
-        &condbr.positionals.else_body,
+        condbr,
+        cond,
         then_src,
         else_info.src,
         then_result,
@@ -2265,6 +2312,7 @@ fn forExpr(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
+    node: ast.Node.Index,
     for_full: ast.full.While,
 ) InnerError!zir.Inst.Ref {
     if (true) @panic("TODO update for zir-memory-layout");
@@ -2442,13 +2490,13 @@ fn forExpr(
     }
     return finishThenElseBlock(
         mod,
-        scope,
-        rl,
         &loop_scope,
+        rl,
+        node,
         &then_scope,
         &else_scope,
-        &condbr.positionals.then_body,
-        &condbr.positionals.else_body,
+        condbr,
+        cond,
         then_src,
         else_info.src,
         then_result,

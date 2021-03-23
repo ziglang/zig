@@ -218,7 +218,7 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             // tail call them here.
             .condbr => return sema.zirCondbr(block, inst),
             .@"break" => return sema.zirBreak(block, inst),
-            .break_void_tok => return sema.zirBreakVoidTok(block, inst),
+            .break_void_node => return sema.zirBreakVoidNode(block, inst),
             .break_flat => return sema.code.instructions.items(.data)[inst].un_node.operand,
             .compile_error => return sema.zirCompileError(block, inst),
             .ret_coerce => return sema.zirRetTok(block, inst, true),
@@ -955,20 +955,18 @@ fn zirBreak(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!z
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const operand = try sema.resolveInst(bin_inst.rhs);
-    const zir_block = bin_inst.lhs;
-    return sema.analyzeBreak(block, sema.src, zir_block, operand);
+    const inst_data = sema.code.instructions.items(.data)[inst].@"break";
+    const operand = try sema.resolveInst(inst_data.operand);
+    return sema.analyzeBreak(block, sema.src, inst_data.block_inst, operand);
 }
 
-fn zirBreakVoidTok(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
+fn zirBreakVoidNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
-    const zir_block = inst_data.operand;
+    const inst_data = sema.code.instructions.items(.data)[inst].break_void_node;
     const void_inst = try sema.mod.constVoid(sema.arena, .unneeded);
-    return sema.analyzeBreak(block, inst_data.src(), zir_block, void_inst);
+    return sema.analyzeBreak(block, inst_data.src(), inst_data.block_inst, void_inst);
 }
 
 fn analyzeBreak(
@@ -982,7 +980,6 @@ fn analyzeBreak(
     while (true) {
         if (block.label) |*label| {
             if (label.zir_block == zir_block) {
-                try sema.requireFunctionBlock(block, src);
                 // Here we add a br instruction, but we over-allocate a little bit
                 // (if necessary) to make it possible to convert the instruction into
                 // a br_block_flat instruction later.
@@ -1000,7 +997,7 @@ fn analyzeBreak(
                     .operand = operand,
                     .block = label.merges.block_inst,
                 };
-                try block.instructions.append(sema.gpa, &br.base);
+                try start_block.instructions.append(sema.gpa, &br.base);
                 try label.merges.results.append(sema.gpa, operand);
                 try label.merges.br_list.append(sema.gpa, br);
                 return always_noreturn;
@@ -2613,10 +2610,11 @@ fn zirCmp(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const src: LazySrcLoc = .todo;
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const lhs = try sema.resolveInst(bin_inst.lhs);
-    const rhs = try sema.resolveInst(bin_inst.rhs);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
+    const src: LazySrcLoc = inst_data.src();
+    const lhs = try sema.resolveInst(extra.lhs);
+    const rhs = try sema.resolveInst(extra.rhs);
 
     const is_equality_cmp = switch (op) {
         .eq, .neq => true,
