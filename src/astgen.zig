@@ -553,6 +553,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
                 mod,
                 scope,
                 rl,
+                node,
                 node_datas[node].lhs,
                 main_tokens[node],
                 .is_null_ptr,
@@ -565,6 +566,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
                 mod,
                 scope,
                 rl,
+                node,
                 node_datas[node].lhs,
                 main_tokens[node],
                 .is_null,
@@ -1633,6 +1635,7 @@ fn orelseCatchExpr(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
+    node: ast.Node.Index,
     lhs: ast.Node.Index,
     op_token: ast.TokenIndex,
     cond_op: zir.Inst.Tag,
@@ -1641,16 +1644,11 @@ fn orelseCatchExpr(
     rhs: ast.Node.Index,
     payload_token: ?ast.TokenIndex,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
-
-    const gz = scope.getGenZir();
-    const tree = gz.tree();
-
+    const parent_gz = scope.getGenZir();
     var block_scope: Scope.GenZir = .{
         .parent = scope,
-        .decl = scope.ownerDecl().?,
-        .arena = scope.arena(),
-        .force_comptime = gz.force_comptime,
+        .zir_code = parent_gz.zir_code,
+        .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
     setBlockResultLoc(&block_scope, rl);
@@ -1661,62 +1659,73 @@ fn orelseCatchExpr(
     // type, whereas this expression has the optional type. Later we make
     // up for this fact by calling rvalue on the else branch.
     block_scope.break_count += 1;
-    const operand_rl = try makeOptionalTypeResultLoc(mod, &block_scope.base, src, block_scope.break_result_loc);
+
+    // TODO handle catch
+    const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
+        .ref => .ref,
+        .discard, .none, .block_ptr, .inferred_ptr, .bitcasted_ptr => .none,
+        .ty => |elem_ty| blk: {
+            const wrapped_ty = try block_scope.addUnNode(.optional_type, elem_ty, node);
+            break :blk .{ .ty = wrapped_ty };
+        },
+        .ptr => |ptr_ty| blk: {
+            const wrapped_ty = try block_scope.addUnNode(.optional_type_from_ptr_elem, ptr_ty, node);
+            break :blk .{ .ty = wrapped_ty };
+        },
+    };
     const operand = try expr(mod, &block_scope.base, operand_rl, lhs);
-    const cond = try addZIRUnOp(mod, &block_scope.base, src, cond_op, operand);
+    const cond = try block_scope.addUnTok(cond_op, operand, op_token);
 
-    const condbr = try addZIRInstSpecial(mod, &block_scope.base, src, zir.Inst.CondBr, .{
-        .condition = cond,
-        .then_body = undefined, // populated below
-        .else_body = undefined, // populated below
-    }, .{});
+    const condbr = try block_scope.addCondBr(node);
 
-    const block = try addZIRInstBlock(mod, scope, src, .block, .{
-        .instructions = try block_scope.arena.dupe(zir.Inst.Ref, block_scope.instructions.items),
-    });
+    const block = try parent_gz.addBlock(.block, node);
+    try parent_gz.instructions.append(mod.gpa, block);
+    try block_scope.setBlockBody(block);
 
     var then_scope: Scope.GenZir = .{
-        .parent = &block_scope.base,
-        .decl = block_scope.decl,
-        .arena = block_scope.arena,
+        .parent = scope,
+        .zir_code = parent_gz.zir_code,
         .force_comptime = block_scope.force_comptime,
         .instructions = .{},
     };
     defer then_scope.instructions.deinit(mod.gpa);
 
-    var err_val_scope: Scope.LocalVal = undefined;
-    const then_sub_scope = blk: {
-        const payload = payload_token orelse break :blk &then_scope.base;
-        if (mem.eql(u8, tree.tokenSlice(payload), "_")) {
-            return mod.failTok(&then_scope.base, payload, "discard of error capture; omit it instead", .{});
-        }
-        const err_name = try mod.identifierTokenString(scope, payload);
-        err_val_scope = .{
-            .parent = &then_scope.base,
-            .gen_zir = &then_scope,
-            .name = err_name,
-            .inst = try addZIRUnOp(mod, &then_scope.base, src, unwrap_code_op, operand),
-        };
-        break :blk &err_val_scope.base;
-    };
+    if (payload_token != null) @panic("TODO handle catch");
+    // var err_val_scope: Scope.LocalVal = undefined;
+    // const then_sub_scope = blk: {
+    //     const payload = payload_token orelse break :blk &then_scope.base;
+    //     if (mem.eql(u8, tree.tokenSlice(payload), "_")) {
+    //         return mod.failTok(&then_scope.base, payload, "discard of error capture; omit it instead", .{});
+    //     }
+    //     const err_name = try mod.identifierTokenString(scope, payload);
+    //     err_val_scope = .{
+    //         .parent = &then_scope.base,
+    //         .gen_zir = &then_scope,
+    //         .name = err_name,
+    //         .inst = try addZIRUnOp(mod, &then_scope.base, src, unwrap_code_op, operand),
+    //     };
+    //     break :blk &err_val_scope.base;
+    // };
 
     block_scope.break_count += 1;
-    const then_result = try expr(mod, then_sub_scope, block_scope.break_result_loc, rhs);
+    const then_result = try expr(mod, &then_scope.base, block_scope.break_result_loc, rhs);
+    // We hold off on the break instructions as well as copying the then/else
+    // instructions into place until we know whether to keep store_to_block_ptr
+    // instructions or not.
 
     var else_scope: Scope.GenZir = .{
-        .parent = &block_scope.base,
-        .decl = block_scope.decl,
-        .arena = block_scope.arena,
+        .parent = scope,
+        .zir_code = parent_gz.zir_code,
         .force_comptime = block_scope.force_comptime,
         .instructions = .{},
     };
     defer else_scope.instructions.deinit(mod.gpa);
 
     // This could be a pointer or value depending on `unwrap_op`.
-    const unwrapped_payload = try addZIRUnOp(mod, &else_scope.base, src, unwrap_op, operand);
+    const unwrapped_payload = try else_scope.addUnNode(unwrap_op, operand, node);
     const else_result = switch (rl) {
         .ref => unwrapped_payload,
-        else => try rvalue(mod, &else_scope.base, block_scope.break_result_loc, unwrapped_payload),
+        else => try rvalue(mod, &else_scope.base, block_scope.break_result_loc, unwrapped_payload, node),
     };
 
     return finishThenElseBlock(
@@ -1729,8 +1738,8 @@ fn orelseCatchExpr(
         &else_scope,
         condbr,
         cond,
-        src,
-        src,
+        node,
+        node,
         then_result,
         else_result,
         block,
