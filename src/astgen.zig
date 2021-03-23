@@ -672,34 +672,13 @@ pub fn comptimeExpr(
     rl: ResultLoc,
     node: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout branch");
-
-    // If we are already in a comptime scope, no need to make another one.
-    if (parent_scope.isComptime()) {
-        return expr(mod, parent_scope, rl, node);
-    }
-
     const gz = parent_scope.getGenZir();
-    const tree = parent_scope.tree();
 
-    // Make a scope to collect generated instructions in the sub-expression.
-    var block_scope: Scope.GenZir = .{
-        .parent = parent_scope,
-        .zir_code = gz.zir_code,
-        .force_comptime = true,
-        .instructions = .{},
-    };
-    defer block_scope.instructions.deinit(mod.gpa);
-
-    // No need to capture the result here because block_comptime_flat implies that the final
-    // instruction is the block's result value.
-    _ = try expr(mod, &block_scope.base, rl, node);
-
-    const block = try addZIRInstBlock(mod, parent_scope, src, .block_comptime_flat, .{
-        .instructions = try block_scope.arena.dupe(zir.Inst.Ref, block_scope.instructions.items),
-    });
-
-    return &block.base;
+    const prev_force_comptime = gz.force_comptime;
+    gz.force_comptime = true;
+    const result = try expr(mod, parent_scope, rl, node);
+    gz.force_comptime = prev_force_comptime;
+    return result;
 }
 
 fn breakExpr(
@@ -928,7 +907,7 @@ fn labeledBlockExpr(
     var block_scope: Scope.GenZir = .{
         .parent = parent_scope,
         .zir_code = gz.zir_code,
-        .force_comptime = parent_scope.isComptime(),
+        .force_comptime = gz.force_comptime,
         .instructions = .{},
         // TODO @as here is working around a stage1 miscompilation bug :(
         .label = @as(?Scope.GenZir.Label, Scope.GenZir.Label{
@@ -1296,7 +1275,7 @@ fn varDecl(
             // result location pointer.
             var init_scope: Scope.GenZir = .{
                 .parent = scope,
-                .force_comptime = scope.isComptime(),
+                .force_comptime = gz.force_comptime,
                 .zir_code = gz.zir_code,
             };
             defer init_scope.instructions.deinit(mod.gpa);
@@ -1675,13 +1654,14 @@ fn orelseCatchExpr(
 ) InnerError!zir.Inst.Ref {
     if (true) @panic("TODO update for zir-memory-layout");
 
-    const tree = scope.tree();
+    const gz = scope.getGenZir();
+    const tree = gz.tree();
 
     var block_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
-        .force_comptime = scope.isComptime(),
+        .force_comptime = gz.force_comptime,
         .instructions = .{},
     };
     setBlockResultLoc(&block_scope, rl);
@@ -2019,7 +1999,7 @@ fn ifExpr(
     var block_scope: Scope.GenZir = .{
         .parent = scope,
         .zir_code = parent_gz.zir_code,
-        .force_comptime = scope.isComptime(),
+        .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
     setBlockResultLoc(&block_scope, rl);
@@ -2169,11 +2149,13 @@ fn whileExpr(
         return mod.failTok(scope, inline_token, "TODO inline while", .{});
     }
 
+    const parent_gz = scope.getGenZir();
+
     var loop_scope: Scope.GenZir = .{
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
-        .force_comptime = scope.isComptime(),
+        .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
     setBlockResultLoc(&loop_scope, rl);
@@ -2188,7 +2170,7 @@ fn whileExpr(
     };
     defer continue_scope.instructions.deinit(mod.gpa);
 
-    const tree = scope.tree();
+    const tree = gz.tree();
     const main_tokens = tree.nodes.items(.main_token);
 
     const while_src = token_starts[while_full.ast.while_token];
@@ -2328,7 +2310,8 @@ fn forExpr(
     }
 
     // Set up variables and constants.
-    const tree = scope.tree();
+    const parent_gz = scope.getGenZir();
+    const tree = parent_gz.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
 
@@ -2355,7 +2338,7 @@ fn forExpr(
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
-        .force_comptime = scope.isComptime(),
+        .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
     setBlockResultLoc(&loop_scope, rl);
@@ -2531,7 +2514,8 @@ fn switchExpr(
     switch_node: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
     if (true) @panic("TODO update for zir-memory-layout");
-    const tree = scope.tree();
+    const parent_gz = scope.getGenZir();
+    const tree = parent_gz.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
@@ -2548,7 +2532,7 @@ fn switchExpr(
         .parent = scope,
         .decl = scope.ownerDecl().?,
         .arena = scope.arena(),
-        .force_comptime = scope.isComptime(),
+        .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
     setBlockResultLoc(&block_scope, rl);
@@ -3196,7 +3180,7 @@ fn asRlPtr(
     var as_scope: Scope.GenZir = .{
         .parent = scope,
         .zir_code = parent_gz.zir_code,
-        .force_comptime = scope.isComptime(),
+        .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
     defer as_scope.instructions.deinit(mod.gpa);

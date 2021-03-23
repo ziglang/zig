@@ -416,10 +416,6 @@ pub const Scope = struct {
         }
     }
 
-    pub fn isComptime(scope: *Scope) bool {
-        return scope.getGenZir().force_comptime;
-    }
-
     pub fn ownerDecl(scope: *Scope) ?*Decl {
         return switch (scope.tag) {
             .block => scope.cast(Block).?.sema.owner_decl,

@@ -1133,7 +1133,6 @@ fn analyzeCall(
 
     const ret_type = func.ty.fnReturnType();
 
-    try sema.requireFunctionBlock(block, call_src);
     const is_comptime_call = block.is_comptime or modifier == .compile_time;
     const is_inline_call = is_comptime_call or modifier == .always_inline or
         func.ty.fnCallingConvention() == .Inline;
@@ -1205,14 +1204,17 @@ fn analyzeCall(
         defer merges.results.deinit(sema.gpa);
         defer merges.br_list.deinit(sema.gpa);
 
-        try sema.emitBackwardBranch(&child_block, call_src);
+        try inline_sema.emitBackwardBranch(&child_block, call_src);
 
         // This will have return instructions analyzed as break instructions to
         // the block_inst above.
-        _ = try sema.root(&child_block);
+        _ = try inline_sema.root(&child_block);
 
-        break :res try sema.analyzeBlockBody(block, &child_block, merges);
-    } else try block.addCall(call_src, ret_type, func, casted_args);
+        break :res try inline_sema.analyzeBlockBody(block, &child_block, merges);
+    } else res: {
+        try sema.requireRuntimeBlock(block, call_src);
+        break :res try block.addCall(call_src, ret_type, func, casted_args);
+    };
 
     if (ensure_result_used) {
         try sema.ensureResultUsed(block, result, call_src);
