@@ -1700,8 +1700,23 @@ pub const LibExeObjStep = struct {
         }
     }
 
+    /// If the value is omitted, it is set to 1.
+    /// `name` and `value` need not live longer than the function call.
+    pub fn defineCMacro(self: *LibExeObjStep, name: []const u8, value: ?[]const u8) void {
+        var macro = self.builder.allocator.alloc(
+            u8,
+            name.len + if (value) |value_slice| value_slice.len + 1 else 0,
+        ) catch |err| if (err == error.OutOfMemory) @panic("Out of memory") else unreachable;
+        mem.copy(u8, macro, name);
+        if (value) |value_slice| {
+            macro[name.len] = '=';
+            mem.copy(u8, macro[name.len + 1 ..], value_slice);
+        }
+        self.c_macros.append(macro) catch unreachable;
+    }
+
     /// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
-    pub fn defineCMacro(self: *LibExeObjStep, name_and_value: []const u8) void {
+    pub fn defineCMacroRaw(self: *LibExeObjStep, name_and_value: []const u8) void {
         self.c_macros.append(self.builder.dupe(name_and_value)) catch unreachable;
     }
 
@@ -1790,9 +1805,9 @@ pub const LibExeObjStep = struct {
                 self.linkSystemLibraryName(tok["-l".len..]);
             } else if (mem.eql(u8, tok, "-D")) {
                 const macro = it.next() orelse return error.PkgConfigInvalidOutput;
-                self.defineCMacro(macro);
+                self.defineCMacroRaw(macro);
             } else if (mem.startsWith(u8, tok, "-D")) {
-                self.defineCMacro(tok["-D".len..]);
+                self.defineCMacroRaw(tok["-D".len..]);
             } else if (mem.eql(u8, tok, "-pthread")) {
                 self.linkLibC();
             } else if (self.builder.verbose) {
