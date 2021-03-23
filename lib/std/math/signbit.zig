@@ -14,6 +14,7 @@ pub fn signbit(x: anytype) bool {
         f16 => signbit16(x),
         f32 => signbit32(x),
         f64 => signbit64(x),
+        f128 => signbit128(x),
         else => @compileError("signbit not implemented for " ++ @typeName(T)),
     };
 }
@@ -33,10 +34,16 @@ fn signbit64(x: f64) bool {
     return bits >> 63 != 0;
 }
 
+fn signbit128(x: f128) bool {
+    const bits = @bitCast(u128, x);
+    return bits >> 127 != 0;
+}
+
 test "math.signbit" {
     expect(signbit(@as(f16, 4.0)) == signbit16(4.0));
     expect(signbit(@as(f32, 4.0)) == signbit32(4.0));
     expect(signbit(@as(f64, 4.0)) == signbit64(4.0));
+    expect(signbit(@as(f128, 4.0)) == signbit128(4.0));
 }
 
 test "math.signbit16" {
@@ -52,4 +59,9 @@ test "math.signbit32" {
 test "math.signbit64" {
     expect(!signbit64(4.0));
     expect(signbit64(-3.0));
+}
+
+test "math.signbit128" {
+    expect(!signbit128(4.0));
+    expect(signbit128(-3.0));
 }
