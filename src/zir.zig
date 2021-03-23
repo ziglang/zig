@@ -489,11 +489,15 @@ pub const Inst = struct {
         /// Function call with modifier `.auto`.
         /// Uses `pl_node`. AST node is the function call. Payload is `Call`.
         call,
+        /// Same as `call` but it also does `ensure_result_used` on the return value.
+        call_chkused,
         /// Same as `call` but with modifier `.compile_time`.
         call_compile_time,
         /// Function call with modifier `.auto`, empty parameter list.
         /// Uses the `un_node` field. Operand is callee. AST node is the function call.
         call_none,
+        /// Same as `call_none` but it also does `ensure_result_used` on the return value.
+        call_none_chkused,
         /// `<`
         /// Uses the `pl_node` union field. Payload is `Bin`.
         cmp_lt,
@@ -898,8 +902,10 @@ pub const Inst = struct {
                 .bool_or,
                 .breakpoint,
                 .call,
+                .call_chkused,
                 .call_compile_time,
                 .call_none,
+                .call_none_chkused,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -1337,6 +1343,7 @@ const Writer = struct {
             .negate,
             .negate_wrap,
             .call_none,
+            .call_none_chkused,
             .compile_error,
             .deref_node,
             .ensure_result_used,
@@ -1393,6 +1400,7 @@ const Writer = struct {
             .block,
             .block_comptime,
             .call,
+            .call_chkused,
             .call_compile_time,
             .compile_log,
             .condbr,

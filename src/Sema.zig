@@ -126,9 +126,11 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .bool_or => try sema.zirBoolOp(block, inst, true),
             .bool_br_and => try sema.zirBoolBr(block, inst, false),
             .bool_br_or => try sema.zirBoolBr(block, inst, true),
-            .call => try sema.zirCall(block, inst, .auto),
-            .call_compile_time => try sema.zirCall(block, inst, .compile_time),
-            .call_none => try sema.zirCallNone(block, inst),
+            .call => try sema.zirCall(block, inst, .auto, false),
+            .call_chkused => try sema.zirCall(block, inst, .auto, true),
+            .call_compile_time => try sema.zirCall(block, inst, .compile_time, false),
+            .call_none => try sema.zirCallNone(block, inst, false),
+            .call_none_chkused => try sema.zirCallNone(block, inst, true),
             .cmp_eq => try sema.zirCmp(block, inst, .eq),
             .cmp_gt => try sema.zirCmp(block, inst, .gt),
             .cmp_gte => try sema.zirCmp(block, inst, .gte),
@@ -457,6 +459,16 @@ fn zirEnsureResultUsed(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) I
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const operand = try sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
+
+    return sema.ensureResultUsed(block, operand, src);
+}
+
+fn ensureResultUsed(
+    sema: *Sema,
+    block: *Scope.Block,
+    operand: *Inst,
+    src: LazySrcLoc,
+) InnerError!void {
     switch (operand.ty.zigTypeTag()) {
         .Void, .NoReturn => return,
         else => return sema.mod.fail(&block.base, src, "expression value is ignored", .{}),
@@ -1027,14 +1039,19 @@ fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     return sema.analyzeDeclVal(block, .unneeded, decl);
 }
 
-fn zirCallNone(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirCallNone(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: zir.Inst.Index,
+    ensure_result_used: bool,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const func_src: LazySrcLoc = .{ .node_offset_call_func = inst_data.src_node };
 
-    return sema.analyzeCall(block, inst_data.operand, func_src, inst_data.src(), .auto, &.{});
+    return sema.analyzeCall(block, inst_data.operand, func_src, inst_data.src(), .auto, ensure_result_used, &.{});
 }
 
 fn zirCall(
@@ -1042,6 +1059,7 @@ fn zirCall(
     block: *Scope.Block,
     inst: zir.Inst.Index,
     modifier: std.builtin.CallOptions.Modifier,
+    ensure_result_used: bool,
 ) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1052,7 +1070,7 @@ fn zirCall(
     const extra = sema.code.extraData(zir.Inst.Call, inst_data.payload_index);
     const args = sema.code.extra[extra.end..][0..extra.data.args_len];
 
-    return sema.analyzeCall(block, extra.data.callee, func_src, call_src, modifier, args);
+    return sema.analyzeCall(block, extra.data.callee, func_src, call_src, modifier, ensure_result_used, args);
 }
 
 fn analyzeCall(
@@ -1062,6 +1080,7 @@ fn analyzeCall(
     func_src: LazySrcLoc,
     call_src: LazySrcLoc,
     modifier: std.builtin.CallOptions.Modifier,
+    ensure_result_used: bool,
     zir_args: []const zir.Inst.Ref,
 ) InnerError!*ir.Inst {
     const func = try sema.resolveInst(zir_func);
@@ -1121,7 +1140,7 @@ fn analyzeCall(
     const is_comptime_call = block.is_comptime or modifier == .compile_time;
     const is_inline_call = is_comptime_call or modifier == .always_inline or
         func.ty.fnCallingConvention() == .Inline;
-    if (is_inline_call) {
+    const result: *Inst = if (is_inline_call) res: {
         const func_val = try sema.resolveConstValue(block, func_src, func);
         const module_fn = switch (func_val.tag()) {
             .function => func_val.castTag(.function).?.data,
@@ -1195,10 +1214,13 @@ fn analyzeCall(
         // the block_inst above.
         _ = try sema.root(&child_block);
 
-        return sema.analyzeBlockBody(block, &child_block, merges);
-    }
+        break :res try sema.analyzeBlockBody(block, &child_block, merges);
+    } else try block.addCall(call_src, ret_type, func, casted_args);
 
-    return block.addCall(call_src, ret_type, func, casted_args);
+    if (ensure_result_used) {
+        try sema.ensureResultUsed(block, result, call_src);
+    }
+    return result;
 }
 
 fn zirIntType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {

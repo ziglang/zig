@@ -1024,9 +1024,178 @@ fn blockExprStmts(
             .assign_mul_wrap => try assignOp(mod, scope, statement, .mulwrap),
 
             else => {
-                const possibly_unused_result = try expr(mod, scope, .none, statement);
-                if (!gz.zir_code.isVoidOrNoReturn(possibly_unused_result)) {
-                    _ = try gz.addUnNode(.ensure_result_used, possibly_unused_result, statement);
+                // We need to emit an error if the result is not `noreturn` or `void`, but
+                // we want to avoid adding the ZIR instruction if possible for performance.
+                const maybe_unused_result = try expr(mod, scope, .none, statement);
+                const elide_check = if (maybe_unused_result >= gz.zir_code.ref_start_index) b: {
+                    const inst = maybe_unused_result - gz.zir_code.ref_start_index;
+                    // Note that this array becomes invalid after appending more items to it
+                    // in the above while loop.
+                    const zir_tags = gz.zir_code.instructions.items(.tag);
+                    switch (zir_tags[inst]) {
+                        .@"const" => {
+                            const tv = gz.zir_code.instructions.items(.data)[inst].@"const";
+                            break :b switch (tv.ty.zigTypeTag()) {
+                                .NoReturn, .Void => true,
+                                else => false,
+                            };
+                        },
+                        // For some instructions, swap in a slightly different ZIR tag
+                        // so we can avoid a separate ensure_result_used instruction.
+                        .call_none_chkused => unreachable,
+                        .call_none => {
+                            zir_tags[inst] = .call_none_chkused;
+                            break :b true;
+                        },
+                        .call_chkused => unreachable,
+                        .call => {
+                            zir_tags[inst] = .call_chkused;
+                            break :b true;
+                        },
+
+                        // ZIR instructions that might be a type other than `noreturn` or `void`.
+                        .add,
+                        .addwrap,
+                        .alloc,
+                        .alloc_mut,
+                        .alloc_inferred,
+                        .alloc_inferred_mut,
+                        .array_cat,
+                        .array_mul,
+                        .array_type,
+                        .array_type_sentinel,
+                        .indexable_ptr_len,
+                        .as,
+                        .as_node,
+                        .@"asm",
+                        .asm_volatile,
+                        .bit_and,
+                        .bitcast,
+                        .bitcast_ref,
+                        .bitcast_result_ptr,
+                        .bit_or,
+                        .block,
+                        .block_comptime,
+                        .bool_br_and,
+                        .bool_br_or,
+                        .bool_not,
+                        .bool_and,
+                        .bool_or,
+                        .call_compile_time,
+                        .cmp_lt,
+                        .cmp_lte,
+                        .cmp_eq,
+                        .cmp_gte,
+                        .cmp_gt,
+                        .cmp_neq,
+                        .coerce_result_ptr,
+                        .decl_ref,
+                        .decl_val,
+                        .deref_node,
+                        .div,
+                        .elem_ptr,
+                        .elem_val,
+                        .elem_ptr_node,
+                        .elem_val_node,
+                        .floatcast,
+                        .field_ptr,
+                        .field_val,
+                        .field_ptr_named,
+                        .field_val_named,
+                        .fn_type,
+                        .fn_type_var_args,
+                        .fn_type_cc,
+                        .fn_type_cc_var_args,
+                        .int,
+                        .intcast,
+                        .int_type,
+                        .is_non_null,
+                        .is_null,
+                        .is_non_null_ptr,
+                        .is_null_ptr,
+                        .is_err,
+                        .is_err_ptr,
+                        .mod_rem,
+                        .mul,
+                        .mulwrap,
+                        .param_type,
+                        .ptrtoint,
+                        .ref,
+                        .ret_ptr,
+                        .ret_type,
+                        .shl,
+                        .shr,
+                        .str,
+                        .sub,
+                        .subwrap,
+                        .negate,
+                        .negate_wrap,
+                        .typeof,
+                        .xor,
+                        .optional_type,
+                        .optional_type_from_ptr_elem,
+                        .optional_payload_safe,
+                        .optional_payload_unsafe,
+                        .optional_payload_safe_ptr,
+                        .optional_payload_unsafe_ptr,
+                        .err_union_payload_safe,
+                        .err_union_payload_unsafe,
+                        .err_union_payload_safe_ptr,
+                        .err_union_payload_unsafe_ptr,
+                        .err_union_code,
+                        .err_union_code_ptr,
+                        .ptr_type,
+                        .ptr_type_simple,
+                        .enum_literal,
+                        .enum_literal_small,
+                        .merge_error_sets,
+                        .error_union_type,
+                        .bit_not,
+                        .error_set,
+                        .error_value,
+                        .slice_start,
+                        .slice_end,
+                        .slice_sentinel,
+                        .import,
+                        .typeof_peer,
+                        => break :b false,
+
+                        // ZIR instructions that are always either `noreturn` or `void`.
+                        .breakpoint,
+                        .dbg_stmt_node,
+                        .ensure_result_used,
+                        .ensure_result_non_error,
+                        .set_eval_branch_quota,
+                        .compile_log,
+                        .ensure_err_payload_void,
+                        .@"break",
+                        .break_void_tok,
+                        .break_flat,
+                        .condbr,
+                        .compile_error,
+                        .ret_node,
+                        .ret_tok,
+                        .ret_coerce,
+                        .@"unreachable",
+                        .loop,
+                        .elided,
+                        .store,
+                        .store_to_block_ptr,
+                        .store_to_inferred_ptr,
+                        .resolve_inferred_alloc,
+                        => break :b true,
+                    }
+                } else switch (maybe_unused_result) {
+                    @enumToInt(zir.Const.unused) => unreachable,
+
+                    @enumToInt(zir.Const.void_value),
+                    @enumToInt(zir.Const.unreachable_value),
+                    => true,
+
+                    else => false,
+                };
+                if (!elide_check) {
+                    _ = try gz.addUnNode(.ensure_result_used, maybe_unused_result, statement);
                 }
             },
         }
