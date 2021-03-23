@@ -3283,18 +3283,28 @@ fn typeOf(
     node: ast.Node.Index,
     params: []const ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     if (params.len < 1) {
         return mod.failTok(scope, builtin_token, "expected at least 1 argument, found 0", .{});
     }
+    const gz = scope.getGenZir();
     if (params.len == 1) {
-        return rvalue(mod, scope, rl, try addZIRUnOp(mod, scope, src, .typeof, try expr(mod, scope, .none, params[0])));
+        return rvalue(
+            mod,
+            scope,
+            rl,
+            try gz.addUnTok(.typeof, try expr(mod, scope, .none, params[0]), node),
+            node,
+        );
     }
     const arena = scope.arena();
     var items = try arena.alloc(zir.Inst.Ref, params.len);
     for (params) |param, param_i|
         items[param_i] = try expr(mod, scope, .none, param);
-    return rvalue(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.TypeOfPeer, .{ .items = items }, .{}));
+
+    const result = try gz.addPlNode(.typeof_peer, node, zir.Inst.MultiOp{ .operands_len = @intCast(u32, params.len) });
+    try gz.zir_code.extra.appendSlice(gz.zir_code.gpa, items);
+
+    return rvalue(mod, scope, rl, result, node);
 }
 
 fn builtinCall(
