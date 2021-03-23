@@ -3599,11 +3599,14 @@ pub fn lookupDeclName(mod: *Module, scope: *Scope, ident_name: []const u8) ?*Dec
     return mod.decl_table.get(name_hash);
 }
 
-pub fn makeIntType(arena: *Allocator, signed: bool, bits: u16) !Type {
+pub fn makeIntType(arena: *Allocator, signedness: std.builtin.Signedness, bits: u16) !Type {
     const int_payload = try arena.create(Type.Payload.Bits);
     int_payload.* = .{
         .base = .{
-            .tag = if (signed) .int_signed else .int_unsigned,
+            .tag = switch (signedness) {
+                .signed => .int_signed,
+                .unsigned => .int_unsigned,
+            },
         },
         .data = bits,
     };

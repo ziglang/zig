@@ -125,6 +125,8 @@ pub const Const = enum {
     i32_type,
     u64_type,
     i64_type,
+    u128_type,
+    i128_type,
     usize_type,
     isize_type,
     c_short_type,
@@ -209,6 +211,14 @@ pub const const_inst_list = std.enums.directEnumArray(Const, TypedValue, 0, .{
     .i64_type = .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.i64_type),
+    },
+    .u128_type = .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.u128_type),
+    },
+    .i128_type = .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.i128_type),
     },
     .usize_type = .{
         .ty = Type.initTag(.type),
@@ -619,8 +629,7 @@ pub const Inst = struct {
         /// Payload is `Bin` with lhs as the dest type, rhs the operand.
         intcast,
         /// Make an integer type out of signedness and bit count.
-        /// lhs is signedness, rhs is bit count.
-        /// Payload is `Bin`
+        /// Payload is `int_type`
         int_type,
         /// Return a boolean false if an optional is null. `x != null`
         /// Uses the `un_tok` field.
@@ -1135,6 +1144,17 @@ pub const Inst = struct {
             /// For `fn_type_cc` this points to `FnTypeCc` in `extra`.
             payload_index: u32,
         },
+        int_type: struct {
+            /// Offset from Decl AST node index.
+            /// `Tag` determines which kind of AST node this points to.
+            src_node: i32,
+            signedness: std.builtin.Signedness,
+            bit_count: u16,
+
+            pub fn src(self: @This()) LazySrcLoc {
+                return .{ .node_offset = self.src_node };
+            }
+        },
         bool_br: struct {
             lhs: Ref,
             /// Points to a `Block`.
@@ -1340,7 +1360,6 @@ const Writer = struct {
             .elem_ptr,
             .elem_val,
             .intcast,
-            .int_type,
             .merge_error_sets,
             => try self.writeBin(stream, inst),
 
@@ -1405,6 +1424,7 @@ const Writer = struct {
             .str => try self.writeStr(stream, inst),
             .elided => try stream.writeAll(")"),
             .break_void_node => try self.writeBreakVoidNode(stream, inst),
+            .int_type => try self.writeIntType(stream, inst),
 
             .@"asm",
             .asm_volatile,
@@ -1740,6 +1760,16 @@ const Writer = struct {
         try self.writeInstIndex(stream, inst_data.block_inst);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeIntType(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const int_type = self.code.instructions.items(.data)[inst].int_type;
+        const prefix: u8 = switch (int_type.signedness) {
+            .signed => 'i',
+            .unsigned => 'u',
+        };
+        try stream.print("{c}{d}) ", .{ prefix, int_type.bit_count });
+        try self.writeSrc(stream, int_type.src());
     }
 
     fn writeUnreachable(self: *Writer, stream: anytype, inst: Inst.Index) !void {

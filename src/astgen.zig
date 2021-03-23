@@ -2888,7 +2888,10 @@ fn identifier(
     if (ident_name.len >= 2) integer: {
         const first_c = ident_name[0];
         if (first_c == 'i' or first_c == 'u') {
-            const is_signed = first_c == 'i';
+            const signedness: std.builtin.Signedness = switch (first_c == 'i') {
+                true => .signed,
+                false => .unsigned,
+            };
             const bit_count = std.fmt.parseInt(u16, ident_name[1..], 10) catch |err| switch (err) {
                 error.Overflow => return mod.failNode(
                     scope,
@@ -2898,7 +2901,15 @@ fn identifier(
                 ),
                 error.InvalidCharacter => break :integer,
             };
-            return rvalue(mod, scope, rl, try gz.addBin(.int_type, @boolToInt(is_signed), bit_count), ident);
+            const result = try gz.add(.{
+                .tag = .int_type,
+                .data = .{ .int_type = .{
+                    .src_node = gz.zir_code.decl.nodeIndexToRelative(ident),
+                    .signedness = signedness,
+                    .bit_count = bit_count,
+                } },
+            });
+            return rvalue(mod, scope, rl, result, ident);
         }
     }
 

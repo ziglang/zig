@@ -1226,7 +1226,11 @@ fn zirIntType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const tracy = trace(@src());
     defer tracy.end();
 
-    return sema.mod.fail(&block.base, sema.src, "TODO implement inttype", .{});
+    const int_type = sema.code.instructions.items(.data)[inst].int_type;
+    const src = int_type.src();
+    const ty = try Module.makeIntType(sema.arena, int_type.signedness, int_type.bit_count);
+
+    return sema.mod.constType(sema.arena, src, ty);
 }
 
 fn zirOptionalType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -3967,7 +3971,8 @@ fn cmpNumeric(
         const casted_bits = std.math.cast(u16, max_bits) catch |err| switch (err) {
             error.Overflow => return sema.mod.fail(&block.base, src, "{d} exceeds maximum integer bit count", .{max_bits}),
         };
-        break :blk try Module.makeIntType(sema.arena, dest_int_is_signed, casted_bits);
+        const signedness: std.builtin.Signedness = if (dest_int_is_signed) .signed else .unsigned;
+        break :blk try Module.makeIntType(sema.arena, signedness, casted_bits);
     };
     const casted_lhs = try sema.coerce(block, dest_type, lhs, lhs.src);
     const casted_rhs = try sema.coerce(block, dest_type, rhs, rhs.src);
