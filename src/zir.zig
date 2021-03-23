@@ -99,11 +99,7 @@ pub const Code = struct {
         try stderr.print("ZIR {s} {s} {{\n", .{ kind, decl_name });
 
         const root_body = code.extra[code.root_start..][0..code.root_len];
-        for (root_body) |inst| {
-            try stderr.print("  %{d} ", .{inst});
-            try writer.writeInstToStream(stderr, inst);
-            try stderr.writeByte('\n');
-        }
+        try writer.writeBody(stderr, root_body);
 
         try stderr.print("}} // ZIR {s} {s}\n\n", .{ kind, decl_name });
     }
@@ -451,16 +447,10 @@ pub const Inst = struct {
         /// Bitwise OR. `|`
         bit_or,
         /// A labeled block of code, which can return a value.
-        /// Uses the `pl_node` union field. Payload is `MultiOp`.
+        /// Uses the `pl_node` union field. Payload is `Block`.
         block,
-        /// A block of code, which can return a value. There are no instructions that break out of
-        /// this block; it is implied that the final instruction is the result.
-        /// Uses the `pl_node` union field. Payload is `MultiOp`.
-        block_flat,
         /// Same as `block` but additionally makes the inner instructions execute at comptime.
         block_comptime,
-        /// Same as `block_flat` but additionally makes the inner instructions execute at comptime.
-        block_comptime_flat,
         /// Boolean AND. See also `bit_and`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         bool_and,
@@ -470,6 +460,14 @@ pub const Inst = struct {
         /// Boolean OR. See also `bit_or`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         bool_or,
+        /// Short-circuiting boolean `and`. `lhs` is a boolean `Ref` and the other operand
+        /// is a block, which is evaluated if `lhs` is `true`.
+        /// Uses the `bool_br` union field.
+        bool_br_and,
+        /// Short-circuiting boolean `or`. `lhs` is a boolean `Ref` and the other operand
+        /// is a block, which is evaluated if `lhs` is `false`.
+        /// Uses the `bool_br` union field.
+        bool_br_or,
         /// Return a value from a block.
         /// Uses the `bin` union field: `lhs` is `Index` to the block (*not* `Ref`!),
         /// `rhs` is operand.
@@ -480,6 +478,12 @@ pub const Inst = struct {
         /// Uses the `un_tok` union field.
         /// Note that the block operand is a `Index`, not `Ref`.
         break_void_tok,
+        /// Return a value from a block. This is a special form that is only valid
+        /// when there is exactly 1 break from a block (this one). This instruction
+        /// allows using the return value from `Sema.analyzeBody`. The block is
+        /// assumed to be the direct parent of this instruction.
+        /// Uses the `un_node` union field. The AST node is unused.
+        break_flat,
         /// Uses the `node` union field.
         breakpoint,
         /// Function call with modifier `.auto`.
@@ -637,7 +641,7 @@ pub const Inst = struct {
         /// A labeled block of code that loops forever. At the end of the body it is implied
         /// to repeat; no explicit "repeat" instruction terminates loop bodies.
         /// Uses the `pl_node` field. The AST node is either a for loop or while loop.
-        /// The payload is `MultiOp`.
+        /// The payload is `Block`.
         loop,
         /// Merge two error sets into one, `E1 || E2`.
         merge_error_sets,
@@ -886,9 +890,9 @@ pub const Inst = struct {
                 .bitcast_result_ptr,
                 .bit_or,
                 .block,
-                .block_flat,
                 .block_comptime,
-                .block_comptime_flat,
+                .bool_br_and,
+                .bool_br_or,
                 .bool_not,
                 .bool_and,
                 .bool_or,
@@ -988,6 +992,7 @@ pub const Inst = struct {
 
                 .@"break",
                 .break_void_tok,
+                .break_flat,
                 .condbr,
                 .compile_error,
                 .ret_node,
@@ -1127,6 +1132,11 @@ pub const Inst = struct {
             /// For `fn_type_cc` this points to `FnTypeCc` in `extra`.
             payload_index: u32,
         },
+        bool_br: struct {
+            lhs: Ref,
+            /// Points to a `Block`.
+            payload_index: u32,
+        },
         param_type: struct {
             callee: Ref,
             param_index: u32,
@@ -1189,6 +1199,12 @@ pub const Inst = struct {
     /// Each operand is a `Ref`.
     pub const MultiOp = struct {
         operands_len: u32,
+    };
+
+    /// This data is stored inside extra, with trailing operands according to `body_len`.
+    /// Each operand is an `Index`.
+    pub const Block = struct {
+        body_len: u32,
     };
 
     /// Stored inside extra, with trailing arguments according to `args_len`.
@@ -1342,6 +1358,7 @@ const Writer = struct {
             .err_union_payload_unsafe_ptr,
             .err_union_code,
             .err_union_code_ptr,
+            .break_flat,
             => try self.writeUnNode(stream, inst),
 
             .break_void_tok,
@@ -1358,6 +1375,10 @@ const Writer = struct {
             .ensure_err_payload_void,
             => try self.writeUnTok(stream, inst),
 
+            .bool_br_and,
+            .bool_br_or,
+            => try self.writeBoolBr(stream, inst),
+
             .array_type_sentinel => try self.writeArrayTypeSentinel(stream, inst),
             .@"const" => try self.writeConst(stream, inst),
             .param_type => try self.writeParamType(stream, inst),
@@ -1370,9 +1391,7 @@ const Writer = struct {
             .@"asm",
             .asm_volatile,
             .block,
-            .block_flat,
             .block_comptime,
-            .block_comptime_flat,
             .call,
             .call_compile_time,
             .compile_log,
@@ -1618,6 +1637,19 @@ const Writer = struct {
         return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, cc);
     }
 
+    fn writeBoolBr(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].bool_br;
+        const extra = self.code.extraData(Inst.Block, inst_data.payload_index);
+        const body = self.code.extra[extra.end..][0..extra.data.body_len];
+        try self.writeInstRef(stream, inst_data.lhs);
+        try stream.writeAll(", {\n");
+        self.indent += 2;
+        try self.writeBody(stream, body);
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
+        try stream.writeAll("})");
+    }
+
     fn writeFnTypeCc(
         self: *Writer,
         stream: anytype,
@@ -1712,5 +1744,14 @@ const Writer = struct {
         try stream.print("{s}:{d}:{d}", .{
             @tagName(src), delta_line.line + 1, delta_line.column + 1,
         });
+    }
+
+    fn writeBody(self: *Writer, stream: anytype, body: []const Inst.Index) !void {
+        for (body) |inst| {
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.print("%{d} ", .{inst});
+            try self.writeInstToStream(stream, inst);
+            try stream.writeByte('\n');
+        }
     }
 };

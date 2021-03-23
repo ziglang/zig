@@ -477,7 +477,7 @@ pub const Scope = struct {
         switch (scope.tag) {
             .file => return &scope.cast(File).?.tree,
             .block => return &scope.cast(Block).?.src_decl.container.file_scope.tree,
-            .gen_zir => return &scope.cast(GenZir).?.zir_code.decl.container.file_scope.tree,
+            .gen_zir => return scope.cast(GenZir).?.tree(),
             .local_val => return &scope.cast(LocalVal).?.gen_zir.zir_code.decl.container.file_scope.tree,
             .local_ptr => return &scope.cast(LocalPtr).?.gen_zir.zir_code.decl.container.file_scope.tree,
             .container => return &scope.cast(Container).?.file_scope.tree,
@@ -983,6 +983,30 @@ pub const Scope = struct {
             return gz.zir_code.decl.nodeSrcLoc(node_index);
         }
 
+        pub fn tree(gz: *const GenZir) *const ast.Tree {
+            return &gz.zir_code.decl.container.file_scope.tree;
+        }
+
+        pub fn setBoolBrBody(gz: GenZir, inst: zir.Inst.Index) !void {
+            try gz.zir_code.extra.ensureCapacity(gz.zir_code.gpa, gz.zir_code.extra.items.len +
+                @typeInfo(zir.Inst.Block).Struct.fields.len + gz.instructions.items.len);
+            const zir_datas = gz.zir_code.instructions.items(.data);
+            zir_datas[inst].bool_br.payload_index = gz.zir_code.addExtraAssumeCapacity(
+                zir.Inst.Block{ .body_len = @intCast(u32, gz.instructions.items.len) },
+            );
+            gz.zir_code.extra.appendSliceAssumeCapacity(gz.instructions.items);
+        }
+
+        pub fn setBlockBody(gz: GenZir, inst: zir.Inst.Index) !void {
+            try gz.zir_code.extra.ensureCapacity(gz.zir_code.gpa, gz.zir_code.extra.items.len +
+                @typeInfo(zir.Inst.Block).Struct.fields.len + gz.instructions.items.len);
+            const zir_datas = gz.zir_code.instructions.items(.data);
+            zir_datas[inst].pl_node.payload_index = gz.zir_code.addExtraAssumeCapacity(
+                zir.Inst.Block{ .body_len = @intCast(u32, gz.instructions.items.len) },
+            );
+            gz.zir_code.extra.appendSliceAssumeCapacity(gz.instructions.items);
+        }
+
         pub fn addFnTypeCc(gz: *GenZir, tag: zir.Inst.Tag, args: struct {
             param_types: []const zir.Inst.Ref,
             ret_ty: zir.Inst.Ref,
@@ -1044,41 +1068,6 @@ pub const Scope = struct {
             return new_index + gz.zir_code.ref_start_index;
         }
 
-        pub fn addCondBr(
-            gz: *GenZir,
-            condition: zir.Inst.Ref,
-            then_body: []const zir.Inst.Ref,
-            else_body: []const zir.Inst.Ref,
-            /// Absolute node index. This function does the conversion to offset from Decl.
-            abs_node_index: ast.Node.Index,
-        ) !zir.Inst.Ref {
-            const gpa = gz.zir_code.gpa;
-            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
-            try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
-            try gz.zir_code.extra.ensureCapacity(gpa, gz.zir_code.extra.items.len +
-                @typeInfo(zir.Inst.CondBr).Struct.fields.len + then_body.len + else_body.len);
-
-            const payload_index = gz.zir_code.addExtraAssumeCapacity(zir.Inst.CondBr{
-                .condition = condition,
-                .then_body_len = @intCast(u32, then_body.len),
-                .else_body_len = @intCast(u32, else_body.len),
-            });
-            gz.zir_code.extra.appendSliceAssumeCapacity(then_body);
-            gz.zir_code.extra.appendSliceAssumeCapacity(else_body);
-
-            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
-            gz.zir_code.instructions.appendAssumeCapacity(.{
-                .tag = .condbr,
-                .data = .{ .pl_node = .{
-                    .src_node = gz.zir_code.decl.nodeIndexToRelative(abs_node_index),
-                    .payload_index = payload_index,
-                } },
-            });
-            gz.instructions.appendAssumeCapacity(new_index);
-
-            return new_index + gz.zir_code.ref_start_index;
-        }
-
         pub fn addCall(
             gz: *GenZir,
             tag: zir.Inst.Tag,
@@ -1111,6 +1100,30 @@ pub const Scope = struct {
             });
             gz.instructions.appendAssumeCapacity(new_index);
             return new_index + gz.zir_code.ref_start_index;
+        }
+
+        /// Note that this returns a `zir.Inst.Index` not a ref.
+        /// Leaves the `payload_index` field undefined.
+        pub fn addBoolBr(
+            gz: *GenZir,
+            tag: zir.Inst.Tag,
+            lhs: zir.Inst.Ref,
+        ) !zir.Inst.Index {
+            assert(lhs != 0);
+            const gpa = gz.zir_code.gpa;
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
+            try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
+
+            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+            gz.zir_code.instructions.appendAssumeCapacity(.{
+                .tag = tag,
+                .data = .{ .bool_br = .{
+                    .lhs = lhs,
+                    .payload_index = undefined,
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+            return new_index;
         }
 
         pub fn addInt(gz: *GenZir, integer: u64) !zir.Inst.Ref {
@@ -1291,6 +1304,20 @@ pub const Scope = struct {
             return new_index;
         }
 
+        /// Note that this returns a `zir.Inst.Index` not a ref.
+        /// Leaves the `payload_index` field undefined.
+        pub fn addCondBr(gz: *GenZir, node: ast.Node.Index) !zir.Inst.Index {
+            const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
+            try gz.zir_code.instructions.append(gz.zir_code.gpa, .{
+                .tag = .condbr,
+                .data = .{ .pl_node = .{
+                    .src_node = gz.zir_code.decl.nodeIndexToRelative(node),
+                    .payload_index = undefined,
+                } },
+            });
+            return new_index;
+        }
+
         pub fn add(gz: *GenZir, inst: zir.Inst) !zir.Inst.Ref {
             const gpa = gz.zir_code.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
@@ -1409,9 +1436,9 @@ pub const WipZirCode = struct {
                 .bitcast_result_ptr,
                 .bit_or,
                 .block,
-                .block_flat,
                 .block_comptime,
-                .block_comptime_flat,
+                .bool_br_and,
+                .bool_br_or,
                 .bool_not,
                 .bool_and,
                 .bool_or,
@@ -1461,9 +1488,6 @@ pub const WipZirCode = struct {
                 .ret_type,
                 .shl,
                 .shr,
-                .store,
-                .store_to_block_ptr,
-                .store_to_inferred_ptr,
                 .str,
                 .sub,
                 .subwrap,
@@ -1497,7 +1521,6 @@ pub const WipZirCode = struct {
                 .slice_sentinel,
                 .import,
                 .typeof_peer,
-                .resolve_inferred_alloc,
                 => return false,
 
                 .breakpoint,
@@ -1509,6 +1532,7 @@ pub const WipZirCode = struct {
                 .ensure_err_payload_void,
                 .@"break",
                 .break_void_tok,
+                .break_flat,
                 .condbr,
                 .compile_error,
                 .ret_node,
@@ -1517,6 +1541,10 @@ pub const WipZirCode = struct {
                 .@"unreachable",
                 .loop,
                 .elided,
+                .store,
+                .store_to_block_ptr,
+                .store_to_inferred_ptr,
+                .resolve_inferred_alloc,
                 => return true,
             }
         }
@@ -2150,7 +2178,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
             };
             defer block_scope.instructions.deinit(mod.gpa);
 
-            try sema.root(&block_scope);
+            _ = try sema.root(&block_scope);
 
             decl.analysis = .complete;
             decl.generation = mod.generation;
@@ -2338,6 +2366,7 @@ fn astgenAndSemaFn(
         const tag: zir.Inst.Tag = if (is_var_args) .fn_type_var_args else .fn_type;
         break :fn_type try fn_type_scope.addFnType(tag, return_type_inst, param_types);
     };
+    _ = try fn_type_scope.addUnNode(.break_flat, fn_type_inst, 0);
 
     // We need the memory for the Type to go into the arena for the Decl
     var decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
@@ -2370,7 +2399,7 @@ fn astgenAndSemaFn(
     };
     defer block_scope.instructions.deinit(mod.gpa);
 
-    const fn_type = try fn_type_sema.rootAsType(&block_scope, fn_type_inst);
+    const fn_type = try fn_type_sema.rootAsType(&block_scope);
     if (body_node == 0) {
         if (!is_extern) {
             return mod.failNode(&block_scope.base, fn_proto.ast.fn_token, "non-extern function has no body", .{});
@@ -2650,6 +2679,7 @@ fn astgenAndSemaVarDecl(
             init_result_loc,
             var_decl.ast.init_node,
         );
+        _ = try gen_scope.addUnNode(.break_flat, init_inst, var_decl.ast.init_node);
         var code = try gen_scope.finish();
         defer code.deinit(mod.gpa);
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
@@ -2676,10 +2706,9 @@ fn astgenAndSemaVarDecl(
         };
         defer block_scope.instructions.deinit(mod.gpa);
 
-        try sema.root(&block_scope);
-
+        const init_inst_zir_ref = try sema.root(&block_scope);
         // The result location guarantees the type coercion.
-        const analyzed_init_inst = try sema.resolveInst(init_inst);
+        const analyzed_init_inst = try sema.resolveInst(init_inst_zir_ref);
         // The is_comptime in the Scope.Block guarantees the result is comptime-known.
         const val = analyzed_init_inst.value().?;
 
@@ -2713,6 +2742,8 @@ fn astgenAndSemaVarDecl(
         defer type_scope.instructions.deinit(mod.gpa);
 
         const var_type = try astgen.typeExpr(mod, &type_scope.base, var_decl.ast.type_node);
+        _ = try type_scope.addUnNode(.break_flat, var_type, 0);
+
         var code = try type_scope.finish();
         defer code.deinit(mod.gpa);
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
@@ -2739,7 +2770,7 @@ fn astgenAndSemaVarDecl(
         };
         defer block_scope.instructions.deinit(mod.gpa);
 
-        const ty = try sema.rootAsType(&block_scope, var_type);
+        const ty = try sema.rootAsType(&block_scope);
 
         break :vi .{
             .ty = try ty.copy(&decl_arena.allocator),
@@ -3328,7 +3359,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
     func.state = .in_progress;
     log.debug("set {s} to in_progress", .{decl.name});
 
-    try sema.root(&inner_block);
+    _ = try sema.root(&inner_block);
 
     const instructions = try arena.allocator.dupe(*ir.Inst, inner_block.instructions.items);
     func.state = .success;

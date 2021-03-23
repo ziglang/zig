@@ -370,8 +370,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .array_cat => return simpleBinOp(mod, scope, rl, node, .array_cat),
         .array_mult => return simpleBinOp(mod, scope, rl, node, .array_mul),
 
-        .bool_and => return boolBinOp(mod, scope, rl, node, .bool_and),
-        .bool_or => return boolBinOp(mod, scope, rl, node, .bool_or),
+        .bool_and => return boolBinOp(mod, scope, rl, node, .bool_br_and),
+        .bool_or => return boolBinOp(mod, scope, rl, node, .bool_br_or),
 
         .bool_not => return boolNot(mod, scope, rl, node),
         .bit_not => return bitNot(mod, scope, rl, node),
@@ -425,8 +425,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .field_access => return fieldAccess(mod, scope, rl, node),
         .float_literal => return floatLiteral(mod, scope, rl, node),
 
-        .if_simple => return ifExpr(mod, scope, rl, tree.ifSimple(node)),
-        .@"if" => return ifExpr(mod, scope, rl, tree.ifFull(node)),
+        .if_simple => return ifExpr(mod, scope, rl, node, tree.ifSimple(node)),
+        .@"if" => return ifExpr(mod, scope, rl, node, tree.ifFull(node)),
 
         .while_simple => return whileExpr(mod, scope, rl, tree.whileSimple(node)),
         .while_cont => return whileExpr(mod, scope, rl, tree.whileCont(node)),
@@ -923,6 +923,7 @@ fn labeledBlockExpr(
     // so that break statements can reference it.
     const gz = parent_scope.getGenZir();
     const block_inst = try gz.addBlock(zir_tag, block_node);
+    try gz.instructions.append(mod.gpa, block_inst);
 
     var block_scope: Scope.GenZir = .{
         .parent = parent_scope,
@@ -946,8 +947,6 @@ fn labeledBlockExpr(
         return mod.failTok(parent_scope, label_token, "unused block label", .{});
     }
 
-    try gz.instructions.append(mod.gpa, block_inst);
-
     const zir_tags = gz.zir_code.instructions.items(.tag);
     const zir_datas = gz.zir_code.instructions.items(.data);
 
@@ -961,7 +960,7 @@ fn labeledBlockExpr(
             }
             // TODO technically not needed since we changed the tag to break_void but
             // would be better still to elide the ones that are in this list.
-            try copyBodyNoEliding(block_inst, block_scope);
+            try block_scope.setBlockBody(block_inst);
 
             return gz.zir_code.ref_start_index + block_inst;
         },
@@ -975,7 +974,7 @@ fn labeledBlockExpr(
                 // TODO technically not needed since we changed the tag to elided but
                 // would be better still to elide the ones that are in this list.
             }
-            try copyBodyNoEliding(block_inst, block_scope);
+            try block_scope.setBlockBody(block_inst);
             const block_ref = gz.zir_code.ref_start_index + block_inst;
             switch (rl) {
                 .ref => return block_ref,
@@ -1635,8 +1634,8 @@ fn finishThenElseBlock(
                 });
             }
             assert(!strat.elide_store_to_block_ptr_instructions);
-            try copyBodyNoEliding(then_body, then_scope.*);
-            try copyBodyNoEliding(else_body, else_scope.*);
+            try then_scope.setBlockBody(then_body);
+            try else_scope.setBlockBody(else_body);
             return &main_block.base;
         },
         .break_operand => {
@@ -1662,8 +1661,8 @@ fn finishThenElseBlock(
                 try copyBodyWithElidedStoreBlockPtr(then_body, then_scope.*);
                 try copyBodyWithElidedStoreBlockPtr(else_body, else_scope.*);
             } else {
-                try copyBodyNoEliding(then_body, then_scope.*);
-                try copyBodyNoEliding(else_body, else_scope.*);
+                try then_scope.setBlockBody(then_body);
+                try else_scope.setBlockBody(else_body);
             }
             switch (rl) {
                 .ref => return &main_block.base,
@@ -1801,95 +1800,49 @@ fn boolBinOp(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
-    infix_node: ast.Node.Index,
-    kind: enum { bool_and, bool_or },
+    node: ast.Node.Index,
+    zir_tag: zir.Inst.Tag,
 ) InnerError!zir.Inst.Ref {
-    const tree = scope.tree();
-    const node_datas = tree.nodes.items(.data);
-    const bool_type = @enumToInt(zir.Const.bool_type);
     const gz = scope.getGenZir();
+    const node_datas = gz.tree().nodes.items(.data);
+    const bool_type = @enumToInt(zir.Const.bool_type);
 
-    const lhs = try expr(mod, scope, .{ .ty = bool_type }, node_datas[infix_node].lhs);
+    const lhs = try expr(mod, scope, .{ .ty = bool_type }, node_datas[node].lhs);
+    const bool_br = try gz.addBoolBr(zir_tag, lhs);
 
-    const block_inst = try gz.addBlock(.block, infix_node);
-    const block_ref = gz.zir_code.ref_start_index + block_inst;
-    var block_scope: Scope.GenZir = .{
+    var rhs_scope: Scope.GenZir = .{
         .parent = scope,
         .zir_code = gz.zir_code,
         .force_comptime = gz.force_comptime,
     };
-    defer block_scope.instructions.deinit(mod.gpa);
-
-    var rhs_scope: Scope.GenZir = .{
-        .parent = &block_scope.base,
-        .zir_code = gz.zir_code,
-        .force_comptime = gz.force_comptime,
-    };
     defer rhs_scope.instructions.deinit(mod.gpa);
-    const rhs = try expr(mod, &rhs_scope.base, .{ .ty = bool_type }, node_datas[infix_node].rhs);
-    _ = try rhs_scope.addBin(.@"break", block_inst, rhs);
+    const rhs = try expr(mod, &rhs_scope.base, .{ .ty = bool_type }, node_datas[node].rhs);
+    _ = try rhs_scope.addUnNode(.break_flat, rhs, node);
+    try rhs_scope.setBoolBrBody(bool_br);
 
-    // TODO: should we have zir.Const instructions for `break true` and `break false`?
-    const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
-    const break_true_false_ref = new_index + gz.zir_code.ref_start_index;
-    try gz.zir_code.instructions.append(gz.zir_code.gpa, .{ .tag = .@"break", .data = .{ .bin = .{
-        .lhs = block_inst,
-        .rhs = switch (kind) {
-            .bool_and => @enumToInt(zir.Const.bool_false),
-            .bool_or => @enumToInt(zir.Const.bool_true),
-        },
-    } } });
-
-    switch (kind) {
-        // if lhs // AND
-        //     break rhs
-        // else
-        //     break false
-        .bool_and => _ = try block_scope.addCondBr(
-            lhs,
-            rhs_scope.instructions.items,
-            &[_]zir.Inst.Ref{break_true_false_ref},
-            infix_node,
-        ),
-        // if lhs // OR
-        //     break true
-        // else
-        //     break rhs
-        .bool_or => _ = try block_scope.addCondBr(
-            lhs,
-            &[_]zir.Inst.Ref{break_true_false_ref},
-            rhs_scope.instructions.items,
-            infix_node,
-        ),
-    }
-
-    try gz.instructions.append(mod.gpa, block_inst);
-    try copyBodyNoEliding(block_inst, block_scope);
-
-    return rvalue(mod, scope, rl, block_ref, infix_node);
+    const block_ref = gz.zir_code.ref_start_index + bool_br;
+    return rvalue(mod, scope, rl, block_ref, node);
 }
 
 fn ifExpr(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
+    node: ast.Node.Index,
     if_full: ast.full.If,
 ) InnerError!zir.Inst.Ref {
     if (true) @panic("TODO update for zir-memory-layout");
+    const parent_gz = scope.getGenZir();
     var block_scope: Scope.GenZir = .{
         .parent = scope,
-        .decl = scope.ownerDecl().?,
-        .arena = scope.arena(),
+        .zir_code = parent_gz.zir_code,
         .force_comptime = scope.isComptime(),
         .instructions = .{},
     };
     setBlockResultLoc(&block_scope, rl);
     defer block_scope.instructions.deinit(mod.gpa);
 
-    const tree = scope.tree();
-    const main_tokens = tree.nodes.items(.main_token);
-
-    const if_src = token_starts[if_full.ast.if_token];
+    const tree = parent_gz.tree();
 
     const cond = c: {
         // TODO https://github.com/ziglang/zig/issues/7929
@@ -1898,23 +1851,16 @@ fn ifExpr(
         } else if (if_full.payload_token) |payload_token| {
             return mod.failTok(scope, payload_token, "TODO implement if optional", .{});
         } else {
-            const bool_type = try addZIRInstConst(mod, &block_scope.base, if_src, .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.bool_type),
-            });
-            break :c try expr(mod, &block_scope.base, .{ .ty = bool_type }, if_full.ast.cond_expr);
+            const bool_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.bool_type) };
+            break :c try expr(mod, &block_scope.base, bool_rl, if_full.ast.cond_expr);
         }
     };
 
-    const condbr = try addZIRInstSpecial(mod, &block_scope.base, if_src, zir.Inst.CondBr, .{
-        .condition = cond,
-        .then_body = undefined, // populated below
-        .else_body = undefined, // populated below
-    }, .{});
+    const condbr = try block_scope.addCondBr(node);
 
-    const block = try addZIRInstBlock(mod, scope, if_src, .block, .{
-        .instructions = try block_scope.arena.dupe(zir.Inst.Ref, block_scope.instructions.items),
-    });
+    const block = try parent_gz.addBlock(.block, node);
+    try parent_gz.instructions.append(mod.gpa, block);
+    try block_scope.setBlockBody(block);
 
     const then_src = token_starts[tree.lastToken(if_full.ast.then_expr)];
     var then_scope: Scope.GenZir = .{
@@ -1988,12 +1934,6 @@ fn copyBodyWithElidedStoreBlockPtr(body: *zir.Body, scope: Module.Scope.GenZir) 
         }
     }
     assert(dst_index == body.instructions.len);
-}
-
-fn copyBodyNoEliding(block_inst: zir.Inst.Index, gz: Module.Scope.GenZir) !void {
-    const zir_datas = gz.zir_code.instructions.items(.data);
-    zir_datas[block_inst].pl_node.payload_index = @intCast(u32, gz.zir_code.extra.items.len);
-    try gz.zir_code.extra.appendSlice(gz.zir_code.gpa, gz.instructions.items);
 }
 
 fn whileExpr(

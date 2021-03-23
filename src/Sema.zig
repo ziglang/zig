@@ -53,172 +53,230 @@ const InnerError = Module.InnerError;
 const Decl = Module.Decl;
 const LazySrcLoc = Module.LazySrcLoc;
 
-pub fn root(sema: *Sema, root_block: *Scope.Block) !void {
+pub fn root(sema: *Sema, root_block: *Scope.Block) !zir.Inst.Ref {
     const root_body = sema.code.extra[sema.code.root_start..][0..sema.code.root_len];
     return sema.analyzeBody(root_block, root_body);
 }
 
-pub fn rootAsType(sema: *Sema, root_block: *Scope.Block, result_inst: zir.Inst.Ref) !Type {
-    const root_body = sema.code.extra[sema.code.root_start..][0..sema.code.root_len];
-    try sema.analyzeBody(root_block, root_body);
-
+/// Assumes that `root_block` ends with `break_flat`.
+pub fn rootAsType(sema: *Sema, root_block: *Scope.Block) !Type {
+    const zir_inst_ref = try sema.root(root_block);
     // Source location is unneeded because resolveConstValue must have already
     // been successfully called when coercing the value to a type, from the
     // result location.
-    return sema.resolveType(root_block, .unneeded, result_inst);
+    return sema.resolveType(root_block, .unneeded, zir_inst_ref);
 }
 
-pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Index) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
+/// ZIR instructions which are always `noreturn` return this. This matches the
+/// return type of `analyzeBody` so that we can tail call them.
+/// Only appropriate to return when the instruction is known to be NoReturn
+/// solely based on the ZIR tag.
+const always_noreturn: InnerError!zir.Inst.Ref = @as(zir.Inst.Index, 0);
+
+/// This function is the main loop of `Sema` and it can be used in two different ways:
+/// * The traditional way where there are N breaks out of the block and peer type
+///   resolution is done on the break operands. In this case, the `zir.Inst.Index`
+///   part of the return value will be `undefined`, and callsites should ignore it,
+///   finding the block result value via the block scope.
+/// * The "flat" way. There is only 1 break out of the block, and it is with a `break_flat`
+///   instruction. In this case, the `zir.Inst.Index` part of the return value will be
+///   the block result value. No block scope needs to be created for this strategy.
+pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Index) !zir.Inst.Index {
+    // No tracy calls here, to avoid interfering with the tail call mechanism.
 
     const map = block.sema.inst_map;
     const tags = block.sema.code.instructions.items(.tag);
 
-    // TODO: As an optimization, look into making these switch prongs directly jump
-    // to the next one, rather than detouring through the loop condition.
-    // Also, look into leaving only the "noreturn" loop break condition, and removing
-    // the iteration based one. Better yet, have an extra entry in the tags array as a
-    // sentinel, so that exiting the loop is just another jump table prong.
-    // Related: https://github.com/ziglang/zig/issues/8220
-    for (body) |zir_inst| {
-        map[zir_inst] = switch (tags[zir_inst]) {
-            .alloc => try sema.zirAlloc(block, zir_inst),
-            .alloc_mut => try sema.zirAllocMut(block, zir_inst),
-            .alloc_inferred => try sema.zirAllocInferred(block, zir_inst, Type.initTag(.inferred_alloc_const)),
-            .alloc_inferred_mut => try sema.zirAllocInferred(block, zir_inst, Type.initTag(.inferred_alloc_mut)),
-            .bitcast_ref => try sema.zirBitcastRef(block, zir_inst),
-            .bitcast_result_ptr => try sema.zirBitcastResultPtr(block, zir_inst),
-            .block => try sema.zirBlock(block, zir_inst, false),
-            .block_comptime => try sema.zirBlock(block, zir_inst, true),
-            .block_flat => try sema.zirBlockFlat(block, zir_inst, false),
-            .block_comptime_flat => try sema.zirBlockFlat(block, zir_inst, true),
-            .@"break" => try sema.zirBreak(block, zir_inst),
-            .break_void_tok => try sema.zirBreakVoidTok(block, zir_inst),
-            .breakpoint => try sema.zirBreakpoint(block, zir_inst),
-            .call => try sema.zirCall(block, zir_inst, .auto),
-            .call_compile_time => try sema.zirCall(block, zir_inst, .compile_time),
-            .call_none => try sema.zirCallNone(block, zir_inst),
-            .coerce_result_ptr => try sema.zirCoerceResultPtr(block, zir_inst),
-            .compile_error => try sema.zirCompileError(block, zir_inst),
-            .compile_log => try sema.zirCompileLog(block, zir_inst),
-            .@"const" => try sema.zirConst(block, zir_inst),
-            .dbg_stmt_node => try sema.zirDbgStmtNode(block, zir_inst),
-            .decl_ref => try sema.zirDeclRef(block, zir_inst),
-            .decl_val => try sema.zirDeclVal(block, zir_inst),
+    // We use a while(true) loop here to avoid a redundant way of breaking out of
+    // the loop. The only way to break out of the loop is with a `noreturn`
+    // instruction.
+    // TODO: As an optimization, make sure the codegen for these switch prongs
+    // directly jump to the next one, rather than detouring through the loop
+    // continue expression. Related: https://github.com/ziglang/zig/issues/8220
+    var i: usize = 0;
+    while (true) : (i += 1) {
+        const inst = body[i];
+        map[inst] = switch (tags[inst]) {
             .elided => continue,
-            .ensure_result_used => try sema.zirEnsureResultUsed(block, zir_inst),
-            .ensure_result_non_error => try sema.zirEnsureResultNonError(block, zir_inst),
-            .indexable_ptr_len => try sema.zirIndexablePtrLen(block, zir_inst),
-            .ref => try sema.zirRef(block, zir_inst),
-            .resolve_inferred_alloc => try sema.zirResolveInferredAlloc(block, zir_inst),
-            .ret_ptr => try sema.zirRetPtr(block, zir_inst),
-            .ret_type => try sema.zirRetType(block, zir_inst),
-            .store_to_block_ptr => try sema.zirStoreToBlockPtr(block, zir_inst),
-            .store_to_inferred_ptr => try sema.zirStoreToInferredPtr(block, zir_inst),
-            .ptr_type_simple => try sema.zirPtrTypeSimple(block, zir_inst),
-            .ptr_type => try sema.zirPtrType(block, zir_inst),
-            .store => try sema.zirStore(block, zir_inst),
-            .set_eval_branch_quota => try sema.zirSetEvalBranchQuota(block, zir_inst),
-            .str => try sema.zirStr(block, zir_inst),
-            .int => try sema.zirInt(block, zir_inst),
-            .int_type => try sema.zirIntType(block, zir_inst),
-            .loop => try sema.zirLoop(block, zir_inst),
-            .param_type => try sema.zirParamType(block, zir_inst),
-            .ptrtoint => try sema.zirPtrtoint(block, zir_inst),
-            .field_ptr => try sema.zirFieldPtr(block, zir_inst),
-            .field_val => try sema.zirFieldVal(block, zir_inst),
-            .field_ptr_named => try sema.zirFieldPtrNamed(block, zir_inst),
-            .field_val_named => try sema.zirFieldValNamed(block, zir_inst),
-            .deref_node => try sema.zirDerefNode(block, zir_inst),
-            .as => try sema.zirAs(block, zir_inst),
-            .as_node => try sema.zirAsNode(block, zir_inst),
-            .@"asm" => try sema.zirAsm(block, zir_inst, false),
-            .asm_volatile => try sema.zirAsm(block, zir_inst, true),
-            .@"unreachable" => try sema.zirUnreachable(block, zir_inst),
-            .ret_coerce => try sema.zirRetTok(block, zir_inst, true),
-            .ret_tok => try sema.zirRetTok(block, zir_inst, false),
-            .ret_node => try sema.zirRetNode(block, zir_inst),
-            .fn_type => try sema.zirFnType(block, zir_inst, false),
-            .fn_type_cc => try sema.zirFnTypeCc(block, zir_inst, false),
-            .fn_type_var_args => try sema.zirFnType(block, zir_inst, true),
-            .fn_type_cc_var_args => try sema.zirFnTypeCc(block, zir_inst, true),
-            .intcast => try sema.zirIntcast(block, zir_inst),
-            .bitcast => try sema.zirBitcast(block, zir_inst),
-            .floatcast => try sema.zirFloatcast(block, zir_inst),
-            .elem_ptr => try sema.zirElemPtr(block, zir_inst),
-            .elem_ptr_node => try sema.zirElemPtrNode(block, zir_inst),
-            .elem_val => try sema.zirElemVal(block, zir_inst),
-            .elem_val_node => try sema.zirElemValNode(block, zir_inst),
-            .add => try sema.zirArithmetic(block, zir_inst),
-            .addwrap => try sema.zirArithmetic(block, zir_inst),
-            .sub => try sema.zirArithmetic(block, zir_inst),
-            .subwrap => try sema.zirArithmetic(block, zir_inst),
+
+            .add => try sema.zirArithmetic(block, inst),
+            .addwrap => try sema.zirArithmetic(block, inst),
+            .alloc => try sema.zirAlloc(block, inst),
+            .alloc_inferred => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_const)),
+            .alloc_inferred_mut => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_mut)),
+            .alloc_mut => try sema.zirAllocMut(block, inst),
+            .array_cat => try sema.zirArrayCat(block, inst),
+            .array_mul => try sema.zirArrayMul(block, inst),
+            .array_type => try sema.zirArrayType(block, inst),
+            .array_type_sentinel => try sema.zirArrayTypeSentinel(block, inst),
+            .as => try sema.zirAs(block, inst),
+            .as_node => try sema.zirAsNode(block, inst),
+            .@"asm" => try sema.zirAsm(block, inst, false),
+            .asm_volatile => try sema.zirAsm(block, inst, true),
+            .bit_and => try sema.zirBitwise(block, inst),
+            .bit_not => try sema.zirBitNot(block, inst),
+            .bit_or => try sema.zirBitwise(block, inst),
+            .bitcast => try sema.zirBitcast(block, inst),
+            .bitcast_ref => try sema.zirBitcastRef(block, inst),
+            .bitcast_result_ptr => try sema.zirBitcastResultPtr(block, inst),
+            .block => try sema.zirBlock(block, inst, false),
+            .block_comptime => try sema.zirBlock(block, inst, true),
+            .bool_not => try sema.zirBoolNot(block, inst),
+            .bool_and => try sema.zirBoolOp(block, inst, false),
+            .bool_or => try sema.zirBoolOp(block, inst, true),
+            .bool_br_and => try sema.zirBoolBr(block, inst, false),
+            .bool_br_or => try sema.zirBoolBr(block, inst, true),
+            .call => try sema.zirCall(block, inst, .auto),
+            .call_compile_time => try sema.zirCall(block, inst, .compile_time),
+            .call_none => try sema.zirCallNone(block, inst),
+            .cmp_eq => try sema.zirCmp(block, inst, .eq),
+            .cmp_gt => try sema.zirCmp(block, inst, .gt),
+            .cmp_gte => try sema.zirCmp(block, inst, .gte),
+            .cmp_lt => try sema.zirCmp(block, inst, .lt),
+            .cmp_lte => try sema.zirCmp(block, inst, .lte),
+            .cmp_neq => try sema.zirCmp(block, inst, .neq),
+            .coerce_result_ptr => try sema.zirCoerceResultPtr(block, inst),
+            .@"const" => try sema.zirConst(block, inst),
+            .decl_ref => try sema.zirDeclRef(block, inst),
+            .decl_val => try sema.zirDeclVal(block, inst),
+            .deref_node => try sema.zirDerefNode(block, inst),
+            .div => try sema.zirArithmetic(block, inst),
+            .elem_ptr => try sema.zirElemPtr(block, inst),
+            .elem_ptr_node => try sema.zirElemPtrNode(block, inst),
+            .elem_val => try sema.zirElemVal(block, inst),
+            .elem_val_node => try sema.zirElemValNode(block, inst),
+            .enum_literal => try sema.zirEnumLiteral(block, inst),
+            .enum_literal_small => try sema.zirEnumLiteralSmall(block, inst),
+            .err_union_code => try sema.zirErrUnionCode(block, inst),
+            .err_union_code_ptr => try sema.zirErrUnionCodePtr(block, inst),
+            .err_union_payload_safe => try sema.zirErrUnionPayload(block, inst, true),
+            .err_union_payload_safe_ptr => try sema.zirErrUnionPayloadPtr(block, inst, true),
+            .err_union_payload_unsafe => try sema.zirErrUnionPayload(block, inst, false),
+            .err_union_payload_unsafe_ptr => try sema.zirErrUnionPayloadPtr(block, inst, false),
+            .error_set => try sema.zirErrorSet(block, inst),
+            .error_union_type => try sema.zirErrorUnionType(block, inst),
+            .error_value => try sema.zirErrorValue(block, inst),
+            .field_ptr => try sema.zirFieldPtr(block, inst),
+            .field_ptr_named => try sema.zirFieldPtrNamed(block, inst),
+            .field_val => try sema.zirFieldVal(block, inst),
+            .field_val_named => try sema.zirFieldValNamed(block, inst),
+            .floatcast => try sema.zirFloatcast(block, inst),
+            .fn_type => try sema.zirFnType(block, inst, false),
+            .fn_type_cc => try sema.zirFnTypeCc(block, inst, false),
+            .fn_type_cc_var_args => try sema.zirFnTypeCc(block, inst, true),
+            .fn_type_var_args => try sema.zirFnType(block, inst, true),
+            .import => try sema.zirImport(block, inst),
+            .indexable_ptr_len => try sema.zirIndexablePtrLen(block, inst),
+            .int => try sema.zirInt(block, inst),
+            .int_type => try sema.zirIntType(block, inst),
+            .intcast => try sema.zirIntcast(block, inst),
+            .is_err => try sema.zirIsErr(block, inst),
+            .is_err_ptr => try sema.zirIsErrPtr(block, inst),
+            .is_non_null => try sema.zirIsNull(block, inst, true),
+            .is_non_null_ptr => try sema.zirIsNullPtr(block, inst, true),
+            .is_null => try sema.zirIsNull(block, inst, false),
+            .is_null_ptr => try sema.zirIsNullPtr(block, inst, false),
+            .merge_error_sets => try sema.zirMergeErrorSets(block, inst),
+            .mod_rem => try sema.zirArithmetic(block, inst),
+            .mul => try sema.zirArithmetic(block, inst),
+            .mulwrap => try sema.zirArithmetic(block, inst),
             .negate => @panic("TODO"),
             .negate_wrap => @panic("TODO"),
-            .mul => try sema.zirArithmetic(block, zir_inst),
-            .mulwrap => try sema.zirArithmetic(block, zir_inst),
-            .div => try sema.zirArithmetic(block, zir_inst),
-            .mod_rem => try sema.zirArithmetic(block, zir_inst),
-            .array_cat => try sema.zirArrayCat(block, zir_inst),
-            .array_mul => try sema.zirArrayMul(block, zir_inst),
-            .bit_and => try sema.zirBitwise(block, zir_inst),
-            .bit_not => try sema.zirBitNot(block, zir_inst),
-            .bit_or => try sema.zirBitwise(block, zir_inst),
-            .xor => try sema.zirBitwise(block, zir_inst),
-            .shl => try sema.zirShl(block, zir_inst),
-            .shr => try sema.zirShr(block, zir_inst),
-            .cmp_lt => try sema.zirCmp(block, zir_inst, .lt),
-            .cmp_lte => try sema.zirCmp(block, zir_inst, .lte),
-            .cmp_eq => try sema.zirCmp(block, zir_inst, .eq),
-            .cmp_gte => try sema.zirCmp(block, zir_inst, .gte),
-            .cmp_gt => try sema.zirCmp(block, zir_inst, .gt),
-            .cmp_neq => try sema.zirCmp(block, zir_inst, .neq),
-            .condbr => try sema.zirCondbr(block, zir_inst),
-            .is_null => try sema.zirIsNull(block, zir_inst, false),
-            .is_non_null => try sema.zirIsNull(block, zir_inst, true),
-            .is_null_ptr => try sema.zirIsNullPtr(block, zir_inst, false),
-            .is_non_null_ptr => try sema.zirIsNullPtr(block, zir_inst, true),
-            .is_err => try sema.zirIsErr(block, zir_inst),
-            .is_err_ptr => try sema.zirIsErrPtr(block, zir_inst),
-            .bool_not => try sema.zirBoolNot(block, zir_inst),
-            .typeof => try sema.zirTypeof(block, zir_inst),
-            .typeof_peer => try sema.zirTypeofPeer(block, zir_inst),
-            .optional_type => try sema.zirOptionalType(block, zir_inst),
-            .optional_type_from_ptr_elem => try sema.zirOptionalTypeFromPtrElem(block, zir_inst),
-            .optional_payload_safe => try sema.zirOptionalPayload(block, zir_inst, true),
-            .optional_payload_unsafe => try sema.zirOptionalPayload(block, zir_inst, false),
-            .optional_payload_safe_ptr => try sema.zirOptionalPayloadPtr(block, zir_inst, true),
-            .optional_payload_unsafe_ptr => try sema.zirOptionalPayloadPtr(block, zir_inst, false),
-            .err_union_payload_safe => try sema.zirErrUnionPayload(block, zir_inst, true),
-            .err_union_payload_unsafe => try sema.zirErrUnionPayload(block, zir_inst, false),
-            .err_union_payload_safe_ptr => try sema.zirErrUnionPayloadPtr(block, zir_inst, true),
-            .err_union_payload_unsafe_ptr => try sema.zirErrUnionPayloadPtr(block, zir_inst, false),
-            .err_union_code => try sema.zirErrUnionCode(block, zir_inst),
-            .err_union_code_ptr => try sema.zirErrUnionCodePtr(block, zir_inst),
-            .ensure_err_payload_void => try sema.zirEnsureErrPayloadVoid(block, zir_inst),
-            .array_type => try sema.zirArrayType(block, zir_inst),
-            .array_type_sentinel => try sema.zirArrayTypeSentinel(block, zir_inst),
-            .enum_literal => try sema.zirEnumLiteral(block, zir_inst),
-            .enum_literal_small => try sema.zirEnumLiteralSmall(block, zir_inst),
-            .merge_error_sets => try sema.zirMergeErrorSets(block, zir_inst),
-            .error_union_type => try sema.zirErrorUnionType(block, zir_inst),
-            .error_set => try sema.zirErrorSet(block, zir_inst),
-            .error_value => try sema.zirErrorValue(block, zir_inst),
-            .slice_start => try sema.zirSliceStart(block, zir_inst),
-            .slice_end => try sema.zirSliceEnd(block, zir_inst),
-            .slice_sentinel => try sema.zirSliceSentinel(block, zir_inst),
-            .import => try sema.zirImport(block, zir_inst),
-            .bool_and => try sema.zirBoolOp(block, zir_inst, false),
-            .bool_or => try sema.zirBoolOp(block, zir_inst, true),
+            .optional_payload_safe => try sema.zirOptionalPayload(block, inst, true),
+            .optional_payload_safe_ptr => try sema.zirOptionalPayloadPtr(block, inst, true),
+            .optional_payload_unsafe => try sema.zirOptionalPayload(block, inst, false),
+            .optional_payload_unsafe_ptr => try sema.zirOptionalPayloadPtr(block, inst, false),
+            .optional_type => try sema.zirOptionalType(block, inst),
+            .optional_type_from_ptr_elem => try sema.zirOptionalTypeFromPtrElem(block, inst),
+            .param_type => try sema.zirParamType(block, inst),
+            .ptr_type => try sema.zirPtrType(block, inst),
+            .ptr_type_simple => try sema.zirPtrTypeSimple(block, inst),
+            .ptrtoint => try sema.zirPtrtoint(block, inst),
+            .ref => try sema.zirRef(block, inst),
+            .ret_ptr => try sema.zirRetPtr(block, inst),
+            .ret_type => try sema.zirRetType(block, inst),
+            .shl => try sema.zirShl(block, inst),
+            .shr => try sema.zirShr(block, inst),
+            .slice_end => try sema.zirSliceEnd(block, inst),
+            .slice_sentinel => try sema.zirSliceSentinel(block, inst),
+            .slice_start => try sema.zirSliceStart(block, inst),
+            .str => try sema.zirStr(block, inst),
+            .sub => try sema.zirArithmetic(block, inst),
+            .subwrap => try sema.zirArithmetic(block, inst),
+            .typeof => try sema.zirTypeof(block, inst),
+            .typeof_peer => try sema.zirTypeofPeer(block, inst),
+            .xor => try sema.zirBitwise(block, inst),
             // TODO
-            //.switchbr => try sema.zirSwitchBr(block, zir_inst, false),
-            //.switchbr_ref => try sema.zirSwitchBr(block, zir_inst, true),
-            //.switch_range => try sema.zirSwitchRange(block, zir_inst),
+            //.switchbr => try sema.zirSwitchBr(block, inst, false),
+            //.switchbr_ref => try sema.zirSwitchBr(block, inst, true),
+            //.switch_range => try sema.zirSwitchRange(block, inst),
+
+            // Instructions that we know to *always* be noreturn based solely on their tag.
+            // These functions match the return type of analyzeBody so that we can
+            // tail call them here.
+            .condbr => return sema.zirCondbr(block, inst),
+            .@"break" => return sema.zirBreak(block, inst),
+            .break_void_tok => return sema.zirBreakVoidTok(block, inst),
+            .break_flat => return sema.code.instructions.items(.data)[inst].un_node.operand,
+            .compile_error => return sema.zirCompileError(block, inst),
+            .ret_coerce => return sema.zirRetTok(block, inst, true),
+            .ret_node => return sema.zirRetNode(block, inst),
+            .ret_tok => return sema.zirRetTok(block, inst, false),
+            .@"unreachable" => return sema.zirUnreachable(block, inst),
+            .loop => return sema.zirLoop(block, inst),
+
+            // Instructions that we know can *never* be noreturn based solely on
+            // their tag. We avoid needlessly checking if they are noreturn and
+            // continue the loop.
+            // We also know that they cannot be referenced later, so we avoid
+            // putting them into the map.
+            .breakpoint => {
+                try sema.zirBreakpoint(block, inst);
+                continue;
+            },
+            .dbg_stmt_node => {
+                try sema.zirDbgStmtNode(block, inst);
+                continue;
+            },
+            .ensure_err_payload_void => {
+                try sema.zirEnsureErrPayloadVoid(block, inst);
+                continue;
+            },
+            .ensure_result_non_error => {
+                try sema.zirEnsureResultNonError(block, inst);
+                continue;
+            },
+            .ensure_result_used => {
+                try sema.zirEnsureResultUsed(block, inst);
+                continue;
+            },
+            .compile_log => {
+                try sema.zirCompileLog(block, inst);
+                continue;
+            },
+            .set_eval_branch_quota => {
+                try sema.zirSetEvalBranchQuota(block, inst);
+                continue;
+            },
+            .store => {
+                try sema.zirStore(block, inst);
+                continue;
+            },
+            .store_to_block_ptr => {
+                try sema.zirStoreToBlockPtr(block, inst);
+                continue;
+            },
+            .store_to_inferred_ptr => {
+                try sema.zirStoreToInferredPtr(block, inst);
+                continue;
+            },
+            .resolve_inferred_alloc => {
+                try sema.zirResolveInferredAlloc(block, inst);
+                continue;
+            },
         };
-        if (map[zir_inst].ty.isNoReturn()) {
-            break;
-        }
+        if (map[inst].ty.isNoReturn())
+            return always_noreturn;
     }
 }
 
@@ -392,7 +450,7 @@ fn zirRetType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     return sema.mod.constType(sema.arena, src, ret_type);
 }
 
-fn zirEnsureResultUsed(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirEnsureResultUsed(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -400,12 +458,12 @@ fn zirEnsureResultUsed(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) I
     const operand = try sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
     switch (operand.ty.zigTypeTag()) {
-        .Void, .NoReturn => return sema.mod.constVoid(sema.arena, .unneeded),
+        .Void, .NoReturn => return,
         else => return sema.mod.fail(&block.base, src, "expression value is ignored", .{}),
     }
 }
 
-fn zirEnsureResultNonError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirEnsureResultNonError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -414,7 +472,7 @@ fn zirEnsureResultNonError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Inde
     const src = inst_data.src();
     switch (operand.ty.zigTypeTag()) {
         .ErrorSet, .ErrorUnion => return sema.mod.fail(&block.base, src, "error is discarded", .{}),
-        else => return sema.mod.constVoid(sema.arena, .unneeded),
+        else => return,
     }
 }
 
@@ -508,11 +566,7 @@ fn zirAllocInferred(
     return result;
 }
 
-fn zirResolveInferredAlloc(
-    sema: *Sema,
-    block: *Scope.Block,
-    inst: zir.Inst.Index,
-) InnerError!*Inst {
+fn zirResolveInferredAlloc(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -536,15 +590,9 @@ fn zirResolveInferredAlloc(
     // Change it to a normal alloc.
     ptr.ty = final_ptr_ty;
     ptr.tag = .alloc;
-
-    return sema.mod.constVoid(sema.arena, .unneeded);
 }
 
-fn zirStoreToBlockPtr(
-    sema: *Sema,
-    block: *Scope.Block,
-    inst: zir.Inst.Index,
-) InnerError!*Inst {
+fn zirStoreToBlockPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -560,11 +608,7 @@ fn zirStoreToBlockPtr(
     return sema.storePtr(block, src, bitcasted_ptr, value);
 }
 
-fn zirStoreToInferredPtr(
-    sema: *Sema,
-    block: *Scope.Block,
-    inst: zir.Inst.Index,
-) InnerError!*Inst {
+fn zirStoreToInferredPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -583,21 +627,16 @@ fn zirStoreToInferredPtr(
     return sema.storePtr(block, src, bitcasted_ptr, value);
 }
 
-fn zirSetEvalBranchQuota(
-    sema: *Sema,
-    block: *Scope.Block,
-    inst: zir.Inst.Index,
-) InnerError!*Inst {
+fn zirSetEvalBranchQuota(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     try sema.requireFunctionBlock(block, src);
     const quota = try sema.resolveAlreadyCoercedInt(block, src, inst_data.operand, u32);
     if (sema.branch_quota < quota)
         sema.branch_quota = quota;
-    return sema.mod.constVoid(sema.arena, .unneeded);
 }
 
-fn zirStore(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirStore(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -677,7 +716,7 @@ fn zirInt(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*In
     return sema.mod.constIntUnsigned(sema.arena, .unneeded, Type.initTag(.comptime_int), int);
 }
 
-fn zirCompileError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirCompileError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -688,7 +727,7 @@ fn zirCompileError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inner
     return sema.mod.fail(&block.base, src, "{s}", .{msg});
 }
 
-fn zirCompileLog(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirCompileLog(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
     var managed = sema.mod.compile_log_text.toManaged(sema.gpa);
     defer sema.mod.compile_log_text = managed.moveToUnmanaged();
     const writer = managed.writer();
@@ -711,10 +750,9 @@ fn zirCompileLog(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     if (!gop.found_existing) {
         gop.entry.value = inst_data.src().toSrcLoc(&block.base);
     }
-    return sema.mod.constVoid(sema.arena, .unneeded);
 }
 
-fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -746,41 +784,13 @@ fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) InnerE
     };
     defer child_block.instructions.deinit(sema.gpa);
 
-    try sema.analyzeBody(&child_block, body);
+    _ = try sema.analyzeBody(&child_block, body);
 
     // Loop repetition is implied so the last instruction may or may not be a noreturn instruction.
 
     try parent_block.instructions.append(sema.gpa, &loop_inst.base);
     loop_inst.body = .{ .instructions = try sema.arena.dupe(*Inst, child_block.instructions.items) };
-    return &loop_inst.base;
-}
-
-fn zirBlockFlat(
-    sema: *Sema,
-    parent_block: *Scope.Block,
-    inst: zir.Inst.Index,
-    is_comptime: bool,
-) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const extra = sema.code.extraData(zir.Inst.MultiOp, inst_data.payload_index);
-    const body = sema.code.extra[extra.end..][0..extra.data.operands_len];
-
-    var child_block = parent_block.makeSubBlock();
-    defer child_block.instructions.deinit(sema.gpa);
-    child_block.is_comptime = child_block.is_comptime or is_comptime;
-
-    try sema.analyzeBody(&child_block, body);
-
-    // Move the analyzed instructions into the parent block arena.
-    const copied_instructions = try sema.arena.dupe(*Inst, child_block.instructions.items);
-    try parent_block.instructions.appendSlice(sema.gpa, copied_instructions);
-
-    // The result of a flat block is the last instruction.
-    return sema.inst_map[body[body.len - 1]];
+    return always_noreturn;
 }
 
 fn zirBlock(
@@ -794,8 +804,8 @@ fn zirBlock(
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    const extra = sema.code.extraData(zir.Inst.MultiOp, inst_data.payload_index);
-    const body = sema.code.extra[extra.end..][0..extra.data.operands_len];
+    const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
+    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
 
     // Reserve space for a Block instruction so that generated Break instructions can
     // point to it, even if it doesn't end up getting used because the code ends up being
@@ -833,7 +843,7 @@ fn zirBlock(
     defer merges.results.deinit(sema.gpa);
     defer merges.br_list.deinit(sema.gpa);
 
-    try sema.analyzeBody(&child_block, body);
+    _ = try sema.analyzeBody(&child_block, body);
 
     return sema.analyzeBlockBody(parent_block, &child_block, merges);
 }
@@ -919,17 +929,17 @@ fn analyzeBlockBody(
     return &merges.block_inst.base;
 }
 
-fn zirBreakpoint(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirBreakpoint(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const src_node = sema.code.instructions.items(.data)[inst].node;
     const src: LazySrcLoc = .{ .node_offset = src_node };
     try sema.requireRuntimeBlock(block, src);
-    return block.addNoOp(src, Type.initTag(.void), .breakpoint);
+    _ = try block.addNoOp(src, Type.initTag(.void), .breakpoint);
 }
 
-fn zirBreak(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirBreak(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -939,7 +949,7 @@ fn zirBreak(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*
     return sema.analyzeBreak(block, sema.src, zir_block, operand);
 }
 
-fn zirBreakVoidTok(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirBreakVoidTok(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -955,7 +965,7 @@ fn analyzeBreak(
     src: LazySrcLoc,
     zir_block: zir.Inst.Index,
     operand: *Inst,
-) InnerError!*Inst {
+) InnerError!zir.Inst.Ref {
     var block = start_block;
     while (true) {
         if (block.label) |*label| {
@@ -981,26 +991,24 @@ fn analyzeBreak(
                 try block.instructions.append(sema.gpa, &br.base);
                 try label.merges.results.append(sema.gpa, operand);
                 try label.merges.br_list.append(sema.gpa, br);
-                return &br.base;
+                return always_noreturn;
             }
         }
         block = block.parent.?;
     }
 }
 
-fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (block.is_comptime) {
-        return sema.mod.constVoid(sema.arena, .unneeded);
-    }
+    if (block.is_comptime) return;
 
     const src_node = sema.code.instructions.items(.data)[inst].node;
     const src: LazySrcLoc = .{ .node_offset = src_node };
     const src_loc = src.toSrcLoc(&block.base);
     const abs_byte_off = try src_loc.byteOffset();
-    return block.addDbgStmt(src, abs_byte_off);
+    _ = try block.addDbgStmt(src, abs_byte_off);
 }
 
 fn zirDeclRef(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -1185,7 +1193,7 @@ fn analyzeCall(
 
         // This will have return instructions analyzed as break instructions to
         // the block_inst above.
-        try sema.root(&child_block);
+        _ = try sema.root(&child_block);
 
         return sema.analyzeBlockBody(block, &child_block, merges);
     }
@@ -1638,7 +1646,7 @@ fn zirErrUnionCodePtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) In
     return block.addUnOp(src, operand.ty.castTag(.error_union).?.data.payload, .unwrap_errunion_err_ptr, operand);
 }
 
-fn zirEnsureErrPayloadVoid(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirEnsureErrPayloadVoid(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1650,7 +1658,6 @@ fn zirEnsureErrPayloadVoid(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Inde
     if (operand.ty.castTag(.error_union).?.data.payload.zigTypeTag() != .Void) {
         return sema.mod.fail(&block.base, src, "expression value is ignored", .{});
     }
-    return sema.mod.constVoid(sema.arena, .unneeded);
 }
 
 fn zirFnType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index, var_args: bool) InnerError!*Inst {
@@ -2067,7 +2074,7 @@ fn zirSwitchBr(
     parent_block: *Scope.Block,
     inst: zir.Inst.Index,
     ref: bool,
-) InnerError!*Inst {
+) InnerError!zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2087,18 +2094,18 @@ fn zirSwitchBr(
             const item = try sema.resolveConstValue(parent_block, case_src, casted);
 
             if (target_val.eql(item)) {
-                try sema.analyzeBody(parent_block, case.body);
-                return sema.mod.constNoReturn(sema.arena, inst.base.src);
+                _ = try sema.analyzeBody(parent_block, case.body);
+                return always_noreturn;
             }
         }
-        try sema.analyzeBody(parent_block, inst.positionals.else_body);
-        return sema.mod.constNoReturn(sema.arena, inst.base.src);
+        _ = try sema.analyzeBody(parent_block, inst.positionals.else_body);
+        return always_noreturn;
     }
 
     if (inst.positionals.cases.len == 0) {
         // no cases just analyze else_branch
-        try sema.analyzeBody(parent_block, inst.positionals.else_body);
-        return sema.mod.constNoReturn(sema.arena, inst.base.src);
+        _ = try sema.analyzeBody(parent_block, inst.positionals.else_body);
+        return always_noreturn;
     }
 
     try sema.requireRuntimeBlock(parent_block, inst.base.src);
@@ -2122,7 +2129,7 @@ fn zirSwitchBr(
         const casted = try sema.coerce(block, target.ty, resolved, resolved_src);
         const item = try sema.resolveConstValue(parent_block, case_src, casted);
 
-        try sema.analyzeBody(&case_block, case.body);
+        _ = try sema.analyzeBody(&case_block, case.body);
 
         cases[i] = .{
             .item = item,
@@ -2131,7 +2138,7 @@ fn zirSwitchBr(
     }
 
     case_block.instructions.items.len = 0;
-    try sema.analyzeBody(&case_block, inst.positionals.else_body);
+    _ = try sema.analyzeBody(&case_block, inst.positionals.else_body);
 
     const else_body: ir.Body = .{
         .instructions = try sema.arena.dupe(*Inst, case_block.instructions.items),
@@ -2719,6 +2726,75 @@ fn zirBoolOp(
     return block.addBinOp(src, bool_type, tag, lhs, rhs);
 }
 
+fn zirBoolBr(
+    sema: *Sema,
+    parent_block: *Scope.Block,
+    inst: zir.Inst.Index,
+    is_bool_or: bool,
+) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].bool_br;
+    const src: LazySrcLoc = .unneeded;
+    const lhs = try sema.resolveInst(inst_data.lhs);
+    const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
+    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
+
+    if (try sema.resolveDefinedValue(parent_block, src, lhs)) |lhs_val| {
+        if (lhs_val.toBool() == is_bool_or) {
+            return sema.mod.constBool(sema.arena, src, is_bool_or);
+        }
+        // comptime-known left-hand side. No need for a block here; the result
+        // is simply the rhs expression. Here we rely on there only being 1
+        // break instruction (`break_flat`).
+        const zir_inst_ref = try sema.analyzeBody(parent_block, body);
+        return sema.resolveInst(zir_inst_ref);
+    }
+
+    const block_inst = try sema.arena.create(Inst.Block);
+    block_inst.* = .{
+        .base = .{
+            .tag = Inst.Block.base_tag,
+            .ty = Type.initTag(.bool),
+            .src = src,
+        },
+        .body = undefined,
+    };
+
+    var child_block = parent_block.makeSubBlock();
+    defer child_block.instructions.deinit(sema.gpa);
+
+    var then_block = child_block.makeSubBlock();
+    defer then_block.instructions.deinit(sema.gpa);
+
+    var else_block = child_block.makeSubBlock();
+    defer else_block.instructions.deinit(sema.gpa);
+
+    const lhs_block = if (is_bool_or) &then_block else &else_block;
+    const rhs_block = if (is_bool_or) &else_block else &then_block;
+
+    const lhs_result = try sema.mod.constInst(sema.arena, src, .{
+        .ty = Type.initTag(.bool),
+        .val = if (is_bool_or) Value.initTag(.bool_true) else Value.initTag(.bool_false),
+    });
+    _ = try lhs_block.addBr(src, block_inst, lhs_result);
+
+    const rhs_result_zir_ref = try sema.analyzeBody(rhs_block, body);
+    const rhs_result = try sema.resolveInst(rhs_result_zir_ref);
+    _ = try rhs_block.addBr(src, block_inst, rhs_result);
+
+    const tzir_then_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, then_block.instructions.items) };
+    const tzir_else_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, rhs_block.instructions.items) };
+    _ = try child_block.addCondBr(src, lhs, tzir_then_body, tzir_else_body);
+
+    block_inst.body = .{
+        .instructions = try sema.arena.dupe(*Inst, child_block.instructions.items),
+    };
+    try parent_block.instructions.append(sema.gpa, &block_inst.base);
+    return &block_inst.base;
+}
+
 fn zirIsNull(
     sema: *Sema,
     block: *Scope.Block,
@@ -2770,7 +2846,11 @@ fn zirIsErrPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     return sema.analyzeIsErr(block, src, loaded);
 }
 
-fn zirCondbr(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirCondbr(
+    sema: *Sema,
+    parent_block: *Scope.Block,
+    inst: zir.Inst.Index,
+) InnerError!zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2787,8 +2867,8 @@ fn zirCondbr(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) Inne
 
     if (try sema.resolveDefinedValue(parent_block, src, cond)) |cond_val| {
         const body = if (cond_val.toBool()) then_body else else_body;
-        try sema.analyzeBody(parent_block, body);
-        return sema.mod.constNoReturn(sema.arena, src);
+        _ = try sema.analyzeBody(parent_block, body);
+        return always_noreturn;
     }
 
     var true_block: Scope.Block = .{
@@ -2800,7 +2880,7 @@ fn zirCondbr(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) Inne
         .is_comptime = parent_block.is_comptime,
     };
     defer true_block.instructions.deinit(sema.gpa);
-    try sema.analyzeBody(&true_block, then_body);
+    _ = try sema.analyzeBody(&true_block, then_body);
 
     var false_block: Scope.Block = .{
         .parent = parent_block,
@@ -2811,14 +2891,15 @@ fn zirCondbr(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) Inne
         .is_comptime = parent_block.is_comptime,
     };
     defer false_block.instructions.deinit(sema.gpa);
-    try sema.analyzeBody(&false_block, else_body);
+    _ = try sema.analyzeBody(&false_block, else_body);
 
     const tzir_then_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, true_block.instructions.items) };
     const tzir_else_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, false_block.instructions.items) };
-    return parent_block.addCondBr(src, cond, tzir_then_body, tzir_else_body);
+    _ = try parent_block.addCondBr(src, cond, tzir_then_body, tzir_else_body);
+    return always_noreturn;
 }
 
-fn zirUnreachable(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirUnreachable(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2830,7 +2911,8 @@ fn zirUnreachable(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
     if (safety_check and block.wantSafety()) {
         return sema.safetyPanic(block, src, .unreach);
     } else {
-        return block.addNoOp(src, Type.initTag(.noreturn), .unreach);
+        _ = try block.addNoOp(src, Type.initTag(.noreturn), .unreach);
+        return always_noreturn;
     }
 }
 
@@ -2839,7 +2921,7 @@ fn zirRetTok(
     block: *Scope.Block,
     inst: zir.Inst.Index,
     need_coercion: bool,
-) InnerError!*Inst {
+) InnerError!zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2850,7 +2932,7 @@ fn zirRetTok(
     return sema.analyzeRet(block, operand, src, need_coercion);
 }
 
-fn zirRetNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirRetNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2867,22 +2949,24 @@ fn analyzeRet(
     operand: *Inst,
     src: LazySrcLoc,
     need_coercion: bool,
-) InnerError!*Inst {
+) InnerError!zir.Inst.Ref {
     if (block.inlining) |inlining| {
         // We are inlining a function call; rewrite the `ret` as a `break`.
         try inlining.merges.results.append(sema.gpa, operand);
-        const br = try block.addBr(src, inlining.merges.block_inst, operand);
-        return &br.base;
+        _ = try block.addBr(src, inlining.merges.block_inst, operand);
+        return always_noreturn;
     }
 
     if (need_coercion) {
         if (sema.func) |func| {
             const fn_ty = func.owner_decl.typed_value.most_recent.typed_value.ty;
             const casted_operand = try sema.coerce(block, fn_ty.fnReturnType(), operand, src);
-            return block.addUnOp(src, Type.initTag(.noreturn), .ret, casted_operand);
+            _ = try block.addUnOp(src, Type.initTag(.noreturn), .ret, casted_operand);
+            return always_noreturn;
         }
     }
-    return block.addUnOp(src, Type.initTag(.noreturn), .ret, operand);
+    _ = try block.addUnOp(src, Type.initTag(.noreturn), .ret, operand);
+    return always_noreturn;
 }
 
 fn floatOpAllowed(tag: zir.Inst.Tag) bool {
@@ -3051,10 +3135,11 @@ fn addSafetyCheck(sema: *Sema, parent_block: *Scope.Block, ok: *Inst, panic_id: 
     try parent_block.instructions.append(sema.gpa, &block_inst.base);
 }
 
-fn safetyPanic(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, panic_id: PanicId) !*Inst {
+fn safetyPanic(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, panic_id: PanicId) !zir.Inst.Ref {
     // TODO Once we have a panic function to call, call it here instead of breakpoint.
     _ = try block.addNoOp(src, Type.initTag(.void), .breakpoint);
-    return block.addNoOp(src, Type.initTag(.noreturn), .unreach);
+    _ = try block.addNoOp(src, Type.initTag(.noreturn), .unreach);
+    return always_noreturn;
 }
 
 fn emitBackwardBranch(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void {
@@ -3405,20 +3490,20 @@ fn storePtr(
     src: LazySrcLoc,
     ptr: *Inst,
     uncasted_value: *Inst,
-) !*Inst {
+) !void {
     if (ptr.ty.isConstPtr())
         return sema.mod.fail(&block.base, src, "cannot assign to constant", .{});
 
     const elem_ty = ptr.ty.elemType();
     const value = try sema.coerce(block, elem_ty, uncasted_value, uncasted_value.src);
     if (elem_ty.onePossibleValue() != null)
-        return sema.mod.constVoid(sema.arena, .unneeded);
+        return;
 
     // TODO handle comptime pointer writes
     // TODO handle if the element type requires comptime
 
     try sema.requireRuntimeBlock(block, src);
-    return block.addBinOp(src, Type.initTag(.void), .store, ptr, value);
+    _ = try block.addBinOp(src, Type.initTag(.void), .store, ptr, value);
 }
 
 fn bitcast(sema: *Sema, block: *Scope.Block, dest_type: Type, inst: *Inst) !*Inst {
