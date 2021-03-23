@@ -2766,7 +2766,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a = arg_a;
         \\    var i: c_int = 0;
         \\    while (a > @bitCast(c_uint, @as(c_int, 0))) {
-        \\        a >>= @intCast(@import("std").math.Log2Int(c_int), 1);
+        \\        a >>= @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
         \\    }
         \\    return i;
         \\}
@@ -2786,7 +2786,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a = arg_a;
         \\    var i: c_int = 0;
         \\    while (a > @bitCast(c_uint, @as(c_int, 0))) {
-        \\        a >>= @intCast(@import("std").math.Log2Int(c_int), 1);
+        \\        a >>= @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
         \\    }
         \\    return i;
         \\}

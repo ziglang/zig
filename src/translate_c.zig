@@ -3197,43 +3197,34 @@ fn transCreateCompoundAssign(
     const requires_int_cast = blk: {
         const are_integers = cIsInteger(lhs_qt) and cIsInteger(rhs_qt);
         const are_same_sign = cIsSignedInteger(lhs_qt) == cIsSignedInteger(rhs_qt);
-        break :blk are_integers and !are_same_sign;
+        break :blk are_integers and !(are_same_sign and cIntTypeCmp(lhs_qt, rhs_qt) == .eq);
     };
+
     if (used == .unused) {
         // common case
         // c: lhs += rhs
         // zig: lhs += rhs
+        const lhs_node = try transExpr(c, scope, lhs, .used);
+        var rhs_node = try transExpr(c, scope, rhs, .used);
+        if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
+
         if ((is_mod or is_div) and is_signed) {
-            const lhs_node = try transExpr(c, scope, lhs, .used);
-            const rhs_node = try transExpr(c, scope, rhs, .used);
+            if (requires_int_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
+            const operands = .{ .lhs = lhs_node, .rhs = rhs_node };
             const builtin = if (is_mod)
-                try Tag.rem.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node })
+                try Tag.rem.create(c.arena, operands)
             else
-                try Tag.div_trunc.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
+                try Tag.div_trunc.create(c.arena, operands);
 
             return transCreateNodeInfixOp(c, scope, .assign, lhs_node, builtin, .used);
         }
 
-        const lhs_node = try transExpr(c, scope, lhs, .used);
-        var rhs_node = if (is_shift or requires_int_cast)
-            try transExprCoercing(c, scope, rhs, .used)
-        else
-            try transExpr(c, scope, rhs, .used);
-
-        if (is_ptr_op_signed) {
-            rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
-        }
-
-        if (is_shift or requires_int_cast) {
-            // @intCast(rhs)
-            const cast_to_type = if (is_shift)
-                try qualTypeToLog2IntRef(c, scope, getExprQualType(c, rhs), loc)
-            else
-                try transQualType(c, scope, getExprQualType(c, lhs), loc);
-
+        if (is_shift) {
+            const cast_to_type = try qualTypeToLog2IntRef(c, scope, rhs_qt, loc);
             rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
+        } else if (requires_int_cast) {
+            rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
         }
-
         return transCreateNodeInfixOp(c, scope, op, lhs_node, rhs_node, .used);
     }
     // worst case
@@ -3255,29 +3246,24 @@ fn transCreateCompoundAssign(
     const lhs_node = try Tag.identifier.create(c.arena, ref);
     const ref_node = try Tag.deref.create(c.arena, lhs_node);
 
+    var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
+    if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
     if ((is_mod or is_div) and is_signed) {
-        const rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
+        if (requires_int_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
+        const operands = .{ .lhs = ref_node, .rhs = rhs_node };
         const builtin = if (is_mod)
-            try Tag.rem.create(c.arena, .{ .lhs = ref_node, .rhs = rhs_node })
+            try Tag.rem.create(c.arena, operands)
         else
-            try Tag.div_trunc.create(c.arena, .{ .lhs = ref_node, .rhs = rhs_node });
+            try Tag.div_trunc.create(c.arena, operands);
 
         const assign = try transCreateNodeInfixOp(c, &block_scope.base, .assign, ref_node, builtin, .used);
         try block_scope.statements.append(assign);
     } else {
-        var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
-
-        if (is_shift or requires_int_cast) {
-            // @intCast(rhs)
-            const cast_to_type = if (is_shift)
-                try qualTypeToLog2IntRef(c, scope, getExprQualType(c, rhs), loc)
-            else
-                try transQualType(c, scope, getExprQualType(c, lhs), loc);
-
+        if (is_shift) {
+            const cast_to_type = try qualTypeToLog2IntRef(c, &block_scope.base, rhs_qt, loc);
             rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
-        }
-        if (is_ptr_op_signed) {
-            rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
+        } else if (requires_int_cast) {
+            rhs_node = try transCCast(c, &block_scope.base, loc, lhs_qt, rhs_qt, rhs_node);
         }
 
         const assign = try transCreateNodeInfixOp(c, &block_scope.base, op, ref_node, rhs_node, .used);
