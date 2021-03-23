@@ -727,6 +727,11 @@ pub const FuncGen = struct {
     }
 
     fn genRet(self: *FuncGen, inst: *Inst.UnOp) !?*const llvm.Value {
+        if (!inst.operand.ty.hasCodeGenBits()) {
+            // TODO: in astgen these instructions should turn into `retvoid` instructions.
+            _ = self.builder.buildRetVoid();
+            return null;
+        }
         _ = self.builder.buildRet(try self.resolveInst(inst.operand));
         return null;
     }
