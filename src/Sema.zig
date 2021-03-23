@@ -588,7 +588,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Inde
     const ptr_val = ptr.castTag(.constant).?.val;
     const inferred_alloc = ptr_val.castTag(.inferred_alloc).?;
     const peer_inst_list = inferred_alloc.data.stored_inst_list.items;
-    const final_elem_ty = try sema.resolvePeerTypes(block, peer_inst_list);
+    const final_elem_ty = try sema.resolvePeerTypes(block, ty_src, peer_inst_list);
     const var_is_mut = switch (ptr.ty.tag()) {
         .inferred_alloc_const => false,
         .inferred_alloc_mut => true,
@@ -899,7 +899,7 @@ fn analyzeBlockBody(
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
     try parent_block.instructions.append(sema.gpa, &merges.block_inst.base);
-    const resolved_ty = try sema.resolvePeerTypes(parent_block, merges.results.items);
+    const resolved_ty = try sema.resolvePeerTypes(parent_block, .todo, merges.results.items);
     merges.block_inst.base.ty = resolved_ty;
     merges.block_inst.body = .{
         .instructions = try sema.arena.dupe(*Inst, child_block.instructions.items),
@@ -2347,7 +2347,7 @@ fn zirBitwise(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const rhs = try sema.resolveInst(bin_inst.rhs);
 
     const instructions = &[_]*Inst{ lhs, rhs };
-    const resolved_type = try sema.resolvePeerTypes(block, instructions);
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions);
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs.src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs.src);
 
@@ -2433,7 +2433,7 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     const rhs = try sema.resolveInst(extra.rhs);
 
     const instructions = &[_]*Inst{ lhs, rhs };
-    const resolved_type = try sema.resolvePeerTypes(block, instructions);
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions);
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
@@ -2694,7 +2694,7 @@ fn zirTypeofPeer(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
         inst_list[i] = try sema.resolveInst(arg_ref);
     }
 
-    const result_type = try sema.resolvePeerTypes(block, inst_list);
+    const result_type = try sema.resolvePeerTypes(block, src, inst_list);
     return sema.mod.constType(sema.arena, src, result_type);
 }
 
@@ -4028,7 +4028,7 @@ fn wrapErrorUnion(sema: *Sema, block: *Scope.Block, dest_type: Type, inst: *Inst
     }
 }
 
-fn resolvePeerTypes(sema: *Sema, block: *Scope.Block, instructions: []*Inst) !Type {
+fn resolvePeerTypes(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, instructions: []*Inst) !Type {
     if (instructions.len == 0)
         return Type.initTag(.noreturn);
 
@@ -4079,7 +4079,7 @@ fn resolvePeerTypes(sema: *Sema, block: *Scope.Block, instructions: []*Inst) !Ty
         }
 
         // TODO error notes pointing out each type
-        return sema.mod.fail(&block.base, candidate.src, "incompatible types: '{}' and '{}'", .{ chosen.ty, candidate.ty });
+        return sema.mod.fail(&block.base, src, "incompatible types: '{}' and '{}'", .{ chosen.ty, candidate.ty });
     }
 
     return chosen.ty;
