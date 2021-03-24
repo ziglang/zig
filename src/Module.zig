@@ -935,11 +935,11 @@ pub const Scope = struct {
         break_count: usize = 0,
         /// Tracks `break :foo bar` instructions so they can possibly be elided later if
         /// the labeled block ends up not needing a result location pointer.
-        labeled_breaks: std.ArrayListUnmanaged(zir.Inst.Index) = .{},
+        labeled_breaks: std.ArrayListUnmanaged(zir.Inst.Ref) = .{},
         /// Tracks `store_to_block_ptr` instructions that correspond to break instructions
         /// so they can possibly be elided later if the labeled block ends up not needing
         /// a result location pointer.
-        labeled_store_to_block_ptr_list: std.ArrayListUnmanaged(zir.Inst.Index) = .{},
+        labeled_store_to_block_ptr_list: std.ArrayListUnmanaged(zir.Inst.Ref) = .{},
 
         pub const Label = struct {
             token: ast.TokenIndex,
@@ -1218,6 +1218,35 @@ pub const Scope = struct {
                 .data = .{ .str_tok = .{
                     .start = str_index,
                     .src_tok = abs_tok_index - gz.zir_code.decl.srcToken(),
+                } },
+            });
+        }
+
+        pub fn addBreak(
+            gz: *GenZir,
+            break_block: zir.Inst.Index,
+            operand: zir.Inst.Ref,
+        ) !zir.Inst.Ref {
+            return try gz.add(.{
+                .tag = .@"break",
+                .data = .{ .@"break" = .{
+                    .block_inst = break_block,
+                    .operand = operand,
+                } },
+            });
+        }
+
+        pub fn addBreakVoid(
+            inner_gz: *GenZir,
+            block_gz: *GenZir,
+            break_block: zir.Inst.Index,
+            node_index: ast.Node.Index,
+        ) !zir.Inst.Ref {
+            return try inner_gz.add(.{
+                .tag = .break_void_node,
+                .data = .{ .break_void_node = .{
+                    .src_node = block_gz.zir_code.decl.nodeIndexToRelative(node_index),
+                    .block_inst = break_block,
                 } },
             });
         }
