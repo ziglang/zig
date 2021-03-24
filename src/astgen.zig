@@ -58,11 +58,8 @@ pub const ResultLoc = union(enum) {
     };
 };
 
-const void_inst: zir.Inst.Ref = @enumToInt(zir.Const.void_value);
-
 pub fn typeExpr(mod: *Module, scope: *Scope, type_node: ast.Node.Index) InnerError!zir.Inst.Ref {
-    const type_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.type_type) };
-    return expr(mod, scope, type_rl, type_node);
+    return expr(mod, scope, .{ .ty = .type_type }, type_node);
 }
 
 fn lvalExpr(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
@@ -291,59 +288,59 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
 
         .assign => {
             try assign(mod, scope, node);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_bit_and => {
             try assignOp(mod, scope, node, .bit_and);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_bit_or => {
             try assignOp(mod, scope, node, .bit_or);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_bit_shift_left => {
             try assignOp(mod, scope, node, .shl);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_bit_shift_right => {
             try assignOp(mod, scope, node, .shr);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_bit_xor => {
             try assignOp(mod, scope, node, .xor);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_div => {
             try assignOp(mod, scope, node, .div);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_sub => {
             try assignOp(mod, scope, node, .sub);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_sub_wrap => {
             try assignOp(mod, scope, node, .subwrap);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_mod => {
             try assignOp(mod, scope, node, .mod_rem);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_add => {
             try assignOp(mod, scope, node, .add);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_add_wrap => {
             try assignOp(mod, scope, node, .addwrap);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_mul => {
             try assignOp(mod, scope, node, .mul);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
         .assign_mul_wrap => {
             try assignOp(mod, scope, node, .mulwrap);
-            return rvalue(mod, scope, rl, void_inst, node);
+            return rvalue(mod, scope, rl, .void_value, node);
         },
 
         .add => return simpleBinOp(mod, scope, rl, node, .add),
@@ -450,22 +447,10 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             const result = try expr(mod, scope, .ref, node_datas[node].lhs);
             return rvalue(mod, scope, rl, result, node);
         },
-        .undefined_literal => {
-            const result = @enumToInt(zir.Const.undef);
-            return rvalue(mod, scope, rl, result, node);
-        },
-        .true_literal => {
-            const result = @enumToInt(zir.Const.bool_true);
-            return rvalue(mod, scope, rl, result, node);
-        },
-        .false_literal => {
-            const result = @enumToInt(zir.Const.bool_false);
-            return rvalue(mod, scope, rl, result, node);
-        },
-        .null_literal => {
-            const result = @enumToInt(zir.Const.null_value);
-            return rvalue(mod, scope, rl, result, node);
-        },
+        .undefined_literal => return rvalue(mod, scope, rl, .undef, node),
+        .true_literal => return rvalue(mod, scope, rl, .bool_true, node),
+        .false_literal => return rvalue(mod, scope, rl, .bool_false, node),
+        .null_literal => return rvalue(mod, scope, rl, .null_value, node),
         .optional_type => {
             const operand = try typeExpr(mod, scope, node_datas[node].lhs);
             const result = try gz.addUnNode(.optional_type, operand, node);
@@ -830,7 +815,7 @@ pub fn blockExpr(
     }
 
     try blockExprStmts(mod, scope, block_node, statements);
-    return rvalue(mod, scope, rl, void_inst, block_node);
+    return rvalue(mod, scope, rl, .void_value, block_node);
 }
 
 fn checkLabelRedefinition(mod: *Module, parent_scope: *Scope, label: ast.TokenIndex) !void {
@@ -935,13 +920,13 @@ fn labeledBlockExpr(
             // The code took advantage of the result location as a pointer.
             // Turn the break instruction operands into void.
             for (block_scope.labeled_breaks.items) |br| {
-                zir_datas[br].@"break".operand = @enumToInt(zir.Const.void_value);
+                zir_datas[br].@"break".operand = .void_value;
             }
             // TODO technically not needed since we changed the tag to break_void but
             // would be better still to elide the ones that are in this list.
             try block_scope.setBlockBody(block_inst);
 
-            return gz.zir_code.ref_start_index + block_inst;
+            return zir.Inst.Ref.fromIndex(block_inst, gz.zir_code.param_count);
         },
         .break_operand => {
             // All break operands are values that did not use the result location pointer.
@@ -954,7 +939,7 @@ fn labeledBlockExpr(
                 // would be better still to elide the ones that are in this list.
             }
             try block_scope.setBlockBody(block_inst);
-            const block_ref = gz.zir_code.ref_start_index + block_inst;
+            const block_ref = zir.Inst.Ref.fromIndex(block_inst, gz.zir_code.param_count);
             switch (rl) {
                 .ref => return block_ref,
                 else => return rvalue(mod, parent_scope, rl, block_ref, block_node),
@@ -1006,8 +991,7 @@ fn blockExprStmts(
                 // We need to emit an error if the result is not `noreturn` or `void`, but
                 // we want to avoid adding the ZIR instruction if possible for performance.
                 const maybe_unused_result = try expr(mod, scope, .none, statement);
-                const elide_check = if (maybe_unused_result >= gz.zir_code.ref_start_index) b: {
-                    const inst = maybe_unused_result - gz.zir_code.ref_start_index;
+                const elide_check = if (maybe_unused_result.toIndex(gz.zir_code.param_count)) |inst| b: {
                     // Note that this array becomes invalid after appending more items to it
                     // in the above while loop.
                     const zir_tags = gz.zir_code.instructions.items(.tag);
@@ -1167,10 +1151,10 @@ fn blockExprStmts(
                         => break :b true,
                     }
                 } else switch (maybe_unused_result) {
-                    @enumToInt(zir.Const.unused) => unreachable,
+                    .none => unreachable,
 
-                    @enumToInt(zir.Const.void_value),
-                    @enumToInt(zir.Const.unreachable_value),
+                    .void_value,
+                    .unreachable_value,
                     => true,
 
                     else => false,
@@ -1283,8 +1267,8 @@ fn varDecl(
             };
             defer init_scope.instructions.deinit(mod.gpa);
 
-            var resolve_inferred_alloc: zir.Inst.Ref = 0;
-            var opt_type_inst: zir.Inst.Ref = 0;
+            var resolve_inferred_alloc: zir.Inst.Ref = .none;
+            var opt_type_inst: zir.Inst.Ref = .none;
             if (var_decl.ast.type_node != 0) {
                 const type_inst = try typeExpr(mod, &init_scope.base, var_decl.ast.type_node);
                 opt_type_inst = type_inst;
@@ -1308,14 +1292,14 @@ fn varDecl(
                 const expected_len = parent_zir.items.len + init_scope.instructions.items.len - 2;
                 try parent_zir.ensureCapacity(mod.gpa, expected_len);
                 for (init_scope.instructions.items) |src_inst| {
-                    if (wzc.ref_start_index + src_inst == init_scope.rl_ptr) continue;
+                    if (zir.Inst.Ref.fromIndex(src_inst, wzc.param_count) == init_scope.rl_ptr) continue;
                     if (zir_tags[src_inst] == .store_to_block_ptr) {
                         if (zir_datas[src_inst].bin.lhs == init_scope.rl_ptr) continue;
                     }
                     parent_zir.appendAssumeCapacity(src_inst);
                 }
                 assert(parent_zir.items.len == expected_len);
-                const casted_init = if (opt_type_inst != 0)
+                const casted_init = if (opt_type_inst != .none)
                     try gz.addPlNode(.as_node, var_decl.ast.type_node, zir.Inst.As{
                         .dest_type = opt_type_inst,
                         .operand = init_inst,
@@ -1348,7 +1332,7 @@ fn varDecl(
                 parent_zir.appendAssumeCapacity(src_inst);
             }
             assert(parent_zir.items.len == expected_len);
-            if (resolve_inferred_alloc != 0) {
+            if (resolve_inferred_alloc != .none) {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
             const sub_scope = try block_arena.create(Scope.LocalPtr);
@@ -1362,7 +1346,7 @@ fn varDecl(
             return &sub_scope.base;
         },
         .keyword_var => {
-            var resolve_inferred_alloc: zir.Inst.Ref = 0;
+            var resolve_inferred_alloc: zir.Inst.Ref = .none;
             const var_data: struct {
                 result_loc: ResultLoc,
                 alloc: zir.Inst.Ref,
@@ -1377,7 +1361,7 @@ fn varDecl(
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };
             const init_inst = try expr(mod, scope, var_data.result_loc, var_decl.ast.init_node);
-            if (resolve_inferred_alloc != 0) {
+            if (resolve_inferred_alloc != .none) {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
             const sub_scope = try block_arena.create(Scope.LocalPtr);
@@ -1440,7 +1424,7 @@ fn boolNot(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
 
-    const operand = try expr(mod, scope, .{ .ty = @enumToInt(zir.Const.bool_type) }, node_datas[node].lhs);
+    const operand = try expr(mod, scope, .{ .ty = .bool_type }, node_datas[node].lhs);
     const gz = scope.getGenZir();
     const result = try gz.addUnNode(.bool_not, operand, node);
     return rvalue(mod, scope, rl, result, node);
@@ -1501,10 +1485,10 @@ fn ptrType(
         return rvalue(mod, scope, rl, result, node);
     }
 
-    var sentinel_ref: zir.Inst.Ref = 0;
-    var align_ref: zir.Inst.Ref = 0;
-    var bit_start_ref: zir.Inst.Ref = 0;
-    var bit_end_ref: zir.Inst.Ref = 0;
+    var sentinel_ref: zir.Inst.Ref = .none;
+    var align_ref: zir.Inst.Ref = .none;
+    var bit_start_ref: zir.Inst.Ref = .none;
+    var bit_end_ref: zir.Inst.Ref = .none;
     var trailing_count: u32 = 0;
 
     if (ptr_info.ast.sentinel != 0) {
@@ -1529,24 +1513,28 @@ fn ptrType(
         @typeInfo(zir.Inst.PtrType).Struct.fields.len + trailing_count);
 
     const payload_index = gz.zir_code.addExtraAssumeCapacity(zir.Inst.PtrType{ .elem_type = elem_type });
-    if (sentinel_ref != 0) gz.zir_code.extra.appendAssumeCapacity(sentinel_ref);
-    if (align_ref != 0) gz.zir_code.extra.appendAssumeCapacity(align_ref);
-    if (bit_start_ref != 0) {
-        gz.zir_code.extra.appendAssumeCapacity(bit_start_ref);
-        gz.zir_code.extra.appendAssumeCapacity(bit_end_ref);
+    if (sentinel_ref != .none) {
+        gz.zir_code.extra.appendAssumeCapacity(@enumToInt(sentinel_ref));
+    }
+    if (align_ref != .none) {
+        gz.zir_code.extra.appendAssumeCapacity(@enumToInt(align_ref));
+    }
+    if (bit_start_ref != .none) {
+        gz.zir_code.extra.appendAssumeCapacity(@enumToInt(bit_start_ref));
+        gz.zir_code.extra.appendAssumeCapacity(@enumToInt(bit_end_ref));
     }
 
     const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
-    const result = new_index + gz.zir_code.ref_start_index;
+    const result = zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
     gz.zir_code.instructions.appendAssumeCapacity(.{ .tag = .ptr_type, .data = .{
         .ptr_type = .{
             .flags = .{
                 .is_allowzero = ptr_info.allowzero_token != null,
                 .is_mutable = ptr_info.const_token == null,
                 .is_volatile = ptr_info.volatile_token != null,
-                .has_sentinel = sentinel_ref != 0,
-                .has_align = align_ref != 0,
-                .has_bit_range = bit_start_ref != 0,
+                .has_sentinel = sentinel_ref != .none,
+                .has_align = align_ref != .none,
+                .has_bit_range = bit_start_ref != .none,
             },
             .size = ptr_info.size,
             .payload_index = payload_index,
@@ -1561,10 +1549,9 @@ fn arrayType(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !
     const tree = scope.tree();
     const node_datas = tree.nodes.items(.data);
     const gz = scope.getGenZir();
-    const usize_type = @enumToInt(zir.Const.usize_type);
 
     // TODO check for [_]T
-    const len = try expr(mod, scope, .{ .ty = usize_type }, node_datas[node].lhs);
+    const len = try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].lhs);
     const elem_type = try typeExpr(mod, scope, node_datas[node].rhs);
 
     const result = try gz.addBin(.array_type, len, elem_type);
@@ -1576,10 +1563,9 @@ fn arrayTypeSentinel(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.
     const node_datas = tree.nodes.items(.data);
     const extra = tree.extraData(node_datas[node].rhs, ast.Node.ArrayTypeSentinel);
     const gz = scope.getGenZir();
-    const usize_type = @enumToInt(zir.Const.usize_type);
 
     // TODO check for [_]T
-    const len = try expr(mod, scope, .{ .ty = usize_type }, node_datas[node].lhs);
+    const len = try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].lhs);
     const elem_type = try typeExpr(mod, scope, extra.elem_type);
     const sentinel = try expr(mod, scope, .{ .ty = elem_type }, extra.sentinel);
 
@@ -1784,7 +1770,7 @@ fn finishThenElseBlock(
                     } },
                 });
             }
-            const elide_else = if (else_result != 0) wzc.refIsNoReturn(else_result) else false;
+            const elide_else = if (else_result != .none) wzc.refIsNoReturn(else_result) else false;
             if (!elide_else) {
                 _ = try else_scope.add(.{
                     .tag = .break_void_node,
@@ -1796,7 +1782,7 @@ fn finishThenElseBlock(
             }
             assert(!strat.elide_store_to_block_ptr_instructions);
             try setCondBrPayload(condbr, cond, then_scope, else_scope);
-            return wzc.ref_start_index + main_block;
+            return zir.Inst.Ref.fromIndex(main_block, wzc.param_count);
         },
         .break_operand => {
             if (!wzc.refIsNoReturn(then_result)) {
@@ -1808,7 +1794,7 @@ fn finishThenElseBlock(
                     } },
                 });
             }
-            if (else_result != 0) {
+            if (else_result != .none) {
                 if (!wzc.refIsNoReturn(else_result)) {
                     _ = try else_scope.add(.{
                         .tag = .@"break",
@@ -1832,7 +1818,7 @@ fn finishThenElseBlock(
             } else {
                 try setCondBrPayload(condbr, cond, then_scope, else_scope);
             }
-            const block_ref = wzc.ref_start_index + main_block;
+            const block_ref = zir.Inst.Ref.fromIndex(main_block, wzc.param_count);
             switch (rl) {
                 .ref => return block_ref,
                 else => return rvalue(mod, parent_scope, rl, block_ref, node),
@@ -1981,9 +1967,8 @@ fn boolBinOp(
 ) InnerError!zir.Inst.Ref {
     const gz = scope.getGenZir();
     const node_datas = gz.tree().nodes.items(.data);
-    const bool_type = @enumToInt(zir.Const.bool_type);
 
-    const lhs = try expr(mod, scope, .{ .ty = bool_type }, node_datas[node].lhs);
+    const lhs = try expr(mod, scope, .{ .ty = .bool_type }, node_datas[node].lhs);
     const bool_br = try gz.addBoolBr(zir_tag, lhs);
 
     var rhs_scope: Scope.GenZir = .{
@@ -1992,11 +1977,11 @@ fn boolBinOp(
         .force_comptime = gz.force_comptime,
     };
     defer rhs_scope.instructions.deinit(mod.gpa);
-    const rhs = try expr(mod, &rhs_scope.base, .{ .ty = bool_type }, node_datas[node].rhs);
+    const rhs = try expr(mod, &rhs_scope.base, .{ .ty = .bool_type }, node_datas[node].rhs);
     _ = try rhs_scope.addUnNode(.break_flat, rhs, node);
     try rhs_scope.setBoolBrBody(bool_br);
 
-    const block_ref = gz.zir_code.ref_start_index + bool_br;
+    const block_ref = zir.Inst.Ref.fromIndex(bool_br, gz.zir_code.param_count);
     return rvalue(mod, scope, rl, block_ref, node);
 }
 
@@ -2024,8 +2009,7 @@ fn ifExpr(
         } else if (if_full.payload_token) |payload_token| {
             return mod.failTok(scope, payload_token, "TODO implement if optional", .{});
         } else {
-            const bool_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.bool_type) };
-            break :c try expr(mod, &block_scope.base, bool_rl, if_full.ast.cond_expr);
+            break :c try expr(mod, &block_scope.base, .{ .ty = .bool_type }, if_full.ast.cond_expr);
         }
     };
 
@@ -2073,7 +2057,7 @@ fn ifExpr(
         };
     } else .{
         .src = if_full.ast.then_expr,
-        .result = 0,
+        .result = .none,
     };
 
     return finishThenElseBlock(
@@ -2185,7 +2169,7 @@ fn whileExpr(
         } else if (while_full.payload_token) |payload_token| {
             return mod.failTok(scope, payload_token, "TODO implement while optional", .{});
         } else {
-            const bool_type_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.bool_type) };
+            const bool_type_rl: ResultLoc = .{ .ty = .bool_type };
             break :c try expr(mod, &continue_scope.base, bool_type_rl, while_full.ast.cond_expr);
         }
     };
@@ -2200,8 +2184,7 @@ fn whileExpr(
     // and there are no `continue` statements.
     // The "repeat" at the end of a loop body is implied.
     if (while_full.ast.cont_expr != 0) {
-        const void_type_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.void_type) };
-        _ = try expr(mod, &loop_scope.base, void_type_rl, while_full.ast.cont_expr);
+        _ = try expr(mod, &loop_scope.base, .{ .ty = .void_type }, while_full.ast.cont_expr);
     }
     const is_inline = while_full.inline_token != null;
     const repeat_tag: zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
@@ -2251,7 +2234,7 @@ fn whileExpr(
         };
     } else .{
         .src = while_full.ast.then_expr,
-        .result = 0,
+        .result = .none,
     };
 
     if (loop_scope.label) |some| {
@@ -2838,7 +2821,7 @@ fn ret(mod: *Module, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Re
             .ty = try gz.addNode(.ret_type, node),
         };
         break :operand try expr(mod, scope, rl, operand_node);
-    } else void_inst;
+    } else .void_value;
     return gz.addUnNode(.ret_node, operand, node);
 }
 
@@ -2862,8 +2845,8 @@ fn identifier(
         return mod.failNode(scope, ident, "TODO implement '_' identifier", .{});
     }
 
-    if (simple_types.get(ident_name)) |zir_const_tag| {
-        return rvalue(mod, scope, rl, @enumToInt(zir_const_tag), ident);
+    if (simple_types.get(ident_name)) |zir_const_ref| {
+        return rvalue(mod, scope, rl, zir_const_ref, ident);
     }
 
     if (ident_name.len >= 2) integer: {
@@ -3028,9 +3011,9 @@ fn integerLiteral(
     const prefixed_bytes = tree.tokenSlice(int_token);
     const gz = scope.getGenZir();
     if (std.fmt.parseInt(u64, prefixed_bytes, 0)) |small_int| {
-        const result: zir.Inst.Index = switch (small_int) {
-            0 => @enumToInt(zir.Const.zero),
-            1 => @enumToInt(zir.Const.one),
+        const result: zir.Inst.Ref = switch (small_int) {
+            0 => .zero,
+            1 => .one,
             else => try gz.addInt(small_int),
         };
         return rvalue(mod, scope, rl, result, node);
@@ -3078,14 +3061,11 @@ fn asmExpr(
     const node_datas = tree.nodes.items(.data);
     const gz = scope.getGenZir();
 
-    const str_type = @enumToInt(zir.Const.const_slice_u8_type);
-    const str_type_rl: ResultLoc = .{ .ty = str_type };
-    const asm_source = try expr(mod, scope, str_type_rl, full.ast.template);
+    const asm_source = try expr(mod, scope, .{ .ty = .const_slice_u8_type }, full.ast.template);
 
     if (full.outputs.len != 0) {
         return mod.failTok(scope, full.ast.asm_token, "TODO implement asm with an output", .{});
     }
-    const return_type = @enumToInt(zir.Const.void_type);
 
     const constraints = try arena.alloc(u32, full.inputs.len);
     const args = try arena.alloc(zir.Inst.Ref, full.inputs.len);
@@ -3098,22 +3078,21 @@ fn asmExpr(
         try mod.parseStrLit(scope, constraint_token, string_bytes, token_bytes, 0);
         try string_bytes.append(mod.gpa, 0);
 
-        const usize_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.usize_type) };
-        args[i] = try expr(mod, scope, usize_rl, node_datas[input].lhs);
+        args[i] = try expr(mod, scope, .{ .ty = .usize_type }, node_datas[input].lhs);
     }
 
     const tag: zir.Inst.Tag = if (full.volatile_token != null) .asm_volatile else .@"asm";
     const result = try gz.addPlNode(tag, node, zir.Inst.Asm{
         .asm_source = asm_source,
-        .return_type = return_type,
-        .output = 0,
+        .return_type = .void_type,
+        .output = .none,
         .args_len = @intCast(u32, full.inputs.len),
         .clobbers_len = 0, // TODO implement asm clobbers
     });
 
     try gz.zir_code.extra.ensureCapacity(mod.gpa, gz.zir_code.extra.items.len +
         args.len + constraints.len);
-    gz.zir_code.extra.appendSliceAssumeCapacity(args);
+    gz.zir_code.extra.appendSliceAssumeCapacity(mem.bytesAsSlice(u32, mem.sliceAsBytes(args)));
     gz.zir_code.extra.appendSliceAssumeCapacity(constraints);
 
     return rvalue(mod, scope, rl, result, node);
@@ -3185,7 +3164,7 @@ fn asRlPtr(
         const expected_len = parent_zir.items.len + as_scope.instructions.items.len - 2;
         try parent_zir.ensureCapacity(mod.gpa, expected_len);
         for (as_scope.instructions.items) |src_inst| {
-            if (wzc.ref_start_index + src_inst == as_scope.rl_ptr) continue;
+            if (zir.Inst.Ref.fromIndex(src_inst, wzc.param_count) == as_scope.rl_ptr) continue;
             if (zir_tags[src_inst] == .store_to_block_ptr) {
                 if (zir_datas[src_inst].bin.lhs == as_scope.rl_ptr) continue;
             }
@@ -3272,11 +3251,12 @@ fn typeOf(
     }
     const arena = scope.arena();
     var items = try arena.alloc(zir.Inst.Ref, params.len);
-    for (params) |param, param_i|
+    for (params) |param, param_i| {
         items[param_i] = try expr(mod, scope, .none, param);
+    }
 
     const result = try gz.addPlNode(.typeof_peer, node, zir.Inst.MultiOp{ .operands_len = @intCast(u32, params.len) });
-    try gz.zir_code.extra.appendSlice(gz.zir_code.gpa, items);
+    try gz.zir_code.extra.appendSlice(gz.zir_code.gpa, mem.bytesAsSlice(u32, mem.sliceAsBytes(items)));
 
     return rvalue(mod, scope, rl, result, node);
 }
@@ -3351,8 +3331,7 @@ fn builtinCall(
             return rvalue(mod, scope, rl, result, node);
         },
         .set_eval_branch_quota => {
-            const u32_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.u32_type) };
-            const quota = try expr(mod, scope, u32_rl, params[0]);
+            const quota = try expr(mod, scope, .{ .ty = .u32_type }, params[0]);
             const result = try gz.addUnNode(.set_eval_branch_quota, quota, node);
             return rvalue(mod, scope, rl, result, node);
         },
@@ -3498,7 +3477,7 @@ fn callExpr(
     }
     const lhs = try expr(mod, scope, .none, call.ast.fn_expr);
 
-    const args = try mod.gpa.alloc(zir.Inst.Index, call.ast.params.len);
+    const args = try mod.gpa.alloc(zir.Inst.Ref, call.ast.params.len);
     defer mod.gpa.free(args);
 
     const gz = scope.getGenZir();
@@ -3517,7 +3496,7 @@ fn callExpr(
         true => .async_kw,
         false => .auto,
     };
-    const result: zir.Inst.Index = res: {
+    const result: zir.Inst.Ref = res: {
         const tag: zir.Inst.Tag = switch (modifier) {
             .auto => switch (args.len == 0) {
                 true => break :res try gz.addUnNode(.call_none, lhs, node),
@@ -3536,7 +3515,7 @@ fn callExpr(
     return rvalue(mod, scope, rl, result, node); // TODO function call with result location
 }
 
-pub const simple_types = std.ComptimeStringMap(zir.Const, .{
+pub const simple_types = std.ComptimeStringMap(zir.Inst.Ref, .{
     .{ "u8", .u8_type },
     .{ "i8", .i8_type },
     .{ "u16", .u16_type },

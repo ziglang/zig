@@ -914,16 +914,16 @@ pub const Scope = struct {
         parent: *Scope,
         /// All `GenZir` scopes for the same ZIR share this.
         zir_code: *WipZirCode,
-        /// Keeps track of the list of instructions in this scope only. References
+        /// Keeps track of the list of instructions in this scope only. Indexes
         /// to instructions in `zir_code`.
-        instructions: std.ArrayListUnmanaged(zir.Inst.Ref) = .{},
+        instructions: std.ArrayListUnmanaged(zir.Inst.Index) = .{},
         label: ?Label = null,
         break_block: zir.Inst.Index = 0,
         continue_block: zir.Inst.Index = 0,
         /// Only valid when setBlockResultLoc is called.
         break_result_loc: astgen.ResultLoc = undefined,
         /// When a block has a pointer result location, here it is.
-        rl_ptr: zir.Inst.Ref = 0,
+        rl_ptr: zir.Inst.Ref = .none,
         /// Keeps track of how many branches of a block did not actually
         /// consume the result location. astgen uses this to figure out
         /// whether to rely on break instructions or writing to the result
@@ -1001,8 +1001,8 @@ pub const Scope = struct {
             ret_ty: zir.Inst.Ref,
             cc: zir.Inst.Ref,
         }) !zir.Inst.Ref {
-            assert(args.ret_ty != 0);
-            assert(args.cc != 0);
+            assert(args.ret_ty != .none);
+            assert(args.cc != .none);
             const gpa = gz.zir_code.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
@@ -1013,7 +1013,7 @@ pub const Scope = struct {
                 .cc = args.cc,
                 .param_types_len = @intCast(u32, args.param_types.len),
             });
-            gz.zir_code.extra.appendSliceAssumeCapacity(args.param_types);
+            gz.zir_code.extra.appendSliceAssumeCapacity(mem.bytesAsSlice(u32, mem.sliceAsBytes(args.param_types)));
 
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(.{
@@ -1024,7 +1024,7 @@ pub const Scope = struct {
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
-            return new_index + gz.zir_code.ref_start_index;
+            return zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
         }
 
         pub fn addFnType(
@@ -1033,7 +1033,7 @@ pub const Scope = struct {
             ret_ty: zir.Inst.Ref,
             param_types: []const zir.Inst.Ref,
         ) !zir.Inst.Ref {
-            assert(ret_ty != 0);
+            assert(ret_ty != .none);
             const gpa = gz.zir_code.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
@@ -1043,7 +1043,7 @@ pub const Scope = struct {
             const payload_index = gz.zir_code.addExtraAssumeCapacity(zir.Inst.FnType{
                 .param_types_len = @intCast(u32, param_types.len),
             });
-            gz.zir_code.extra.appendSliceAssumeCapacity(param_types);
+            gz.zir_code.extra.appendSliceAssumeCapacity(mem.bytesAsSlice(u32, mem.sliceAsBytes(param_types)));
 
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(.{
@@ -1054,7 +1054,7 @@ pub const Scope = struct {
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
-            return new_index + gz.zir_code.ref_start_index;
+            return zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
         }
 
         pub fn addCall(
@@ -1065,7 +1065,7 @@ pub const Scope = struct {
             /// Absolute node index. This function does the conversion to offset from Decl.
             src_node: ast.Node.Index,
         ) !zir.Inst.Ref {
-            assert(callee != 0);
+            assert(callee != .none);
             assert(src_node != 0);
             const gpa = gz.zir_code.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
@@ -1077,7 +1077,7 @@ pub const Scope = struct {
                 .callee = callee,
                 .args_len = @intCast(u32, args.len),
             });
-            gz.zir_code.extra.appendSliceAssumeCapacity(args);
+            gz.zir_code.extra.appendSliceAssumeCapacity(mem.bytesAsSlice(u32, mem.sliceAsBytes(args)));
 
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(.{
@@ -1088,7 +1088,7 @@ pub const Scope = struct {
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
-            return new_index + gz.zir_code.ref_start_index;
+            return zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
         }
 
         /// Note that this returns a `zir.Inst.Index` not a ref.
@@ -1098,7 +1098,7 @@ pub const Scope = struct {
             tag: zir.Inst.Tag,
             lhs: zir.Inst.Ref,
         ) !zir.Inst.Index {
-            assert(lhs != 0);
+            assert(lhs != .none);
             const gpa = gz.zir_code.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
@@ -1129,7 +1129,7 @@ pub const Scope = struct {
             /// Absolute node index. This function does the conversion to offset from Decl.
             src_node: ast.Node.Index,
         ) !zir.Inst.Ref {
-            assert(operand != 0);
+            assert(operand != .none);
             return gz.add(.{
                 .tag = tag,
                 .data = .{ .un_node = .{
@@ -1160,7 +1160,7 @@ pub const Scope = struct {
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
-            return new_index + gz.zir_code.ref_start_index;
+            return zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
         }
 
         pub fn addArrayTypeSentinel(
@@ -1186,7 +1186,7 @@ pub const Scope = struct {
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
-            return new_index + gz.zir_code.ref_start_index;
+            return zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
         }
 
         pub fn addUnTok(
@@ -1196,7 +1196,7 @@ pub const Scope = struct {
             /// Absolute token index. This function does the conversion to Decl offset.
             abs_tok_index: ast.TokenIndex,
         ) !zir.Inst.Ref {
-            assert(operand != 0);
+            assert(operand != .none);
             return gz.add(.{
                 .tag = tag,
                 .data = .{ .un_tok = .{
@@ -1228,8 +1228,8 @@ pub const Scope = struct {
             lhs: zir.Inst.Ref,
             rhs: zir.Inst.Ref,
         ) !zir.Inst.Ref {
-            assert(lhs != 0);
-            assert(rhs != 0);
+            assert(lhs != .none);
+            assert(rhs != .none);
             return gz.add(.{
                 .tag = tag,
                 .data = .{ .bin = .{
@@ -1317,7 +1317,7 @@ pub const Scope = struct {
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(inst);
             gz.instructions.appendAssumeCapacity(new_index);
-            return gz.zir_code.ref_start_index + new_index;
+            return zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
         }
     };
 
@@ -1331,7 +1331,7 @@ pub const Scope = struct {
         parent: *Scope,
         gen_zir: *GenZir,
         name: []const u8,
-        inst: zir.Inst.Index,
+        inst: zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
         src: LazySrcLoc,
     };
@@ -1346,7 +1346,7 @@ pub const Scope = struct {
         parent: *Scope,
         gen_zir: *GenZir,
         name: []const u8,
-        ptr: zir.Inst.Index,
+        ptr: zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
         src: LazySrcLoc,
     };
@@ -1366,9 +1366,9 @@ pub const WipZirCode = struct {
     instructions: std.MultiArrayList(zir.Inst) = .{},
     string_bytes: std.ArrayListUnmanaged(u8) = .{},
     extra: std.ArrayListUnmanaged(u32) = .{},
-    /// The end of special indexes. `zir.Inst.Ref` subtracts against this number to convert
-    /// to `zir.Inst.Index`. The default here is correct if there are 0 parameters.
-    ref_start_index: u32 = zir.const_inst_list.len,
+    /// We need to keep track of this count in order to convert between
+    /// `zir.Inst.Ref` and `zir.Inst.Index` types.
+    param_count: u32 = 0,
     decl: *Decl,
     gpa: *Allocator,
     arena: *Allocator,
@@ -1383,15 +1383,18 @@ pub const WipZirCode = struct {
         const fields = std.meta.fields(@TypeOf(extra));
         const result = @intCast(u32, wzc.extra.items.len);
         inline for (fields) |field| {
-            comptime assert(field.field_type == u32);
-            wzc.extra.appendAssumeCapacity(@field(extra, field.name));
+            wzc.extra.appendAssumeCapacity(switch (field.field_type) {
+                u32 => @field(extra, field.name),
+                zir.Inst.Ref => @enumToInt(@field(extra, field.name)),
+                else => unreachable,
+            });
         }
         return result;
     }
 
     pub fn refIsNoReturn(wzc: WipZirCode, zir_inst_ref: zir.Inst.Ref) bool {
-        if (zir_inst_ref >= wzc.ref_start_index) {
-            const zir_inst = zir_inst_ref - wzc.ref_start_index;
+        if (zir_inst_ref == .unreachable_value) return true;
+        if (zir_inst_ref.toIndex(wzc.param_count)) |zir_inst| {
             return wzc.instructions.items(.tag)[zir_inst].isNoReturn();
         }
         return false;
@@ -2072,7 +2075,7 @@ fn astgenAndSemaFn(
     // The AST params array does not contain anytype and ... parameters.
     // We must iterate to count how many param types to allocate.
     const param_count = blk: {
-        var count: usize = 0;
+        var count: u32 = 0;
         var it = fn_proto.iterate(tree);
         while (it.next()) |param| {
             if (param.anytype_ellipsis3) |some| if (token_tags[some] == .ellipsis3) break;
@@ -2081,7 +2084,6 @@ fn astgenAndSemaFn(
         break :blk count;
     };
     const param_types = try fn_type_scope_arena.allocator.alloc(zir.Inst.Ref, param_count);
-    const type_type_rl: astgen.ResultLoc = .{ .ty = @enumToInt(zir.Const.type_type) };
 
     var is_var_args = false;
     {
@@ -2106,7 +2108,7 @@ fn astgenAndSemaFn(
             const param_type_node = param.type_expr;
             assert(param_type_node != 0);
             param_types[param_type_i] =
-                try astgen.expr(mod, &fn_type_scope.base, type_type_rl, param_type_node);
+                try astgen.expr(mod, &fn_type_scope.base, .{ .ty = .type_type }, param_type_node);
         }
         assert(param_type_i == param_count);
     }
@@ -2178,7 +2180,7 @@ fn astgenAndSemaFn(
     const return_type_inst = try astgen.expr(
         mod,
         &fn_type_scope.base,
-        type_type_rl,
+        .{ .ty = .type_type },
         fn_proto.ast.return_type,
     );
 
@@ -2187,19 +2189,22 @@ fn astgenAndSemaFn(
     else
         false;
 
-    const cc: zir.Inst.Index = if (fn_proto.ast.callconv_expr != 0)
+    const cc: zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
         // TODO instead of enum literal type, this needs to be the
         // std.builtin.CallingConvention enum. We need to implement importing other files
         // and enums in order to fix this.
-        try astgen.comptimeExpr(mod, &fn_type_scope.base, .{
-            .ty = @enumToInt(zir.Const.enum_literal_type),
-        }, fn_proto.ast.callconv_expr)
+        try astgen.comptimeExpr(
+            mod,
+            &fn_type_scope.base,
+            .{ .ty = .enum_literal_type },
+            fn_proto.ast.callconv_expr,
+        )
     else if (is_extern) // note: https://github.com/ziglang/zig/issues/5269
         try fn_type_scope.addSmallStr(.enum_literal_small, "C")
     else
-        0;
+        .none;
 
-    const fn_type_inst: zir.Inst.Ref = if (cc != 0) fn_type: {
+    const fn_type_inst: zir.Inst.Ref = if (cc != .none) fn_type: {
         const tag: zir.Inst.Tag = if (is_var_args) .fn_type_cc_var_args else .fn_type_cc;
         break :fn_type try fn_type_scope.addFnTypeCc(tag, .{
             .ret_ty = return_type_inst,
@@ -2292,7 +2297,7 @@ fn astgenAndSemaFn(
             .decl = decl,
             .arena = &decl_arena.allocator,
             .gpa = mod.gpa,
-            .ref_start_index = @intCast(u32, zir.const_inst_list.len + param_count),
+            .param_count = param_count,
         };
         defer wip_zir_code.deinit();
 
@@ -2309,7 +2314,7 @@ fn astgenAndSemaFn(
         try wip_zir_code.extra.ensureCapacity(mod.gpa, param_count);
 
         var params_scope = &gen_scope.base;
-        var i: usize = 0;
+        var i: u32 = 0;
         var it = fn_proto.iterate(tree);
         while (it.next()) |param| : (i += 1) {
             const name_token = param.name_token.?;
@@ -2320,7 +2325,7 @@ fn astgenAndSemaFn(
                 .gen_zir = &gen_scope,
                 .name = param_name,
                 // Implicit const list first, then implicit arg list.
-                .inst = @intCast(u32, zir.const_inst_list.len + i),
+                .inst = zir.Inst.Ref.fromParam(i),
                 .src = decl.tokSrcLoc(name_token),
             };
             params_scope = &sub_scope.base;
@@ -2344,8 +2349,7 @@ fn astgenAndSemaFn(
             // astgen uses result location semantics to coerce return operands.
             // Since we are adding the return instruction here, we must handle the coercion.
             // We do this by using the `ret_coerce` instruction.
-            const void_inst: zir.Inst.Ref = @enumToInt(zir.Const.void_value);
-            _ = try gen_scope.addUnTok(.ret_coerce, void_inst, tree.lastToken(body_node));
+            _ = try gen_scope.addUnTok(.ret_coerce, .void_value, tree.lastToken(body_node));
         }
 
         const code = try gen_scope.finish();
@@ -2514,9 +2518,7 @@ fn astgenAndSemaVarDecl(
         defer gen_scope.instructions.deinit(mod.gpa);
 
         const init_result_loc: astgen.ResultLoc = if (var_decl.ast.type_node != 0) .{
-            .ty = try astgen.expr(mod, &gen_scope.base, .{
-                .ty = @enumToInt(zir.Const.type_type),
-            }, var_decl.ast.type_node),
+            .ty = try astgen.expr(mod, &gen_scope.base, .{ .ty = .type_type }, var_decl.ast.type_node),
         } else .none;
 
         const init_inst = try astgen.comptimeExpr(

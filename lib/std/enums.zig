@@ -32,7 +32,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
         .fields = fields,
         .decls = &[_]std.builtin.TypeInfo.Declaration{},
         .is_tuple = false,
-    }});
+    } });
 }
 
 /// Looks up the supplied fields in the given enum type.
@@ -70,7 +70,7 @@ pub fn values(comptime E: type) []const E {
 
 test "std.enum.values" {
     const E = extern enum { a, b, c, d = 0 };
-    testing.expectEqualSlices(E, &.{.a, .b, .c, .d}, values(E));
+    testing.expectEqualSlices(E, &.{ .a, .b, .c, .d }, values(E));
 }
 
 /// Returns the set of all unique named values in the given enum, in
@@ -82,10 +82,10 @@ pub fn uniqueValues(comptime E: type) []const E {
 
 test "std.enum.uniqueValues" {
     const E = extern enum { a, b, c, d = 0, e, f = 3 };
-    testing.expectEqualSlices(E, &.{.a, .b, .c, .f}, uniqueValues(E));
+    testing.expectEqualSlices(E, &.{ .a, .b, .c, .f }, uniqueValues(E));
 
     const F = enum { a, b, c };
-    testing.expectEqualSlices(F, &.{.a, .b, .c}, uniqueValues(F));
+    testing.expectEqualSlices(F, &.{ .a, .b, .c }, uniqueValues(F));
 }
 
 /// Returns the set of all unique field values in the given enum, in
@@ -102,8 +102,7 @@ pub fn uniqueFields(comptime E: type) []const EnumField {
         }
 
         var unique_fields: []const EnumField = &[_]EnumField{};
-    outer:
-        for (raw_fields) |candidate| {
+        outer: for (raw_fields) |candidate| {
             for (unique_fields) |u| {
                 if (u.value == candidate.value)
                     continue :outer;
@@ -116,28 +115,25 @@ pub fn uniqueFields(comptime E: type) []const EnumField {
 }
 
 /// Determines the length of a direct-mapped enum array, indexed by
-/// @intCast(usize, @enumToInt(enum_value)).  The enum must be exhaustive.
+/// @intCast(usize, @enumToInt(enum_value)).
+/// If the enum is non-exhaustive, the resulting length will only be enough
+/// to hold all explicit fields.
 /// If the enum contains any fields with values that cannot be represented
 /// by usize, a compile error is issued.  The max_unused_slots parameter limits
 /// the total number of items which have no matching enum key (holes in the enum
 /// numbering).  So for example, if an enum has values 1, 2, 5, and 6, max_unused_slots
 /// must be at least 3, to allow unused slots 0, 3, and 4.
 fn directEnumArrayLen(comptime E: type, comptime max_unused_slots: comptime_int) comptime_int {
-    const info = @typeInfo(E).Enum;
-    if (!info.is_exhaustive) {
-        @compileError("Cannot create direct array of non-exhaustive enum "++@typeName(E));
-    }
-
     var max_value: comptime_int = -1;
     const max_usize: comptime_int = ~@as(usize, 0);
     const fields = uniqueFields(E);
     for (fields) |f| {
         if (f.value < 0) {
-            @compileError("Cannot create a direct enum array for "++@typeName(E)++", field ."++f.name++" has a negative value.");
+            @compileError("Cannot create a direct enum array for " ++ @typeName(E) ++ ", field ." ++ f.name ++ " has a negative value.");
         }
         if (f.value > max_value) {
             if (f.value > max_usize) {
-                @compileError("Cannot create a direct enum array for "++@typeName(E)++", field ."++f.name++" is larger than the max value of usize.");
+                @compileError("Cannot create a direct enum array for " ++ @typeName(E) ++ ", field ." ++ f.name ++ " is larger than the max value of usize.");
             }
             max_value = f.value;
         }
@@ -147,14 +143,16 @@ fn directEnumArrayLen(comptime E: type, comptime max_unused_slots: comptime_int)
     if (unused_slots > max_unused_slots) {
         const unused_str = std.fmt.comptimePrint("{d}", .{unused_slots});
         const allowed_str = std.fmt.comptimePrint("{d}", .{max_unused_slots});
-        @compileError("Cannot create a direct enum array for "++@typeName(E)++". It would have "++unused_str++" unused slots, but only "++allowed_str++" are allowed.");
+        @compileError("Cannot create a direct enum array for " ++ @typeName(E) ++ ". It would have " ++ unused_str ++ " unused slots, but only " ++ allowed_str ++ " are allowed.");
     }
 
     return max_value + 1;
 }
 
 /// Initializes an array of Data which can be indexed by
-/// @intCast(usize, @enumToInt(enum_value)).  The enum must be exhaustive.
+/// @intCast(usize, @enumToInt(enum_value)).
+/// If the enum is non-exhaustive, the resulting array will only be large enough
+/// to hold all explicit fields.
 /// If the enum contains any fields with values that cannot be represented
 /// by usize, a compile error is issued.  The max_unused_slots parameter limits
 /// the total number of items which have no matching enum key (holes in the enum
@@ -243,9 +241,9 @@ pub fn nameCast(comptime E: type, comptime value: anytype) E {
             if (@hasField(E, n)) {
                 return @field(E, n);
             }
-            @compileError("Enum "++@typeName(E)++" has no field named "++n);
+            @compileError("Enum " ++ @typeName(E) ++ " has no field named " ++ n);
         }
-        @compileError("Cannot cast from "++@typeName(@TypeOf(value))++" to "++@typeName(E));
+        @compileError("Cannot cast from " ++ @typeName(@TypeOf(value)) ++ " to " ++ @typeName(E));
     }
 }
 
@@ -256,7 +254,7 @@ test "std.enums.nameCast" {
     testing.expectEqual(A.a, nameCast(A, A.a));
     testing.expectEqual(A.a, nameCast(A, B.a));
     testing.expectEqual(A.a, nameCast(A, "a"));
-    testing.expectEqual(A.a, nameCast(A, @as(*const[1]u8, "a")));
+    testing.expectEqual(A.a, nameCast(A, @as(*const [1]u8, "a")));
     testing.expectEqual(A.a, nameCast(A, @as([:0]const u8, "a")));
     testing.expectEqual(A.a, nameCast(A, @as([]const u8, "a")));
 
@@ -398,12 +396,12 @@ pub fn EnumArray(comptime E: type, comptime V: type) type {
 pub fn NoExtension(comptime Self: type) type {
     return NoExt;
 }
-const NoExt = struct{};
+const NoExt = struct {};
 
 /// A set type with an Indexer mapping from keys to indices.
 /// Presence or absence is stored as a dense bitfield.  This
 /// type does no allocation and can be copied by value.
-pub fn IndexedSet(comptime I: type, comptime Ext: fn(type)type) type {
+pub fn IndexedSet(comptime I: type, comptime Ext: fn (type) type) type {
     comptime ensureIndexer(I);
     return struct {
         const Self = @This();
@@ -422,7 +420,7 @@ pub fn IndexedSet(comptime I: type, comptime Ext: fn(type)type) type {
 
         bits: BitSet = BitSet.initEmpty(),
 
-        /// Returns a set containing all possible keys. 
+        /// Returns a set containing all possible keys.
         pub fn initFull() Self {
             return .{ .bits = BitSet.initFull() };
         }
@@ -492,7 +490,8 @@ pub fn IndexedSet(comptime I: type, comptime Ext: fn(type)type) type {
             pub fn next(self: *Iterator) ?Key {
                 return if (self.inner.next()) |index|
                     Indexer.keyForIndex(index)
-                else null;
+                else
+                    null;
             }
         };
     };
@@ -501,7 +500,7 @@ pub fn IndexedSet(comptime I: type, comptime Ext: fn(type)type) type {
 /// A map from keys to values, using an index lookup.  Uses a
 /// bitfield to track presence and a dense array of values.
 /// This type does no allocation and can be copied by value.
-pub fn IndexedMap(comptime I: type, comptime V: type, comptime Ext: fn(type)type) type {
+pub fn IndexedMap(comptime I: type, comptime V: type, comptime Ext: fn (type) type) type {
     comptime ensureIndexer(I);
     return struct {
         const Self = @This();
@@ -652,7 +651,8 @@ pub fn IndexedMap(comptime I: type, comptime V: type, comptime Ext: fn(type)type
                         .key = Indexer.keyForIndex(index),
                         .value = &self.values[index],
                     }
-                else null;
+                else
+                    null;
             }
         };
     };
@@ -660,7 +660,7 @@ pub fn IndexedMap(comptime I: type, comptime V: type, comptime Ext: fn(type)type
 
 /// A dense array of values, using an indexed lookup.
 /// This type does no allocation and can be copied by value.
-pub fn IndexedArray(comptime I: type, comptime V: type, comptime Ext: fn(type)type) type {
+pub fn IndexedArray(comptime I: type, comptime V: type, comptime Ext: fn (type) type) type {
     comptime ensureIndexer(I);
     return struct {
         const Self = @This();
@@ -769,9 +769,9 @@ pub fn ensureIndexer(comptime T: type) void {
         if (!@hasDecl(T, "count")) @compileError("Indexer must have decl count: usize.");
         if (@TypeOf(T.count) != usize) @compileError("Indexer.count must be a usize.");
         if (!@hasDecl(T, "indexOf")) @compileError("Indexer.indexOf must be a fn(Key)usize.");
-        if (@TypeOf(T.indexOf) != fn(T.Key)usize) @compileError("Indexer must have decl indexOf: fn(Key)usize.");
+        if (@TypeOf(T.indexOf) != fn (T.Key) usize) @compileError("Indexer must have decl indexOf: fn(Key)usize.");
         if (!@hasDecl(T, "keyForIndex")) @compileError("Indexer must have decl keyForIndex: fn(usize)Key.");
-        if (@TypeOf(T.keyForIndex) != fn(usize)T.Key) @compileError("Indexer.keyForIndex must be a fn(usize)Key.");
+        if (@TypeOf(T.keyForIndex) != fn (usize) T.Key) @compileError("Indexer.keyForIndex must be a fn(usize)Key.");
     }
 }
 
@@ -802,14 +802,18 @@ pub fn EnumIndexer(comptime E: type) type {
         return struct {
             pub const Key = E;
             pub const count: usize = 0;
-            pub fn indexOf(e: E) usize { unreachable; }
-            pub fn keyForIndex(i: usize) E { unreachable; }
+            pub fn indexOf(e: E) usize {
+                unreachable;
+            }
+            pub fn keyForIndex(i: usize) E {
+                unreachable;
+            }
         };
     }
     std.sort.sort(EnumField, &fields, {}, ascByValue);
     const min = fields[0].value;
-    const max = fields[fields.len-1].value;
-    if (max - min == fields.len-1) {
+    const max = fields[fields.len - 1].value;
+    if (max - min == fields.len - 1) {
         return struct {
             pub const Key = E;
             pub const count = fields.len;
@@ -844,7 +848,7 @@ pub fn EnumIndexer(comptime E: type) type {
 }
 
 test "std.enums.EnumIndexer dense zeroed" {
-    const E = enum{ b = 1, a = 0, c = 2 };
+    const E = enum { b = 1, a = 0, c = 2 };
     const Indexer = EnumIndexer(E);
     ensureIndexer(Indexer);
     testing.expectEqual(E, Indexer.Key);
@@ -908,7 +912,7 @@ test "std.enums.EnumIndexer sparse" {
 }
 
 test "std.enums.EnumIndexer repeats" {
-    const E = extern enum{ a = -2, c = 6, b = 4, b2 = 4 };
+    const E = extern enum { a = -2, c = 6, b = 4, b2 = 4 };
     const Indexer = EnumIndexer(E);
     ensureIndexer(Indexer);
     testing.expectEqual(E, Indexer.Key);
@@ -957,7 +961,8 @@ test "std.enums.EnumSet" {
     }
 
     var mut = Set.init(.{
-        .a=true, .c=true,
+        .a = true,
+        .c = true,
     });
     testing.expectEqual(@as(usize, 2), mut.count());
     testing.expectEqual(true, mut.contains(.a));
@@ -986,7 +991,7 @@ test "std.enums.EnumSet" {
         testing.expectEqual(@as(?E, null), it.next());
     }
 
-    mut.toggleSet(Set.init(.{ .a=true, .b=true }));
+    mut.toggleSet(Set.init(.{ .a = true, .b = true }));
     testing.expectEqual(@as(usize, 2), mut.count());
     testing.expectEqual(true, mut.contains(.a));
     testing.expectEqual(false, mut.contains(.b));
@@ -994,7 +999,7 @@ test "std.enums.EnumSet" {
     testing.expectEqual(true, mut.contains(.d));
     testing.expectEqual(true, mut.contains(.e)); // aliases a
 
-    mut.setUnion(Set.init(.{ .a=true, .b=true }));
+    mut.setUnion(Set.init(.{ .a = true, .b = true }));
     testing.expectEqual(@as(usize, 3), mut.count());
     testing.expectEqual(true, mut.contains(.a));
     testing.expectEqual(true, mut.contains(.b));
@@ -1009,7 +1014,7 @@ test "std.enums.EnumSet" {
     testing.expectEqual(false, mut.contains(.c));
     testing.expectEqual(true, mut.contains(.d));
 
-    mut.setIntersection(Set.init(.{ .a=true, .b=true }));
+    mut.setIntersection(Set.init(.{ .a = true, .b = true }));
     testing.expectEqual(@as(usize, 1), mut.count());
     testing.expectEqual(true, mut.contains(.a));
     testing.expectEqual(false, mut.contains(.b));
@@ -1072,7 +1077,7 @@ test "std.enums.EnumArray sized" {
     const undef = Array.initUndefined();
     var inst = Array.initFill(5);
     const inst2 = Array.init(.{ .a = 1, .b = 2, .c = 3, .d = 4 });
-    const inst3 = Array.initDefault(6, .{.b = 4, .c = 2});
+    const inst3 = Array.initDefault(6, .{ .b = 4, .c = 2 });
 
     testing.expectEqual(@as(usize, 5), inst.get(.a));
     testing.expectEqual(@as(usize, 5), inst.get(.b));
@@ -1272,10 +1277,12 @@ test "std.enums.EnumMap sized" {
     var iter = a.iterator();
     const Entry = Map.Entry;
     testing.expectEqual(@as(?Entry, Entry{
-        .key = .b, .value = &a.values[1],
+        .key = .b,
+        .value = &a.values[1],
     }), iter.next());
     testing.expectEqual(@as(?Entry, Entry{
-        .key = .d, .value = &a.values[3],
+        .key = .d,
+        .value = &a.values[3],
     }), iter.next());
     testing.expectEqual(@as(?Entry, null), iter.next());
 }

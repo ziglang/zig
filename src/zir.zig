@@ -48,8 +48,11 @@ pub const Code = struct {
         var i: usize = index;
         var result: T = undefined;
         inline for (fields) |field| {
-            comptime assert(field.field_type == u32);
-            @field(result, field.name) = code.extra[i];
+            @field(result, field.name) = switch (field.field_type) {
+                u32 => code.extra[i],
+                Inst.Ref => @intToEnum(Inst.Ref, code.extra[i]),
+                else => unreachable,
+            };
             i += 1;
         }
         return .{
@@ -104,284 +107,6 @@ pub const Code = struct {
         try stderr.print("}} // ZIR {s} {s}\n\n", .{ kind, decl_name });
     }
 };
-
-/// These correspond to the first N tags of Value.
-/// A ZIR instruction refers to another one by index. However the first N indexes
-/// correspond to this enum, and the next M indexes correspond to the parameters
-/// of the current function. After that, they refer to other instructions in the
-/// instructions array for the function.
-/// When adding to this, consider adding a corresponding entry o `simple_types`
-/// in astgen.
-pub const Const = enum {
-    /// The 0 value is reserved so that ZIR instruction indexes can use it to
-    /// mean "null".
-    unused,
-
-    u8_type,
-    i8_type,
-    u16_type,
-    i16_type,
-    u32_type,
-    i32_type,
-    u64_type,
-    i64_type,
-    u128_type,
-    i128_type,
-    usize_type,
-    isize_type,
-    c_short_type,
-    c_ushort_type,
-    c_int_type,
-    c_uint_type,
-    c_long_type,
-    c_ulong_type,
-    c_longlong_type,
-    c_ulonglong_type,
-    c_longdouble_type,
-    f16_type,
-    f32_type,
-    f64_type,
-    f128_type,
-    c_void_type,
-    bool_type,
-    void_type,
-    type_type,
-    anyerror_type,
-    comptime_int_type,
-    comptime_float_type,
-    noreturn_type,
-    null_type,
-    undefined_type,
-    fn_noreturn_no_args_type,
-    fn_void_no_args_type,
-    fn_naked_noreturn_no_args_type,
-    fn_ccc_void_no_args_type,
-    single_const_pointer_to_comptime_int_type,
-    const_slice_u8_type,
-    enum_literal_type,
-
-    /// `undefined` (untyped)
-    undef,
-    /// `0` (comptime_int)
-    zero,
-    /// `1` (comptime_int)
-    one,
-    /// `{}`
-    void_value,
-    /// `unreachable` (noreturn type)
-    unreachable_value,
-    /// `null` (untyped)
-    null_value,
-    /// `true`
-    bool_true,
-    /// `false`
-    bool_false,
-};
-
-pub const const_inst_list = std.enums.directEnumArray(Const, TypedValue, 0, .{
-    .unused = undefined,
-    .u8_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.u8_type),
-    },
-    .i8_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.i8_type),
-    },
-    .u16_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.u16_type),
-    },
-    .i16_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.i16_type),
-    },
-    .u32_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.u32_type),
-    },
-    .i32_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.i32_type),
-    },
-    .u64_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.u64_type),
-    },
-    .i64_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.i64_type),
-    },
-    .u128_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.u128_type),
-    },
-    .i128_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.i128_type),
-    },
-    .usize_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.usize_type),
-    },
-    .isize_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.isize_type),
-    },
-    .c_short_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.c_short_type),
-    },
-    .c_ushort_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.c_ushort_type),
-    },
-    .c_int_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.c_int_type),
-    },
-    .c_uint_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.c_uint_type),
-    },
-    .c_long_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.c_long_type),
-    },
-    .c_ulong_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.c_ulong_type),
-    },
-    .c_longlong_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.c_longlong_type),
-    },
-    .c_ulonglong_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.c_ulonglong_type),
-    },
-    .c_longdouble_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.c_longdouble_type),
-    },
-    .f16_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.f16_type),
-    },
-    .f32_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.f32_type),
-    },
-    .f64_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.f64_type),
-    },
-    .f128_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.f128_type),
-    },
-    .c_void_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.c_void_type),
-    },
-    .bool_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.bool_type),
-    },
-    .void_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.void_type),
-    },
-    .type_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.type_type),
-    },
-    .anyerror_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.anyerror_type),
-    },
-    .comptime_int_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.comptime_int_type),
-    },
-    .comptime_float_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.comptime_float_type),
-    },
-    .noreturn_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.noreturn_type),
-    },
-    .null_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.null_type),
-    },
-    .undefined_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.undefined_type),
-    },
-    .fn_noreturn_no_args_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.fn_noreturn_no_args_type),
-    },
-    .fn_void_no_args_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.fn_void_no_args_type),
-    },
-    .fn_naked_noreturn_no_args_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.fn_naked_noreturn_no_args_type),
-    },
-    .fn_ccc_void_no_args_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.fn_ccc_void_no_args_type),
-    },
-    .single_const_pointer_to_comptime_int_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.single_const_pointer_to_comptime_int_type),
-    },
-    .const_slice_u8_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.const_slice_u8_type),
-    },
-    .enum_literal_type = .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.enum_literal_type),
-    },
-
-    .undef = .{
-        .ty = Type.initTag(.@"undefined"),
-        .val = Value.initTag(.undef),
-    },
-    .zero = .{
-        .ty = Type.initTag(.comptime_int),
-        .val = Value.initTag(.zero),
-    },
-    .one = .{
-        .ty = Type.initTag(.comptime_int),
-        .val = Value.initTag(.one),
-    },
-    .void_value = .{
-        .ty = Type.initTag(.void),
-        .val = Value.initTag(.void_value),
-    },
-    .unreachable_value = .{
-        .ty = Type.initTag(.noreturn),
-        .val = Value.initTag(.unreachable_value),
-    },
-    .null_value = .{
-        .ty = Type.initTag(.@"null"),
-        .val = Value.initTag(.null_value),
-    },
-    .bool_true = .{
-        .ty = Type.initTag(.bool),
-        .val = Value.initTag(.bool_true),
-    },
-    .bool_false = .{
-        .ty = Type.initTag(.bool),
-        .val = Value.initTag(.bool_false),
-    },
-});
 
 /// These are untyped instructions generated from an Abstract Syntax Tree.
 /// The data here is immutable because it is possible to have multiple
@@ -1032,14 +757,319 @@ pub const Inst = struct {
     /// The position of a ZIR instruction within the `Code` instructions array.
     pub const Index = u32;
 
-    /// A reference to another ZIR instruction. If this value is below a certain
-    /// threshold, it implicitly refers to a constant-known value from the `Const` enum.
-    /// Below a second threshold, it implicitly refers to a parameter of the current
-    /// function.
-    /// Finally, after subtracting that offset, it refers to another instruction in
-    /// the instruction array.
-    /// This logic is implemented in `Sema.resolveRef`.
-    pub const Ref = u32;
+    /// A reference to a TypedValue, parameter of the current function,
+    /// or ZIR instruction.
+    ///
+    /// If the Ref has a tag in this enum, it refers to a TypedValue which may be
+    /// retrieved with Ref.toTypedValue().
+    ///
+    /// If the value of a Ref does not have a tag, it referes to either a parameter
+    /// of the current function or a ZIR instruction.
+    ///
+    /// The first values after the the last tag refer to parameters which may be
+    /// derived by subtracting typed_value_count.
+    ///
+    /// All further values refer to ZIR instructions which may be derived by
+    /// subtracting typed_value_count and the number of parameters.
+    ///
+    /// When adding a tag to this enum, consider adding a corresponding entry to
+    /// `simple_types` in astgen.
+    ///
+    /// This is packed so that it is safe to cast between `[]u32` and `[]Ref`.
+    pub const Ref = packed enum(u32) {
+        /// This Ref does not correspond to any ZIR instruction or constant
+        /// value and may instead be used as a sentinel to indicate null.
+        none,
+
+        u8_type,
+        i8_type,
+        u16_type,
+        i16_type,
+        u32_type,
+        i32_type,
+        u64_type,
+        i64_type,
+        usize_type,
+        isize_type,
+        c_short_type,
+        c_ushort_type,
+        c_int_type,
+        c_uint_type,
+        c_long_type,
+        c_ulong_type,
+        c_longlong_type,
+        c_ulonglong_type,
+        c_longdouble_type,
+        f16_type,
+        f32_type,
+        f64_type,
+        f128_type,
+        c_void_type,
+        bool_type,
+        void_type,
+        type_type,
+        anyerror_type,
+        comptime_int_type,
+        comptime_float_type,
+        noreturn_type,
+        null_type,
+        undefined_type,
+        fn_noreturn_no_args_type,
+        fn_void_no_args_type,
+        fn_naked_noreturn_no_args_type,
+        fn_ccc_void_no_args_type,
+        single_const_pointer_to_comptime_int_type,
+        const_slice_u8_type,
+        enum_literal_type,
+
+        /// `undefined` (untyped)
+        undef,
+        /// `0` (comptime_int)
+        zero,
+        /// `1` (comptime_int)
+        one,
+        /// `{}`
+        void_value,
+        /// `unreachable` (noreturn type)
+        unreachable_value,
+        /// `null` (untyped)
+        null_value,
+        /// `true`
+        bool_true,
+        /// `false`
+        bool_false,
+
+        _,
+
+        pub const typed_value_count = @as(u32, typed_value_map.len);
+        const typed_value_map = std.enums.directEnumArray(Ref, TypedValue, 0, .{
+            .none = undefined,
+
+            .u8_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.u8_type),
+            },
+            .i8_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.i8_type),
+            },
+            .u16_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.u16_type),
+            },
+            .i16_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.i16_type),
+            },
+            .u32_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.u32_type),
+            },
+            .i32_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.i32_type),
+            },
+            .u64_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.u64_type),
+            },
+            .i64_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.i64_type),
+            },
+            .usize_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.usize_type),
+            },
+            .isize_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.isize_type),
+            },
+            .c_short_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.c_short_type),
+            },
+            .c_ushort_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.c_ushort_type),
+            },
+            .c_int_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.c_int_type),
+            },
+            .c_uint_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.c_uint_type),
+            },
+            .c_long_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.c_long_type),
+            },
+            .c_ulong_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.c_ulong_type),
+            },
+            .c_longlong_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.c_longlong_type),
+            },
+            .c_ulonglong_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.c_ulonglong_type),
+            },
+            .c_longdouble_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.c_longdouble_type),
+            },
+            .f16_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.f16_type),
+            },
+            .f32_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.f32_type),
+            },
+            .f64_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.f64_type),
+            },
+            .f128_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.f128_type),
+            },
+            .c_void_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.c_void_type),
+            },
+            .bool_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.bool_type),
+            },
+            .void_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.void_type),
+            },
+            .type_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.type_type),
+            },
+            .anyerror_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.anyerror_type),
+            },
+            .comptime_int_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.comptime_int_type),
+            },
+            .comptime_float_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.comptime_float_type),
+            },
+            .noreturn_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.noreturn_type),
+            },
+            .null_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.null_type),
+            },
+            .undefined_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.undefined_type),
+            },
+            .fn_noreturn_no_args_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.fn_noreturn_no_args_type),
+            },
+            .fn_void_no_args_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.fn_void_no_args_type),
+            },
+            .fn_naked_noreturn_no_args_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.fn_naked_noreturn_no_args_type),
+            },
+            .fn_ccc_void_no_args_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.fn_ccc_void_no_args_type),
+            },
+            .single_const_pointer_to_comptime_int_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.single_const_pointer_to_comptime_int_type),
+            },
+            .const_slice_u8_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.const_slice_u8_type),
+            },
+            .enum_literal_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.enum_literal_type),
+            },
+
+            .undef = .{
+                .ty = Type.initTag(.@"undefined"),
+                .val = Value.initTag(.undef),
+            },
+            .zero = .{
+                .ty = Type.initTag(.comptime_int),
+                .val = Value.initTag(.zero),
+            },
+            .one = .{
+                .ty = Type.initTag(.comptime_int),
+                .val = Value.initTag(.one),
+            },
+            .void_value = .{
+                .ty = Type.initTag(.void),
+                .val = Value.initTag(.void_value),
+            },
+            .unreachable_value = .{
+                .ty = Type.initTag(.noreturn),
+                .val = Value.initTag(.unreachable_value),
+            },
+            .null_value = .{
+                .ty = Type.initTag(.@"null"),
+                .val = Value.initTag(.null_value),
+            },
+            .bool_true = .{
+                .ty = Type.initTag(.bool),
+                .val = Value.initTag(.bool_true),
+            },
+            .bool_false = .{
+                .ty = Type.initTag(.bool),
+                .val = Value.initTag(.bool_false),
+            },
+        });
+
+        pub fn fromParam(param: u32) Ref {
+            return @intToEnum(Ref, typed_value_count + param);
+        }
+
+        pub fn fromIndex(index: Index, param_count: u32) Ref {
+            return @intToEnum(Ref, typed_value_count + param_count + index);
+        }
+
+        pub fn toTypedValue(ref: Ref) ?TypedValue {
+            assert(ref != .none);
+            if (@enumToInt(ref) >= typed_value_count) return null;
+            return typed_value_map[@enumToInt(ref)];
+        }
+
+        pub fn toParam(ref: Ref, param_count: u32) ?u32 {
+            assert(ref != .none);
+            if (@enumToInt(ref) < typed_value_count or
+                @enumToInt(ref) >= typed_value_count + param_count)
+            {
+                return null;
+            }
+            return @enumToInt(ref) - typed_value_count;
+        }
+
+        pub fn toIndex(ref: Ref, param_count: u32) ?Index {
+            assert(ref != .none);
+            if (@enumToInt(ref) < typed_value_count + param_count) return null;
+            return @enumToInt(ref) - typed_value_count - param_count;
+        }
+    };
 
     /// All instructions have an 8-byte payload, which is contained within
     /// this union. `Tag` determines which union field is active, as well as
@@ -1642,7 +1672,9 @@ const Writer = struct {
     fn writePlNodeCall(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.Call, inst_data.payload_index);
-        const args = self.code.extra[extra.end..][0..extra.data.args_len];
+        const raw_args = self.code.extra[extra.end..][0..extra.data.args_len];
+        const args = mem.bytesAsSlice(Inst.Ref, mem.sliceAsBytes(raw_args));
+
         try self.writeInstRef(stream, extra.data.callee);
         try stream.writeAll(", [");
         for (args) |arg, i| {
@@ -1735,9 +1767,9 @@ const Writer = struct {
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].fn_type;
         const extra = self.code.extraData(Inst.FnType, inst_data.payload_index);
-        const param_types = self.code.extra[extra.end..][0..extra.data.param_types_len];
-        const cc: Inst.Ref = 0;
-        return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, cc);
+        const raw_param_types = self.code.extra[extra.end..][0..extra.data.param_types_len];
+        const param_types = mem.bytesAsSlice(Inst.Ref, mem.sliceAsBytes(raw_param_types));
+        return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, .none);
     }
 
     fn writeBoolBr(self: *Writer, stream: anytype, inst: Inst.Index) !void {
@@ -1761,7 +1793,8 @@ const Writer = struct {
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].fn_type;
         const extra = self.code.extraData(Inst.FnTypeCc, inst_data.payload_index);
-        const param_types = self.code.extra[extra.end..][0..extra.data.param_types_len];
+        const raw_param_types = self.code.extra[extra.end..][0..extra.data.param_types_len];
+        const param_types = mem.bytesAsSlice(Inst.Ref, mem.sliceAsBytes(raw_param_types));
         const cc = extra.data.cc;
         return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, cc);
     }
@@ -1828,13 +1861,13 @@ const Writer = struct {
         try stream.print("\"{}\")", .{std.zig.fmtEscapes(str)});
     }
 
-    fn writeInstRef(self: *Writer, stream: anytype, inst: Inst.Ref) !void {
-        var i: usize = inst;
+    fn writeInstRef(self: *Writer, stream: anytype, ref: Inst.Ref) !void {
+        var i: usize = @enumToInt(ref);
 
-        if (i < const_inst_list.len) {
-            return stream.print("@{d}", .{i});
+        if (i < Inst.Ref.typed_value_count) {
+            return stream.print("@{}", .{ref});
         }
-        i -= const_inst_list.len;
+        i -= Inst.Ref.typed_value_count;
 
         if (i < self.param_count) {
             return stream.print("${d}", .{i});
@@ -1852,9 +1885,9 @@ const Writer = struct {
         self: *Writer,
         stream: anytype,
         prefix: []const u8,
-        inst: Inst.Index,
+        inst: Inst.Ref,
     ) !void {
-        if (inst == 0) return;
+        if (inst == .none) return;
         try stream.writeAll(prefix);
         try self.writeInstRef(stream, inst);
     }
