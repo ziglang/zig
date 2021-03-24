@@ -335,10 +335,10 @@ pub const Mutable = struct {
             }
         } else {
             if (a.limbs.len >= b.limbs.len) {
-                lladd(r.limbs[0..], a.limbs[0..a.limbs.len], b.limbs[0..b.limbs.len]);
+                lladd(r.limbs[0..], a.limbs, b.limbs);
                 r.normalize(a.limbs.len + 1);
             } else {
-                lladd(r.limbs[0..], b.limbs[0..b.limbs.len], a.limbs[0..a.limbs.len]);
+                lladd(r.limbs[0..], b.limbs, a.limbs);
                 r.normalize(b.limbs.len + 1);
             }
 
@@ -1685,12 +1685,14 @@ pub const Managed = struct {
 
     /// r = a + scalar
     ///
-    /// r and a may be aliases.
+    /// r and a may be aliases. If r aliases a, then caller must call
+    /// `r.ensureAddScalarCapacity` prior to calling `add`.
     /// scalar is a primitive integer type.
     ///
     /// Returns an error if memory could not be allocated.
     pub fn addScalar(r: *Managed, a: Const, scalar: anytype) Allocator.Error!void {
-        try r.ensureCapacity(math.max(a.limbs.len, calcLimbLen(scalar)) + 1);
+        assert((r.limbs.ptr != a.limbs.ptr) or r.limbs.len >= math.max(a.limbs.len, calcLimbLen(scalar)) + 1);
+        try r.ensureAddScalarCapacity(a, scalar);
         var m = r.toMutable();
         m.addScalar(a, scalar);
         r.setMetadata(m.positive, m.len);
@@ -1698,11 +1700,13 @@ pub const Managed = struct {
 
     /// r = a + b
     ///
-    /// r, a and b may be aliases.
+    /// r, a and b may be aliases. If r aliases a or b, then caller must call
+    /// `r.ensureAddCapacity` prior to calling `add`.
     ///
     /// Returns an error if memory could not be allocated.
     pub fn add(r: *Managed, a: Const, b: Const) Allocator.Error!void {
-        try r.ensureCapacity(math.max(a.limbs.len, b.limbs.len) + 1);
+        assert((r.limbs.ptr != a.limbs.ptr and r.limbs.ptr != b.limbs.ptr) or r.limbs.len >= math.max(a.limbs.len, b.limbs.len) + 1);
+        try r.ensureAddCapacity(a, b);
         var m = r.toMutable();
         m.add(a, b);
         r.setMetadata(m.positive, m.len);
@@ -1746,6 +1750,14 @@ pub const Managed = struct {
             m.mul(a, b, limbs_buffer, rma.allocator);
         }
         rma.setMetadata(m.positive, m.len);
+    }
+
+    pub fn ensureAddScalarCapacity(r: *Managed, a: Const, scalar: anytype) !void {
+        try r.ensureCapacity(math.max(a.limbs.len, calcLimbLen(scalar)) + 1);
+    }
+
+    pub fn ensureAddCapacity(r: *Managed, a: Const, b: Const) !void {
+        try r.ensureCapacity(math.max(a.limbs.len, b.limbs.len) + 1);
     }
 
     pub fn ensureMulCapacity(rma: *Managed, a: Const, b: Const) !void {
