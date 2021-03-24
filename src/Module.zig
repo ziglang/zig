@@ -2407,6 +2407,7 @@ fn astgenAndSemaFn(
         if (tvm.typed_value.val.castTag(.function)) |payload| {
             const prev_func = payload.data;
             prev_is_inline = prev_func.state == .inline_only;
+            prev_func.deinit(mod.gpa);
         }
 
         tvm.deinit(mod.gpa);
