@@ -926,7 +926,7 @@ fn labeledBlockExpr(
             // would be better still to elide the ones that are in this list.
             try block_scope.setBlockBody(block_inst);
 
-            return zir.Inst.Ref.fromIndex(block_inst, gz.zir_code.param_count);
+            return gz.zir_code.indexToRef(block_inst);
         },
         .break_operand => {
             // All break operands are values that did not use the result location pointer.
@@ -939,7 +939,7 @@ fn labeledBlockExpr(
                 // would be better still to elide the ones that are in this list.
             }
             try block_scope.setBlockBody(block_inst);
-            const block_ref = zir.Inst.Ref.fromIndex(block_inst, gz.zir_code.param_count);
+            const block_ref = gz.zir_code.indexToRef(block_inst);
             switch (rl) {
                 .ref => return block_ref,
                 else => return rvalue(mod, parent_scope, rl, block_ref, block_node),
@@ -991,7 +991,7 @@ fn blockExprStmts(
                 // We need to emit an error if the result is not `noreturn` or `void`, but
                 // we want to avoid adding the ZIR instruction if possible for performance.
                 const maybe_unused_result = try expr(mod, scope, .none, statement);
-                const elide_check = if (maybe_unused_result.toIndex(gz.zir_code.param_count)) |inst| b: {
+                const elide_check = if (gz.zir_code.refToIndex(maybe_unused_result)) |inst| b: {
                     // Note that this array becomes invalid after appending more items to it
                     // in the above while loop.
                     const zir_tags = gz.zir_code.instructions.items(.tag);
@@ -1292,7 +1292,7 @@ fn varDecl(
                 const expected_len = parent_zir.items.len + init_scope.instructions.items.len - 2;
                 try parent_zir.ensureCapacity(mod.gpa, expected_len);
                 for (init_scope.instructions.items) |src_inst| {
-                    if (zir.Inst.Ref.fromIndex(src_inst, wzc.param_count) == init_scope.rl_ptr) continue;
+                    if (wzc.indexToRef(src_inst) == init_scope.rl_ptr) continue;
                     if (zir_tags[src_inst] == .store_to_block_ptr) {
                         if (zir_datas[src_inst].bin.lhs == init_scope.rl_ptr) continue;
                     }
@@ -1525,7 +1525,7 @@ fn ptrType(
     }
 
     const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
-    const result = zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
+    const result = gz.zir_code.indexToRef(new_index);
     gz.zir_code.instructions.appendAssumeCapacity(.{ .tag = .ptr_type, .data = .{
         .ptr_type = .{
             .flags = .{
@@ -1782,7 +1782,7 @@ fn finishThenElseBlock(
             }
             assert(!strat.elide_store_to_block_ptr_instructions);
             try setCondBrPayload(condbr, cond, then_scope, else_scope);
-            return zir.Inst.Ref.fromIndex(main_block, wzc.param_count);
+            return wzc.indexToRef(main_block);
         },
         .break_operand => {
             if (!wzc.refIsNoReturn(then_result)) {
@@ -1818,7 +1818,7 @@ fn finishThenElseBlock(
             } else {
                 try setCondBrPayload(condbr, cond, then_scope, else_scope);
             }
-            const block_ref = zir.Inst.Ref.fromIndex(main_block, wzc.param_count);
+            const block_ref = wzc.indexToRef(main_block);
             switch (rl) {
                 .ref => return block_ref,
                 else => return rvalue(mod, parent_scope, rl, block_ref, node),
@@ -1981,7 +1981,7 @@ fn boolBinOp(
     _ = try rhs_scope.addUnNode(.break_flat, rhs, node);
     try rhs_scope.setBoolBrBody(bool_br);
 
-    const block_ref = zir.Inst.Ref.fromIndex(bool_br, gz.zir_code.param_count);
+    const block_ref = gz.zir_code.indexToRef(bool_br);
     return rvalue(mod, scope, rl, block_ref, node);
 }
 
@@ -3092,7 +3092,7 @@ fn asmExpr(
 
     try gz.zir_code.extra.ensureCapacity(mod.gpa, gz.zir_code.extra.items.len +
         args.len + constraints.len);
-    gz.zir_code.extra.appendSliceAssumeCapacity(mem.bytesAsSlice(u32, mem.sliceAsBytes(args)));
+    gz.zir_code.appendRefsAssumeCapacity(args);
     gz.zir_code.extra.appendSliceAssumeCapacity(constraints);
 
     return rvalue(mod, scope, rl, result, node);
@@ -3164,7 +3164,7 @@ fn asRlPtr(
         const expected_len = parent_zir.items.len + as_scope.instructions.items.len - 2;
         try parent_zir.ensureCapacity(mod.gpa, expected_len);
         for (as_scope.instructions.items) |src_inst| {
-            if (zir.Inst.Ref.fromIndex(src_inst, wzc.param_count) == as_scope.rl_ptr) continue;
+            if (wzc.indexToRef(src_inst) == as_scope.rl_ptr) continue;
             if (zir_tags[src_inst] == .store_to_block_ptr) {
                 if (zir_datas[src_inst].bin.lhs == as_scope.rl_ptr) continue;
             }
@@ -3256,7 +3256,7 @@ fn typeOf(
     }
 
     const result = try gz.addPlNode(.typeof_peer, node, zir.Inst.MultiOp{ .operands_len = @intCast(u32, params.len) });
-    try gz.zir_code.extra.appendSlice(gz.zir_code.gpa, mem.bytesAsSlice(u32, mem.sliceAsBytes(items)));
+    try gz.zir_code.appendRefs(items);
 
     return rvalue(mod, scope, rl, result, node);
 }

@@ -34,3 +34,4 @@ Performance optimizations to look into:
  * enum literals can use small strings
  * string literals can use small strings
  * don't need the Sema coercion on condbr condition, it's done with result locations
+ * remove unreachable_value

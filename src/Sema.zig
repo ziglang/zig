@@ -300,18 +300,28 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
 }
 
 /// TODO when we rework TZIR memory layout, this function will no longer have a possible error.
-/// Until then we allocate memory for a new, mutable `ir.Inst` to match what TZIR expects.
 pub fn resolveInst(sema: *Sema, zir_ref: zir.Inst.Ref) error{OutOfMemory}!*ir.Inst {
-    if (zir_ref.toTypedValue()) |typed_value| {
-        return sema.mod.constInst(sema.arena, .unneeded, typed_value);
-    }
+    var i: usize = @enumToInt(zir_ref);
 
-    const param_count = @intCast(u32, sema.param_inst_list.len);
-    if (zir_ref.toParam(param_count)) |param| {
-        return sema.param_inst_list[param];
+    // First section of indexes correspond to a set number of constant values.
+    if (i < zir.Inst.Ref.typed_value_map.len) {
+        // TODO when we rework TZIR memory layout, this function can be as simple as:
+        // if (zir_ref < zir.const_inst_list.len + sema.param_count)
+        //     return zir_ref;
+        // Until then we allocate memory for a new, mutable `ir.Inst` to match what
+        // TZIR expects.
+        return sema.mod.constInst(sema.arena, .unneeded, zir.Inst.Ref.typed_value_map[i]);
     }
+    i -= zir.Inst.Ref.typed_value_map.len;
 
-    return sema.inst_map[zir_ref.toIndex(param_count).?];
+    // Next section of indexes correspond to function parameters, if any.
+    if (i < sema.param_inst_list.len) {
+        return sema.param_inst_list[i];
+    }
+    i -= sema.param_inst_list.len;
+
+    // Finally, the last section of indexes refers to the map of ZIR=>TZIR.
+    return sema.inst_map[i];
 }
 
 fn resolveConstString(
@@ -753,8 +763,7 @@ fn zirCompileLog(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(zir.Inst.MultiOp, inst_data.payload_index);
-    const raw_args = sema.code.extra[extra.end..][0..extra.data.operands_len];
-    const args = mem.bytesAsSlice(zir.Inst.Ref, mem.sliceAsBytes(raw_args));
+    const args = sema.code.refSlice(extra.end, extra.data.operands_len);
 
     for (args) |arg_ref, i| {
         if (i != 0) try writer.print(", ", .{});
@@ -1105,8 +1114,7 @@ fn zirCall(
     const func_src: LazySrcLoc = .{ .node_offset_call_func = inst_data.src_node };
     const call_src = inst_data.src();
     const extra = sema.code.extraData(zir.Inst.Call, inst_data.payload_index);
-    const raw_args = sema.code.extra[extra.end..][0..extra.data.args_len];
-    const args = mem.bytesAsSlice(zir.Inst.Ref, mem.sliceAsBytes(raw_args));
+    const args = sema.code.refSlice(extra.end, extra.data.args_len);
 
     return sema.analyzeCall(block, extra.data.callee, func_src, call_src, modifier, ensure_result_used, args);
 }
@@ -1733,8 +1741,7 @@ fn zirFnType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index, var_args: b
 
     const inst_data = sema.code.instructions.items(.data)[inst].fn_type;
     const extra = sema.code.extraData(zir.Inst.FnType, inst_data.payload_index);
-    const raw_param_types = sema.code.extra[extra.end..][0..extra.data.param_types_len];
-    const param_types = mem.bytesAsSlice(zir.Inst.Ref, mem.sliceAsBytes(raw_param_types));
+    const param_types = sema.code.refSlice(extra.end, extra.data.param_types_len);
 
     return sema.fnTypeCommon(
         block,
@@ -1752,8 +1759,7 @@ fn zirFnTypeCc(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index, var_args:
 
     const inst_data = sema.code.instructions.items(.data)[inst].fn_type;
     const extra = sema.code.extraData(zir.Inst.FnTypeCc, inst_data.payload_index);
-    const raw_param_types = sema.code.extra[extra.end..][0..extra.data.param_types_len];
-    const param_types = mem.bytesAsSlice(zir.Inst.Ref, mem.sliceAsBytes(raw_param_types));
+    const param_types = sema.code.refSlice(extra.end, extra.data.param_types_len);
 
     const cc_tv = try sema.resolveInstConst(block, .todo, extra.data.cc);
     // TODO once we're capable of importing and analyzing decls from
@@ -2768,8 +2774,7 @@ fn zirTypeofPeer(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(zir.Inst.MultiOp, inst_data.payload_index);
-    const raw_args = sema.code.extra[extra.end..][0..extra.data.operands_len];
-    const args = mem.bytesAsSlice(zir.Inst.Ref, mem.sliceAsBytes(raw_args));
+    const args = sema.code.refSlice(extra.end, extra.data.operands_len);
 
     const inst_list = try sema.gpa.alloc(*ir.Inst, extra.data.operands_len);
     defer sema.gpa.free(inst_list);

@@ -1013,7 +1013,7 @@ pub const Scope = struct {
                 .cc = args.cc,
                 .param_types_len = @intCast(u32, args.param_types.len),
             });
-            gz.zir_code.extra.appendSliceAssumeCapacity(mem.bytesAsSlice(u32, mem.sliceAsBytes(args.param_types)));
+            gz.zir_code.appendRefsAssumeCapacity(args.param_types);
 
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(.{
@@ -1024,7 +1024,7 @@ pub const Scope = struct {
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
-            return zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
+            return gz.zir_code.indexToRef(new_index);
         }
 
         pub fn addFnType(
@@ -1043,7 +1043,7 @@ pub const Scope = struct {
             const payload_index = gz.zir_code.addExtraAssumeCapacity(zir.Inst.FnType{
                 .param_types_len = @intCast(u32, param_types.len),
             });
-            gz.zir_code.extra.appendSliceAssumeCapacity(mem.bytesAsSlice(u32, mem.sliceAsBytes(param_types)));
+            gz.zir_code.appendRefsAssumeCapacity(param_types);
 
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(.{
@@ -1054,7 +1054,7 @@ pub const Scope = struct {
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
-            return zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
+            return gz.zir_code.indexToRef(new_index);
         }
 
         pub fn addCall(
@@ -1077,7 +1077,7 @@ pub const Scope = struct {
                 .callee = callee,
                 .args_len = @intCast(u32, args.len),
             });
-            gz.zir_code.extra.appendSliceAssumeCapacity(mem.bytesAsSlice(u32, mem.sliceAsBytes(args)));
+            gz.zir_code.appendRefsAssumeCapacity(args);
 
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(.{
@@ -1088,7 +1088,7 @@ pub const Scope = struct {
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
-            return zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
+            return gz.zir_code.indexToRef(new_index);
         }
 
         /// Note that this returns a `zir.Inst.Index` not a ref.
@@ -1160,7 +1160,7 @@ pub const Scope = struct {
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
-            return zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
+            return gz.zir_code.indexToRef(new_index);
         }
 
         pub fn addArrayTypeSentinel(
@@ -1186,7 +1186,7 @@ pub const Scope = struct {
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
-            return zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
+            return gz.zir_code.indexToRef(new_index);
         }
 
         pub fn addUnTok(
@@ -1317,7 +1317,7 @@ pub const Scope = struct {
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(inst);
             gz.instructions.appendAssumeCapacity(new_index);
-            return zir.Inst.Ref.fromIndex(new_index, gz.zir_code.param_count);
+            return gz.zir_code.indexToRef(new_index);
         }
     };
 
@@ -1366,9 +1366,9 @@ pub const WipZirCode = struct {
     instructions: std.MultiArrayList(zir.Inst) = .{},
     string_bytes: std.ArrayListUnmanaged(u8) = .{},
     extra: std.ArrayListUnmanaged(u32) = .{},
-    /// We need to keep track of this count in order to convert between
-    /// `zir.Inst.Ref` and `zir.Inst.Index` types.
-    param_count: u32 = 0,
+    /// The end of special indexes. `zir.Inst.Ref` subtracts against this number to convert
+    /// to `zir.Inst.Index`. The default here is correct if there are 0 parameters.
+    ref_start_index: u32 = zir.Inst.Ref.typed_value_map.len,
     decl: *Decl,
     gpa: *Allocator,
     arena: *Allocator,
@@ -1386,18 +1386,41 @@ pub const WipZirCode = struct {
             wzc.extra.appendAssumeCapacity(switch (field.field_type) {
                 u32 => @field(extra, field.name),
                 zir.Inst.Ref => @enumToInt(@field(extra, field.name)),
-                else => unreachable,
+                else => @compileError("bad field type"),
             });
         }
         return result;
     }
 
-    pub fn refIsNoReturn(wzc: WipZirCode, zir_inst_ref: zir.Inst.Ref) bool {
-        if (zir_inst_ref == .unreachable_value) return true;
-        if (zir_inst_ref.toIndex(wzc.param_count)) |zir_inst| {
-            return wzc.instructions.items(.tag)[zir_inst].isNoReturn();
+    pub fn appendRefs(wzc: *WipZirCode, refs: []const zir.Inst.Ref) !void {
+        const coerced = @bitCast([]const u32, refs);
+        return wzc.extra.appendSlice(wzc.gpa, coerced);
+    }
+
+    pub fn appendRefsAssumeCapacity(wzc: *WipZirCode, refs: []const zir.Inst.Ref) void {
+        const coerced = @bitCast([]const u32, refs);
+        wzc.extra.appendSliceAssumeCapacity(coerced);
+    }
+
+    pub fn refIsNoReturn(wzc: WipZirCode, inst_ref: zir.Inst.Ref) bool {
+        if (inst_ref == .unreachable_value) return true;
+        if (wzc.refToIndex(inst_ref)) |inst_index| {
+            return wzc.instructions.items(.tag)[inst_index].isNoReturn();
         }
         return false;
+    }
+
+    pub fn indexToRef(wzc: WipZirCode, inst: zir.Inst.Index) zir.Inst.Ref {
+        return @intToEnum(zir.Inst.Ref, wzc.ref_start_index + inst);
+    }
+
+    pub fn refToIndex(wzc: WipZirCode, inst: zir.Inst.Ref) ?zir.Inst.Index {
+        const ref_int = @enumToInt(inst);
+        if (ref_int >= wzc.ref_start_index) {
+            return ref_int - wzc.ref_start_index;
+        } else {
+            return null;
+        }
     }
 
     pub fn deinit(wzc: *WipZirCode) void {
@@ -2075,7 +2098,7 @@ fn astgenAndSemaFn(
     // The AST params array does not contain anytype and ... parameters.
     // We must iterate to count how many param types to allocate.
     const param_count = blk: {
-        var count: u32 = 0;
+        var count: usize = 0;
         var it = fn_proto.iterate(tree);
         while (it.next()) |param| {
             if (param.anytype_ellipsis3) |some| if (token_tags[some] == .ellipsis3) break;
@@ -2297,7 +2320,7 @@ fn astgenAndSemaFn(
             .decl = decl,
             .arena = &decl_arena.allocator,
             .gpa = mod.gpa,
-            .param_count = param_count,
+            .ref_start_index = @intCast(u32, zir.Inst.Ref.typed_value_map.len + param_count),
         };
         defer wip_zir_code.deinit();
 
@@ -2314,7 +2337,7 @@ fn astgenAndSemaFn(
         try wip_zir_code.extra.ensureCapacity(mod.gpa, param_count);
 
         var params_scope = &gen_scope.base;
-        var i: u32 = 0;
+        var i: usize = 0;
         var it = fn_proto.iterate(tree);
         while (it.next()) |param| : (i += 1) {
             const name_token = param.name_token.?;
@@ -2325,7 +2348,7 @@ fn astgenAndSemaFn(
                 .gen_zir = &gen_scope,
                 .name = param_name,
                 // Implicit const list first, then implicit arg list.
-                .inst = zir.Inst.Ref.fromParam(i),
+                .inst = @intToEnum(zir.Inst.Ref, @intCast(u32, zir.Inst.Ref.typed_value_map.len + i)),
                 .src = decl.tokSrcLoc(name_token),
             };
             params_scope = &sub_scope.base;

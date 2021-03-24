@@ -70,6 +70,11 @@ pub const Code = struct {
         return code.string_bytes[index..end :0];
     }
 
+    pub fn refSlice(code: Code, start: usize, len: usize) []Inst.Ref {
+        const raw_slice = code.extra[start..][0..len];
+        return @bitCast([]Inst.Ref, raw_slice);
+    }
+
     pub fn deinit(code: *Code, gpa: *Allocator) void {
         code.instructions.deinit(gpa);
         gpa.free(code.string_bytes);
@@ -767,16 +772,17 @@ pub const Inst = struct {
     /// of the current function or a ZIR instruction.
     ///
     /// The first values after the the last tag refer to parameters which may be
-    /// derived by subtracting typed_value_count.
+    /// derived by subtracting typed_value_map.len.
     ///
     /// All further values refer to ZIR instructions which may be derived by
-    /// subtracting typed_value_count and the number of parameters.
+    /// subtracting typed_value_map.len and the number of parameters.
     ///
     /// When adding a tag to this enum, consider adding a corresponding entry to
     /// `simple_types` in astgen.
     ///
-    /// This is packed so that it is safe to cast between `[]u32` and `[]Ref`.
-    pub const Ref = packed enum(u32) {
+    /// The tag type is specified so that it is safe to bitcast between `[]u32`
+    /// and `[]Ref`.
+    pub const Ref = enum(u32) {
         /// This Ref does not correspond to any ZIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
         none,
@@ -841,8 +847,7 @@ pub const Inst = struct {
 
         _,
 
-        pub const typed_value_count = @as(u32, typed_value_map.len);
-        const typed_value_map = std.enums.directEnumArray(Ref, TypedValue, 0, .{
+        pub const typed_value_map = std.enums.directEnumArray(Ref, TypedValue, 0, .{
             .none = undefined,
 
             .u8_type = .{
@@ -1039,36 +1044,6 @@ pub const Inst = struct {
                 .val = Value.initTag(.bool_false),
             },
         });
-
-        pub fn fromParam(param: u32) Ref {
-            return @intToEnum(Ref, typed_value_count + param);
-        }
-
-        pub fn fromIndex(index: Index, param_count: u32) Ref {
-            return @intToEnum(Ref, typed_value_count + param_count + index);
-        }
-
-        pub fn toTypedValue(ref: Ref) ?TypedValue {
-            assert(ref != .none);
-            if (@enumToInt(ref) >= typed_value_count) return null;
-            return typed_value_map[@enumToInt(ref)];
-        }
-
-        pub fn toParam(ref: Ref, param_count: u32) ?u32 {
-            assert(ref != .none);
-            if (@enumToInt(ref) < typed_value_count or
-                @enumToInt(ref) >= typed_value_count + param_count)
-            {
-                return null;
-            }
-            return @enumToInt(ref) - typed_value_count;
-        }
-
-        pub fn toIndex(ref: Ref, param_count: u32) ?Index {
-            assert(ref != .none);
-            if (@enumToInt(ref) < typed_value_count + param_count) return null;
-            return @enumToInt(ref) - typed_value_count - param_count;
-        }
     };
 
     /// All instructions have an 8-byte payload, which is contained within
@@ -1672,8 +1647,7 @@ const Writer = struct {
     fn writePlNodeCall(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.Call, inst_data.payload_index);
-        const raw_args = self.code.extra[extra.end..][0..extra.data.args_len];
-        const args = mem.bytesAsSlice(Inst.Ref, mem.sliceAsBytes(raw_args));
+        const args = self.code.refSlice(extra.end, extra.data.args_len);
 
         try self.writeInstRef(stream, extra.data.callee);
         try stream.writeAll(", [");
@@ -1767,8 +1741,7 @@ const Writer = struct {
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].fn_type;
         const extra = self.code.extraData(Inst.FnType, inst_data.payload_index);
-        const raw_param_types = self.code.extra[extra.end..][0..extra.data.param_types_len];
-        const param_types = mem.bytesAsSlice(Inst.Ref, mem.sliceAsBytes(raw_param_types));
+        const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
         return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, .none);
     }
 
@@ -1793,8 +1766,7 @@ const Writer = struct {
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].fn_type;
         const extra = self.code.extraData(Inst.FnTypeCc, inst_data.payload_index);
-        const raw_param_types = self.code.extra[extra.end..][0..extra.data.param_types_len];
-        const param_types = mem.bytesAsSlice(Inst.Ref, mem.sliceAsBytes(raw_param_types));
+        const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
         const cc = extra.data.cc;
         return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, cc);
     }
@@ -1864,10 +1836,10 @@ const Writer = struct {
     fn writeInstRef(self: *Writer, stream: anytype, ref: Inst.Ref) !void {
         var i: usize = @enumToInt(ref);
 
-        if (i < Inst.Ref.typed_value_count) {
+        if (i < Inst.Ref.typed_value_map.len) {
             return stream.print("@{}", .{ref});
         }
-        i -= Inst.Ref.typed_value_count;
+        i -= Inst.Ref.typed_value_map.len;
 
         if (i < self.param_count) {
             return stream.print("${d}", .{i});
