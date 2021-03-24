@@ -2913,7 +2913,7 @@ fn zirIsNull(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     return sema.analyzeIsNull(block, src, operand, invert_logic);
@@ -2928,7 +2928,7 @@ fn zirIsNullPtr(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const ptr = try sema.resolveInst(inst_data.operand);
     const loaded = try sema.analyzeDeref(block, src, ptr, src);
@@ -2939,7 +2939,7 @@ fn zirIsErr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const operand = try sema.resolveInst(inst_data.operand);
     return sema.analyzeIsErr(block, inst_data.src(), operand);
 }
@@ -2948,7 +2948,7 @@ fn zirIsErrPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const ptr = try sema.resolveInst(inst_data.operand);
     const loaded = try sema.analyzeDeref(block, src, ptr, src);

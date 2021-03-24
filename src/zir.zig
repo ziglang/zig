@@ -362,22 +362,22 @@ pub const Inst = struct {
         /// Payload is `int_type`
         int_type,
         /// Return a boolean false if an optional is null. `x != null`
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         is_non_null,
         /// Return a boolean true if an optional is null. `x == null`
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         is_null,
         /// Return a boolean false if an optional is null. `x.* != null`
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         is_non_null_ptr,
         /// Return a boolean true if an optional is null. `x.* == null`
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         is_null_ptr,
         /// Return a boolean true if value is an error
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         is_err,
         /// Return a boolean true if dereferenced pointer is an error
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         is_err_ptr,
         /// A labeled block of code that loops forever. At the end of the body will have either
         /// a `repeat` instruction or a `repeat_inline` instruction.
@@ -1411,14 +1411,14 @@ const Writer = struct {
             .err_union_code,
             .err_union_code_ptr,
             .break_flat,
-            => try self.writeUnNode(stream, inst),
-
             .is_non_null,
             .is_null,
             .is_non_null_ptr,
             .is_null_ptr,
             .is_err,
             .is_err_ptr,
+            => try self.writeUnNode(stream, inst),
+
             .ref,
             .ret_tok,
             .ret_coerce,

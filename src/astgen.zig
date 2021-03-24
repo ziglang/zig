@@ -526,8 +526,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
                     mod,
                     scope,
                     rl,
+                    node,
                     node_datas[node].lhs,
-                    main_tokens[node],
                     .is_err_ptr,
                     .err_union_payload_unsafe_ptr,
                     .err_union_code_ptr,
@@ -538,8 +538,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
                     mod,
                     scope,
                     rl,
+                    node,
                     node_datas[node].lhs,
-                    main_tokens[node],
                     .is_err,
                     .err_union_payload_unsafe,
                     .err_union_code,
@@ -555,7 +555,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
                 rl,
                 node,
                 node_datas[node].lhs,
-                main_tokens[node],
                 .is_null_ptr,
                 .optional_payload_unsafe_ptr,
                 undefined,
@@ -568,7 +567,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
                 rl,
                 node,
                 node_datas[node].lhs,
-                main_tokens[node],
                 .is_null,
                 .optional_payload_unsafe,
                 undefined,
@@ -1637,7 +1635,6 @@ fn orelseCatchExpr(
     rl: ResultLoc,
     node: ast.Node.Index,
     lhs: ast.Node.Index,
-    op_token: ast.TokenIndex,
     cond_op: zir.Inst.Tag,
     unwrap_op: zir.Inst.Tag,
     unwrap_code_op: zir.Inst.Tag,
@@ -1645,6 +1642,8 @@ fn orelseCatchExpr(
     payload_token: ?ast.TokenIndex,
 ) InnerError!zir.Inst.Ref {
     const parent_gz = scope.getGenZir();
+    const tree = parent_gz.tree();
+
     var block_scope: Scope.GenZir = .{
         .parent = scope,
         .zir_code = parent_gz.zir_code,
@@ -1674,8 +1673,7 @@ fn orelseCatchExpr(
         },
     };
     const operand = try expr(mod, &block_scope.base, operand_rl, lhs);
-    const cond = try block_scope.addUnTok(cond_op, operand, op_token);
-
+    const cond = try block_scope.addUnNode(cond_op, operand, node);
     const condbr = try block_scope.addCondBr(node);
 
     const block = try parent_gz.addBlock(.block, node);
@@ -1690,25 +1688,25 @@ fn orelseCatchExpr(
     };
     defer then_scope.instructions.deinit(mod.gpa);
 
-    if (payload_token != null) @panic("TODO handle catch");
-    // var err_val_scope: Scope.LocalVal = undefined;
-    // const then_sub_scope = blk: {
-    //     const payload = payload_token orelse break :blk &then_scope.base;
-    //     if (mem.eql(u8, tree.tokenSlice(payload), "_")) {
-    //         return mod.failTok(&then_scope.base, payload, "discard of error capture; omit it instead", .{});
-    //     }
-    //     const err_name = try mod.identifierTokenString(scope, payload);
-    //     err_val_scope = .{
-    //         .parent = &then_scope.base,
-    //         .gen_zir = &then_scope,
-    //         .name = err_name,
-    //         .inst = try addZIRUnOp(mod, &then_scope.base, src, unwrap_code_op, operand),
-    //     };
-    //     break :blk &err_val_scope.base;
-    // };
+    var err_val_scope: Scope.LocalVal = undefined;
+    const then_sub_scope = blk: {
+        const payload = payload_token orelse break :blk &then_scope.base;
+        if (mem.eql(u8, tree.tokenSlice(payload), "_")) {
+            return mod.failTok(&then_scope.base, payload, "discard of error capture; omit it instead", .{});
+        }
+        const err_name = try mod.identifierTokenString(scope, payload);
+        err_val_scope = .{
+            .parent = &then_scope.base,
+            .gen_zir = &then_scope,
+            .name = err_name,
+            .inst = try then_scope.addUnNode(unwrap_code_op, operand, node),
+            .src = parent_gz.tokSrcLoc(payload),
+        };
+        break :blk &err_val_scope.base;
+    };
 
     block_scope.break_count += 1;
-    const then_result = try expr(mod, &then_scope.base, block_scope.break_result_loc, rhs);
+    const then_result = try expr(mod, then_sub_scope, block_scope.break_result_loc, rhs);
     // We hold off on the break instructions as well as copying the then/else
     // instructions into place until we know whether to keep store_to_block_ptr
     // instructions or not.
@@ -3857,25 +3855,6 @@ fn rlStrategy(rl: ResultLoc, block_scope: *Scope.GenZir) ResultLoc.Strategy {
                     .elide_store_to_block_ptr_instructions = false,
                 };
             }
-        },
-    }
-}
-
-/// If the input ResultLoc is ref, returns ResultLoc.ref. Otherwise:
-/// Returns ResultLoc.ty, where the type is determined by the input
-/// ResultLoc type, wrapped in an optional type. If the input ResultLoc
-/// has no type, .none is returned.
-fn makeOptionalTypeResultLoc(mod: *Module, scope: *Scope, src: usize, rl: ResultLoc) !ResultLoc {
-    switch (rl) {
-        .ref => return ResultLoc.ref,
-        .discard, .none, .block_ptr, .inferred_ptr, .bitcasted_ptr => return ResultLoc.none,
-        .ty => |elem_ty| {
-            const wrapped_ty = try addZIRUnOp(mod, scope, src, .optional_type, elem_ty);
-            return ResultLoc{ .ty = wrapped_ty };
-        },
-        .ptr => |ptr_ty| {
-            const wrapped_ty = try addZIRUnOp(mod, scope, src, .optional_type_from_ptr_elem, ptr_ty);
-            return ResultLoc{ .ty = wrapped_ty };
         },
     }
 }
