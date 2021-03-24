@@ -1535,7 +1535,8 @@ pub const SrcLoc = struct {
                 const decl = src_loc.container.decl;
                 const node_index = decl.relativeToNodeIndex(node_off);
                 const tree = decl.container.file_scope.base.tree();
-                const tok_index = tree.firstToken(node_index);
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[node_index];
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },

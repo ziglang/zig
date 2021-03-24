@@ -1851,25 +1851,32 @@ fn tokenIdentEql(mod: *Module, scope: *Scope, token1: ast.TokenIndex, token2: as
     return mem.eql(u8, ident_name_1, ident_name_2);
 }
 
-pub fn fieldAccess(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
-    const tree = scope.tree();
+pub fn fieldAccess(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+) InnerError!zir.Inst.Ref {
+    const gz = scope.getGenZir();
+    const tree = gz.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const node_datas = tree.nodes.items(.data);
-
+    const object_node = node_datas[node].lhs;
     const dot_token = main_tokens[node];
     const field_ident = dot_token + 1;
-    const field_name = try mod.identifierTokenString(scope, field_ident);
-    if (rl == .ref) {
-        return addZirInstTag(mod, scope, src, .field_ptr, .{
-            .object = try expr(mod, scope, .ref, node_datas[node].lhs),
-            .field_name = field_name,
-        });
-    } else {
-        return rvalue(mod, scope, rl, try addZirInstTag(mod, scope, src, .field_val, .{
-            .object = try expr(mod, scope, .none, node_datas[node].lhs),
-            .field_name = field_name,
-        }));
+    const string_bytes = &gz.zir_code.string_bytes;
+    const str_index = @intCast(u32, string_bytes.items.len);
+    try mod.appendIdentStr(scope, field_ident, string_bytes);
+    try string_bytes.append(mod.gpa, 0);
+    switch (rl) {
+        .ref => return gz.addPlNode(.field_ptr, node, zir.Inst.Field{
+            .lhs = try expr(mod, scope, .ref, object_node),
+            .field_name_start = str_index,
+        }),
+        else => return rvalue(mod, scope, rl, try gz.addPlNode(.field_val, node, zir.Inst.Field{
+            .lhs = try expr(mod, scope, .none, object_node),
+            .field_name_start = str_index,
+        }), node),
     }
 }
 
@@ -2951,70 +2958,62 @@ fn multilineStringLiteral(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
-    str_lit: ast.Node.Index,
+    node: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
-    const tree = scope.tree();
+    const gz = scope.getGenZir();
+    const tree = gz.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
 
-    const start = node_datas[str_lit].lhs;
-    const end = node_datas[str_lit].rhs;
+    const start = node_datas[node].lhs;
+    const end = node_datas[node].rhs;
+    const string_bytes = &gz.zir_code.string_bytes;
+    const str_index = string_bytes.items.len;
 
-    // Count the number of bytes to allocate.
-    const len: usize = len: {
-        var tok_i = start;
-        var len: usize = end - start + 1;
-        while (tok_i <= end) : (tok_i += 1) {
-            // 2 for the '//' + 1 for '\n'
-            len += tree.tokenSlice(tok_i).len - 3;
-        }
-        break :len len;
-    };
-    const bytes = try scope.arena().alloc(u8, len);
     // First line: do not append a newline.
-    var byte_i: usize = 0;
     var tok_i = start;
     {
         const slice = tree.tokenSlice(tok_i);
         const line_bytes = slice[2 .. slice.len - 1];
-        mem.copy(u8, bytes[byte_i..], line_bytes);
-        byte_i += line_bytes.len;
+        try string_bytes.appendSlice(mod.gpa, line_bytes);
         tok_i += 1;
     }
     // Following lines: each line prepends a newline.
     while (tok_i <= end) : (tok_i += 1) {
-        bytes[byte_i] = '\n';
-        byte_i += 1;
         const slice = tree.tokenSlice(tok_i);
         const line_bytes = slice[2 .. slice.len - 1];
-        mem.copy(u8, bytes[byte_i..], line_bytes);
-        byte_i += line_bytes.len;
+        try string_bytes.ensureCapacity(mod.gpa, string_bytes.items.len + line_bytes.len + 1);
+        string_bytes.appendAssumeCapacity('\n');
+        string_bytes.appendSliceAssumeCapacity(line_bytes);
     }
-    const str_inst = try addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = bytes }, .{});
-    return rvalue(mod, scope, rl, str_inst);
+    const result = try gz.add(.{
+        .tag = .str,
+        .data = .{ .str = .{
+            .start = @intCast(u32, str_index),
+            .len = @intCast(u32, string_bytes.items.len - str_index),
+        } },
+    });
+    return rvalue(mod, scope, rl, result, node);
 }
 
 fn charLiteral(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
-    const tree = scope.tree();
+    const gz = scope.getGenZir();
+    const tree = gz.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const main_token = main_tokens[node];
-
     const slice = tree.tokenSlice(main_token);
 
     var bad_index: usize = undefined;
     const value = std.zig.parseCharLiteral(slice, &bad_index) catch |err| switch (err) {
         error.InvalidCharacter => {
             const bad_byte = slice[bad_index];
-            return mod.fail(scope, src + bad_index, "invalid character: '{c}'\n", .{bad_byte});
+            const token_starts = tree.tokens.items(.start);
+            const src_off = @intCast(u32, token_starts[main_token] + bad_index);
+            return mod.failOff(scope, src_off, "invalid character: '{c}'\n", .{bad_byte});
         },
     };
-    const result = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.comptime_int),
-        .val = try Value.Tag.int_u64.create(scope.arena(), value),
-    });
-    return rvalue(mod, scope, rl, result);
+    const result = try gz.addInt(value);
+    return rvalue(mod, scope, rl, result, node);
 }
 
 fn integerLiteral(

@@ -14,7 +14,9 @@ Merge TODO list:
  * audit all the .unneeded src locations
  * audit the calls in codegen toSrcLocWithDecl specifically if there is inlined function
    calls from other files.
-
+ * uncomment the commented out stage2 tests
+ * memory leaks on --watch update
+ * memory leaks on test-stage2
 
 Performance optimizations to look into:
  * astgen: pass *GenZir as the first arg, not *Module

@@ -1330,8 +1330,6 @@ pub const Inst = struct {
         lhs: Ref,
         /// Offset into `string_bytes`.
         field_name_start: u32,
-        /// Number of bytes in the string.
-        field_name_len: u32,
     };
 
     pub const FieldNamed = struct {

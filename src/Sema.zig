@@ -191,8 +191,8 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .mod_rem => try sema.zirArithmetic(block, inst),
             .mul => try sema.zirArithmetic(block, inst),
             .mulwrap => try sema.zirArithmetic(block, inst),
-            .negate => @panic("TODO"),
-            .negate_wrap => @panic("TODO"),
+            .negate => try sema.zirNegate(block, inst, .sub),
+            .negate_wrap => try sema.zirNegate(block, inst, .subwrap),
             .optional_payload_safe => try sema.zirOptionalPayload(block, inst, true),
             .optional_payload_safe_ptr => try sema.zirOptionalPayloadPtr(block, inst, true),
             .optional_payload_unsafe => try sema.zirOptionalPayload(block, inst, false),
@@ -1879,7 +1879,7 @@ fn zirFieldVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const src = inst_data.src();
     const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.Field, inst_data.payload_index).data;
-    const field_name = sema.code.string_bytes[extra.field_name_start..][0..extra.field_name_len];
+    const field_name = sema.code.nullTerminatedString(extra.field_name_start);
     const object = try sema.resolveInst(extra.lhs);
     const object_ptr = try sema.analyzeRef(block, src, object);
     const result_ptr = try sema.namedFieldPtr(block, src, object_ptr, field_name, field_name_src);
@@ -1894,7 +1894,7 @@ fn zirFieldPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const src = inst_data.src();
     const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.Field, inst_data.payload_index).data;
-    const field_name = sema.code.string_bytes[extra.field_name_start..][0..extra.field_name_len];
+    const field_name = sema.code.nullTerminatedString(extra.field_name_start);
     const object_ptr = try sema.resolveInst(extra.lhs);
     return sema.namedFieldPtr(block, src, object_ptr, field_name, field_name_src);
 }
@@ -2474,10 +2474,30 @@ fn zirArrayMul(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirArrayMul", .{});
 }
 
+fn zirNegate(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: zir.Inst.Index,
+    tag_override: zir.Inst.Tag,
+) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const lhs = try sema.resolveInst(@enumToInt(zir.Const.zero));
+    const rhs = try sema.resolveInst(inst_data.operand);
+
+    return sema.analyzeArithmetic(block, tag_override, lhs, rhs, src, lhs_src, rhs_src);
+}
+
 fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const tag_override = block.sema.code.instructions.items(.tag)[inst];
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
@@ -2486,6 +2506,19 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     const lhs = try sema.resolveInst(extra.lhs);
     const rhs = try sema.resolveInst(extra.rhs);
 
+    return sema.analyzeArithmetic(block, tag_override, lhs, rhs, src, lhs_src, rhs_src);
+}
+
+fn analyzeArithmetic(
+    sema: *Sema,
+    block: *Scope.Block,
+    zir_tag: zir.Inst.Tag,
+    lhs: *Inst,
+    rhs: *Inst,
+    src: LazySrcLoc,
+    lhs_src: LazySrcLoc,
+    rhs_src: LazySrcLoc,
+) InnerError!*Inst {
     const instructions = &[_]*Inst{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions);
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
@@ -2515,9 +2548,8 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
 
     const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
     const is_float = scalar_tag == .Float or scalar_tag == .ComptimeFloat;
-    const zir_tags = block.sema.code.instructions.items(.tag);
 
-    if (!is_int and !(is_float and floatOpAllowed(zir_tags[inst]))) {
+    if (!is_int and !(is_float and floatOpAllowed(zir_tag))) {
         return sema.mod.fail(&block.base, src, "invalid operands to binary expression: '{s}' and '{s}'", .{ @tagName(lhs.ty.zigTypeTag()), @tagName(rhs.ty.zigTypeTag()) });
     }
 
@@ -2538,7 +2570,7 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
                 });
             }
 
-            const value = switch (zir_tags[inst]) {
+            const value = switch (zir_tag) {
                 .add => blk: {
                     const val = if (is_int)
                         try Module.intAdd(sema.arena, lhs_val, rhs_val)
@@ -2553,10 +2585,10 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
                         try Module.floatSub(sema.arena, scalar_type, src, lhs_val, rhs_val);
                     break :blk val;
                 },
-                else => return sema.mod.fail(&block.base, src, "TODO Implement arithmetic operand '{s}'", .{@tagName(zir_tags[inst])}),
+                else => return sema.mod.fail(&block.base, src, "TODO Implement arithmetic operand '{s}'", .{@tagName(zir_tag)}),
             };
 
-            log.debug("{s}({}, {}) result: {}", .{ @tagName(zir_tags[inst]), lhs_val, rhs_val, value });
+            log.debug("{s}({}, {}) result: {}", .{ @tagName(zir_tag), lhs_val, rhs_val, value });
 
             return sema.mod.constInst(sema.arena, src, .{
                 .ty = scalar_type,
@@ -2566,14 +2598,14 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     }
 
     try sema.requireRuntimeBlock(block, src);
-    const ir_tag: Inst.Tag = switch (zir_tags[inst]) {
+    const ir_tag: Inst.Tag = switch (zir_tag) {
         .add => .add,
         .addwrap => .addwrap,
         .sub => .sub,
         .subwrap => .subwrap,
         .mul => .mul,
         .mulwrap => .mulwrap,
-        else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}''", .{@tagName(zir_tags[inst])}),
+        else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}''", .{@tagName(zir_tag)}),
     };
 
     return block.addBinOp(src, scalar_type, ir_tag, casted_lhs, casted_rhs);
