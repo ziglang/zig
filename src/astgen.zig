@@ -1055,6 +1055,7 @@ fn blockExprStmts(
                         .bit_or,
                         .block,
                         .block_comptime,
+                        .loop,
                         .bool_br_and,
                         .bool_br_or,
                         .bool_not,
@@ -1156,12 +1157,13 @@ fn blockExprStmts(
                         .ret_tok,
                         .ret_coerce,
                         .@"unreachable",
-                        .loop,
                         .elided,
                         .store,
                         .store_to_block_ptr,
                         .store_to_inferred_ptr,
                         .resolve_inferred_alloc,
+                        .repeat,
+                        .repeat_inline,
                         => break :b true,
                     }
                 } else switch (maybe_unused_result) {
@@ -2145,20 +2147,16 @@ fn whileExpr(
     node: ast.Node.Index,
     while_full: ast.full.While,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     if (while_full.label_token) |label_token| {
         try checkLabelRedefinition(mod, scope, label_token);
     }
-    if (while_full.inline_token) |inline_token| {
-        return mod.failTok(scope, inline_token, "TODO inline while", .{});
-    }
-
     const parent_gz = scope.getGenZir();
+    const loop_block = try parent_gz.addBlock(.loop, node);
+    try parent_gz.instructions.append(mod.gpa, loop_block);
 
     var loop_scope: Scope.GenZir = .{
         .parent = scope,
-        .decl = scope.ownerDecl().?,
-        .arena = scope.arena(),
+        .zir_code = parent_gz.zir_code,
         .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
@@ -2167,21 +2165,12 @@ fn whileExpr(
 
     var continue_scope: Scope.GenZir = .{
         .parent = &loop_scope.base,
-        .decl = loop_scope.decl,
-        .arena = loop_scope.arena,
+        .zir_code = parent_gz.zir_code,
         .force_comptime = loop_scope.force_comptime,
         .instructions = .{},
     };
     defer continue_scope.instructions.deinit(mod.gpa);
 
-    const tree = gz.tree();
-    const main_tokens = tree.nodes.items(.main_token);
-
-    const while_src = token_starts[while_full.ast.while_token];
-    const void_type = try addZIRInstConst(mod, scope, while_src, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.void_type),
-    });
     const cond = c: {
         // TODO https://github.com/ziglang/zig/issues/7929
         if (while_full.error_token) |error_token| {
@@ -2189,59 +2178,41 @@ fn whileExpr(
         } else if (while_full.payload_token) |payload_token| {
             return mod.failTok(scope, payload_token, "TODO implement while optional", .{});
         } else {
-            const bool_type = try addZIRInstConst(mod, &continue_scope.base, while_src, .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.bool_type),
-            });
-            break :c try expr(mod, &continue_scope.base, .{ .ty = bool_type }, while_full.ast.cond_expr);
+            const bool_type_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.bool_type) };
+            break :c try expr(mod, &continue_scope.base, bool_type_rl, while_full.ast.cond_expr);
         }
     };
 
-    const condbr = try addZIRInstSpecial(mod, &continue_scope.base, while_src, zir.Inst.CondBr, .{
-        .condition = cond,
-        .then_body = undefined, // populated below
-        .else_body = undefined, // populated below
-    }, .{});
-    const cond_block = try addZIRInstBlock(mod, &loop_scope.base, while_src, .block, .{
-        .instructions = try loop_scope.arena.dupe(zir.Inst.Ref, continue_scope.instructions.items),
-    });
+    const condbr = try continue_scope.addCondBr(node);
+    const cond_block = try loop_scope.addBlock(.block, node);
+    try loop_scope.instructions.append(mod.gpa, cond_block);
+    try continue_scope.setBlockBody(cond_block);
+
     // TODO avoid emitting the continue expr when there
     // are no jumps to it. This happens when the last statement of a while body is noreturn
     // and there are no `continue` statements.
     // The "repeat" at the end of a loop body is implied.
     if (while_full.ast.cont_expr != 0) {
-        _ = try expr(mod, &loop_scope.base, .{ .ty = void_type }, while_full.ast.cont_expr);
+        const void_type_rl: ResultLoc = .{ .ty = @enumToInt(zir.Const.void_type) };
+        _ = try expr(mod, &loop_scope.base, void_type_rl, while_full.ast.cont_expr);
     }
-    const loop = try scope.arena().create(zir.Inst.Loop);
-    loop.* = .{
-        .base = .{
-            .tag = .loop,
-            .src = while_src,
-        },
-        .positionals = .{
-            .body = .{
-                .instructions = try scope.arena().dupe(zir.Inst.Ref, loop_scope.instructions.items),
-            },
-        },
-        .kw_args = .{},
-    };
-    const while_block = try addZIRInstBlock(mod, scope, while_src, .block, .{
-        .instructions = try scope.arena().dupe(zir.Inst.Ref, &[1]zir.Inst.Ref{&loop.base}),
-    });
-    loop_scope.break_block = while_block;
+    const is_inline = while_full.inline_token != null;
+    const repeat_tag: zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
+    _ = try loop_scope.addNode(repeat_tag, node);
+
+    try loop_scope.setBlockBody(loop_block);
+    loop_scope.break_block = loop_block;
     loop_scope.continue_block = cond_block;
     if (while_full.label_token) |label_token| {
         loop_scope.label = @as(?Scope.GenZir.Label, Scope.GenZir.Label{
             .token = label_token,
-            .block_inst = while_block,
+            .block_inst = loop_block,
         });
     }
 
-    const then_src = token_starts[tree.lastToken(while_full.ast.then_expr)];
     var then_scope: Scope.GenZir = .{
         .parent = &continue_scope.base,
-        .decl = continue_scope.decl,
-        .arena = continue_scope.arena,
+        .zir_code = parent_gz.zir_code,
         .force_comptime = continue_scope.force_comptime,
         .instructions = .{},
     };
@@ -2254,29 +2225,31 @@ fn whileExpr(
 
     var else_scope: Scope.GenZir = .{
         .parent = &continue_scope.base,
-        .decl = continue_scope.decl,
-        .arena = continue_scope.arena,
+        .zir_code = parent_gz.zir_code,
         .force_comptime = continue_scope.force_comptime,
         .instructions = .{},
     };
     defer else_scope.instructions.deinit(mod.gpa);
 
     const else_node = while_full.ast.else_expr;
-    const else_info: struct { src: usize, result: ?*zir.Inst } = if (else_node != 0) blk: {
+    const else_info: struct {
+        src: ast.Node.Index,
+        result: zir.Inst.Ref,
+    } = if (else_node != 0) blk: {
         loop_scope.break_count += 1;
         const sub_scope = &else_scope.base;
         break :blk .{
-            .src = token_starts[tree.lastToken(else_node)],
+            .src = else_node,
             .result = try expr(mod, sub_scope, loop_scope.break_result_loc, else_node),
         };
     } else .{
-        .src = token_starts[tree.lastToken(while_full.ast.then_expr)],
-        .result = null,
+        .src = while_full.ast.then_expr,
+        .result = 0,
     };
 
     if (loop_scope.label) |some| {
         if (!some.used) {
-            return mod.fail(scope, token_starts[some.token], "unused while loop label", .{});
+            return mod.failTok(scope, some.token, "unused while loop label", .{});
         }
     }
     return finishThenElseBlock(
@@ -2289,11 +2262,11 @@ fn whileExpr(
         &else_scope,
         condbr,
         cond,
-        then_src,
+        while_full.ast.then_expr,
         else_info.src,
         then_result,
         else_info.result,
-        while_block,
+        loop_block,
         cond_block,
     );
 }

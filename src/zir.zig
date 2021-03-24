@@ -649,11 +649,19 @@ pub const Inst = struct {
         /// Return a boolean true if dereferenced pointer is an error
         /// Uses the `un_tok` field.
         is_err_ptr,
-        /// A labeled block of code that loops forever. At the end of the body it is implied
-        /// to repeat; no explicit "repeat" instruction terminates loop bodies.
+        /// A labeled block of code that loops forever. At the end of the body will have either
+        /// a `repeat` instruction or a `repeat_inline` instruction.
         /// Uses the `pl_node` field. The AST node is either a for loop or while loop.
+        /// This ZIR instruction is needed because TZIR does not (yet?) match ZIR, and Sema
+        /// needs to emit more than 1 TZIR block for this instruction.
         /// The payload is `Block`.
         loop,
+        /// Sends runtime control flow back to the beginning of the current block.
+        /// Uses the `node` field.
+        repeat,
+        /// Sends comptime control flow back to the beginning of the current block.
+        /// Uses the `node` field.
+        repeat_inline,
         /// Merge two error sets into one, `E1 || E2`.
         merge_error_sets,
         /// Ambiguously remainder division or modulus. If the computation would possibly have
@@ -736,6 +744,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceSentinel`.
         slice_sentinel,
         /// Write a value to a pointer. For loading, see `deref`.
+        /// Uses the `bin` union field.
         store,
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the block type. The LHS is the pointer to store to.
@@ -902,6 +911,7 @@ pub const Inst = struct {
                 .bit_or,
                 .block,
                 .block_comptime,
+                .loop,
                 .bool_br_and,
                 .bool_br_or,
                 .bool_not,
@@ -1012,7 +1022,8 @@ pub const Inst = struct {
                 .ret_tok,
                 .ret_coerce,
                 .@"unreachable",
-                .loop,
+                .repeat,
+                .repeat_inline,
                 => true,
             };
         }
@@ -1355,12 +1366,13 @@ const Writer = struct {
             .bit_and,
             .bit_or,
             .as,
-            .@"break",
             .coerce_result_ptr,
             .elem_ptr,
             .elem_val,
             .intcast,
             .merge_error_sets,
+            .store,
+            .store_to_block_ptr,
             => try self.writeBin(stream, inst),
 
             .alloc,
@@ -1425,6 +1437,7 @@ const Writer = struct {
             .elided => try stream.writeAll(")"),
             .break_void_node => try self.writeBreakVoidNode(stream, inst),
             .int_type => try self.writeIntType(stream, inst),
+            .@"break" => try self.writeBreak(stream, inst),
 
             .@"asm",
             .asm_volatile,
@@ -1436,7 +1449,6 @@ const Writer = struct {
             .field_ptr_named,
             .field_val_named,
             .floatcast,
-            .loop,
             .slice_start,
             .slice_end,
             .slice_sentinel,
@@ -1473,6 +1485,7 @@ const Writer = struct {
 
             .block,
             .block_comptime,
+            .loop,
             => try self.writePlNodeBlock(stream, inst),
 
             .condbr => try self.writePlNodeCondBr(stream, inst),
@@ -1483,6 +1496,8 @@ const Writer = struct {
             .dbg_stmt_node,
             .ret_ptr,
             .ret_type,
+            .repeat,
+            .repeat_inline,
             => try self.writeNode(stream, inst),
 
             .decl_ref,
@@ -1506,8 +1521,6 @@ const Writer = struct {
             .bitcast_result_ptr,
             .error_union_type,
             .error_set,
-            .store,
-            .store_to_block_ptr,
             .store_to_inferred_ptr,
             => try stream.writeAll("TODO)"),
         }
@@ -1770,6 +1783,15 @@ const Writer = struct {
         };
         try stream.print("{c}{d}) ", .{ prefix, int_type.bit_count });
         try self.writeSrc(stream, int_type.src());
+    }
+
+    fn writeBreak(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].@"break";
+
+        try self.writeInstIndex(stream, inst_data.block_inst);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, inst_data.operand);
+        try stream.writeAll(")");
     }
 
     fn writeUnreachable(self: *Writer, stream: anytype, inst: Inst.Index) !void {

@@ -17,6 +17,12 @@ inst_map: []*Inst,
 /// and `src_decl` of `Scope.Block` is the `Decl` of the callee.
 /// This `Decl` owns the arena memory of this `Sema`.
 owner_decl: *Decl,
+/// For an inline or comptime function call, this will be the root parent function
+/// which contains the callsite. Corresponds to `owner_decl`.
+owner_func: ?*Module.Fn,
+/// The function this ZIR code is the body of, according to the source code.
+/// This starts out the same as `owner_func` and then diverges in the case of
+/// an inline or comptime function call.
 func: ?*Module.Fn,
 /// For now, TZIR requires arg instructions to be the first N instructions in the
 /// TZIR code. We store references here for the purpose of `resolveInst`.
@@ -26,6 +32,7 @@ func: ?*Module.Fn,
 /// > param_count: u32
 param_inst_list: []const *ir.Inst,
 branch_quota: u32 = 1000,
+branch_count: u32 = 0,
 /// This field is updated when a new source location becomes active, so that
 /// instructions which do not have explicitly mapped source locations still have
 /// access to the source location set by the previous instruction which did
@@ -86,6 +93,7 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
 
     const map = block.sema.inst_map;
     const tags = block.sema.code.instructions.items(.tag);
+    const datas = block.sema.code.instructions.items(.data);
 
     // We use a while(true) loop here to avoid a redundant way of breaking out of
     // the loop. The only way to break out of the loop is with a `noreturn`
@@ -178,6 +186,7 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .is_non_null_ptr => try sema.zirIsNullPtr(block, inst, true),
             .is_null => try sema.zirIsNull(block, inst, false),
             .is_null_ptr => try sema.zirIsNullPtr(block, inst, false),
+            .loop => try sema.zirLoop(block, inst),
             .merge_error_sets => try sema.zirMergeErrorSets(block, inst),
             .mod_rem => try sema.zirArithmetic(block, inst),
             .mul => try sema.zirArithmetic(block, inst),
@@ -225,7 +234,7 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .ret_node => return sema.zirRetNode(block, inst),
             .ret_tok => return sema.zirRetTok(block, inst, false),
             .@"unreachable" => return sema.zirUnreachable(block, inst),
-            .loop => return sema.zirLoop(block, inst),
+            .repeat => return sema.zirRepeat(block, inst),
 
             // Instructions that we know can *never* be noreturn based solely on
             // their tag. We avoid needlessly checking if they are noreturn and
@@ -274,6 +283,14 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             },
             .resolve_inferred_alloc => {
                 try sema.zirResolveInferredAlloc(block, inst);
+                continue;
+            },
+
+            // Special case: send comptime control flow back to the beginning of this block.
+            .repeat_inline => {
+                const src: LazySrcLoc = .{ .node_offset = datas[inst].node };
+                try sema.emitBackwardBranch(block, src);
+                i = 0;
                 continue;
             },
         };
@@ -764,14 +781,50 @@ fn zirCompileLog(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     }
 }
 
-fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
+fn zirRepeat(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const src_node = sema.code.instructions.items(.data)[inst].node;
+    const src: LazySrcLoc = .{ .node_offset = src_node };
+    try sema.requireRuntimeBlock(block, src);
+    return always_noreturn;
+}
+
+fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    const extra = sema.code.extraData(zir.Inst.MultiOp, inst_data.payload_index);
-    const body = sema.code.extra[extra.end..][0..extra.data.operands_len];
+    const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
+    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
+
+    // TZIR expects a block outside the loop block too.
+    const block_inst = try sema.arena.create(Inst.Block);
+    block_inst.* = .{
+        .base = .{
+            .tag = Inst.Block.base_tag,
+            .ty = undefined,
+            .src = src,
+        },
+        .body = undefined,
+    };
+
+    var child_block = parent_block.makeSubBlock();
+    child_block.label = Scope.Block.Label{
+        .zir_block = inst,
+        .merges = .{
+            .results = .{},
+            .br_list = .{},
+            .block_inst = block_inst,
+        },
+    };
+    const merges = &child_block.label.?.merges;
+
+    defer child_block.instructions.deinit(sema.gpa);
+    defer merges.results.deinit(sema.gpa);
+    defer merges.br_list.deinit(sema.gpa);
 
     // Reserve space for a Loop instruction so that generated Break instructions can
     // point to it, even if it doesn't end up getting used because the code ends up being
@@ -786,23 +839,17 @@ fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) InnerE
         .body = undefined,
     };
 
-    var child_block: Scope.Block = .{
-        .parent = parent_block,
-        .sema = sema,
-        .src_decl = parent_block.src_decl,
-        .instructions = .{},
-        .inlining = parent_block.inlining,
-        .is_comptime = parent_block.is_comptime,
-    };
-    defer child_block.instructions.deinit(sema.gpa);
+    var loop_block = child_block.makeSubBlock();
+    defer loop_block.instructions.deinit(sema.gpa);
 
-    _ = try sema.analyzeBody(&child_block, body);
+    _ = try sema.analyzeBody(&loop_block, body);
 
     // Loop repetition is implied so the last instruction may or may not be a noreturn instruction.
 
-    try parent_block.instructions.append(sema.gpa, &loop_inst.base);
-    loop_inst.body = .{ .instructions = try sema.arena.dupe(*Inst, child_block.instructions.items) };
-    return always_noreturn;
+    try child_block.instructions.append(sema.gpa, &loop_inst.base);
+    loop_inst.body = .{ .instructions = try sema.arena.dupe(*Inst, loop_block.instructions.items) };
+
+    return sema.analyzeBlockBody(parent_block, &child_block, merges);
 }
 
 fn zirBlock(
@@ -1160,16 +1207,9 @@ fn analyzeCall(
             },
             .body = undefined,
         };
-        // If this is the top of the inline/comptime call stack, we use this data.
-        // Otherwise we pass on the shared data from the parent scope.
-        var shared_inlining: Scope.Block.Inlining.Shared = .{
-            .branch_count = 0,
-            .caller = sema.func,
-        };
         // This one is shared among sub-blocks within the same callee, but not
         // shared among the entire inline/comptime call stack.
         var inlining: Scope.Block.Inlining = .{
-            .shared = if (block.inlining) |inlining| inlining.shared else &shared_inlining,
             .merges = .{
                 .results = .{},
                 .br_list = .{},
@@ -1183,8 +1223,11 @@ fn analyzeCall(
             .code = module_fn.zir,
             .inst_map = try sema.gpa.alloc(*ir.Inst, module_fn.zir.instructions.len),
             .owner_decl = sema.owner_decl,
+            .owner_func = sema.owner_func,
             .func = module_fn,
             .param_inst_list = casted_args,
+            .branch_quota = sema.branch_quota,
+            .branch_count = sema.branch_count,
         };
         defer sema.gpa.free(inline_sema.inst_map);
 
@@ -1210,7 +1253,12 @@ fn analyzeCall(
         // the block_inst above.
         _ = try inline_sema.root(&child_block);
 
-        break :res try inline_sema.analyzeBlockBody(block, &child_block, merges);
+        const result = try inline_sema.analyzeBlockBody(block, &child_block, merges);
+
+        sema.branch_quota = inline_sema.branch_quota;
+        sema.branch_count = inline_sema.branch_count;
+
+        break :res result;
     } else res: {
         try sema.requireRuntimeBlock(block, call_src);
         break :res try block.addCall(call_src, ret_type, func, casted_args);
@@ -3169,9 +3217,8 @@ fn safetyPanic(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, panic_id: Pani
 }
 
 fn emitBackwardBranch(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void {
-    const shared = block.inlining.?.shared;
-    shared.branch_count += 1;
-    if (shared.branch_count > sema.branch_quota) {
+    sema.branch_count += 1;
+    if (sema.branch_count > sema.branch_quota) {
         // TODO show the "called from here" stack
         return sema.mod.fail(&block.base, src, "evaluation exceeded {d} backwards branches", .{sema.branch_quota});
     }

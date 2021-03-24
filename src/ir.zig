@@ -80,22 +80,24 @@ pub const Inst = struct {
         condbr,
         constant,
         dbg_stmt,
-        // ?T => bool
+        /// ?T => bool
         is_null,
-        // ?T => bool (inverted logic)
+        /// ?T => bool (inverted logic)
         is_non_null,
-        // *?T => bool
+        /// *?T => bool
         is_null_ptr,
-        // *?T => bool (inverted logic)
+        /// *?T => bool (inverted logic)
         is_non_null_ptr,
-        // E!T => bool
+        /// E!T => bool
         is_err,
-        // *E!T => bool
+        /// *E!T => bool
         is_err_ptr,
         bool_and,
         bool_or,
         /// Read a value from a pointer.
         load,
+        /// A labeled block of code that loops forever. At the end of the body it is implied
+        /// to repeat; no explicit "repeat" instruction terminates loop bodies.
         loop,
         ptrtoint,
         ref,
@@ -112,9 +114,9 @@ pub const Inst = struct {
         not,
         floatcast,
         intcast,
-        // ?T => T
+        /// ?T => T
         optional_payload,
-        // *?T => *T
+        /// *?T => *T
         optional_payload_ptr,
         wrap_optional,
         /// E!T -> T

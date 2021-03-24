@@ -700,14 +700,7 @@ pub const Scope = struct {
         /// It is shared among all the blocks in an inline or comptime called
         /// function.
         pub const Inlining = struct {
-            /// Shared state among the entire inline/comptime call stack.
-            shared: *Shared,
             merges: Merges,
-
-            pub const Shared = struct {
-                caller: ?*Fn,
-                branch_count: u32,
-            };
         };
 
         pub const Merges = struct {
@@ -2015,6 +2008,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
                 .inst_map = try analysis_arena.allocator.alloc(*ir.Inst, code.instructions.len),
                 .owner_decl = decl,
                 .func = null,
+                .owner_func = null,
                 .param_inst_list = &.{},
             };
             var block_scope: Scope.Block = .{
@@ -2236,6 +2230,7 @@ fn astgenAndSemaFn(
         .inst_map = try fn_type_scope_arena.allocator.alloc(*ir.Inst, fn_type_code.instructions.len),
         .owner_decl = decl,
         .func = null,
+        .owner_func = null,
         .param_inst_list = &.{},
     };
     var block_scope: Scope.Block = .{
@@ -2544,6 +2539,7 @@ fn astgenAndSemaVarDecl(
             .inst_map = try gen_scope_arena.allocator.alloc(*ir.Inst, code.instructions.len),
             .owner_decl = decl,
             .func = null,
+            .owner_func = null,
             .param_inst_list = &.{},
         };
         var block_scope: Scope.Block = .{
@@ -2608,6 +2604,7 @@ fn astgenAndSemaVarDecl(
             .inst_map = try type_scope_arena.allocator.alloc(*ir.Inst, code.instructions.len),
             .owner_decl = decl,
             .func = null,
+            .owner_func = null,
             .param_inst_list = &.{},
         };
         var block_scope: Scope.Block = .{
@@ -3192,6 +3189,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
         .inst_map = try mod.gpa.alloc(*ir.Inst, func.zir.instructions.len),
         .owner_decl = decl,
         .func = func,
+        .owner_func = func,
         .param_inst_list = param_inst_list,
     };
     defer mod.gpa.free(sema.inst_map);
@@ -3681,20 +3679,11 @@ pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) In
     switch (scope.tag) {
         .block => {
             const block = scope.cast(Scope.Block).?;
-            if (block.inlining) |inlining| {
-                if (inlining.shared.caller) |func| {
-                    func.state = .sema_failure;
-                } else {
-                    block.sema.owner_decl.analysis = .sema_failure;
-                    block.sema.owner_decl.generation = mod.generation;
-                }
+            if (block.sema.owner_func) |func| {
+                func.state = .sema_failure;
             } else {
-                if (block.sema.func) |func| {
-                    func.state = .sema_failure;
-                } else {
-                    block.sema.owner_decl.analysis = .sema_failure;
-                    block.sema.owner_decl.generation = mod.generation;
-                }
+                block.sema.owner_decl.analysis = .sema_failure;
+                block.sema.owner_decl.generation = mod.generation;
             }
             mod.failed_decls.putAssumeCapacityNoClobber(block.sema.owner_decl, err_msg);
         },
