@@ -20,6 +20,11 @@ name: []u8,
 
 objects: std.ArrayListUnmanaged(Object) = .{},
 
+/// Parsed table of contents.
+/// Each symbol name points to a list of all definition
+/// sites within the current static archive.
+toc: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(u32)) = .{},
+
 // Archive files start with the ARMAG identifying string.  Then follows a
 // `struct ar_hdr', and as many bytes of member file data as its `ar_size'
 // member indicates, for each member file.
@@ -88,6 +93,11 @@ pub fn deinit(self: *Archive) void {
         object.deinit();
     }
     self.objects.deinit(self.allocator);
+    for (self.toc.items()) |*entry| {
+        self.allocator.free(entry.key);
+        entry.value.deinit(self.allocator);
+    }
+    self.toc.deinit(self.allocator);
     self.file.close();
 }
 
@@ -159,8 +169,20 @@ fn readTableOfContents(self: *Archive, reader: anytype) ![]u32 {
         };
         const object_offset = try symtab_reader.readIntLittle(u32);
 
-        // TODO Store the table of contents for later reuse.
+        const sym_name = mem.spanZ(@ptrCast([*:0]const u8, strtab.ptr + n_strx));
+        const owned_name = try self.allocator.dupe(u8, sym_name);
+        const res = try self.toc.getOrPut(self.allocator, owned_name);
+        defer if (res.found_existing) self.allocator.free(owned_name);
 
+        if (!res.found_existing) {
+            res.entry.value = .{};
+        }
+
+        try res.entry.value.append(self.allocator, object_offset);
+
+        // TODO This will go once we properly use archive's TOC to pick
+        // an object which defines a missing symbol rather than pasting in
+        // all of the objects always.
         // Here, we assume that symbols are NOT sorted in any way, and
         // they point to objects in sequence.
         if (object_offsets.items[last] != object_offset) {
