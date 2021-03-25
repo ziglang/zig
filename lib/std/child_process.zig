@@ -78,7 +78,7 @@ pub const ChildProcess = struct {
     } || os.ExecveError || os.SetIdError || os.ChangeCurDirError || windows.CreateProcessError || windows.WaitForSingleObjectError;
 
     pub const Term = union(enum) {
-        Exited: u32,
+        Exited: u8,
         Signal: u32,
         Stopped: u32,
         Unknown: u32,
@@ -347,7 +347,7 @@ pub const ChildProcess = struct {
             if (windows.kernel32.GetExitCodeProcess(self.handle, &exit_code) == 0) {
                 break :x Term{ .Unknown = 0 };
             } else {
-                break :x Term{ .Exited = exit_code };
+                break :x Term{ .Exited = @truncate(u8, exit_code) };
             }
         });
 

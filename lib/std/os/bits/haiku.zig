@@ -661,8 +661,8 @@ pub const TIOCSBRK = 0x8020;
 pub const TIOCCBRK = 0x8021;
 pub const TIOCGSID = 0x8024;
 
-pub fn WEXITSTATUS(s: u32) u32 {
-    return (s & 0xff);
+pub fn WEXITSTATUS(s: u32) u8 {
+    return @intCast(u8, s & 0xff);
 }
 
 pub fn WTERMSIG(s: u32) u32 {

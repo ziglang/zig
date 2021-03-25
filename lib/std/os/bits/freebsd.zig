@@ -729,8 +729,8 @@ pub const TIOCGSID = 0x40047463;
 pub const TIOCGPTN = 0x4004740f;
 pub const TIOCSIG = 0x2004745f;
 
-pub fn WEXITSTATUS(s: u32) u32 {
-    return (s & 0xff00) >> 8;
+pub fn WEXITSTATUS(s: u32) u8 {
+    return @intCast(u8, (s & 0xff00) >> 8);
 }
 pub fn WTERMSIG(s: u32) u32 {
     return s & 0x7f;
