@@ -332,8 +332,8 @@ pub const AT_REMOVEDIR = 2;
 pub const AT_EACCESS = 4;
 pub const AT_SYMLINK_FOLLOW = 8;
 
-pub fn WEXITSTATUS(s: u32) u32 {
-    return (s & 0xff00) >> 8;
+pub fn WEXITSTATUS(s: u32) u8 {
+    return @intCast(u8, (s & 0xff00) >> 8);
 }
 pub fn WTERMSIG(s: u32) u32 {
     return s & 0x7f;

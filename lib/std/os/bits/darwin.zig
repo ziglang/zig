@@ -844,8 +844,8 @@ fn wstatus(x: u32) u32 {
     return x & 0o177;
 }
 const wstopped = 0o177;
-pub fn WEXITSTATUS(x: u32) u32 {
-    return x >> 8;
+pub fn WEXITSTATUS(x: u32) u8 {
+    return @intCast(u8, x >> 8);
 }
 pub fn WTERMSIG(x: u32) u32 {
     return wstatus(x);

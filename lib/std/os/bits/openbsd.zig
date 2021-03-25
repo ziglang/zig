@@ -669,8 +669,8 @@ pub const TIOCSWINSZ = 0x80087467;
 pub const TIOCUCNTL = 0x80047466;
 pub const TIOCXMTFRAME = 0x80087444;
 
-pub fn WEXITSTATUS(s: u32) u32 {
-    return (s >> 8) & 0xff;
+pub fn WEXITSTATUS(s: u32) u8 {
+    return @intCast(u8, (s >> 8) & 0xff);
 }
 pub fn WTERMSIG(s: u32) u32 {
     return (s & 0x7f);
