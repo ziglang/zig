@@ -952,15 +952,11 @@ pub const Scope = struct {
         /// initialized, but empty, state.
         pub fn finish(gz: *GenZir) !zir.Code {
             const gpa = gz.zir_code.gpa;
-            const root_start = @intCast(u32, gz.zir_code.extra.items.len);
-            const root_len = @intCast(u32, gz.instructions.items.len);
-            try gz.zir_code.extra.appendSlice(gpa, gz.instructions.items);
+            try gz.setBlockBody(0);
             return zir.Code{
                 .instructions = gz.zir_code.instructions.toOwnedSlice(),
                 .string_bytes = gz.zir_code.string_bytes.toOwnedSlice(gpa),
                 .extra = gz.zir_code.extra.toOwnedSlice(gpa),
-                .root_start = root_start,
-                .root_len = root_len,
             };
         }
 
@@ -1224,28 +1220,15 @@ pub const Scope = struct {
 
         pub fn addBreak(
             gz: *GenZir,
+            tag: zir.Inst.Tag,
             break_block: zir.Inst.Index,
             operand: zir.Inst.Ref,
         ) !zir.Inst.Index {
             return gz.addAsIndex(.{
-                .tag = .@"break",
+                .tag = tag,
                 .data = .{ .@"break" = .{
                     .block_inst = break_block,
                     .operand = operand,
-                } },
-            });
-        }
-
-        pub fn addBreakVoid(
-            gz: *GenZir,
-            break_block: zir.Inst.Index,
-            node_index: ast.Node.Index,
-        ) !zir.Inst.Index {
-            return gz.addAsIndex(.{
-                .tag = .break_void_node,
-                .data = .{ .break_void_node = .{
-                    .src_node = gz.zir_code.decl.nodeIndexToRelative(node_index),
-                    .block_inst = break_block,
                 } },
             });
         }
@@ -1323,11 +1306,11 @@ pub const Scope = struct {
 
         /// Note that this returns a `zir.Inst.Index` not a ref.
         /// Leaves the `payload_index` field undefined.
-        pub fn addCondBr(gz: *GenZir, node: ast.Node.Index) !zir.Inst.Index {
+        pub fn addCondBr(gz: *GenZir, tag: zir.Inst.Tag, node: ast.Node.Index) !zir.Inst.Index {
             try gz.instructions.ensureCapacity(gz.zir_code.gpa, gz.instructions.items.len + 1);
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             try gz.zir_code.instructions.append(gz.zir_code.gpa, .{
-                .tag = .condbr,
+                .tag = tag,
                 .data = .{ .pl_node = .{
                     .src_node = gz.zir_code.decl.nodeIndexToRelative(node),
                     .payload_index = undefined,
@@ -1462,6 +1445,24 @@ pub const WipZirCode = struct {
     }
 };
 
+/// Call `deinit` on the result.
+fn initAstGen(mod: *Module, decl: *Decl, arena: *Allocator) !WipZirCode {
+    var wzc: WipZirCode = .{
+        .decl = decl,
+        .arena = arena,
+        .gpa = mod.gpa,
+    };
+    // Must be a block instruction at index 0 with the root body.
+    try wzc.instructions.append(mod.gpa, .{
+        .tag = .block,
+        .data = .{ .pl_node = .{
+            .src_node = 0,
+            .payload_index = undefined,
+        } },
+    });
+    return wzc;
+}
+
 /// This struct holds data necessary to construct API-facing `AllErrors.Message`.
 /// Its memory is managed with the general purpose allocator so that they
 /// can be created and destroyed in response to incremental updates.
@@ -1572,10 +1573,10 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
-            .node_abs => |node_index| {
+            .node_abs => |node| {
                 const tree = src_loc.container.file_scope.base.tree();
                 const token_starts = tree.tokens.items(.start);
-                const tok_index = tree.firstToken(node_index);
+                const tok_index = tree.firstToken(node);
                 return token_starts[tok_index];
             },
             .byte_offset => |byte_off| {
@@ -1591,15 +1592,14 @@ pub const SrcLoc = struct {
             },
             .node_offset => |node_off| {
                 const decl = src_loc.container.decl;
-                const node_index = decl.relativeToNodeIndex(node_off);
+                const node = decl.relativeToNodeIndex(node_off);
                 const tree = decl.container.file_scope.base.tree();
                 const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[node_index];
+                const tok_index = main_tokens[node];
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset_var_decl_ty => @panic("TODO"),
-            .node_offset_for_cond => @panic("TODO"),
             .node_offset_builtin_call_arg0 => @panic("TODO"),
             .node_offset_builtin_call_arg1 => @panic("TODO"),
             .node_offset_builtin_call_argn => unreachable, // Handled specially in `Sema`.
@@ -1610,7 +1610,27 @@ pub const SrcLoc = struct {
             .node_offset_deref_ptr => @panic("TODO"),
             .node_offset_asm_source => @panic("TODO"),
             .node_offset_asm_ret_ty => @panic("TODO"),
-            .node_offset_if_cond => @panic("TODO"),
+
+            .node_offset_for_cond, .node_offset_if_cond => |node_off| {
+                const decl = src_loc.container.decl;
+                const node = decl.relativeToNodeIndex(node_off);
+                const tree = decl.container.file_scope.base.tree();
+                const node_tags = tree.nodes.items(.tag);
+                const cond_expr = switch (node_tags[node]) {
+                    .if_simple => tree.ifSimple(node).ast.cond_expr,
+                    .@"if" => tree.ifFull(node).ast.cond_expr,
+                    .while_simple => tree.whileSimple(node).ast.cond_expr,
+                    .while_cont => tree.whileCont(node).ast.cond_expr,
+                    .@"while" => tree.whileFull(node).ast.cond_expr,
+                    .for_simple => tree.forSimple(node).ast.cond_expr,
+                    .@"for" => tree.forFull(node).ast.cond_expr,
+                    else => unreachable,
+                };
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[cond_expr];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
             .node_offset_bin_op => @panic("TODO"),
             .node_offset_bin_lhs => @panic("TODO"),
             .node_offset_bin_rhs => @panic("TODO"),
@@ -2034,11 +2054,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
             defer analysis_arena.deinit();
 
             var code: zir.Code = blk: {
-                var wip_zir_code: WipZirCode = .{
-                    .decl = decl,
-                    .arena = &analysis_arena.allocator,
-                    .gpa = mod.gpa,
-                };
+                var wip_zir_code = try mod.initAstGen(decl, &analysis_arena.allocator);
                 defer wip_zir_code.deinit();
 
                 var gen_scope: Scope.GenZir = .{
@@ -2111,11 +2127,7 @@ fn astgenAndSemaFn(
     var fn_type_scope_arena = std.heap.ArenaAllocator.init(mod.gpa);
     defer fn_type_scope_arena.deinit();
 
-    var fn_type_wip_zir_code: WipZirCode = .{
-        .decl = decl,
-        .arena = &fn_type_scope_arena.allocator,
-        .gpa = mod.gpa,
-    };
+    var fn_type_wip_zir_code = try mod.initAstGen(decl, &fn_type_scope_arena.allocator);
     defer fn_type_wip_zir_code.deinit();
 
     var fn_type_scope: Scope.GenZir = .{
@@ -2270,7 +2282,7 @@ fn astgenAndSemaFn(
         const tag: zir.Inst.Tag = if (is_var_args) .fn_type_var_args else .fn_type;
         break :fn_type try fn_type_scope.addFnType(tag, return_type_inst, param_types);
     };
-    _ = try fn_type_scope.addUnNode(.break_flat, fn_type_inst, 0);
+    _ = try fn_type_scope.addBreak(.break_inline, 0, fn_type_inst);
 
     // We need the memory for the Type to go into the arena for the Decl
     var decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
@@ -2348,12 +2360,8 @@ fn astgenAndSemaFn(
 
     const fn_zir: zir.Code = blk: {
         // We put the ZIR inside the Decl arena.
-        var wip_zir_code: WipZirCode = .{
-            .decl = decl,
-            .arena = &decl_arena.allocator,
-            .gpa = mod.gpa,
-            .ref_start_index = @intCast(u32, zir.Inst.Ref.typed_value_map.len + param_count),
-        };
+        var wip_zir_code = try mod.initAstGen(decl, &decl_arena.allocator);
+        wip_zir_code.ref_start_index = @intCast(u32, zir.Inst.Ref.typed_value_map.len + param_count);
         defer wip_zir_code.deinit();
 
         var gen_scope: Scope.GenZir = .{
@@ -2559,11 +2567,7 @@ fn astgenAndSemaVarDecl(
         var gen_scope_arena = std.heap.ArenaAllocator.init(mod.gpa);
         defer gen_scope_arena.deinit();
 
-        var wip_zir_code: WipZirCode = .{
-            .decl = decl,
-            .arena = &gen_scope_arena.allocator,
-            .gpa = mod.gpa,
-        };
+        var wip_zir_code = try mod.initAstGen(decl, &gen_scope_arena.allocator);
         defer wip_zir_code.deinit();
 
         var gen_scope: Scope.GenZir = .{
@@ -2583,7 +2587,7 @@ fn astgenAndSemaVarDecl(
             init_result_loc,
             var_decl.ast.init_node,
         );
-        _ = try gen_scope.addUnNode(.break_flat, init_inst, var_decl.ast.init_node);
+        _ = try gen_scope.addBreak(.break_inline, 0, init_inst);
         var code = try gen_scope.finish();
         defer code.deinit(mod.gpa);
         if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
@@ -2611,7 +2615,7 @@ fn astgenAndSemaVarDecl(
         };
         defer block_scope.instructions.deinit(mod.gpa);
 
-        const init_inst_zir_ref = try sema.root(&block_scope);
+        const init_inst_zir_ref = try sema.rootAsRef(&block_scope);
         // The result location guarantees the type coercion.
         const analyzed_init_inst = try sema.resolveInst(init_inst_zir_ref);
         // The is_comptime in the Scope.Block guarantees the result is comptime-known.
@@ -2632,11 +2636,7 @@ fn astgenAndSemaVarDecl(
         var type_scope_arena = std.heap.ArenaAllocator.init(mod.gpa);
         defer type_scope_arena.deinit();
 
-        var wip_zir_code: WipZirCode = .{
-            .decl = decl,
-            .arena = &type_scope_arena.allocator,
-            .gpa = mod.gpa,
-        };
+        var wip_zir_code = try mod.initAstGen(decl, &type_scope_arena.allocator);
         defer wip_zir_code.deinit();
 
         var type_scope: Scope.GenZir = .{
@@ -2647,7 +2647,7 @@ fn astgenAndSemaVarDecl(
         defer type_scope.instructions.deinit(mod.gpa);
 
         const var_type = try astgen.typeExpr(mod, &type_scope.base, var_decl.ast.type_node);
-        _ = try type_scope.addUnNode(.break_flat, var_type, 0);
+        _ = try type_scope.addBreak(.break_inline, 0, var_type);
 
         var code = try type_scope.finish();
         defer code.deinit(mod.gpa);

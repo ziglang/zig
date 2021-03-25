@@ -60,14 +60,21 @@ const InnerError = Module.InnerError;
 const Decl = Module.Decl;
 const LazySrcLoc = Module.LazySrcLoc;
 
-pub fn root(sema: *Sema, root_block: *Scope.Block) !zir.Inst.Ref {
-    const root_body = sema.code.extra[sema.code.root_start..][0..sema.code.root_len];
+pub fn root(sema: *Sema, root_block: *Scope.Block) !zir.Inst.Index {
+    const inst_data = sema.code.instructions.items(.data)[0].pl_node;
+    const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
+    const root_body = sema.code.extra[extra.end..][0..extra.data.body_len];
     return sema.analyzeBody(root_block, root_body);
 }
 
-/// Assumes that `root_block` ends with `break_flat`.
+pub fn rootAsRef(sema: *Sema, root_block: *Scope.Block) !zir.Inst.Ref {
+    const break_inst = try sema.root(root_block);
+    return sema.code.instructions.items(.data)[break_inst].@"break".operand;
+}
+
+/// Assumes that `root_block` ends with `break_inline`.
 pub fn rootAsType(sema: *Sema, root_block: *Scope.Block) !Type {
-    const zir_inst_ref = try sema.root(root_block);
+    const zir_inst_ref = try sema.rootAsRef(root_block);
     // Source location is unneeded because resolveConstValue must have already
     // been successfully called when coercing the value to a type, from the
     // result location.
@@ -78,17 +85,22 @@ pub fn rootAsType(sema: *Sema, root_block: *Scope.Block) !Type {
 /// return type of `analyzeBody` so that we can tail call them.
 /// Only appropriate to return when the instruction is known to be NoReturn
 /// solely based on the ZIR tag.
-const always_noreturn: InnerError!zir.Inst.Ref = .none;
+const always_noreturn: InnerError!zir.Inst.Index = @as(zir.Inst.Index, undefined);
 
 /// This function is the main loop of `Sema` and it can be used in two different ways:
 /// * The traditional way where there are N breaks out of the block and peer type
 ///   resolution is done on the break operands. In this case, the `zir.Inst.Index`
 ///   part of the return value will be `undefined`, and callsites should ignore it,
 ///   finding the block result value via the block scope.
-/// * The "flat" way. There is only 1 break out of the block, and it is with a `break_flat`
+/// * The "flat" way. There is only 1 break out of the block, and it is with a `break_inline`
 ///   instruction. In this case, the `zir.Inst.Index` part of the return value will be
-///   the block result value. No block scope needs to be created for this strategy.
-pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Index) !zir.Inst.Ref {
+///   the break instruction. This communicates both which block the break applies to, as
+///   well as the operand. No block scope needs to be created for this strategy.
+pub fn analyzeBody(
+    sema: *Sema,
+    block: *Scope.Block,
+    body: []const zir.Inst.Index,
+) InnerError!zir.Inst.Index {
     // No tracy calls here, to avoid interfering with the tail call mechanism.
 
     const map = block.sema.inst_map;
@@ -127,8 +139,7 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             .bitcast => try sema.zirBitcast(block, inst),
             .bitcast_ref => try sema.zirBitcastRef(block, inst),
             .bitcast_result_ptr => try sema.zirBitcastResultPtr(block, inst),
-            .block => try sema.zirBlock(block, inst, false),
-            .block_comptime => try sema.zirBlock(block, inst, true),
+            .block => try sema.zirBlock(block, inst),
             .bool_not => try sema.zirBoolNot(block, inst),
             .bool_and => try sema.zirBoolOp(block, inst, false),
             .bool_or => try sema.zirBoolOp(block, inst, true),
@@ -227,8 +238,7 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
             // tail call them here.
             .condbr => return sema.zirCondbr(block, inst),
             .@"break" => return sema.zirBreak(block, inst),
-            .break_void_node => return sema.zirBreakVoidNode(block, inst),
-            .break_flat => return sema.code.instructions.items(.data)[inst].un_node.operand,
+            .break_inline => return inst,
             .compile_error => return sema.zirCompileError(block, inst),
             .ret_coerce => return sema.zirRetTok(block, inst, true),
             .ret_node => return sema.zirRetNode(block, inst),
@@ -286,12 +296,42 @@ pub fn analyzeBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Inde
                 continue;
             },
 
-            // Special case: send comptime control flow back to the beginning of this block.
+            // Special case instructions to handle comptime control flow.
             .repeat_inline => {
+                // Send comptime control flow back to the beginning of this block.
                 const src: LazySrcLoc = .{ .node_offset = datas[inst].node };
                 try sema.emitBackwardBranch(block, src);
                 i = 0;
                 continue;
+            },
+            .block_inline => blk: {
+                // Directly analyze the block body without introducing a new block.
+                const inst_data = datas[inst].pl_node;
+                const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
+                const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+                const break_inst = try sema.analyzeBody(block, inline_body);
+                const break_data = datas[break_inst].@"break";
+                if (inst == break_data.block_inst) {
+                    break :blk try sema.resolveInst(break_data.operand);
+                } else {
+                    return break_inst;
+                }
+            },
+            .condbr_inline => blk: {
+                const inst_data = datas[inst].pl_node;
+                const cond_src: LazySrcLoc = .{ .node_offset_if_cond = inst_data.src_node };
+                const extra = sema.code.extraData(zir.Inst.CondBr, inst_data.payload_index);
+                const then_body = sema.code.extra[extra.end..][0..extra.data.then_body_len];
+                const else_body = sema.code.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+                const cond = try sema.resolveInstConst(block, cond_src, extra.data.condition);
+                const inline_body = if (cond.val.toBool()) then_body else else_body;
+                const break_inst = try sema.analyzeBody(block, inline_body);
+                const break_data = datas[break_inst].@"break";
+                if (inst == break_data.block_inst) {
+                    break :blk try sema.resolveInst(break_data.operand);
+                } else {
+                    return break_inst;
+                }
             },
         };
         if (map[inst].ty.isNoReturn())
@@ -745,7 +785,7 @@ fn zirInt(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*In
     return sema.mod.constIntUnsigned(sema.arena, .unneeded, Type.initTag(.comptime_int), int);
 }
 
-fn zirCompileError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
+fn zirCompileError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -783,7 +823,7 @@ fn zirCompileLog(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     }
 }
 
-fn zirRepeat(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
+fn zirRepeat(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -854,12 +894,7 @@ fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) InnerE
     return sema.analyzeBlockBody(parent_block, &child_block, merges);
 }
 
-fn zirBlock(
-    sema: *Sema,
-    parent_block: *Scope.Block,
-    inst: zir.Inst.Index,
-    is_comptime: bool,
-) InnerError!*Inst {
+fn zirBlock(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -896,7 +931,7 @@ fn zirBlock(
             },
         }),
         .inlining = parent_block.inlining,
-        .is_comptime = is_comptime or parent_block.is_comptime,
+        .is_comptime = parent_block.is_comptime,
     };
     const merges = &child_block.label.?.merges;
 
@@ -1000,7 +1035,7 @@ fn zirBreakpoint(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     _ = try block.addNoOp(src, Type.initTag(.void), .breakpoint);
 }
 
-fn zirBreak(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
+fn zirBreak(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1009,22 +1044,13 @@ fn zirBreak(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!z
     return sema.analyzeBreak(block, sema.src, inst_data.block_inst, operand);
 }
 
-fn zirBreakVoidNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[inst].break_void_node;
-    const void_inst = try sema.mod.constVoid(sema.arena, .unneeded);
-    return sema.analyzeBreak(block, inst_data.src(), inst_data.block_inst, void_inst);
-}
-
 fn analyzeBreak(
     sema: *Sema,
     start_block: *Scope.Block,
     src: LazySrcLoc,
     zir_block: zir.Inst.Index,
     operand: *Inst,
-) InnerError!zir.Inst.Ref {
+) InnerError!zir.Inst.Index {
     var block = start_block;
     while (true) {
         if (block.label) |*label| {
@@ -2844,7 +2870,8 @@ fn zirBoolBr(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].bool_br;
+    const datas = sema.code.instructions.items(.data);
+    const inst_data = datas[inst].bool_br;
     const src: LazySrcLoc = .unneeded;
     const lhs = try sema.resolveInst(inst_data.lhs);
     const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
@@ -2856,9 +2883,9 @@ fn zirBoolBr(
         }
         // comptime-known left-hand side. No need for a block here; the result
         // is simply the rhs expression. Here we rely on there only being 1
-        // break instruction (`break_flat`).
-        const zir_inst_ref = try sema.analyzeBody(parent_block, body);
-        return sema.resolveInst(zir_inst_ref);
+        // break instruction (`break_inline`).
+        const break_inst = try sema.analyzeBody(parent_block, body);
+        return sema.resolveInst(datas[break_inst].@"break".operand);
     }
 
     const block_inst = try sema.arena.create(Inst.Block);
@@ -2889,8 +2916,8 @@ fn zirBoolBr(
     });
     _ = try lhs_block.addBr(src, block_inst, lhs_result);
 
-    const rhs_result_zir_ref = try sema.analyzeBody(rhs_block, body);
-    const rhs_result = try sema.resolveInst(rhs_result_zir_ref);
+    const rhs_break_inst = try sema.analyzeBody(rhs_block, body);
+    const rhs_result = try sema.resolveInst(datas[rhs_break_inst].@"break".operand);
     _ = try rhs_block.addBr(src, block_inst, rhs_result);
 
     const tzir_then_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, then_block.instructions.items) };
@@ -2959,7 +2986,7 @@ fn zirCondbr(
     sema: *Sema,
     parent_block: *Scope.Block,
     inst: zir.Inst.Index,
-) InnerError!zir.Inst.Ref {
+) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3008,7 +3035,7 @@ fn zirCondbr(
     return always_noreturn;
 }
 
-fn zirUnreachable(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
+fn zirUnreachable(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3030,7 +3057,7 @@ fn zirRetTok(
     block: *Scope.Block,
     inst: zir.Inst.Index,
     need_coercion: bool,
-) InnerError!zir.Inst.Ref {
+) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3041,7 +3068,7 @@ fn zirRetTok(
     return sema.analyzeRet(block, operand, src, need_coercion);
 }
 
-fn zirRetNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Ref {
+fn zirRetNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3058,7 +3085,7 @@ fn analyzeRet(
     operand: *Inst,
     src: LazySrcLoc,
     need_coercion: bool,
-) InnerError!zir.Inst.Ref {
+) InnerError!zir.Inst.Index {
     if (block.inlining) |inlining| {
         // We are inlining a function call; rewrite the `ret` as a `break`.
         try inlining.merges.results.append(sema.gpa, operand);
@@ -3244,7 +3271,7 @@ fn addSafetyCheck(sema: *Sema, parent_block: *Scope.Block, ok: *Inst, panic_id: 
     try parent_block.instructions.append(sema.gpa, &block_inst.base);
 }
 
-fn safetyPanic(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, panic_id: PanicId) !zir.Inst.Ref {
+fn safetyPanic(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, panic_id: PanicId) !zir.Inst.Index {
     // TODO Once we have a panic function to call, call it here instead of breakpoint.
     _ = try block.addNoOp(src, Type.initTag(.void), .breakpoint);
     _ = try block.addNoOp(src, Type.initTag(.noreturn), .unreach);

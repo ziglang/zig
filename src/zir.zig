@@ -26,6 +26,8 @@ const LazySrcLoc = Module.LazySrcLoc;
 ///    handled by the codegen backend, and errors reported there. However for now,
 ///    inline assembly is not an exception.
 pub const Code = struct {
+    /// There is always implicitly a `block` instruction at index 0.
+    /// This is so that `break_inline` can break from the root block.
     instructions: std.MultiArrayList(Inst).Slice,
     /// In order to store references to strings in fewer bytes, we copy all
     /// string bytes into here. String bytes can be null. It is up to whomever
@@ -35,11 +37,6 @@ pub const Code = struct {
     string_bytes: []u8,
     /// The meaning of this data is determined by `Inst.Tag` value.
     extra: []u32,
-    /// First ZIR instruction in this `Code`.
-    /// `extra` at this index contains a `Ref` for every root member.
-    root_start: u32,
-    /// Number of ZIR instructions in the implicit root block of the `Code`.
-    root_len: u32,
 
     /// Returns the requested data, as well as the new index which is at the start of the
     /// trailers for the object.
@@ -98,17 +95,14 @@ pub const Code = struct {
             .arena = &arena.allocator,
             .scope = scope,
             .code = code,
-            .indent = 2,
+            .indent = 0,
             .param_count = param_count,
         };
 
         const decl_name = scope.srcDecl().?.name;
         const stderr = std.io.getStdErr().writer();
-        try stderr.print("ZIR {s} {s} {{\n", .{ kind, decl_name });
-
-        const root_body = code.extra[code.root_start..][0..code.root_len];
-        try writer.writeBody(stderr, root_body);
-
+        try stderr.print("ZIR {s} {s} %0 ", .{ kind, decl_name });
+        try writer.writeInstToStream(stderr, 0);
         try stderr.print("}} // ZIR {s} {s}\n\n", .{ kind, decl_name });
     }
 };
@@ -189,8 +183,11 @@ pub const Inst = struct {
         /// A labeled block of code, which can return a value.
         /// Uses the `pl_node` union field. Payload is `Block`.
         block,
-        /// Same as `block` but additionally makes the inner instructions execute at comptime.
-        block_comptime,
+        /// A list of instructions which are analyzed in the parent context, without
+        /// generating a runtime block. Must terminate with an "inline" variant of
+        /// a noreturn instruction.
+        /// Uses the `pl_node` union field. Payload is `Block`.
+        block_inline,
         /// Boolean AND. See also `bit_and`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         bool_and,
@@ -212,16 +209,12 @@ pub const Inst = struct {
         /// Uses the `break` union field.
         /// Uses the source information from previous instruction.
         @"break",
-        /// Same as `break` but has source information in the form of an AST node, and
-        /// the operand is assumed to be the void value.
-        /// Uses the `break_void_node` union field.
-        break_void_node,
-        /// Return a value from a block. This is a special form that is only valid
-        /// when there is exactly 1 break from a block (this one). This instruction
-        /// allows using the return value from `Sema.analyzeBody`. The block is
-        /// assumed to be the direct parent of this instruction.
-        /// Uses the `un_node` union field. The AST node is unused.
-        break_flat,
+        /// Return a value from a block. This instruction is used as the terminator
+        /// of a `block_inline`. It allows using the return value from `Sema.analyzeBody`.
+        /// This instruction may also be used when it is known that there is only one
+        /// break instruction in a block, and the target block is the parent.
+        /// Uses the `break` union field.
+        break_inline,
         /// Uses the `node` union field.
         breakpoint,
         /// Function call with modifier `.auto`.
@@ -270,7 +263,11 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. AST node is an if, while, for, etc.
         /// Payload is `CondBr`.
         condbr,
-        /// Special case, has no textual representation.
+        /// Same as `condbr`, except the condition is coerced to a comptime value, and
+        /// only the taken branch is analyzed. The then block and else block must
+        /// terminate with an "inline" variant of a noreturn instruction.
+        condbr_inline,
+        /// A comptime known value.
         /// Uses the `const` union field.
         @"const",
         /// Declares the beginning of a statement. Used for debug info.
@@ -640,7 +637,7 @@ pub const Inst = struct {
                 .bitcast_result_ptr,
                 .bit_or,
                 .block,
-                .block_comptime,
+                .block_inline,
                 .loop,
                 .bool_br_and,
                 .bool_br_or,
@@ -744,9 +741,9 @@ pub const Inst = struct {
                 => false,
 
                 .@"break",
-                .break_void_node,
-                .break_flat,
+                .break_inline,
                 .condbr,
+                .condbr_inline,
                 .compile_error,
                 .ret_node,
                 .ret_tok,
@@ -1194,16 +1191,6 @@ pub const Inst = struct {
                 return .{ .node_offset = self.src_node };
             }
         },
-        break_void_node: struct {
-            /// Offset from Decl AST node index.
-            /// `Tag` determines which kind of AST node this points to.
-            src_node: i32,
-            block_inst: Index,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return .{ .node_offset = self.src_node };
-            }
-        },
         @"break": struct {
             block_inst: Index,
             operand: Ref,
@@ -1410,7 +1397,6 @@ const Writer = struct {
             .err_union_payload_unsafe_ptr,
             .err_union_code,
             .err_union_code_ptr,
-            .break_flat,
             .is_non_null,
             .is_null,
             .is_non_null_ptr,
@@ -1438,9 +1424,11 @@ const Writer = struct {
             .int => try self.writeInt(stream, inst),
             .str => try self.writeStr(stream, inst),
             .elided => try stream.writeAll(")"),
-            .break_void_node => try self.writeBreakVoidNode(stream, inst),
             .int_type => try self.writeIntType(stream, inst),
-            .@"break" => try self.writeBreak(stream, inst),
+
+            .@"break",
+            .break_inline,
+            => try self.writeBreak(stream, inst),
 
             .@"asm",
             .asm_volatile,
@@ -1487,11 +1475,13 @@ const Writer = struct {
             => try self.writePlNodeCall(stream, inst),
 
             .block,
-            .block_comptime,
+            .block_inline,
             .loop,
             => try self.writePlNodeBlock(stream, inst),
 
-            .condbr => try self.writePlNodeCondBr(stream, inst),
+            .condbr,
+            .condbr_inline,
+            => try self.writePlNodeCondBr(stream, inst),
 
             .as_node => try self.writeAs(stream, inst),
 
@@ -1769,13 +1759,6 @@ const Writer = struct {
         const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
         const cc = extra.data.cc;
         return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, cc);
-    }
-
-    fn writeBreakVoidNode(self: *Writer, stream: anytype, inst: Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].break_void_node;
-        try self.writeInstIndex(stream, inst_data.block_inst);
-        try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
     }
 
     fn writeIntType(self: *Writer, stream: anytype, inst: Inst.Index) !void {

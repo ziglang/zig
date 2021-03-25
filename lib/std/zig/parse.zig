@@ -59,10 +59,7 @@ pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!Tree {
     parser.nodes.appendAssumeCapacity(.{
         .tag = .root,
         .main_token = 0,
-        .data = .{
-            .lhs = undefined,
-            .rhs = undefined,
-        },
+        .data = undefined,
     });
     const root_members = try parser.parseContainerMembers();
     const root_decls = try root_members.toSpan(&parser);

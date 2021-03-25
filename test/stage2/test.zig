@@ -621,6 +621,43 @@ pub fn addCases(ctx: *TestContext) !void {
             "hello\nhello\nhello\nhello\n",
         );
 
+        // inline while requires the condition to be comptime known.
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    var i: u32 = 0;
+            \\    inline while (i < 4) : (i += 1) print();
+            \\    assert(i == 4);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("hello\n")),
+            \\          [arg3] "{rdx}" (6)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        , &[_][]const u8{":3:21: error: unable to resolve comptime value"});
+
         // Labeled blocks (no conditional branch)
         case.addCompareOutput(
             \\export fn _start() noreturn {

@@ -699,7 +699,7 @@ fn breakExpr(mod: *Module, parent_scope: *Scope, node: ast.Node.Index) InnerErro
                 };
 
                 if (rhs == 0) {
-                    _ = try parent_gz.addBreakVoid(block_inst, node);
+                    _ = try parent_gz.addBreak(.@"break", block_inst, .void_value);
                     return zir.Inst.Ref.unreachable_value;
                 }
                 block_gz.break_count += 1;
@@ -707,7 +707,7 @@ fn breakExpr(mod: *Module, parent_scope: *Scope, node: ast.Node.Index) InnerErro
                 const operand = try expr(mod, parent_scope, block_gz.break_result_loc, rhs);
                 const have_store_to_block = block_gz.rvalue_rl_count != prev_rvalue_rl_count;
 
-                const br = try parent_gz.addBreak(block_inst, operand);
+                const br = try parent_gz.addBreak(.@"break", block_inst, operand);
 
                 if (block_gz.break_result_loc == .block_ptr) {
                     try block_gz.labeled_breaks.append(mod.gpa, br);
@@ -860,7 +860,7 @@ fn labeledBlockExpr(
     const tracy = trace(@src());
     defer tracy.end();
 
-    assert(zir_tag == .block or zir_tag == .block_comptime);
+    assert(zir_tag == .block);
 
     const tree = parent_scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
@@ -911,8 +911,6 @@ fn labeledBlockExpr(
             for (block_scope.labeled_breaks.items) |br| {
                 zir_datas[br].@"break".operand = .void_value;
             }
-            // TODO technically not needed since we changed the tag to break_void but
-            // would be better still to elide the ones that are in this list.
             try block_scope.setBlockBody(block_inst);
 
             return gz.zir_code.indexToRef(block_inst);
@@ -1027,7 +1025,7 @@ fn blockExprStmts(
                         .bitcast_result_ptr,
                         .bit_or,
                         .block,
-                        .block_comptime,
+                        .block_inline,
                         .loop,
                         .bool_br_and,
                         .bool_br_or,
@@ -1122,9 +1120,9 @@ fn blockExprStmts(
                         .compile_log,
                         .ensure_err_payload_void,
                         .@"break",
-                        .break_void_node,
-                        .break_flat,
+                        .break_inline,
                         .condbr,
+                        .condbr_inline,
                         .compile_error,
                         .ret_node,
                         .ret_tok,
@@ -1663,7 +1661,7 @@ fn orelseCatchExpr(
     };
     const operand = try expr(mod, &block_scope.base, operand_rl, lhs);
     const cond = try block_scope.addUnNode(cond_op, operand, node);
-    const condbr = try block_scope.addCondBr(node);
+    const condbr = try block_scope.addCondBr(.condbr, node);
 
     const block = try parent_gz.addBlock(.block, node);
     try parent_gz.instructions.append(mod.gpa, block);
@@ -1731,6 +1729,7 @@ fn orelseCatchExpr(
         else_result,
         block,
         block,
+        .@"break",
     );
 }
 
@@ -1750,6 +1749,7 @@ fn finishThenElseBlock(
     else_result: zir.Inst.Ref,
     main_block: zir.Inst.Index,
     then_break_block: zir.Inst.Index,
+    break_tag: zir.Inst.Tag,
 ) InnerError!zir.Inst.Ref {
     // We now have enough information to decide whether the result instruction should
     // be communicated via result location pointer or break instructions.
@@ -1758,11 +1758,11 @@ fn finishThenElseBlock(
     switch (strat.tag) {
         .break_void => {
             if (!wzc.refIsNoReturn(then_result)) {
-                _ = try then_scope.addBreakVoid(then_break_block, then_src);
+                _ = try then_scope.addBreak(break_tag, then_break_block, .void_value);
             }
             const elide_else = if (else_result != .none) wzc.refIsNoReturn(else_result) else false;
             if (!elide_else) {
-                _ = try else_scope.addBreakVoid(main_block, else_src);
+                _ = try else_scope.addBreak(break_tag, main_block, .void_value);
             }
             assert(!strat.elide_store_to_block_ptr_instructions);
             try setCondBrPayload(condbr, cond, then_scope, else_scope);
@@ -1770,14 +1770,14 @@ fn finishThenElseBlock(
         },
         .break_operand => {
             if (!wzc.refIsNoReturn(then_result)) {
-                _ = try then_scope.addBreak(then_break_block, then_result);
+                _ = try then_scope.addBreak(break_tag, then_break_block, then_result);
             }
             if (else_result != .none) {
                 if (!wzc.refIsNoReturn(else_result)) {
-                    _ = try else_scope.addBreak(main_block, else_result);
+                    _ = try else_scope.addBreak(break_tag, main_block, else_result);
                 }
             } else {
-                _ = try else_scope.addBreakVoid(main_block, else_src);
+                _ = try else_scope.addBreak(break_tag, main_block, .void_value);
             }
             if (strat.elide_store_to_block_ptr_instructions) {
                 try setCondBrPayloadElideBlockStorePtr(condbr, cond, then_scope, else_scope);
@@ -1944,7 +1944,7 @@ fn boolBinOp(
     };
     defer rhs_scope.instructions.deinit(mod.gpa);
     const rhs = try expr(mod, &rhs_scope.base, .{ .ty = .bool_type }, node_datas[node].rhs);
-    _ = try rhs_scope.addUnNode(.break_flat, rhs, node);
+    _ = try rhs_scope.addBreak(.break_inline, bool_br, rhs);
     try rhs_scope.setBoolBrBody(bool_br);
 
     const block_ref = gz.zir_code.indexToRef(bool_br);
@@ -1979,7 +1979,7 @@ fn ifExpr(
         }
     };
 
-    const condbr = try block_scope.addCondBr(node);
+    const condbr = try block_scope.addCondBr(.condbr, node);
 
     const block = try parent_gz.addBlock(.block, node);
     try parent_gz.instructions.append(mod.gpa, block);
@@ -2042,6 +2042,7 @@ fn ifExpr(
         else_info.result,
         block,
         block,
+        .@"break",
     );
 }
 
@@ -2108,7 +2109,9 @@ fn whileExpr(
         try checkLabelRedefinition(mod, scope, label_token);
     }
     const parent_gz = scope.getGenZir();
-    const loop_block = try parent_gz.addBlock(.loop, node);
+    const is_inline = while_full.inline_token != null;
+    const loop_tag: zir.Inst.Tag = if (is_inline) .block_inline else .loop;
+    const loop_block = try parent_gz.addBlock(loop_tag, node);
     try parent_gz.instructions.append(mod.gpa, loop_block);
 
     var loop_scope: Scope.GenZir = .{
@@ -2140,8 +2143,10 @@ fn whileExpr(
         }
     };
 
-    const condbr = try continue_scope.addCondBr(node);
-    const cond_block = try loop_scope.addBlock(.block, node);
+    const condbr_tag: zir.Inst.Tag = if (is_inline) .condbr_inline else .condbr;
+    const condbr = try continue_scope.addCondBr(condbr_tag, node);
+    const block_tag: zir.Inst.Tag = if (is_inline) .block_inline else .block;
+    const cond_block = try loop_scope.addBlock(block_tag, node);
     try loop_scope.instructions.append(mod.gpa, cond_block);
     try continue_scope.setBlockBody(cond_block);
 
@@ -2152,7 +2157,6 @@ fn whileExpr(
     if (while_full.ast.cont_expr != 0) {
         _ = try expr(mod, &loop_scope.base, .{ .ty = .void_type }, while_full.ast.cont_expr);
     }
-    const is_inline = while_full.inline_token != null;
     const repeat_tag: zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
     _ = try loop_scope.addNode(repeat_tag, node);
 
@@ -2208,6 +2212,7 @@ fn whileExpr(
             return mod.failTok(scope, some.token, "unused while loop label", .{});
         }
     }
+    const break_tag: zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
     return finishThenElseBlock(
         mod,
         scope,
@@ -2224,6 +2229,7 @@ fn whileExpr(
         else_info.result,
         loop_block,
         cond_block,
+        break_tag,
     );
 }
 
@@ -2424,6 +2430,7 @@ fn forExpr(
         else_info.result,
         for_block,
         cond_block,
+        .@"break",
     );
 }
 
