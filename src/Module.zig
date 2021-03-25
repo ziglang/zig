@@ -935,11 +935,11 @@ pub const Scope = struct {
         break_count: usize = 0,
         /// Tracks `break :foo bar` instructions so they can possibly be elided later if
         /// the labeled block ends up not needing a result location pointer.
-        labeled_breaks: std.ArrayListUnmanaged(zir.Inst.Ref) = .{},
+        labeled_breaks: std.ArrayListUnmanaged(zir.Inst.Index) = .{},
         /// Tracks `store_to_block_ptr` instructions that correspond to break instructions
         /// so they can possibly be elided later if the labeled block ends up not needing
         /// a result location pointer.
-        labeled_store_to_block_ptr_list: std.ArrayListUnmanaged(zir.Inst.Ref) = .{},
+        labeled_store_to_block_ptr_list: std.ArrayListUnmanaged(zir.Inst.Index) = .{},
 
         pub const Label = struct {
             token: ast.TokenIndex,
@@ -1226,8 +1226,8 @@ pub const Scope = struct {
             gz: *GenZir,
             break_block: zir.Inst.Index,
             operand: zir.Inst.Ref,
-        ) !zir.Inst.Ref {
-            return try gz.add(.{
+        ) !zir.Inst.Index {
+            return gz.addAsIndex(.{
                 .tag = .@"break",
                 .data = .{ .@"break" = .{
                     .block_inst = break_block,
@@ -1237,15 +1237,14 @@ pub const Scope = struct {
         }
 
         pub fn addBreakVoid(
-            inner_gz: *GenZir,
-            block_gz: *GenZir,
+            gz: *GenZir,
             break_block: zir.Inst.Index,
             node_index: ast.Node.Index,
-        ) !zir.Inst.Ref {
-            return try inner_gz.add(.{
+        ) !zir.Inst.Index {
+            return gz.addAsIndex(.{
                 .tag = .break_void_node,
                 .data = .{ .break_void_node = .{
-                    .src_node = block_gz.zir_code.decl.nodeIndexToRelative(node_index),
+                    .src_node = gz.zir_code.decl.nodeIndexToRelative(node_index),
                     .block_inst = break_block,
                 } },
             });
@@ -1339,6 +1338,10 @@ pub const Scope = struct {
         }
 
         pub fn add(gz: *GenZir, inst: zir.Inst) !zir.Inst.Ref {
+            return gz.zir_code.indexToRef(try gz.addAsIndex(inst));
+        }
+
+        pub fn addAsIndex(gz: *GenZir, inst: zir.Inst) !zir.Inst.Index {
             const gpa = gz.zir_code.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.zir_code.instructions.ensureCapacity(gpa, gz.zir_code.instructions.len + 1);
@@ -1346,7 +1349,7 @@ pub const Scope = struct {
             const new_index = @intCast(zir.Inst.Index, gz.zir_code.instructions.len);
             gz.zir_code.instructions.appendAssumeCapacity(inst);
             gz.instructions.appendAssumeCapacity(new_index);
-            return gz.zir_code.indexToRef(new_index);
+            return new_index;
         }
     };
 
