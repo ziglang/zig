@@ -1838,25 +1838,21 @@ fn arrayAccess(
     rl: ResultLoc,
     node: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
-    const tree = scope.tree();
+    const gz = scope.getGenZir();
+    const tree = gz.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const node_datas = tree.nodes.items(.data);
-
-    const usize_type = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.usize_type),
-    });
-    const index_rl: ResultLoc = .{ .ty = usize_type };
     switch (rl) {
-        .ref => return addZirInstTag(mod, scope, src, .elem_ptr, .{
-            .array = try expr(mod, scope, .ref, node_datas[node].lhs),
-            .index = try expr(mod, scope, index_rl, node_datas[node].rhs),
-        }),
-        else => return rvalue(mod, scope, rl, try addZirInstTag(mod, scope, src, .elem_val, .{
-            .array = try expr(mod, scope, .none, node_datas[node].lhs),
-            .index = try expr(mod, scope, index_rl, node_datas[node].rhs),
-        })),
+        .ref => return gz.addBin(
+            .elem_ptr,
+            try expr(mod, scope, .ref, node_datas[node].lhs),
+            try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
+        ),
+        else => return rvalue(mod, scope, rl, try gz.addBin(
+            .elem_val,
+            try expr(mod, scope, .none, node_datas[node].lhs),
+            try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
+        ), node),
     }
 }
 
