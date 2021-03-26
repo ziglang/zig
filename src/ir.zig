@@ -92,6 +92,10 @@ pub const Inst = struct {
         is_err,
         /// *E!T => bool
         is_err_ptr,
+        /// E => u16
+        error_to_int,
+        /// u16 => E
+        int_to_error,
         bool_and,
         bool_or,
         /// Read a value from a pointer.
@@ -152,6 +156,8 @@ pub const Inst = struct {
                 .is_null_ptr,
                 .is_err,
                 .is_err_ptr,
+                .int_to_error,
+                .error_to_int,
                 .ptrtoint,
                 .floatcast,
                 .intcast,
@@ -696,6 +702,8 @@ const DumpTzir = struct {
                 .is_null_ptr,
                 .is_err,
                 .is_err_ptr,
+                .error_to_int,
+                .int_to_error,
                 .ptrtoint,
                 .floatcast,
                 .intcast,
@@ -817,6 +825,8 @@ const DumpTzir = struct {
                 .is_null_ptr,
                 .is_err,
                 .is_err_ptr,
+                .error_to_int,
+                .int_to_error,
                 .ptrtoint,
                 .floatcast,
                 .intcast,

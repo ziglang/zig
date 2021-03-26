@@ -177,6 +177,8 @@ pub fn analyzeBody(
             .error_set => try sema.zirErrorSet(block, inst),
             .error_union_type => try sema.zirErrorUnionType(block, inst),
             .error_value => try sema.zirErrorValue(block, inst),
+            .error_to_int => try sema.zirErrorToInt(block, inst),
+            .int_to_error => try sema.zirIntToError(block, inst),
             .field_ptr => try sema.zirFieldPtr(block, inst),
             .field_ptr_named => try sema.zirFieldPtrNamed(block, inst),
             .field_val => try sema.zirFieldVal(block, inst),
@@ -1458,6 +1460,65 @@ fn zirErrorValue(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
             .name = entry.key,
         }),
     });
+}
+
+fn zirErrorToInt(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const op = try sema.resolveInst(inst_data.operand);
+    const op_coerced = try sema.coerce(block, Type.initTag(.anyerror), op, operand_src);
+
+    if (op_coerced.value()) |val| {
+        const payload = try sema.arena.create(Value.Payload.U64);
+        payload.* = .{
+            .base = .{ .tag = .int_u64 },
+            .data = (try sema.mod.getErrorValue(val.castTag(.@"error").?.data.name)).value,
+        };
+        return sema.mod.constInst(sema.arena, src, .{
+            .ty = Type.initTag(.u16),
+            .val = Value.initPayload(&payload.base),
+        });
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    return block.addUnOp(src, Type.initTag(.u16), .error_to_int, op_coerced);
+}
+
+fn zirIntToError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+
+    const op = try sema.resolveInst(inst_data.operand);
+
+    if (try sema.resolveDefinedValue(block, operand_src, op)) |value| {
+        const int = value.toUnsignedInt();
+        if (int > sema.mod.global_error_set.count() or int == 0)
+            return sema.mod.fail(&block.base, operand_src, "integer value {d} represents no error", .{int});
+        const payload = try sema.arena.create(Value.Payload.Error);
+        payload.* = .{
+            .base = .{ .tag = .@"error" },
+            .data = .{ .name = sema.mod.error_name_list.items[int] },
+        };
+        return sema.mod.constInst(sema.arena, src, .{
+            .ty = Type.initTag(.anyerror),
+            .val = Value.initPayload(&payload.base),
+        });
+    }
+    try sema.requireRuntimeBlock(block, src);
+    if (block.wantSafety()) {
+        return sema.mod.fail(&block.base, src, "TODO: get max errors in compilation", .{});
+        // const is_gt_max = @panic("TODO get max errors in compilation");
+        // try sema.addSafetyCheck(block, is_gt_max, .invalid_error_code);
+    }
+    return block.addUnOp(src, Type.initTag(.anyerror), .int_to_error, op);
 }
 
 fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -3242,6 +3303,7 @@ pub const PanicId = enum {
     unreach,
     unwrap_null,
     unwrap_errunion,
+    invalid_error_code,
 };
 
 fn addSafetyCheck(sema: *Sema, parent_block: *Scope.Block, ok: *Inst, panic_id: PanicId) !void {

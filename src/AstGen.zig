@@ -1237,6 +1237,8 @@ fn blockExprStmts(
                         .bit_not,
                         .error_set,
                         .error_value,
+                        .error_to_int,
+                        .int_to_error,
                         .slice_start,
                         .slice_end,
                         .slice_sentinel,
@@ -3370,6 +3372,16 @@ fn builtinCall(
             const result = try gz.addUnNode(.import, target, node);
             return rvalue(gz, scope, rl, result, node);
         },
+        .error_to_int => {
+            const target = try expr(gz, scope, .none, params[0]);
+            const result = try gz.addUnNode(.error_to_int, target, node);
+            return rvalue(gz, scope, rl, result, node);
+        },
+        .int_to_error => {
+            const target = try expr(gz, scope, .{ .ty = .u16_type }, params[0]);
+            const result = try gz.addUnNode(.int_to_error, target, node);
+            return rvalue(gz, scope, rl, result, node);
+        },
         .compile_error => {
             const target = try expr(gz, scope, .none, params[0]);
             const result = try gz.addUnNode(.compile_error, target, node);
@@ -3439,7 +3451,6 @@ fn builtinCall(
         .enum_to_int,
         .error_name,
         .error_return_trace,
-        .error_to_int,
         .err_set_cast,
         .@"export",
         .fence,
@@ -3448,7 +3459,6 @@ fn builtinCall(
         .has_decl,
         .has_field,
         .int_to_enum,
-        .int_to_error,
         .int_to_float,
         .int_to_ptr,
         .memcpy,

@@ -80,6 +80,9 @@ deletion_set: ArrayListUnmanaged(*Decl) = .{},
 /// Error tags and their values, tag names are duped with mod.gpa.
 global_error_set: std.StringHashMapUnmanaged(u16) = .{},
 
+/// error u16 -> []const u8 for fast lookups for @intToError at comptime
+error_name_list: ArrayListUnmanaged([]const u8) = .{},
+
 /// Keys are fully qualified paths
 import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 
@@ -1570,7 +1573,22 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
-            .node_offset_builtin_call_arg0 => @panic("TODO"),
+            .node_offset_builtin_call_arg0 => |node_off| {
+                const decl = src_loc.container.decl;
+                const tree = decl.container.file_scope.base.tree();
+                const node_datas = tree.nodes.items(.data);
+                const node_tags = tree.nodes.items(.tag);
+                const node = decl.relativeToNodeIndex(node_off);
+                const param = switch (node_tags[node]) {
+                    .builtin_call_two, .builtin_call_two_comma => node_datas[node].lhs,
+                    .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs],
+                    else => unreachable,
+                };
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[param];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
             .node_offset_builtin_call_arg1 => @panic("TODO"),
             .node_offset_builtin_call_argn => unreachable, // Handled specially in `Sema`.
             .node_offset_array_access_index => @panic("TODO"),
@@ -1892,6 +1910,8 @@ pub fn deinit(mod: *Module) void {
         gpa.free(entry.key);
     }
     mod.global_error_set.deinit(gpa);
+
+    mod.error_name_list.deinit(gpa);
 
     for (mod.import_table.items()) |entry| {
         entry.value.destroy(gpa);
@@ -3346,10 +3366,12 @@ pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged
     const gop = try mod.global_error_set.getOrPut(mod.gpa, name);
     if (gop.found_existing)
         return gop.entry.*;
-    errdefer mod.global_error_set.removeAssertDiscard(name);
 
+    errdefer mod.global_error_set.removeAssertDiscard(name);
+    try mod.error_name_list.ensureCapacity(mod.gpa, mod.error_name_list.items.len + 1);
     gop.entry.key = try mod.gpa.dupe(u8, name);
-    gop.entry.value = @intCast(u16, mod.global_error_set.count() - 1);
+    gop.entry.value = @intCast(u16, mod.error_name_list.items.len);
+    mod.error_name_list.appendAssumeCapacity(gop.entry.key);
     return gop.entry.*;
 }
 
