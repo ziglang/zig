@@ -569,6 +569,8 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .optional_payload_ptr => try genOptionalPayload(o, inst.castTag(.optional_payload_ptr).?),
             .is_err => try genIsErr(o, inst.castTag(.is_err).?),
             .is_err_ptr => try genIsErr(o, inst.castTag(.is_err_ptr).?),
+            .error_to_int => try genErrorToInt(o, inst.castTag(.error_to_int).?),
+            .int_to_error => try genIntToError(o, inst.castTag(.int_to_error).?),
             .unwrap_errunion_payload => try genUnwrapErrUnionPay(o, inst.castTag(.unwrap_errunion_payload).?),
             .unwrap_errunion_err => try genUnwrapErrUnionErr(o, inst.castTag(.unwrap_errunion_err).?),
             .unwrap_errunion_payload_ptr => try genUnwrapErrUnionPay(o, inst.castTag(.unwrap_errunion_payload_ptr).?),
@@ -1070,6 +1072,14 @@ fn genIsErr(o: *Object, inst: *Inst.UnOp) !CValue {
     try o.writeCValue(writer, operand);
     try writer.print("){s}.error != 0;\n", .{maybe_deref});
     return local;
+}
+
+fn genIntToError(o: *Object, inst: *Inst.UnOp) !CValue {
+    return o.resolveInst(inst.operand);
+}
+
+fn genErrorToInt(o: *Object, inst: *Inst.UnOp) !CValue {
+    return o.resolveInst(inst.operand);
 }
 
 fn IndentWriter(comptime UnderlyingWriter: type) type {

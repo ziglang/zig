@@ -185,8 +185,7 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
         if (module.global_error_set.size == 0) break :render_errors;
         var it = module.global_error_set.iterator();
         while (it.next()) |entry| {
-            // + 1 because 0 represents no error
-            try err_typedef_writer.print("#define zig_error_{s} {d}\n", .{ entry.key, entry.value + 1 });
+            try err_typedef_writer.print("#define zig_error_{s} {d}\n", .{ entry.key, entry.value });
         }
         try err_typedef_writer.writeByte('\n');
     }

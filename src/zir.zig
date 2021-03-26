@@ -365,6 +365,10 @@ pub const Inst = struct {
         /// Make an integer type out of signedness and bit count.
         /// Payload is `int_type`
         int_type,
+        /// Convert an error type to `u16`
+        error_to_int,
+        /// Convert a `u16` to `anyerror`
+        int_to_error,
         /// Return a boolean false if an optional is null. `x != null`
         /// Uses the `un_node` field.
         is_non_null,
@@ -728,6 +732,8 @@ pub const Inst = struct {
                 .err_union_payload_unsafe_ptr,
                 .err_union_code,
                 .err_union_code_ptr,
+                .error_to_int,
+                .int_to_error,
                 .ptr_type,
                 .ptr_type_simple,
                 .ensure_err_payload_void,
@@ -1414,6 +1420,8 @@ const Writer = struct {
             .err_union_payload_unsafe_ptr,
             .err_union_code,
             .err_union_code_ptr,
+            .int_to_error,
+            .error_to_int,
             .is_non_null,
             .is_null,
             .is_non_null_ptr,

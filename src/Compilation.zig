@@ -941,6 +941,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             };
 
             const module = try arena.create(Module);
+            errdefer module.deinit();
             module.* = .{
                 .gpa = gpa,
                 .comp = comp,
@@ -948,7 +949,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 .root_scope = root_scope,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .emit_h = options.emit_h,
+                .error_name_list = try std.ArrayListUnmanaged([]const u8).initCapacity(gpa, 1),
             };
+            module.error_name_list.appendAssumeCapacity("(no error)");
             break :blk module;
         } else blk: {
             if (options.emit_h != null) return error.NoZigModuleForCHeader;

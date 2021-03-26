@@ -55,6 +55,42 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
+        var case = ctx.exeFromCompiledC("@intToError", .{});
+
+        case.addCompareOutput(
+            \\pub export fn main() c_int {
+            \\    // comptime checks
+            \\    const a = error.A;
+            \\    const b = error.B;
+            \\    const c = @intToError(2);
+            \\    const d = @intToError(1);
+            \\    if (!(c == b)) unreachable;
+            \\    if (!(a == d)) unreachable;
+            \\    // runtime checks
+            \\    var x = error.A;
+            \\    var y = error.B;
+            \\    var z = @intToError(2);
+            \\    var f = @intToError(1);
+            \\    if (!(y == z)) unreachable;
+            \\    if (!(x == f)) unreachable;
+            \\    return 0;
+            \\}
+        , "");
+        case.addError(
+            \\pub export fn main() c_int {
+            \\    const c = @intToError(0);
+            \\    return 0;
+            \\}
+        , &.{":2:27: error: integer value 0 represents no error"});
+        case.addError(
+            \\pub export fn main() c_int {
+            \\    const c = @intToError(3);
+            \\    return 0;
+            \\}
+        , &.{":2:27: error: integer value 3 represents no error"});
+    }
+
+    {
         var case = ctx.exeFromCompiledC("x86_64-linux inline assembly", linux_x64);
 
         // Exit with 0
