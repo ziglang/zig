@@ -225,14 +225,14 @@ pub fn deinit(self: *Zld) void {
     self.undefs.deinit(self.allocator);
 }
 
-pub fn closeFiles(self: *Zld) void {
-    for (self.objects.items) |*object| {
-        object.file.close();
+pub fn closeFiles(self: Zld) void {
+    for (self.objects.items) |object| {
+        object.closeFile();
     }
-    for (self.archives.items) |*archive| {
-        archive.file.close();
+    for (self.archives.items) |archive| {
+        archive.closeFile();
     }
-    if (self.file) |*f| f.close();
+    if (self.file) |f| f.close();
 }
 
 pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
@@ -272,6 +272,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
 
     try self.populateMetadata();
     try self.parseInputFiles(files);
+    try self.resolveSymbols();
     self.printSymtab();
     // try self.sortSections();
     // try self.allocateTextSegment();
@@ -284,31 +285,76 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
 }
 
 fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
+    const Input = struct {
+        kind: enum {
+            object,
+            archive,
+        },
+        file: fs.File,
+        name: []const u8,
+    };
+    var classified = std.ArrayList(Input).init(self.allocator);
+    defer classified.deinit();
+
+    // First, classify input files as either object or archive.
     for (files) |file_name| {
         const file = try fs.cwd().openFile(file_name, .{});
 
         try_object: {
-            var object = Object.initFromFile(self.allocator, self.arch.?, file_name, file) catch |err| switch (err) {
-                error.NotObject => break :try_object,
-                else => |e| return e,
-            };
-            const index = @intCast(u16, self.objects.items.len);
-            try self.objects.append(self.allocator, object);
-            try self.resolveSymbols(index);
+            const header = try file.reader().readStruct(macho.mach_header_64);
+            if (header.filetype != macho.MH_OBJECT) {
+                try file.seekTo(0);
+                break :try_object;
+            }
+
+            try file.seekTo(0);
+            try classified.append(.{
+                .kind = .object,
+                .file = file,
+                .name = file_name,
+            });
             continue;
         }
 
         try_archive: {
-            var archive = Archive.initFromFile(self.allocator, self.arch.?, file_name, file) catch |err| switch (err) {
-                error.NotArchive => break :try_archive,
-                else => |e| return e,
-            };
-            try self.archives.append(self.allocator, archive);
+            const magic = try file.reader().readBytesNoEof(Archive.SARMAG);
+            if (!mem.eql(u8, &magic, Archive.ARMAG)) {
+                try file.seekTo(0);
+                break :try_archive;
+            }
+
+            try file.seekTo(0);
+            try classified.append(.{
+                .kind = .archive,
+                .file = file,
+                .name = file_name,
+            });
             continue;
         }
 
-        log.err("unexpected file type: expected object '.o' or archive '.a': {s}", .{file_name});
-        return error.UnexpectedInputFileType;
+        log.warn("unexpected input file of unknown type '{s}'", .{file_name});
+    }
+
+    // Based on our classification, proceed with parsing.
+    for (classified.items) |input| {
+        switch (input.kind) {
+            .object => {
+                var object = Object.init(self.allocator);
+                object.arch = self.arch.?;
+                object.name = try self.allocator.dupe(u8, input.name);
+                object.file = input.file;
+                try object.parse();
+                try self.objects.append(self.allocator, object);
+            },
+            .archive => {
+                var archive = Archive.init(self.allocator);
+                archive.arch = self.arch.?;
+                archive.name = try self.allocator.dupe(u8, input.name);
+                archive.file = input.file;
+                try archive.parse();
+                try self.archives.append(self.allocator, archive);
+            },
+        }
     }
 }
 
@@ -1153,7 +1199,7 @@ fn writeStubInStubHelper(self: *Zld, index: u32) !void {
     try self.file.?.pwriteAll(code, stub_off);
 }
 
-fn resolveSymbols(self: *Zld, object_id: u16) !void {
+fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
     const object = self.objects.items[object_id];
     log.warn("resolving symbols in '{s}'", .{object.name});
 
@@ -1196,6 +1242,47 @@ fn resolveSymbols(self: *Zld, object_id: u16) !void {
             // Oh no, unhandled symbol type, report back to the user.
             log.err("unhandled symbol type for symbol {any}", .{sym});
             return error.UnhandledSymbolType;
+        }
+    }
+}
+
+fn resolveSymbols(self: *Zld) !void {
+    // First pass, resolve symbols in provided objects.
+    for (self.objects.items) |object, object_id| {
+        try self.resolveSymbolsInObject(@intCast(u16, object_id));
+    }
+
+    var next: usize = 0;
+    while (true) {
+        var archive = &self.archives.items[next];
+        var hit: bool = false;
+
+        for (self.undefs.items()) |entry| {
+            const sym_name = entry.key;
+
+            // Check if the entry exists in a static archive.
+            const offsets = archive.toc.get(sym_name) orelse {
+                // No hit.
+                continue;
+            };
+            assert(offsets.items.len > 0);
+
+            const object = try archive.parseObject(offsets.items[0]);
+            const object_id = @intCast(u16, self.objects.items.len);
+            try self.objects.append(self.allocator, object);
+            try self.resolveSymbolsInObject(object_id);
+
+            hit = true;
+            break;
+        }
+
+        if (!hit) {
+            // Next archive.
+            next += 1;
+            if (next == self.archives.items.len) {
+                break;
+            }
+            archive = &self.archives.items[next];
         }
     }
 }
