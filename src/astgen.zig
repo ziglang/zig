@@ -436,7 +436,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .@"for" => return forExpr(mod, scope, rl, node, tree.forFull(node)),
 
         .slice_open => {
-            const lhs = try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].lhs);
+            const lhs = try expr(mod, scope, .ref, node_datas[node].lhs);
             const start = try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].rhs);
             const result = try gz.addPlNode(.slice_start, node, zir.Inst.SliceStart{
                 .lhs = lhs,
@@ -445,7 +445,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result, node);
         },
         .slice => {
-            const lhs = try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].lhs);
+            const lhs = try expr(mod, scope, .ref, node_datas[node].lhs);
             const extra = tree.extraData(node_datas[node].rhs, ast.Node.Slice);
             const start = try expr(mod, scope, .{ .ty = .usize_type }, extra.start);
             const end = try expr(mod, scope, .{ .ty = .usize_type }, extra.end);
@@ -457,7 +457,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             return rvalue(mod, scope, rl, result, node);
         },
         .slice_sentinel => {
-            const lhs = try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].lhs);
+            const lhs = try expr(mod, scope, .ref, node_datas[node].lhs);
             const extra = tree.extraData(node_datas[node].rhs, ast.Node.SliceSentinel);
             const start = try expr(mod, scope, .{ .ty = .usize_type }, extra.start);
             const end = try expr(mod, scope, .{ .ty = .usize_type }, extra.end);
