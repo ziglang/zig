@@ -31,10 +31,13 @@ pub fn ScopedStdLogLoggingAllocator(
         const Self = @This();
 
         pub fn init(parent_allocator: *Allocator) Self {
-            return .{ .allocator = Allocator{
-                .allocFn = alloc,
-                .resizeFn = resize,
-            }, .parent_allocator = parent_allocator };
+            return .{
+                .allocator = Allocator{
+                    .allocFn = alloc,
+                    .resizeFn = resize,
+                },
+                .parent_allocator = parent_allocator,
+            };
         }
 
         // This function is required as the `std.log.log` function is not public
@@ -61,9 +64,9 @@ pub fn ScopedStdLogLoggingAllocator(
             const self = @fieldParentPtr(Self, "allocator", allocator);
             const result = self.parent_allocator.allocFn(self.parent_allocator, len, ptr_align, len_align, ra);
             if (result) |buff| {
-                logHelper(success_log_level, "alloc: {} success!", .{len});
+                logHelper(success_log_level, "alloc - success - len: {}, ptr_align: {}, len_align: {}", .{ len, ptr_align, len_align });
             } else |err| {
-                logHelper(failure_log_level, "alloc: {} failure!", .{len});
+                logHelper(failure_log_level, "alloc - failure - len: {}, ptr_align: {}, len_align: {}", .{ len, ptr_align, len_align });
             }
             return result;
         }
@@ -80,23 +83,37 @@ pub fn ScopedStdLogLoggingAllocator(
 
             if (self.parent_allocator.resizeFn(self.parent_allocator, buf, buf_align, new_len, len_align, ra)) |resized_len| {
                 if (new_len == 0) {
-                    logHelper(success_log_level, "free: {} success!", .{buf.len});
+                    logHelper(success_log_level, "free - success - len: {}", .{buf.len});
                 } else if (new_len <= buf.len) {
-                    logHelper(success_log_level, "shrink: {} to {} success!", .{ buf.len, new_len });
+                    logHelper(success_log_level, "shrink - success - {} to {}, len_align: {}, buf_align: {}", .{
+                        buf.len,
+                        new_len,
+                        len_align,
+                        buf_align,
+                    });
                 } else {
-                    logHelper(success_log_level, "expand: {} to {} success!", .{ buf.len, new_len });
+                    logHelper(success_log_level, "expand - success - {} to {}, len_align: {}, buf_align: {}", .{
+                        buf.len,
+                        new_len,
+                        len_align,
+                        buf_align,
+                    });
                 }
 
                 return resized_len;
             } else |e| {
                 std.debug.assert(new_len > buf.len);
-                logHelper(failure_log_level, "expand: {} to {} failure!", .{ buf.len, new_len });
+                logHelper(failure_log_level, "expand - failure - {} to {}, len_align: {}, buf_align: {}", .{
+                    buf.len,
+                    new_len,
+                    len_align,
+                    buf_align,
+                });
                 return e;
             }
         }
     };
 }
-
 
 pub fn stdLogLoggingAllocator(parent_allocator: *Allocator) StdLogLoggingAllocator(.debug, .crit) {
     return StdLogLoggingAllocator(.debug, .crit).init(parent_allocator);
