@@ -283,6 +283,10 @@ pub fn analyzeBody(
                 try sema.zirStore(block, inst);
                 continue;
             },
+            .store_node => {
+                try sema.zirStoreNode(block, inst);
+                continue;
+            },
             .store_to_block_ptr => {
                 try sema.zirStoreToBlockPtr(block, inst);
                 continue;
@@ -712,7 +716,19 @@ fn zirStore(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!v
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
     const ptr = try sema.resolveInst(bin_inst.lhs);
     const value = try sema.resolveInst(bin_inst.rhs);
-    return sema.storePtr(block, .unneeded, ptr, value);
+    return sema.storePtr(block, sema.src, ptr, value);
+}
+
+fn zirStoreNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
+    const ptr = try sema.resolveInst(extra.lhs);
+    const value = try sema.resolveInst(extra.rhs);
+    return sema.storePtr(block, src, ptr, value);
 }
 
 fn zirParamType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -3630,7 +3646,7 @@ fn storePtr(
         return sema.mod.fail(&block.base, src, "cannot assign to constant", .{});
 
     const elem_ty = ptr.ty.elemType();
-    const value = try sema.coerce(block, elem_ty, uncasted_value, uncasted_value.src);
+    const value = try sema.coerce(block, elem_ty, uncasted_value, src);
     if (elem_ty.onePossibleValue() != null)
         return;
 

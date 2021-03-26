@@ -1130,6 +1130,7 @@ fn blockExprStmts(
                         .@"unreachable",
                         .elided,
                         .store,
+                        .store_node,
                         .store_to_block_ptr,
                         .store_to_inferred_ptr,
                         .resolve_inferred_alloc,
@@ -3198,7 +3199,9 @@ fn typeOf(
         items[param_i] = try expr(mod, scope, .none, param);
     }
 
-    const result = try gz.addPlNode(.typeof_peer, node, zir.Inst.MultiOp{ .operands_len = @intCast(u32, params.len) });
+    const result = try gz.addPlNode(.typeof_peer, node, zir.Inst.MultiOp{
+        .operands_len = @intCast(u32, params.len),
+    });
     try gz.zir_code.appendRefs(items);
 
     return rvalue(mod, scope, rl, result, node);
@@ -3279,12 +3282,15 @@ fn builtinCall(
             return rvalue(mod, scope, rl, result, node);
         },
         .compile_log => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const arena = scope.arena();
-            var targets = try arena.alloc(zir.Inst.Ref, params.len);
-            for (params) |param, param_i|
-                targets[param_i] = try expr(mod, scope, .none, param);
-            const result = try addZIRInst(mod, scope, src, zir.Inst.CompileLog, .{ .to_log = targets }, .{});
+            const arg_refs = try mod.gpa.alloc(zir.Inst.Ref, params.len);
+            defer mod.gpa.free(arg_refs);
+
+            for (params) |param, i| arg_refs[i] = try expr(mod, scope, .none, param);
+
+            const result = try gz.addPlNode(.compile_log, node, zir.Inst.MultiOp{
+                .operands_len = @intCast(u32, params.len),
+            });
+            try gz.zir_code.appendRefs(arg_refs);
             return rvalue(mod, scope, rl, result, node);
         },
         .field => {
@@ -3742,7 +3748,10 @@ fn rvalue(
             .operand = result,
         }),
         .ptr => |ptr_inst| {
-            _ = try gz.addBin(.store, ptr_inst, result);
+            _ = try gz.addPlNode(.store_node, src_node, zir.Inst.Bin{
+                .lhs = ptr_inst,
+                .rhs = result,
+            });
             return result;
         },
         .bitcasted_ptr => |bitcasted_ptr| {

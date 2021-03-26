@@ -1072,45 +1072,45 @@ pub fn addCases(ctx: *TestContext) !void {
         , &[_][]const u8{":3:9: error: redefinition of 'testing'"});
     }
 
-    //{
-    //    // TODO make the test harness support checking the compile log output too
-    //    var case = ctx.obj("@compileLog", linux_x64);
-    //    // The other compile error prevents emission of a "found compile log" statement.
-    //    case.addError(
-    //        \\export fn _start() noreturn {
-    //        \\    const b = true;
-    //        \\    var f: u32 = 1;
-    //        \\    @compileLog(b, 20, f, x);
-    //        \\    @compileLog(1000);
-    //        \\    var bruh: usize = true;
-    //        \\    unreachable;
-    //        \\}
-    //        \\export fn other() void {
-    //        \\    @compileLog(1234);
-    //        \\}
-    //        \\fn x() void {}
-    //    , &[_][]const u8{
-    //        ":6:23: error: expected usize, found bool",
-    //    });
+    {
+        // TODO make the test harness support checking the compile log output too
+        var case = ctx.obj("@compileLog", linux_x64);
+        // The other compile error prevents emission of a "found compile log" statement.
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    const b = true;
+            \\    var f: u32 = 1;
+            \\    @compileLog(b, 20, f, x);
+            \\    @compileLog(1000);
+            \\    var bruh: usize = true;
+            \\    unreachable;
+            \\}
+            \\export fn other() void {
+            \\    @compileLog(1234);
+            \\}
+            \\fn x() void {}
+        , &[_][]const u8{
+            ":6:23: error: expected usize, found bool",
+        });
 
-    //    // Now only compile log statements remain. One per Decl.
-    //    case.addError(
-    //        \\export fn _start() noreturn {
-    //        \\    const b = true;
-    //        \\    var f: u32 = 1;
-    //        \\    @compileLog(b, 20, f, x);
-    //        \\    @compileLog(1000);
-    //        \\    unreachable;
-    //        \\}
-    //        \\export fn other() void {
-    //        \\    @compileLog(1234);
-    //        \\}
-    //        \\fn x() void {}
-    //    , &[_][]const u8{
-    //        ":11:8: error: found compile log statement",
-    //        ":4:5: note: also here",
-    //    });
-    //}
+        // Now only compile log statements remain. One per Decl.
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    const b = true;
+            \\    var f: u32 = 1;
+            \\    @compileLog(b, 20, f, x);
+            \\    @compileLog(1000);
+            \\    unreachable;
+            \\}
+            \\export fn other() void {
+            \\    @compileLog(1234);
+            \\}
+            \\fn x() void {}
+        , &[_][]const u8{
+            ":9:5: error: found compile log statement",
+            ":4:5: note: also here",
+        });
+    }
 
     //{
     //    var case = ctx.obj("extern variable has no type", linux_x64);

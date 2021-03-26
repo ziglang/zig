@@ -276,7 +276,7 @@ pub const Inst = struct {
         /// Represents a pointer to a global decl.
         /// Uses the `decl` union field.
         decl_ref,
-        /// Equivalent to a decl_ref followed by deref.
+        /// Equivalent to a decl_ref followed by load.
         /// Uses the `decl` union field.
         decl_val,
         /// Load the value from a pointer. Assumes `x.*` syntax.
@@ -470,9 +470,13 @@ pub const Inst = struct {
         /// Slice operation `array_ptr[start..end:sentinel]`.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceSentinel`.
         slice_sentinel,
-        /// Write a value to a pointer. For loading, see `deref`.
+        /// Write a value to a pointer. For loading, see `load`.
+        /// Source location is assumed to be same as previous instruction.
         /// Uses the `bin` union field.
         store,
+        /// Same as `store` except provides a source location.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        store_node,
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the block type. The LHS is the pointer to store to.
         /// Uses the `bin` union field.
@@ -698,6 +702,7 @@ pub const Inst = struct {
                 .shl,
                 .shr,
                 .store,
+                .store_node,
                 .store_to_block_ptr,
                 .store_to_inferred_ptr,
                 .str,
@@ -1444,7 +1449,6 @@ const Writer = struct {
 
             .@"asm",
             .asm_volatile,
-            .compile_log,
             .elem_ptr_node,
             .elem_val_node,
             .field_ptr,
@@ -1455,7 +1459,6 @@ const Writer = struct {
             .slice_start,
             .slice_end,
             .slice_sentinel,
-            .typeof_peer,
             => try self.writePlNode(stream, inst),
 
             .add,
@@ -1479,6 +1482,7 @@ const Writer = struct {
             .shl,
             .shr,
             .xor,
+            .store_node,
             => try self.writePlNodeBin(stream, inst),
 
             .call,
@@ -1494,6 +1498,10 @@ const Writer = struct {
             .condbr,
             .condbr_inline,
             => try self.writePlNodeCondBr(stream, inst),
+
+            .compile_log,
+            .typeof_peer,
+            => try self.writePlNodeMultiOp(stream, inst),
 
             .as_node => try self.writeAs(stream, inst),
 
@@ -1691,6 +1699,19 @@ const Writer = struct {
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("}) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeMultiOp(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.MultiOp, inst_data.payload_index);
+        const operands = self.code.refSlice(extra.end, extra.data.operands_len);
+
+        for (operands) |operand, i| {
+            if (i != 0) try stream.writeAll(", ");
+            try self.writeInstRef(stream, operand);
+        }
+        try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
 
