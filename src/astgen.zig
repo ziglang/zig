@@ -435,11 +435,41 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .for_simple => return forExpr(mod, scope, rl, node, tree.forSimple(node)),
         .@"for" => return forExpr(mod, scope, rl, node, tree.forFull(node)),
 
-        // TODO handling these separately would actually be simpler & have fewer branches
-        // once we have a ZIR instruction for each of these 3 cases.
-        .slice_open => return sliceExpr(mod, scope, rl, tree.sliceOpen(node)),
-        .slice => return sliceExpr(mod, scope, rl, tree.slice(node)),
-        .slice_sentinel => return sliceExpr(mod, scope, rl, tree.sliceSentinel(node)),
+        .slice_open => {
+            const lhs = try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].lhs);
+            const start = try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].rhs);
+            const result = try gz.addPlNode(.slice_start, node, zir.Inst.SliceStart{
+                .lhs = lhs,
+                .start = start,
+            });
+            return rvalue(mod, scope, rl, result, node);
+        },
+        .slice => {
+            const lhs = try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].lhs);
+            const extra = tree.extraData(node_datas[node].rhs, ast.Node.Slice);
+            const start = try expr(mod, scope, .{ .ty = .usize_type }, extra.start);
+            const end = try expr(mod, scope, .{ .ty = .usize_type }, extra.end);
+            const result = try gz.addPlNode(.slice_end, node, zir.Inst.SliceEnd{
+                .lhs = lhs,
+                .start = start,
+                .end = end,
+            });
+            return rvalue(mod, scope, rl, result, node);
+        },
+        .slice_sentinel => {
+            const lhs = try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].lhs);
+            const extra = tree.extraData(node_datas[node].rhs, ast.Node.SliceSentinel);
+            const start = try expr(mod, scope, .{ .ty = .usize_type }, extra.start);
+            const end = try expr(mod, scope, .{ .ty = .usize_type }, extra.end);
+            const sentinel = try expr(mod, scope, .{ .ty = .usize_type }, extra.sentinel);
+            const result = try gz.addPlNode(.slice_sentinel, node, zir.Inst.SliceSentinel{
+                .lhs = lhs,
+                .start = start,
+                .end = end,
+                .sentinel = sentinel,
+            });
+            return rvalue(mod, scope, rl, result, node);
+        },
 
         .deref => {
             const lhs = try expr(mod, scope, .none, node_datas[node].lhs);
@@ -1857,52 +1887,6 @@ fn arrayAccess(
             try expr(mod, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
         ), node),
     }
-}
-
-fn sliceExpr(
-    mod: *Module,
-    scope: *Scope,
-    rl: ResultLoc,
-    slice: ast.full.Slice,
-) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
-    const tree = scope.tree();
-
-    const usize_type = try addZIRInstConst(mod, scope, src, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initTag(.usize_type),
-    });
-
-    const array_ptr = try expr(mod, scope, .ref, slice.ast.sliced);
-    const start = try expr(mod, scope, .{ .ty = usize_type }, slice.ast.start);
-
-    if (slice.ast.sentinel == 0) {
-        if (slice.ast.end == 0) {
-            const result = try addZIRBinOp(mod, scope, src, .slice_start, array_ptr, start);
-            return rvalue(mod, scope, rl, result);
-        } else {
-            const end = try expr(mod, scope, .{ .ty = usize_type }, slice.ast.end);
-            // TODO a ZIR slice_open instruction
-            const result = try addZIRInst(mod, scope, src, zir.Inst.Slice, .{
-                .array_ptr = array_ptr,
-                .start = start,
-            }, .{ .end = end });
-            return rvalue(mod, scope, rl, result);
-        }
-    }
-
-    const end = try expr(mod, scope, .{ .ty = usize_type }, slice.ast.end);
-    // TODO pass the proper result loc to this expression using a ZIR instruction
-    // "get the child element type for a slice target".
-    const sentinel = try expr(mod, scope, .none, slice.ast.sentinel);
-    const result = try addZIRInst(mod, scope, src, zir.Inst.Slice, .{
-        .array_ptr = array_ptr,
-        .start = start,
-    }, .{
-        .end = end,
-        .sentinel = sentinel,
-    });
-    return rvalue(mod, scope, rl, result);
 }
 
 fn simpleBinOp(
