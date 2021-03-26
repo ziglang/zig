@@ -968,37 +968,37 @@ pub fn addCases(ctx: *TestContext) !void {
         );
 
         // Basic for loop
-        //case.addCompareOutput(
-        //    \\export fn _start() noreturn {
-        //    \\    for ("hello") |_| print();
-        //    \\
-        //    \\    exit();
-        //    \\}
-        //    \\
-        //    \\fn print() void {
-        //    \\    asm volatile ("syscall"
-        //    \\        :
-        //    \\        : [number] "{rax}" (1),
-        //    \\          [arg1] "{rdi}" (1),
-        //    \\          [arg2] "{rsi}" (@ptrToInt("hello\n")),
-        //    \\          [arg3] "{rdx}" (6)
-        //    \\        : "rcx", "r11", "memory"
-        //    \\    );
-        //    \\    return;
-        //    \\}
-        //    \\
-        //    \\fn exit() noreturn {
-        //    \\    asm volatile ("syscall"
-        //    \\        :
-        //    \\        : [number] "{rax}" (231),
-        //    \\          [arg1] "{rdi}" (0)
-        //    \\        : "rcx", "r11", "memory"
-        //    \\    );
-        //    \\    unreachable;
-        //    \\}
-        //,
-        //    "hello\nhello\nhello\nhello\nhello\n",
-        //);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    for ("hello") |_| print();
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("hello\n")),
+            \\          [arg3] "{rdx}" (6)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "hello\nhello\nhello\nhello\nhello\n",
+        );
     }
 
     //{

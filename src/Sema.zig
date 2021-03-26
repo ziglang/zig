@@ -160,7 +160,7 @@ pub fn analyzeBody(
             .@"const" => try sema.zirConst(block, inst),
             .decl_ref => try sema.zirDeclRef(block, inst),
             .decl_val => try sema.zirDeclVal(block, inst),
-            .deref_node => try sema.zirDerefNode(block, inst),
+            .load => try sema.zirLoad(block, inst),
             .div => try sema.zirArithmetic(block, inst),
             .elem_ptr => try sema.zirElemPtr(block, inst),
             .elem_ptr_node => try sema.zirElemPtrNode(block, inst),
@@ -576,7 +576,7 @@ fn zirIndexablePtrLen(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) In
         return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
     }
     const result_ptr = try sema.namedFieldPtr(block, src, array_ptr, "len", src);
-    return sema.analyzeDeref(block, src, result_ptr, result_ptr.src);
+    return sema.analyzeLoad(block, src, result_ptr, result_ptr.src);
 }
 
 fn zirAlloc(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -1911,7 +1911,7 @@ fn zirFieldVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const object = try sema.resolveInst(extra.lhs);
     const object_ptr = try sema.analyzeRef(block, src, object);
     const result_ptr = try sema.namedFieldPtr(block, src, object_ptr, field_name, field_name_src);
-    return sema.analyzeDeref(block, src, result_ptr, result_ptr.src);
+    return sema.analyzeLoad(block, src, result_ptr, result_ptr.src);
 }
 
 fn zirFieldPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -1939,7 +1939,7 @@ fn zirFieldValNamed(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inne
     const field_name = try sema.resolveConstString(block, field_name_src, extra.field_name);
     const object_ptr = try sema.analyzeRef(block, src, object);
     const result_ptr = try sema.namedFieldPtr(block, src, object_ptr, field_name, field_name_src);
-    return sema.analyzeDeref(block, src, result_ptr, src);
+    return sema.analyzeLoad(block, src, result_ptr, src);
 }
 
 fn zirFieldPtrNamed(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -2060,7 +2060,7 @@ fn zirElemVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const array_ptr = try sema.analyzeRef(block, sema.src, array);
     const elem_index = try sema.resolveInst(bin_inst.rhs);
     const result_ptr = try sema.elemPtr(block, sema.src, array_ptr, elem_index, sema.src);
-    return sema.analyzeDeref(block, sema.src, result_ptr, sema.src);
+    return sema.analyzeLoad(block, sema.src, result_ptr, sema.src);
 }
 
 fn zirElemValNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -2075,7 +2075,7 @@ fn zirElemValNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
     const array_ptr = try sema.analyzeRef(block, src, array);
     const elem_index = try sema.resolveInst(extra.rhs);
     const result_ptr = try sema.elemPtr(block, src, array_ptr, elem_index, elem_index_src);
-    return sema.analyzeDeref(block, src, result_ptr, src);
+    return sema.analyzeLoad(block, src, result_ptr, src);
 }
 
 fn zirElemPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -2183,7 +2183,7 @@ fn zirSwitchBr(
 
     const target_ptr = try sema.resolveInst(inst.positionals.target);
     const target = if (ref)
-        try sema.analyzeDeref(parent_block, inst.base.src, target_ptr, inst.positionals.target.src)
+        try sema.analyzeLoad(parent_block, inst.base.src, target_ptr, inst.positionals.target.src)
     else
         target_ptr;
     try sema.validateSwitch(parent_block, target, inst);
@@ -2639,7 +2639,7 @@ fn analyzeArithmetic(
     return block.addBinOp(src, scalar_type, ir_tag, casted_lhs, casted_rhs);
 }
 
-fn zirDerefNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirLoad(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2647,7 +2647,7 @@ fn zirDerefNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErr
     const src = inst_data.src();
     const ptr_src: LazySrcLoc = .{ .node_offset_deref_ptr = inst_data.src_node };
     const ptr = try sema.resolveInst(inst_data.operand);
-    return sema.analyzeDeref(block, src, ptr, ptr_src);
+    return sema.analyzeLoad(block, src, ptr, ptr_src);
 }
 
 fn zirAsm(
@@ -2958,7 +2958,7 @@ fn zirIsNullPtr(
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const ptr = try sema.resolveInst(inst_data.operand);
-    const loaded = try sema.analyzeDeref(block, src, ptr, src);
+    const loaded = try sema.analyzeLoad(block, src, ptr, src);
     return sema.analyzeIsNull(block, src, loaded, invert_logic);
 }
 
@@ -2978,7 +2978,7 @@ fn zirIsErrPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const ptr = try sema.resolveInst(inst_data.operand);
-    const loaded = try sema.analyzeDeref(block, src, ptr, src);
+    const loaded = try sema.analyzeLoad(block, src, ptr, src);
     return sema.analyzeIsErr(block, src, loaded);
 }
 
@@ -3343,7 +3343,7 @@ fn namedFieldPtr(
         },
         .Type => {
             _ = try sema.resolveConstValue(block, object_ptr.src, object_ptr);
-            const result = try sema.analyzeDeref(block, src, object_ptr, object_ptr.src);
+            const result = try sema.analyzeLoad(block, src, object_ptr, object_ptr.src);
             const val = result.value().?;
             const child_type = try val.toType(sema.arena);
             switch (child_type.zigTypeTag()) {
@@ -3409,7 +3409,7 @@ fn elemPtr(
 
     if (elem_ty.isSinglePointer() and elem_ty.elemType().zigTypeTag() == .Array) {
         // we have to deref the ptr operand to get the actual array pointer
-        const array_ptr_deref = try sema.analyzeDeref(block, src, array_ptr, array_ptr.src);
+        const array_ptr_deref = try sema.analyzeLoad(block, src, array_ptr, array_ptr.src);
         if (array_ptr_deref.value()) |array_ptr_val| {
             if (elem_index.value()) |index_val| {
                 // Both array pointer and index are compile-time known.
@@ -3669,7 +3669,7 @@ fn coerceArrayPtrToMany(sema: *Sema, block: *Scope.Block, dest_type: Type, inst:
 
 fn analyzeDeclVal(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, decl: *Decl) InnerError!*Inst {
     const decl_ref = try sema.analyzeDeclRef(block, src, decl);
-    return sema.analyzeDeref(block, src, decl_ref, src);
+    return sema.analyzeLoad(block, src, decl_ref, src);
 }
 
 fn analyzeDeclRef(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, decl: *Decl) InnerError!*Inst {
@@ -3737,7 +3737,7 @@ fn analyzeRef(
     return block.addUnOp(src, ptr_type, .ref, operand);
 }
 
-fn analyzeDeref(
+fn analyzeLoad(
     sema: *Sema,
     block: *Scope.Block,
     src: LazySrcLoc,

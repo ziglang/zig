@@ -281,7 +281,7 @@ pub const Inst = struct {
         decl_val,
         /// Load the value from a pointer. Assumes `x.*` syntax.
         /// Uses `un_node` field. AST node is the `x.*` syntax.
-        deref_node,
+        load,
         /// Arithmetic division. Asserts no integer overflow.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         div,
@@ -661,7 +661,7 @@ pub const Inst = struct {
                 .dbg_stmt_node,
                 .decl_ref,
                 .decl_val,
-                .deref_node,
+                .load,
                 .div,
                 .elem_ptr,
                 .elem_val,
@@ -841,6 +841,10 @@ pub const Inst = struct {
         bool_true,
         /// `false`
         bool_false,
+        /// `0` (usize)
+        zero_usize,
+        /// `1` (usize)
+        one_usize,
 
         _,
 
@@ -1016,8 +1020,16 @@ pub const Inst = struct {
                 .ty = Type.initTag(.comptime_int),
                 .val = Value.initTag(.zero),
             },
+            .zero_usize = .{
+                .ty = Type.initTag(.usize),
+                .val = Value.initTag(.zero),
+            },
             .one = .{
                 .ty = Type.initTag(.comptime_int),
+                .val = Value.initTag(.one),
+            },
+            .one_usize = .{
+                .ty = Type.initTag(.usize),
                 .val = Value.initTag(.one),
             },
             .void_value = .{
@@ -1377,7 +1389,7 @@ const Writer = struct {
             .call_none,
             .call_none_chkused,
             .compile_error,
-            .deref_node,
+            .load,
             .ensure_result_used,
             .ensure_result_non_error,
             .import,
