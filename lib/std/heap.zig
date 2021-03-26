@@ -14,6 +14,9 @@ const builtin = @import("builtin");
 const c = std.c;
 const maxInt = std.math.maxInt;
 
+pub const StdLogLoggingAllocator = @import("heap/stdlog_logging_allocator.zig").StdLogLoggingAllocator;
+pub const stdLogLoggingAllocator = @import("heap/stdlog_logging_allocator.zig").stdLogLoggingAllocator;
+pub const ScopedStdLogLoggingAllocator = @import("heap/stdlog_logging_allocator.zig").ScopedStdLogLoggingAllocator;
 pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
 pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
