@@ -569,6 +569,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/MachO/CodeSignature.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/DebugSymbols.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Object.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/MachO/Symbol.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Trie.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Zld.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/bind.zig"

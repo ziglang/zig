@@ -9,6 +9,7 @@ const macho = std.macho;
 const mem = std.mem;
 
 const Allocator = mem.Allocator;
+const Symbol = @import("Symbol.zig");
 const parseName = @import("Zld.zig").parseName;
 
 usingnamespace @import("commands.zig");
@@ -36,7 +37,7 @@ dwarf_debug_str_index: ?u16 = null,
 dwarf_debug_line_index: ?u16 = null,
 dwarf_debug_ranges_index: ?u16 = null,
 
-symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
+symtab: std.ArrayListUnmanaged(Symbol) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
 data_in_code_entries: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
@@ -53,7 +54,6 @@ pub fn deinit(self: *Object) void {
     if (self.ar_name) |v| {
         self.allocator.free(v);
     }
-    self.file.close();
 }
 
 /// Caller owns the returned Object instance and is responsible for calling
@@ -89,20 +89,8 @@ pub fn initFromFile(allocator: *Allocator, arch: std.Target.Cpu.Arch, name: []co
     };
 
     try self.readLoadCommands(reader, .{});
-
-    if (self.symtab_cmd_index != null) {
-        try self.readSymtab();
-        try self.readStrtab();
-    }
-
+    if (self.symtab_cmd_index != null) try self.parseSymtab();
     if (self.data_in_code_cmd_index != null) try self.readDataInCode();
-
-    log.debug("\n\n", .{});
-    log.debug("{s} defines symbols", .{self.name});
-    for (self.symtab.items) |sym| {
-        const symname = self.getString(sym.n_strx);
-        log.debug("'{s}': {}", .{ symname, sym });
-    }
 
     return self;
 }
@@ -174,25 +162,33 @@ pub fn readLoadCommands(self: *Object, reader: anytype, offset: ReadOffset) !voi
     }
 }
 
-pub fn readSymtab(self: *Object) !void {
+pub fn parseSymtab(self: *Object) !void {
     const symtab_cmd = self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-    var buffer = try self.allocator.alloc(u8, @sizeOf(macho.nlist_64) * symtab_cmd.nsyms);
-    defer self.allocator.free(buffer);
-    _ = try self.file.preadAll(buffer, symtab_cmd.symoff);
-    try self.symtab.ensureCapacity(self.allocator, symtab_cmd.nsyms);
-    // TODO this align case should not be needed.
-    // Probably a bug in stage1.
-    const slice = @alignCast(@alignOf(macho.nlist_64), mem.bytesAsSlice(macho.nlist_64, buffer));
-    self.symtab.appendSliceAssumeCapacity(slice);
-}
 
-pub fn readStrtab(self: *Object) !void {
-    const symtab_cmd = self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-    var buffer = try self.allocator.alloc(u8, symtab_cmd.strsize);
-    defer self.allocator.free(buffer);
-    _ = try self.file.preadAll(buffer, symtab_cmd.stroff);
-    try self.strtab.ensureCapacity(self.allocator, symtab_cmd.strsize);
-    self.strtab.appendSliceAssumeCapacity(buffer);
+    var symtab = try self.allocator.alloc(u8, @sizeOf(macho.nlist_64) * symtab_cmd.nsyms);
+    defer self.allocator.free(symtab);
+
+    _ = try self.file.preadAll(symtab, symtab_cmd.symoff);
+    try self.symtab.ensureCapacity(self.allocator, symtab_cmd.nsyms);
+
+    var stream = std.io.fixedBufferStream(symtab);
+    var reader = stream.reader();
+
+    while (true) {
+        const symbol = reader.readStruct(macho.nlist_64) catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => |e| return e,
+        };
+        self.symtab.appendAssumeCapacity(.{
+            .inner = symbol,
+        });
+    }
+
+    var strtab = try self.allocator.alloc(u8, symtab_cmd.strsize);
+    defer self.allocator.free(strtab);
+
+    _ = try self.file.preadAll(strtab, symtab_cmd.stroff);
+    try self.strtab.appendSlice(self.allocator, strtab);
 }
 
 pub fn getString(self: *const Object, str_off: u32) []const u8 {
