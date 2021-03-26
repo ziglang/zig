@@ -952,7 +952,9 @@ fn blockExprStmts(
 
     var scope = parent_scope;
     for (statements) |statement| {
-        _ = try gz.addNode(.dbg_stmt_node, statement);
+        if (!gz.force_comptime) {
+            _ = try gz.addNode(.dbg_stmt_node, statement);
+        }
         switch (node_tags[statement]) {
             .global_var_decl => scope = try varDecl(mod, scope, statement, &block_arena.allocator, tree.globalVarDecl(statement)),
             .local_var_decl => scope = try varDecl(mod, scope, statement, &block_arena.allocator, tree.localVarDecl(statement)),
@@ -2846,14 +2848,17 @@ fn identifier(
         };
     }
 
-    if (mod.lookupDeclName(scope, ident_name)) |decl| {
-        return if (rl == .ref)
-            gz.addDecl(.decl_ref, decl)
-        else
-            rvalue(mod, scope, rl, try gz.addDecl(.decl_val, decl), ident);
+    const gop = try gz.zir_code.decl_map.getOrPut(mod.gpa, ident_name);
+    if (!gop.found_existing) {
+        const decl = mod.lookupDeclName(scope, ident_name) orelse
+            return mod.failNode(scope, ident, "use of undeclared identifier '{s}'", .{ident_name});
+        try gz.zir_code.decls.append(mod.gpa, decl);
     }
-
-    return mod.failNode(scope, ident, "use of undeclared identifier '{s}'", .{ident_name});
+    const decl_index = @intCast(u32, gop.index);
+    switch (rl) {
+        .ref => return gz.addDecl(.decl_ref, decl_index, ident),
+        else => return rvalue(mod, scope, rl, try gz.addDecl(.decl_val, decl_index, ident), ident),
+    }
 }
 
 fn stringLiteral(
@@ -3743,10 +3748,70 @@ fn rvalue(
             const src_token = tree.firstToken(src_node);
             return gz.addUnTok(.ref, result, src_token);
         },
-        .ty => |ty_inst| return gz.addPlNode(.as_node, src_node, zir.Inst.As{
-            .dest_type = ty_inst,
-            .operand = result,
-        }),
+        .ty => |ty_inst| {
+            // Quickly eliminate some common, unnecessary type coercion.
+            const as_ty = @as(u64, @enumToInt(zir.Inst.Ref.type_type)) << 32;
+            const as_comptime_int = @as(u64, @enumToInt(zir.Inst.Ref.comptime_int_type)) << 32;
+            const as_bool = @as(u64, @enumToInt(zir.Inst.Ref.bool_type)) << 32;
+            const as_usize = @as(u64, @enumToInt(zir.Inst.Ref.usize_type)) << 32;
+            const as_void = @as(u64, @enumToInt(zir.Inst.Ref.void_type)) << 32;
+            switch ((@as(u64, @enumToInt(ty_inst)) << 32) | @as(u64, @enumToInt(result))) {
+                as_ty | @enumToInt(zir.Inst.Ref.u8_type),
+                as_ty | @enumToInt(zir.Inst.Ref.i8_type),
+                as_ty | @enumToInt(zir.Inst.Ref.u16_type),
+                as_ty | @enumToInt(zir.Inst.Ref.i16_type),
+                as_ty | @enumToInt(zir.Inst.Ref.u32_type),
+                as_ty | @enumToInt(zir.Inst.Ref.i32_type),
+                as_ty | @enumToInt(zir.Inst.Ref.u64_type),
+                as_ty | @enumToInt(zir.Inst.Ref.i64_type),
+                as_ty | @enumToInt(zir.Inst.Ref.usize_type),
+                as_ty | @enumToInt(zir.Inst.Ref.isize_type),
+                as_ty | @enumToInt(zir.Inst.Ref.c_short_type),
+                as_ty | @enumToInt(zir.Inst.Ref.c_ushort_type),
+                as_ty | @enumToInt(zir.Inst.Ref.c_int_type),
+                as_ty | @enumToInt(zir.Inst.Ref.c_uint_type),
+                as_ty | @enumToInt(zir.Inst.Ref.c_long_type),
+                as_ty | @enumToInt(zir.Inst.Ref.c_ulong_type),
+                as_ty | @enumToInt(zir.Inst.Ref.c_longlong_type),
+                as_ty | @enumToInt(zir.Inst.Ref.c_ulonglong_type),
+                as_ty | @enumToInt(zir.Inst.Ref.c_longdouble_type),
+                as_ty | @enumToInt(zir.Inst.Ref.f16_type),
+                as_ty | @enumToInt(zir.Inst.Ref.f32_type),
+                as_ty | @enumToInt(zir.Inst.Ref.f64_type),
+                as_ty | @enumToInt(zir.Inst.Ref.f128_type),
+                as_ty | @enumToInt(zir.Inst.Ref.c_void_type),
+                as_ty | @enumToInt(zir.Inst.Ref.bool_type),
+                as_ty | @enumToInt(zir.Inst.Ref.void_type),
+                as_ty | @enumToInt(zir.Inst.Ref.type_type),
+                as_ty | @enumToInt(zir.Inst.Ref.anyerror_type),
+                as_ty | @enumToInt(zir.Inst.Ref.comptime_int_type),
+                as_ty | @enumToInt(zir.Inst.Ref.comptime_float_type),
+                as_ty | @enumToInt(zir.Inst.Ref.noreturn_type),
+                as_ty | @enumToInt(zir.Inst.Ref.null_type),
+                as_ty | @enumToInt(zir.Inst.Ref.undefined_type),
+                as_ty | @enumToInt(zir.Inst.Ref.fn_noreturn_no_args_type),
+                as_ty | @enumToInt(zir.Inst.Ref.fn_void_no_args_type),
+                as_ty | @enumToInt(zir.Inst.Ref.fn_naked_noreturn_no_args_type),
+                as_ty | @enumToInt(zir.Inst.Ref.fn_ccc_void_no_args_type),
+                as_ty | @enumToInt(zir.Inst.Ref.single_const_pointer_to_comptime_int_type),
+                as_ty | @enumToInt(zir.Inst.Ref.const_slice_u8_type),
+                as_ty | @enumToInt(zir.Inst.Ref.enum_literal_type),
+                as_comptime_int | @enumToInt(zir.Inst.Ref.zero),
+                as_comptime_int | @enumToInt(zir.Inst.Ref.one),
+                as_bool | @enumToInt(zir.Inst.Ref.bool_true),
+                as_bool | @enumToInt(zir.Inst.Ref.bool_false),
+                as_usize | @enumToInt(zir.Inst.Ref.zero_usize),
+                as_usize | @enumToInt(zir.Inst.Ref.one_usize),
+                as_void | @enumToInt(zir.Inst.Ref.void_value),
+                => return result, // type of result is already correct
+
+                // Need an explicit type coercion instruction.
+                else => return gz.addPlNode(.as_node, src_node, zir.Inst.As{
+                    .dest_type = ty_inst,
+                    .operand = result,
+                }),
+            }
+        },
         .ptr => |ptr_inst| {
             _ = try gz.addPlNode(.store_node, src_node, zir.Inst.Bin{
                 .lhs = ptr_inst,

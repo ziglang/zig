@@ -38,3 +38,6 @@ Performance optimizations to look into:
  * astgen for loops using pointer arithmetic because it's faster and if the programmer
    wants an index capture, that will just be a convenience variable that zig sets up
    independently.
+ * in astgen, if a decl_val would be to a const variable or to a function, there could be
+   a special zir.Inst.Ref form that means to refer to a decl as the operand. This
+   would elide all the decl_val instructions in the ZIR.

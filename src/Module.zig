@@ -103,7 +103,7 @@ stage1_flags: packed struct {
 
 emit_h: ?Compilation.EmitLoc,
 
-compile_log_text: std.ArrayListUnmanaged(u8) = .{},
+compile_log_text: ArrayListUnmanaged(u8) = .{},
 
 pub const Export = struct {
     options: std.builtin.ExportOptions,
@@ -335,7 +335,7 @@ pub const Decl = struct {
 
 /// This state is attached to every Decl when Module emit_h is non-null.
 pub const EmitH = struct {
-    fwd_decl: std.ArrayListUnmanaged(u8) = .{},
+    fwd_decl: ArrayListUnmanaged(u8) = .{},
 };
 
 /// Some Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.
@@ -916,7 +916,7 @@ pub const Scope = struct {
         zir_code: *WipZirCode,
         /// Keeps track of the list of instructions in this scope only. Indexes
         /// to instructions in `zir_code`.
-        instructions: std.ArrayListUnmanaged(zir.Inst.Index) = .{},
+        instructions: ArrayListUnmanaged(zir.Inst.Index) = .{},
         label: ?Label = null,
         break_block: zir.Inst.Index = 0,
         continue_block: zir.Inst.Index = 0,
@@ -935,11 +935,11 @@ pub const Scope = struct {
         break_count: usize = 0,
         /// Tracks `break :foo bar` instructions so they can possibly be elided later if
         /// the labeled block ends up not needing a result location pointer.
-        labeled_breaks: std.ArrayListUnmanaged(zir.Inst.Index) = .{},
+        labeled_breaks: ArrayListUnmanaged(zir.Inst.Index) = .{},
         /// Tracks `store_to_block_ptr` instructions that correspond to break instructions
         /// so they can possibly be elided later if the labeled block ends up not needing
         /// a result location pointer.
-        labeled_store_to_block_ptr_list: std.ArrayListUnmanaged(zir.Inst.Index) = .{},
+        labeled_store_to_block_ptr_list: ArrayListUnmanaged(zir.Inst.Index) = .{},
 
         pub const Label = struct {
             token: ast.TokenIndex,
@@ -957,6 +957,7 @@ pub const Scope = struct {
                 .instructions = gz.zir_code.instructions.toOwnedSlice(),
                 .string_bytes = gz.zir_code.string_bytes.toOwnedSlice(gpa),
                 .extra = gz.zir_code.extra.toOwnedSlice(gpa),
+                .decls = gz.zir_code.decls.toOwnedSlice(gpa),
             };
         }
 
@@ -1253,11 +1254,15 @@ pub const Scope = struct {
         pub fn addDecl(
             gz: *GenZir,
             tag: zir.Inst.Tag,
-            decl: *Decl,
+            decl_index: u32,
+            src_node: ast.Node.Index,
         ) !zir.Inst.Ref {
             return gz.add(.{
                 .tag = tag,
-                .data = .{ .decl = decl },
+                .data = .{ .pl_node = .{
+                    .src_node = gz.zir_code.decl.nodeIndexToRelative(src_node),
+                    .payload_index = decl_index,
+                } },
             });
         }
 
@@ -1379,8 +1384,10 @@ pub const Scope = struct {
 /// The `GenZir.finish` function converts this to a `zir.Code`.
 pub const WipZirCode = struct {
     instructions: std.MultiArrayList(zir.Inst) = .{},
-    string_bytes: std.ArrayListUnmanaged(u8) = .{},
-    extra: std.ArrayListUnmanaged(u32) = .{},
+    string_bytes: ArrayListUnmanaged(u8) = .{},
+    extra: ArrayListUnmanaged(u32) = .{},
+    decl_map: std.StringArrayHashMapUnmanaged(void) = .{},
+    decls: ArrayListUnmanaged(*Decl) = .{},
     /// The end of special indexes. `zir.Inst.Ref` subtracts against this number to convert
     /// to `zir.Inst.Index`. The default here is correct if there are 0 parameters.
     ref_start_index: u32 = zir.Inst.Ref.typed_value_map.len,
@@ -1442,6 +1449,8 @@ pub const WipZirCode = struct {
         wzc.instructions.deinit(wzc.gpa);
         wzc.extra.deinit(wzc.gpa);
         wzc.string_bytes.deinit(wzc.gpa);
+        wzc.decl_map.deinit(wzc.gpa);
+        wzc.decls.deinit(wzc.gpa);
     }
 };
 
@@ -4062,7 +4071,7 @@ pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex)
     if (!mem.startsWith(u8, ident_name, "@")) {
         return ident_name;
     }
-    var buf: std.ArrayListUnmanaged(u8) = .{};
+    var buf: ArrayListUnmanaged(u8) = .{};
     defer buf.deinit(mod.gpa);
     try parseStrLit(mod, scope, token, &buf, ident_name, 1);
     return buf.toOwnedSlice(mod.gpa);
@@ -4075,7 +4084,7 @@ pub fn appendIdentStr(
     mod: *Module,
     scope: *Scope,
     token: ast.TokenIndex,
-    buf: *std.ArrayListUnmanaged(u8),
+    buf: *ArrayListUnmanaged(u8),
 ) InnerError!void {
     const tree = scope.tree();
     const token_tags = tree.tokens.items(.tag);
@@ -4093,7 +4102,7 @@ pub fn parseStrLit(
     mod: *Module,
     scope: *Scope,
     token: ast.TokenIndex,
-    buf: *std.ArrayListUnmanaged(u8),
+    buf: *ArrayListUnmanaged(u8),
     bytes: []const u8,
     offset: u32,
 ) InnerError!void {

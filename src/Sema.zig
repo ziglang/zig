@@ -1102,10 +1102,15 @@ fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
     const tracy = trace(@src());
     defer tracy.end();
 
+    // We do not set sema.src here because dbg_stmt instructions are only emitted for
+    // ZIR code that possibly will need to generate runtime code. So error messages
+    // and other source locations must not rely on sema.src being set from dbg_stmt
+    // instructions.
     if (block.is_comptime) return;
 
     const src_node = sema.code.instructions.items(.data)[inst].node;
     const src: LazySrcLoc = .{ .node_offset = src_node };
+
     const src_loc = src.toSrcLoc(&block.base);
     const abs_byte_off = try src_loc.byteOffset();
     _ = try block.addDbgStmt(src, abs_byte_off);
@@ -1115,16 +1120,20 @@ fn zirDeclRef(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const tracy = trace(@src());
     defer tracy.end();
 
-    const decl = sema.code.instructions.items(.data)[inst].decl;
-    return sema.analyzeDeclRef(block, .unneeded, decl);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const decl = sema.code.decls[inst_data.payload_index];
+    return sema.analyzeDeclRef(block, src, decl);
 }
 
 fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const decl = sema.code.instructions.items(.data)[inst].decl;
-    return sema.analyzeDeclVal(block, .unneeded, decl);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const decl = sema.code.decls[inst_data.payload_index];
+    return sema.analyzeDeclVal(block, src, decl);
 }
 
 fn zirCallNone(
@@ -3211,10 +3220,10 @@ fn requireFunctionBlock(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void
 }
 
 fn requireRuntimeBlock(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void {
-    try sema.requireFunctionBlock(block, src);
     if (block.is_comptime) {
         return sema.mod.fail(&block.base, src, "unable to resolve comptime value", .{});
     }
+    try sema.requireFunctionBlock(block, src);
 }
 
 fn validateVarType(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type) !void {

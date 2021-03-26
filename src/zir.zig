@@ -37,6 +37,8 @@ pub const Code = struct {
     string_bytes: []u8,
     /// The meaning of this data is determined by `Inst.Tag` value.
     extra: []u32,
+    /// Used for decl_val and decl_ref instructions.
+    decls: []*Module.Decl,
 
     /// Returns the requested data, as well as the new index which is at the start of the
     /// trailers for the object.
@@ -76,6 +78,7 @@ pub const Code = struct {
         code.instructions.deinit(gpa);
         gpa.free(code.string_bytes);
         gpa.free(code.extra);
+        gpa.free(code.decls);
         code.* = undefined;
     }
 
@@ -103,7 +106,7 @@ pub const Code = struct {
         const stderr = std.io.getStdErr().writer();
         try stderr.print("ZIR {s} {s} %0 ", .{ kind, decl_name });
         try writer.writeInstToStream(stderr, 0);
-        try stderr.print("}} // ZIR {s} {s}\n\n", .{ kind, decl_name });
+        try stderr.print(" // end ZIR {s} {s}\n\n", .{ kind, decl_name });
     }
 };
 
@@ -115,7 +118,7 @@ pub const Inst = struct {
     data: Data,
 
     /// These names are used directly as the instruction names in the text format.
-    pub const Tag = enum {
+    pub const Tag = enum(u8) {
         /// Arithmetic addition, asserts no integer overflow.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         add,
@@ -274,10 +277,10 @@ pub const Inst = struct {
         /// Uses the `node` union field.
         dbg_stmt_node,
         /// Represents a pointer to a global decl.
-        /// Uses the `decl` union field.
+        /// Uses the `pl_node` union field. `payload_index` is into `decls`.
         decl_ref,
         /// Equivalent to a decl_ref followed by load.
-        /// Uses the `decl` union field.
+        /// Uses the `pl_node` union field. `payload_index` is into `decls`.
         decl_val,
         /// Load the value from a pointer. Assumes `x.*` syntax.
         /// Uses `un_node` field. AST node is the `x.*` syntax.
@@ -611,10 +614,6 @@ pub const Inst = struct {
         // /// Only checks that `lhs >= rhs` if they are ints, everything else is
         // /// validated by the switch_br instruction.
         // switch_range,
-
-        comptime {
-            assert(@sizeOf(Tag) == 1);
-        }
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -1099,7 +1098,6 @@ pub const Inst = struct {
             }
         },
         bin: Bin,
-        decl: *Module.Decl,
         @"const": *TypedValue,
         /// For strings which may contain null bytes.
         str: struct {
@@ -1503,6 +1501,10 @@ const Writer = struct {
             .typeof_peer,
             => try self.writePlNodeMultiOp(stream, inst),
 
+            .decl_ref,
+            .decl_val,
+            => try self.writePlNodeDecl(stream, inst),
+
             .as_node => try self.writeAs(stream, inst),
 
             .breakpoint,
@@ -1512,10 +1514,6 @@ const Writer = struct {
             .repeat,
             .repeat_inline,
             => try self.writeNode(stream, inst),
-
-            .decl_ref,
-            .decl_val,
-            => try self.writeDecl(stream, inst),
 
             .error_value,
             .enum_literal,
@@ -1715,6 +1713,13 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
+    fn writePlNodeDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const decl = self.code.decls[inst_data.payload_index];
+        try stream.print("{s}) ", .{decl.name});
+        try self.writeSrc(stream, inst_data.src());
+    }
+
     fn writeAs(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.As, inst_data.payload_index).data;
@@ -1734,15 +1739,6 @@ const Writer = struct {
         const src: LazySrcLoc = .{ .node_offset = src_node };
         try stream.writeAll(") ");
         try self.writeSrc(stream, src);
-    }
-
-    fn writeDecl(
-        self: *Writer,
-        stream: anytype,
-        inst: Inst.Index,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const decl = self.code.instructions.items(.data)[inst].decl;
-        try stream.print("{s})", .{decl.name});
     }
 
     fn writeStrTok(
