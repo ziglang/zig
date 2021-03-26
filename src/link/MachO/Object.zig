@@ -15,11 +15,11 @@ const parseName = @import("Zld.zig").parseName;
 usingnamespace @import("commands.zig");
 
 allocator: *Allocator,
-file: fs.File,
-name: []u8,
-ar_name: ?[]u8 = null,
-
-header: macho.mach_header_64,
+arch: ?std.Target.Cpu.Arch = null,
+header: ?macho.mach_header_64 = null,
+file: ?fs.File = null,
+file_offset: ?u32 = null,
+name: ?[]u8 = null,
 
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 
@@ -42,6 +42,12 @@ strtab: std.ArrayListUnmanaged(u8) = .{},
 
 data_in_code_entries: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
+pub fn init(allocator: *Allocator) Object {
+    return .{
+        .allocator = allocator,
+    };
+}
+
 pub fn deinit(self: *Object) void {
     for (self.load_commands.items) |*lc| {
         lc.deinit(self.allocator);
@@ -50,25 +56,32 @@ pub fn deinit(self: *Object) void {
     self.symtab.deinit(self.allocator);
     self.strtab.deinit(self.allocator);
     self.data_in_code_entries.deinit(self.allocator);
-    self.allocator.free(self.name);
-    if (self.ar_name) |v| {
-        self.allocator.free(v);
+
+    if (self.name) |n| {
+        self.allocator.free(n);
     }
 }
 
-/// Caller owns the returned Object instance and is responsible for calling
-/// `deinit` to free allocated memory.
-pub fn initFromFile(allocator: *Allocator, arch: std.Target.Cpu.Arch, name: []const u8, file: fs.File) !Object {
-    var reader = file.reader();
-    const header = try reader.readStruct(macho.mach_header_64);
+pub fn closeFile(self: Object) void {
+    if (self.file) |f| {
+        f.close();
+    }
+}
 
-    if (header.filetype != macho.MH_OBJECT) {
-        // Reset file cursor.
-        try file.seekTo(0);
-        return error.NotObject;
+pub fn parse(self: *Object) !void {
+    var reader = self.file.?.reader();
+    if (self.file_offset) |offset| {
+        try reader.context.seekTo(offset);
     }
 
-    const this_arch: std.Target.Cpu.Arch = switch (header.cputype) {
+    self.header = try reader.readStruct(macho.mach_header_64);
+
+    if (self.header.?.filetype != macho.MH_OBJECT) {
+        log.err("invalid filetype: expected 0x{x}, found 0x{x}", .{ macho.MH_OBJECT, self.header.?.filetype });
+        return error.MalformedObject;
+    }
+
+    const this_arch: std.Target.Cpu.Arch = switch (self.header.?.cputype) {
         macho.CPU_TYPE_ARM64 => .aarch64,
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => |value| {
@@ -76,35 +89,22 @@ pub fn initFromFile(allocator: *Allocator, arch: std.Target.Cpu.Arch, name: []co
             return error.UnsupportedCpuArchitecture;
         },
     };
-    if (this_arch != arch) {
-        log.err("mismatched cpu architecture: found {s}, expected {s}", .{ this_arch, arch });
+    if (this_arch != self.arch.?) {
+        log.err("mismatched cpu architecture: expected {s}, found {s}", .{ self.arch.?, this_arch });
         return error.MismatchedCpuArchitecture;
     }
 
-    var self = Object{
-        .allocator = allocator,
-        .name = try allocator.dupe(u8, name),
-        .file = file,
-        .header = header,
-    };
-
-    try self.readLoadCommands(reader, .{});
+    try self.readLoadCommands(reader);
     if (self.symtab_cmd_index != null) try self.parseSymtab();
     if (self.data_in_code_cmd_index != null) try self.readDataInCode();
-
-    return self;
 }
 
-pub const ReadOffset = struct {
-    offset: ?u32 = null,
-};
-
-pub fn readLoadCommands(self: *Object, reader: anytype, offset: ReadOffset) !void {
-    const offset_mod = offset.offset orelse 0;
-    try self.load_commands.ensureCapacity(self.allocator, self.header.ncmds);
+pub fn readLoadCommands(self: *Object, reader: anytype) !void {
+    const offset = self.file_offset orelse 0;
+    try self.load_commands.ensureCapacity(self.allocator, self.header.?.ncmds);
 
     var i: u16 = 0;
-    while (i < self.header.ncmds) : (i += 1) {
+    while (i < self.header.?.ncmds) : (i += 1) {
         var cmd = try LoadCommand.read(self.allocator, reader);
         switch (cmd.cmd()) {
             macho.LC_SEGMENT_64 => {
@@ -132,17 +132,18 @@ pub fn readLoadCommands(self: *Object, reader: anytype, offset: ReadOffset) !voi
                         }
                     }
 
-                    sect.offset += offset_mod;
-                    if (sect.reloff > 0)
-                        sect.reloff += offset_mod;
+                    sect.offset += offset;
+                    if (sect.reloff > 0) {
+                        sect.reloff += offset;
+                    }
                 }
 
-                seg.inner.fileoff += offset_mod;
+                seg.inner.fileoff += offset;
             },
             macho.LC_SYMTAB => {
                 self.symtab_cmd_index = i;
-                cmd.Symtab.symoff += offset_mod;
-                cmd.Symtab.stroff += offset_mod;
+                cmd.Symtab.symoff += offset;
+                cmd.Symtab.stroff += offset;
             },
             macho.LC_DYSYMTAB => {
                 self.dysymtab_cmd_index = i;
@@ -152,7 +153,7 @@ pub fn readLoadCommands(self: *Object, reader: anytype, offset: ReadOffset) !voi
             },
             macho.LC_DATA_IN_CODE => {
                 self.data_in_code_cmd_index = i;
-                cmd.LinkeditData.dataoff += offset_mod;
+                cmd.LinkeditData.dataoff += offset;
             },
             else => {
                 log.debug("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
@@ -168,7 +169,7 @@ pub fn parseSymtab(self: *Object) !void {
     var symtab = try self.allocator.alloc(u8, @sizeOf(macho.nlist_64) * symtab_cmd.nsyms);
     defer self.allocator.free(symtab);
 
-    _ = try self.file.preadAll(symtab, symtab_cmd.symoff);
+    _ = try self.file.?.preadAll(symtab, symtab_cmd.symoff);
     try self.symtab.ensureCapacity(self.allocator, symtab_cmd.nsyms);
 
     var stream = std.io.fixedBufferStream(symtab);
@@ -187,7 +188,7 @@ pub fn parseSymtab(self: *Object) !void {
     var strtab = try self.allocator.alloc(u8, symtab_cmd.strsize);
     defer self.allocator.free(strtab);
 
-    _ = try self.file.preadAll(strtab, symtab_cmd.stroff);
+    _ = try self.file.?.preadAll(strtab, symtab_cmd.stroff);
     try self.strtab.appendSlice(self.allocator, strtab);
 }
 
@@ -200,7 +201,7 @@ pub fn readSection(self: Object, allocator: *Allocator, index: u16) ![]u8 {
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
     const sect = seg.sections.items[index];
     var buffer = try allocator.alloc(u8, sect.size);
-    _ = try self.file.preadAll(buffer, sect.offset);
+    _ = try self.file.?.preadAll(buffer, sect.offset);
     return buffer;
 }
 
@@ -211,7 +212,7 @@ pub fn readDataInCode(self: *Object) !void {
     var buffer = try self.allocator.alloc(u8, data_in_code.datasize);
     defer self.allocator.free(buffer);
 
-    _ = try self.file.preadAll(buffer, data_in_code.dataoff);
+    _ = try self.file.?.preadAll(buffer, data_in_code.dataoff);
 
     var stream = io.fixedBufferStream(buffer);
     var reader = stream.reader();
