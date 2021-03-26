@@ -3237,22 +3237,28 @@ fn builtinCall(
             return rvalue(mod, scope, rl, result, node);
         },
         .float_cast => {
-            if (true) @panic("TODO update for zir-memory-layout");
             const dest_type = try typeExpr(mod, scope, params[0]);
             const rhs = try expr(mod, scope, .none, params[1]);
-            const result = try addZIRBinOp(mod, scope, src, .floatcast, dest_type, rhs);
+            const result = try gz.addPlNode(.floatcast, node, zir.Inst.Bin{
+                .lhs = dest_type,
+                .rhs = rhs,
+            });
             return rvalue(mod, scope, rl, result, node);
         },
         .int_cast => {
-            if (true) @panic("TODO update for zir-memory-layout");
             const dest_type = try typeExpr(mod, scope, params[0]);
             const rhs = try expr(mod, scope, .none, params[1]);
-            const result = try addZIRBinOp(mod, scope, src, .intcast, dest_type, rhs);
+            const result = try gz.addPlNode(.intcast, node, zir.Inst.Bin{
+                .lhs = dest_type,
+                .rhs = rhs,
+            });
             return rvalue(mod, scope, rl, result, node);
         },
         .breakpoint => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const result = try addZIRNoOp(mod, scope, src, .breakpoint);
+            const result = try gz.add(.{
+                .tag = .breakpoint,
+                .data = .{ .node = gz.zir_code.decl.nodeIndexToRelative(node) },
+            });
             return rvalue(mod, scope, rl, result, node);
         },
         .import => {
@@ -3283,23 +3289,18 @@ fn builtinCall(
             return rvalue(mod, scope, rl, result, node);
         },
         .field => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const string_type = try addZIRInstConst(mod, scope, src, .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.const_slice_u8_type),
-            });
-            const string_rl: ResultLoc = .{ .ty = string_type };
-
+            const field_name = try comptimeExpr(mod, scope, .{ .ty = .const_slice_u8_type }, params[1]);
             if (rl == .ref) {
-                return addZirInstTag(mod, scope, src, .field_ptr_named, .{
-                    .object = try expr(mod, scope, .ref, params[0]),
-                    .field_name = try comptimeExpr(mod, scope, string_rl, params[1]),
+                return try gz.addPlNode(.field_ptr_named, node, zir.Inst.FieldNamed{
+                    .lhs = try expr(mod, scope, .ref, params[0]),
+                    .field_name = field_name,
                 });
             }
-            return rvalue(mod, scope, rl, try addZirInstTag(mod, scope, src, .field_val_named, .{
-                .object = try expr(mod, scope, .none, params[0]),
-                .field_name = try comptimeExpr(mod, scope, string_rl, params[1]),
-            }), node);
+            const result = try gz.addPlNode(.field_val_named, node, zir.Inst.FieldNamed{
+                .lhs = try expr(mod, scope, .none, params[0]),
+                .field_name = field_name,
+            });
+            return rvalue(mod, scope, rl, result, node);
         },
         .as => return as(mod, scope, rl, builtin_token, node, params[0], params[1]),
         .bit_cast => return bitCast(mod, scope, rl, builtin_token, node, params[0], params[1]),
