@@ -2959,26 +2959,32 @@ fn floatLiteral(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
-    float_lit: ast.Node.Index,
+    node: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const arena = scope.arena();
     const tree = scope.tree();
     const main_tokens = tree.nodes.items(.main_token);
+    const gz = scope.getGenZir();
 
-    const main_token = main_tokens[float_lit];
+    const main_token = main_tokens[node];
     const bytes = tree.tokenSlice(main_token);
     if (bytes.len > 2 and bytes[1] == 'x') {
+        assert(bytes[0] == '0'); // validated by tokenizer
         return mod.failTok(scope, main_token, "TODO implement hex floats", .{});
     }
     const float_number = std.fmt.parseFloat(f128, bytes) catch |e| switch (e) {
         error.InvalidCharacter => unreachable, // validated by tokenizer
     };
-    const result = try addZIRInstConst(mod, scope, src, .{
+    const typed_value = try arena.create(TypedValue);
+    typed_value.* = .{
         .ty = Type.initTag(.comptime_float),
         .val = try Value.Tag.float_128.create(arena, float_number),
+    };
+    const result = try gz.add(.{
+        .tag = .@"const",
+        .data = .{ .@"const" = typed_value },
     });
-    return rvalue(mod, scope, rl, result);
+    return rvalue(mod, scope, rl, result, node);
 }
 
 fn asmExpr(
