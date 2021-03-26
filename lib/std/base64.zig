@@ -39,13 +39,33 @@ pub const standard = Codecs{
     .DecoderUnsafe = Base64DecoderUnsafe.init(standard_alphabet_chars, '='),
 };
 
+/// Standard Base64 codecs, without padding
+pub const standard_no_pad = Codecs{
+    .alphabet_chars = standard_alphabet_chars,
+    .pad_char = null,
+    .decoderWithIgnore = standardBase64DecoderWithIgnore,
+    .Encoder = Base64Encoder.init(standard_alphabet_chars, null),
+    .Decoder = Base64Decoder.init(standard_alphabet_chars, null),
+    .DecoderUnsafe = Base64DecoderUnsafe.init(standard_alphabet_chars, null),
+};
+
 pub const url_safe_alphabet_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
 fn urlSafeBase64DecoderWithIgnore(ignore: []const u8) Base64DecoderWithIgnore {
     return Base64DecoderWithIgnore.init(url_safe_alphabet_chars, null, ignore);
 }
 
-/// URL-safe Base64 codecs, without padding
+/// URL-safe Base64 codecs, with padding
 pub const url_safe = Codecs{
+    .alphabet_chars = url_safe_alphabet_chars,
+    .pad_char = '=',
+    .decoderWithIgnore = urlSafeBase64DecoderWithIgnore,
+    .Encoder = Base64Encoder.init(url_safe_alphabet_chars, '='),
+    .Decoder = Base64Decoder.init(url_safe_alphabet_chars, '='),
+    .DecoderUnsafe = Base64DecoderUnsafe.init(url_safe_alphabet_chars, '='),
+};
+
+/// URL-safe Base64 codecs, without padding
+pub const url_safe_no_pad = Codecs{
     .alphabet_chars = url_safe_alphabet_chars,
     .pad_char = null,
     .decoderWithIgnore = urlSafeBase64DecoderWithIgnore,
@@ -378,10 +398,10 @@ test "base64" {
     comptime testAllApis(standard, "comptime", "Y29tcHRpbWU=") catch unreachable;
 }
 
-test "base64 url_safe" {
+test "base64 url_safe_no_pad" {
     @setEvalBranchQuota(8000);
-    testBase64UrlSafe() catch unreachable;
-    comptime testAllApis(url_safe, "comptime", "Y29tcHRpbWU") catch unreachable;
+    testBase64UrlSafeNoPad() catch unreachable;
+    comptime testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU") catch unreachable;
 }
 
 fn testBase64() !void {
@@ -420,8 +440,8 @@ fn testBase64() !void {
     try testNoSpaceLeftError(codecs, "AAAAAA==");
 }
 
-fn testBase64UrlSafe() !void {
-    const codecs = url_safe;
+fn testBase64UrlSafeNoPad() !void {
+    const codecs = url_safe_no_pad;
 
     try testAllApis(codecs, "", "");
     try testAllApis(codecs, "f", "Zg");
