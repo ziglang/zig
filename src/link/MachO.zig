@@ -658,7 +658,10 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
         if (use_zld) {
             var zld = Zld.init(self.base.allocator);
-            defer zld.deinit();
+            defer {
+                zld.closeFiles();
+                zld.deinit();
+            }
             zld.arch = target.cpu.arch;
 
             var input_files = std.ArrayList([]const u8).init(self.base.allocator);

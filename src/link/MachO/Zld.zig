@@ -13,9 +13,10 @@ const log = std.log.scoped(.zld);
 const aarch64 = @import("../../codegen/aarch64.zig");
 
 const Allocator = mem.Allocator;
-const CodeSignature = @import("CodeSignature.zig");
 const Archive = @import("Archive.zig");
+const CodeSignature = @import("CodeSignature.zig");
 const Object = @import("Object.zig");
+const Symbol = @import("Symbol.zig");
 const Trie = @import("Trie.zig");
 
 usingnamespace @import("commands.zig");
@@ -28,10 +29,8 @@ page_size: ?u16 = null,
 file: ?fs.File = null,
 out_path: ?[]const u8 = null,
 
-// TODO Eventually, we will want to keep track of the  archives themselves to be able to exclude objects
-// contained within from landing in the final artifact. For now however, since we don't optimise the binary
-// at all, we just move all objects from the archives into the final artifact.
 objects: std.ArrayListUnmanaged(Object) = .{},
+archives: std.ArrayListUnmanaged(Archive) = .{},
 
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 
@@ -74,16 +73,18 @@ la_symbol_ptr_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
 bss_section_index: ?u16 = null,
 
-locals: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(Symbol)) = .{},
-exports: std.StringArrayHashMapUnmanaged(macho.nlist_64) = .{},
-nonlazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
-lazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
-tlv_bootstrap: ?Import = null,
-threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
-local_rebases: std.ArrayListUnmanaged(Pointer) = .{},
-nonlazy_pointers: std.StringArrayHashMapUnmanaged(GotEntry) = .{},
-
+globals: std.StringArrayHashMapUnmanaged(Symbol) = .{},
+undefs: std.StringArrayHashMapUnmanaged(Symbol) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
+
+// locals: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(Symbol)) = .{},
+// exports: std.StringArrayHashMapUnmanaged(macho.nlist_64) = .{},
+// nonlazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
+// lazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
+// tlv_bootstrap: ?Import = null,
+// threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
+// local_rebases: std.ArrayListUnmanaged(Pointer) = .{},
+// nonlazy_pointers: std.StringArrayHashMapUnmanaged(GotEntry) = .{},
 
 stub_helper_stubs_start_off: ?u64 = null,
 
@@ -110,18 +111,6 @@ const SectionMapping = struct {
     target_seg_id: u16,
     target_sect_id: u16,
     offset: u32,
-};
-
-const Symbol = struct {
-    inner: macho.nlist_64,
-    tt: Type,
-    object_id: u16,
-
-    const Type = enum {
-        Local,
-        WeakGlobal,
-        Global,
-    };
 };
 
 const DebugInfo = struct {
@@ -188,17 +177,6 @@ const DebugInfo = struct {
     }
 };
 
-pub const Import = struct {
-    /// MachO symbol table entry.
-    symbol: macho.nlist_64,
-
-    /// Id of the dynamic library where the specified entries can be found.
-    dylib_ordinal: i64,
-
-    /// Index of this import within the import list.
-    index: u32,
-};
-
 /// Default path to dyld
 /// TODO instead of hardcoding it, we should probably look through some env vars and search paths
 /// instead but this will do for now.
@@ -218,40 +196,42 @@ pub fn init(allocator: *Allocator) Zld {
 }
 
 pub fn deinit(self: *Zld) void {
-    self.threadlocal_offsets.deinit(self.allocator);
-    self.strtab.deinit(self.allocator);
-    self.local_rebases.deinit(self.allocator);
-    for (self.lazy_imports.items()) |*entry| {
-        self.allocator.free(entry.key);
-    }
-    self.lazy_imports.deinit(self.allocator);
-    for (self.nonlazy_imports.items()) |*entry| {
-        self.allocator.free(entry.key);
-    }
-    self.nonlazy_imports.deinit(self.allocator);
-    for (self.nonlazy_pointers.items()) |*entry| {
-        self.allocator.free(entry.key);
-    }
-    self.nonlazy_pointers.deinit(self.allocator);
-    for (self.exports.items()) |*entry| {
-        self.allocator.free(entry.key);
-    }
-    self.exports.deinit(self.allocator);
-    for (self.locals.items()) |*entry| {
-        self.allocator.free(entry.key);
-        entry.value.deinit(self.allocator);
-    }
-    self.locals.deinit(self.allocator);
-    for (self.objects.items) |*object| {
-        object.deinit();
-    }
-    self.objects.deinit(self.allocator);
     for (self.load_commands.items) |*lc| {
         lc.deinit(self.allocator);
     }
     self.load_commands.deinit(self.allocator);
+
+    for (self.objects.items) |*object| {
+        object.deinit();
+    }
+    self.objects.deinit(self.allocator);
+
+    for (self.archives.items) |*archive| {
+        archive.deinit();
+    }
+    self.archives.deinit(self.allocator);
+
     self.mappings.deinit(self.allocator);
     self.unhandled_sections.deinit(self.allocator);
+
+    for (self.globals.items()) |*entry| {
+        self.allocator.free(entry.key);
+    }
+    self.globals.deinit(self.allocator);
+
+    for (self.undefs.items()) |*entry| {
+        self.allocator.free(entry.key);
+    }
+    self.undefs.deinit(self.allocator);
+}
+
+pub fn closeFiles(self: *Zld) void {
+    for (self.objects.items) |*object| {
+        object.file.close();
+    }
+    for (self.archives.items) |*archive| {
+        archive.file.close();
+    }
     if (self.file) |*f| f.close();
 }
 
@@ -292,16 +272,15 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
 
     try self.populateMetadata();
     try self.parseInputFiles(files);
-    try self.sortSections();
-    try self.resolveImports();
-    try self.allocateTextSegment();
-    try self.allocateDataConstSegment();
-    try self.allocateDataSegment();
-    self.allocateLinkeditSegment();
-    try self.writeStubHelperCommon();
-    try self.resolveSymbols();
-    try self.doRelocs();
-    try self.flush();
+    self.printSymtab();
+    // try self.sortSections();
+    // try self.allocateTextSegment();
+    // try self.allocateDataConstSegment();
+    // try self.allocateDataSegment();
+    // self.allocateLinkeditSegment();
+    // try self.writeStubHelperCommon();
+    // try self.doRelocs();
+    // try self.flush();
 }
 
 fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
@@ -315,7 +294,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
             };
             const index = @intCast(u16, self.objects.items.len);
             try self.objects.append(self.allocator, object);
-            try self.updateMetadata(index);
+            try self.resolveSymbols(index);
             continue;
         }
 
@@ -324,12 +303,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
                 error.NotArchive => break :try_archive,
                 else => |e| return e,
             };
-            defer archive.deinit();
-            while (archive.objects.popOrNull()) |object| {
-                const index = @intCast(u16, self.objects.items.len);
-                try self.objects.append(self.allocator, object);
-                try self.updateMetadata(index);
-            }
+            try self.archives.append(self.allocator, archive);
             continue;
         }
 
@@ -798,94 +772,6 @@ fn sortSections(self: *Zld) !void {
     }
 }
 
-fn resolveImports(self: *Zld) !void {
-    var imports = std.StringArrayHashMap(bool).init(self.allocator);
-    defer imports.deinit();
-
-    for (self.objects.items) |object| {
-        for (object.symtab.items) |sym| {
-            if (isLocal(&sym)) continue;
-
-            const name = object.getString(sym.n_strx);
-            const res = try imports.getOrPut(name);
-            if (isExport(&sym)) {
-                res.entry.value = false;
-                continue;
-            }
-            if (res.found_existing and !res.entry.value)
-                continue;
-            res.entry.value = true;
-        }
-    }
-
-    for (imports.items()) |entry| {
-        if (!entry.value) continue;
-
-        const sym_name = entry.key;
-        const n_strx = try self.makeString(sym_name);
-        var new_sym: macho.nlist_64 = .{
-            .n_strx = n_strx,
-            .n_type = macho.N_UNDF | macho.N_EXT,
-            .n_value = 0,
-            .n_desc = macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | macho.N_SYMBOL_RESOLVER,
-            .n_sect = 0,
-        };
-        var key = try self.allocator.dupe(u8, sym_name);
-        // TODO handle symbol resolution from non-libc dylibs.
-        const dylib_ordinal = 1;
-
-        // TODO need to rework this. Perhaps should create a set of all possible libc
-        // symbols which are expected to be nonlazy?
-        if (mem.eql(u8, sym_name, "___stdoutp") or
-            mem.eql(u8, sym_name, "___stderrp") or
-            mem.eql(u8, sym_name, "___stdinp") or
-            mem.eql(u8, sym_name, "___stack_chk_guard") or
-            mem.eql(u8, sym_name, "_environ") or
-            mem.eql(u8, sym_name, "__DefaultRuneLocale") or
-            mem.eql(u8, sym_name, "_mach_task_self_"))
-        {
-            log.debug("writing nonlazy symbol '{s}'", .{sym_name});
-            const index = @intCast(u32, self.nonlazy_imports.items().len);
-            try self.nonlazy_imports.putNoClobber(self.allocator, key, .{
-                .symbol = new_sym,
-                .dylib_ordinal = dylib_ordinal,
-                .index = index,
-            });
-        } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
-            log.debug("writing threadlocal symbol '{s}'", .{sym_name});
-            self.tlv_bootstrap = .{
-                .symbol = new_sym,
-                .dylib_ordinal = dylib_ordinal,
-                .index = 0,
-            };
-        } else {
-            log.debug("writing lazy symbol '{s}'", .{sym_name});
-            const index = @intCast(u32, self.lazy_imports.items().len);
-            try self.lazy_imports.putNoClobber(self.allocator, key, .{
-                .symbol = new_sym,
-                .dylib_ordinal = dylib_ordinal,
-                .index = index,
-            });
-        }
-    }
-
-    const n_strx = try self.makeString("dyld_stub_binder");
-    const name = try self.allocator.dupe(u8, "dyld_stub_binder");
-    log.debug("writing nonlazy symbol 'dyld_stub_binder'", .{});
-    const index = @intCast(u32, self.nonlazy_imports.items().len);
-    try self.nonlazy_imports.putNoClobber(self.allocator, name, .{
-        .symbol = .{
-            .n_strx = n_strx,
-            .n_type = std.macho.N_UNDF | std.macho.N_EXT,
-            .n_sect = 0,
-            .n_desc = std.macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | std.macho.N_SYMBOL_RESOLVER,
-            .n_value = 0,
-        },
-        .dylib_ordinal = 1,
-        .index = index,
-    });
-}
-
 fn allocateTextSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const nexterns = @intCast(u32, self.lazy_imports.items().len);
@@ -1267,90 +1153,49 @@ fn writeStubInStubHelper(self: *Zld, index: u32) !void {
     try self.file.?.pwriteAll(code, stub_off);
 }
 
-fn resolveSymbols(self: *Zld) !void {
-    for (self.objects.items) |object, object_id| {
-        const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-        log.debug("\n\n", .{});
-        log.debug("resolving symbols in {s}", .{object.name});
+fn resolveSymbols(self: *Zld, object_id: u16) !void {
+    const object = self.objects.items[object_id];
+    log.warn("resolving symbols in '{s}'", .{object.name});
 
-        for (object.symtab.items) |sym| {
-            if (isImport(&sym)) continue;
+    for (object.symtab.items) |sym, sym_id| {
+        if (sym.isLocal()) continue; // If symbol is local to CU, we don't put it in the global symbol table.
 
-            const sym_name = object.getString(sym.n_strx);
-            const out_name = try self.allocator.dupe(u8, sym_name);
-            const locs = try self.locals.getOrPut(self.allocator, out_name);
-            defer {
-                if (locs.found_existing) self.allocator.free(out_name);
-            }
-
-            if (!locs.found_existing) {
-                locs.entry.value = .{};
-            }
-
-            const tt: Symbol.Type = blk: {
-                if (isLocal(&sym)) {
-                    break :blk .Local;
-                } else if (isWeakDef(&sym)) {
-                    break :blk .WeakGlobal;
-                } else {
-                    break :blk .Global;
-                }
+        const sym_name = object.getString(sym.inner.n_strx);
+        if (sym.isGlobal()) {
+            const global = self.globals.getEntry(sym_name) orelse {
+                const name = try self.allocator.dupe(u8, sym_name);
+                try self.globals.putNoClobber(self.allocator, name, .{
+                    .inner = sym.inner,
+                    .file = object_id,
+                    .index = @intCast(u32, sym_id),
+                });
+                _ = self.undefs.swapRemove(sym_name);
+                continue;
             };
-            if (tt == .Global) {
-                for (locs.entry.value.items) |ss| {
-                    if (ss.tt == .Global) {
-                        log.debug("symbol already defined '{s}'", .{sym_name});
-                        continue;
-                        // log.err("symbol '{s}' defined multiple times: {}", .{ sym_name, sym });
-                        // return error.MultipleSymbolDefinitions;
-                    }
-                }
+
+            if (sym.isWeakDef()) continue; // If symbol is weak, nothing to do.
+            if (!global.value.isWeakDef()) { // If both symbols are strong, we have a collision.
+                log.err("symbol '{s}' defined multiple times", .{sym_name});
+                return error.MultipleSymbolDefinitions;
             }
 
-            const source_sect_id = sym.n_sect - 1;
-            const target_mapping = self.mappings.get(.{
-                .object_id = @intCast(u16, object_id),
-                .source_sect_id = source_sect_id,
-            }) orelse {
-                if (self.unhandled_sections.get(.{
-                    .object_id = @intCast(u16, object_id),
-                    .source_sect_id = source_sect_id,
-                }) != null) continue;
-
-                log.err("section not mapped for symbol '{s}': {}", .{ sym_name, sym });
-                return error.SectionNotMappedForSymbol;
+            global.value = .{
+                .inner = sym.inner,
+                .file = object_id,
+                .index = @intCast(u32, sym_id),
             };
-            const source_sect = seg.sections.items[source_sect_id];
-            const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
-            const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
-            const target_addr = target_sect.addr + target_mapping.offset;
-            const n_value = sym.n_value - source_sect.addr + target_addr;
+        } else if (sym.isUndef()) {
+            if (self.globals.contains(sym_name)) continue; // Nothing to do if we already found a definition.
+            if (self.undefs.contains(sym_name)) continue; // No need to reinsert the undef ref.
 
-            log.debug("resolving '{s}':{} as {s} symbol at 0x{x}", .{ sym_name, sym, tt, n_value });
-
-            // TODO there might be a more generic way of doing this.
-            var n_sect: u16 = 0;
-            for (self.load_commands.items) |cmd, cmd_id| {
-                if (cmd != .Segment) break;
-                if (cmd_id == target_mapping.target_seg_id) {
-                    n_sect += target_mapping.target_sect_id + 1;
-                    break;
-                }
-                n_sect += @intCast(u16, cmd.Segment.sections.items.len);
-            }
-
-            const n_strx = try self.makeString(sym_name);
-            try locs.entry.value.append(self.allocator, .{
-                .inner = .{
-                    .n_strx = n_strx,
-                    .n_value = n_value,
-                    .n_type = macho.N_SECT,
-                    .n_desc = sym.n_desc,
-                    .n_sect = @intCast(u8, n_sect),
-                },
-                .tt = tt,
-                .object_id = @intCast(u16, object_id),
+            const name = try self.allocator.dupe(u8, sym_name);
+            try self.undefs.putNoClobber(self.allocator, name, .{
+                .inner = sym.inner,
             });
+        } else {
+            // Oh no, unhandled symbol type, report back to the user.
+            log.err("unhandled symbol type for symbol {any}", .{sym});
+            return error.UnhandledSymbolType;
         }
     }
 }
@@ -3175,7 +3020,6 @@ fn writeCodeSignature(self: *Zld) !void {
     try code_sig.write(stream.writer());
 
     log.debug("writing code signature from 0x{x} to 0x{x}", .{ code_sig_cmd.dataoff, code_sig_cmd.dataoff + buffer.len });
-
     try self.file.?.pwriteAll(buffer, code_sig_cmd.dataoff);
 }
 
@@ -3261,34 +3105,19 @@ pub fn parseName(name: *const [16]u8) []const u8 {
     return name[0..len];
 }
 
-fn isLocal(sym: *const macho.nlist_64) callconv(.Inline) bool {
-    if (isExtern(sym)) return false;
-    const tt = macho.N_TYPE & sym.n_type;
-    return tt == macho.N_SECT;
-}
-
-fn isExport(sym: *const macho.nlist_64) callconv(.Inline) bool {
-    if (!isExtern(sym)) return false;
-    const tt = macho.N_TYPE & sym.n_type;
-    return tt == macho.N_SECT;
-}
-
-fn isImport(sym: *const macho.nlist_64) callconv(.Inline) bool {
-    if (!isExtern(sym)) return false;
-    const tt = macho.N_TYPE & sym.n_type;
-    return tt == macho.N_UNDF;
-}
-
-fn isExtern(sym: *const macho.nlist_64) callconv(.Inline) bool {
-    if ((sym.n_type & macho.N_EXT) == 0) return false;
-    return (sym.n_type & macho.N_PEXT) == 0;
-}
-
-fn isWeakDef(sym: *const macho.nlist_64) callconv(.Inline) bool {
-    return (sym.n_desc & macho.N_WEAK_DEF) != 0;
-}
-
 fn aarch64IsArithmetic(inst: *const [4]u8) callconv(.Inline) bool {
     const group_decode = @truncate(u5, inst[3]);
     return ((group_decode >> 2) == 4);
+}
+
+fn printSymtab(self: Zld) void {
+    log.warn("globals", .{});
+    for (self.globals.items()) |entry| {
+        log.warn("    | {s} => {any}", .{ entry.key, entry.value });
+    }
+
+    log.warn("undefs", .{});
+    for (self.undefs.items()) |entry| {
+        log.warn("    | {s} => {any}", .{ entry.key, entry.value });
+    }
 }

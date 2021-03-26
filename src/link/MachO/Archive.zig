@@ -98,7 +98,6 @@ pub fn deinit(self: *Archive) void {
         entry.value.deinit(self.allocator);
     }
     self.toc.deinit(self.allocator);
-    self.file.close();
 }
 
 /// Caller owns the returned Archive instance and is responsible for calling
@@ -131,20 +130,12 @@ pub fn initFromFile(allocator: *Allocator, arch: std.Target.Cpu.Arch, ar_name: [
         .name = name,
     };
 
-    var object_offsets = try self.readTableOfContents(reader);
-    defer self.allocator.free(object_offsets);
-
-    var i: usize = 1;
-    while (i < object_offsets.len) : (i += 1) {
-        const offset = object_offsets[i];
-        try reader.context.seekTo(offset);
-        try self.readObject(arch, ar_name, reader);
-    }
+    try self.parseTableOfContents(reader);
 
     return self;
 }
 
-fn readTableOfContents(self: *Archive, reader: anytype) ![]u32 {
+fn parseTableOfContents(self: *Archive, reader: anytype) !void {
     const symtab_size = try reader.readIntLittle(u32);
     var symtab = try self.allocator.alloc(u8, symtab_size);
     defer self.allocator.free(symtab);
@@ -157,10 +148,6 @@ fn readTableOfContents(self: *Archive, reader: anytype) ![]u32 {
 
     var symtab_stream = std.io.fixedBufferStream(symtab);
     var symtab_reader = symtab_stream.reader();
-
-    var object_offsets = std.ArrayList(u32).init(self.allocator);
-    try object_offsets.append(0);
-    var last: usize = 0;
 
     while (true) {
         const n_strx = symtab_reader.readIntLittle(u32) catch |err| switch (err) {
@@ -179,19 +166,7 @@ fn readTableOfContents(self: *Archive, reader: anytype) ![]u32 {
         }
 
         try res.entry.value.append(self.allocator, object_offset);
-
-        // TODO This will go once we properly use archive's TOC to pick
-        // an object which defines a missing symbol rather than pasting in
-        // all of the objects always.
-        // Here, we assume that symbols are NOT sorted in any way, and
-        // they point to objects in sequence.
-        if (object_offsets.items[last] != object_offset) {
-            try object_offsets.append(object_offset);
-            last += 1;
-        }
     }
-
-    return object_offsets.toOwnedSlice();
 }
 
 fn readObject(self: *Archive, arch: std.Target.Cpu.Arch, ar_name: []const u8, reader: anytype) !void {
