@@ -1240,7 +1240,7 @@ fn varDecl(
                     .gen_zir = gz,
                     .name = ident_name,
                     .inst = init_inst,
-                    .src = gz.nodeSrcLoc(node),
+                    .src = name_src,
                 };
                 return &sub_scope.base;
             }
@@ -1300,7 +1300,7 @@ fn varDecl(
                     .gen_zir = gz,
                     .name = ident_name,
                     .inst = casted_init,
-                    .src = gz.nodeSrcLoc(node),
+                    .src = name_src,
                 };
                 return &sub_scope.base;
             }
@@ -1328,7 +1328,7 @@ fn varDecl(
                 .gen_zir = gz,
                 .name = ident_name,
                 .ptr = init_scope.rl_ptr,
-                .src = gz.nodeSrcLoc(node),
+                .src = name_src,
             };
             return &sub_scope.base;
         },
@@ -1357,7 +1357,7 @@ fn varDecl(
                 .gen_zir = gz,
                 .name = ident_name,
                 .ptr = var_data.alloc,
-                .src = gz.nodeSrcLoc(node),
+                .src = name_src,
             };
             return &sub_scope.base;
         },

@@ -1001,43 +1001,43 @@ pub fn addCases(ctx: *TestContext) !void {
         );
     }
 
-    //{
-    //    var case = ctx.exe("basic import", linux_x64);
-    //    case.addCompareOutput(
-    //        \\export fn _start() noreturn {
-    //        \\    @import("print.zig").print();
-    //        \\    exit();
-    //        \\}
-    //        \\
-    //        \\fn exit() noreturn {
-    //        \\    asm volatile ("syscall"
-    //        \\        :
-    //        \\        : [number] "{rax}" (231),
-    //        \\          [arg1] "{rdi}" (@as(usize, 0))
-    //        \\        : "rcx", "r11", "memory"
-    //        \\    );
-    //        \\    unreachable;
-    //        \\}
-    //    ,
-    //        "Hello, World!\n",
-    //    );
-    //    try case.files.append(.{
-    //        .src =
-    //        \\pub fn print() void {
-    //        \\    asm volatile ("syscall"
-    //        \\        :
-    //        \\        : [number] "{rax}" (@as(usize, 1)),
-    //        \\          [arg1] "{rdi}" (@as(usize, 1)),
-    //        \\          [arg2] "{rsi}" (@ptrToInt("Hello, World!\n")),
-    //        \\          [arg3] "{rdx}" (@as(usize, 14))
-    //        \\        : "rcx", "r11", "memory"
-    //        \\    );
-    //        \\    return;
-    //        \\}
-    //        ,
-    //        .path = "print.zig",
-    //    });
-    //}
+    {
+        var case = ctx.exe("basic import", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    @import("print.zig").print();
+            \\    exit();
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (@as(usize, 0))
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "Hello, World!\n",
+        );
+        try case.files.append(.{
+            .src = 
+            \\pub fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (@as(usize, 1)),
+            \\          [arg1] "{rdi}" (@as(usize, 1)),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{rdx}" (@as(usize, 14))
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            ,
+            .path = "print.zig",
+        });
+    }
 
     ctx.compileError("function redefinition", linux_x64,
         \\fn entry() void {}
@@ -1051,26 +1051,26 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{":2:3: error: this is an error"});
 
-    //{
-    //    var case = ctx.obj("variable shadowing", linux_x64);
-    //    case.addError(
-    //        \\export fn _start() noreturn {
-    //        \\    var i: u32 = 10;
-    //        \\    var i: u32 = 10;
-    //        \\    unreachable;
-    //        \\}
-    //    , &[_][]const u8{
-    //        ":3:9: error: redefinition of 'i'",
-    //        ":2:9: note: previous definition is here",
-    //    });
-    //    case.addError(
-    //        \\var testing: i64 = 10;
-    //        \\export fn _start() noreturn {
-    //        \\    var testing: i64 = 20;
-    //        \\    unreachable;
-    //        \\}
-    //    , &[_][]const u8{":3:9: error: redefinition of 'testing'"});
-    //}
+    {
+        var case = ctx.obj("variable shadowing", linux_x64);
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    var i: u32 = 10;
+            \\    var i: u32 = 10;
+            \\    unreachable;
+            \\}
+        , &[_][]const u8{
+            ":3:9: error: redefinition of 'i'",
+            ":2:9: note: previous definition is here",
+        });
+        case.addError(
+            \\var testing: i64 = 10;
+            \\export fn _start() noreturn {
+            \\    var testing: i64 = 20;
+            \\    unreachable;
+            \\}
+        , &[_][]const u8{":3:9: error: redefinition of 'testing'"});
+    }
 
     //{
     //    // TODO make the test harness support checking the compile log output too
