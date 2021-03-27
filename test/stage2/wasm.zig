@@ -43,24 +43,24 @@ pub fn addCases(ctx: *TestContext) !void {
             "42\n",
         );
 
-        //case.addCompareOutput(
-        //    \\export fn _start() f32 {
-        //    \\    bar();
-        //    \\    foo();
-        //    \\    return 42.0;
-        //    \\}
-        //    \\fn foo() void {
-        //    \\    bar();
-        //    \\    bar();
-        //    \\    bar();
-        //    \\}
-        //    \\fn bar() void {}
-        //,
-        //// This is what you get when you take the bits of the IEE-754
-        //// representation of 42.0 and reinterpret them as an unsigned
-        //// integer. Guess that's a bug in wasmtime.
-        //    "1109917696\n",
-        //);
+        case.addCompareOutput(
+            \\export fn _start() f32 {
+            \\    bar();
+            \\    foo();
+            \\    return 42.0;
+            \\}
+            \\fn foo() void {
+            \\    bar();
+            \\    bar();
+            \\    bar();
+            \\}
+            \\fn bar() void {}
+        ,
+        // This is what you get when you take the bits of the IEE-754
+        // representation of 42.0 and reinterpret them as an unsigned
+        // integer. Guess that's a bug in wasmtime.
+            "1109917696\n",
+        );
 
         case.addCompareOutput(
             \\export fn _start() u32 {
@@ -71,33 +71,33 @@ pub fn addCases(ctx: *TestContext) !void {
         , "5\n");
     }
 
-    //{
-    //    var case = ctx.exe("wasm locals", wasi);
+    {
+        var case = ctx.exe("wasm locals", wasi);
 
-    //    case.addCompareOutput(
-    //        \\export fn _start() u32 {
-    //        \\    var i: u32 = 5;
-    //        \\    var y: f32 = 42.0;
-    //        \\    var x: u32 = 10;
-    //        \\    return i;
-    //        \\}
-    //    , "5\n");
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 5;
+            \\    var y: f32 = 42.0;
+            \\    var x: u32 = 10;
+            \\    return i;
+            \\}
+        , "5\n");
 
-    //    case.addCompareOutput(
-    //        \\export fn _start() u32 {
-    //        \\    var i: u32 = 5;
-    //        \\    var y: f32 = 42.0;
-    //        \\    var x: u32 = 10;
-    //        \\    foo(i, x);
-    //        \\    i = x;
-    //        \\    return i;
-    //        \\}
-    //        \\fn foo(x: u32, y: u32) void {
-    //        \\    var i: u32 = 10;
-    //        \\    i = x;
-    //        \\}
-    //    , "10\n");
-    //}
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 5;
+            \\    var y: f32 = 42.0;
+            \\    var x: u32 = 10;
+            \\    foo(i, x);
+            \\    i = x;
+            \\    return i;
+            \\}
+            \\fn foo(x: u32, y: u32) void {
+            \\    var i: u32 = 10;
+            \\    i = x;
+            \\}
+        , "10\n");
+    }
 
     {
         var case = ctx.exe("wasm binary operands", wasi);
@@ -202,16 +202,16 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "10\n");
 
-        //case.addCompareOutput(
-        //    \\export fn _start() u32 {
-        //    \\    var i: u32 = 0;
-        //    \\    while(i < @as(u32, 10)){
-        //    \\        var x: u32 = 1;
-        //    \\        i += x;
-        //    \\        if (i == @as(u32, 5)) break;
-        //    \\    }
-        //    \\    return i;
-        //    \\}
-        //, "5\n");
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 0;
+            \\    while(i < @as(u32, 10)){
+            \\        var x: u32 = 1;
+            \\        i += x;
+            \\        if (i == @as(u32, 5)) break;
+            \\    }
+            \\    return i;
+            \\}
+        , "5\n");
     }
 }
