@@ -929,7 +929,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return MCValue{ .stack_offset = stack_offset };
         }
 
-        pub fn spillInstruction(self: *Self, src: usize, reg: Register, inst: *ir.Inst) !void {
+        pub fn spillInstruction(self: *Self, src: LazySrcLoc, reg: Register, inst: *ir.Inst) !void {
             const stack_mcv = try self.allocRegOrMem(inst, false);
             const reg_mcv = self.getResolvedInstValue(inst);
             assert(reg == toCanonicalReg(reg_mcv.register));
