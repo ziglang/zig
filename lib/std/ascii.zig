@@ -288,36 +288,62 @@ test "ascii character classes" {
     try testing.expect(isSpace(' '));
 }
 
+/// Writes a lower case copy of `ascii_string` to `output`.
+/// Asserts `output.len >= ascii_string.len`.
+pub fn lowerString(output: []u8, ascii_string: []const u8) []u8 {
+    std.debug.assert(output.len >= ascii_string.len);
+    for (ascii_string) |c, i| {
+        output[i] = toLower(c);
+    }
+    return output[0..ascii_string.len];
+}
+
+test "lowerString" {
+    var buf: [1024]u8 = undefined;
+    const result = lowerString(&buf, "aBcDeFgHiJkLmNOPqrst0234+💩!");
+    try std.testing.expectEqualStrings("abcdefghijklmnopqrst0234+💩!", result);
+}
+
 /// Allocates a lower case copy of `ascii_string`.
 /// Caller owns returned string and must free with `allocator`.
 pub fn allocLowerString(allocator: *std.mem.Allocator, ascii_string: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, ascii_string.len);
-    for (result) |*c, i| {
-        c.* = toLower(ascii_string[i]);
-    }
-    return result;
+    return lowerString(result, ascii_string);
 }
 
 test "allocLowerString" {
     const result = try allocLowerString(std.testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
     defer std.testing.allocator.free(result);
-    try std.testing.expect(std.mem.eql(u8, "abcdefghijklmnopqrst0234+💩!", result));
+    try std.testing.expectEqualStrings("abcdefghijklmnopqrst0234+💩!", result);
+}
+
+/// Writes an upper case copy of `ascii_string` to `output`.
+/// Asserts `output.len >= ascii_string.len`.
+pub fn upperString(output: []u8, ascii_string: []const u8) []u8 {
+    std.debug.assert(output.len >= ascii_string.len);
+    for (ascii_string) |c, i| {
+        output[i] = toUpper(c);
+    }
+    return output[0..ascii_string.len];
+}
+
+test "upperString" {
+    var buf: [1024]u8 = undefined;
+    const result = upperString(&buf, "aBcDeFgHiJkLmNOPqrst0234+💩!");
+    try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRST0234+💩!", result);
 }
 
 /// Allocates an upper case copy of `ascii_string`.
 /// Caller owns returned string and must free with `allocator`.
 pub fn allocUpperString(allocator: *std.mem.Allocator, ascii_string: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, ascii_string.len);
-    for (result) |*c, i| {
-        c.* = toUpper(ascii_string[i]);
-    }
-    return result;
+    return upperString(result, ascii_string);
 }
 
 test "allocUpperString" {
     const result = try allocUpperString(std.testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
     defer std.testing.allocator.free(result);
-    try std.testing.expect(std.mem.eql(u8, "ABCDEFGHIJKLMNOPQRST0234+💩!", result));
+    try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRST0234+💩!", result);
 }
 
 /// Compares strings `a` and `b` case insensitively and returns whether they are equal.
