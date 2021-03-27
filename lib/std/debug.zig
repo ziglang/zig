@@ -77,6 +77,10 @@ pub const SymbolMap = struct {
     }
 
     pub const InitFn = fn (allocator: *mem.Allocator) anyerror!*Self;
+
+    test {
+        std.testing.refAllDecls(@This());
+    }
 };
 
 pub const CaptureStackTraceFn = fn (
@@ -86,17 +90,26 @@ pub const CaptureStackTraceFn = fn (
     stack_trace: *builtin.StackTrace,
 ) anyerror!void;
 
+pub const initSymbolMapDarwin = @import("symbol_map_darwin.zig").init;
+pub const initSymbolMapUnix = @import("symbol_map_unix.zig").init;
+pub const initSymbolMapPDB = @import("symbol_map_pdb.zig").init;
+pub const initSymbolMapUnsupported = @import("symbol_map_unsupported.zig").init;
+
 pub const default_config = struct {
     /// A function to initialize a object of the interface type SymbolMap.
     pub const initSymbolMap: SymbolMap.InitFn = switch (builtin.os.tag) {
-        .macos, .ios, .watchos, .tvos => std.initSymbolMapDarwin,
-        .linux, .netbsd, .freebsd, .dragonfly, .openbsd => std.initSymbolMapUnix,
-        .uefi, .windows => std.initSymbolMapPdb,
-        else => std.initSymbolMapUnsupported,
+        .macos, .ios, .watchos, .tvos => initSymbolMapDarwin,
+        .linux, .netbsd, .freebsd, .dragonfly, .openbsd => initSymbolMapUnix,
+        .uefi, .windows => initSymbolMapPDB,
+        else => initSymbolMapUnsupported,
     };
 
     /// Loads a stack trace into the provided argument.
     pub const captureStackTraceFrom: CaptureStackTraceFn = defaultCaptureStackTraceFrom;
+
+    test {
+        std.testing.refAllDecls(@This());
+    }
 };
 
 const config = lookupDecl(root, &.{"debug_config"}) orelse struct {};

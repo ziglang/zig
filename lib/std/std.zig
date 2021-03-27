@@ -91,11 +91,6 @@ pub const wasm = @import("wasm.zig");
 pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
 
-pub const initSymbolMapDarwin = @import("symbol_map_darwin.zig").init;
-pub const initSymbolMapUnix = @import("symbol_map_unix.zig").init;
-pub const initSymbolMapPDB = @import("symbol_map_pdb.zig").init;
-pub const initSymbolMapUnsupported = @import("symbol_map_unsupported.zig").init;
-
 // This forces the start.zig file to be imported, and the comptime logic inside that
 // file decides whether to export any appropriate start symbols.
 comptime {
