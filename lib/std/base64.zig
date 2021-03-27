@@ -21,7 +21,6 @@ pub const Codecs = struct {
     decoderWithIgnore: fn (ignore: []const u8) Base64DecoderWithIgnore,
     Encoder: Base64Encoder,
     Decoder: Base64Decoder,
-    DecoderUnsafe: Base64DecoderUnsafe,
 };
 
 pub const standard_alphabet_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".*;
@@ -36,7 +35,6 @@ pub const standard = Codecs{
     .decoderWithIgnore = standardBase64DecoderWithIgnore,
     .Encoder = Base64Encoder.init(standard_alphabet_chars, '='),
     .Decoder = Base64Decoder.init(standard_alphabet_chars, '='),
-    .DecoderUnsafe = Base64DecoderUnsafe.init(standard_alphabet_chars, '='),
 };
 
 /// Standard Base64 codecs, without padding
@@ -46,7 +44,6 @@ pub const standard_no_pad = Codecs{
     .decoderWithIgnore = standardBase64DecoderWithIgnore,
     .Encoder = Base64Encoder.init(standard_alphabet_chars, null),
     .Decoder = Base64Decoder.init(standard_alphabet_chars, null),
-    .DecoderUnsafe = Base64DecoderUnsafe.init(standard_alphabet_chars, null),
 };
 
 pub const url_safe_alphabet_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
@@ -61,7 +58,6 @@ pub const url_safe = Codecs{
     .decoderWithIgnore = urlSafeBase64DecoderWithIgnore,
     .Encoder = Base64Encoder.init(url_safe_alphabet_chars, '='),
     .Decoder = Base64Decoder.init(url_safe_alphabet_chars, '='),
-    .DecoderUnsafe = Base64DecoderUnsafe.init(url_safe_alphabet_chars, '='),
 };
 
 /// URL-safe Base64 codecs, without padding
@@ -71,7 +67,6 @@ pub const url_safe_no_pad = Codecs{
     .decoderWithIgnore = urlSafeBase64DecoderWithIgnore,
     .Encoder = Base64Encoder.init(url_safe_alphabet_chars, null),
     .Decoder = Base64Decoder.init(url_safe_alphabet_chars, null),
-    .DecoderUnsafe = Base64DecoderUnsafe.init(url_safe_alphabet_chars, null),
 };
 
 // Backwards compatibility
@@ -82,8 +77,6 @@ pub const standard_pad_char = standard.pad_char;
 pub const standard_encoder = standard.Encoder;
 /// Deprecated - Use `standard.Decoder`
 pub const standard_decoder = standard.Decoder;
-/// Deprecated - Use `standard.DecoderUnsafe`
-pub const standard_decoder_unsafe = standard.DecoderUnsafe;
 
 pub const Base64Encoder = struct {
     alphabet_chars: [64]u8,
@@ -323,75 +316,6 @@ pub const Base64DecoderWithIgnore = struct {
     }
 };
 
-pub const Base64DecoderUnsafe = struct {
-    /// e.g. 'A' => 0.
-    /// undefined for any value not in the 64 alphabet chars.
-    char_to_index: [256]u8,
-    pad_char: ?u8,
-
-    pub fn init(alphabet_chars: [64]u8, pad_char: ?u8) Base64DecoderUnsafe {
-        var result = Base64DecoderUnsafe{
-            .char_to_index = undefined,
-            .pad_char = pad_char,
-        };
-        for (alphabet_chars) |c, i| {
-            assert(pad_char == null or c != pad_char.?);
-            result.char_to_index[c] = @intCast(u8, i);
-        }
-        return result;
-    }
-
-    /// Return the exact decoded size for a slice.
-    /// `InvalidPadding` is returned if the input length is not valid.
-    pub fn calcSizeForSlice(decoder: *const Base64DecoderUnsafe, source: []const u8) Error!usize {
-        const safe_decoder = Base64Decoder{ .char_to_index = undefined, .pad_char = decoder.pad_char };
-        return safe_decoder.calcSizeForSlice(source);
-    }
-
-    /// dest.len must be what you get from ::calcDecodedSizeExactUnsafe.
-    /// invalid characters or padding will result in undefined values.
-    pub fn decode(decoder: *const Base64DecoderUnsafe, dest: []u8, source: []const u8) void {
-        assert(dest.len == decoder.calcSizeForSlice(source) catch unreachable);
-
-        var src_index: usize = 0;
-        var dest_index: usize = 0;
-        var in_buf_len: usize = source.len;
-
-        if (decoder.pad_char) |pad_char| {
-            while (in_buf_len > 0 and source[in_buf_len - 1] == pad_char) {
-                in_buf_len -= 1;
-            }
-        }
-
-        while (in_buf_len > 4) {
-            dest[dest_index] = decoder.char_to_index[source[src_index + 0]] << 2 | decoder.char_to_index[source[src_index + 1]] >> 4;
-            dest_index += 1;
-
-            dest[dest_index] = decoder.char_to_index[source[src_index + 1]] << 4 | decoder.char_to_index[source[src_index + 2]] >> 2;
-            dest_index += 1;
-
-            dest[dest_index] = decoder.char_to_index[source[src_index + 2]] << 6 | decoder.char_to_index[source[src_index + 3]];
-            dest_index += 1;
-
-            src_index += 4;
-            in_buf_len -= 4;
-        }
-
-        if (in_buf_len > 1) {
-            dest[dest_index] = decoder.char_to_index[source[src_index + 0]] << 2 | decoder.char_to_index[source[src_index + 1]] >> 4;
-            dest_index += 1;
-        }
-        if (in_buf_len > 2) {
-            dest[dest_index] = decoder.char_to_index[source[src_index + 1]] << 4 | decoder.char_to_index[source[src_index + 2]] >> 2;
-            dest_index += 1;
-        }
-        if (in_buf_len > 3) {
-            dest[dest_index] = decoder.char_to_index[source[src_index + 2]] << 6 | decoder.char_to_index[source[src_index + 3]];
-            dest_index += 1;
-        }
-    }
-};
-
 test "base64" {
     @setEvalBranchQuota(8000);
     testBase64() catch unreachable;
@@ -499,14 +423,6 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
         var written = try decoder_ignore_nothing.decode(decoded, expected_encoded);
         testing.expect(written <= decoded.len);
         testing.expectEqualSlices(u8, expected_decoded, decoded[0..written]);
-    }
-
-    // Base64DecoderUnsafe
-    {
-        var buffer: [0x100]u8 = undefined;
-        var decoded = buffer[0..try codecs.DecoderUnsafe.calcSizeForSlice(expected_encoded)];
-        codecs.DecoderUnsafe.decode(decoded, expected_encoded);
-        testing.expectEqualSlices(u8, expected_decoded, decoded);
     }
 }
 
