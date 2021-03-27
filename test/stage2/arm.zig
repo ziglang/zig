@@ -184,103 +184,103 @@ pub fn addCases(ctx: *TestContext) !void {
         );
 
         // Bitwise And
-        //case.addCompareOutput(
-        //    \\export fn _start() noreturn {
-        //    \\    print(8, 9);
-        //    \\    print(3, 7);
-        //    \\    exit();
-        //    \\}
-        //    \\
-        //    \\fn print(a: u32, b: u32) void {
-        //    \\    asm volatile ("svc #0"
-        //    \\        :
-        //    \\        : [number] "{r7}" (4),
-        //    \\          [arg3] "{r2}" (a & b),
-        //    \\          [arg1] "{r0}" (1),
-        //    \\          [arg2] "{r1}" (@ptrToInt("123456789"))
-        //    \\        : "memory"
-        //    \\    );
-        //    \\    return;
-        //    \\}
-        //    \\
-        //    \\fn exit() noreturn {
-        //    \\    asm volatile ("svc #0"
-        //    \\        :
-        //    \\        : [number] "{r7}" (1),
-        //    \\          [arg1] "{r0}" (0)
-        //    \\        : "memory"
-        //    \\    );
-        //    \\    unreachable;
-        //    \\}
-        //,
-        //    "12345678123",
-        //);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    print(8, 9);
+            \\    print(3, 7);
+            \\    exit();
+            \\}
+            \\
+            \\fn print(a: u32, b: u32) void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg3] "{r2}" (a & b),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("123456789"))
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (1),
+            \\          [arg1] "{r0}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "12345678123",
+        );
 
         // Bitwise Or
-        //case.addCompareOutput(
-        //    \\export fn _start() noreturn {
-        //    \\    print(4, 2);
-        //    \\    print(3, 7);
-        //    \\    exit();
-        //    \\}
-        //    \\
-        //    \\fn print(a: u32, b: u32) void {
-        //    \\    asm volatile ("svc #0"
-        //    \\        :
-        //    \\        : [number] "{r7}" (4),
-        //    \\          [arg3] "{r2}" (a | b),
-        //    \\          [arg1] "{r0}" (1),
-        //    \\          [arg2] "{r1}" (@ptrToInt("123456789"))
-        //    \\        : "memory"
-        //    \\    );
-        //    \\    return;
-        //    \\}
-        //    \\
-        //    \\fn exit() noreturn {
-        //    \\    asm volatile ("svc #0"
-        //    \\        :
-        //    \\        : [number] "{r7}" (1),
-        //    \\          [arg1] "{r0}" (0)
-        //    \\        : "memory"
-        //    \\    );
-        //    \\    unreachable;
-        //    \\}
-        //,
-        //    "1234561234567",
-        //);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    print(4, 2);
+            \\    print(3, 7);
+            \\    exit();
+            \\}
+            \\
+            \\fn print(a: u32, b: u32) void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg3] "{r2}" (a | b),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("123456789"))
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (1),
+            \\          [arg1] "{r0}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "1234561234567",
+        );
 
         // Bitwise Xor
-        //case.addCompareOutput(
-        //    \\export fn _start() noreturn {
-        //    \\    print(42, 42);
-        //    \\    print(3, 5);
-        //    \\    exit();
-        //    \\}
-        //    \\
-        //    \\fn print(a: u32, b: u32) void {
-        //    \\    asm volatile ("svc #0"
-        //    \\        :
-        //    \\        : [number] "{r7}" (4),
-        //    \\          [arg3] "{r2}" (a ^ b),
-        //    \\          [arg1] "{r0}" (1),
-        //    \\          [arg2] "{r1}" (@ptrToInt("123456789"))
-        //    \\        : "memory"
-        //    \\    );
-        //    \\    return;
-        //    \\}
-        //    \\
-        //    \\fn exit() noreturn {
-        //    \\    asm volatile ("svc #0"
-        //    \\        :
-        //    \\        : [number] "{r7}" (1),
-        //    \\          [arg1] "{r0}" (0)
-        //    \\        : "memory"
-        //    \\    );
-        //    \\    unreachable;
-        //    \\}
-        //,
-        //    "123456",
-        //);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    print(42, 42);
+            \\    print(3, 5);
+            \\    exit();
+            \\}
+            \\
+            \\fn print(a: u32, b: u32) void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg3] "{r2}" (a ^ b),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("123456789"))
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (1),
+            \\          [arg1] "{r0}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "123456",
+        );
     }
 
     {

@@ -367,6 +367,9 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
         .array_cat => return simpleBinOp(mod, scope, rl, node, .array_cat),
         .array_mult => return simpleBinOp(mod, scope, rl, node, .array_mul),
 
+        .error_union => return simpleBinOp(mod, scope, rl, node, .error_union_type),
+        .merge_error_sets => return simpleBinOp(mod, scope, rl, node, .merge_error_sets),
+
         .bool_and => return boolBinOp(mod, scope, rl, node, .bool_br_and),
         .bool_or => return boolBinOp(mod, scope, rl, node, .bool_br_or),
 
@@ -515,40 +518,11 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) In
             const statements = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
             return blockExpr(mod, scope, rl, node, statements);
         },
-        .enum_literal => {
-            const ident_token = main_tokens[node];
-            const string_bytes = &gz.zir_code.string_bytes;
-            const str_index = @intCast(u32, string_bytes.items.len);
-            try mod.appendIdentStr(scope, ident_token, string_bytes);
-            try string_bytes.append(mod.gpa, 0);
-            const result = try gz.addStrTok(.enum_literal, str_index, ident_token);
-            return rvalue(mod, scope, rl, result, node);
-        },
-        .error_value => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const ident_token = node_datas[node].rhs;
-            const name = try mod.identifierTokenString(scope, ident_token);
-            const result = try addZirInstTag(mod, scope, src, .error_value, .{ .name = name });
-            return rvalue(mod, scope, rl, result);
-        },
-        .error_union => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const error_set = try typeExpr(mod, scope, node_datas[node].lhs);
-            const payload = try typeExpr(mod, scope, node_datas[node].rhs);
-            const result = try addZIRBinOp(mod, scope, src, .error_union_type, error_set, payload);
-            return rvalue(mod, scope, rl, result);
-        },
-        .merge_error_sets => {
-            if (true) @panic("TODO update for zir-memory-layout");
-            const lhs = try typeExpr(mod, scope, node_datas[node].lhs);
-            const rhs = try typeExpr(mod, scope, node_datas[node].rhs);
-            const result = try addZIRBinOp(mod, scope, src, .merge_error_sets, lhs, rhs);
-            return rvalue(mod, scope, rl, result);
-        },
+        .enum_literal => return simpleStrTok(mod, scope, rl, main_tokens[node], node, .enum_literal),
+        .error_value => return simpleStrTok(mod, scope, rl, node_datas[node].rhs, node, .error_value),
         .anyframe_literal => return mod.failNode(scope, node, "async and related features are not yet supported", .{}),
         .anyframe_type => return mod.failNode(scope, node, "async and related features are not yet supported", .{}),
         .@"catch" => {
-            if (true) @panic("TODO update for zir-memory-layout");
             const catch_token = main_tokens[node];
             const payload_token: ?ast.TokenIndex = if (token_tags[catch_token + 1] == .pipe)
                 catch_token + 2
@@ -1597,7 +1571,6 @@ fn containerDecl(
     rl: ResultLoc,
     container_decl: ast.full.ContainerDecl,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     return mod.failTok(scope, container_decl.ast.main_token, "TODO implement container decls", .{});
 }
 
@@ -1607,8 +1580,9 @@ fn errorSetDecl(
     rl: ResultLoc,
     node: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
-    const tree = scope.tree();
+    if (true) @panic("TODO update for zir-memory-layout branch");
+    const gz = scope.getGenZir();
+    const tree = gz.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
 
@@ -1902,6 +1876,23 @@ fn simpleBinOp(
         .lhs = try expr(mod, scope, .none, node_datas[node].lhs),
         .rhs = try expr(mod, scope, .none, node_datas[node].rhs),
     });
+    return rvalue(mod, scope, rl, result, node);
+}
+
+fn simpleStrTok(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    ident_token: ast.TokenIndex,
+    node: ast.Node.Index,
+    op_inst_tag: zir.Inst.Tag,
+) InnerError!zir.Inst.Ref {
+    const gz = scope.getGenZir();
+    const string_bytes = &gz.zir_code.string_bytes;
+    const str_index = @intCast(u32, string_bytes.items.len);
+    try mod.appendIdentStr(scope, ident_token, string_bytes);
+    try string_bytes.append(mod.gpa, 0);
+    const result = try gz.addStrTok(op_inst_tag, str_index, ident_token);
     return rvalue(mod, scope, rl, result, node);
 }
 

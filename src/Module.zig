@@ -1599,7 +1599,7 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
-            .node_offset => |node_off| {
+            .node_offset, .node_offset_bin_op => |node_off| {
                 const decl = src_loc.container.decl;
                 const node = decl.relativeToNodeIndex(node_off);
                 const tree = decl.container.file_scope.base.tree();
@@ -1660,9 +1660,28 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
-            .node_offset_bin_op => @panic("TODO"),
-            .node_offset_bin_lhs => @panic("TODO"),
-            .node_offset_bin_rhs => @panic("TODO"),
+            .node_offset_bin_lhs => |node_off| {
+                const decl = src_loc.container.decl;
+                const node = decl.relativeToNodeIndex(node_off);
+                const tree = decl.container.file_scope.base.tree();
+                const node_datas = tree.nodes.items(.data);
+                const src_node = node_datas[node].lhs;
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[src_node];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
+            .node_offset_bin_rhs => |node_off| {
+                const decl = src_loc.container.decl;
+                const node = decl.relativeToNodeIndex(node_off);
+                const tree = decl.container.file_scope.base.tree();
+                const node_datas = tree.nodes.items(.data);
+                const src_node = node_datas[node].rhs;
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[src_node];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
         }
     }
 };

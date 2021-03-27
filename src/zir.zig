@@ -312,8 +312,12 @@ pub const Inst = struct {
         /// Uses the `un_node` field.
         ensure_result_non_error,
         /// Create a `E!T` type.
+        /// Uses the `pl_node` field with `Bin` payload.
         error_union_type,
-        /// Create an error set. extra[lhs..rhs]. The values are token index offsets.
+        /// Create an error set. TODO can't we just do this in astgen? reconsider
+        /// memory layout of error sets. if astgen wants to make Sema do the work,
+        /// this ZIR instruction could just be an AST node index. If astgen wants to
+        /// do the work, it could use a const instruction.
         error_set,
         /// `error.Foo` syntax. Uses the `str_tok` field of the Data union.
         error_value,
@@ -393,6 +397,7 @@ pub const Inst = struct {
         /// Uses the `node` field.
         repeat_inline,
         /// Merge two error sets into one, `E1 || E2`.
+        /// Uses the `pl_node` field with payload `Bin`.
         merge_error_sets,
         /// Ambiguously remainder division or modulus. If the computation would possibly have
         /// a different value depending on whether the operation is remainder division or modulus,
@@ -1368,14 +1373,11 @@ const Writer = struct {
         try stream.print("= {s}(", .{@tagName(tags[inst])});
         switch (tag) {
             .array_type,
-            .bit_and,
-            .bit_or,
             .as,
             .coerce_result_ptr,
             .elem_ptr,
             .elem_val,
             .intcast,
-            .merge_error_sets,
             .store,
             .store_to_block_ptr,
             => try self.writeBin(stream, inst),
@@ -1481,6 +1483,10 @@ const Writer = struct {
             .shr,
             .xor,
             .store_node,
+            .error_union_type,
+            .merge_error_sets,
+            .bit_and,
+            .bit_or,
             => try self.writePlNodeBin(stream, inst),
 
             .call,
@@ -1530,7 +1536,6 @@ const Writer = struct {
             .bitcast,
             .bitcast_ref,
             .bitcast_result_ptr,
-            .error_union_type,
             .error_set,
             .store_to_inferred_ptr,
             => try stream.writeAll("TODO)"),

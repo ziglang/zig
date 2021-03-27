@@ -133,9 +133,9 @@ pub fn analyzeBody(
             .as_node => try sema.zirAsNode(block, inst),
             .@"asm" => try sema.zirAsm(block, inst, false),
             .asm_volatile => try sema.zirAsm(block, inst, true),
-            .bit_and => try sema.zirBitwise(block, inst),
+            .bit_and => try sema.zirBitwise(block, inst, .bit_and),
             .bit_not => try sema.zirBitNot(block, inst),
-            .bit_or => try sema.zirBitwise(block, inst),
+            .bit_or => try sema.zirBitwise(block, inst, .bit_or),
             .bitcast => try sema.zirBitcast(block, inst),
             .bitcast_ref => try sema.zirBitcastRef(block, inst),
             .bitcast_result_ptr => try sema.zirBitcastResultPtr(block, inst),
@@ -227,7 +227,7 @@ pub fn analyzeBody(
             .subwrap => try sema.zirArithmetic(block, inst),
             .typeof => try sema.zirTypeof(block, inst),
             .typeof_peer => try sema.zirTypeofPeer(block, inst),
-            .xor => try sema.zirBitwise(block, inst),
+            .xor => try sema.zirBitwise(block, inst, .xor),
             // TODO
             //.switchbr => try sema.zirSwitchBr(block, inst, false),
             //.switchbr_ref => try sema.zirSwitchBr(block, inst, true),
@@ -1390,23 +1390,28 @@ fn zirErrorUnionType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inn
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const error_union = try sema.resolveType(block, .unneeded, bin_inst.lhs);
-    const payload = try sema.resolveType(block, .unneeded, bin_inst.rhs);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const error_union = try sema.resolveType(block, lhs_src, extra.lhs);
+    const payload = try sema.resolveType(block, rhs_src, extra.rhs);
 
     if (error_union.zigTypeTag() != .ErrorSet) {
-        return sema.mod.fail(&block.base, .todo, "expected error set type, found {}", .{error_union.elemType()});
+        return sema.mod.fail(&block.base, lhs_src, "expected error set type, found {}", .{
+            error_union.elemType(),
+        });
     }
     const err_union_ty = try sema.mod.errorUnionType(sema.arena, error_union, payload);
-
-    return sema.mod.constType(sema.arena, .unneeded, err_union_ty);
+    return sema.mod.constType(sema.arena, src, err_union_ty);
 }
 
 fn zirErrorSet(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (true) @panic("TODO update zirErrorSet in zir-memory-layout branch");
+    if (true) @panic("TODO update for zir-memory-layout branch");
 
     // The owner Decl arena will store the hashmap.
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
@@ -1459,19 +1464,21 @@ fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inn
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (true) @panic("TODO update zirMergeErrorSets in zir-memory-layout branch");
-
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const lhs_ty = try sema.resolveType(block, .unneeded, bin_inst.lhs);
-    const rhs_ty = try sema.resolveType(block, .unneeded, bin_inst.rhs);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const lhs_ty = try sema.resolveType(block, lhs_src, extra.lhs);
+    const rhs_ty = try sema.resolveType(block, rhs_src, extra.rhs);
     if (rhs_ty.zigTypeTag() != .ErrorSet)
-        return sema.mod.fail(&block.base, inst.positionals.rhs.src, "expected error set type, found {}", .{rhs_ty});
+        return sema.mod.fail(&block.base, rhs_src, "expected error set type, found {}", .{rhs_ty});
     if (lhs_ty.zigTypeTag() != .ErrorSet)
-        return sema.mod.fail(&block.base, inst.positionals.lhs.src, "expected error set type, found {}", .{lhs_ty});
+        return sema.mod.fail(&block.base, lhs_src, "expected error set type, found {}", .{lhs_ty});
 
     // anything merged with anyerror is anyerror
     if (lhs_ty.tag() == .anyerror or rhs_ty.tag() == .anyerror)
-        return sema.mod.constInst(sema.arena, inst.base.src, .{
+        return sema.mod.constInst(sema.arena, src, .{
             .ty = Type.initTag(.type),
             .val = Value.initTag(.anyerror_type),
         });
@@ -1533,7 +1540,7 @@ fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inn
     });
     payload.data.decl = new_decl;
 
-    return sema.analyzeDeclVal(block, inst.base.src, new_decl);
+    return sema.analyzeDeclVal(block, src, new_decl);
 }
 
 fn zirEnumLiteral(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -2442,21 +2449,27 @@ fn zirShr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*In
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirShr", .{});
 }
 
-fn zirBitwise(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirBitwise(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: zir.Inst.Index,
+    ir_tag: ir.Inst.Tag,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (true) @panic("TODO rework with zir-memory-layout in mind");
-
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const src: LazySrcLoc = .todo;
-    const lhs = try sema.resolveInst(bin_inst.lhs);
-    const rhs = try sema.resolveInst(bin_inst.rhs);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = try sema.resolveInst(extra.lhs);
+    const rhs = try sema.resolveInst(extra.rhs);
 
     const instructions = &[_]*Inst{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions);
-    const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs.src);
-    const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs.src);
+    const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
+    const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
     const scalar_type = if (resolved_type.zigTypeTag() == .Vector)
         resolved_type.elemType()
@@ -2499,13 +2512,6 @@ fn zirBitwise(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     }
 
     try sema.requireRuntimeBlock(block, src);
-    const ir_tag = switch (inst.base.tag) {
-        .bit_and => Inst.Tag.bit_and,
-        .bit_or => Inst.Tag.bit_or,
-        .xor => Inst.Tag.xor,
-        else => unreachable,
-    };
-
     return block.addBinOp(src, scalar_type, ir_tag, casted_lhs, casted_rhs);
 }
 
