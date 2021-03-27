@@ -2194,6 +2194,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 unreachable;
             }
 
+            switch (info.return_value) {
+                .register => |reg| {
+                    if (Register.allocIndex(reg) == null) {
+                        // Save function return value in a callee saved register
+                        return try self.copyToNewRegister(&inst.base, info.return_value);
+                    }
+                },
+                else => {},
+            }
+
             return info.return_value;
         }
 
