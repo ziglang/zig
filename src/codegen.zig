@@ -3111,7 +3111,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const adj_off = stack_offset + abi_size;
 
                         switch (abi_size) {
-                            4, 8 => {
+                            1, 2, 4, 8 => {
                                 const offset = if (math.cast(i9, adj_off)) |imm|
                                     Instruction.LoadStoreOffset.imm_post_index(-imm)
                                 else |_|
@@ -3121,8 +3121,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     .aarch64_32 => .w29,
                                     else => unreachable,
                                 };
+                                const str = switch (abi_size) {
+                                    1 => Instruction.strb,
+                                    2 => Instruction.strh,
+                                    4, 8 => Instruction.str,
+                                    else => unreachable, // unexpected abi size
+                                };
 
-                                writeInt(u32, try self.code.addManyAsArray(4), Instruction.str(reg, rn, .{
+                                writeInt(u32, try self.code.addManyAsArray(4), str(reg, rn, .{
                                     .offset = offset,
                                 }).toU32());
                             },
