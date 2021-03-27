@@ -29,6 +29,32 @@ pub const FnData = struct {
     idx_refs: std.ArrayListUnmanaged(struct { offset: u32, decl: *Module.Decl }) = .{},
 };
 
+/// Data section of the wasm binary
+/// Each declaration will have its own 'data_segment' within the section
+/// where the offset is calculated using the previous segments and the content length
+/// of the data
+pub const DataSection = struct {
+    segments: std.AutoArrayHashMapUnmanaged(*const Module.Decl, []const u8) = .{},
+
+    /// Returns the offset into the data segment based on a given `Decl`
+    pub fn offset(self: DataSection, decl: *const Module.Decl) u32 {
+        var cur_offset: u32 = 0;
+        return for (self.segments.items()) |entry| {
+            if (entry.key == decl) break cur_offset;
+            cur_offset += @intCast(u32, entry.value.len);
+        } else cur_offset;
+    }
+
+    /// Returns the total payload size of the data section
+    pub fn size(self: DataSection) u32 {
+        var total: u32 = 0;
+        for (self.segments.items()) |entry| {
+            total += @intCast(u32, entry.value.len);
+        }
+        return total;
+    }
+};
+
 base: link.File,
 
 /// List of all function Decls to be written to the output file. The index of
@@ -45,6 +71,10 @@ ext_funcs: std.ArrayListUnmanaged(*Module.Decl) = .{},
 /// to support existing code.
 /// TODO: Allow setting this through a flag?
 host_name: []const u8 = "env",
+/// Map of declarations with its bytes payload, used to keep track of all data segments
+/// that needs to be emit when creating the wasm binary.
+/// The `DataSection`'s lifetime must be kept alive until the linking stage.
+data: DataSection = .{},
 
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
     assert(options.object_format == .wasm);
@@ -52,7 +82,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     if (options.use_llvm) return error.LLVM_BackendIsTODO_ForWasm; // TODO
     if (options.use_lld) return error.LLD_LinkingIsTODO_ForWasm; // TODO
 
-    // TODO: read the file and keep vaild parts instead of truncating
+    // TODO: read the file and keep valid parts instead of truncating
     const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
     errdefer file.close();
 
@@ -92,14 +122,13 @@ pub fn deinit(self: *Wasm) void {
     }
     self.funcs.deinit(self.base.allocator);
     self.ext_funcs.deinit(self.base.allocator);
+    self.data.segments.deinit(self.base.allocator);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
 // the file on flush().
 pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     const typed_value = decl.typed_value.most_recent.typed_value;
-    if (typed_value.ty.zigTypeTag() != .Fn)
-        return error.TODOImplementNonFnDeclsForWasm;
 
     if (decl.fn_link.wasm) |*fn_data| {
         fn_data.functype.items.len = 0;
@@ -111,6 +140,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         switch (decl.typed_value.most_recent.typed_value.val.tag()) {
             .function => try self.funcs.append(self.base.allocator, decl),
             .extern_fn => try self.ext_funcs.append(self.base.allocator, decl),
+            .bytes => {},
             else => return error.TODOImplementNonFnDeclsForWasm,
         }
     }
@@ -132,7 +162,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     defer context.deinit();
 
     // generate the 'code' section for the function declaration
-    context.gen() catch |err| switch (err) {
+    const result = context.gen() catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, context.err_msg);
@@ -141,15 +171,24 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         else => |e| return err,
     };
 
-    // as locals are patched afterwards, the offsets of funcidx's are off,
-    // here we update them to correct them
-    for (decl.fn_link.wasm.?.idx_refs.items) |*func| {
-        // For each local, add 6 bytes (count + type)
-        func.offset += @intCast(u32, context.locals.items.len * 6);
-    }
+    switch (typed_value.ty.zigTypeTag()) {
+        .Fn => {
+            // as locals are patched afterwards, the offsets of funcidx's are off,
+            // here we update them to correct them
+            for (decl.fn_link.wasm.?.idx_refs.items) |*func| {
+                // For each local, add 6 bytes (count + type)
+                func.offset += @intCast(u32, context.locals.items.len * 6);
+            }
 
-    fn_data.functype = context.func_type_data.toUnmanaged();
-    fn_data.code = context.code.toUnmanaged();
+            fn_data.functype = context.func_type_data.toUnmanaged();
+            fn_data.code = context.code.toUnmanaged();
+        },
+        .Array => switch (result) {
+            .appended => unreachable,
+            .externally_managed => |payload| try self.data.segments.put(self.base.allocator, decl, payload),
+        },
+        else => return error.TODO,
+    }
 }
 
 pub fn updateDeclExports(
@@ -257,6 +296,22 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         );
     }
 
+    // Memory section
+    if (self.data.size() != 0) {
+        const header_offset = try reserveVecSectionHeader(file);
+        const writer = file.writer();
+
+        try leb.writeULEB128(writer, @as(u32, 0));
+        try leb.writeULEB128(writer, @as(u32, 1));
+        try writeVecSectionHeader(
+            file,
+            header_offset,
+            .memory,
+            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @as(u32, 1),
+        );
+    }
+
     // Export section
     if (self.base.options.module) |module| {
         const header_offset = try reserveVecSectionHeader(file);
@@ -281,6 +336,16 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                 count += 1;
             }
         }
+
+        // export memory if size is not 0
+        if (self.data.size() != 0) {
+            try leb.writeULEB128(writer, @intCast(u32, "memory".len));
+            try writer.writeAll("memory");
+            try writer.writeByte(wasm.externalKind(.memory));
+            try leb.writeULEB128(writer, @as(u32, 0)); // only 1 memory 'object' can exist
+            count += 1;
+        }
+
         try writeVecSectionHeader(
             file,
             header_offset,
@@ -318,6 +383,38 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             .code,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
             @intCast(u32, self.funcs.items.len),
+        );
+    }
+
+    // Data section
+    {
+        const header_offset = try reserveVecSectionHeader(file);
+        const writer = file.writer();
+        var offset: i32 = 0;
+        for (self.data.segments.items()) |entry| {
+            // index to memory section (always 0 in current wasm version)
+            try leb.writeULEB128(writer, @as(u32, 0));
+
+            // offset into data section
+            try writer.writeByte(wasm.opcode(.i32_const));
+            try leb.writeILEB128(writer, offset);
+            try writer.writeByte(wasm.opcode(.end));
+
+            // payload size
+            const len = @intCast(u32, entry.value.len);
+            try leb.writeULEB128(writer, len);
+
+            // write payload
+            try writer.writeAll(entry.value);
+            offset += @bitCast(i32, len);
+        }
+
+        try writeVecSectionHeader(
+            file,
+            header_offset,
+            .data,
+            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @intCast(u32, self.data.segments.items().len),
         );
     }
 }
