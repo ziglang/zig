@@ -13,7 +13,7 @@ const mem = std.mem;
 const Self = @This();
 
 allocator: *mem.Allocator,
-symbol_map: *SymbolMap,
+symbol_map: SymbolMap,
 
 pub fn init(allocator: *mem.Allocator) !*SymbolMap {
     const value = try allocator.create(Self);
