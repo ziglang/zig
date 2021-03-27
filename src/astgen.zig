@@ -766,11 +766,9 @@ fn breakExpr(mod: *Module, parent_scope: *Scope, node: ast.Node.Index) InnerErro
 }
 
 fn continueExpr(mod: *Module, parent_scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
-    const tree = parent_scope.tree();
+    const parent_gz = parent_scope.getGenZir();
+    const tree = parent_gz.tree();
     const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
-
     const break_label = node_datas[node].lhs;
 
     // Look for the label in the scope.
@@ -779,10 +777,11 @@ fn continueExpr(mod: *Module, parent_scope: *Scope, node: ast.Node.Index) InnerE
         switch (scope.tag) {
             .gen_zir => {
                 const gen_zir = scope.cast(Scope.GenZir).?;
-                const continue_block = gen_zir.continue_block orelse {
+                const continue_block = gen_zir.continue_block;
+                if (continue_block == 0) {
                     scope = gen_zir.parent;
                     continue;
-                };
+                }
                 if (break_label != 0) blk: {
                     if (gen_zir.label) |*label| {
                         if (try tokenIdentEql(mod, parent_scope, label.token, break_label)) {
@@ -795,9 +794,8 @@ fn continueExpr(mod: *Module, parent_scope: *Scope, node: ast.Node.Index) InnerE
                     continue;
                 }
 
-                _ = try addZirInstTag(mod, parent_scope, src, .break_void, .{
-                    .block = continue_block,
-                });
+                // TODO emit a break_inline if the loop being continued is inline
+                _ = try parent_gz.addBreak(.@"break", continue_block, .void_value);
                 return zir.Inst.Ref.unreachable_value;
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
@@ -806,7 +804,7 @@ fn continueExpr(mod: *Module, parent_scope: *Scope, node: ast.Node.Index) InnerE
                 const label_name = try mod.identifierTokenString(parent_scope, break_label);
                 return mod.failTok(parent_scope, break_label, "label not found: '{s}'", .{label_name});
             } else {
-                return mod.failTok(parent_scope, src, "continue expression outside loop", .{});
+                return mod.failNode(parent_scope, node, "continue expression outside loop", .{});
             },
         }
     }
