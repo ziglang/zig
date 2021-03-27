@@ -30396,15 +30396,21 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ZigValue *val)
         case ZigTypeIdFloat:
             float_write_ieee597(val, buf, codegen->is_big_endian);
             return;
-        case ZigTypeIdPointer:
-            if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
-                BigInt bn;
-                bigint_init_unsigned(&bn, val->data.x_ptr.data.hard_coded_addr.addr);
-                bigint_write_twos_complement(&bn, buf, codegen->builtin_types.entry_usize->data.integral.bit_count, codegen->is_big_endian);
-                return;
-            } else {
-                zig_unreachable();
+        case ZigTypeIdPointer: {
+            BigInt bn;
+            switch (val->data.x_ptr.special) {
+                case ConstPtrSpecialHardCodedAddr:
+                    bigint_init_unsigned(&bn, val->data.x_ptr.data.hard_coded_addr.addr);
+                    break;
+                case ConstPtrSpecialNull:
+                case ConstPtrSpecialInvalid:
+                    bigint_init_unsigned(&bn, 0);
+                    break;
+                default:
+                    zig_unreachable();
             }
+            return bigint_write_twos_complement(&bn, buf, codegen->builtin_types.entry_usize->data.integral.bit_count, codegen->is_big_endian);
+        }
         case ZigTypeIdArray:
             return buf_write_value_bytes_array(codegen, buf, val, val->type->data.array.len);
         case ZigTypeIdVector:
