@@ -4,7 +4,7 @@
 const std = @import("std.zig");
 const builtin = std.builtin;
 const assert = std.debug.assert;
-const SymbolInfo = std.debug.SymbolInfo;
+const SymbolInfo = std.debug.SymbolMap.SymbolInfo;
 const debug_info = std.debug_info;
 const BaseError = debug_info.BaseError;
 const chopSlice = debug_info.chopSlice;
@@ -16,7 +16,8 @@ const math = std.math;
 const fs = std.fs;
 const File = fs.File;
 
-pub const SymbolMap = debug_info.SymbolMapFromModuleInfo(Module);
+const SymbolMapState = debug_info.SymbolMapStateFromModuleInfo(Module);
+pub const init = SymbolMapState.init;
 
 const Module = struct {
     const Self = @This();
@@ -25,7 +26,7 @@ const Module = struct {
     dwarf: DW.DwarfInfo,
     mapped_memory: []const u8,
 
-    pub fn lookup(allocator: *mem.Allocator, address_map: *SymbolMap.AddressMap, address: usize) !*Self {
+    pub fn lookup(allocator: *mem.Allocator, address_map: *SymbolMapState.AddressMap, address: usize) !*Self {
         var ctx: struct {
             // Input
             address: usize,

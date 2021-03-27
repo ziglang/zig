@@ -8,7 +8,7 @@
 //! well as misc. functions such as `print`, `assert`, and `panicExtra`.
 //!
 //! You can override how addresses are mapped to symbols via
-//! `root.debug_config.SymbolMap` or `root.os.debug.SymbolMap`.
+//! `root.debug_config.initSymbolMap` or `root.os.debug.initSymbolMap`.
 //!
 //! You can override how stack traces are collected via
 //! `root.debug_config.captureStackTraceFrom` or
@@ -35,41 +35,68 @@ pub const runtime_safety = switch (builtin.mode) {
     .ReleaseFast, .ReleaseSmall => false,
 };
 
-pub const LineInfo = struct {
-    line: u64,
-    column: u64,
-    file_name: []const u8,
-    allocator: ?*mem.Allocator,
+// TODO: improve error approach somehow, anyerror shouldn't be used here.
 
-    fn deinit(self: @This()) void {
-        const allocator = self.allocator orelse return;
-        allocator.free(self.file_name);
-    }
-};
+/// Interface for mapping from addresses to symbols (`SymbolInfo`).
+pub const SymbolMap = struct {
+    pub const LineInfo = struct {
+        line: u64,
+        column: u64,
+        file_name: []const u8,
+        allocator: ?*mem.Allocator,
 
-pub const SymbolInfo = struct {
-    symbol_name: []const u8 = "???",
-    compile_unit_name: []const u8 = "???",
-    line_info: ?LineInfo = null,
-
-    fn deinit(self: @This()) void {
-        if (self.line_info) |li| {
-            li.deinit();
+        fn deinit(self: @This()) void {
+            const allocator = self.allocator orelse return;
+            allocator.free(self.file_name);
         }
+    };
+
+    pub const SymbolInfo = struct {
+        symbol_name: []const u8 = "???",
+        compile_unit_name: []const u8 = "???",
+        line_info: ?LineInfo = null,
+
+        fn deinit(self: @This()) void {
+            if (self.line_info) |li| {
+                li.deinit();
+            }
+        }
+    };
+
+    const Self = @This();
+
+    deinitFn: fn (self: *Self) void,
+    addressToSymbolFn: fn (self: *Self, address: usize) anyerror!SymbolInfo,
+
+    fn deinit(self: *Self) void {
+        self.deinitFn(self);
     }
+
+    fn addressToSymbol(self: *Self, address: usize) anyerror!SymbolInfo {
+        return self.addressToSymbolFn(self, address);
+    }
+
+    pub const InitFn = fn (allocator: *mem.Allocator) anyerror!*Self;
 };
+
+pub const CaptureStackTraceFn = fn (
+    allocator: *std.mem.Allocator,
+    first_address: ?usize,
+    base_pointer: ?usize,
+    stack_trace: *builtin.StackTrace,
+) anyerror!void;
 
 pub const default_config = struct {
-    /// A struct which maps from addresses to symbols (`SymbolInfo`).
-    pub const SymbolMap = switch (builtin.os.tag) {
-        .macos, .ios, .watchos, .tvos => std.SymbolMapDarwin,
-        .linux, .netbsd, .freebsd, .dragonfly, .openbsd => std.SymbolMapUnix,
-        .uefi, .windows => std.SymbolMapPDB,
-        else => std.SymbolMapUnsupported,
+    /// A function to initialize a object of the interface type SymbolMap.
+    pub const initSymbolMap: SymbolMap.InitFn = switch (builtin.os.tag) {
+        .macos, .ios, .watchos, .tvos => std.initSymbolMapDarwin,
+        .linux, .netbsd, .freebsd, .dragonfly, .openbsd => std.initSymbolMapUnix,
+        .uefi, .windows => std.initSymbolMapPdb,
+        else => std.initSymbolMapUnsupported,
     };
 
     /// Loads a stack trace into the provided argument.
-    pub const captureStackTraceFrom = defaultCaptureStackTraceFrom;
+    pub const captureStackTraceFrom: CaptureStackTraceFn = defaultCaptureStackTraceFrom;
 };
 
 const config = lookupDecl(root, &.{"debug_config"}) orelse struct {};
@@ -87,10 +114,7 @@ fn lookupConfigItem(
 
 // Slightly different names than in config to avoid redefinition in default.
 
-// TODO(rgreenblatt): make these interfaces, this needs to be done before
-// merging the PR
-
-const SymMap = lookupConfigItem("SymbolMap");
+const initSymMap = lookupConfigItem("initSymbolMap");
 const capStackTraceFrom = lookupConfigItem("captureStackTraceFrom");
 
 /// Get the writer used for `print`, `panicExtra`, and stack trace dumping.
@@ -140,18 +164,18 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
 }
 
 /// TODO multithreaded awareness
-var sym_map: ?SymMap = null;
+var sym_map: ?*SymbolMap = null;
 
-pub fn getSymbolMap() !*SymMap {
-    if (sym_map) |*info| {
+pub fn getSymbolMap() !*SymbolMap {
+    if (sym_map) |info| {
         return info;
     } else {
-        sym_map = try SymMap.init(getDebugInfoAllocator());
-        return &sym_map.?;
+        sym_map = try initSymMap(getDebugInfoAllocator());
+        return sym_map.?;
     }
 }
 
-fn getMappingForDump(writer: anytype) ?*SymMap {
+fn getMappingForDump(writer: anytype) ?*SymbolMap {
     return getSymbolMap() catch |err| {
         writer.print(
             "Unable to dump stack trace: Unable to open debug info: {s}\n",
@@ -247,7 +271,7 @@ fn StackTraceDumper(comptime Writer: type) type {
 
         writer: Writer,
         tty_config: TTY.Config,
-        mapping: *SymMap,
+        mapping: *SymbolMap,
 
         fn current(
             self: Self,
@@ -329,7 +353,7 @@ fn formatStackTraceLine(
     writer: anytype,
     tty_config: TTY.Config,
     address: usize,
-    si: SymbolInfo,
+    si: SymbolMap.SymbolInfo,
     tryWriteLineFromSourceFile: anytype,
 ) !void {
     tty_config.setColor(writer, .White);
@@ -367,7 +391,7 @@ fn formatStackTraceLine(
 /// Try to write a line from a source file. If the line couldn't be written but
 /// the error is acceptable (end of file, file not found, etc.), returns false.
 /// If the line was correctly writen it returns true.
-pub fn attemptWriteLineFromSourceFile(writer: anytype, line_info: LineInfo) !bool {
+pub fn attemptWriteLineFromSourceFile(writer: anytype, line_info: SymbolMap.LineInfo) !bool {
     // TODO: is this the right place to check?
     if (comptime builtin.arch.isWasm()) {
         return false;
@@ -385,7 +409,7 @@ pub fn attemptWriteLineFromSourceFile(writer: anytype, line_info: LineInfo) !boo
     return true;
 }
 
-fn writeLineFromFileAnyOs(writer: anytype, line_info: LineInfo) !void {
+fn writeLineFromFileAnyOs(writer: anytype, line_info: SymbolMap.LineInfo) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
     var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });

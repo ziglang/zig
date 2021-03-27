@@ -1,5 +1,5 @@
 const std = @import("std.zig");
-const SymbolInfo = std.debug.SymbolInfo;
+const SymbolInfo = std.debug.SymbolMap.SymbolInfo;
 const assert = std.debug.assert;
 const debug_info = std.debug_info;
 const BaseError = debug_info.BaseError;
@@ -10,7 +10,8 @@ const fs = std.fs;
 const File = std.fs.File;
 const DW = std.dwarf;
 
-pub const SymbolMap = debug_info.SymbolMapFromModuleInfo(Module);
+const SymbolMapState = debug_info.SymbolMapStateFromModuleInfo(Module);
+pub const init = SymbolMapState.init;
 
 const Module = struct {
     const Self = @This();
@@ -38,7 +39,7 @@ const Module = struct {
 
     const OFileTable = std.StringHashMap(DW.DwarfInfo);
 
-    pub fn lookup(allocator: *mem.Allocator, address_map: *SymbolMap.AddressMap, address: usize) !*Self {
+    pub fn lookup(allocator: *mem.Allocator, address_map: *SymbolMapState.AddressMap, address: usize) !*Self {
         const image_count = std.c._dyld_image_count();
 
         var i: u32 = 0;

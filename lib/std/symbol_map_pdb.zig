@@ -1,7 +1,7 @@
 const std = @import("std.zig");
 const builtin = std.builtin;
 const assert = std.debug.assert;
-const SymbolInfo = std.debug.SymbolInfo;
+const SymbolInfo = std.debug.SymbolMap.SymbolInfo;
 const LineInfo = std.debug.LineInfo;
 const debug_info = std.debug_info;
 const BaseError = debug_info.BaseError;
@@ -14,7 +14,8 @@ const coff = std.coff;
 const windows = std.os.windows;
 const ArrayList = std.ArrayList;
 
-pub const SymbolMap = debug_info.SymbolMapFromModuleInfo(Module);
+const SymbolMapState = debug_info.SymbolMapStateFromModuleInfo(Module);
+pub const init = SymbolMapState.init;
 
 const Module = struct {
     const Self = @This();
@@ -36,7 +37,7 @@ const Module = struct {
         checksum_offset: ?usize,
     };
 
-    pub fn lookup(allocator: *mem.Allocator, address_map: *SymbolMap.AddressMap, address: usize) !*Self {
+    pub fn lookup(allocator: *mem.Allocator, address_map: *SymbolMapState.AddressMap, address: usize) !*Self {
         if (builtin.os.tag != .windows) {
             // TODO: implement uefi case
             return BaseError.UnsupportedOperatingSystem;
@@ -45,7 +46,7 @@ const Module = struct {
         return lookupModuleWin32(allocator, address_map, address);
     }
 
-    fn lookupModuleWin32(allocator: *mem.Allocator, address_map: *SymbolMap.AddressMap, address: usize) !*Self {
+    fn lookupModuleWin32(allocator: *mem.Allocator, address_map: *SymbolMapState.AddressMap, address: usize) !*Self {
         const process_handle = windows.kernel32.GetCurrentProcess();
 
         // Find how many modules are actually loaded

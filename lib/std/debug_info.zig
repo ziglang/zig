@@ -2,14 +2,15 @@
 //! TODO: better name for this file?
 
 const std = @import("std.zig");
-const SymbolInfo = std.debug.SymbolInfo;
+const SymbolMap = std.debug.SymbolMap;
+const SymbolInfo = SymbolMap.SymbolInfo;
 const mem = std.mem;
 const DW = std.dwarf;
 const os = std.os;
 const math = std.math;
 const File = std.fs.File;
 
-pub fn SymbolMapFromModuleInfo(comptime Module: type) type {
+pub fn SymbolMapStateFromModuleInfo(comptime Module: type) type {
     return struct {
         const Self = @This();
 
@@ -17,19 +18,30 @@ pub fn SymbolMapFromModuleInfo(comptime Module: type) type {
 
         allocator: *mem.Allocator,
         address_map: AddressMap,
+        symbol_map: SymbolMap,
 
-        pub fn init(allocator: *mem.Allocator) !Self {
-            return Self{
+        pub fn init(allocator: *mem.Allocator) !*SymbolMap {
+            const value = try allocator.create(Self);
+            value.* = Self{
                 .allocator = allocator,
                 .address_map = std.AutoHashMap(usize, *Module).init(allocator),
+                .symbol_map = .{
+                    .deinitFn = deinit,
+                    .addressToSymbolFn = addressToSymbol,
+                },
             };
+
+            return &value.symbol_map;
         }
 
-        pub fn deinit(self: *Self) void {
+        fn deinit(symbol_map: *SymbolMap) void {
+            const self = @fieldParentPtr(Self, "symbol_map", symbol_map);
             self.address_map.deinit();
+            self.allocator.destroy(self);
         }
 
-        pub fn addressToSymbol(self: *Self, address: usize) !SymbolInfo {
+        fn addressToSymbol(symbol_map: *SymbolMap, address: usize) !SymbolInfo {
+            const self = @fieldParentPtr(Self, "symbol_map", symbol_map);
             const module = Module.lookup(self.allocator, &self.address_map, address) catch |err|
                 return if (std.meta.errorInSet(err, BaseError)) SymbolInfo{} else return err;
             return module.addressToSymbol(address);

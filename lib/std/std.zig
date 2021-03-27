@@ -39,10 +39,6 @@ pub const StringHashMap = hash_map.StringHashMap;
 pub const StringHashMapUnmanaged = hash_map.StringHashMapUnmanaged;
 pub const StringArrayHashMap = array_hash_map.StringArrayHashMap;
 pub const StringArrayHashMapUnmanaged = array_hash_map.StringArrayHashMapUnmanaged;
-pub const SymbolMapDarwin = @import("symbol_map_darwin.zig").SymbolMap;
-pub const SymbolMapUnix = @import("symbol_map_unix.zig").SymbolMap;
-pub const SymbolMapPDB = @import("symbol_map_pdb.zig").SymbolMap;
-pub const SymbolMapUnsupported = @import("SymbolMapUnsupported.zig");
 pub const TailQueue = @import("linked_list.zig").TailQueue;
 pub const Target = @import("target.zig").Target;
 pub const Thread = @import("Thread.zig");
@@ -94,6 +90,11 @@ pub const valgrind = @import("valgrind.zig");
 pub const wasm = @import("wasm.zig");
 pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
+
+pub const initSymbolMapDarwin = @import("symbol_map_darwin.zig").init;
+pub const initSymbolMapUnix = @import("symbol_map_unix.zig").init;
+pub const initSymbolMapPDB = @import("symbol_map_pdb.zig").init;
+pub const initSymbolMapUnsupported = @import("symbol_map_unsupported.zig").init;
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
 // file decides whether to export any appropriate start symbols.
