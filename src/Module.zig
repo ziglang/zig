@@ -1608,7 +1608,27 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
-            .node_offset_var_decl_ty => @panic("TODO"),
+            .node_offset_var_decl_ty => |node_off| {
+                const decl = src_loc.container.decl;
+                const node = decl.relativeToNodeIndex(node_off);
+                const tree = decl.container.file_scope.base.tree();
+                const node_tags = tree.nodes.items(.tag);
+                const full = switch (node_tags[node]) {
+                    .global_var_decl => tree.globalVarDecl(node),
+                    .local_var_decl => tree.localVarDecl(node),
+                    .simple_var_decl => tree.simpleVarDecl(node),
+                    .aligned_var_decl => tree.alignedVarDecl(node),
+                    else => unreachable,
+                };
+                const tok_index = if (full.ast.type_node != 0) blk: {
+                    const main_tokens = tree.nodes.items(.main_token);
+                    break :blk main_tokens[full.ast.type_node];
+                } else blk: {
+                    break :blk full.ast.mut_token + 1; // the name token
+                };
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
             .node_offset_builtin_call_arg0 => @panic("TODO"),
             .node_offset_builtin_call_arg1 => @panic("TODO"),
             .node_offset_builtin_call_argn => unreachable, // Handled specially in `Sema`.
@@ -1625,7 +1645,7 @@ pub const SrcLoc = struct {
                 const node = decl.relativeToNodeIndex(node_off);
                 const tree = decl.container.file_scope.base.tree();
                 const node_tags = tree.nodes.items(.tag);
-                const cond_expr = switch (node_tags[node]) {
+                const src_node = switch (node_tags[node]) {
                     .if_simple => tree.ifSimple(node).ast.cond_expr,
                     .@"if" => tree.ifFull(node).ast.cond_expr,
                     .while_simple => tree.whileSimple(node).ast.cond_expr,
@@ -1636,7 +1656,7 @@ pub const SrcLoc = struct {
                     else => unreachable,
                 };
                 const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[cond_expr];
+                const tok_index = main_tokens[src_node];
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },

@@ -1232,11 +1232,11 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    foo: while (true) {}
             \\}
         , &[_][]const u8{":2:5: error: unused while loop label"});
-        //case.addError(
-        //    \\comptime {
-        //    \\    foo: for ("foo") |_| {}
-        //    \\}
-        //, &[_][]const u8{":2:5: error: unused for loop label"});
+        case.addError(
+            \\comptime {
+            \\    foo: for ("foo") |_| {}
+            \\}
+        , &[_][]const u8{":2:5: error: unused for loop label"});
         case.addError(
             \\comptime {
             \\    blk: {blk: {}}
@@ -1247,14 +1247,14 @@ pub fn addCases(ctx: *TestContext) !void {
         });
     }
 
-    //{
-    //    var case = ctx.exe("bad inferred variable type", linux_x64);
-    //    case.addError(
-    //        \\export fn foo() void {
-    //        \\    var x = null;
-    //        \\}
-    //    , &[_][]const u8{":2:9: error: variable of type '@Type(.Null)' must be const or comptime"});
-    //}
+    {
+        var case = ctx.exe("bad inferred variable type", linux_x64);
+        case.addError(
+            \\export fn foo() void {
+            \\    var x = null;
+            \\}
+        , &[_][]const u8{":2:9: error: variable of type '@Type(.Null)' must be const or comptime"});
+    }
 
     {
         var case = ctx.exe("compile error in inline fn call fixed", linux_x64);
