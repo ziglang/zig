@@ -135,33 +135,42 @@ test "std.meta.errorInSet" {
     testing.expect(errorInSet(error.OtherError, anyerror));
 }
 
-fn lookupDeclType(comptime T: type, comptime names: []const []const u8) ?type {
+/// lookupDecl but switching out the return statements.
+/// Probably the cleanest way to implement this without infered return types.
+fn lookupDeclType(comptime T: type, comptime names: []const []const u8) type {
     comptime var Running = T;
     inline for (names) |name, i| {
-        if (@hasDecl(Running, name)) {
-            const next = @field(Running, name);
-            if (@TypeOf(next) == type) {
-                Running = next;
-                continue;
-            }
-            return if (i == names.len - 1)
-                @TypeOf(next)
-            else
-                @compileError("lookupDecl expected type and found value!");
-        } else return null;
-    }
+        if (!@hasDecl(Running, name)) {
+            return type;
+        }
 
+        const next = @field(Running, name);
+        if (i == names.len - 1) {
+            return @TypeOf(next);
+        }
+        if (@TypeOf(next) != type) {
+            @compileError("Cannot lookup on decl which " ++
+                "isn't a type, perhaps this was supposed to be a " ++
+                "type (struct)?");
+        }
+
+        Running = next;
+    }
+    comptime std.debug.assert(names.len == 0);
     return type;
 }
 
 /// Get a decl on T by indexing into each field. Returns null if one of the
 /// sub-decls doesn't exist, `compileError` if a sub-decl other than the last one
 /// is a value instead of a type.
-pub fn lookupDecl(comptime T: type, comptime names: []const []const u8) ?(lookupDeclType(T, names) orelse type) {
-    if (lookupDeclType(T, names) == null) return null;
-
+pub fn lookupDecl(comptime T: type, comptime names: []const []const u8) ?lookupDeclType(T, names) {
+    // any edits to this function should be copied to the above function :(
     comptime var Running = T;
     inline for (names) |name, i| {
+        if (!@hasDecl(Running, name)) {
+            return null;
+        }
+
         const next = @field(Running, name);
         if (i == names.len - 1) {
             return next;
