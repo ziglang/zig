@@ -169,6 +169,125 @@ pub const Type = extern union {
         };
     }
 
+    pub fn ptrInfo(self: Type) Payload.Pointer {
+        switch (self.tag()) {
+            .single_const_pointer_to_comptime_int => return .{ .data = .{
+                .pointee_type = Type.initTag(.comptime_int),
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .One,
+            } },
+            .const_slice_u8 => return .{ .data = .{
+                .pointee_type = Type.initTag(.u8),
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .Slice,
+            } },
+            .single_const_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .One,
+            } },
+            .single_mut_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = true,
+                .@"volatile" = false,
+                .size = .One,
+            } },
+            .many_const_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .Many,
+            } },
+            .many_mut_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = true,
+                .@"volatile" = false,
+                .size = .Many,
+            } },
+            .c_const_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .C,
+            } },
+            .c_mut_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = true,
+                .@"volatile" = false,
+                .size = .C,
+            } },
+            .const_slice => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .Slice,
+            } },
+            .mut_slice => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = true,
+                .@"volatile" = false,
+                .size = .Slice,
+            } },
+
+            .pointer => return self.castTag(.pointer).?.*,
+
+            else => unreachable,
+        }
+    }
+
     pub fn eql(a: Type, b: Type) bool {
         // As a shortcut, if the small tags / addresses match, we're done.
         if (a.tag_if_small_enough == b.tag_if_small_enough)
@@ -191,25 +310,38 @@ pub const Type = extern union {
                 return a.elemType().eql(b.elemType());
             },
             .Pointer => {
-                // Hot path for common case:
-                if (a.castPointer()) |a_payload| {
-                    if (b.castPointer()) |b_payload| {
-                        return a.tag() == b.tag() and eql(a_payload.data, b_payload.data);
+                const info_a = a.ptrInfo().data;
+                const info_b = b.ptrInfo().data;
+                if (!info_a.pointee_type.eql(info_b.pointee_type))
+                    return false;
+                if (info_a.size != info_b.size)
+                    return false;
+                if (info_a.mutable != info_b.mutable)
+                    return false;
+                if (info_a.@"volatile" != info_b.@"volatile")
+                    return false;
+                if (info_a.@"allowzero" != info_b.@"allowzero")
+                    return false;
+                if (info_a.bit_offset != info_b.bit_offset)
+                    return false;
+                if (info_a.host_size != info_b.host_size)
+                    return false;
+
+                const sentinel_a = info_a.sentinel;
+                const sentinel_b = info_b.sentinel;
+                if (sentinel_a) |sa| {
+                    if (sentinel_b) |sb| {
+                        if (!sa.eql(sb))
+                            return false;
+                    } else {
+                        return false;
                     }
+                } else {
+                    if (sentinel_b != null)
+                        return false;
                 }
-                const is_slice_a = isSlice(a);
-                const is_slice_b = isSlice(b);
-                if (is_slice_a != is_slice_b)
-                    return false;
 
-                const ptr_size_a = ptrSize(a);
-                const ptr_size_b = ptrSize(b);
-                if (ptr_size_a != ptr_size_b)
-                    return false;
-
-                std.debug.panic("TODO implement more pointer Type equality comparison: {} and {}", .{
-                    a, b,
-                });
+                return true;
             },
             .Int => {
                 // Detect that e.g. u64 != usize, even if the bits match on a particular target.
@@ -844,6 +976,35 @@ pub const Type = extern union {
         return fast_result;
     }
 
+    pub fn ptrAlignment(self: Type, target: Target) u32 {
+        switch (self.tag()) {
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .optional_single_const_pointer,
+            .optional_single_mut_pointer,
+            => return self.cast(Payload.ElemType).?.data.abiAlignment(target),
+
+            .const_slice_u8 => return 1,
+
+            .pointer => {
+                const ptr_info = self.castTag(.pointer).?.data;
+                if (ptr_info.@"align" != 0) {
+                    return ptr_info.@"align";
+                } else {
+                    return ptr_info.pointee_type.abiAlignment();
+                }
+            },
+
+            else => unreachable,
+        }
+    }
+
     /// Asserts that hasCodeGenBits() is true.
     pub fn abiAlignment(self: Type, target: Target) u32 {
         return switch (self.tag()) {
@@ -885,14 +1046,8 @@ pub const Type = extern union {
             .mut_slice,
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
+            .pointer,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
-
-            .pointer => {
-                const payload = self.castTag(.pointer).?.data;
-
-                if (payload.@"align" != 0) return payload.@"align";
-                return @divExact(target.cpu.arch.ptrBitWidth(), 8);
-            },
 
             .c_short => return @divExact(CType.short.sizeInBits(target), 8),
             .c_ushort => return @divExact(CType.ushort.sizeInBits(target), 8),

@@ -1,22 +1,14 @@
 this is my WIP branch scratch pad, to be deleted before merging into master
 
 Merge TODO list:
- * don't have an explicit dbg_stmt zir instruction - instead merge it with
-   var decl and assignment instructions, etc.
-   - make it set sema.src where appropriate
+ * uncomment the commented out stage2 tests
  * remove the LazySrcLoc.todo tag
  * update astgen.zig
  * finish updating Sema.zig
  * finish implementing SrcLoc byteOffset function
- * audit Module.zig for use of token_starts - it should only be when
-   resolving LazySrcLoc
- * audit astgen.zig for use of token_starts - I think there should be no uses
  * audit all the .unneeded src locations
  * audit the calls in codegen toSrcLocWithDecl specifically if there is inlined function
    calls from other files.
- * uncomment the commented out stage2 tests
- * memory leaks on --watch update
- * memory leaks on test-stage2
 
 Performance optimizations to look into:
  * astgen: pass *GenZir as the first arg, not *Module
@@ -41,3 +33,7 @@ Performance optimizations to look into:
  * in astgen, if a decl_val would be to a const variable or to a function, there could be
    a special zir.Inst.Ref form that means to refer to a decl as the operand. This
    would elide all the decl_val instructions in the ZIR.
+ * don't have an explicit dbg_stmt zir instruction - instead merge it with
+   var decl and assignment instructions, etc.
+   - make it set sema.src where appropriate
+ * look into not emitting redundant dbg stmts to TZIR

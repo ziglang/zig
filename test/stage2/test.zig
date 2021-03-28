@@ -1502,27 +1502,27 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
 
-        //case.addCompareOutput(
-        //    \\export fn _start() noreturn {
-        //    \\    const a: anyerror!comptime_int = 42;
-        //    \\    const b: *const comptime_int = &(a catch unreachable);
-        //    \\    assert(b.* == 42);
-        //    \\
-        //    \\    exit();
-        //    \\}
-        //    \\fn assert(b: bool) void {
-        //    \\    if (!b) unreachable; // assertion failure
-        //    \\}
-        //    \\fn exit() noreturn {
-        //    \\    asm volatile ("syscall"
-        //    \\        :
-        //    \\        : [number] "{rax}" (231),
-        //    \\          [arg1] "{rdi}" (0)
-        //    \\        : "rcx", "r11", "memory"
-        //    \\    );
-        //    \\    unreachable;
-        //    \\}
-        //, "");
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const a: anyerror!comptime_int = 42;
+            \\    const b: *const comptime_int = &(a catch unreachable);
+            \\    assert(b.* == 42);
+            \\
+            \\    exit();
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable; // assertion failure
+            \\}
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        , "");
 
         case.addCompareOutput(
             \\export fn _start() noreturn {
