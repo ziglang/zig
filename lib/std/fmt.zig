@@ -1250,9 +1250,9 @@ fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.FormatOpti
         const kunits = ns_remaining * 1000 / unit.ns;
         if (kunits >= 1000) {
             try formatInt(kunits / 1000, 10, false, .{}, writer);
-            if (kunits > 1000) {
+            const frac = kunits % 1000;
+            if (frac > 0) {
                 // Write up to 3 decimal places
-                const frac = kunits % 1000;
                 var buf = [_]u8{ '.', 0, 0, 0 };
                 _ = formatIntBuf(buf[1..], frac, 10, false, .{ .fill = '0', .width = 3 });
                 var end: usize = 4;
@@ -1286,9 +1286,14 @@ test "fmtDuration" {
         .{ .s = "1us", .d = std.time.ns_per_us },
         .{ .s = "1.45us", .d = 1450 },
         .{ .s = "1.5us", .d = 3 * std.time.ns_per_us / 2 },
+        .{ .s = "14.5us", .d = 14500 },
+        .{ .s = "145us", .d = 145000 },
         .{ .s = "999.999us", .d = std.time.ns_per_ms - 1 },
         .{ .s = "1ms", .d = std.time.ns_per_ms + 1 },
         .{ .s = "1.5ms", .d = 3 * std.time.ns_per_ms / 2 },
+        .{ .s = "1.11ms", .d = 1110000 },
+        .{ .s = "1.111ms", .d = 1111000 },
+        .{ .s = "1.111ms", .d = 1111100 },
         .{ .s = "999.999ms", .d = std.time.ns_per_s - 1 },
         .{ .s = "1s", .d = std.time.ns_per_s },
         .{ .s = "59.999s", .d = std.time.ns_per_min - 1 },
