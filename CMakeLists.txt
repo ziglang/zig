@@ -538,7 +538,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/ThreadPool.zig"
     "${CMAKE_SOURCE_DIR}/src/TypedValue.zig"
     "${CMAKE_SOURCE_DIR}/src/WaitGroup.zig"
-    "${CMAKE_SOURCE_DIR}/src/astgen.zig"
+    "${CMAKE_SOURCE_DIR}/src/AstGen.zig"
     "${CMAKE_SOURCE_DIR}/src/clang.zig"
     "${CMAKE_SOURCE_DIR}/src/clang_options.zig"
     "${CMAKE_SOURCE_DIR}/src/clang_options_data.zig"

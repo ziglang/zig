@@ -4266,7 +4266,7 @@ fn isZigPrimitiveType(name: []const u8) bool {
         }
         return true;
     }
-    return @import("astgen.zig").simple_types.has(name);
+    return @import("Astgen.zig").simple_types.has(name);
 }
 
 const MacroCtx = struct {
