@@ -906,14 +906,35 @@ test "namespaced global variable" {
     expect(foo() == 1236);
 }
 
+const S = struct {
+    var x: i32 = 1234;
+};
+
 fn foo() i32 {
-    const S = struct {
-        var x: i32 = 1234;
-    };
     S.x += 1;
     return S.x;
 }
       {#code_end#}
+      <p>
+        Local static variables may also be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
+        </p>
+        {#code_begin|test|namespaced_local_static#}
+  const std = @import("std");
+  const expect = std.testing.expect;
+  
+  test "namespaced localc static variable" {
+      expect(foo() == 1235);
+      expect(foo() == 1236);
+  }
+  
+  fn foo() i32 {
+      const S = struct {
+          var x: i32 = 1234;
+      };
+      S.x += 1;
+      return S.x;
+  }
+        {#code_end#}
       <p>
       The {#syntax#}extern{#endsyntax#} keyword can be used to link against a variable that is exported
       from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
