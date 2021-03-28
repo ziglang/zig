@@ -922,7 +922,7 @@ fn foo() i32 {
   const std = @import("std");
   const expect = std.testing.expect;
   
-  test "namespaced localc static variable" {
+  test "namespaced local static variable" {
       expect(foo() == 1235);
       expect(foo() == 1236);
   }
