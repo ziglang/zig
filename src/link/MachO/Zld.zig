@@ -75,6 +75,7 @@ bss_section_index: ?u16 = null,
 
 globals: std.StringArrayHashMapUnmanaged(Symbol) = .{},
 undefs: std.StringArrayHashMapUnmanaged(Symbol) = .{},
+externs: std.StringArrayHashMapUnmanaged(Symbol) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
 // locals: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(Symbol)) = .{},
@@ -223,6 +224,11 @@ pub fn deinit(self: *Zld) void {
         self.allocator.free(entry.key);
     }
     self.undefs.deinit(self.allocator);
+
+    for (self.externs.items()) |*entry| {
+        self.allocator.free(entry.key);
+    }
+    self.externs.deinit(self.allocator);
 }
 
 pub fn closeFiles(self: Zld) void {
@@ -1215,7 +1221,11 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
                     .file = object_id,
                     .index = @intCast(u32, sym_id),
                 });
-                _ = self.undefs.swapRemove(sym_name);
+
+                if (self.undefs.swapRemove(sym_name)) |undef| {
+                    self.allocator.free(undef.key);
+                }
+
                 continue;
             };
 
@@ -1252,6 +1262,7 @@ fn resolveSymbols(self: *Zld) !void {
         try self.resolveSymbolsInObject(@intCast(u16, object_id));
     }
 
+    // Second pass, resolve symbols in static libraries.
     var next: usize = 0;
     while (true) {
         var archive = &self.archives.items[next];
@@ -1284,6 +1295,26 @@ fn resolveSymbols(self: *Zld) !void {
             }
             archive = &self.archives.items[next];
         }
+    }
+
+    // Third pass, resolve symbols in dynamic libraries.
+    // TODO Implement libSystem as a hard-coded library, or ship with
+    // a libSystem.B.tbd definition file?
+    while (self.undefs.items().len > 0) {
+        const entry = self.undefs.pop();
+        try self.externs.putNoClobber(self.allocator, entry.key, .{
+            .inner = entry.value.inner,
+            .file = 0,
+        });
+    }
+
+    // If there are any undefs left, flag an error.
+    if (self.undefs.items().len > 0) {
+        for (self.undefs.items()) |entry| {
+            log.err("undefined reference to symbol '{s}'", .{entry.key});
+        }
+
+        return error.UndefinedSymbolReference;
     }
 }
 
@@ -3200,6 +3231,11 @@ fn aarch64IsArithmetic(inst: *const [4]u8) callconv(.Inline) bool {
 fn printSymtab(self: Zld) void {
     log.warn("globals", .{});
     for (self.globals.items()) |entry| {
+        log.warn("    | {s} => {any}", .{ entry.key, entry.value });
+    }
+
+    log.warn("externs", .{});
+    for (self.externs.items()) |entry| {
         log.warn("    | {s} => {any}", .{ entry.key, entry.value });
     }
 
