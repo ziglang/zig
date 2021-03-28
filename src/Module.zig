@@ -920,7 +920,7 @@ pub const Scope = struct {
         label: ?Label = null,
         break_block: zir.Inst.Index = 0,
         continue_block: zir.Inst.Index = 0,
-        /// Only valid when setBlockResultLoc is called.
+        /// Only valid when setBreakResultLoc is called.
         break_result_loc: AstGen.ResultLoc = undefined,
         /// When a block has a pointer result location, here it is.
         rl_ptr: zir.Inst.Ref = .none,
@@ -971,6 +971,37 @@ pub const Scope = struct {
 
         pub fn tree(gz: *const GenZir) *const ast.Tree {
             return &gz.astgen.decl.container.file_scope.tree;
+        }
+
+        pub fn setBreakResultLoc(gz: *GenZir, parent_rl: AstGen.ResultLoc) void {
+            // Depending on whether the result location is a pointer or value, different
+            // ZIR needs to be generated. In the former case we rely on storing to the
+            // pointer to communicate the result, and use breakvoid; in the latter case
+            // the block break instructions will have the result values.
+            // One more complication: when the result location is a pointer, we detect
+            // the scenario where the result location is not consumed. In this case
+            // we emit ZIR for the block break instructions to have the result values,
+            // and then rvalue() on that to pass the value to the result location.
+            switch (parent_rl) {
+                .discard, .none, .ty, .ptr, .ref => {
+                    gz.break_result_loc = parent_rl;
+                },
+
+                .inferred_ptr => |ptr| {
+                    gz.rl_ptr = ptr;
+                    gz.break_result_loc = .{ .block_ptr = gz };
+                },
+
+                .bitcasted_ptr => |ptr| {
+                    gz.rl_ptr = ptr;
+                    gz.break_result_loc = .{ .block_ptr = gz };
+                },
+
+                .block_ptr => |parent_block_scope| {
+                    gz.rl_ptr = parent_block_scope.rl_ptr;
+                    gz.break_result_loc = .{ .block_ptr = gz };
+                },
+            }
         }
 
         pub fn setBoolBrBody(gz: GenZir, inst: zir.Inst.Index) !void {

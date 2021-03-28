@@ -138,7 +138,7 @@ pub const ResultLoc = union(enum) {
     /// There is a pointer for the expression to store its result into, however, its type
     /// is inferred based on peer type resolution for a `zir.Inst.Block`.
     /// The result instruction from the expression must be ignored.
-    block_ptr: *Module.Scope.GenZir,
+    block_ptr: *Scope.GenZir,
 
     pub const Strategy = struct {
         elide_store_to_block_ptr_instructions: bool,
@@ -154,6 +154,41 @@ pub const ResultLoc = union(enum) {
             break_operand,
         };
     };
+
+    fn strategy(rl: ResultLoc, block_scope: *Scope.GenZir) Strategy {
+        var elide_store_to_block_ptr_instructions = false;
+        switch (rl) {
+            // In this branch there will not be any store_to_block_ptr instructions.
+            .discard, .none, .ty, .ref => return .{
+                .tag = .break_operand,
+                .elide_store_to_block_ptr_instructions = false,
+            },
+            // The pointer got passed through to the sub-expressions, so we will use
+            // break_void here.
+            // In this branch there will not be any store_to_block_ptr instructions.
+            .ptr => return .{
+                .tag = .break_void,
+                .elide_store_to_block_ptr_instructions = false,
+            },
+            .inferred_ptr, .bitcasted_ptr, .block_ptr => {
+                if (block_scope.rvalue_rl_count == block_scope.break_count) {
+                    // Neither prong of the if consumed the result location, so we can
+                    // use break instructions to create an rvalue.
+                    return .{
+                        .tag = .break_operand,
+                        .elide_store_to_block_ptr_instructions = true,
+                    };
+                } else {
+                    // Allow the store_to_block_ptr instructions to remain so that
+                    // semantic analysis can turn them into bitcasts.
+                    return .{
+                        .tag = .break_void,
+                        .elide_store_to_block_ptr_instructions = false,
+                    };
+                }
+            },
+        }
+    }
 };
 
 pub fn typeExpr(mod: *Module, scope: *Scope, type_node: ast.Node.Index) InnerError!zir.Inst.Ref {
@@ -989,7 +1024,7 @@ fn labeledBlockExpr(
             .block_inst = block_inst,
         }),
     };
-    setBlockResultLoc(&block_scope, rl);
+    block_scope.setBreakResultLoc(rl);
     defer block_scope.instructions.deinit(mod.gpa);
     defer block_scope.labeled_breaks.deinit(mod.gpa);
     defer block_scope.labeled_store_to_block_ptr_list.deinit(mod.gpa);
@@ -1003,7 +1038,7 @@ fn labeledBlockExpr(
     const zir_tags = gz.astgen.instructions.items(.tag);
     const zir_datas = gz.astgen.instructions.items(.data);
 
-    const strat = rlStrategy(rl, &block_scope);
+    const strat = rl.strategy(&block_scope);
     switch (strat.tag) {
         .break_void => {
             // The code took advantage of the result location as a pointer.
@@ -1740,7 +1775,7 @@ fn orelseCatchExpr(
         .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
-    setBlockResultLoc(&block_scope, rl);
+    block_scope.setBreakResultLoc(rl);
     defer block_scope.instructions.deinit(mod.gpa);
 
     // This could be a pointer or value depending on the `operand_rl` parameter.
@@ -1856,7 +1891,7 @@ fn finishThenElseBlock(
 ) InnerError!zir.Inst.Ref {
     // We now have enough information to decide whether the result instruction should
     // be communicated via result location pointer or break instructions.
-    const strat = rlStrategy(rl, block_scope);
+    const strat = rl.strategy(block_scope);
     const astgen = block_scope.astgen;
     switch (strat.tag) {
         .break_void => {
@@ -2035,7 +2070,7 @@ fn ifExpr(
         .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
-    setBlockResultLoc(&block_scope, rl);
+    block_scope.setBreakResultLoc(rl);
     defer block_scope.instructions.deinit(mod.gpa);
 
     const cond = c: {
@@ -2190,7 +2225,7 @@ fn whileExpr(
         .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
-    setBlockResultLoc(&loop_scope, rl);
+    loop_scope.setBreakResultLoc(rl);
     defer loop_scope.instructions.deinit(mod.gpa);
 
     var continue_scope: Scope.GenZir = .{
@@ -2338,7 +2373,7 @@ fn forExpr(
         .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
-    setBlockResultLoc(&loop_scope, rl);
+    loop_scope.setBreakResultLoc(rl);
     defer loop_scope.instructions.deinit(mod.gpa);
 
     var cond_scope: Scope.GenZir = .{
@@ -2520,7 +2555,7 @@ fn switchExpr(
         .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
-    setBlockResultLoc(&block_scope, rl);
+    block_scope.setBreakResultLoc(rl);
     defer block_scope.instructions.deinit(mod.gpa);
 
     var items = std.ArrayList(zir.Inst.Ref).init(mod.gpa);
@@ -3908,72 +3943,6 @@ fn rvalue(
             block_scope.rvalue_rl_count += 1;
             _ = try gz.addBin(.store_to_block_ptr, block_scope.rl_ptr, result);
             return result;
-        },
-    }
-}
-
-fn rlStrategy(rl: ResultLoc, block_scope: *Scope.GenZir) ResultLoc.Strategy {
-    var elide_store_to_block_ptr_instructions = false;
-    switch (rl) {
-        // In this branch there will not be any store_to_block_ptr instructions.
-        .discard, .none, .ty, .ref => return .{
-            .tag = .break_operand,
-            .elide_store_to_block_ptr_instructions = false,
-        },
-        // The pointer got passed through to the sub-expressions, so we will use
-        // break_void here.
-        // In this branch there will not be any store_to_block_ptr instructions.
-        .ptr => return .{
-            .tag = .break_void,
-            .elide_store_to_block_ptr_instructions = false,
-        },
-        .inferred_ptr, .bitcasted_ptr, .block_ptr => {
-            if (block_scope.rvalue_rl_count == block_scope.break_count) {
-                // Neither prong of the if consumed the result location, so we can
-                // use break instructions to create an rvalue.
-                return .{
-                    .tag = .break_operand,
-                    .elide_store_to_block_ptr_instructions = true,
-                };
-            } else {
-                // Allow the store_to_block_ptr instructions to remain so that
-                // semantic analysis can turn them into bitcasts.
-                return .{
-                    .tag = .break_void,
-                    .elide_store_to_block_ptr_instructions = false,
-                };
-            }
-        },
-    }
-}
-
-fn setBlockResultLoc(block_scope: *Scope.GenZir, parent_rl: ResultLoc) void {
-    // Depending on whether the result location is a pointer or value, different
-    // ZIR needs to be generated. In the former case we rely on storing to the
-    // pointer to communicate the result, and use breakvoid; in the latter case
-    // the block break instructions will have the result values.
-    // One more complication: when the result location is a pointer, we detect
-    // the scenario where the result location is not consumed. In this case
-    // we emit ZIR for the block break instructions to have the result values,
-    // and then rvalue() on that to pass the value to the result location.
-    switch (parent_rl) {
-        .discard, .none, .ty, .ptr, .ref => {
-            block_scope.break_result_loc = parent_rl;
-        },
-
-        .inferred_ptr => |ptr| {
-            block_scope.rl_ptr = ptr;
-            block_scope.break_result_loc = .{ .block_ptr = block_scope };
-        },
-
-        .bitcasted_ptr => |ptr| {
-            block_scope.rl_ptr = ptr;
-            block_scope.break_result_loc = .{ .block_ptr = block_scope };
-        },
-
-        .block_ptr => |parent_block_scope| {
-            block_scope.rl_ptr = parent_block_scope.rl_ptr;
-            block_scope.break_result_loc = .{ .block_ptr = block_scope };
         },
     }
 }
