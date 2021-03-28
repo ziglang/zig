@@ -2054,7 +2054,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
                 defer gen_scope.instructions.deinit(mod.gpa);
 
                 const block_expr = node_datas[decl_node].lhs;
-                _ = try AstGen.comptimeExpr(mod, &gen_scope.base, .none, block_expr);
+                _ = try AstGen.comptimeExpr(&gen_scope, &gen_scope.base, .none, block_expr);
 
                 const code = try gen_scope.finish();
                 if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
@@ -2164,7 +2164,7 @@ fn astgenAndSemaFn(
             const param_type_node = param.type_expr;
             assert(param_type_node != 0);
             param_types[param_type_i] =
-                try AstGen.expr(mod, &fn_type_scope.base, .{ .ty = .type_type }, param_type_node);
+                try AstGen.expr(&fn_type_scope, &fn_type_scope.base, .{ .ty = .type_type }, param_type_node);
         }
         assert(param_type_i == param_count);
     }
@@ -2234,7 +2234,7 @@ fn astgenAndSemaFn(
         return mod.failTok(&fn_type_scope.base, maybe_bang, "TODO implement inferred error sets", .{});
     }
     const return_type_inst = try AstGen.expr(
-        mod,
+        &fn_type_scope,
         &fn_type_scope.base,
         .{ .ty = .type_type },
         fn_proto.ast.return_type,
@@ -2250,7 +2250,7 @@ fn astgenAndSemaFn(
         // std.builtin.CallingConvention enum. We need to implement importing other files
         // and enums in order to fix this.
         try AstGen.comptimeExpr(
-            mod,
+            &fn_type_scope,
             &fn_type_scope.base,
             .{ .ty = .enum_literal_type },
             fn_proto.ast.callconv_expr,
@@ -2392,7 +2392,7 @@ fn astgenAndSemaFn(
             astgen.string_bytes.appendAssumeCapacity(0);
         }
 
-        _ = try AstGen.expr(mod, params_scope, .none, body_node);
+        _ = try AstGen.expr(&gen_scope, params_scope, .none, body_node);
 
         if (gen_scope.instructions.items.len == 0 or
             !astgen.instructions.items(.tag)[gen_scope.instructions.items.len - 1]
@@ -2567,11 +2567,11 @@ fn astgenAndSemaVarDecl(
         defer gen_scope.instructions.deinit(mod.gpa);
 
         const init_result_loc: AstGen.ResultLoc = if (var_decl.ast.type_node != 0) .{
-            .ty = try AstGen.expr(mod, &gen_scope.base, .{ .ty = .type_type }, var_decl.ast.type_node),
+            .ty = try AstGen.expr(&gen_scope, &gen_scope.base, .{ .ty = .type_type }, var_decl.ast.type_node),
         } else .none;
 
         const init_inst = try AstGen.comptimeExpr(
-            mod,
+            &gen_scope,
             &gen_scope.base,
             init_result_loc,
             var_decl.ast.init_node,
@@ -2635,7 +2635,7 @@ fn astgenAndSemaVarDecl(
         };
         defer type_scope.instructions.deinit(mod.gpa);
 
-        const var_type = try AstGen.typeExpr(mod, &type_scope.base, var_decl.ast.type_node);
+        const var_type = try AstGen.typeExpr(&type_scope, &type_scope.base, var_decl.ast.type_node);
         _ = try type_scope.addBreak(.break_inline, 0, var_type);
 
         var code = try type_scope.finish();

@@ -11,8 +11,6 @@ Merge TODO list:
    calls from other files.
 
 Performance optimizations to look into:
- * astgen: pass *GenZir as the first arg, not *Module
-   - point here is to avoid the unnecessary virtual call scope.getGenZir()
  * don't store end index for blocks; rely on last instruction being noreturn
  * look into not storing the field name of field access as a string in zir
    instructions. or, look into introducing interning to string_bytes (local
