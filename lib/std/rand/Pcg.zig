@@ -75,7 +75,7 @@ fn fill(r: *Random, buf: []u8) void {
         var n = self.next();
         while (i < buf.len) : (i += 1) {
             buf[i] = @truncate(u8, n);
-            n >>= 4;
+            n >>= 8;
         }
     }
 }
