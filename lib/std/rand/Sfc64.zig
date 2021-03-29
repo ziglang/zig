@@ -106,3 +106,35 @@ test "Sfc64 sequence" {
         std.testing.expectEqual(s, r.next());
     }
 }
+
+test "Sfc64 fill" {
+    // Unfortunately there does not seem to be an official test sequence.
+    var r = Sfc64.init(0);
+
+    const seq = [_]u64{
+        0x3acfa029e3cc6041,
+        0xf5b6515bf2ee419c,
+        0x1259635894a29b61,
+        0xb6ae75395f8ebd6,
+        0x225622285ce302e2,
+        0x520d28611395cb21,
+        0xdb909c818901599d,
+        0x8ffd195365216f57,
+        0xe8c4ad5e258ac04a,
+        0x8f8ef2c89fdb63ca,
+        0xf9865b01d98d8e2f,
+        0x46555871a65d08ba,
+        0x66868677c6298fcd,
+        0x2ce15a7e6329f57d,
+        0xb2f1833ca91ca79,
+        0x4b0890ac9bf453ca,
+    };
+
+    for (seq) |s| {
+        var buf0: [8]u8 = undefined;
+        var buf1: [7]u8 = undefined;
+        std.mem.writeIntLittle(u64, &buf0, s);
+        Sfc64.fill(&r.random, &buf1);
+        std.testing.expect(std.mem.eql(u8, buf0[0..7], buf1[0..]));
+    }
+}
