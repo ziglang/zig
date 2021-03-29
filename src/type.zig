@@ -606,7 +606,7 @@ pub const Type = extern union {
                     .payload = try payload.payload.copy(allocator),
                 });
             },
-            .error_set => return self.copyPayloadShallow(allocator, Payload.Decl),
+            .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.Name),
             .empty_struct => return self.copyPayloadShallow(allocator, Payload.ContainerScope),
 
@@ -831,8 +831,8 @@ pub const Type = extern union {
                     continue;
                 },
                 .error_set => {
-                    const decl = ty.castTag(.error_set).?.data;
-                    return out_stream.writeAll(std.mem.spanZ(decl.name));
+                    const error_set = ty.castTag(.error_set).?.data;
+                    return out_stream.writeAll(std.mem.spanZ(error_set.owner_decl.name));
                 },
                 .error_set_single => {
                     const name = ty.castTag(.error_set_single).?.data;
@@ -3464,7 +3464,7 @@ pub const Type = extern union {
                 .int_unsigned,
                 => Payload.Bits,
 
-                .error_set => Payload.Decl,
+                .error_set => Payload.ErrorSet,
 
                 .array => Payload.Array,
                 .array_sentinel => Payload.ArraySentinel,
@@ -3546,6 +3546,13 @@ pub const Type = extern union {
                 cc: std.builtin.CallingConvention,
                 is_var_args: bool,
             },
+        };
+
+        pub const ErrorSet = struct {
+            pub const base_tag = Tag.error_set;
+
+            base: Payload = Payload{ .tag = base_tag },
+            data: *Module.ErrorSet,
         };
 
         pub const Pointer = struct {

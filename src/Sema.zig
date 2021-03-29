@@ -174,7 +174,6 @@ pub fn analyzeBody(
             .err_union_payload_safe_ptr => try sema.zirErrUnionPayloadPtr(block, inst, true),
             .err_union_payload_unsafe => try sema.zirErrUnionPayload(block, inst, false),
             .err_union_payload_unsafe_ptr => try sema.zirErrUnionPayloadPtr(block, inst, false),
-            .error_set => try sema.zirErrorSet(block, inst),
             .error_union_type => try sema.zirErrorUnionType(block, inst),
             .error_value => try sema.zirErrorValue(block, inst),
             .error_to_int => try sema.zirErrorToInt(block, inst),
@@ -1409,41 +1408,6 @@ fn zirErrorUnionType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inn
     return sema.mod.constType(sema.arena, src, err_union_ty);
 }
 
-fn zirErrorSet(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    if (true) @panic("TODO update for zir-memory-layout branch");
-
-    // The owner Decl arena will store the hashmap.
-    var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-    errdefer new_decl_arena.deinit();
-
-    const payload = try new_decl_arena.allocator.create(Value.Payload.ErrorSet);
-    payload.* = .{
-        .base = .{ .tag = .error_set },
-        .data = .{
-            .fields = .{},
-            .decl = undefined, // populated below
-        },
-    };
-    try payload.data.fields.ensureCapacity(&new_decl_arena.allocator, @intCast(u32, inst.positionals.fields.len));
-
-    for (inst.positionals.fields) |field_name| {
-        const entry = try sema.mod.getErrorValue(field_name);
-        if (payload.data.fields.fetchPutAssumeCapacity(entry.key, {})) |_| {
-            return sema.mod.fail(&block.base, inst.base.src, "duplicate error: '{s}'", .{field_name});
-        }
-    }
-    // TODO create name in format "error:line:column"
-    const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initPayload(&payload.base),
-    });
-    payload.data.decl = new_decl;
-    return sema.analyzeDeclVal(block, inst.base.src, new_decl);
-}
-
 fn zirErrorValue(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1537,71 +1501,67 @@ fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inn
     if (lhs_ty.zigTypeTag() != .ErrorSet)
         return sema.mod.fail(&block.base, lhs_src, "expected error set type, found {}", .{lhs_ty});
 
-    // anything merged with anyerror is anyerror
-    if (lhs_ty.tag() == .anyerror or rhs_ty.tag() == .anyerror)
+    // Anything merged with anyerror is anyerror.
+    if (lhs_ty.tag() == .anyerror or rhs_ty.tag() == .anyerror) {
         return sema.mod.constInst(sema.arena, src, .{
             .ty = Type.initTag(.type),
             .val = Value.initTag(.anyerror_type),
         });
-    // The declarations arena will store the hashmap.
-    var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-    errdefer new_decl_arena.deinit();
-
-    const payload = try new_decl_arena.allocator.create(Value.Payload.ErrorSet);
-    payload.* = .{
-        .base = .{ .tag = .error_set },
-        .data = .{
-            .fields = .{},
-            .decl = undefined, // populated below
-        },
-    };
-    try payload.data.fields.ensureCapacity(&new_decl_arena.allocator, @intCast(u32, switch (rhs_ty.tag()) {
-        .error_set_single => 1,
-        .error_set => rhs_ty.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields.size,
-        else => unreachable,
-    } + switch (lhs_ty.tag()) {
-        .error_set_single => 1,
-        .error_set => lhs_ty.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields.size,
-        else => unreachable,
-    }));
+    }
+    // When we support inferred error sets, we'll want to use a data structure that can
+    // represent a merged set of errors without forcing them to be resolved here. Until then
+    // we re-use the same data structure that is used for explicit error set declarations.
+    var set: std.StringHashMapUnmanaged(void) = .{};
+    defer set.deinit(sema.gpa);
 
     switch (lhs_ty.tag()) {
         .error_set_single => {
             const name = lhs_ty.castTag(.error_set_single).?.data;
-            payload.data.fields.putAssumeCapacity(name, {});
+            try set.put(sema.gpa, name, {});
         },
         .error_set => {
-            var multiple = lhs_ty.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields;
-            var it = multiple.iterator();
-            while (it.next()) |entry| {
-                payload.data.fields.putAssumeCapacity(entry.key, entry.value);
+            const lhs_set = lhs_ty.castTag(.error_set).?.data;
+            try set.ensureCapacity(sema.gpa, set.count() + lhs_set.names_len);
+            for (lhs_set.names_ptr[0..lhs_set.names_len]) |name| {
+                set.putAssumeCapacityNoClobber(name, {});
             }
         },
         else => unreachable,
     }
-
     switch (rhs_ty.tag()) {
         .error_set_single => {
             const name = rhs_ty.castTag(.error_set_single).?.data;
-            payload.data.fields.putAssumeCapacity(name, {});
+            try set.put(sema.gpa, name, {});
         },
         .error_set => {
-            var multiple = rhs_ty.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields;
-            var it = multiple.iterator();
-            while (it.next()) |entry| {
-                payload.data.fields.putAssumeCapacity(entry.key, entry.value);
+            const rhs_set = rhs_ty.castTag(.error_set).?.data;
+            try set.ensureCapacity(sema.gpa, set.count() + rhs_set.names_len);
+            for (rhs_set.names_ptr[0..rhs_set.names_len]) |name| {
+                set.putAssumeCapacity(name, {});
             }
         },
         else => unreachable,
     }
-    // TODO create name in format "error:line:column"
-    const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
-        .ty = Type.initTag(.type),
-        .val = Value.initPayload(&payload.base),
-    });
-    payload.data.decl = new_decl;
 
-    return sema.analyzeDeclVal(block, src, new_decl);
+    const new_names = try sema.arena.alloc([]const u8, set.count());
+    var it = set.iterator();
+    var i: usize = 0;
+    while (it.next()) |entry| : (i += 1) {
+        new_names[i] = entry.key;
+    }
+
+    const new_error_set = try sema.arena.create(Module.ErrorSet);
+    new_error_set.* = .{
+        .owner_decl = sema.owner_decl,
+        .node_offset = inst_data.src_node,
+        .names_ptr = new_names.ptr,
+        .names_len = @intCast(u32, new_names.len),
+    };
+    const error_set_ty = try Type.Tag.error_set.create(sema.arena, new_error_set);
+    return sema.mod.constInst(sema.arena, src, .{
+        .ty = Type.initTag(.type),
+        .val = try Value.Tag.ty.create(sema.arena, error_set_ty),
+    });
 }
 
 fn zirEnumLiteral(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -3441,20 +3401,25 @@ fn namedFieldPtr(
             const child_type = try val.toType(sema.arena);
             switch (child_type.zigTypeTag()) {
                 .ErrorSet => {
-                    var name: []const u8 = undefined;
                     // TODO resolve inferred error sets
-                    if (val.castTag(.error_set)) |payload|
-                        name = (payload.data.fields.getEntry(field_name) orelse return sema.mod.fail(&block.base, src, "no error named '{s}' in '{}'", .{ field_name, child_type })).key
-                    else
-                        name = (try sema.mod.getErrorValue(field_name)).key;
-
-                    const result_type = if (child_type.tag() == .anyerror)
-                        try Type.Tag.error_set_single.create(sema.arena, name)
-                    else
-                        child_type;
+                    const name: []const u8 = if (child_type.castTag(.error_set)) |payload| blk: {
+                        const error_set = payload.data;
+                        // TODO this is O(N). I'm putting off solving this until we solve inferred
+                        // error sets at the same time.
+                        const names = error_set.names_ptr[0..error_set.names_len];
+                        for (names) |name| {
+                            if (mem.eql(u8, field_name, name)) {
+                                break :blk name;
+                            }
+                        }
+                        return sema.mod.fail(&block.base, src, "no error named '{s}' in '{}'", .{
+                            field_name,
+                            child_type,
+                        });
+                    } else (try sema.mod.getErrorValue(field_name)).key;
 
                     return sema.mod.constInst(sema.arena, src, .{
-                        .ty = try sema.mod.simplePtrType(sema.arena, result_type, false, .One),
+                        .ty = try sema.mod.simplePtrType(sema.arena, child_type, false, .One),
                         .val = try Value.Tag.ref_val.create(
                             sema.arena,
                             try Value.Tag.@"error".create(sema.arena, .{
@@ -4201,15 +4166,35 @@ fn wrapErrorUnion(sema: *Sema, block: *Scope.Block, dest_type: Type, inst: *Inst
         } else switch (err_union.data.error_set.tag()) {
             .anyerror => val,
             .error_set_single => blk: {
+                const expected_name = val.castTag(.@"error").?.data.name;
                 const n = err_union.data.error_set.castTag(.error_set_single).?.data;
-                if (!mem.eql(u8, val.castTag(.@"error").?.data.name, n))
-                    return sema.mod.fail(&block.base, inst.src, "expected type '{}', found type '{}'", .{ err_union.data.error_set, inst.ty });
+                if (!mem.eql(u8, expected_name, n)) {
+                    return sema.mod.fail(
+                        &block.base,
+                        inst.src,
+                        "expected type '{}', found type '{}'",
+                        .{ err_union.data.error_set, inst.ty },
+                    );
+                }
                 break :blk val;
             },
             .error_set => blk: {
-                const f = err_union.data.error_set.castTag(.error_set).?.data.typed_value.most_recent.typed_value.val.castTag(.error_set).?.data.fields;
-                if (f.get(val.castTag(.@"error").?.data.name) == null)
-                    return sema.mod.fail(&block.base, inst.src, "expected type '{}', found type '{}'", .{ err_union.data.error_set, inst.ty });
+                const expected_name = val.castTag(.@"error").?.data.name;
+                const error_set = err_union.data.error_set.castTag(.error_set).?.data;
+                const names = error_set.names_ptr[0..error_set.names_len];
+                // TODO this is O(N). I'm putting off solving this until we solve inferred
+                // error sets at the same time.
+                const found = for (names) |name| {
+                    if (mem.eql(u8, expected_name, name)) break true;
+                } else false;
+                if (!found) {
+                    return sema.mod.fail(
+                        &block.base,
+                        inst.src,
+                        "expected type '{}', found type '{}'",
+                        .{ err_union.data.error_set, inst.ty },
+                    );
+                }
                 break :blk val;
             },
             else => unreachable,

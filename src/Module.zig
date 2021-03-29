@@ -78,9 +78,11 @@ next_anon_name_index: usize = 0,
 deletion_set: ArrayListUnmanaged(*Decl) = .{},
 
 /// Error tags and their values, tag names are duped with mod.gpa.
-global_error_set: std.StringHashMapUnmanaged(u16) = .{},
+/// Corresponds with `error_name_list`.
+global_error_set: std.StringHashMapUnmanaged(ErrorInt) = .{},
 
-/// error u16 -> []const u8 for fast lookups for @intToError at comptime
+/// ErrorInt -> []const u8 for fast lookups for @intToError at comptime
+/// Corresponds with `global_error_set`.
 error_name_list: ArrayListUnmanaged([]const u8) = .{},
 
 /// Keys are fully qualified paths
@@ -107,6 +109,8 @@ stage1_flags: packed struct {
 emit_h: ?Compilation.EmitLoc,
 
 compile_log_text: ArrayListUnmanaged(u8) = .{},
+
+pub const ErrorInt = u32;
 
 pub const Export = struct {
     options: std.builtin.ExportOptions,
@@ -339,6 +343,17 @@ pub const Decl = struct {
 /// This state is attached to every Decl when Module emit_h is non-null.
 pub const EmitH = struct {
     fwd_decl: ArrayListUnmanaged(u8) = .{},
+};
+
+/// Represents the data that an explicit error set syntax provides.
+pub const ErrorSet = struct {
+    owner_decl: *Decl,
+    /// Offset from Decl node index, points to the error set AST node.
+    node_offset: i32,
+    names_len: u32,
+    /// The string bytes are stored in the owner Decl arena.
+    /// They are in the same order they appear in the AST.
+    names_ptr: [*]const []const u8,
 };
 
 /// Some Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.
@@ -1361,6 +1376,13 @@ pub const Scope = struct {
             });
             gz.instructions.appendAssumeCapacity(new_index);
             return new_index;
+        }
+
+        pub fn addConst(gz: *GenZir, typed_value: *TypedValue) !zir.Inst.Ref {
+            return gz.add(.{
+                .tag = .@"const",
+                .data = .{ .@"const" = typed_value },
+            });
         }
 
         pub fn add(gz: *GenZir, inst: zir.Inst) !zir.Inst.Ref {
@@ -3362,7 +3384,7 @@ fn createNewDecl(
 }
 
 /// Get error value for error tag `name`.
-pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged(u16).Entry {
+pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged(ErrorInt).Entry {
     const gop = try mod.global_error_set.getOrPut(mod.gpa, name);
     if (gop.found_existing)
         return gop.entry.*;
@@ -3370,7 +3392,7 @@ pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged
     errdefer mod.global_error_set.removeAssertDiscard(name);
     try mod.error_name_list.ensureCapacity(mod.gpa, mod.error_name_list.items.len + 1);
     gop.entry.key = try mod.gpa.dupe(u8, name);
-    gop.entry.value = @intCast(u16, mod.error_name_list.items.len);
+    gop.entry.value = @intCast(ErrorInt, mod.error_name_list.items.len);
     mod.error_name_list.appendAssumeCapacity(gop.entry.key);
     return gop.entry.*;
 }
@@ -3580,9 +3602,9 @@ pub fn createAnonymousDecl(
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
 
-    // TODO: This generates the Decl into the machine code file if it is of a type that is non-zero size.
-    // We should be able to further improve the compiler to not omit Decls which are only referenced at
-    // compile-time and not runtime.
+    // TODO: This generates the Decl into the machine code file if it is of a
+    // type that is non-zero size. We should be able to further improve the
+    // compiler to omit Decls which are only referenced at compile-time and not runtime.
     if (typed_value.ty.hasCodeGenBits()) {
         try mod.comp.bin_file.allocateDeclIndexes(new_decl);
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = new_decl });

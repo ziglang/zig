@@ -314,11 +314,6 @@ pub const Inst = struct {
         /// Create a `E!T` type.
         /// Uses the `pl_node` field with `Bin` payload.
         error_union_type,
-        /// Create an error set. TODO can't we just do this in astgen? reconsider
-        /// memory layout of error sets. if astgen wants to make Sema do the work,
-        /// this ZIR instruction could just be an AST node index. If astgen wants to
-        /// do the work, it could use a const instruction.
-        error_set,
         /// `error.Foo` syntax. Uses the `str_tok` field of the Data union.
         error_value,
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
@@ -742,7 +737,6 @@ pub const Inst = struct {
                 .merge_error_sets,
                 .error_union_type,
                 .bit_not,
-                .error_set,
                 .error_value,
                 .slice_start,
                 .slice_end,
@@ -1459,8 +1453,6 @@ const Writer = struct {
             .asm_volatile,
             .elem_ptr_node,
             .elem_val_node,
-            .field_ptr,
-            .field_val,
             .field_ptr_named,
             .field_val_named,
             .floatcast,
@@ -1519,6 +1511,10 @@ const Writer = struct {
             .decl_val,
             => try self.writePlNodeDecl(stream, inst),
 
+            .field_ptr,
+            .field_val,
+            => try self.writePlNodeField(stream, inst),
+
             .as_node => try self.writeAs(stream, inst),
 
             .breakpoint,
@@ -1544,7 +1540,6 @@ const Writer = struct {
             .bitcast,
             .bitcast_ref,
             .bitcast_result_ptr,
-            .error_set,
             .store_to_inferred_ptr,
             => try stream.writeAll("TODO)"),
         }
@@ -1730,6 +1725,15 @@ const Writer = struct {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const decl = self.code.decls[inst_data.payload_index];
         try stream.print("{s}) ", .{decl.name});
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeField(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.Field, inst_data.payload_index).data;
+        const name = self.code.nullTerminatedString(extra.field_name_start);
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.print(", \"{}\") ", .{std.zig.fmtEscapes(name)});
         try self.writeSrc(stream, inst_data.src());
     }
 
