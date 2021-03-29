@@ -61,6 +61,14 @@ pub fn findZigLibDirFromSelfExe(
 
 /// Caller owns returned memory.
 pub fn resolveGlobalCacheDir(allocator: *mem.Allocator) ![]u8 {
+    if (std.process.getEnvVarOwned(allocator, "ZIG_GLOBAL_CACHE_DIR")) |value| {
+        if (value.len > 0) {
+            return value;
+        } else {
+            allocator.free(value);
+        }
+    } else |_| {}
+
     const appname = "zig";
 
     if (std.Target.current.os.tag != .windows) {

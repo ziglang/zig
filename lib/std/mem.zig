@@ -1373,6 +1373,20 @@ test "mem.tokenize (multibyte)" {
     testing.expect(it.next() == null);
 }
 
+test "mem.tokenize (reset)" {
+    var it = tokenize("   abc def   ghi  ", " ");
+    testing.expect(eql(u8, it.next().?, "abc"));
+    testing.expect(eql(u8, it.next().?, "def"));
+    testing.expect(eql(u8, it.next().?, "ghi"));
+
+    it.reset();
+
+    testing.expect(eql(u8, it.next().?, "abc"));
+    testing.expect(eql(u8, it.next().?, "def"));
+    testing.expect(eql(u8, it.next().?, "ghi"));
+    testing.expect(it.next() == null);
+}
+
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by bytes in `delimiter`.
 /// split("abc|def||ghi", "|")
@@ -1469,6 +1483,11 @@ pub const TokenIterator = struct {
         var index: usize = self.index;
         while (index < self.buffer.len and self.isSplitByte(self.buffer[index])) : (index += 1) {}
         return self.buffer[index..];
+    }
+
+    /// Resets the iterator to the initial token.
+    pub fn reset(self: *TokenIterator) void {
+        self.index = 0;
     }
 
     fn isSplitByte(self: TokenIterator, byte: u8) bool {

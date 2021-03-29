@@ -270,7 +270,10 @@ pub const Context = struct {
     global_scope: *Scope.Root,
     clang_context: *clang.ASTContext,
     mangle_count: u32 = 0,
+    /// Table of record decls that have been demoted to opaques.
     opaque_demotes: std.AutoHashMapUnmanaged(usize, void) = .{},
+    /// Table of unnamed enums and records that are child types of typedefs.
+    unnamed_typedefs: std.AutoHashMapUnmanaged(usize, []const u8) = .{},
 
     /// This one is different than the root scope's name table. This contains
     /// a list of names that we found by visiting all the top level decls without
@@ -338,6 +341,7 @@ pub fn translate(
         context.alias_list.deinit();
         context.global_names.deinit(gpa);
         context.opaque_demotes.deinit(gpa);
+        context.unnamed_typedefs.deinit(gpa);
         context.global_scope.deinit();
     }
 
@@ -401,6 +405,51 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
     if (decl.castToNamedDecl()) |named_decl| {
         const decl_name = try c.str(named_decl.getName_bytes_begin());
         try c.global_names.put(c.gpa, decl_name, {});
+
+        // Check for typedefs with unnamed enum/record child types.
+        if (decl.getKind() == .Typedef) {
+            const typedef_decl = @ptrCast(*const clang.TypedefNameDecl, decl);
+            var child_ty = typedef_decl.getUnderlyingType().getTypePtr();
+            const addr: usize = while (true) switch (child_ty.getTypeClass()) {
+                .Enum => {
+                    const enum_ty = @ptrCast(*const clang.EnumType, child_ty);
+                    const enum_decl = enum_ty.getDecl();
+                    // check if this decl is unnamed
+                    if (@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin()[0] != 0) return;
+                    break @ptrToInt(enum_decl.getCanonicalDecl());
+                },
+                .Record => {
+                    const record_ty = @ptrCast(*const clang.RecordType, child_ty);
+                    const record_decl = record_ty.getDecl();
+                    // check if this decl is unnamed
+                    if (@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin()[0] != 0) return;
+                    break @ptrToInt(record_decl.getCanonicalDecl());
+                },
+                .Elaborated => {
+                    const elaborated_ty = @ptrCast(*const clang.ElaboratedType, child_ty);
+                    child_ty = elaborated_ty.getNamedType().getTypePtr();
+                },
+                .Decayed => {
+                    const decayed_ty = @ptrCast(*const clang.DecayedType, child_ty);
+                    child_ty = decayed_ty.getDecayedType().getTypePtr();
+                },
+                .Attributed => {
+                    const attributed_ty = @ptrCast(*const clang.AttributedType, child_ty);
+                    child_ty = attributed_ty.getEquivalentType().getTypePtr();
+                },
+                .MacroQualified => {
+                    const macroqualified_ty = @ptrCast(*const clang.MacroQualifiedType, child_ty);
+                    child_ty = macroqualified_ty.getModifiedType().getTypePtr();
+                },
+                else => return,
+            } else unreachable;
+            // TODO https://github.com/ziglang/zig/issues/3756
+            // TODO https://github.com/ziglang/zig/issues/1802
+            const name = if (isZigPrimitiveType(decl_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ decl_name, c.getMangle() }) else decl_name;
+            try c.unnamed_typedefs.putNoClobber(c.gpa, addr, name);
+            // Put this typedef in the decl_table to avoid redefinitions.
+            try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), name);
+        }
     }
 }
 
@@ -752,17 +801,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
-    var bare_name = try c.str(@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin());
-    var is_unnamed = false;
-    // Record declarations such as `struct {...} x` have no name but they're not
-    // anonymous hence here isAnonymousStructOrUnion is not needed
-    if (bare_name.len == 0) {
-        bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
-        is_unnamed = true;
-    }
-
-    var container_kind_name: []const u8 = undefined;
     var is_union = false;
+    var container_kind_name: []const u8 = undefined;
+    var bare_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin());
+
     if (record_decl.isUnion()) {
         container_kind_name = "union";
         is_union = true;
@@ -773,7 +815,20 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         return failDecl(c, record_loc, bare_name, "record {s} is not a struct or union", .{bare_name});
     }
 
-    var name: []const u8 = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
+    var is_unnamed = false;
+    var name = bare_name;
+    if (c.unnamed_typedefs.get(@ptrToInt(record_decl.getCanonicalDecl()))) |typedef_name| {
+        bare_name = typedef_name;
+        name = typedef_name;
+    } else {
+        // Record declarations such as `struct {...} x` have no name but they're not
+        // anonymous hence here isAnonymousStructOrUnion is not needed
+        if (bare_name.len == 0) {
+            bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
+            is_unnamed = true;
+        }
+        name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
+    }
     if (!toplevel) name = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), name);
 
@@ -874,14 +929,19 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
-    var bare_name = try c.str(@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin());
     var is_unnamed = false;
-    if (bare_name.len == 0) {
-        bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
-        is_unnamed = true;
+    var bare_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin());
+    var name = bare_name;
+    if (c.unnamed_typedefs.get(@ptrToInt(enum_decl.getCanonicalDecl()))) |typedef_name| {
+        bare_name = typedef_name;
+        name = typedef_name;
+    } else {
+        if (bare_name.len == 0) {
+            bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
+            is_unnamed = true;
+        }
+        name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     }
-
-    var name: []const u8 = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     if (!toplevel) _ = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), name);
 
@@ -1063,6 +1123,7 @@ fn transStmt(
             const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, stmt);
             return transExpr(c, scope, gen_sel.getResultExpr(), result_used);
         },
+        // When adding new cases here, see comment for maybeBlockify()
         else => {
             return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)});
         },
@@ -2242,6 +2303,35 @@ fn transImplicitValueInitExpr(
     return transZeroInitExpr(c, scope, source_loc, ty);
 }
 
+/// If a statement can possibly translate to a Zig assignment (either directly because it's
+/// an assignment in C or indirectly via result assignment to `_`) AND it's the sole statement
+/// in the body of an if statement or loop, then we need to put the statement into its own block.
+/// The `else` case here corresponds to statements that could result in an assignment. If a statement
+/// class never needs a block, add its enum to the top prong.
+fn maybeBlockify(c: *Context, scope: *Scope, stmt: *const clang.Stmt) TransError!Node {
+    switch (stmt.getStmtClass()) {
+        .BreakStmtClass,
+        .CompoundStmtClass,
+        .ContinueStmtClass,
+        .DeclRefExprClass,
+        .DeclStmtClass,
+        .DoStmtClass,
+        .ForStmtClass,
+        .IfStmtClass,
+        .ReturnStmtClass,
+        .NullStmtClass,
+        .WhileStmtClass,
+        => return transStmt(c, scope, stmt, .unused),
+        else => {
+            var block_scope = try Scope.Block.init(c, scope, false);
+            defer block_scope.deinit();
+            const result = try transStmt(c, &block_scope.base, stmt, .unused);
+            try block_scope.statements.append(result);
+            return block_scope.complete(c);
+        },
+    }
+}
+
 fn transIfStmt(
     c: *Context,
     scope: *Scope,
@@ -2259,9 +2349,10 @@ fn transIfStmt(
     const cond_expr = @ptrCast(*const clang.Expr, stmt.getCond());
     const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
 
-    const then_body = try transStmt(c, scope, stmt.getThen(), .unused);
+    const then_body = try maybeBlockify(c, scope, stmt.getThen());
+
     const else_body = if (stmt.getElse()) |expr|
-        try transStmt(c, scope, expr, .unused)
+        try maybeBlockify(c, scope, expr)
     else
         null;
     return Tag.@"if".create(c.arena, .{ .cond = cond, .then = then_body, .@"else" = else_body });
@@ -2286,7 +2377,7 @@ fn transWhileLoop(
         .parent = scope,
         .id = .loop,
     };
-    const body = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
+    const body = try maybeBlockify(c, &loop_scope, stmt.getBody());
     return Tag.@"while".create(c.arena, .{ .cond = cond, .body = body, .cont_expr = null });
 }
 
@@ -2312,7 +2403,7 @@ fn transDoWhileLoop(
     const if_not_break = switch (cond.tag()) {
         .false_literal => return transStmt(c, scope, stmt.getBody(), .unused),
         .true_literal => {
-            const body_node = try transStmt(c, scope, stmt.getBody(), .unused);
+            const body_node = try maybeBlockify(c, scope, stmt.getBody());
             return Tag.while_true.create(c.arena, body_node);
         },
         else => try Tag.if_not_break.create(c.arena, cond),
@@ -2388,7 +2479,7 @@ fn transForLoop(
     else
         null;
 
-    const body = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
+    const body = try maybeBlockify(c, &loop_scope, stmt.getBody());
     const while_node = try Tag.@"while".create(c.arena, .{ .cond = cond, .body = body, .cont_expr = cont_expr });
     if (block_scope) |*bs| {
         try bs.statements.append(while_node);
@@ -3106,43 +3197,34 @@ fn transCreateCompoundAssign(
     const requires_int_cast = blk: {
         const are_integers = cIsInteger(lhs_qt) and cIsInteger(rhs_qt);
         const are_same_sign = cIsSignedInteger(lhs_qt) == cIsSignedInteger(rhs_qt);
-        break :blk are_integers and !are_same_sign;
+        break :blk are_integers and !(are_same_sign and cIntTypeCmp(lhs_qt, rhs_qt) == .eq);
     };
+
     if (used == .unused) {
         // common case
         // c: lhs += rhs
         // zig: lhs += rhs
+        const lhs_node = try transExpr(c, scope, lhs, .used);
+        var rhs_node = try transExpr(c, scope, rhs, .used);
+        if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
+
         if ((is_mod or is_div) and is_signed) {
-            const lhs_node = try transExpr(c, scope, lhs, .used);
-            const rhs_node = try transExpr(c, scope, rhs, .used);
+            if (requires_int_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
+            const operands = .{ .lhs = lhs_node, .rhs = rhs_node };
             const builtin = if (is_mod)
-                try Tag.rem.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node })
+                try Tag.rem.create(c.arena, operands)
             else
-                try Tag.div_trunc.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
+                try Tag.div_trunc.create(c.arena, operands);
 
             return transCreateNodeInfixOp(c, scope, .assign, lhs_node, builtin, .used);
         }
 
-        const lhs_node = try transExpr(c, scope, lhs, .used);
-        var rhs_node = if (is_shift or requires_int_cast)
-            try transExprCoercing(c, scope, rhs, .used)
-        else
-            try transExpr(c, scope, rhs, .used);
-
-        if (is_ptr_op_signed) {
-            rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
-        }
-
-        if (is_shift or requires_int_cast) {
-            // @intCast(rhs)
-            const cast_to_type = if (is_shift)
-                try qualTypeToLog2IntRef(c, scope, getExprQualType(c, rhs), loc)
-            else
-                try transQualType(c, scope, getExprQualType(c, lhs), loc);
-
+        if (is_shift) {
+            const cast_to_type = try qualTypeToLog2IntRef(c, scope, rhs_qt, loc);
             rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
+        } else if (requires_int_cast) {
+            rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
         }
-
         return transCreateNodeInfixOp(c, scope, op, lhs_node, rhs_node, .used);
     }
     // worst case
@@ -3164,29 +3246,24 @@ fn transCreateCompoundAssign(
     const lhs_node = try Tag.identifier.create(c.arena, ref);
     const ref_node = try Tag.deref.create(c.arena, lhs_node);
 
+    var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
+    if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
     if ((is_mod or is_div) and is_signed) {
-        const rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
+        if (requires_int_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
+        const operands = .{ .lhs = ref_node, .rhs = rhs_node };
         const builtin = if (is_mod)
-            try Tag.rem.create(c.arena, .{ .lhs = ref_node, .rhs = rhs_node })
+            try Tag.rem.create(c.arena, operands)
         else
-            try Tag.div_trunc.create(c.arena, .{ .lhs = ref_node, .rhs = rhs_node });
+            try Tag.div_trunc.create(c.arena, operands);
 
         const assign = try transCreateNodeInfixOp(c, &block_scope.base, .assign, ref_node, builtin, .used);
         try block_scope.statements.append(assign);
     } else {
-        var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
-
-        if (is_shift or requires_int_cast) {
-            // @intCast(rhs)
-            const cast_to_type = if (is_shift)
-                try qualTypeToLog2IntRef(c, scope, getExprQualType(c, rhs), loc)
-            else
-                try transQualType(c, scope, getExprQualType(c, lhs), loc);
-
+        if (is_shift) {
+            const cast_to_type = try qualTypeToLog2IntRef(c, &block_scope.base, rhs_qt, loc);
             rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
-        }
-        if (is_ptr_op_signed) {
-            rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
+        } else if (requires_int_cast) {
+            rhs_node = try transCCast(c, &block_scope.base, loc, lhs_qt, rhs_qt, rhs_node);
         }
 
         const assign = try transCreateNodeInfixOp(c, &block_scope.base, op, ref_node, rhs_node, .used);

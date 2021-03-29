@@ -5610,6 +5610,7 @@ pub fn recvfrom(
                 EAGAIN => return error.WouldBlock,
                 ENOMEM => return error.SystemResources,
                 ECONNREFUSED => return error.ConnectionRefused,
+                ECONNRESET => return error.ConnectionResetByPeer,
                 else => |err| return unexpectedErrno(err),
             }
         }

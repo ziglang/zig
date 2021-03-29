@@ -3183,7 +3183,11 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("stage1 {s} new_digest={} error: {s}", .{ mod.root_pkg.root_src_path, digest, @errorName(err) });
+            log.debug("stage1 {s} new_digest={s} error: {s}", .{
+                mod.root_pkg.root_src_path,
+                std.fmt.fmtSliceHexLower(&digest),
+                @errorName(err),
+            });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -3191,10 +3195,13 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             if (!mem.eql(u8, prev_digest[0..digest.len], &digest))
                 break :hit;
 
-            log.debug("stage1 {s} digest={} match - skipping invocation", .{ mod.root_pkg.root_src_path, digest });
+            log.debug("stage1 {s} digest={s} match - skipping invocation", .{
+                mod.root_pkg.root_src_path,
+                std.fmt.fmtSliceHexLower(&digest),
+            });
             var flags_bytes: [1]u8 = undefined;
             _ = std.fmt.hexToBytes(&flags_bytes, prev_digest[digest.len..]) catch {
-                log.warn("bad cache stage1 digest: '{s}'", .{prev_digest});
+                log.warn("bad cache stage1 digest: '{s}'", .{std.fmt.fmtSliceHexLower(prev_digest)});
                 break :hit;
             };
 
@@ -3214,7 +3221,11 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             mod.stage1_flags = @bitCast(@TypeOf(mod.stage1_flags), flags_bytes[0]);
             return;
         }
-        log.debug("stage1 {s} prev_digest={} new_digest={}", .{ mod.root_pkg.root_src_path, prev_digest, digest });
+        log.debug("stage1 {s} prev_digest={s} new_digest={s}", .{
+            mod.root_pkg.root_src_path,
+            std.fmt.fmtSliceHexLower(prev_digest),
+            std.fmt.fmtSliceHexLower(&digest),
+        });
         man.unhit(prev_hash_state, input_file_count);
     }
 
@@ -3361,8 +3372,8 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     // Update the small file with the digest. If it fails we can continue; it only
     // means that the next invocation will have an unnecessary cache miss.
     const stage1_flags_byte = @bitCast(u8, mod.stage1_flags);
-    log.debug("stage1 {s} final digest={} flags={x}", .{
-        mod.root_pkg.root_src_path, digest, stage1_flags_byte,
+    log.debug("stage1 {s} final digest={s} flags={x}", .{
+        mod.root_pkg.root_src_path, std.fmt.fmtSliceHexLower(&digest), stage1_flags_byte,
     });
     var digest_plus_flags: [digest.len + 2]u8 = undefined;
     digest_plus_flags[0..digest.len].* = digest;

@@ -298,7 +298,7 @@ pub const TmpDir = struct {
     sub_path: [sub_path_len]u8,
 
     const random_bytes_count = 12;
-    const sub_path_len = std.base64.Base64Encoder.calcSize(random_bytes_count);
+    const sub_path_len = std.fs.base64_encoder.calcSize(random_bytes_count);
 
     pub fn cleanup(self: *TmpDir) void {
         self.dir.close();
