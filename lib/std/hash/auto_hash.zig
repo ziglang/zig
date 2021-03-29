@@ -95,7 +95,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         .EnumLiteral,
         .Frame,
         .Float,
-        => @compileError("cannot hash this type"),
+        => @compileError("unable to hash type " ++ @typeName(Key)),
 
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.

@@ -78,7 +78,8 @@ pub const BootServices = extern struct {
     /// Returns an array of handles that support a specified protocol.
     locateHandle: fn (LocateSearchType, ?*align(8) const Guid, ?*const c_void, *usize, [*]Handle) callconv(.C) Status,
 
-    locateDevicePath: Status, // TODO
+    /// Locates the handle to a device on the device path that supports the specified protocol
+    locateDevicePath: fn (*align(8) const Guid, **const DevicePathProtocol, *?Handle) callconv(.C) Status,
     installConfigurationTable: Status, // TODO
 
     /// Loads an EFI image into memory.

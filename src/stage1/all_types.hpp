@@ -2139,10 +2139,6 @@ struct CodeGen {
     Buf llvm_ir_file_output_path;
     Buf analysis_json_output_path;
     Buf docs_output_path;
-    Buf *cache_dir;
-    Buf *c_artifact_dir;
-    const char **libc_include_dir_list;
-    size_t libc_include_dir_len;
 
     Buf *builtin_zig_path;
     Buf *zig_std_special_dir; // Cannot be overridden; derived from zig_lib_dir.

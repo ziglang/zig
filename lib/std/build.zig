@@ -51,7 +51,7 @@ pub const Builder = struct {
     default_step: *Step,
     env_map: *BufMap,
     top_level_steps: ArrayList(*TopLevelStep),
-    install_prefix: ?[]const u8,
+    install_prefix: []const u8,
     dest_dir: ?[]const u8,
     lib_dir: []const u8,
     exe_dir: []const u8,
@@ -156,7 +156,7 @@ pub const Builder = struct {
             .default_step = undefined,
             .env_map = env_map,
             .search_prefixes = ArrayList([]const u8).init(allocator),
-            .install_prefix = null,
+            .install_prefix = undefined,
             .lib_dir = undefined,
             .exe_dir = undefined,
             .h_dir = undefined,
@@ -190,22 +190,13 @@ pub const Builder = struct {
     }
 
     /// This function is intended to be called by std/special/build_runner.zig, not a build.zig file.
-    pub fn setInstallPrefix(self: *Builder, optional_prefix: ?[]const u8) void {
-        self.install_prefix = optional_prefix;
-    }
-
-    /// This function is intended to be called by std/special/build_runner.zig, not a build.zig file.
-    pub fn resolveInstallPrefix(self: *Builder) void {
+    pub fn resolveInstallPrefix(self: *Builder, install_prefix: ?[]const u8) void {
         if (self.dest_dir) |dest_dir| {
-            const install_prefix = self.install_prefix orelse "/usr";
-            self.install_path = fs.path.join(self.allocator, &[_][]const u8{ dest_dir, install_prefix }) catch unreachable;
+            self.install_prefix = install_prefix orelse "/usr";
+            self.install_path = fs.path.join(self.allocator, &[_][]const u8{ dest_dir, self.install_prefix }) catch unreachable;
         } else {
-            const install_prefix = self.install_prefix orelse blk: {
-                const p = self.cache_root;
-                self.install_prefix = p;
-                break :blk p;
-            };
-            self.install_path = install_prefix;
+            self.install_prefix = install_prefix orelse self.cache_root;
+            self.install_path = self.install_prefix;
         }
         self.lib_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "lib" }) catch unreachable;
         self.exe_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "bin" }) catch unreachable;

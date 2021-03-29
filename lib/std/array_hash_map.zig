@@ -687,8 +687,9 @@ pub fn ArrayHashMapUnmanaged(
 
         /// Removes the last inserted `Entry` in the hash map and returns it.
         pub fn pop(self: *Self) Entry {
-            const top = self.entries.pop();
+            const top = self.entries.items[self.entries.items.len - 1];
             _ = self.removeWithHash(top.key, top.hash, .index_only);
+            self.entries.items.len -= 1;
             return top;
         }
 
@@ -1258,19 +1259,18 @@ test "pop" {
     var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
-    testing.expect((try map.fetchPut(1, 11)) == null);
-    testing.expect((try map.fetchPut(2, 22)) == null);
-    testing.expect((try map.fetchPut(3, 33)) == null);
-    testing.expect((try map.fetchPut(4, 44)) == null);
+    // Insert just enough entries so that the map expands. Afterwards,
+    // pop all entries out of the map.
 
-    const pop1 = map.pop();
-    testing.expect(pop1.key == 4 and pop1.value == 44);
-    const pop2 = map.pop();
-    testing.expect(pop2.key == 3 and pop2.value == 33);
-    const pop3 = map.pop();
-    testing.expect(pop3.key == 2 and pop3.value == 22);
-    const pop4 = map.pop();
-    testing.expect(pop4.key == 1 and pop4.value == 11);
+    var i: i32 = 0;
+    while (i < 9) : (i += 1) {
+        testing.expect((try map.fetchPut(i, i)) == null);
+    }
+
+    while (i > 0) : (i -= 1) {
+        const pop = map.pop();
+        testing.expect(pop.key == i - 1 and pop.value == i - 1);
+    }
 }
 
 test "reIndex" {

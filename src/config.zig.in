@@ -1,7 +1,7 @@
 pub const have_llvm = true;
 pub const version: [:0]const u8 = "@ZIG_VERSION@";
 pub const semver = try @import("std").SemanticVersion.parse(version);
-pub const enable_logging: bool = false;
+pub const enable_logging: bool = @ZIG_ENABLE_LOGGING_BOOL@;
 pub const enable_tracy = false;
 pub const is_stage1 = true;
 pub const skip_non_native = false;

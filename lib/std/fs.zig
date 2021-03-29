@@ -50,13 +50,13 @@ pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
     else => @compileError("Unsupported OS"),
 };
 
-pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
 
 /// Base64 encoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
-pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, base64.standard_pad_char);
+pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, null);
 
 /// Base64 decoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
-pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, base64.standard_pad_char);
+pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, null);
 
 /// Whether or not async file system syscalls need a dedicated thread because the operating
 /// system does not support non-blocking I/O on the file system.
@@ -77,7 +77,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
     const dirname = path.dirname(new_path) orelse ".";
 
     var rand_buf: [AtomicFile.RANDOM_BYTES]u8 = undefined;
-    const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64.Base64Encoder.calcSize(rand_buf.len));
+    const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64_encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
     mem.copy(u8, tmp_path[0..], dirname);
     tmp_path[dirname.len] = path.sep;
@@ -142,7 +142,7 @@ pub const AtomicFile = struct {
     const InitError = File.OpenError;
 
     const RANDOM_BYTES = 12;
-    const TMP_PATH_LEN = base64.Base64Encoder.calcSize(RANDOM_BYTES);
+    const TMP_PATH_LEN = base64_encoder.calcSize(RANDOM_BYTES);
 
     /// Note that the `Dir.atomicFile` API may be more handy than this lower-level function.
     pub fn init(
