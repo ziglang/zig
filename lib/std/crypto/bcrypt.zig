@@ -20,15 +20,22 @@ pub const derived_key_length: usize = 24;
 /// deprecated, use: CryptHasher.pwhash_str_length
 pub const hash_length: usize = 60;
 /// Algorithm for PhcEncoding
-pub const phc_alg_id = "bcrypt";
+pub const phc_algorithm_id = "bcrypt";
 
 const Error = crypto.Error;
-const PhcParser = phc.Parser(Params);
-const PhcHasher = phc.Hasher(
+
+pub const PhcParamsIterator = phc.ParamsIterator(fmt.count("{d}", .{math.maxInt(u6)}));
+pub const PhcParser = phc.Parser(
+    PhcParamsIterator,
+    Params,
+    salt_length,
+    derived_key_length,
+);
+pub const PhcHasher = phc.Hasher(
     PhcParser,
     Params,
     phcKdf,
-    phc_alg_id,
+    phc_algorithm_id,
     salt_length,
     derived_key_length,
 );
@@ -221,7 +228,7 @@ pub const Params = struct {
     log_rounds: u6,
 
     /// Public interface for PhcEncoding
-    pub fn fromPhcEncoding(it: *phc.ParamsIterator) Error!Self {
+    pub fn fromPhcEncoding(it: *PhcParamsIterator) Error!Self {
         var lr: ?u6 = null;
         while (try it.next()) |param| {
             if (mem.eql(u8, param.key, "lr")) {
@@ -234,13 +241,13 @@ pub const Params = struct {
     }
 
     /// Public interface for PhcEncoding
-    pub fn toPhcEncoding(
-        self: Self,
-        allocator: *mem.Allocator,
-        out: []?phc.Param,
-    ) mem.Allocator.Error!void {
-        const lr = try fmt.allocPrint(allocator, "{d}", .{self.log_rounds});
-        out[0] = phc.Param{ .key = "lr", .value = lr };
+    pub fn toPhcEncoding(self: Self, out: []?PhcParamsIterator.Param) void {
+        var lr = PhcParamsIterator.Param.Value{};
+
+        const s = fmt.bufPrint(&lr.buf, "{d}", .{self.log_rounds}) catch unreachable;
+        lr.len = s.len;
+
+        out[0] = PhcParamsIterator.Param{ .key = "lr", .value = lr };
     }
 };
 
@@ -289,10 +296,12 @@ pub fn kdf(
 
 // https://en.wikipedia.org/wiki/Crypt_(C)
 pub const CryptHasher = struct {
-    const Self = @This();
     const salt_str_length: usize = 22;
     const derived_key_str_length: usize = 31;
     const prefix = "$2";
+
+    /// Length (in bytes) of a password hash
+    pub const pwhash_str_length: usize = 60;
 
     fn parseParams(encoded: *const [7]u8) Error!Params {
         if (!mem.eql(u8, prefix, encoded[0..2])) {
@@ -305,15 +314,12 @@ pub const CryptHasher = struct {
         return Params{ .log_rounds = lr };
     }
 
-    /// Length (in bytes) of a password hash
-    pub const pwhash_str_length: usize = 60;
-
     /// Verify password against crypt encoded string
     pub fn verify(str: []const u8, password: []const u8) Error!void {
         if (str.len != pwhash_str_length) {
             return error.InvalidEncoding;
         }
-        const params = try Self.parseParams(str[0..7]);
+        const params = try parseParams(str[0..7]);
         const salt_str = str[7..][0..salt_str_length];
         const derived_key_str = str[7 + salt_str_length ..][0..derived_key_str_length];
 
@@ -368,7 +374,7 @@ pub const CryptHasher = struct {
     }
 };
 
-pub const Options = struct {
+pub const HashOptions = struct {
     kdf_params: Params,
     encoding: crypto.pwhash.Encoding,
 };
@@ -383,21 +389,30 @@ pub const Options = struct {
 /// and then use the resulting hash as the password parameter for bcrypt.
 ///
 /// You have to free result after use.
-pub fn strHash(allocator: *mem.Allocator, password: []const u8, options: Options) ![]u8 {
+pub fn strHash(
+    allocator: *mem.Allocator,
+    password: []const u8,
+    options: HashOptions,
+    out: []u8,
+) ![]u8 {
     switch (options.encoding) {
-        .phc => return PhcHasher.create(allocator, password, options.kdf_params),
+        .phc => return PhcHasher.create(allocator, password, options.kdf_params, out),
         .crypt => {
             const s = CryptHasher.create(password, options.kdf_params);
-            return allocator.dupe(u8, &s);
+            mem.copy(u8, out, &s);
+            return out[0..s.len];
         },
     }
 }
+
+pub const VerifyOptions = struct {};
 
 /// Verify that a previously computed hash is valid for a given password.
 pub fn strVerify(
     allocator: *mem.Allocator,
     str: []const u8,
     password: []const u8,
+    options: VerifyOptions,
 ) !void {
     if (mem.startsWith(u8, str, CryptHasher.prefix) and str.len >= 4 and str[3] == '$') {
         return CryptHasher.verify(str, password);
@@ -419,46 +434,49 @@ test "Codec" {
 test "strHash && strVerify" {
     const alloc = std.testing.allocator;
     const params = Params{ .log_rounds = 5 };
+    const verify_options = VerifyOptions{};
+    var buf: [128]u8 = undefined;
 
     const s = try strHash(
         alloc,
         "password",
-        Options{ .kdf_params = params, .encoding = .crypt },
+        HashOptions{ .kdf_params = params, .encoding = .crypt },
+        &buf,
     );
-    defer alloc.free(s);
 
-    try strVerify(alloc, s, "password");
+    try strVerify(alloc, s, "password", verify_options);
     std.testing.expectError(
         Error.PasswordVerificationFailed,
-        strVerify(alloc, s, "invalid password"),
+        strVerify(alloc, s, "invalid password", verify_options),
     );
 
     const s1 = try strHash(
         alloc,
         "password",
-        Options{ .kdf_params = params, .encoding = .phc },
+        HashOptions{ .kdf_params = params, .encoding = .phc },
+        &buf,
     );
-    defer alloc.free(s1);
 
-    try strVerify(alloc, s1, "password");
+    try strVerify(alloc, s1, "password", verify_options);
     std.testing.expectError(
         Error.PasswordVerificationFailed,
-        strVerify(alloc, s1, "invalid password"),
+        strVerify(alloc, s1, "invalid password", verify_options),
     );
 
     const long_s = try strHash(
         alloc,
         "password" ** 100,
-        Options{ .kdf_params = params, .encoding = .crypt },
+        HashOptions{ .kdf_params = params, .encoding = .crypt },
+        &buf,
     );
-    defer alloc.free(long_s);
 
-    try strVerify(alloc, long_s, "password" ** 100);
-    try strVerify(alloc, long_s, "password" ** 101);
+    try strVerify(alloc, long_s, "password" ** 100, verify_options);
+    try strVerify(alloc, long_s, "password" ** 101, verify_options);
 
     try strVerify(
         alloc,
         "$2b$08$WUQKyBCaKpziCwUXHiMVvu40dYVjkTxtWJlftl0PpjY2BxWSvFIEe",
         "The devil himself",
+        verify_options,
     );
 }

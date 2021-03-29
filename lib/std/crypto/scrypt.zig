@@ -17,14 +17,31 @@ const meta = std.meta;
 const phc = @import("phc_encoding.zig");
 
 /// Algorithm for PhcEncoding
-pub const phc_alg_id = "scrypt";
+pub const phc_algorithm_id = "scrypt";
 
 const Error = crypto.Error;
 const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
+
 const max_size = math.maxInt(usize);
 const max_int = max_size >> 1;
-const PhcParser = phc.Parser(Params);
-const PhcHasher = phc.Hasher(PhcParser, Params, kdf, phc_alg_id, 32, 32);
+const default_salt_len = 32;
+const default_derived_key_len = 32;
+
+pub const PhcParamsIterator = phc.ParamsIterator(fmt.count("{d}", .{math.maxInt(u30)}));
+pub const PhcParser = phc.Parser(
+    PhcParamsIterator,
+    Params,
+    default_salt_len,
+    default_derived_key_len,
+);
+pub const PhcHasher = phc.Hasher(
+    PhcParser,
+    Params,
+    kdf,
+    phc_algorithm_id,
+    default_salt_len,
+    default_derived_key_len,
+);
 
 fn blockCopy(dst: []align(16) u32, src: []align(16) const u32, n: usize) void {
     mem.copy(u32, dst, src[0 .. n * 16]);
@@ -151,7 +168,7 @@ pub const Params = struct {
     }
 
     /// Public interface for PhcEncoding
-    pub fn fromPhcEncoding(it: *phc.ParamsIterator) Error!Self {
+    pub fn fromPhcEncoding(it: *PhcParamsIterator) Error!Self {
         var ln: ?u6 = null;
         var r: ?u30 = null;
         var p: ?u30 = null;
@@ -174,19 +191,23 @@ pub const Params = struct {
     }
 
     /// Public interface for PhcEncoding
-    pub fn toPhcEncoding(
-        self: Self,
-        allocator: *mem.Allocator,
-        out: []?phc.Param,
-    ) mem.Allocator.Error!void {
-        const ln = try fmt.allocPrint(allocator, "{d}", .{self.log_n});
-        errdefer allocator.free(ln);
-        const r = try fmt.allocPrint(allocator, "{d}", .{self.r});
-        errdefer allocator.free(r);
-        const p = try fmt.allocPrint(allocator, "{d}", .{self.p});
-        out[0] = phc.Param{ .key = "ln", .value = ln };
-        out[1] = phc.Param{ .key = "r", .value = r };
-        out[2] = phc.Param{ .key = "p", .value = p };
+    pub fn toPhcEncoding(self: Self, out: []?PhcParamsIterator.Param) void {
+        var ln = PhcParamsIterator.Param.Value{};
+        var r = PhcParamsIterator.Param.Value{};
+        var p = PhcParamsIterator.Param.Value{};
+
+        const s = fmt.bufPrint(&ln.buf, "{d}", .{self.log_n}) catch unreachable;
+        ln.len = s.len;
+
+        const s1 = fmt.bufPrint(&r.buf, "{d}", .{self.r}) catch unreachable;
+        r.len = s1.len;
+
+        const s2 = fmt.bufPrint(&p.buf, "{d}", .{self.p}) catch unreachable;
+        p.len = s2.len;
+
+        out[0] = PhcParamsIterator.Param{ .key = "ln", .value = ln };
+        out[1] = PhcParamsIterator.Param{ .key = "r", .value = r };
+        out[2] = PhcParamsIterator.Param{ .key = "p", .value = p };
     }
 };
 
@@ -312,6 +333,9 @@ pub const CryptHasher = struct {
     const Codec = CustomB64Codec("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".*);
     const prefix = "$7$";
 
+    /// Length (in bytes) of a password hash
+    pub const pwhash_str_length: usize = 101;
+
     fn parseParams(encoded: *const [14]u8) Error!Params {
         if (!mem.eql(u8, prefix, encoded[0..3])) {
             return error.InvalidEncoding;
@@ -343,15 +367,16 @@ pub const CryptHasher = struct {
         var encoded_dk: [Codec.encodedLen(dk.len)]u8 = undefined;
         Codec.sliceEncode(32, &encoded_dk, &dk);
 
-        const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk[0..].*, expected_encoded_dk[0..].*);
+        const passed = crypto.utils.timingSafeEql(
+            [43]u8,
+            encoded_dk[0..].*,
+            expected_encoded_dk[0..].*,
+        );
         crypto.utils.secureZero(u8, &encoded_dk);
         if (!passed) {
             return Error.PasswordVerificationFailed;
         }
     }
-
-    /// Length (in bytes) of a password hash
-    pub const pwhash_str_length: usize = 101;
 
     /// Derive key from password and return crypt encoded string
     pub fn create(
@@ -382,7 +407,7 @@ pub const CryptHasher = struct {
     }
 };
 
-pub const Options = struct {
+pub const HashOptions = struct {
     kdf_params: Params,
     encoding: crypto.pwhash.Encoding,
 };
@@ -391,21 +416,30 @@ pub const Options = struct {
 /// The function returns a string that includes all the parameters required for verification.
 ///
 /// You have to free result after use.
-pub fn strHash(allocator: *mem.Allocator, password: []const u8, options: Options) ![]u8 {
+pub fn strHash(
+    allocator: *mem.Allocator,
+    password: []const u8,
+    options: HashOptions,
+    out: []u8,
+) ![]u8 {
     switch (options.encoding) {
-        .phc => return PhcHasher.create(allocator, password, options.kdf_params),
+        .phc => return PhcHasher.create(allocator, password, options.kdf_params, out),
         .crypt => {
             const s = try CryptHasher.create(allocator, password, options.kdf_params);
-            return allocator.dupe(u8, &s);
+            mem.copy(u8, out, &s);
+            return out[0..s.len];
         },
     }
 }
+
+pub const VerifyOptions = struct {};
 
 /// Verify that a previously computed hash is valid for a given password.
 pub fn strVerify(
     allocator: *mem.Allocator,
     str: []const u8,
     password: []const u8,
+    options: VerifyOptions,
 ) !void {
     if (mem.startsWith(u8, str, CryptHasher.prefix)) {
         return CryptHasher.verify(allocator, str, password);
@@ -418,56 +452,56 @@ test "kdf" {
     const password = "testpass";
     const salt = "saltsalt";
 
-    var v: [32]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 15, .r = 8, .p = 1 });
+    var dk: [32]u8 = undefined;
+    try kdf(std.testing.allocator, &dk, password, salt, Params{ .log_n = 15, .r = 8, .p = 1 });
 
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
     var bytes: [hex.len / 2]u8 = undefined;
-    _ = try std.fmt.hexToBytes(&bytes, hex);
+    _ = try fmt.hexToBytes(&bytes, hex);
 
-    std.testing.expectEqualSlices(u8, &bytes, &v);
+    std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
 test "kdf rfc 1" {
     const password = "";
     const salt = "";
 
-    var v: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 4, .r = 1, .p = 1 });
+    var dk: [64]u8 = undefined;
+    try kdf(std.testing.allocator, &dk, password, salt, Params{ .log_n = 4, .r = 1, .p = 1 });
 
     const hex = "77d6576238657b203b19ca42c18a0497f16b4844e3074ae8dfdffa3fede21442fcd0069ded0948f8326a753a0fc81f17e8d3e0fb2e0d3628cf35e20c38d18906";
     var bytes: [hex.len / 2]u8 = undefined;
-    _ = try std.fmt.hexToBytes(&bytes, hex);
+    _ = try fmt.hexToBytes(&bytes, hex);
 
-    std.testing.expectEqualSlices(u8, &bytes, &v);
+    std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
 test "kdf rfc 2" {
     const password = "password";
     const salt = "NaCl";
 
-    var v: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 10, .r = 8, .p = 16 });
+    var dk: [64]u8 = undefined;
+    try kdf(std.testing.allocator, &dk, password, salt, Params{ .log_n = 10, .r = 8, .p = 16 });
 
     const hex = "fdbabe1c9d3472007856e7190d01e9fe7c6ad7cbc8237830e77376634b3731622eaf30d92e22a3886ff109279d9830dac727afb94a83ee6d8360cbdfa2cc0640";
     var bytes: [hex.len / 2]u8 = undefined;
-    _ = try std.fmt.hexToBytes(&bytes, hex);
+    _ = try fmt.hexToBytes(&bytes, hex);
 
-    std.testing.expectEqualSlices(u8, &bytes, &v);
+    std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
 test "kdf rfc 3" {
     const password = "pleaseletmein";
     const salt = "SodiumChloride";
 
-    var v: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 14, .r = 8, .p = 1 });
+    var dk: [64]u8 = undefined;
+    try kdf(std.testing.allocator, &dk, password, salt, Params{ .log_n = 14, .r = 8, .p = 1 });
 
     const hex = "7023bdcb3afd7348461c06cd81fd38ebfda8fbba904f8e3ea9b543f6545da1f2d5432955613f0fcf62d49705242a9af9e61e85dc0d651e40dfcf017b45575887";
     var bytes: [hex.len / 2]u8 = undefined;
-    _ = try std.fmt.hexToBytes(&bytes, hex);
+    _ = try fmt.hexToBytes(&bytes, hex);
 
-    std.testing.expectEqualSlices(u8, &bytes, &v);
+    std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
 test "kdf rfc 4" {
@@ -479,14 +513,14 @@ test "kdf rfc 4" {
     const password = "pleaseletmein";
     const salt = "SodiumChloride";
 
-    var v: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 20, .r = 8, .p = 1 });
+    var dk: [64]u8 = undefined;
+    try kdf(std.testing.allocator, &dk, password, salt, Params{ .log_n = 20, .r = 8, .p = 1 });
 
     const hex = "2101cb9b6a511aaeaddbbe09cf70f881ec568d574a2ffd4dabe5ee9820adaa478e56fd8f4ba5d09ffa1c6d927c40f4c337304049e8a952fbcbf45c6fa77a41a4";
     var bytes: [hex.len / 2]u8 = undefined;
-    _ = try std.fmt.hexToBytes(&bytes, hex);
+    _ = try fmt.hexToBytes(&bytes, hex);
 
-    std.testing.expectEqualSlices(u8, &bytes, &v);
+    std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
 test "password hashing (crypt format)" {
@@ -501,23 +535,26 @@ test "password hashing (crypt format)" {
 
 test "strHash && strVerify" {
     const alloc = std.testing.allocator;
+
     const password = "testpass";
+    const verify_options = VerifyOptions{};
+    var buf: [128]u8 = undefined;
 
     const s = try strHash(
         alloc,
         password,
-        Options{ .kdf_params = Params.interactive, .encoding = .crypt },
+        HashOptions{ .kdf_params = Params.interactive, .encoding = .crypt },
+        &buf,
     );
-    defer alloc.free(s);
-    try strVerify(alloc, s, password);
+    try strVerify(alloc, s, password, verify_options);
 
     const s1 = try strHash(
         alloc,
         password,
-        Options{ .kdf_params = Params.interactive, .encoding = .phc },
+        HashOptions{ .kdf_params = Params.interactive, .encoding = .phc },
+        &buf,
     );
-    defer alloc.free(s1);
-    try strVerify(alloc, s1, password);
+    try strVerify(alloc, s1, password, verify_options);
 }
 
 test "unix-scrypt" {
@@ -525,5 +562,5 @@ test "unix-scrypt" {
     const str = "$7$C6..../....SodiumChloride$kBGj9fHznVYFQMEn/qDCfrDevf9YDtcDdKvEqHJLV8D";
     const password = "pleaseletmein";
 
-    try strVerify(std.testing.allocator, str, password);
+    try strVerify(std.testing.allocator, str, password, VerifyOptions{});
 }

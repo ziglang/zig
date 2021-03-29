@@ -14,174 +14,166 @@ const fmt = std.fmt;
 const mem = std.mem;
 
 const Error = crypto.Error;
-const b64enc = base64.standard_encoder;
-const b64dec = base64.standard_decoder;
+const B64Encoder = base64.standard_no_pad.Encoder;
+const B64Decoder = base64.standard_no_pad.Decoder;
 
 const fields_delimiter = "$";
 const version_prefix = "v=";
 const params_delimiter = ",";
 const kv_delimiter = "=";
+const max_algorithm_id_len = 32;
+const max_param_key_len = 32;
 
-pub fn Parser(comptime Params: type) type {
+fn WrappedValue(comptime buf_len: usize) type {
     return struct {
         const Self = @This();
 
-        allocator: *mem.Allocator,
-        alg_id: []const u8,
+        buf: [buf_len]u8 = undefined,
+        len: usize = 0,
+
+        pub fn unwrap(self: Self) []const u8 {
+            return self.buf[0..self.len];
+        }
+    };
+}
+
+pub fn Parser(
+    comptime PhcParamsIterator: type,
+    comptime Params: type,
+    comptime salt_buf_len: usize,
+    comptime derived_key_buf_len: usize,
+) type {
+    return struct {
+        const Self = @This();
+        pub const AlgorithmId = WrappedValue(max_algorithm_id_len);
+        pub const Salt = WrappedValue(salt_buf_len);
+        pub const DerivedKey = WrappedValue(derived_key_buf_len);
+
+        algorithm_id: AlgorithmId,
         version: ?u32 = null,
         params: ?Params = null,
-        salt: ?[]u8 = null,
-        derived_key: ?[]u8 = null,
+        salt: ?Salt = null,
+        derived_key: ?DerivedKey = null,
 
         /// Parse phc encoded string
-        ///
-        /// You have to call `deinit` after use.
-        pub fn fromString(allocator: *mem.Allocator, str: []const u8) !Self {
+        pub fn fromString(str: []const u8) Error!Self {
             var it = mem.split(str, fields_delimiter);
             _ = it.next();
-            const alg_id = it.next() orelse return Error.InvalidEncoding;
-            if (alg_id.len == 0 or alg_id.len > 32) {
-                return Error.InvalidEncoding;
+            var s = it.next() orelse return error.InvalidEncoding;
+            var res = Self{ .algorithm_id = AlgorithmId{} };
+            if (s.len == 0 or s.len > res.algorithm_id.buf.len) {
+                return error.InvalidEncoding;
             }
-            var res = Self{ .allocator = allocator, .alg_id = try allocator.dupe(u8, alg_id) };
-            errdefer allocator.free(res.alg_id);
-            var s = it.next() orelse return res;
+            res.algorithm_id.len = s.len;
+            mem.copy(u8, &res.algorithm_id.buf, s);
+            s = it.next() orelse return res;
             if (mem.startsWith(u8, s, version_prefix) and
                 mem.indexOf(u8, s, params_delimiter) == null)
             {
-                res.version = try fmt.parseInt(u32, s[version_prefix.len..], 10);
+                res.version = fmt.parseInt(u32, s[version_prefix.len..], 10) catch {
+                    return error.InvalidEncoding;
+                };
                 s = it.next() orelse return res;
             }
             if (mem.indexOf(u8, s, kv_delimiter) != null) {
-                var params_it = ParamsIterator.new(s, @typeInfo(Params).Struct.fields.len);
+                var params_it = PhcParamsIterator.new(s, @typeInfo(Params).Struct.fields.len);
                 res.params = try Params.fromPhcEncoding(&params_it);
                 s = it.next() orelse return res;
             }
-            res.salt = try b64decode(allocator, s);
-            errdefer allocator.free(res.salt.?);
-            res.derived_key = try b64decode(
-                allocator,
-                it.next() orelse return res,
-            );
-            errdefer allocator.free(res.derived_key.?);
+            res.salt = Salt{};
+            b64decode(&res.salt.?, s) catch return error.InvalidEncoding;
+            s = it.next() orelse return res;
+            res.derived_key = DerivedKey{};
+            b64decode(&res.derived_key.?, s) catch return error.InvalidEncoding;
             if (it.next() != null) {
-                return Error.InvalidEncoding;
+                return error.InvalidEncoding;
             }
             return res;
         }
 
-        /// Deinitialize salt and derived key
-        pub fn deinit(self: *Self) void {
-            self.allocator.free(self.alg_id);
-            if (self.salt) |v| {
-                self.allocator.free(v);
-                self.salt = null;
-            }
-            if (self.derived_key) |v| {
-                self.allocator.free(v);
-                self.derived_key = null;
-            }
-        }
-
-        /// Create phc encoded string
-        ///
-        /// You have to free result after use.
-        pub fn toString(self: *Self) ![]u8 {
-            var i: usize = self.alg_id.len + fields_delimiter.len;
-            var versionLen: usize = 0;
+        /// Calculate size for toString function out param
+        pub fn calcSize(self: *Self) usize {
+            var i = fields_delimiter.len + self.algorithm_id.len;
             if (self.version) |v| {
                 // 32bit safe downcast
-                versionLen = @intCast(
+                i += @intCast(
                     usize,
                     fmt.count("{s}{s}{d}", .{ fields_delimiter, version_prefix, v }),
                 );
-                i += versionLen;
             }
-            var params: ?[]const u8 = null;
             if (self.params) |v| {
-                var params_arr: [@typeInfo(Params).Struct.fields.len]?Param = undefined;
-                try v.toPhcEncoding(self.allocator, &params_arr);
-                var j: usize = 0;
+                var params: [@typeInfo(Params).Struct.fields.len]?PhcParamsIterator.Param = undefined;
+                v.toPhcEncoding(&params);
                 var sep_cnt: usize = 0;
-                for (params_arr) |param| {
+                for (params) |param| {
                     const kv = param orelse continue;
-                    j += kv.key.len + kv_delimiter.len + kv.value.len;
+                    i += kv.key.len + kv_delimiter.len + kv.value.len;
                     sep_cnt += 1;
                 }
                 if (sep_cnt != 0) {
-                    sep_cnt -= 1;
-                }
-                errdefer {
-                    for (params_arr) |param| {
-                        const kv = param orelse continue;
-                        self.allocator.free(kv.value);
-                    }
-                }
-                var s = try self.allocator.alloc(u8, j + sep_cnt * params_delimiter.len);
-                j = 0;
-                var k: usize = 0;
-                for (params_arr) |param| {
-                    const kv = param orelse continue;
-                    const s1 = fmt.bufPrint(
-                        s[j..],
-                        "{s}{s}{s}",
-                        .{ kv.key, kv_delimiter, kv.value },
-                    ) catch unreachable;
-                    self.allocator.free(kv.value);
-                    j += s1.len;
-                    if (k < sep_cnt) {
-                        mem.copy(u8, s[j..], params_delimiter);
-                        j += params_delimiter.len;
-                        k += 1;
-                    }
-                }
-                i += s.len + fields_delimiter.len;
-                params = s;
-            }
-            defer {
-                if (params) |v| {
-                    self.allocator.free(v);
+                    i += fields_delimiter.len + ((sep_cnt - 1) * params_delimiter.len);
                 }
             }
-            var salt: ?[]const u8 = null;
             if (self.salt) |v| {
-                const s = try b64encode(self.allocator, v);
-                i += s.len + fields_delimiter.len;
-                salt = s;
+                i += fields_delimiter.len + B64Encoder.calcSize(v.len);
             }
-            defer {
-                if (salt) |v| {
-                    self.allocator.free(v);
-                }
-            }
-            var derived_key: ?[]const u8 = null;
             if (self.derived_key) |v| {
-                if (salt == null) {
-                    return Error.InvalidEncoding;
-                }
-                const s = try b64encode(self.allocator, v);
-                i += s.len + fields_delimiter.len;
-                derived_key = s;
+                i += fields_delimiter.len + B64Encoder.calcSize(v.len);
             }
-            defer {
-                if (derived_key) |v| {
-                    self.allocator.free(v);
-                }
+            return i;
+        }
+
+        /// Create phc encoded string
+        pub fn toString(self: *Self, out: []u8) Error![]u8 {
+            if (self.salt == null and self.derived_key != null) {
+                return error.InvalidEncoding;
             }
-            var buf = try self.allocator.alloc(u8, i);
-            i = write(buf, self.alg_id);
+            mem.copy(u8, out, fields_delimiter);
+            mem.copy(u8, out[fields_delimiter.len..], self.algorithm_id.unwrap());
+            var i = fields_delimiter.len + self.algorithm_id.len;
             if (self.version) |v| {
-                _ = fmt.bufPrint(
-                    buf[i..],
+                const s = fmt.bufPrint(
+                    out[i..],
                     "{s}{s}{d}",
                     .{ fields_delimiter, version_prefix, v },
                 ) catch unreachable;
-                i += versionLen;
+                i += s.len;
             }
-            i += write(buf[i..], params);
-            i += write(buf[i..], salt);
-            _ = write(buf[i..], derived_key);
-            return buf;
+            if (self.params) |v| {
+                var params: [@typeInfo(Params).Struct.fields.len]?PhcParamsIterator.Param = undefined;
+                v.toPhcEncoding(&params);
+                var sep_cnt: usize = 0;
+                for (params) |param| {
+                    const kv = param orelse continue;
+                    sep_cnt += 1;
+                }
+                if (sep_cnt != 0) {
+                    mem.copy(u8, out[i..], fields_delimiter);
+                    i += fields_delimiter.len;
+                    sep_cnt -= 1;
+                }
+                for (params) |param| {
+                    const kv = param orelse continue;
+                    const s = fmt.bufPrint(
+                        out[i..],
+                        "{s}{s}{s}",
+                        .{ kv.key, kv_delimiter, kv.value.unwrap() },
+                    ) catch unreachable;
+                    i += s.len;
+                    if (sep_cnt != 0) {
+                        mem.copy(u8, out[i..], params_delimiter);
+                        i += params_delimiter.len;
+                        sep_cnt -= 1;
+                    }
+                }
+            }
+            if (self.salt) |v| {
+                i += b64encode(out[i..], v.unwrap());
+            }
+            if (self.derived_key) |v| {
+                i += b64encode(out[i..], v.unwrap());
+            }
+            return out[0..i];
         }
     };
 }
@@ -197,24 +189,27 @@ pub fn Hasher(
 ) type {
     return struct {
         /// Verify password against phc encoded string
-        pub fn verify(allocator: *mem.Allocator, str: []const u8, password: []const u8) !void {
-            var self = try PhcParser.fromString(allocator, str);
-            defer self.deinit();
-            if (!mem.eql(u8, self.alg_id, algorithm_id)) {
+        pub fn verify(
+            allocator: *mem.Allocator,
+            str: []const u8,
+            password: []const u8,
+        ) !void {
+            var parser = try PhcParser.fromString(str);
+            if (!mem.eql(u8, parser.algorithm_id.unwrap(), algorithm_id)) {
                 return Error.InvalidEncoding;
             }
-            const params = self.params orelse return Error.InvalidEncoding;
-            const salt = self.salt orelse return Error.InvalidEncoding;
-            const derived_key = self.derived_key orelse return Error.InvalidEncoding;
+            const params = parser.params orelse return Error.InvalidEncoding;
+            const salt = parser.salt orelse return Error.InvalidEncoding;
+            const derived_key = parser.derived_key orelse return Error.InvalidEncoding;
             if (derived_key.len != derived_key_len) {
                 return Error.InvalidEncoding;
             }
             var dk: [derived_key_len]u8 = undefined;
-            try kdf(allocator, &dk, password, salt, params);
+            try kdf(allocator, &dk, password, salt.unwrap(), params);
             const ok = crypto.utils.timingSafeEql(
                 [derived_key_len]u8,
                 dk,
-                derived_key[0..derived_key_len].*,
+                derived_key.buf[0..derived_key_len].*,
             );
             crypto.utils.secureZero(u8, &dk);
             if (!ok) {
@@ -222,284 +217,301 @@ pub fn Hasher(
             }
         }
 
+        fn makeParser(params: Params) PhcParser {
+            return PhcParser{
+                .algorithm_id = PhcParser.AlgorithmId{ .len = algorithm_id.len },
+                .params = params,
+                .salt = PhcParser.Salt{ .len = salt_len },
+                .derived_key = PhcParser.DerivedKey{ .len = derived_key_len },
+            };
+        }
+
+        /// Calculate size for create function out param
+        pub fn calcSize(params: Params) usize {
+            return makeParser(params).calcSize();
+        }
+
         /// Derive key from password and return phc encoded string
-        ///
-        /// You have to free result after use.
-        pub fn create(allocator: *mem.Allocator, password: []const u8, params: Params) ![]u8 {
+        pub fn create(
+            allocator: *mem.Allocator,
+            password: []const u8,
+            params: Params,
+            out: []u8,
+        ) ![]u8 {
             var salt: [salt_len]u8 = undefined;
             crypto.random.bytes(&salt);
             var derived_key: [derived_key_len]u8 = undefined;
             try kdf(allocator, &derived_key, password, &salt, params);
-            return (PhcParser{
-                .allocator = allocator,
-                .alg_id = algorithm_id,
-                .params = params,
-                .salt = salt[0..],
-                .derived_key = derived_key[0..],
-            }).toString();
+            var parser = makeParser(params);
+            mem.copy(u8, &parser.algorithm_id.buf, algorithm_id);
+            mem.copy(u8, &parser.salt.?.buf, &salt);
+            mem.copy(u8, &parser.derived_key.?.buf, &derived_key);
+            return parser.toString(out) catch unreachable;
         }
     };
 }
 
-fn write(buf: []u8, v: ?[]const u8) usize {
-    const value = v orelse return 0;
+fn b64encode(buf: []u8, v: []const u8) usize {
     mem.copy(u8, buf, fields_delimiter);
-    mem.copy(u8, buf[fields_delimiter.len..], value);
-    return fields_delimiter.len + value.len;
+    const s = B64Encoder.encode(buf[fields_delimiter.len..], v);
+    return fields_delimiter.len + s.len;
 }
 
-fn b64encode(allocator: *mem.Allocator, v: []const u8) mem.Allocator.Error![]u8 {
-    var buf = try allocator.alloc(u8, base64.Base64Encoder.calcSize(v.len));
-    _ = b64enc.encode(buf, v);
-    var i: usize = buf.len;
-    while (i > 0) : (i -= 1) {
-        if (buf[i - 1] != '=') {
-            break;
-        }
-    }
-    if (i != buf.len) {
-        errdefer allocator.free(buf);
-        return allocator.realloc(buf, i);
-    }
-    return buf;
-}
-
-fn b64decode(allocator: *mem.Allocator, s: []const u8) ![]u8 {
+fn b64decode(buf_v: anytype, s: []const u8) !void {
     if (s.len == 0) {
         return Error.InvalidEncoding;
     }
-    var buf: []u8 = undefined;
-    if (s.len % 4 != 0) {
-        var s1 = try allocator.alloc(u8, s.len + (4 - (s.len % 4)));
-        defer allocator.free(s1);
-        mem.copy(u8, s1, s);
-        mem.set(u8, s1[s.len..], '=');
-        buf = try allocator.alloc(u8, try b64dec.calcSize(s1));
-        errdefer allocator.free(buf);
-        try b64dec.decode(buf, s1);
-    } else {
-        buf = try allocator.alloc(u8, try b64dec.calcSize(s));
-        errdefer allocator.free(buf);
-        try b64dec.decode(buf, s);
+    const len = try B64Decoder.calcSizeForSlice(s);
+    if (len > buf_v.buf.len) {
+        return Error.InvalidEncoding;
     }
-    return buf;
+    buf_v.len = len;
+    try B64Decoder.decode(&buf_v.buf, s);
+}
+
+fn IteratorParam(comptime value_buf_len: usize) type {
+    return struct {
+        const Self = @This();
+        pub const Value = WrappedValue(value_buf_len);
+
+        key: []const u8,
+        value: Value,
+
+        pub fn decimal(self: Self, comptime T: type) Error!T {
+            return fmt.parseInt(T, self.value.unwrap(), 10) catch return error.InvalidEncoding;
+        }
+    };
 }
 
 /// For public interface usage
-pub const Param = struct {
-    const Self = @This();
+pub fn ParamsIterator(comptime value_buf_len: usize) type {
+    return struct {
+        const Self = @This();
+        pub const Param = IteratorParam(value_buf_len);
 
-    key: []const u8,
-    value: []const u8,
+        it: mem.SplitIterator,
+        limit: usize,
+        pos: usize = 0,
 
-    pub fn decimal(self: Self, comptime T: type) Error!T {
-        return fmt.parseInt(T, self.value, 10) catch return error.InvalidEncoding;
-    }
-};
-
-/// For public interface usage
-pub const ParamsIterator = struct {
-    const Self = @This();
-
-    it: mem.SplitIterator,
-    limit: usize,
-    pos: usize = 0,
-
-    fn new(s: []const u8, limit: usize) Self {
-        return Self{ .it = mem.split(s, params_delimiter), .limit = limit };
-    }
-
-    pub fn next(self: *Self) Error!?Param {
-        const s = self.it.next() orelse return null;
-        if (self.pos == self.limit) {
-            return error.InvalidEncoding;
+        fn new(s: []const u8, limit: usize) Self {
+            return Self{ .it = mem.split(s, params_delimiter), .limit = limit };
         }
-        var it = mem.split(s, kv_delimiter);
-        const key = it.next() orelse return error.InvalidEncoding;
-        if (key.len == 0 or key.len > 32) {
-            return error.InvalidEncoding;
+
+        pub fn next(self: *Self) Error!?Param {
+            const s = self.it.next() orelse return null;
+            if (self.pos == self.limit) {
+                return error.InvalidEncoding;
+            }
+            var it = mem.split(s, kv_delimiter);
+            const key = it.next() orelse return error.InvalidEncoding;
+            if (key.len == 0 or key.len > max_param_key_len) {
+                return error.InvalidEncoding;
+            }
+            const value = it.next() orelse return error.InvalidEncoding;
+            if (it.next() != null) {
+                return error.InvalidEncoding;
+            }
+            var param = Param{ .key = key, .value = Param.Value{} };
+            if (value.len > param.value.buf.len) {
+                return error.InvalidEncoding;
+            }
+            param.value.len = value.len;
+            mem.copy(u8, &param.value.buf, value);
+            self.pos += 1;
+            return param;
         }
-        const value = it.next() orelse return error.InvalidEncoding;
-        if (it.next() != null) {
-            return error.InvalidEncoding;
-        }
-        self.pos += 1;
-        return Param{ .key = key, .value = value };
-    }
-};
+    };
+}
 
 test "conv" {
     const scrypt = @import("scrypt.zig");
-    const alloc = std.testing.allocator;
 
-    const phc = Parser(scrypt.Params);
     const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
 
-    var v = try phc.fromString(alloc, s);
-    defer v.deinit();
+    var v = try scrypt.PhcParser.fromString(s);
 
-    const s1 = try v.toString();
-    defer alloc.free(s1);
+    var buf: [s.len]u8 = undefined;
+    const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
 }
 
 test "conv only id" {
     const scrypt = @import("scrypt.zig");
-    const alloc = std.testing.allocator;
 
-    const phc = Parser(scrypt.Params);
     const s = "$scrypt";
 
-    var v = try phc.fromString(alloc, s);
-    defer v.deinit();
+    var v = try scrypt.PhcParser.fromString(s);
 
-    const s1 = try v.toString();
-    defer alloc.free(s1);
+    var buf: [s.len]u8 = undefined;
+    const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
 }
 
 test "conv only version" {
     const scrypt = @import("scrypt.zig");
-    const alloc = std.testing.allocator;
 
-    const phc = Parser(scrypt.Params);
     const s = "$scrypt$v=1";
 
-    var v = try phc.fromString(alloc, s);
-    defer v.deinit();
+    var v = try scrypt.PhcParser.fromString(s);
 
-    const s1 = try v.toString();
-    defer alloc.free(s1);
+    var buf: [s.len]u8 = undefined;
+    const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
 }
 
 test "conv only params" {
     const scrypt = @import("scrypt.zig");
-    const alloc = std.testing.allocator;
 
-    const phc = Parser(scrypt.Params);
     const s = "$scrypt$ln=15,r=8,p=1";
 
-    var v = try phc.fromString(alloc, s);
-    defer v.deinit();
+    var v = try scrypt.PhcParser.fromString(s);
 
-    const s1 = try v.toString();
-    defer alloc.free(s1);
+    var buf: [s.len]u8 = undefined;
+    const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
 }
 
 test "conv only salt" {
     const scrypt = @import("scrypt.zig");
-    const alloc = std.testing.allocator;
 
-    const phc = Parser(scrypt.Params);
     const s = "$scrypt$c2FsdHNhbHQ";
 
-    var v = try phc.fromString(alloc, s);
-    defer v.deinit();
+    var v = try scrypt.PhcParser.fromString(s);
 
-    const s1 = try v.toString();
-    defer alloc.free(s1);
+    var buf: [s.len]u8 = undefined;
+    const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
 }
 
 test "conv without derived_key" {
     const scrypt = @import("scrypt.zig");
-    const alloc = std.testing.allocator;
 
-    const phc = Parser(scrypt.Params);
     const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ";
 
-    var v = try phc.fromString(alloc, s);
-    defer v.deinit();
+    var v = try scrypt.PhcParser.fromString(s);
 
-    const s1 = try v.toString();
-    defer alloc.free(s1);
+    var buf: [s.len]u8 = undefined;
+    const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
 }
 
 test "conv without salt" {
     const scrypt = @import("scrypt.zig");
-    const alloc = std.testing.allocator;
 
-    const phc = Parser(scrypt.Params);
     const s = "$scrypt$v=1$ln=15,r=8,p=1";
 
-    var v = try phc.fromString(alloc, s);
-    defer v.deinit();
+    var v = try scrypt.PhcParser.fromString(s);
 
-    const s1 = try v.toString();
-    defer alloc.free(s1);
+    var buf: [s.len]u8 = undefined;
+    const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
 }
 
 test "conv without params" {
     const scrypt = @import("scrypt.zig");
-    const alloc = std.testing.allocator;
 
-    const phc = Parser(scrypt.Params);
     const s = "$scrypt$v=1$c2FsdHNhbHQ$dGVzdHBhc3M";
 
-    var v = try phc.fromString(alloc, s);
-    defer v.deinit();
+    var v = try scrypt.PhcParser.fromString(s);
 
-    const s1 = try v.toString();
-    defer alloc.free(s1);
+    var buf: [s.len]u8 = undefined;
+    const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
 }
 
 test "conv without version" {
     const scrypt = @import("scrypt.zig");
-    const alloc = std.testing.allocator;
 
-    const phc = Parser(scrypt.Params);
     const s = "$scrypt$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
 
-    var v = try phc.fromString(alloc, s);
-    defer v.deinit();
+    var v = try scrypt.PhcParser.fromString(s);
 
-    const s1 = try v.toString();
-    defer alloc.free(s1);
+    var buf: [s.len]u8 = undefined;
+    const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
 }
 
 test "conv without params and derived_key" {
     const scrypt = @import("scrypt.zig");
-    const alloc = std.testing.allocator;
 
-    const phc = Parser(scrypt.Params);
     const s = "$scrypt$v=1$c2FsdHNhbHQ";
 
-    var v = try phc.fromString(alloc, s);
-    defer v.deinit();
+    var v = try scrypt.PhcParser.fromString(s);
 
-    const s1 = try v.toString();
-    defer alloc.free(s1);
+    var buf: [s.len]u8 = undefined;
+    const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
 }
 
 test "conv without version and params" {
     const scrypt = @import("scrypt.zig");
-    const alloc = std.testing.allocator;
 
-    const phc = Parser(scrypt.Params);
     const s = "$scrypt$c2FsdHNhbHQ$dGVzdHBhc3M";
 
-    var v = try phc.fromString(alloc, s);
-    defer v.deinit();
+    var v = try scrypt.PhcParser.fromString(s);
 
-    const s1 = try v.toString();
-    defer alloc.free(s1);
+    var buf: [s.len]u8 = undefined;
+    const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
+}
+
+test "error: invalid str" {
+    const scrypt = @import("scrypt.zig");
+
+    const s = "";
+    std.testing.expectError(Error.InvalidEncoding, scrypt.PhcParser.fromString(s));
+
+    const s1 = "$";
+    std.testing.expectError(Error.InvalidEncoding, scrypt.PhcParser.fromString(s1));
+}
+
+test "error: derived_key without salt" {
+    const scrypt = @import("scrypt.zig");
+
+    const s = "$scrypt";
+
+    var v = try scrypt.PhcParser.fromString(s);
+    v.derived_key = scrypt.PhcParser.DerivedKey{};
+
+    var buf: [s.len]u8 = undefined;
+    std.testing.expectError(Error.InvalidEncoding, v.toString(&buf));
+}
+
+test "Hasher" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const password = "testpass";
+
+    var buf: [128]u8 = undefined;
+    const s = try scrypt.PhcHasher.create(alloc, password, scrypt.Params.interactive, &buf);
+    try scrypt.PhcHasher.verify(alloc, s, password);
+}
+
+test "calcSize" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
+    const password = "testpass";
+    const params = scrypt.Params.interactive;
+
+    var v = try scrypt.PhcParser.fromString(s);
+    std.testing.expectEqual(v.calcSize(), s.len);
+
+    var buf: [128]u8 = undefined;
+    const s1 = try scrypt.PhcHasher.create(alloc, password, params, &buf);
+
+    std.testing.expectEqual(scrypt.PhcHasher.calcSize(params), s1.len);
 }
