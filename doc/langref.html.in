@@ -801,7 +801,7 @@ const hello_world_in_c =
 const x = 1234;
 
 fn foo() void {
-    // It works at global scope as well as inside functions.
+    // It works at file scope as well as inside functions.
     const y = 5678;
 
     // Once assigned, an identifier cannot be changed.
@@ -871,18 +871,18 @@ test "init with undefined" {
       {#syntax#}var{#endsyntax#} when declaring a variable. This causes less work for both
       humans and computers to do when reading code, and creates more optimization opportunities.
       </p>
-      {#header_open|Global Variables#}
+      {#header_open|Static Variables#}
       <p>
-      Global variables are considered to be a top level declaration, which means that they are
-      order-independent and lazily analyzed. The initialization value of global variables is implicitly
-      {#link|comptime#}. If a global variable is {#syntax#}const{#endsyntax#} then its value is
+      Static global variables are considered to be a top level declaration, which means that they are
+      order-independent and lazily analyzed. The initialization value of static global variables is implicitly
+      {#link|comptime#}. If a static global variable is {#syntax#}const{#endsyntax#} then its value is
       {#syntax#}comptime{#endsyntax#}-known, otherwise it is runtime-known.
       </p>
-      {#code_begin|test|global_variables#}
+      {#code_begin|test|static_global_variables#}
 var y: i32 = add(10, x);
 const x: i32 = add(12, 34);
 
-test "global variables" {
+test "static global variables" {
     expect(x == 46);
     expect(y == 56);
 }
@@ -895,13 +895,13 @@ const std = @import("std");
 const expect = std.testing.expect;
       {#code_end#}
       <p>
-      Global variables may be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
+      Static global variables may be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
       </p>
-      {#code_begin|test|namespaced_global#}
+      {#code_begin|test|namespaced_static_global#}
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "namespaced global variable" {
+test "namespaced static global variable" {
     expect(foo() == 1235);
     expect(foo() == 1236);
 }
@@ -916,13 +916,13 @@ fn foo() i32 {
 }
       {#code_end#}
       <p>
-        Local static variables may also be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
+        Static local variables may also be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
         </p>
-        {#code_begin|test|namespaced_local_static#}
+        {#code_begin|test|namespaced_static_local#}
   const std = @import("std");
   const expect = std.testing.expect;
   
-  test "namespaced local static variable" {
+  test "namespaced static local variable" {
       expect(foo() == 1235);
       expect(foo() == 1236);
   }
@@ -6038,7 +6038,7 @@ test "fibonacci" {
       </p>
 
       <p>
-      In the global scope (outside of any function), all expressions are implicitly
+      In the file scope (outside of any function), all expressions are implicitly
       {#syntax#}comptime{#endsyntax#} expressions. This means that we can use functions to
       initialize complex static data. For example:
       </p>
@@ -8508,7 +8508,7 @@ fn List(comptime T: type) type {
 }
       {#code_end#}
       <p>
-      When {#syntax#}@This(){#endsyntax#} is used at global scope, it returns a reference to the
+      When {#syntax#}@This(){#endsyntax#} is used at file scope, it returns a reference to the
       struct that corresponds to the current file.
       </p>
       {#header_close#}
