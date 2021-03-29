@@ -257,7 +257,7 @@ pub fn main() !void {
       <p>
         The code sample begins by adding Zig's Standard Library to the build using the {#link|@import#} builtin function.
         The {#syntax#}@import("std"){#endsyntax#} function call creates a structure to represent the Standard Library.
-        The code then makes a {#link|top-level declaration|Global Variables#} of a
+        The code then makes a {#link|top-level declaration|Static Global Variables#} of a
         {#link|constant identifier|Assignment#}, named <code>std</code>, for easy access to
         <a href="https://github.com/ziglang/zig/wiki/FAQ#where-is-the-documentation-for-the-zig-standard-library">Zig's standard library</a>.
       </p>
@@ -871,7 +871,7 @@ test "init with undefined" {
       {#syntax#}var{#endsyntax#} when declaring a variable. This causes less work for both
       humans and computers to do when reading code, and creates more optimization opportunities.
       </p>
-      {#header_open|Static Variables#}
+      {#header_open|Static Global Variables#}
       <p>
       Static global variables are considered to be a top level declaration, which means that they are
       order-independent and lazily analyzed. The initialization value of static global variables is implicitly
@@ -915,10 +915,11 @@ fn foo() i32 {
     return S.x;
 }
       {#code_end#}
+      {#header_open|Static Local Variables#}
       <p>
         Static local variables may also be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
-        </p>
-        {#code_begin|test|namespaced_static_local#}
+      </p>
+      {#code_begin|test|namespaced_static_local#}
   const std = @import("std");
   const expect = std.testing.expect;
   
@@ -968,7 +969,7 @@ fn testTls(context: void) void {
 }
       {#code_end#}
       <p>
-      For {#link|Single Threaded Builds#}, all thread local variables are treated as {#link|Global Variables#}.
+      For {#link|Single Threaded Builds#}, all thread local variables are treated as {#link|Static Global Variables#}.
       </p>
       <p>
       Thread local variables may not be {#syntax#}const{#endsyntax#}.
@@ -8723,7 +8724,7 @@ pub fn build(b: *Builder) void {
       {#header_open|Single Threaded Builds#}
       <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:</p>
       <ul>
-        <li>All {#link|Thread Local Variables#} are treated as {#link|Global Variables#}.</li>
+        <li>All {#link|Thread Local Variables#} are treated as {#link|Static Global Variables#}.</li>
         <li>The overhead of {#link|Async Functions#} becomes equivalent to function call overhead.</li>
         <li>The {#syntax#}@import("builtin").single_threaded{#endsyntax#} becomes {#syntax#}true{#endsyntax#}
           and therefore various userland APIs which read this variable become more efficient.
