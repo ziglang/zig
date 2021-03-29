@@ -3,7 +3,7 @@
 set -x
 set -e
 
-pacman -Su --needed --noconfirm
+pacman -Suy --needed --noconfirm
 pacman -S --needed --noconfirm wget p7zip python3-pip tar xz
 
 pip install s3cmd

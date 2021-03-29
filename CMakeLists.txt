@@ -89,6 +89,7 @@ set(ZIG_TARGET_MCPU "baseline" CACHE STRING "-mcpu parameter to output binaries 
 set(ZIG_EXECUTABLE "" CACHE STRING "(when cross compiling) path to already-built zig binary")
 set(ZIG_SINGLE_THREADED off CACHE BOOL "limit the zig compiler to use only 1 thread")
 set(ZIG_OMIT_STAGE2 off CACHE BOOL "omit the stage2 backend from stage1")
+set(ZIG_ENABLE_LOGGING off CACHE BOOL "enable logging")
 
 if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
     set(ZIG_USE_LLVM_CONFIG ON CACHE BOOL "use llvm-config to find LLVM libraries")
@@ -564,7 +565,14 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/Coff.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/MachO/Archive.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/MachO/CodeSignature.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/MachO/DebugSymbols.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/MachO/Object.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Trie.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/MachO/Zld.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/MachO/bind.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/MachO/commands.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Wasm.zig"
     "${CMAKE_SOURCE_DIR}/src/link/C/zig.h"
     "${CMAKE_SOURCE_DIR}/src/link/msdos-stub.bin"
@@ -598,6 +606,12 @@ if(ZIG_OMIT_STAGE2)
   set(ZIG_OMIT_STAGE2_BOOL "true")
 else()
   set(ZIG_OMIT_STAGE2_BOOL "false")
+endif()
+
+if(ZIG_ENABLE_LOGGING)
+  set(ZIG_ENABLE_LOGGING_BOOL "true")
+else()
+  set(ZIG_ENABLE_LOGGING_BOOL "false")
 endif()
 
 configure_file (
@@ -728,12 +742,14 @@ if(MSVC OR MINGW)
     target_link_libraries(zigstage1 LINK_PUBLIC version)
 endif()
 
-add_executable(zig0 ${ZIG0_SOURCES})
-set_target_properties(zig0 PROPERTIES
-    COMPILE_FLAGS ${EXE_CFLAGS}
-    LINK_FLAGS ${EXE_LDFLAGS}
-)
-target_link_libraries(zig0 zigstage1)
+if("${ZIG_EXECUTABLE}" STREQUAL "")
+  add_executable(zig0 ${ZIG0_SOURCES})
+  set_target_properties(zig0 PROPERTIES
+      COMPILE_FLAGS ${EXE_CFLAGS}
+      LINK_FLAGS ${EXE_LDFLAGS}
+  )
+  target_link_libraries(zig0 zigstage1)
+endif()
 
 if(MSVC)
     set(ZIG1_OBJECT "${CMAKE_BINARY_DIR}/zig1.obj")
@@ -782,7 +798,6 @@ if("${ZIG_EXECUTABLE}" STREQUAL "")
 else()
   add_custom_command(
       OUTPUT "${ZIG1_OBJECT}"
-      BYPRODUCTS "${ZIG1_OBJECT}"
       COMMAND "${ZIG_EXECUTABLE}" "build-obj" ${BUILD_ZIG1_ARGS}
       DEPENDS ${ZIG_STAGE2_SOURCES}
       COMMENT STATUS "Building self-hosted component ${ZIG1_OBJECT}"

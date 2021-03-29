@@ -408,6 +408,84 @@ test "std.meta.trait.isTuple" {
     testing.expect(isTuple(@TypeOf(t3)));
 }
 
+/// Returns true if the passed type will coerce to []const u8.
+/// Any of the following are considered strings:
+/// ```
+/// []const u8, [:S]const u8, *const [N]u8, *const [N:S]u8,
+/// []u8, [:S]u8, *[:S]u8, *[N:S]u8.
+/// ```
+/// These types are not considered strings:
+/// ```
+/// u8, [N]u8, [*]const u8, [*:0]const u8,
+/// [*]const [N]u8, []const u16, []const i8,
+/// *const u8, ?[]const u8, ?*const [N]u8.
+/// ```
+pub fn isZigString(comptime T: type) bool {
+    comptime {
+        // Only pointer types can be strings, no optionals
+        const info = @typeInfo(T);
+        if (info != .Pointer) return false;
+
+        const ptr = &info.Pointer;
+        // Check for CV qualifiers that would prevent coerction to []const u8
+        if (ptr.is_volatile or ptr.is_allowzero) return false;
+
+        // If it's already a slice, simple check.
+        if (ptr.size == .Slice) {
+            return ptr.child == u8;
+        }
+
+        // Otherwise check if it's an array type that coerces to slice.
+        if (ptr.size == .One) {
+            const child = @typeInfo(ptr.child);
+            if (child == .Array) {
+                const arr = &child.Array;
+                return arr.child == u8;
+            }
+        }
+
+        return false;
+    }
+}
+
+test "std.meta.trait.isZigString" {
+    testing.expect(isZigString([]const u8));
+    testing.expect(isZigString([]u8));
+    testing.expect(isZigString([:0]const u8));
+    testing.expect(isZigString([:0]u8));
+    testing.expect(isZigString([:5]const u8));
+    testing.expect(isZigString([:5]u8));
+    testing.expect(isZigString(*const [0]u8));
+    testing.expect(isZigString(*[0]u8));
+    testing.expect(isZigString(*const [0:0]u8));
+    testing.expect(isZigString(*[0:0]u8));
+    testing.expect(isZigString(*const [0:5]u8));
+    testing.expect(isZigString(*[0:5]u8));
+    testing.expect(isZigString(*const [10]u8));
+    testing.expect(isZigString(*[10]u8));
+    testing.expect(isZigString(*const [10:0]u8));
+    testing.expect(isZigString(*[10:0]u8));
+    testing.expect(isZigString(*const [10:5]u8));
+    testing.expect(isZigString(*[10:5]u8));
+
+    testing.expect(!isZigString(u8));
+    testing.expect(!isZigString([4]u8));
+    testing.expect(!isZigString([4:0]u8));
+    testing.expect(!isZigString([*]const u8));
+    testing.expect(!isZigString([*]const [4]u8));
+    testing.expect(!isZigString([*c]const u8));
+    testing.expect(!isZigString([*c]const [4]u8));
+    testing.expect(!isZigString([*:0]const u8));
+    testing.expect(!isZigString([*:0]const u8));
+    testing.expect(!isZigString(*[]const u8));
+    testing.expect(!isZigString(?[]const u8));
+    testing.expect(!isZigString(?*const [4]u8));
+    testing.expect(!isZigString([]allowzero u8));
+    testing.expect(!isZigString([]volatile u8));
+    testing.expect(!isZigString(*allowzero [4]u8));
+    testing.expect(!isZigString(*volatile [4]u8));
+}
+
 pub fn hasDecls(comptime T: type, comptime names: anytype) bool {
     inline for (names) |name| {
         if (!@hasDecl(T, name))

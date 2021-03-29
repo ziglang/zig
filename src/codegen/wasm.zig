@@ -95,7 +95,7 @@ pub const Context = struct {
         return switch (ty.tag()) {
             .f32 => wasm.valtype(.f32),
             .f64 => wasm.valtype(.f64),
-            .u32, .i32 => wasm.valtype(.i32),
+            .u32, .i32, .bool => wasm.valtype(.i32),
             .u64, .i64 => wasm.valtype(.i64),
             else => self.fail(src, "TODO - Wasm genValtype for type '{s}'", .{ty.tag()}),
         };
@@ -208,6 +208,7 @@ pub const Context = struct {
             .alloc => self.genAlloc(inst.castTag(.alloc).?),
             .arg => self.genArg(inst.castTag(.arg).?),
             .block => self.genBlock(inst.castTag(.block).?),
+            .breakpoint => self.genBreakpoint(inst.castTag(.breakpoint).?),
             .br => self.genBr(inst.castTag(.br).?),
             .call => self.genCall(inst.castTag(.call).?),
             .cmp_eq => self.genCmp(inst.castTag(.cmp_eq).?, .eq),
@@ -221,9 +222,11 @@ pub const Context = struct {
             .dbg_stmt => WValue.none,
             .load => self.genLoad(inst.castTag(.load).?),
             .loop => self.genLoop(inst.castTag(.loop).?),
+            .not => self.genNot(inst.castTag(.not).?),
             .ret => self.genRet(inst.castTag(.ret).?),
             .retvoid => WValue.none,
             .store => self.genStore(inst.castTag(.store).?),
+            .unreach => self.genUnreachable(inst.castTag(.unreach).?),
             else => self.fail(inst.src, "TODO: Implement wasm inst: {s}", .{inst.tag}),
         };
     }
@@ -329,7 +332,7 @@ pub const Context = struct {
                 try writer.writeByte(wasm.opcode(.i32_const));
                 try leb.writeILEB128(writer, inst.val.toUnsignedInt());
             },
-            .i32 => {
+            .i32, .bool => {
                 try writer.writeByte(wasm.opcode(.i32_const));
                 try leb.writeILEB128(writer, inst.val.toSignedInt());
             },
@@ -414,7 +417,14 @@ pub const Context = struct {
 
         // insert blocks at the position of `offset` so
         // the condition can jump to it
-        const offset = condition.code_offset;
+        const offset = switch (condition) {
+            .code_offset => |offset| offset,
+            else => blk: {
+                const offset = self.code.items.len;
+                try self.emitWValue(condition);
+                break :blk offset;
+            },
+        };
         const block_ty = try self.genBlockType(condbr.base.src, condbr.base.ty);
         try self.startBlock(.block, block_ty, offset);
 
@@ -521,6 +531,34 @@ pub const Context = struct {
         try writer.writeByte(wasm.opcode(.br));
         try leb.writeULEB128(writer, idx);
 
+        return .none;
+    }
+
+    fn genNot(self: *Context, not: *Inst.UnOp) InnerError!WValue {
+        const offset = self.code.items.len;
+
+        const operand = self.resolveInst(not.operand);
+        try self.emitWValue(operand);
+
+        // wasm does not have booleans nor the `not` instruction, therefore compare with 0
+        // to create the same logic
+        const writer = self.code.writer();
+        try writer.writeByte(wasm.opcode(.i32_const));
+        try leb.writeILEB128(writer, @as(i32, 0));
+
+        try writer.writeByte(wasm.opcode(.i32_eq));
+
+        return WValue{ .code_offset = offset };
+    }
+
+    fn genBreakpoint(self: *Context, breakpoint: *Inst.NoOp) InnerError!WValue {
+        // unsupported by wasm itself. Can be implemented once we support DWARF
+        // for wasm
+        return .none;
+    }
+
+    fn genUnreachable(self: *Context, unreach: *Inst.NoOp) InnerError!WValue {
+        try self.code.append(wasm.opcode(.@"unreachable"));
         return .none;
     }
 };

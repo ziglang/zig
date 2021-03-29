@@ -537,6 +537,11 @@ pub const FunctionType = opaque {
     extern fn ZigClangFunctionType_getReturnType(*const FunctionType) QualType;
 };
 
+pub const GenericSelectionExpr = opaque {
+    pub const getResultExpr = ZigClangGenericSelectionExpr_getResultExpr;
+    extern fn ZigClangGenericSelectionExpr_getResultExpr(*const GenericSelectionExpr) *const Expr;
+};
+
 pub const IfStmt = opaque {
     pub const getThen = ZigClangIfStmt_getThen;
     extern fn ZigClangIfStmt_getThen(*const IfStmt) *const Stmt;

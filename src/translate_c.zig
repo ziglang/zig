@@ -11,6 +11,7 @@ const math = std.math;
 const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
 const Tag = Node.Tag;
+const c_builtins = std.c.builtins;
 
 const CallingConvention = std.builtin.CallingConvention;
 
@@ -269,7 +270,10 @@ pub const Context = struct {
     global_scope: *Scope.Root,
     clang_context: *clang.ASTContext,
     mangle_count: u32 = 0,
+    /// Table of record decls that have been demoted to opaques.
     opaque_demotes: std.AutoHashMapUnmanaged(usize, void) = .{},
+    /// Table of unnamed enums and records that are child types of typedefs.
+    unnamed_typedefs: std.AutoHashMapUnmanaged(usize, []const u8) = .{},
 
     /// This one is different than the root scope's name table. This contains
     /// a list of names that we found by visiting all the top level decls without
@@ -337,6 +341,7 @@ pub fn translate(
         context.alias_list.deinit();
         context.global_names.deinit(gpa);
         context.opaque_demotes.deinit(gpa);
+        context.unnamed_typedefs.deinit(gpa);
         context.global_scope.deinit();
     }
 
@@ -400,6 +405,51 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
     if (decl.castToNamedDecl()) |named_decl| {
         const decl_name = try c.str(named_decl.getName_bytes_begin());
         try c.global_names.put(c.gpa, decl_name, {});
+
+        // Check for typedefs with unnamed enum/record child types.
+        if (decl.getKind() == .Typedef) {
+            const typedef_decl = @ptrCast(*const clang.TypedefNameDecl, decl);
+            var child_ty = typedef_decl.getUnderlyingType().getTypePtr();
+            const addr: usize = while (true) switch (child_ty.getTypeClass()) {
+                .Enum => {
+                    const enum_ty = @ptrCast(*const clang.EnumType, child_ty);
+                    const enum_decl = enum_ty.getDecl();
+                    // check if this decl is unnamed
+                    if (@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin()[0] != 0) return;
+                    break @ptrToInt(enum_decl.getCanonicalDecl());
+                },
+                .Record => {
+                    const record_ty = @ptrCast(*const clang.RecordType, child_ty);
+                    const record_decl = record_ty.getDecl();
+                    // check if this decl is unnamed
+                    if (@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin()[0] != 0) return;
+                    break @ptrToInt(record_decl.getCanonicalDecl());
+                },
+                .Elaborated => {
+                    const elaborated_ty = @ptrCast(*const clang.ElaboratedType, child_ty);
+                    child_ty = elaborated_ty.getNamedType().getTypePtr();
+                },
+                .Decayed => {
+                    const decayed_ty = @ptrCast(*const clang.DecayedType, child_ty);
+                    child_ty = decayed_ty.getDecayedType().getTypePtr();
+                },
+                .Attributed => {
+                    const attributed_ty = @ptrCast(*const clang.AttributedType, child_ty);
+                    child_ty = attributed_ty.getEquivalentType().getTypePtr();
+                },
+                .MacroQualified => {
+                    const macroqualified_ty = @ptrCast(*const clang.MacroQualifiedType, child_ty);
+                    child_ty = macroqualified_ty.getModifiedType().getTypePtr();
+                },
+                else => return,
+            } else unreachable;
+            // TODO https://github.com/ziglang/zig/issues/3756
+            // TODO https://github.com/ziglang/zig/issues/1802
+            const name = if (isZigPrimitiveType(decl_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ decl_name, c.getMangle() }) else decl_name;
+            try c.unnamed_typedefs.putNoClobber(c.gpa, addr, name);
+            // Put this typedef in the decl_table to avoid redefinitions.
+            try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), name);
+        }
     }
 }
 
@@ -635,7 +685,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     if (has_init) trans_init: {
         if (decl_init) |expr| {
             const node_or_error = if (expr.getStmtClass() == .StringLiteralClass)
-                transStringLiteralAsArray(c, scope, @ptrCast(*const clang.StringLiteral, expr), zigArraySize(c, type_node) catch 0)
+                transStringLiteralInitializer(c, scope, @ptrCast(*const clang.StringLiteral, expr), type_node)
             else
                 transExprCoercing(c, scope, expr, .used);
             init_node = node_or_error catch |err| switch (err) {
@@ -751,17 +801,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
-    var bare_name = try c.str(@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin());
-    var is_unnamed = false;
-    // Record declarations such as `struct {...} x` have no name but they're not
-    // anonymous hence here isAnonymousStructOrUnion is not needed
-    if (bare_name.len == 0) {
-        bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
-        is_unnamed = true;
-    }
-
-    var container_kind_name: []const u8 = undefined;
     var is_union = false;
+    var container_kind_name: []const u8 = undefined;
+    var bare_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, record_decl).getName_bytes_begin());
+
     if (record_decl.isUnion()) {
         container_kind_name = "union";
         is_union = true;
@@ -772,7 +815,20 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         return failDecl(c, record_loc, bare_name, "record {s} is not a struct or union", .{bare_name});
     }
 
-    var name: []const u8 = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
+    var is_unnamed = false;
+    var name = bare_name;
+    if (c.unnamed_typedefs.get(@ptrToInt(record_decl.getCanonicalDecl()))) |typedef_name| {
+        bare_name = typedef_name;
+        name = typedef_name;
+    } else {
+        // Record declarations such as `struct {...} x` have no name but they're not
+        // anonymous hence here isAnonymousStructOrUnion is not needed
+        if (bare_name.len == 0) {
+            bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
+            is_unnamed = true;
+        }
+        name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
+    }
     if (!toplevel) name = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), name);
 
@@ -873,14 +929,19 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
-    var bare_name = try c.str(@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin());
     var is_unnamed = false;
-    if (bare_name.len == 0) {
-        bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
-        is_unnamed = true;
+    var bare_name: []const u8 = try c.str(@ptrCast(*const clang.NamedDecl, enum_decl).getName_bytes_begin());
+    var name = bare_name;
+    if (c.unnamed_typedefs.get(@ptrToInt(enum_decl.getCanonicalDecl()))) |typedef_name| {
+        bare_name = typedef_name;
+        name = typedef_name;
+    } else {
+        if (bare_name.len == 0) {
+            bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
+            is_unnamed = true;
+        }
+        name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     }
-
-    var name: []const u8 = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     if (!toplevel) _ = try bs.makeMangledName(c, name);
     try c.decl_table.putNoClobber(c.gpa, @ptrToInt(enum_decl.getCanonicalDecl()), name);
 
@@ -1058,6 +1119,11 @@ fn transStmt(
             const compound_literal = @ptrCast(*const clang.CompoundLiteralExpr, stmt);
             return transExpr(c, scope, compound_literal.getInitializer(), result_used);
         },
+        .GenericSelectionExprClass => {
+            const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, stmt);
+            return transExpr(c, scope, gen_sel.getResultExpr(), result_used);
+        },
+        // When adding new cases here, see comment for maybeBlockify()
         else => {
             return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)});
         },
@@ -1407,7 +1473,7 @@ fn transDeclStmtOne(
 
             var init_node = if (decl_init) |expr|
                 if (expr.getStmtClass() == .StringLiteralClass)
-                    try transStringLiteralAsArray(c, scope, @ptrCast(*const clang.StringLiteral, expr), try zigArraySize(c, type_node))
+                    try transStringLiteralInitializer(c, scope, @ptrCast(*const clang.StringLiteral, expr), type_node)
                 else
                     try transExprCoercing(c, scope, expr, .used)
             else
@@ -1522,7 +1588,7 @@ fn transImplicitCastExpr(
             return maybeSuppressResult(c, scope, result_used, ne);
         },
         .BuiltinFnToFnPtr => {
-            return transExpr(c, scope, sub_expr, result_used);
+            return transBuiltinFnExpr(c, scope, sub_expr, result_used);
         },
         .ToVoid => {
             // Should only appear in the rhs and lhs of a ConditionalOperator
@@ -1536,6 +1602,22 @@ fn transImplicitCastExpr(
             .{@tagName(kind)},
         ),
     }
+}
+
+fn isBuiltinDefined(name: []const u8) bool {
+    inline for (std.meta.declarations(c_builtins)) |decl| {
+        if (std.mem.eql(u8, name, decl.name)) return true;
+    }
+    return false;
+}
+
+fn transBuiltinFnExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
+    const node = try transExpr(c, scope, expr, used);
+    if (node.castTag(.identifier)) |ident| {
+        const name = ident.data;
+        if (!isBuiltinDefined(name)) return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "TODO implement function '{s}' in std.c.builtins", .{name});
+    }
+    return node;
 }
 
 fn transBoolExpr(
@@ -1581,6 +1663,10 @@ fn exprIsNarrowStringLiteral(expr: *const clang.Expr) bool {
         .ParenExprClass => {
             const op_expr = @ptrCast(*const clang.ParenExpr, expr).getSubExpr();
             return exprIsNarrowStringLiteral(op_expr);
+        },
+        .GenericSelectionExprClass => {
+            const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, expr);
+            return exprIsNarrowStringLiteral(gen_sel.getResultExpr());
         },
         else => return false,
     }
@@ -1733,6 +1819,20 @@ fn transReturnStmt(
     return Tag.@"return".create(c.arena, rhs);
 }
 
+fn transNarrowStringLiteral(
+    c: *Context,
+    scope: *Scope,
+    stmt: *const clang.StringLiteral,
+    result_used: ResultUsed,
+) TransError!Node {
+    var len: usize = undefined;
+    const bytes_ptr = stmt.getString_bytes_begin_size(&len);
+
+    const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(bytes_ptr[0..len])});
+    const node = try Tag.string_literal.create(c.arena, str);
+    return maybeSuppressResult(c, scope, result_used, node);
+}
+
 fn transStringLiteral(
     c: *Context,
     scope: *Scope,
@@ -1741,19 +1841,14 @@ fn transStringLiteral(
 ) TransError!Node {
     const kind = stmt.getKind();
     switch (kind) {
-        .Ascii, .UTF8 => {
-            var len: usize = undefined;
-            const bytes_ptr = stmt.getString_bytes_begin_size(&len);
-
-            const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(bytes_ptr[0..len])});
-            const node = try Tag.string_literal.create(c.arena, str);
-            return maybeSuppressResult(c, scope, result_used, node);
-        },
+        .Ascii, .UTF8 => return transNarrowStringLiteral(c, scope, stmt, result_used),
         .UTF16, .UTF32, .Wide => {
             const str_type = @tagName(stmt.getKind());
             const name = try std.fmt.allocPrint(c.arena, "zig.{s}_string_{d}", .{ str_type, c.getMangle() });
-            const lit_array = try transStringLiteralAsArray(c, scope, stmt, stmt.getLength() + 1);
 
+            const expr_base = @ptrCast(*const clang.Expr, stmt);
+            const array_type = try transQualTypeInitialized(c, scope, expr_base.getType(), expr_base, expr_base.getBeginLoc());
+            const lit_array = try transStringLiteralInitializer(c, scope, stmt, array_type);
             const decl = try Tag.var_simple.create(c.arena, .{ .name = name, .init = lit_array });
             try scope.appendNode(decl);
             const node = try Tag.identifier.create(c.arena, name);
@@ -1762,52 +1857,67 @@ fn transStringLiteral(
     }
 }
 
-/// Parse the size of an array back out from an ast Node.
-fn zigArraySize(c: *Context, node: Node) TransError!usize {
-    if (node.castTag(.array_type)) |array| {
-        return array.data.len;
-    }
-    return error.UnsupportedTranslation;
+fn getArrayPayload(array_type: Node) ast.Payload.Array.ArrayTypeInfo {
+    return (array_type.castTag(.array_type) orelse array_type.castTag(.null_sentinel_array_type).?).data;
 }
 
-/// Translate a string literal to an array of integers. Used when an
-/// array is initialized from a string literal. `array_size` is the
-/// size of the array being initialized. If the string literal is larger
-/// than the array, truncate the string. If the array is larger than the
-/// string literal, pad the array with 0's
-fn transStringLiteralAsArray(
+/// Translate a string literal that is initializing an array. In general narrow string
+/// literals become `"<string>".*` or `"<string>"[0..<size>].*` if they need truncation.
+/// Wide string literals become an array of integers. zero-fillers pad out the array to
+/// the appropriate length, if necessary.
+fn transStringLiteralInitializer(
     c: *Context,
     scope: *Scope,
     stmt: *const clang.StringLiteral,
-    array_size: usize,
+    array_type: Node,
 ) TransError!Node {
-    if (array_size == 0) return error.UnsupportedType;
+    assert(array_type.tag() == .array_type or array_type.tag() == .null_sentinel_array_type);
+
+    const is_narrow = stmt.getKind() == .Ascii or stmt.getKind() == .UTF8;
 
     const str_length = stmt.getLength();
+    const payload = getArrayPayload(array_type);
+    const array_size = payload.len;
+    const elem_type = payload.elem_type;
 
-    const expr_base = @ptrCast(*const clang.Expr, stmt);
-    const ty = expr_base.getType().getTypePtr();
-    const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, ty);
+    if (array_size == 0) return Tag.empty_array.create(c.arena, elem_type);
 
-    const elem_type = try transQualType(c, scope, const_arr_ty.getElementType(), expr_base.getBeginLoc());
-    const arr_type = try Tag.array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_type });
-    const init_list = try c.arena.alloc(Node, array_size);
+    const num_inits = math.min(str_length, array_size);
+    const init_node = if (num_inits > 0) blk: {
+        if (is_narrow) {
+            // "string literal".* or string literal"[0..num_inits].*
+            var str = try transNarrowStringLiteral(c, scope, stmt, .used);
+            if (str_length != array_size) str = try Tag.string_slice.create(c.arena, .{ .string = str, .end = num_inits });
+            break :blk try Tag.deref.create(c.arena, str);
+        } else {
+            const init_list = try c.arena.alloc(Node, num_inits);
+            var i: c_uint = 0;
+            while (i < num_inits) : (i += 1) {
+                init_list[i] = try transCreateCharLitNode(c, false, stmt.getCodeUnit(i));
+            }
+            const init_args = .{ .len = num_inits, .elem_type = elem_type };
+            const init_array_type = try if (array_type.tag() == .array_type) Tag.array_type.create(c.arena, init_args) else Tag.null_sentinel_array_type.create(c.arena, init_args);
+            break :blk try Tag.array_init.create(c.arena, .{
+                .cond = init_array_type,
+                .cases = init_list,
+            });
+        }
+    } else null;
 
-    var i: c_uint = 0;
-    const kind = stmt.getKind();
-    const narrow = kind == .Ascii or kind == .UTF8;
-    while (i < str_length and i < array_size) : (i += 1) {
-        const code_unit = stmt.getCodeUnit(i);
-        init_list[i] = try transCreateCharLitNode(c, narrow, code_unit);
-    }
-    while (i < array_size) : (i += 1) {
-        init_list[i] = try transCreateNodeNumber(c, 0, .int);
-    }
+    if (num_inits == array_size) return init_node.?; // init_node is only null if num_inits == 0; but if num_inits == array_size == 0 we've already returned
+    assert(array_size > str_length); // If array_size <= str_length, `num_inits == array_size` and we've already returned.
 
-    return Tag.array_init.create(c.arena, .{
-        .cond = arr_type,
-        .cases = init_list,
+    const filler_node = try Tag.array_filler.create(c.arena, .{
+        .type = elem_type,
+        .filler = Tag.zero_literal.init(),
+        .count = array_size - str_length,
     });
+
+    if (init_node) |some| {
+        return Tag.array_cat.create(c.arena, .{ .lhs = some, .rhs = filler_node });
+    } else {
+        return filler_node;
+    }
 }
 
 /// determine whether `stmt` is a "pointer subtraction expression" - a subtraction where
@@ -1836,6 +1946,7 @@ fn cIntTypeForEnum(enum_qt: clang.QualType) clang.QualType {
     return enum_decl.getIntegerType();
 }
 
+// when modifying this function, make sure to also update std.meta.cast
 fn transCCast(
     c: *Context,
     scope: *Scope,
@@ -2192,6 +2303,35 @@ fn transImplicitValueInitExpr(
     return transZeroInitExpr(c, scope, source_loc, ty);
 }
 
+/// If a statement can possibly translate to a Zig assignment (either directly because it's
+/// an assignment in C or indirectly via result assignment to `_`) AND it's the sole statement
+/// in the body of an if statement or loop, then we need to put the statement into its own block.
+/// The `else` case here corresponds to statements that could result in an assignment. If a statement
+/// class never needs a block, add its enum to the top prong.
+fn maybeBlockify(c: *Context, scope: *Scope, stmt: *const clang.Stmt) TransError!Node {
+    switch (stmt.getStmtClass()) {
+        .BreakStmtClass,
+        .CompoundStmtClass,
+        .ContinueStmtClass,
+        .DeclRefExprClass,
+        .DeclStmtClass,
+        .DoStmtClass,
+        .ForStmtClass,
+        .IfStmtClass,
+        .ReturnStmtClass,
+        .NullStmtClass,
+        .WhileStmtClass,
+        => return transStmt(c, scope, stmt, .unused),
+        else => {
+            var block_scope = try Scope.Block.init(c, scope, false);
+            defer block_scope.deinit();
+            const result = try transStmt(c, &block_scope.base, stmt, .unused);
+            try block_scope.statements.append(result);
+            return block_scope.complete(c);
+        },
+    }
+}
+
 fn transIfStmt(
     c: *Context,
     scope: *Scope,
@@ -2209,9 +2349,10 @@ fn transIfStmt(
     const cond_expr = @ptrCast(*const clang.Expr, stmt.getCond());
     const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
 
-    const then_body = try transStmt(c, scope, stmt.getThen(), .unused);
+    const then_body = try maybeBlockify(c, scope, stmt.getThen());
+
     const else_body = if (stmt.getElse()) |expr|
-        try transStmt(c, scope, expr, .unused)
+        try maybeBlockify(c, scope, expr)
     else
         null;
     return Tag.@"if".create(c.arena, .{ .cond = cond, .then = then_body, .@"else" = else_body });
@@ -2236,7 +2377,7 @@ fn transWhileLoop(
         .parent = scope,
         .id = .loop,
     };
-    const body = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
+    const body = try maybeBlockify(c, &loop_scope, stmt.getBody());
     return Tag.@"while".create(c.arena, .{ .cond = cond, .body = body, .cont_expr = null });
 }
 
@@ -2262,7 +2403,7 @@ fn transDoWhileLoop(
     const if_not_break = switch (cond.tag()) {
         .false_literal => return transStmt(c, scope, stmt.getBody(), .unused),
         .true_literal => {
-            const body_node = try transStmt(c, scope, stmt.getBody(), .unused);
+            const body_node = try maybeBlockify(c, scope, stmt.getBody());
             return Tag.while_true.create(c.arena, body_node);
         },
         else => try Tag.if_not_break.create(c.arena, cond),
@@ -2338,7 +2479,7 @@ fn transForLoop(
     else
         null;
 
-    const body = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
+    const body = try maybeBlockify(c, &loop_scope, stmt.getBody());
     const while_node = try Tag.@"while".create(c.arena, .{ .cond = cond, .body = body, .cont_expr = cont_expr });
     if (block_scope) |*bs| {
         try bs.statements.append(while_node);
@@ -2725,6 +2866,10 @@ fn cIsFunctionDeclRef(expr: *const clang.Expr) bool {
             const opcode = un_op.getOpcode();
             return (opcode == .AddrOf or opcode == .Deref) and cIsFunctionDeclRef(un_op.getSubExpr());
         },
+        .GenericSelectionExprClass => {
+            const gen_sel = @ptrCast(*const clang.GenericSelectionExpr, expr);
+            return cIsFunctionDeclRef(gen_sel.getResultExpr());
+        },
         else => return false,
     }
 }
@@ -3052,43 +3197,34 @@ fn transCreateCompoundAssign(
     const requires_int_cast = blk: {
         const are_integers = cIsInteger(lhs_qt) and cIsInteger(rhs_qt);
         const are_same_sign = cIsSignedInteger(lhs_qt) == cIsSignedInteger(rhs_qt);
-        break :blk are_integers and !are_same_sign;
+        break :blk are_integers and !(are_same_sign and cIntTypeCmp(lhs_qt, rhs_qt) == .eq);
     };
+
     if (used == .unused) {
         // common case
         // c: lhs += rhs
         // zig: lhs += rhs
+        const lhs_node = try transExpr(c, scope, lhs, .used);
+        var rhs_node = try transExpr(c, scope, rhs, .used);
+        if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
+
         if ((is_mod or is_div) and is_signed) {
-            const lhs_node = try transExpr(c, scope, lhs, .used);
-            const rhs_node = try transExpr(c, scope, rhs, .used);
+            if (requires_int_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
+            const operands = .{ .lhs = lhs_node, .rhs = rhs_node };
             const builtin = if (is_mod)
-                try Tag.rem.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node })
+                try Tag.rem.create(c.arena, operands)
             else
-                try Tag.div_trunc.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
+                try Tag.div_trunc.create(c.arena, operands);
 
             return transCreateNodeInfixOp(c, scope, .assign, lhs_node, builtin, .used);
         }
 
-        const lhs_node = try transExpr(c, scope, lhs, .used);
-        var rhs_node = if (is_shift or requires_int_cast)
-            try transExprCoercing(c, scope, rhs, .used)
-        else
-            try transExpr(c, scope, rhs, .used);
-
-        if (is_ptr_op_signed) {
-            rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
-        }
-
-        if (is_shift or requires_int_cast) {
-            // @intCast(rhs)
-            const cast_to_type = if (is_shift)
-                try qualTypeToLog2IntRef(c, scope, getExprQualType(c, rhs), loc)
-            else
-                try transQualType(c, scope, getExprQualType(c, lhs), loc);
-
+        if (is_shift) {
+            const cast_to_type = try qualTypeToLog2IntRef(c, scope, rhs_qt, loc);
             rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
+        } else if (requires_int_cast) {
+            rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
         }
-
         return transCreateNodeInfixOp(c, scope, op, lhs_node, rhs_node, .used);
     }
     // worst case
@@ -3110,29 +3246,24 @@ fn transCreateCompoundAssign(
     const lhs_node = try Tag.identifier.create(c.arena, ref);
     const ref_node = try Tag.deref.create(c.arena, lhs_node);
 
+    var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
+    if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
     if ((is_mod or is_div) and is_signed) {
-        const rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
+        if (requires_int_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
+        const operands = .{ .lhs = ref_node, .rhs = rhs_node };
         const builtin = if (is_mod)
-            try Tag.rem.create(c.arena, .{ .lhs = ref_node, .rhs = rhs_node })
+            try Tag.rem.create(c.arena, operands)
         else
-            try Tag.div_trunc.create(c.arena, .{ .lhs = ref_node, .rhs = rhs_node });
+            try Tag.div_trunc.create(c.arena, operands);
 
         const assign = try transCreateNodeInfixOp(c, &block_scope.base, .assign, ref_node, builtin, .used);
         try block_scope.statements.append(assign);
     } else {
-        var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
-
-        if (is_shift or requires_int_cast) {
-            // @intCast(rhs)
-            const cast_to_type = if (is_shift)
-                try qualTypeToLog2IntRef(c, scope, getExprQualType(c, rhs), loc)
-            else
-                try transQualType(c, scope, getExprQualType(c, lhs), loc);
-
+        if (is_shift) {
+            const cast_to_type = try qualTypeToLog2IntRef(c, &block_scope.base, rhs_qt, loc);
             rhs_node = try Tag.int_cast.create(c.arena, .{ .lhs = cast_to_type, .rhs = rhs_node });
-        }
-        if (is_ptr_op_signed) {
-            rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
+        } else if (requires_int_cast) {
+            rhs_node = try transCCast(c, &block_scope.base, loc, lhs_qt, rhs_qt, rhs_node);
         }
 
         const assign = try transCreateNodeInfixOp(c, &block_scope.base, op, ref_node, rhs_node, .used);
@@ -3194,11 +3325,11 @@ fn transFloatingLiteral(c: *Context, scope: *Scope, stmt: *const clang.FloatingL
     var dbl = stmt.getValueAsApproximateDouble();
     const is_negative = dbl < 0;
     if (is_negative) dbl = -dbl;
-    const str = try std.fmt.allocPrint(c.arena, "{d}", .{dbl});
-    var node = if (dbl == std.math.floor(dbl))
-        try Tag.integer_literal.create(c.arena, str)
+    const str = if (dbl == std.math.floor(dbl))
+        try std.fmt.allocPrint(c.arena, "{d}.0", .{dbl})
     else
-        try Tag.float_literal.create(c.arena, str);
+        try std.fmt.allocPrint(c.arena, "{d}", .{dbl});
+    var node = try Tag.float_literal.create(c.arena, str);
     if (is_negative) node = try Tag.negate.create(c.arena, node);
     return maybeSuppressResult(c, scope, used, node);
 }
@@ -3312,9 +3443,8 @@ fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
     try c.global_scope.nodes.append(decl_node);
 }
 
-/// Translate a qual type for a variable with an initializer. The initializer
-/// only matters for incomplete arrays, since the size of the array is determined
-/// by the size of the initializer
+/// Translate a qualtype for a variable with an initializer. This only matters
+/// for incomplete arrays, since the initializer determines the size of the array.
 fn transQualTypeInitialized(
     c: *Context,
     scope: *Scope,
@@ -3330,9 +3460,14 @@ fn transQualTypeInitialized(
         switch (decl_init.getStmtClass()) {
             .StringLiteralClass => {
                 const string_lit = @ptrCast(*const clang.StringLiteral, decl_init);
-                const string_lit_size = string_lit.getLength() + 1; // +1 for null terminator
+                const string_lit_size = string_lit.getLength();
                 const array_size = @intCast(usize, string_lit_size);
-                return Tag.array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_ty });
+
+                // incomplete array initialized with empty string, will be translated as [1]T{0}
+                // see https://github.com/ziglang/zig/issues/8256
+                if (array_size == 0) return Tag.array_type.create(c.arena, .{ .len = 1, .elem_type = elem_ty });
+
+                return Tag.null_sentinel_array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_ty });
             },
             .InitListExprClass => {
                 const init_expr = @ptrCast(*const clang.InitListExpr, decl_init);
@@ -4746,6 +4881,10 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
         },
         .Identifier => {
             const mangled_name = scope.getAlias(slice);
+            if (mem.startsWith(u8, mangled_name, "__builtin_") and !isBuiltinDefined(mangled_name)) {
+                try m.fail(c, "TODO implement function '{s}' in std.c.builtins", .{mangled_name});
+                return error.ParseError;
+            }
             return Tag.identifier.create(c.arena, builtin_typedef_map.get(mangled_name) orelse mangled_name);
         },
         .LParen => {

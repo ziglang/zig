@@ -1,7 +1,20 @@
 //! We do this instead of @cImport because the self-hosted compiler is easier
 //! to bootstrap if it does not depend on translate-c.
 
-const LLVMBool = bool;
+/// Do not compare directly to .True, use toBool() instead.
+pub const Bool = enum(c_int) {
+    False,
+    True,
+    _,
+
+    pub fn fromBool(b: bool) Bool {
+        return @intToEnum(Bool, @boolToInt(b));
+    }
+
+    pub fn toBool(b: Bool) bool {
+        return b != .False;
+    }
+};
 pub const AttributeIndex = c_uint;
 
 /// Make sure to use the *InContext functions instead of the global ones.
@@ -22,13 +35,13 @@ pub const Context = opaque {
     extern fn LLVMVoidTypeInContext(C: *const Context) *const Type;
 
     pub const structType = LLVMStructTypeInContext;
-    extern fn LLVMStructTypeInContext(C: *const Context, ElementTypes: [*]*const Type, ElementCount: c_uint, Packed: LLVMBool) *const Type;
+    extern fn LLVMStructTypeInContext(C: *const Context, ElementTypes: [*]*const Type, ElementCount: c_uint, Packed: Bool) *const Type;
 
     pub const constString = LLVMConstStringInContext;
-    extern fn LLVMConstStringInContext(C: *const Context, Str: [*]const u8, Length: c_uint, DontNullTerminate: LLVMBool) *const Value;
+    extern fn LLVMConstStringInContext(C: *const Context, Str: [*]const u8, Length: c_uint, DontNullTerminate: Bool) *const Value;
 
     pub const constStruct = LLVMConstStructInContext;
-    extern fn LLVMConstStructInContext(C: *const Context, ConstantVals: [*]*const Value, Count: c_uint, Packed: LLVMBool) *const Value;
+    extern fn LLVMConstStructInContext(C: *const Context, ConstantVals: [*]*const Value, Count: c_uint, Packed: Bool) *const Value;
 
     pub const createBasicBlock = LLVMCreateBasicBlockInContext;
     extern fn LLVMCreateBasicBlockInContext(C: *const Context, Name: [*:0]const u8) *const BasicBlock;
@@ -59,7 +72,7 @@ pub const Value = opaque {
 
 pub const Type = opaque {
     pub const functionType = LLVMFunctionType;
-    extern fn LLVMFunctionType(ReturnType: *const Type, ParamTypes: ?[*]*const Type, ParamCount: c_uint, IsVarArg: LLVMBool) *const Type;
+    extern fn LLVMFunctionType(ReturnType: *const Type, ParamTypes: ?[*]*const Type, ParamCount: c_uint, IsVarArg: Bool) *const Type;
 
     pub const constNull = LLVMConstNull;
     extern fn LLVMConstNull(Ty: *const Type) *const Value;
@@ -68,7 +81,7 @@ pub const Type = opaque {
     extern fn LLVMConstAllOnes(Ty: *const Type) *const Value;
 
     pub const constInt = LLVMConstInt;
-    extern fn LLVMConstInt(IntTy: *const Type, N: c_ulonglong, SignExtend: LLVMBool) *const Value;
+    extern fn LLVMConstInt(IntTy: *const Type, N: c_ulonglong, SignExtend: Bool) *const Value;
 
     pub const constArray = LLVMConstArray;
     extern fn LLVMConstArray(ElementTy: *const Type, ConstantVals: ?[*]*const Value, Length: c_uint) *const Value;
@@ -91,7 +104,7 @@ pub const Module = opaque {
     extern fn LLVMDisposeModule(*const Module) void;
 
     pub const verify = LLVMVerifyModule;
-    extern fn LLVMVerifyModule(*const Module, Action: VerifierFailureAction, OutMessage: *[*:0]const u8) LLVMBool;
+    extern fn LLVMVerifyModule(*const Module, Action: VerifierFailureAction, OutMessage: *[*:0]const u8) Bool;
 
     pub const addFunction = LLVMAddFunction;
     extern fn LLVMAddFunction(*const Module, Name: [*:0]const u8, FunctionTy: *const Type) *const Value;
@@ -191,7 +204,7 @@ pub const Builder = opaque {
     extern fn LLVMBuildNUWSub(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildIntCast2 = LLVMBuildIntCast2;
-    extern fn LLVMBuildIntCast2(*const Builder, Val: *const Value, DestTy: *const Type, IsSigned: LLVMBool, Name: [*:0]const u8) *const Value;
+    extern fn LLVMBuildIntCast2(*const Builder, Val: *const Value, DestTy: *const Type, IsSigned: Bool, Name: [*:0]const u8) *const Value;
 
     pub const buildBitCast = LLVMBuildBitCast;
     extern fn LLVMBuildBitCast(*const Builder, Val: *const Value, DestTy: *const Type, Name: [*:0]const u8) *const Value;
@@ -258,7 +271,7 @@ pub const TargetMachine = opaque {
         Filename: [*:0]const u8,
         codegen: CodeGenFileType,
         ErrorMessage: *[*:0]const u8,
-    ) LLVMBool;
+    ) Bool;
 };
 
 pub const CodeMode = extern enum {
@@ -295,7 +308,7 @@ pub const CodeGenFileType = extern enum {
 
 pub const Target = opaque {
     pub const getFromTriple = LLVMGetTargetFromTriple;
-    extern fn LLVMGetTargetFromTriple(Triple: [*:0]const u8, T: **const Target, ErrorMessage: *[*:0]const u8) LLVMBool;
+    extern fn LLVMGetTargetFromTriple(Triple: [*:0]const u8, T: **const Target, ErrorMessage: *[*:0]const u8) Bool;
 };
 
 extern fn LLVMInitializeAArch64TargetInfo() void;
