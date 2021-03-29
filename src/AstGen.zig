@@ -1257,6 +1257,18 @@ fn blockExprStmts(
                         .break_inline,
                         .condbr,
                         .condbr_inline,
+                        .switch_br,
+                        .switch_br_range,
+                        .switch_br_else,
+                        .switch_br_else_range,
+                        .switch_br_underscore,
+                        .switch_br_underscore_range,
+                        .switch_br_ref,
+                        .switch_br_ref_range,
+                        .switch_br_ref_else,
+                        .switch_br_ref_else_range,
+                        .switch_br_ref_underscore,
+                        .switch_br_ref_underscore_range,
                         .compile_error,
                         .ret_node,
                         .ret_tok,
@@ -2536,19 +2548,18 @@ fn switchExpr(
     rl: ResultLoc,
     switch_node: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
     const tree = parent_gz.tree();
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
     const node_tags = tree.nodes.items(.tag);
 
+    if (true) @panic("TODO rework for zir-memory-layout branch");
+
     const switch_token = main_tokens[switch_node];
     const target_node = node_datas[switch_node].lhs;
     const extra = tree.extraData(node_datas[switch_node].rhs, ast.Node.SubRange);
     const case_nodes = tree.extra_data[extra.start..extra.end];
-
-    const switch_src = token_starts[switch_token];
 
     var block_scope: GenZir = .{
         .parent = scope,
@@ -2627,7 +2638,7 @@ fn switchExpr(
                 const msg = msg: {
                     const msg = try mod.errMsg(
                         scope,
-                        switch_src,
+                        parent_gz.nodeSrcLoc(switch_node),
                         "else and '_' prong in switch expression",
                         .{},
                     );

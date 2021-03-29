@@ -585,39 +585,35 @@ pub const Inst = struct {
         /// An enum literal 8 or fewer bytes. No source location.
         /// Uses the `small_str` field.
         enum_literal_small,
-        // /// A switch expression.
-        // /// lhs is target, SwitchBr[rhs]
-        // /// All prongs of target handled.
-        // switch_br,
-        // /// Same as switch_br, except has a range field.
-        // switch_br_range,
-        // /// Same as switch_br, except has an else prong.
-        // switch_br_else,
-        // /// Same as switch_br_else, except has a range field.
-        // switch_br_else_range,
-        // /// Same as switch_br, except has an underscore prong.
-        // switch_br_underscore,
-        // /// Same as switch_br, except has a range field.
-        // switch_br_underscore_range,
-        // /// Same as `switch_br` but the target is a pointer to the value being switched on.
-        // switch_br_ref,
-        // /// Same as `switch_br_range` but the target is a pointer to the value being switched on.
-        // switch_br_ref_range,
-        // /// Same as `switch_br_else` but the target is a pointer to the value being switched on.
-        // switch_br_ref_else,
-        // /// Same as `switch_br_else_range` but the target is a pointer to the
-        // /// value being switched on.
-        // switch_br_ref_else_range,
-        // /// Same as `switch_br_underscore` but the target is a pointer to the value
-        // /// being switched on.
-        // switch_br_ref_underscore,
-        // /// Same as `switch_br_underscore_range` but the target is a pointer to
-        // /// the value being switched on.
-        // switch_br_ref_underscore_range,
-        // /// A range in a switch case, `lhs...rhs`.
-        // /// Only checks that `lhs >= rhs` if they are ints, everything else is
-        // /// validated by the switch_br instruction.
-        // switch_range,
+        /// A switch expression. Uses the `pl_node` union field.
+        /// AST node is the switch, payload is `SwitchBr`.
+        /// All prongs of target handled.
+        switch_br,
+        /// Same as switch_br, except has a range field.
+        switch_br_range,
+        /// Same as switch_br, except has an else prong.
+        switch_br_else,
+        /// Same as switch_br_else, except has a range field.
+        switch_br_else_range,
+        /// Same as switch_br, except has an underscore prong.
+        switch_br_underscore,
+        /// Same as switch_br, except has a range field.
+        switch_br_underscore_range,
+        /// Same as `switch_br` but the target is a pointer to the value being switched on.
+        switch_br_ref,
+        /// Same as `switch_br_range` but the target is a pointer to the value being switched on.
+        switch_br_ref_range,
+        /// Same as `switch_br_else` but the target is a pointer to the value being switched on.
+        switch_br_ref_else,
+        /// Same as `switch_br_else_range` but the target is a pointer to the
+        /// value being switched on.
+        switch_br_ref_else_range,
+        /// Same as `switch_br_underscore` but the target is a pointer to the value
+        /// being switched on.
+        switch_br_ref_underscore,
+        /// Same as `switch_br_underscore_range` but the target is a pointer to
+        /// the value being switched on.
+        switch_br_ref_underscore_range,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -760,6 +756,18 @@ pub const Inst = struct {
                 .@"unreachable",
                 .repeat,
                 .repeat_inline,
+                .switch_br,
+                .switch_br_range,
+                .switch_br_else,
+                .switch_br_else_range,
+                .switch_br_underscore,
+                .switch_br_underscore_range,
+                .switch_br_ref,
+                .switch_br_ref_range,
+                .switch_br_ref_else,
+                .switch_br_ref_else_range,
+                .switch_br_ref_underscore,
+                .switch_br_ref_underscore_range,
                 => true,
             };
         }
@@ -1322,20 +1330,51 @@ pub const Inst = struct {
         rhs: Ref,
     };
 
-    /// Stored in extra. Depending on zir tag and len fields, extra fields trail
+    /// This form is supported when there are no ranges, and exactly 1 item per block.
+    /// Depending on zir tag and len fields, extra fields trail
     /// this one in the extra array.
-    /// 0. range: Ref // If the tag has "_range" in it.
-    /// 1. else_body: Ref // If the tag has "_else" or "_underscore" in it.
-    /// 2. items: list of all individual items and ranges.
-    /// 3. cases: {
+    /// 0. else_body { // If the tag has "_else" or "_underscore" in it.
+    ///        body_len: u32,
+    ///        body member Index for every body_len
+    ///     }
+    /// 1. cases: {
     ///        item: Ref,
     ///        body_len: u32,
-    ///        body member Ref for every body_len
+    ///        body member Index for every body_len
     ///    } for every cases_len
     pub const SwitchBr = struct {
-        /// TODO investigate, why do we need to store this? is it redundant?
-        items_len: u32,
+        operand: Ref,
         cases_len: u32,
+    };
+
+    /// This form is required when there exists a block which has more than one item,
+    /// or a range.
+    /// Depending on zir tag and len fields, extra fields trail
+    /// this one in the extra array.
+    /// 0. else_body { // If the tag has "_else" or "_underscore" in it.
+    ///        body_len: u32,
+    ///        body member Index for every body_len
+    ///     }
+    /// 1. scalar_cases: { // for every scalar_cases_len
+    ///        item: Ref,
+    ///        body_len: u32,
+    ///        body member Index for every body_len
+    ///     }
+    /// 2. multi_cases: { // for every multi_cases_len
+    ///        items_len: u32,
+    ///        item: Ref for every items_len
+    ///        block_index: u32, // index in extra to a `Block`
+    ///    }
+    /// 3. range_cases: { // for every range_cases_len
+    ///        item_start: Ref,
+    ///        item_end: Ref,
+    ///        block_index: u32, // index in extra to a `Block`
+    ///    }
+    pub const SwitchBrRange = struct {
+        operand: Ref,
+        scalar_cases_len: u32,
+        multi_cases_len: u32,
+        range_cases_len: u32,
     };
 
     pub const Field = struct {
@@ -1502,6 +1541,22 @@ const Writer = struct {
             .condbr,
             .condbr_inline,
             => try self.writePlNodeCondBr(stream, inst),
+
+            .switch_br,
+            .switch_br_else,
+            .switch_br_underscore,
+            .switch_br_ref,
+            .switch_br_ref_else,
+            .switch_br_ref_underscore,
+            => try self.writePlNodeSwitchBr(stream, inst),
+
+            .switch_br_range,
+            .switch_br_else_range,
+            .switch_br_underscore_range,
+            .switch_br_ref_range,
+            .switch_br_ref_else_range,
+            .switch_br_ref_underscore_range,
+            => try self.writePlNodeSwitchBrRange(stream, inst),
 
             .compile_log,
             .typeof_peer,
@@ -1705,6 +1760,23 @@ const Writer = struct {
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("}) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeSwitchBr(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.SwitchBr, inst_data.payload_index);
+
+        try self.writeInstRef(stream, extra.data.operand);
+        try stream.writeAll(", TODO) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeSwitchBrRange(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.SwitchBrRange, inst_data.payload_index);
+        try self.writeInstRef(stream, extra.data.operand);
+        try stream.writeAll(", TODO) ");
         try self.writeSrc(stream, inst_data.src());
     }
 

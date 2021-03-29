@@ -229,10 +229,6 @@ pub fn analyzeBody(
             .typeof => try sema.zirTypeof(block, inst),
             .typeof_peer => try sema.zirTypeofPeer(block, inst),
             .xor => try sema.zirBitwise(block, inst, .xor),
-            // TODO
-            //.switchbr => try sema.zirSwitchBr(block, inst, false),
-            //.switchbr_ref => try sema.zirSwitchBr(block, inst, true),
-            //.switch_range => try sema.zirSwitchRange(block, inst),
 
             // Instructions that we know to *always* be noreturn based solely on their tag.
             // These functions match the return type of analyzeBody so that we can
@@ -246,6 +242,18 @@ pub fn analyzeBody(
             .ret_tok => return sema.zirRetTok(block, inst, false),
             .@"unreachable" => return sema.zirUnreachable(block, inst),
             .repeat => return sema.zirRepeat(block, inst),
+            .switch_br => return sema.zirSwitchBr(block, inst, false, .full),
+            .switch_br_range => return sema.zirSwitchBrRange(block, inst, false, .full),
+            .switch_br_else => return sema.zirSwitchBr(block, inst, false, .@"else"),
+            .switch_br_else_range => return sema.zirSwitchBrRange(block, inst, false, .@"else"),
+            .switch_br_underscore => return sema.zirSwitchBr(block, inst, false, .under),
+            .switch_br_underscore_range => return sema.zirSwitchBrRange(block, inst, false, .under),
+            .switch_br_ref => return sema.zirSwitchBr(block, inst, true, .full),
+            .switch_br_ref_range => return sema.zirSwitchBrRange(block, inst, true, .full),
+            .switch_br_ref_else => return sema.zirSwitchBr(block, inst, true, .@"else"),
+            .switch_br_ref_else_range => return sema.zirSwitchBrRange(block, inst, true, .@"else"),
+            .switch_br_ref_underscore => return sema.zirSwitchBr(block, inst, true, .under),
+            .switch_br_ref_underscore_range => return sema.zirSwitchBrRange(block, inst, true, .under),
 
             // Instructions that we know can *never* be noreturn based solely on
             // their tag. We avoid needlessly checking if they are noreturn and
@@ -2197,54 +2205,82 @@ fn zirSliceSentinel(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inne
     return sema.analyzeSlice(block, src, array_ptr, start, end, sentinel, sentinel_src);
 }
 
-fn zirSwitchRange(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const src: LazySrcLoc = .todo;
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const start = try sema.resolveInst(bin_inst.lhs);
-    const end = try sema.resolveInst(bin_inst.rhs);
-
-    switch (start.ty.zigTypeTag()) {
-        .Int, .ComptimeInt => {},
-        else => return sema.mod.constVoid(sema.arena, .unneeded),
-    }
-    switch (end.ty.zigTypeTag()) {
-        .Int, .ComptimeInt => {},
-        else => return sema.mod.constVoid(sema.arena, .unneeded),
-    }
-    // .switch_range must be inside a comptime scope
-    const start_val = start.value().?;
-    const end_val = end.value().?;
-    if (start_val.compare(.gte, end_val)) {
-        return sema.mod.fail(&block.base, src, "range start value must be smaller than the end value", .{});
-    }
-    return sema.mod.constVoid(sema.arena, .unneeded);
-}
+const ElseProng = enum { full, @"else", under };
 
 fn zirSwitchBr(
     sema: *Sema,
-    parent_block: *Scope.Block,
+    block: *Scope.Block,
     inst: zir.Inst.Index,
-    ref: bool,
-) InnerError!zir.Inst.Ref {
+    is_ref: bool,
+    else_prong: ElseProng,
+) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (true) @panic("TODO rework with zir-memory-layout in mind");
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = inst_data.src_node };
+    const extra = sema.code.extraData(zir.Inst.SwitchBr, inst_data.payload_index);
 
-    const target_ptr = try sema.resolveInst(inst.positionals.target);
-    const target = if (ref)
-        try sema.analyzeLoad(parent_block, inst.base.src, target_ptr, inst.positionals.target.src)
+    const operand_ptr = try sema.resolveInst(extra.data.operand);
+    const operand = if (is_ref)
+        try sema.analyzeLoad(block, src, operand_ptr, operand_src)
     else
-        target_ptr;
-    try sema.validateSwitch(parent_block, target, inst);
+        operand_ptr;
 
-    if (try sema.resolveDefinedValue(parent_block, inst.base.src, target)) |target_val| {
+    return sema.analyzeSwitch(block, operand, extra.end, else_prong, extra.data.cases_len, 0, 0);
+}
+
+fn zirSwitchBrRange(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: zir.Inst.Index,
+    is_ref: bool,
+    else_prong: ElseProng,
+) InnerError!zir.Inst.Index {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = inst_data.src_node };
+    const extra = sema.code.extraData(zir.Inst.SwitchBrRange, inst_data.payload_index);
+
+    const operand_ptr = try sema.resolveInst(extra.data.operand);
+    const operand = if (is_ref)
+        try sema.analyzeLoad(block, src, operand_ptr, operand_src)
+    else
+        operand_ptr;
+
+    return sema.analyzeSwitch(
+        block,
+        operand,
+        extra.end,
+        else_prong,
+        extra.data.scalar_cases_len,
+        extra.data.multi_cases_len,
+        extra.data.range_cases_len,
+    );
+}
+
+fn analyzeSwitch(
+    sema: *Sema,
+    parent_block: *Scope.Block,
+    operand: *Inst,
+    extra_end: usize,
+    else_prong: ElseProng,
+    scalar_cases_len: usize,
+    multi_cases_len: usize,
+    range_cases_len: usize,
+) InnerError!zir.Inst.Index {
+    if (true) @panic("TODO rework for zir-memory-layout branch");
+
+    try sema.validateSwitch(parent_block, operand, inst);
+
+    if (try sema.resolveDefinedValue(parent_block, inst.base.src, operand)) |target_val| {
         for (inst.positionals.cases) |case| {
             const resolved = try sema.resolveInst(case.item);
-            const casted = try sema.coerce(block, target.ty, resolved, resolved_src);
+            const casted = try sema.coerce(block, operand.ty, resolved, resolved_src);
             const item = try sema.resolveConstValue(parent_block, case_src, casted);
 
             if (target_val.eql(item)) {
@@ -2280,7 +2316,7 @@ fn zirSwitchBr(
         case_block.instructions.items.len = 0;
 
         const resolved = try sema.resolveInst(case.item);
-        const casted = try sema.coerce(block, target.ty, resolved, resolved_src);
+        const casted = try sema.coerce(block, operand.ty, resolved, resolved_src);
         const item = try sema.resolveConstValue(parent_block, case_src, casted);
 
         _ = try sema.analyzeBody(&case_block, case.body);
@@ -2298,29 +2334,29 @@ fn zirSwitchBr(
         .instructions = try sema.arena.dupe(*Inst, case_block.instructions.items),
     };
 
-    return mod.addSwitchBr(parent_block, inst.base.src, target, cases, else_body);
+    return mod.addSwitchBr(parent_block, inst.base.src, operand, cases, else_body);
 }
 
-fn validateSwitch(sema: *Sema, block: *Scope.Block, target: *Inst, inst: zir.Inst.Index) InnerError!void {
+fn validateSwitch(sema: *Sema, block: *Scope.Block, operand: *Inst, inst: zir.Inst.Index) InnerError!void {
     // validate usage of '_' prongs
-    if (inst.positionals.special_prong == .underscore and target.ty.zigTypeTag() != .Enum) {
+    if (inst.positionals.special_prong == .underscore and operand.ty.zigTypeTag() != .Enum) {
         return sema.mod.fail(&block.base, inst.base.src, "'_' prong only allowed when switching on non-exhaustive enums", .{});
         // TODO notes "'_' prong here" inst.positionals.cases[last].src
     }
 
-    // check that target type supports ranges
+    // check that operand type supports ranges
     if (inst.positionals.range) |range_inst| {
-        switch (target.ty.zigTypeTag()) {
+        switch (operand.ty.zigTypeTag()) {
             .Int, .ComptimeInt => {},
             else => {
-                return sema.mod.fail(&block.base, target.src, "ranges not allowed when switching on type {}", .{target.ty});
+                return sema.mod.fail(&block.base, operand.src, "ranges not allowed when switching on type {}", .{operand.ty});
                 // TODO notes "range used here" range_inst.src
             },
         }
     }
 
     // validate for duplicate items/missing else prong
-    switch (target.ty.zigTypeTag()) {
+    switch (operand.ty.zigTypeTag()) {
         .Enum => return sema.mod.fail(&block.base, inst.base.src, "TODO validateSwitch .Enum", .{}),
         .ErrorSet => return sema.mod.fail(&block.base, inst.base.src, "TODO validateSwitch .ErrorSet", .{}),
         .Union => return sema.mod.fail(&block.base, inst.base.src, "TODO validateSwitch .Union", .{}),
@@ -2331,9 +2367,9 @@ fn validateSwitch(sema: *Sema, block: *Scope.Block, target: *Inst, inst: zir.Ins
             for (inst.positionals.items) |item| {
                 const maybe_src = if (item.castTag(.switch_range)) |range| blk: {
                     const start_resolved = try sema.resolveInst(range.positionals.lhs);
-                    const start_casted = try sema.coerce(block, target.ty, start_resolved);
+                    const start_casted = try sema.coerce(block, operand.ty, start_resolved);
                     const end_resolved = try sema.resolveInst(range.positionals.rhs);
-                    const end_casted = try sema.coerce(block, target.ty, end_resolved);
+                    const end_casted = try sema.coerce(block, operand.ty, end_resolved);
 
                     break :blk try range_set.add(
                         try sema.resolveConstValue(block, range_start_src, start_casted),
@@ -2342,7 +2378,7 @@ fn validateSwitch(sema: *Sema, block: *Scope.Block, target: *Inst, inst: zir.Ins
                     );
                 } else blk: {
                     const resolved = try sema.resolveInst(item);
-                    const casted = try sema.coerce(block, target.ty, resolved);
+                    const casted = try sema.coerce(block, operand.ty, resolved);
                     const value = try sema.resolveConstValue(block, item_src, casted);
                     break :blk try range_set.add(value, value, item.src);
                 };
@@ -2353,12 +2389,12 @@ fn validateSwitch(sema: *Sema, block: *Scope.Block, target: *Inst, inst: zir.Ins
                 }
             }
 
-            if (target.ty.zigTypeTag() == .Int) {
+            if (operand.ty.zigTypeTag() == .Int) {
                 var arena = std.heap.ArenaAllocator.init(sema.gpa);
                 defer arena.deinit();
 
-                const start = try target.ty.minInt(&arena, mod.getTarget());
-                const end = try target.ty.maxInt(&arena, mod.getTarget());
+                const start = try operand.ty.minInt(&arena, mod.getTarget());
+                const end = try operand.ty.maxInt(&arena, mod.getTarget());
                 if (try range_set.spans(start, end)) {
                     if (inst.positionals.special_prong == .@"else") {
                         return sema.mod.fail(&block.base, inst.base.src, "unreachable else prong, all cases already handled", .{});
@@ -2396,7 +2432,7 @@ fn validateSwitch(sema: *Sema, block: *Scope.Block, target: *Inst, inst: zir.Ins
         },
         .EnumLiteral, .Void, .Fn, .Pointer, .Type => {
             if (inst.positionals.special_prong != .@"else") {
-                return sema.mod.fail(&block.base, inst.base.src, "else prong required when switching on type '{}'", .{target.ty});
+                return sema.mod.fail(&block.base, inst.base.src, "else prong required when switching on type '{}'", .{operand.ty});
             }
 
             var seen_values = std.HashMap(Value, usize, Value.hash, Value.eql, std.hash_map.DefaultMaxLoadPercentage).init(sema.gpa);
@@ -2404,7 +2440,7 @@ fn validateSwitch(sema: *Sema, block: *Scope.Block, target: *Inst, inst: zir.Ins
 
             for (inst.positionals.items) |item| {
                 const resolved = try sema.resolveInst(item);
-                const casted = try sema.coerce(block, target.ty, resolved);
+                const casted = try sema.coerce(block, operand.ty, resolved);
                 const val = try sema.resolveConstValue(block, item_src, casted);
 
                 if (try seen_values.fetchPut(val, item.src)) |prev| {
@@ -2429,7 +2465,7 @@ fn validateSwitch(sema: *Sema, block: *Scope.Block, target: *Inst, inst: zir.Ins
         .ComptimeFloat,
         .Float,
         => {
-            return sema.mod.fail(&block.base, target.src, "invalid switch target type '{}'", .{target.ty});
+            return sema.mod.fail(&block.base, operand.src, "invalid switch operand type '{}'", .{operand.ty});
         },
     }
 }

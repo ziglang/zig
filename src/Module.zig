@@ -1532,6 +1532,7 @@ pub const SrcLoc = struct {
             .node_offset_bin_op,
             .node_offset_bin_lhs,
             .node_offset_bin_rhs,
+            .node_offset_switch_operand,
             => src_loc.container.decl.container.file_scope,
         };
     }
@@ -1663,6 +1664,7 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
+            .node_offset_switch_operand => @panic("TODO"),
         }
     }
 };
@@ -1795,6 +1797,11 @@ pub const LazySrcLoc = union(enum) {
     /// which points to a binary expression AST node. Next, nagivate to the RHS.
     /// The Decl is determined contextually.
     node_offset_bin_rhs: i32,
+    /// The source location points to the operand of a switch expression, found
+    /// by taking this AST node index offset from the containing Decl AST node,
+    /// which points to a switch expression AST node. Next, nagivate to the operand.
+    /// The Decl is determined contextually.
+    node_offset_switch_operand: i32,
 
     /// Upgrade to a `SrcLoc` based on the `Decl` or file in the provided scope.
     pub fn toSrcLoc(lazy: LazySrcLoc, scope: *Scope) SrcLoc {
@@ -1828,6 +1835,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_bin_op,
             .node_offset_bin_lhs,
             .node_offset_bin_rhs,
+            .node_offset_switch_operand,
             => .{
                 .container = .{ .decl = scope.srcDecl().? },
                 .lazy = lazy,
@@ -1867,6 +1875,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_bin_op,
             .node_offset_bin_lhs,
             .node_offset_bin_rhs,
+            .node_offset_switch_operand,
             => .{
                 .container = .{ .decl = decl },
                 .lazy = lazy,
