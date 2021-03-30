@@ -20,6 +20,7 @@
 #pragma GCC diagnostic ignored "-Winit-list-lifetime"
 #endif
 
+#include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
@@ -30,9 +31,12 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/PassManager.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/InitializePasses.h>
 #include <llvm/MC/SubtargetFeature.h>
+#include <llvm/Passes/PassBuilder.h>
+#include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Object/Archive.h>
 #include <llvm/Object/ArchiveWriter.h>
 #include <llvm/Object/COFF.h>
@@ -54,6 +58,9 @@
 #include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
+#include <llvm/Transforms/Utils/AddDiscriminators.h>
+#include <llvm/Transforms/Utils/CanonicalizeAliases.h>
+#include <llvm/Transforms/Utils/NameAnonGlobals.h>
 
 #include <lld/Common/Driver.h>
 
@@ -190,12 +197,12 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 {
     TimePassesIsEnabled = time_report;
 
-    raw_fd_ostream *dest_asm = nullptr;
-    raw_fd_ostream *dest_bin = nullptr;
+    raw_fd_ostream *dest_asm_ptr = nullptr;
+    raw_fd_ostream *dest_bin_ptr = nullptr;
 
     if (asm_filename) {
         std::error_code EC;
-        dest_asm = new(std::nothrow) raw_fd_ostream(asm_filename, EC, sys::fs::F_None);
+        dest_asm_ptr = new(std::nothrow) raw_fd_ostream(asm_filename, EC, sys::fs::F_None);
         if (EC) {
             *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
             return true;
@@ -203,116 +210,128 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     }
     if (bin_filename) {
         std::error_code EC;
-        dest_bin = new(std::nothrow) raw_fd_ostream(bin_filename, EC, sys::fs::F_None);
+        dest_bin_ptr = new(std::nothrow) raw_fd_ostream(bin_filename, EC, sys::fs::F_None);
         if (EC) {
             *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
             return true;
         }
     }
 
-    TargetMachine* target_machine = reinterpret_cast<TargetMachine*>(targ_machine_ref);
-    target_machine->setO0WantsFastISel(true);
+    std::unique_ptr<raw_fd_ostream> dest_asm(dest_asm_ptr),
+                                    dest_bin(dest_bin_ptr);
 
-    Module* module = unwrap(module_ref);
+    TargetMachine &target_machine = *reinterpret_cast<TargetMachine*>(targ_machine_ref);
+    target_machine.setO0WantsFastISel(true);
 
-    PassManagerBuilder *PMBuilder = new(std::nothrow) PassManagerBuilder();
-    if (PMBuilder == nullptr) {
-        *error_message = strdup("memory allocation failure");
-        return true;
-    }
-    PMBuilder->OptLevel = target_machine->getOptLevel();
-    PMBuilder->SizeLevel = is_small ? 2 : 0;
+    Module &module = *unwrap(module_ref);
 
-    PMBuilder->DisableTailCalls = is_debug;
-    PMBuilder->DisableUnrollLoops = is_debug;
-    PMBuilder->SLPVectorize = !is_debug;
-    PMBuilder->LoopVectorize = !is_debug;
-    PMBuilder->LoopsInterleaved = !PMBuilder->DisableUnrollLoops;
-    PMBuilder->RerollLoops = !is_debug;
-    // Leaving NewGVN as default (off) because when on it caused issue #673
-    //PMBuilder->NewGVN = !is_debug;
-    PMBuilder->DisableGVNLoadPRE = is_debug;
-    PMBuilder->VerifyInput = assertions_on;
-    PMBuilder->VerifyOutput = assertions_on;
-    PMBuilder->MergeFunctions = !is_debug;
-    PMBuilder->PrepareForLTO = lto;
-    PMBuilder->PrepareForThinLTO = false;
-    PMBuilder->PerformThinLTO = false;
+    PipelineTuningOptions pipeline_opts;
+    pipeline_opts.LoopUnrolling = !is_debug;
+    pipeline_opts.SLPVectorization = !is_debug;
+    pipeline_opts.LoopVectorization = !is_debug;
+    pipeline_opts.LoopInterleaving = !is_debug;
 
-    TargetLibraryInfoImpl tlii(Triple(module->getTargetTriple()));
-    PMBuilder->LibraryInfo = &tlii;
+    PassInstrumentationCallbacks instr_callbacks;
+    StandardInstrumentations std_instrumentations(false);
+    std_instrumentations.registerCallbacks(instr_callbacks);
 
-    if (is_debug) {
-        PMBuilder->Inliner = createAlwaysInlinerLegacyPass(false);
-    } else {
-        target_machine->adjustPassManager(*PMBuilder);
+    PassBuilder pass_builder(false, &target_machine, pipeline_opts,
+                             None, &instr_callbacks);
+    using OptimizationLevel = typename PassBuilder::OptimizationLevel;
 
-        PMBuilder->addExtension(PassManagerBuilder::EP_EarlyAsPossible, addDiscriminatorsPass);
-        PMBuilder->Inliner = createFunctionInliningPass(PMBuilder->OptLevel, PMBuilder->SizeLevel, false);
+    LoopAnalysisManager loop_am;
+    FunctionAnalysisManager function_am;
+    CGSCCAnalysisManager cgscc_am;
+    ModuleAnalysisManager module_am;
+
+    // Register the AA manager first so that our version is the one used
+    function_am.registerPass([&] {
+      return pass_builder.buildDefaultAAPipeline();
+    });
+
+    Triple target_triple(module.getTargetTriple());
+    auto tlii = std::make_unique<TargetLibraryInfoImpl>(target_triple);
+    function_am.registerPass([&] { return TargetLibraryAnalysis(*tlii); });
+
+    pass_builder.registerModuleAnalyses(module_am);
+    pass_builder.registerCGSCCAnalyses(cgscc_am);
+    pass_builder.registerFunctionAnalyses(function_am);
+    pass_builder.registerLoopAnalyses(loop_am);
+    pass_builder.crossRegisterProxies(loop_am, function_am,
+                                      cgscc_am, module_am);
+
+    if (!is_debug) {
+      pass_builder.registerPipelineStartEPCallback(
+        [](ModulePassManager &module_pm, OptimizationLevel OL) {
+          module_pm.addPass(
+            createModuleToFunctionPassAdaptor(AddDiscriminatorsPass()));
+        });
     }
 
     if (tsan) {
-        PMBuilder->addExtension(PassManagerBuilder::EP_OptimizerLast, addThreadSanitizerPass);
-        PMBuilder->addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0, addThreadSanitizerPass);
+      pass_builder.registerOptimizerLastEPCallback(
+        [](ModulePassManager &module_pm, OptimizationLevel level) {
+          // Will be enabled regardless of optimization level
+          module_pm.addPass(ThreadSanitizerPass());
+        });
     }
 
-    // Set up the per-function pass manager.
-    legacy::FunctionPassManager FPM = legacy::FunctionPassManager(module);
-    auto tliwp = new(std::nothrow) TargetLibraryInfoWrapperPass(tlii);
-    FPM.add(tliwp);
-    FPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
-    if (assertions_on) {
-        FPM.add(createVerifierPass());
-    }
-    PMBuilder->populateFunctionPassManager(FPM);
+    ModulePassManager module_pm;
+    // FIXME: NewPM can not detach speed level from size level
+    // we can't create something like "maximum speed level and optimal size level"
+    // which is what the original code wanted to achieve
+    OptimizationLevel opt_level;
+    if (is_debug)
+      opt_level = OptimizationLevel::O0;
+    else if (is_small)
+      opt_level = OptimizationLevel::Oz;
+    else
+      opt_level = OptimizationLevel::O3;
 
-    {
-        // Set up the per-module pass manager.
-        legacy::PassManager MPM;
-        MPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
-        PMBuilder->populateModulePassManager(MPM);
-
-        // Set output passes.
-        if (dest_bin && !lto) {
-            if (target_machine->addPassesToEmitFile(MPM, *dest_bin, nullptr, CGFT_ObjectFile)) {
-                *error_message = strdup("TargetMachine can't emit an object file");
-                return true;
-            }
-        }
-        if (dest_asm) {
-            if (target_machine->addPassesToEmitFile(MPM, *dest_asm, nullptr, CGFT_AssemblyFile)) {
-                *error_message = strdup("TargetMachine can't emit an assembly file");
-                return true;
-            }
-        }
-
-        // run per function optimization passes
-        FPM.doInitialization();
-        for (Function &F : *module)
-        if (!F.isDeclaration())
-            FPM.run(F);
-        FPM.doFinalization();
-
-        MPM.run(*module);
-
-        if (llvm_ir_filename) {
-            if (LLVMPrintModuleToFile(module_ref, llvm_ir_filename, error_message)) {
-                return true;
-            }
-        }
-        if (dest_bin && lto) {
-            WriteBitcodeToFile(*module, *dest_bin);
-        }
-
-        if (time_report) {
-            TimerGroup::printAll(errs());
-        }
-
-        // MPM goes out of scope and writes to the out streams
+    if (lto) {
+      module_pm = pass_builder.buildLTOPreLinkDefaultPipeline(opt_level);
+      module_pm.addPass(CanonicalizeAliasesPass());
+      module_pm.addPass(NameAnonGlobalPass());
+    } else {
+      module_pm = pass_builder.buildPerModuleDefaultPipeline(opt_level);
     }
 
-    delete dest_asm;
-    delete dest_bin;
+    // Unfortunately we don't have new PM for code generation
+    legacy::PassManager codegen_pm;
+    codegen_pm.add(
+      createTargetTransformInfoWrapperPass(target_machine.getTargetIRAnalysis()));
+
+    if (dest_bin && !lto) {
+        if (target_machine.addPassesToEmitFile(codegen_pm, *dest_bin, nullptr, CGFT_ObjectFile)) {
+            *error_message = strdup("TargetMachine can't emit an object file");
+            return true;
+        }
+    }
+    if (dest_asm) {
+        if (target_machine.addPassesToEmitFile(codegen_pm, *dest_asm, nullptr, CGFT_AssemblyFile)) {
+            *error_message = strdup("TargetMachine can't emit an assembly file");
+            return true;
+        }
+    }
+
+    // optimization
+    module_pm.run(module, module_am);
+
+    // code generation
+    codegen_pm.run(module);
+
+    if (llvm_ir_filename) {
+        if (LLVMPrintModuleToFile(module_ref, llvm_ir_filename, error_message)) {
+            return true;
+        }
+    }
+    if (dest_bin && lto) {
+        WriteBitcodeToFile(module, *dest_bin);
+    }
+
+    if (time_report) {
+        TimerGroup::printAll(errs());
+    }
 
     return false;
 }
