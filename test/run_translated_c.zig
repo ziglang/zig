@@ -1540,4 +1540,14 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("enum with value that fits in c_uint but not c_int, issue #8003",
+        \\#include <stdlib.h>
+        \\enum my_enum {
+        \\    FORCE_UINT = 0xffffffff
+        \\};
+        \\int main(void) {
+        \\    if(FORCE_UINT != 0xffffffff) abort();
+        \\}
+    , "");
 }

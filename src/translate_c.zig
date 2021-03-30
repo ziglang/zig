@@ -1117,9 +1117,7 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
         // default to the usual integer type used for all the enums.
 
         // default to c_int since msvc and gcc default to different types
-        const init_arg_expr = if (int_type.ptr != null and
-            !isCBuiltinType(int_type, .UInt) and
-            !isCBuiltinType(int_type, .Int))
+        const init_arg_expr = if (int_type.ptr != null)
             transQualType(c, scope, int_type, enum_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
                     return failDecl(c, enum_loc, name, "unable to translate enum tag type", .{});
@@ -2285,8 +2283,8 @@ fn transCCast(
         // 1. If src_type is an enum, determine the underlying signed int type
         // 2. Extend or truncate without changing signed-ness.
         // 3. Bit-cast to correct signed-ness
-        const src_type_is_signed = cIsSignedInteger(src_type) or cIsEnum(src_type);
         const src_int_type = if (cIsInteger(src_type)) src_type else cIntTypeForEnum(src_type);
+        const src_type_is_signed = cIsSignedInteger(src_int_type);
         var src_int_expr = if (cIsInteger(src_type)) expr else try Tag.enum_to_int.create(c.arena, expr);
 
         if (isBoolRes(src_int_expr)) {
