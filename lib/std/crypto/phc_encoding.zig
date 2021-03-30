@@ -144,8 +144,9 @@ pub fn Parser(
                 v.toPhcEncoding(&params);
                 var sep_cnt: usize = 0;
                 for (params) |param| {
-                    const kv = param orelse continue;
-                    sep_cnt += 1;
+                    if (param != null) {
+                        sep_cnt += 1;
+                    }
                 }
                 if (sep_cnt != 0) {
                     mem.copy(u8, out[i..], fields_delimiter);
