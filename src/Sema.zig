@@ -59,6 +59,9 @@ const Scope = Module.Scope;
 const InnerError = Module.InnerError;
 const Decl = Module.Decl;
 const LazySrcLoc = Module.LazySrcLoc;
+const RangeSet = @import("RangeSet.zig");
+
+const ValueSrcMap = std.HashMap(Value, LazySrcLoc, Value.hash, Value.eql, std.hash_map.DefaultMaxLoadPercentage);
 
 pub fn root(sema: *Sema, root_block: *Scope.Block) !zir.Inst.Index {
     const inst_data = sema.code.instructions.items(.data)[0].pl_node;
@@ -242,18 +245,18 @@ pub fn analyzeBody(
             .ret_tok => return sema.zirRetTok(block, inst, false),
             .@"unreachable" => return sema.zirUnreachable(block, inst),
             .repeat => return sema.zirRepeat(block, inst),
-            .switch_br => return sema.zirSwitchBr(block, inst, false, .full),
-            .switch_br_range => return sema.zirSwitchBrRange(block, inst, false, .full),
+            .switch_br => return sema.zirSwitchBr(block, inst, false, .none),
+            .switch_br_multi => return sema.zirSwitchBrMulti(block, inst, false, .none),
             .switch_br_else => return sema.zirSwitchBr(block, inst, false, .@"else"),
-            .switch_br_else_range => return sema.zirSwitchBrRange(block, inst, false, .@"else"),
-            .switch_br_underscore => return sema.zirSwitchBr(block, inst, false, .under),
-            .switch_br_underscore_range => return sema.zirSwitchBrRange(block, inst, false, .under),
-            .switch_br_ref => return sema.zirSwitchBr(block, inst, true, .full),
-            .switch_br_ref_range => return sema.zirSwitchBrRange(block, inst, true, .full),
+            .switch_br_else_multi => return sema.zirSwitchBrMulti(block, inst, false, .@"else"),
+            .switch_br_under => return sema.zirSwitchBr(block, inst, false, .under),
+            .switch_br_under_multi => return sema.zirSwitchBrMulti(block, inst, false, .under),
+            .switch_br_ref => return sema.zirSwitchBr(block, inst, true, .none),
+            .switch_br_ref_multi => return sema.zirSwitchBrMulti(block, inst, true, .none),
             .switch_br_ref_else => return sema.zirSwitchBr(block, inst, true, .@"else"),
-            .switch_br_ref_else_range => return sema.zirSwitchBrRange(block, inst, true, .@"else"),
-            .switch_br_ref_underscore => return sema.zirSwitchBr(block, inst, true, .under),
-            .switch_br_ref_underscore_range => return sema.zirSwitchBrRange(block, inst, true, .under),
+            .switch_br_ref_else_multi => return sema.zirSwitchBrMulti(block, inst, true, .@"else"),
+            .switch_br_ref_under => return sema.zirSwitchBr(block, inst, true, .under),
+            .switch_br_ref_under_multi => return sema.zirSwitchBrMulti(block, inst, true, .under),
 
             // Instructions that we know can *never* be noreturn based solely on
             // their tag. We avoid needlessly checking if they are noreturn and
@@ -2205,14 +2208,14 @@ fn zirSliceSentinel(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inne
     return sema.analyzeSlice(block, src, array_ptr, start, end, sentinel, sentinel_src);
 }
 
-const ElseProng = enum { full, @"else", under };
+const SpecialProng = enum { none, @"else", under };
 
 fn zirSwitchBr(
     sema: *Sema,
     block: *Scope.Block,
     inst: zir.Inst.Index,
     is_ref: bool,
-    else_prong: ElseProng,
+    special_prong: SpecialProng,
 ) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2228,15 +2231,23 @@ fn zirSwitchBr(
     else
         operand_ptr;
 
-    return sema.analyzeSwitch(block, operand, extra.end, else_prong, extra.data.cases_len, 0, 0);
+    return sema.analyzeSwitch(
+        block,
+        operand,
+        extra.end,
+        special_prong,
+        extra.data.cases_len,
+        0,
+        inst_data.src_node,
+    );
 }
 
-fn zirSwitchBrRange(
+fn zirSwitchBrMulti(
     sema: *Sema,
     block: *Scope.Block,
     inst: zir.Inst.Index,
     is_ref: bool,
-    else_prong: ElseProng,
+    special_prong: SpecialProng,
 ) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2244,7 +2255,7 @@ fn zirSwitchBrRange(
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = inst_data.src_node };
-    const extra = sema.code.extraData(zir.Inst.SwitchBrRange, inst_data.payload_index);
+    const extra = sema.code.extraData(zir.Inst.SwitchBrMulti, inst_data.payload_index);
 
     const operand_ptr = try sema.resolveInst(extra.data.operand);
     const operand = if (is_ref)
@@ -2256,196 +2267,285 @@ fn zirSwitchBrRange(
         block,
         operand,
         extra.end,
-        else_prong,
+        special_prong,
         extra.data.scalar_cases_len,
         extra.data.multi_cases_len,
-        extra.data.range_cases_len,
+        inst_data.src_node,
     );
 }
 
 fn analyzeSwitch(
     sema: *Sema,
-    parent_block: *Scope.Block,
+    block: *Scope.Block,
     operand: *Inst,
     extra_end: usize,
-    else_prong: ElseProng,
+    special_prong: SpecialProng,
     scalar_cases_len: usize,
     multi_cases_len: usize,
-    range_cases_len: usize,
+    src_node_offset: i32,
 ) InnerError!zir.Inst.Index {
-    if (true) @panic("TODO rework for zir-memory-layout branch");
-
-    try sema.validateSwitch(parent_block, operand, inst);
-
-    if (try sema.resolveDefinedValue(parent_block, inst.base.src, operand)) |target_val| {
-        for (inst.positionals.cases) |case| {
-            const resolved = try sema.resolveInst(case.item);
-            const casted = try sema.coerce(block, operand.ty, resolved, resolved_src);
-            const item = try sema.resolveConstValue(parent_block, case_src, casted);
-
-            if (target_val.eql(item)) {
-                _ = try sema.analyzeBody(parent_block, case.body);
-                return always_noreturn;
-            }
-        }
-        _ = try sema.analyzeBody(parent_block, inst.positionals.else_body);
-        return always_noreturn;
-    }
-
-    if (inst.positionals.cases.len == 0) {
-        // no cases just analyze else_branch
-        _ = try sema.analyzeBody(parent_block, inst.positionals.else_body);
-        return always_noreturn;
-    }
-
-    try sema.requireRuntimeBlock(parent_block, inst.base.src);
-    const cases = try sema.arena.alloc(Inst.SwitchBr.Case, inst.positionals.cases.len);
-
-    var case_block: Scope.Block = .{
-        .parent = parent_block,
-        .sema = sema,
-        .src_decl = parent_block.src_decl,
-        .instructions = .{},
-        .inlining = parent_block.inlining,
-        .is_comptime = parent_block.is_comptime,
+    const special: struct { body: []const zir.Inst.Index, end: usize } = switch (special_prong) {
+        .none => .{ .body = &.{}, .end = extra_end },
+        .under, .@"else" => blk: {
+            const body_len = sema.code.extra[extra_end];
+            const extra_body_start = extra_end + 1;
+            break :blk .{
+                .body = sema.code.extra[extra_body_start..][0..body_len],
+                .end = extra_body_start + body_len,
+            };
+        },
     };
-    defer case_block.instructions.deinit(sema.gpa);
 
-    for (inst.positionals.cases) |case, i| {
-        // Reset without freeing.
-        case_block.instructions.items.len = 0;
+    const src: LazySrcLoc = .{ .node_offset = src_node_offset };
+    const special_prong_src: LazySrcLoc = .{ .node_offset_switch_special_prong = src_node_offset };
+    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = src_node_offset };
 
-        const resolved = try sema.resolveInst(case.item);
-        const casted = try sema.coerce(block, operand.ty, resolved, resolved_src);
-        const item = try sema.resolveConstValue(parent_block, case_src, casted);
-
-        _ = try sema.analyzeBody(&case_block, case.body);
-
-        cases[i] = .{
-            .item = item,
-            .body = .{ .instructions = try sema.arena.dupe(*Inst, case_block.instructions.items) },
+    // Validate usage of '_' prongs.
+    if (special_prong == .under and !operand.ty.isExhaustiveEnum()) {
+        const msg = msg: {
+            const msg = try sema.mod.errMsg(
+                &block.base,
+                src,
+                "'_' prong only allowed when switching on non-exhaustive enums",
+                .{},
+            );
+            errdefer msg.destroy(sema.gpa);
+            try sema.mod.errNote(
+                &block.base,
+                special_prong_src,
+                msg,
+                "'_' prong here",
+                .{},
+            );
+            break :msg msg;
         };
+        return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
     }
 
-    case_block.instructions.items.len = 0;
-    _ = try sema.analyzeBody(&case_block, inst.positionals.else_body);
-
-    const else_body: ir.Body = .{
-        .instructions = try sema.arena.dupe(*Inst, case_block.instructions.items),
-    };
-
-    return mod.addSwitchBr(parent_block, inst.base.src, operand, cases, else_body);
-}
-
-fn validateSwitch(sema: *Sema, block: *Scope.Block, operand: *Inst, inst: zir.Inst.Index) InnerError!void {
-    // validate usage of '_' prongs
-    if (inst.positionals.special_prong == .underscore and operand.ty.zigTypeTag() != .Enum) {
-        return sema.mod.fail(&block.base, inst.base.src, "'_' prong only allowed when switching on non-exhaustive enums", .{});
-        // TODO notes "'_' prong here" inst.positionals.cases[last].src
-    }
-
-    // check that operand type supports ranges
-    if (inst.positionals.range) |range_inst| {
-        switch (operand.ty.zigTypeTag()) {
-            .Int, .ComptimeInt => {},
-            else => {
-                return sema.mod.fail(&block.base, operand.src, "ranges not allowed when switching on type {}", .{operand.ty});
-                // TODO notes "range used here" range_inst.src
-            },
-        }
-    }
-
-    // validate for duplicate items/missing else prong
+    // Validate for duplicate items, missing else prong, and invalid range.
     switch (operand.ty.zigTypeTag()) {
-        .Enum => return sema.mod.fail(&block.base, inst.base.src, "TODO validateSwitch .Enum", .{}),
-        .ErrorSet => return sema.mod.fail(&block.base, inst.base.src, "TODO validateSwitch .ErrorSet", .{}),
-        .Union => return sema.mod.fail(&block.base, inst.base.src, "TODO validateSwitch .Union", .{}),
+        .Enum => return sema.mod.fail(&block.base, src, "TODO validate switch .Enum", .{}),
+        .ErrorSet => return sema.mod.fail(&block.base, src, "TODO validate switch .ErrorSet", .{}),
+        .Union => return sema.mod.fail(&block.base, src, "TODO validate switch .Union", .{}),
         .Int, .ComptimeInt => {
-            var range_set = @import("RangeSet.zig").init(sema.gpa);
+            var range_set = RangeSet.init(sema.gpa);
             defer range_set.deinit();
 
-            for (inst.positionals.items) |item| {
-                const maybe_src = if (item.castTag(.switch_range)) |range| blk: {
-                    const start_resolved = try sema.resolveInst(range.positionals.lhs);
-                    const start_casted = try sema.coerce(block, operand.ty, start_resolved);
-                    const end_resolved = try sema.resolveInst(range.positionals.rhs);
-                    const end_casted = try sema.coerce(block, operand.ty, end_resolved);
+            var extra_index: usize = special.end;
+            {
+                var scalar_i: usize = 0;
+                while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+                    const item_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+                    extra_index += 1;
+                    const body_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const body = sema.code.extra[extra_index..][0..body_len];
+                    extra_index += body_len;
 
-                    break :blk try range_set.add(
-                        try sema.resolveConstValue(block, range_start_src, start_casted),
-                        try sema.resolveConstValue(block, range_end_src, end_casted),
-                        item.src,
+                    try sema.validateSwitchItem(
+                        block,
+                        &range_set,
+                        item_ref,
+                        src_node_offset,
                     );
-                } else blk: {
-                    const resolved = try sema.resolveInst(item);
-                    const casted = try sema.coerce(block, operand.ty, resolved);
-                    const value = try sema.resolveConstValue(block, item_src, casted);
-                    break :blk try range_set.add(value, value, item.src);
-                };
-
-                if (maybe_src) |previous_src| {
-                    return sema.mod.fail(&block.base, item.src, "duplicate switch value", .{});
-                    // TODO notes "previous value is here" previous_src
                 }
             }
+            {
+                var multi_i: usize = 0;
+                while (multi_i < multi_cases_len) : (multi_i += 1) {
+                    const items_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const ranges_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const body_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const items = sema.code.refSlice(extra_index, items_len);
+                    extra_index += items_len;
 
-            if (operand.ty.zigTypeTag() == .Int) {
-                var arena = std.heap.ArenaAllocator.init(sema.gpa);
-                defer arena.deinit();
-
-                const start = try operand.ty.minInt(&arena, mod.getTarget());
-                const end = try operand.ty.maxInt(&arena, mod.getTarget());
-                if (try range_set.spans(start, end)) {
-                    if (inst.positionals.special_prong == .@"else") {
-                        return sema.mod.fail(&block.base, inst.base.src, "unreachable else prong, all cases already handled", .{});
+                    for (items) |item_ref| {
+                        try sema.validateSwitchItem(
+                            block,
+                            &range_set,
+                            item_ref,
+                            src_node_offset,
+                        );
                     }
-                    return;
+
+                    var range_i: usize = 0;
+                    while (range_i < ranges_len) : (range_i += 1) {
+                        const item_first = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+                        extra_index += 1;
+                        const item_last = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+                        extra_index += 1;
+
+                        try sema.validateSwitchRange(
+                            block,
+                            &range_set,
+                            item_first,
+                            item_last,
+                            src_node_offset,
+                        );
+                    }
+
+                    extra_index += body_len;
                 }
             }
 
-            if (inst.positionals.special_prong != .@"else") {
-                return sema.mod.fail(&block.base, inst.base.src, "switch must handle all possibilities", .{});
+            check_range: {
+                if (operand.ty.zigTypeTag() == .Int) {
+                    var arena = std.heap.ArenaAllocator.init(sema.gpa);
+                    defer arena.deinit();
+
+                    const min_int = try operand.ty.minInt(&arena, sema.mod.getTarget());
+                    const max_int = try operand.ty.maxInt(&arena, sema.mod.getTarget());
+                    if (try range_set.spans(min_int, max_int)) {
+                        if (special_prong == .@"else") {
+                            return sema.mod.fail(
+                                &block.base,
+                                special_prong_src,
+                                "unreachable else prong; all cases already handled",
+                                .{},
+                            );
+                        }
+                        break :check_range;
+                    }
+                }
+                if (special_prong != .@"else") {
+                    return sema.mod.fail(
+                        &block.base,
+                        src,
+                        "switch must handle all possibilities",
+                        .{},
+                    );
+                }
             }
         },
         .Bool => {
             var true_count: u8 = 0;
             var false_count: u8 = 0;
-            for (inst.positionals.items) |item| {
-                const resolved = try sema.resolveInst(item);
-                const casted = try sema.coerce(block, Type.initTag(.bool), resolved);
-                if ((try sema.resolveConstValue(block, item_src, casted)).toBool()) {
-                    true_count += 1;
-                } else {
-                    false_count += 1;
-                }
 
-                if (true_count + false_count > 2) {
-                    return sema.mod.fail(&block.base, item.src, "duplicate switch value", .{});
+            var extra_index: usize = special.end;
+            {
+                var scalar_i: usize = 0;
+                while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+                    const item_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+                    extra_index += 1;
+                    const body_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const body = sema.code.extra[extra_index..][0..body_len];
+                    extra_index += body_len;
+
+                    try sema.validateSwitchItemBool(
+                        block,
+                        &true_count,
+                        &false_count,
+                        item_ref,
+                        src_node_offset,
+                    );
                 }
             }
-            if ((true_count + false_count < 2) and inst.positionals.special_prong != .@"else") {
-                return sema.mod.fail(&block.base, inst.base.src, "switch must handle all possibilities", .{});
+            {
+                var multi_i: usize = 0;
+                while (multi_i < multi_cases_len) : (multi_i += 1) {
+                    const items_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const ranges_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const body_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const items = sema.code.refSlice(extra_index, items_len);
+                    extra_index += items_len + body_len;
+
+                    for (items) |item_ref| {
+                        try sema.validateSwitchItemBool(
+                            block,
+                            &true_count,
+                            &false_count,
+                            item_ref,
+                            src_node_offset,
+                        );
+                    }
+
+                    try sema.validateSwitchNoRange(block, ranges_len, operand.ty, src_node_offset);
+                }
             }
-            if ((true_count + false_count == 2) and inst.positionals.special_prong == .@"else") {
-                return sema.mod.fail(&block.base, inst.base.src, "unreachable else prong, all cases already handled", .{});
+            switch (special_prong) {
+                .@"else" => {
+                    if (true_count + false_count == 2) {
+                        return sema.mod.fail(
+                            &block.base,
+                            src,
+                            "unreachable else prong; all cases already handled",
+                            .{},
+                        );
+                    }
+                },
+                .under, .none => {
+                    if (true_count + false_count < 2) {
+                        return sema.mod.fail(
+                            &block.base,
+                            src,
+                            "switch must handle all possibilities",
+                            .{},
+                        );
+                    }
+                },
             }
         },
         .EnumLiteral, .Void, .Fn, .Pointer, .Type => {
-            if (inst.positionals.special_prong != .@"else") {
-                return sema.mod.fail(&block.base, inst.base.src, "else prong required when switching on type '{}'", .{operand.ty});
+            if (special_prong != .@"else") {
+                return sema.mod.fail(
+                    &block.base,
+                    src,
+                    "else prong required when switching on type '{}'",
+                    .{operand.ty},
+                );
             }
 
-            var seen_values = std.HashMap(Value, usize, Value.hash, Value.eql, std.hash_map.DefaultMaxLoadPercentage).init(sema.gpa);
+            var seen_values = ValueSrcMap.init(sema.gpa);
             defer seen_values.deinit();
 
-            for (inst.positionals.items) |item| {
-                const resolved = try sema.resolveInst(item);
-                const casted = try sema.coerce(block, operand.ty, resolved);
-                const val = try sema.resolveConstValue(block, item_src, casted);
+            var extra_index: usize = special.end;
+            {
+                var scalar_i: usize = 0;
+                while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+                    const item_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+                    extra_index += 1;
+                    const body_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const body = sema.code.extra[extra_index..][0..body_len];
+                    extra_index += body_len;
 
-                if (try seen_values.fetchPut(val, item.src)) |prev| {
-                    return sema.mod.fail(&block.base, item.src, "duplicate switch value", .{});
-                    // TODO notes "previous value here" prev.value
+                    try sema.validateSwitchItemSparse(
+                        block,
+                        &seen_values,
+                        item_ref,
+                        src_node_offset,
+                    );
+                }
+            }
+            {
+                var multi_i: usize = 0;
+                while (multi_i < multi_cases_len) : (multi_i += 1) {
+                    const items_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const ranges_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const body_len = sema.code.extra[extra_index];
+                    extra_index += 1;
+                    const items = sema.code.refSlice(extra_index, items_len);
+                    extra_index += items_len + body_len;
+
+                    for (items) |item_ref| {
+                        try sema.validateSwitchItemSparse(
+                            block,
+                            &seen_values,
+                            item_ref,
+                            src_node_offset,
+                        );
+                    }
+
+                    try sema.validateSwitchNoRange(block, ranges_len, operand.ty, src_node_offset);
                 }
             }
         },
@@ -2464,10 +2564,298 @@ fn validateSwitch(sema: *Sema, block: *Scope.Block, operand: *Inst, inst: zir.In
         .AnyFrame,
         .ComptimeFloat,
         .Float,
-        => {
-            return sema.mod.fail(&block.base, operand.src, "invalid switch operand type '{}'", .{operand.ty});
-        },
+        => return sema.mod.fail(&block.base, operand_src, "invalid switch operand type '{}'", .{
+            operand.ty,
+        }),
     }
+
+    if (try sema.resolveDefinedValue(block, src, operand)) |operand_val| {
+        var extra_index: usize = special.end;
+        {
+            var scalar_i: usize = 0;
+            while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+                const item_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+                extra_index += 1;
+                const body_len = sema.code.extra[extra_index];
+                extra_index += 1;
+                const body = sema.code.extra[extra_index..][0..body_len];
+                extra_index += body_len;
+
+                const item = try sema.resolveInst(item_ref);
+                const item_val = try sema.resolveConstValue(block, item.src, item);
+                if (operand_val.eql(item_val)) {
+                    return sema.analyzeBody(block, body);
+                }
+            }
+        }
+        {
+            var multi_i: usize = 0;
+            while (multi_i < multi_cases_len) : (multi_i += 1) {
+                const items_len = sema.code.extra[extra_index];
+                extra_index += 1;
+                const ranges_len = sema.code.extra[extra_index];
+                extra_index += 1;
+                const body_len = sema.code.extra[extra_index];
+                extra_index += 1;
+                const items = sema.code.refSlice(extra_index, items_len);
+                extra_index += items_len;
+                const body = sema.code.extra[extra_index + 2 * ranges_len ..][0..body_len];
+
+                for (items) |item_ref| {
+                    const item = try sema.resolveInst(item_ref);
+                    const item_val = try sema.resolveConstValue(block, item.src, item);
+                    if (operand_val.eql(item_val)) {
+                        return sema.analyzeBody(block, body);
+                    }
+                }
+
+                var range_i: usize = 0;
+                while (range_i < ranges_len) : (range_i += 1) {
+                    const item_first = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+                    extra_index += 1;
+                    const item_last = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+                    extra_index += 1;
+
+                    const first_tv = try sema.resolveInstConst(block, .todo, item_first);
+                    const last_tv = try sema.resolveInstConst(block, .todo, item_last);
+                    if (Value.compare(operand_val, .gte, first_tv.val) and
+                        Value.compare(operand_val, .lte, last_tv.val))
+                    {
+                        return sema.analyzeBody(block, body);
+                    }
+                }
+
+                extra_index += body_len;
+            }
+        }
+        return sema.analyzeBody(block, special.body);
+    }
+
+    if (scalar_cases_len + multi_cases_len == 0) {
+        return sema.analyzeBody(block, special.body);
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    // TODO when reworking TZIR memory layout make multi cases get generated as cases,
+    // not as part of the "else" block.
+    const cases = try sema.arena.alloc(Inst.SwitchBr.Case, scalar_cases_len);
+
+    var case_block = block.makeSubBlock();
+    defer case_block.instructions.deinit(sema.gpa);
+
+    var extra_index: usize = special.end;
+
+    var scalar_i: usize = 0;
+    while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+        const item_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        const body_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        const body = sema.code.extra[extra_index..][0..body_len];
+        extra_index += body_len;
+
+        case_block.instructions.shrinkRetainingCapacity(0);
+        const item = try sema.resolveInst(item_ref);
+        const item_val = try sema.resolveConstValue(block, item.src, item);
+
+        _ = try sema.analyzeBody(&case_block, body);
+
+        cases[scalar_i] = .{
+            .item = item_val,
+            .body = .{ .instructions = try sema.arena.dupe(*Inst, case_block.instructions.items) },
+        };
+    }
+
+    var first_condbr: *Inst.CondBr = undefined;
+    var prev_condbr: ?*Inst.CondBr = null;
+
+    var multi_i: usize = 0;
+    while (multi_i < multi_cases_len) : (multi_i += 1) {
+        const items_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        const ranges_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        const body_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        const items = sema.code.refSlice(extra_index, items_len);
+        extra_index += items_len;
+
+        case_block.instructions.shrinkRetainingCapacity(0);
+
+        var any_ok: ?*Inst = null;
+        const bool_ty = comptime Type.initTag(.bool);
+
+        for (items) |item_ref| {
+            const item = try sema.resolveInst(item_ref);
+            _ = try sema.resolveConstValue(block, item.src, item);
+
+            const cmp_ok = try case_block.addBinOp(item.src, bool_ty, .cmp_eq, operand, item);
+            if (any_ok) |some| {
+                any_ok = try case_block.addBinOp(item.src, bool_ty, .bool_or, some, cmp_ok);
+            } else {
+                any_ok = cmp_ok;
+            }
+        }
+
+        var range_i: usize = 0;
+        while (range_i < ranges_len) : (range_i += 1) {
+            const first_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+            extra_index += 1;
+            const last_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+            extra_index += 1;
+
+            const item_first = try sema.resolveInst(first_ref);
+            const item_last = try sema.resolveInst(last_ref);
+
+            _ = try sema.resolveConstValue(block, item_first.src, item_first);
+            _ = try sema.resolveConstValue(block, item_last.src, item_last);
+
+            const range_src = item_first.src;
+
+            // operand >= first and operand <= last
+            const range_first_ok = try case_block.addBinOp(
+                item_first.src,
+                bool_ty,
+                .cmp_gte,
+                operand,
+                item_first,
+            );
+            const range_last_ok = try case_block.addBinOp(
+                item_last.src,
+                bool_ty,
+                .cmp_lte,
+                operand,
+                item_last,
+            );
+            const range_ok = try case_block.addBinOp(
+                range_src,
+                bool_ty,
+                .bool_and,
+                range_first_ok,
+                range_last_ok,
+            );
+            if (any_ok) |some| {
+                any_ok = try case_block.addBinOp(range_src, bool_ty, .bool_or, some, range_ok);
+            } else {
+                any_ok = range_ok;
+            }
+        }
+
+        const body = sema.code.extra[extra_index..][0..body_len];
+        extra_index += body_len;
+        _ = try sema.analyzeBody(&case_block, body);
+        const then_body: Body = .{
+            .instructions = try sema.arena.dupe(*Inst, case_block.instructions.items),
+        };
+        const new_condbr = try sema.arena.create(Inst.CondBr);
+        new_condbr.* = .{
+            .base = .{
+                .tag = .condbr,
+                .ty = Type.initTag(.noreturn),
+                .src = src,
+            },
+            .condition = any_ok.?,
+            .then_body = then_body,
+            .else_body = undefined,
+        };
+        if (prev_condbr) |condbr| {
+            condbr.else_body = .{
+                .instructions = try sema.arena.dupe(*Inst, &[1]*Inst{&new_condbr.base}),
+            };
+        } else {
+            first_condbr = new_condbr;
+        }
+        prev_condbr = new_condbr;
+    }
+
+    case_block.instructions.shrinkRetainingCapacity(0);
+    _ = try sema.analyzeBody(&case_block, special.body);
+    const else_body: Body = .{
+        .instructions = try sema.arena.dupe(*Inst, case_block.instructions.items),
+    };
+    first_condbr.else_body = else_body;
+
+    const final_else_body: Body = .{
+        .instructions = try sema.arena.dupe(*Inst, &[1]*Inst{&first_condbr.base}),
+    };
+
+    _ = try block.addSwitchBr(src, operand, cases, final_else_body);
+    return always_noreturn;
+}
+
+fn validateSwitchItem(
+    sema: *Sema,
+    block: *Scope.Block,
+    range_set: *RangeSet,
+    item_ref: zir.Inst.Ref,
+    src_node_offset: i32,
+) InnerError!void {
+    @panic("TODO");
+}
+
+fn validateSwitchItemBool(
+    sema: *Sema,
+    block: *Scope.Block,
+    true_count: *u8,
+    false_count: *u8,
+    item_ref: zir.Inst.Ref,
+    src_node_offset: i32,
+) InnerError!void {
+    @panic("TODO");
+}
+
+fn validateSwitchRange(
+    sema: *Sema,
+    block: *Scope.Block,
+    range_set: *RangeSet,
+    item_first: zir.Inst.Ref,
+    item_last: zir.Inst.Ref,
+    src_node_offset: i32,
+) InnerError!void {
+    @panic("TODO");
+}
+
+fn validateSwitchItemSparse(
+    sema: *Sema,
+    block: *Scope.Block,
+    seen_values: *ValueSrcMap,
+    item_ref: zir.Inst.Ref,
+    src_node_offset: i32,
+) InnerError!void {
+    @panic("TODO");
+}
+
+fn validateSwitchNoRange(
+    sema: *Sema,
+    block: *Scope.Block,
+    ranges_len: u32,
+    operand_ty: Type,
+    src_node_offset: i32,
+) InnerError!void {
+    if (ranges_len == 0)
+        return;
+
+    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = src_node_offset };
+    const range_src: LazySrcLoc = .{ .node_offset_switch_range = src_node_offset };
+
+    const msg = msg: {
+        const msg = try sema.mod.errMsg(
+            &block.base,
+            operand_src,
+            "ranges not allowed when switching on type '{}'",
+            .{operand_ty},
+        );
+        errdefer msg.destroy(sema.gpa);
+        try sema.mod.errNote(
+            &block.base,
+            range_src,
+            msg,
+            "range here",
+            .{},
+        );
+        break :msg msg;
+    };
+    return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
 }
 
 fn zirImport(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -3095,30 +3483,21 @@ fn zirCondbr(
         return always_noreturn;
     }
 
-    var true_block: Scope.Block = .{
-        .parent = parent_block,
-        .sema = sema,
-        .src_decl = parent_block.src_decl,
-        .instructions = .{},
-        .inlining = parent_block.inlining,
-        .is_comptime = parent_block.is_comptime,
-    };
-    defer true_block.instructions.deinit(sema.gpa);
-    _ = try sema.analyzeBody(&true_block, then_body);
+    var sub_block = parent_block.makeSubBlock();
+    defer sub_block.instructions.deinit(sema.gpa);
 
-    var false_block: Scope.Block = .{
-        .parent = parent_block,
-        .sema = sema,
-        .src_decl = parent_block.src_decl,
-        .instructions = .{},
-        .inlining = parent_block.inlining,
-        .is_comptime = parent_block.is_comptime,
+    _ = try sema.analyzeBody(&sub_block, then_body);
+    const tzir_then_body: ir.Body = .{
+        .instructions = try sema.arena.dupe(*Inst, sub_block.instructions.items),
     };
-    defer false_block.instructions.deinit(sema.gpa);
-    _ = try sema.analyzeBody(&false_block, else_body);
 
-    const tzir_then_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, true_block.instructions.items) };
-    const tzir_else_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, false_block.instructions.items) };
+    sub_block.instructions.shrinkRetainingCapacity(0);
+
+    _ = try sema.analyzeBody(&sub_block, else_body);
+    const tzir_else_body: ir.Body = .{
+        .instructions = try sema.arena.dupe(*Inst, sub_block.instructions.items),
+    };
+
     _ = try parent_block.addCondBr(src, cond, tzir_then_body, tzir_else_body);
     return always_noreturn;
 }

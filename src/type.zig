@@ -3303,6 +3303,10 @@ pub const Type = extern union {
         }
     }
 
+    pub fn isExhaustiveEnum(ty: Type) bool {
+        return false; // TODO
+    }
+
     /// This enum does not directly correspond to `std.builtin.TypeId` because
     /// it has extra enum tags in it, as a way of using less memory. For example,
     /// even though Zig recognizes `*align(10) i32` and `*i32` both as Pointer types

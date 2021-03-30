@@ -589,31 +589,31 @@ pub const Inst = struct {
         /// AST node is the switch, payload is `SwitchBr`.
         /// All prongs of target handled.
         switch_br,
-        /// Same as switch_br, except has a range field.
-        switch_br_range,
+        /// Same as switch_br, except one or more prongs have multiple items.
+        switch_br_multi,
         /// Same as switch_br, except has an else prong.
         switch_br_else,
-        /// Same as switch_br_else, except has a range field.
-        switch_br_else_range,
+        /// Same as switch_br_else, except one or more prongs have multiple items.
+        switch_br_else_multi,
         /// Same as switch_br, except has an underscore prong.
-        switch_br_underscore,
-        /// Same as switch_br, except has a range field.
-        switch_br_underscore_range,
+        switch_br_under,
+        /// Same as switch_br, except one or more prongs have multiple items.
+        switch_br_under_multi,
         /// Same as `switch_br` but the target is a pointer to the value being switched on.
         switch_br_ref,
-        /// Same as `switch_br_range` but the target is a pointer to the value being switched on.
-        switch_br_ref_range,
+        /// Same as `switch_br_multi` but the target is a pointer to the value being switched on.
+        switch_br_ref_multi,
         /// Same as `switch_br_else` but the target is a pointer to the value being switched on.
         switch_br_ref_else,
-        /// Same as `switch_br_else_range` but the target is a pointer to the
+        /// Same as `switch_br_else_multi` but the target is a pointer to the
         /// value being switched on.
-        switch_br_ref_else_range,
-        /// Same as `switch_br_underscore` but the target is a pointer to the value
+        switch_br_ref_else_multi,
+        /// Same as `switch_br_under` but the target is a pointer to the value
         /// being switched on.
-        switch_br_ref_underscore,
-        /// Same as `switch_br_underscore_range` but the target is a pointer to
+        switch_br_ref_under,
+        /// Same as `switch_br_under_multi` but the target is a pointer to
         /// the value being switched on.
-        switch_br_ref_underscore_range,
+        switch_br_ref_under_multi,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -757,17 +757,17 @@ pub const Inst = struct {
                 .repeat,
                 .repeat_inline,
                 .switch_br,
-                .switch_br_range,
+                .switch_br_multi,
                 .switch_br_else,
-                .switch_br_else_range,
-                .switch_br_underscore,
-                .switch_br_underscore_range,
+                .switch_br_else_multi,
+                .switch_br_under,
+                .switch_br_under_multi,
                 .switch_br_ref,
-                .switch_br_ref_range,
+                .switch_br_ref_multi,
                 .switch_br_ref_else,
-                .switch_br_ref_else_range,
-                .switch_br_ref_underscore,
-                .switch_br_ref_underscore_range,
+                .switch_br_ref_else_multi,
+                .switch_br_ref_under,
+                .switch_br_ref_under_multi,
                 => true,
             };
         }
@@ -1333,7 +1333,7 @@ pub const Inst = struct {
     /// This form is supported when there are no ranges, and exactly 1 item per block.
     /// Depending on zir tag and len fields, extra fields trail
     /// this one in the extra array.
-    /// 0. else_body { // If the tag has "_else" or "_underscore" in it.
+    /// 0. else_body { // If the tag has "_else" or "_under" in it.
     ///        body_len: u32,
     ///        body member Index for every body_len
     ///     }
@@ -1351,7 +1351,7 @@ pub const Inst = struct {
     /// or a range.
     /// Depending on zir tag and len fields, extra fields trail
     /// this one in the extra array.
-    /// 0. else_body { // If the tag has "_else" or "_underscore" in it.
+    /// 0. else_body { // If the tag has "_else" or "_under" in it.
     ///        body_len: u32,
     ///        body member Index for every body_len
     ///     }
@@ -1362,19 +1362,19 @@ pub const Inst = struct {
     ///     }
     /// 2. multi_cases: { // for every multi_cases_len
     ///        items_len: u32,
-    ///        item: Ref for every items_len
-    ///        block_index: u32, // index in extra to a `Block`
+    ///        ranges_len: u32,
+    ///        body_len: u32,
+    ///        item: Ref // for every items_len
+    ///        ranges: { // for every ranges_len
+    ///            item_first: Ref,
+    ///            item_last: Ref,
+    ///        }
+    ///        body member Index for every body_len
     ///    }
-    /// 3. range_cases: { // for every range_cases_len
-    ///        item_start: Ref,
-    ///        item_end: Ref,
-    ///        block_index: u32, // index in extra to a `Block`
-    ///    }
-    pub const SwitchBrRange = struct {
+    pub const SwitchBrMulti = struct {
         operand: Ref,
         scalar_cases_len: u32,
         multi_cases_len: u32,
-        range_cases_len: u32,
     };
 
     pub const Field = struct {
@@ -1544,19 +1544,19 @@ const Writer = struct {
 
             .switch_br,
             .switch_br_else,
-            .switch_br_underscore,
+            .switch_br_under,
             .switch_br_ref,
             .switch_br_ref_else,
-            .switch_br_ref_underscore,
+            .switch_br_ref_under,
             => try self.writePlNodeSwitchBr(stream, inst),
 
-            .switch_br_range,
-            .switch_br_else_range,
-            .switch_br_underscore_range,
-            .switch_br_ref_range,
-            .switch_br_ref_else_range,
-            .switch_br_ref_underscore_range,
-            => try self.writePlNodeSwitchBrRange(stream, inst),
+            .switch_br_multi,
+            .switch_br_else_multi,
+            .switch_br_under_multi,
+            .switch_br_ref_multi,
+            .switch_br_ref_else_multi,
+            .switch_br_ref_under_multi,
+            => try self.writePlNodeSwitchBrMulti(stream, inst),
 
             .compile_log,
             .typeof_peer,
@@ -1766,17 +1766,98 @@ const Writer = struct {
     fn writePlNodeSwitchBr(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.SwitchBr, inst_data.payload_index);
-
         try self.writeInstRef(stream, extra.data.operand);
-        try stream.writeAll(", TODO) ");
+        var extra_index: usize = extra.end;
+        {
+            var scalar_i: usize = 0;
+            while (scalar_i < extra.data.cases_len) : (scalar_i += 1) {
+                const item_ref = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
+                const body_len = self.code.extra[extra_index];
+                extra_index += 1;
+                const body = self.code.extra[extra_index..][0..body_len];
+                extra_index += body_len;
+
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, item_ref);
+                try stream.writeAll(" => {\n");
+                self.indent += 2;
+                try self.writeBody(stream, body);
+                self.indent -= 2;
+                try stream.writeByteNTimes(' ', self.indent);
+                try stream.writeAll("}");
+            }
+        }
+        try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writePlNodeSwitchBrRange(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+    fn writePlNodeSwitchBrMulti(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Inst.SwitchBrRange, inst_data.payload_index);
+        const extra = self.code.extraData(Inst.SwitchBrMulti, inst_data.payload_index);
         try self.writeInstRef(stream, extra.data.operand);
-        try stream.writeAll(", TODO) ");
+        var extra_index: usize = extra.end;
+        {
+            var scalar_i: usize = 0;
+            while (scalar_i < extra.data.scalar_cases_len) : (scalar_i += 1) {
+                const item_ref = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
+                const body_len = self.code.extra[extra_index];
+                extra_index += 1;
+                const body = self.code.extra[extra_index..][0..body_len];
+                extra_index += body_len;
+
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, item_ref);
+                try stream.writeAll(" => {\n");
+                self.indent += 2;
+                try self.writeBody(stream, body);
+                self.indent -= 2;
+                try stream.writeByteNTimes(' ', self.indent);
+                try stream.writeAll("}");
+            }
+        }
+        {
+            var multi_i: usize = 0;
+            while (multi_i < extra.data.multi_cases_len) : (multi_i += 1) {
+                const items_len = self.code.extra[extra_index];
+                extra_index += 1;
+                const ranges_len = self.code.extra[extra_index];
+                extra_index += 1;
+                const body_len = self.code.extra[extra_index];
+                extra_index += 1;
+                const items = self.code.refSlice(extra_index, items_len);
+                extra_index += items_len;
+
+                for (items) |item_ref| {
+                    try stream.writeAll(", ");
+                    try self.writeInstRef(stream, item_ref);
+                }
+
+                var range_i: usize = 0;
+                while (range_i < ranges_len) : (range_i += 1) {
+                    const item_first = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                    extra_index += 1;
+                    const item_last = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                    extra_index += 1;
+
+                    try stream.writeAll(", ");
+                    try self.writeInstRef(stream, item_first);
+                    try stream.writeAll("...");
+                    try self.writeInstRef(stream, item_last);
+                }
+
+                const body = self.code.extra[extra_index..][0..body_len];
+                extra_index += body_len;
+                try stream.writeAll(" => {\n");
+                self.indent += 2;
+                try self.writeBody(stream, body);
+                self.indent -= 2;
+                try stream.writeByteNTimes(' ', self.indent);
+                try stream.writeAll("}");
+            }
+        }
+        try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
 

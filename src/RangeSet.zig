@@ -44,6 +44,9 @@ fn lessThan(_: void, a: Range, b: Range) bool {
 }
 
 pub fn spans(self: *RangeSet, start: Value, end: Value) !bool {
+    if (self.ranges.items.len == 0)
+        return false;
+
     std.sort.sort(Range, self.ranges.items, {}, lessThan);
 
     if (!self.ranges.items[0].start.eql(start) or

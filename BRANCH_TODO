@@ -35,3 +35,94 @@ Performance optimizations to look into:
    var decl and assignment instructions, etc.
    - make it set sema.src where appropriate
  * look into not emitting redundant dbg stmts to TZIR
+ * make decl references in ZIR be u32 indexes to the Decl dependencies array hash map
+   instead of duplicating *Decl entries in zir.Code.
+
+                    if (maybe_src) |previous_src| {
+                        return sema.mod.fail(&block.base, item.src, "duplicate switch value", .{});
+                        // TODO notes "previous value is here" previous_src
+                    }
+
+                    const item = try sema.resolveInst(item_ref);
+                    const value = try sema.resolveConstValue(block, item.src, item);
+                    const maybe_src = try range_set.add(value, value, item.src);
+                    try sema.validateSwitchDupeValue(parent_block, maybe_src, item.src);
+
+
+                    const first = try sema.resolveInst(item_first);
+                    const last = try sema.resolveInst(item_last);
+                    const maybe_src = try range_set.add(
+                            try sema.resolveConstValue(block, range_first_src, first_casted),
+                            try sema.resolveConstValue(block, range_last_src, last_casted),
+                            item.src,
+                        );
+                    };
+
+
+                    const item = try sema.resolveInst(item_ref);
+                    if ((try sema.resolveConstValue(block, item.src, item)).toBool()) {
+                        true_count += 1;
+                    } else {
+                        false_count += 1;
+                    }
+                    if (true_count + false_count > 2) {
+                        return sema.mod.fail(&block.base, item.src, "duplicate switch value", .{});
+                    }
+
+
+
+            for (inst.positionals.items) |item| {
+                const resolved = try sema.resolveInst(item);
+                const casted = try sema.coerce(block, operand.ty, resolved);
+                const val = try sema.resolveConstValue(block, item_src, casted);
+
+                if (try seen_values.fetchPut(val, item.src)) |prev| {
+                    return sema.mod.fail(&block.base, item.src, "duplicate switch value", .{});
+                    // TODO notes "previous value here" prev.value
+                }
+            }
+
+
+
+
+
+
+fn switchCaseExpr(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    block: *zir.Inst.Block,
+    case: ast.full.SwitchCase,
+    target: zir.Inst.Ref,
+) !void {
+    const tree = gz.tree();
+    const node_datas = tree.nodes.items(.data);
+    const main_tokens = tree.nodes.items(.main_token);
+    const token_tags = tree.tokens.items(.tag);
+
+    const case_src = token_starts[case.ast.arrow_token];
+    const sub_scope = blk: {
+        const payload_token = case.payload_token orelse break :blk scope;
+        const ident = if (token_tags[payload_token] == .asterisk)
+            payload_token + 1
+        else
+            payload_token;
+        const is_ptr = ident != payload_token;
+        const value_name = tree.tokenSlice(ident);
+        if (mem.eql(u8, value_name, "_")) {
+            if (is_ptr) {
+                return mod.failTok(scope, payload_token, "pointer modifier invalid on discard", .{});
+            }
+            break :blk scope;
+        }
+        return mod.failTok(scope, ident, "TODO implement switch value payload", .{});
+    };
+
+    const case_body = try expr(gz, sub_scope, rl, case.ast.target_expr);
+    if (!case_body.tag.isNoReturn()) {
+        _ = try addZIRInst(mod, sub_scope, case_src, zir.Inst.Break, .{
+            .block = block,
+            .operand = case_body,
+        }, .{});
+    }
+}

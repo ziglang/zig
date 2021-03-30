@@ -888,7 +888,7 @@ pub const Scope = struct {
         pub fn addSwitchBr(
             block: *Scope.Block,
             src: LazySrcLoc,
-            target: *ir.Inst,
+            operand: *ir.Inst,
             cases: []ir.Inst.SwitchBr.Case,
             else_body: ir.Body,
         ) !*ir.Inst {
@@ -899,7 +899,7 @@ pub const Scope = struct {
                     .ty = Type.initTag(.noreturn),
                     .src = src,
                 },
-                .target = target,
+                .target = operand,
                 .cases = cases,
                 .else_body = else_body,
             };
@@ -1533,6 +1533,8 @@ pub const SrcLoc = struct {
             .node_offset_bin_lhs,
             .node_offset_bin_rhs,
             .node_offset_switch_operand,
+            .node_offset_switch_special_prong,
+            .node_offset_switch_range,
             => src_loc.container.decl.container.file_scope,
         };
     }
@@ -1665,6 +1667,8 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_switch_operand => @panic("TODO"),
+            .node_offset_switch_special_prong => @panic("TODO"),
+            .node_offset_switch_range => @panic("TODO"),
         }
     }
 };
@@ -1802,6 +1806,17 @@ pub const LazySrcLoc = union(enum) {
     /// which points to a switch expression AST node. Next, nagivate to the operand.
     /// The Decl is determined contextually.
     node_offset_switch_operand: i32,
+    /// The source location points to the else/`_` prong of a switch expression, found
+    /// by taking this AST node index offset from the containing Decl AST node,
+    /// which points to a switch expression AST node. Next, nagivate to the else/`_` prong.
+    /// The Decl is determined contextually.
+    node_offset_switch_special_prong: i32,
+    /// The source location points to all the ranges of a switch expression, found
+    /// by taking this AST node index offset from the containing Decl AST node,
+    /// which points to a switch expression AST node. Next, nagivate to any of the
+    /// range nodes. The error applies to all of them.
+    /// The Decl is determined contextually.
+    node_offset_switch_range: i32,
 
     /// Upgrade to a `SrcLoc` based on the `Decl` or file in the provided scope.
     pub fn toSrcLoc(lazy: LazySrcLoc, scope: *Scope) SrcLoc {
@@ -1836,6 +1851,8 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_bin_lhs,
             .node_offset_bin_rhs,
             .node_offset_switch_operand,
+            .node_offset_switch_special_prong,
+            .node_offset_switch_range,
             => .{
                 .container = .{ .decl = scope.srcDecl().? },
                 .lazy = lazy,
@@ -1876,6 +1893,8 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_bin_lhs,
             .node_offset_bin_rhs,
             .node_offset_switch_operand,
+            .node_offset_switch_special_prong,
+            .node_offset_switch_range,
             => .{
                 .container = .{ .decl = decl },
                 .lazy = lazy,
