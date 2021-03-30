@@ -3267,6 +3267,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .WSAEADDRINUSE => return error.AddressInUse,
             .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
             .WSAECONNREFUSED => return error.ConnectionRefused,
+            .WSAECONNRESET => return error.ConnectionResetByPeer,
             .WSAETIMEDOUT => return error.ConnectionTimedOut,
             .WSAEHOSTUNREACH, // TODO: should we return NetworkUnreachable in this case as well?
             .WSAENETUNREACH,
@@ -3296,6 +3297,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
             EBADF => unreachable, // sockfd is not a valid open file descriptor.
             ECONNREFUSED => return error.ConnectionRefused,
+            ECONNRESET => return error.ConnectionResetByPeer,
             EFAULT => unreachable, // The socket structure address is outside the user's address space.
             EINTR => continue,
             EISCONN => unreachable, // The socket is already connected.
