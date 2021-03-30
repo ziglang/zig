@@ -195,6 +195,8 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         bool is_small, bool time_report, bool tsan, bool lto,
         const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename)
 {
+    // TODO: Maybe we should collect time trace rather than using timer
+    // to get a more hierarchical timeline view
     TimePassesIsEnabled = time_report;
 
     raw_fd_ostream *dest_asm_ptr = nullptr;
@@ -225,12 +227,15 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
     Module &module = *unwrap(module_ref);
 
+    // Pipeline configurations
     PipelineTuningOptions pipeline_opts;
     pipeline_opts.LoopUnrolling = !is_debug;
     pipeline_opts.SLPVectorization = !is_debug;
     pipeline_opts.LoopVectorization = !is_debug;
     pipeline_opts.LoopInterleaving = !is_debug;
+    pipeline_opts.MergeFunctions = !is_debug;
 
+    // Instrumentations
     PassInstrumentationCallbacks instr_callbacks;
     StandardInstrumentations std_instrumentations(false);
     std_instrumentations.registerCallbacks(instr_callbacks);
@@ -253,6 +258,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     auto tlii = std::make_unique<TargetLibraryInfoImpl>(target_triple);
     function_am.registerPass([&] { return TargetLibraryAnalysis(*tlii); });
 
+    // Initialize the AnalysisManagers
     pass_builder.registerModuleAnalyses(module_am);
     pass_builder.registerCGSCCAnalyses(cgscc_am);
     pass_builder.registerFunctionAnalyses(function_am);
@@ -260,7 +266,29 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     pass_builder.crossRegisterProxies(loop_am, function_am,
                                       cgscc_am, module_am);
 
-    if (!is_debug) {
+    // IR verification
+    if (assertions_on) {
+      // Verify the input
+      pass_builder.registerPipelineStartEPCallback(
+        [](ModulePassManager &module_pm, OptimizationLevel OL) {
+          module_pm.addPass(VerifierPass());
+        });
+      // Verify the output
+      pass_builder.registerOptimizerLastEPCallback(
+        [](ModulePassManager &module_pm, OptimizationLevel OL) {
+          module_pm.addPass(VerifierPass());
+        });
+    }
+
+    // Passes for either debug or release build
+    if (is_debug) {
+      // NOTE: Always inliner will go away (in debug build)
+      // when the self-hosted compiler becomes mature.
+      pass_builder.registerPipelineStartEPCallback(
+        [](ModulePassManager &module_pm, OptimizationLevel OL) {
+          module_pm.addPass(AlwaysInlinerPass());
+        });
+    } else {
       pass_builder.registerPipelineStartEPCallback(
         [](ModulePassManager &module_pm, OptimizationLevel OL) {
           module_pm.addPass(
@@ -268,19 +296,17 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         });
     }
 
+    // Thread sanitizer
     if (tsan) {
       pass_builder.registerOptimizerLastEPCallback(
         [](ModulePassManager &module_pm, OptimizationLevel level) {
-          // Will be enabled regardless of optimization level
           module_pm.addPass(ThreadSanitizerPass());
         });
     }
 
     ModulePassManager module_pm;
-    // FIXME: NewPM can not detach speed level from size level
-    // we can't create something like "maximum speed level and optimal size level"
-    // which is what the original code wanted to achieve
     OptimizationLevel opt_level;
+    // Setting up the optimization level
     if (is_debug)
       opt_level = OptimizationLevel::O0;
     else if (is_small)
@@ -288,6 +314,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     else
       opt_level = OptimizationLevel::O3;
 
+    // Initialize the PassManager
     if (lto) {
       module_pm = pass_builder.buildLTOPreLinkDefaultPipeline(opt_level);
       module_pm.addPass(CanonicalizeAliasesPass());
@@ -314,10 +341,10 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         }
     }
 
-    // optimization
+    // Optimization phase
     module_pm.run(module, module_am);
 
-    // code generation
+    // Code generation phase
     codegen_pm.run(module);
 
     if (llvm_ir_filename) {
@@ -325,6 +352,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
             return true;
         }
     }
+
     if (dest_bin && lto) {
         WriteBitcodeToFile(module, *dest_bin);
     }
