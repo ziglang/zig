@@ -3994,7 +3994,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn fail(self: *Self, src: LazySrcLoc, comptime format: []const u8, args: anytype) InnerError {
             @setCold(true);
             assert(self.err_msg == null);
-            const src_loc = src.toSrcLocWithDecl(self.mod_fn.owner_decl);
+            const src_loc = if (src != .unneeded)
+                src.toSrcLocWithDecl(self.mod_fn.owner_decl)
+            else
+                self.src_loc;
             self.err_msg = try ErrorMsg.create(self.bin_file.allocator, src_loc, format, args);
             return error.CodegenFail;
         }

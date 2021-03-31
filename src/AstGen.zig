@@ -2538,17 +2538,105 @@ fn forExpr(
 fn getRangeNode(
     node_tags: []const ast.Node.Tag,
     node_datas: []const ast.Node.Data,
-    start_node: ast.Node.Index,
+    node: ast.Node.Index,
 ) ?ast.Node.Index {
-    var node = start_node;
-    while (true) {
-        switch (node_tags[node]) {
-            .switch_range => return node,
-            .grouped_expression => node = node_datas[node].lhs,
-            else => return null,
-        }
+    switch (node_tags[node]) {
+        .switch_range => return node,
+        .grouped_expression => unreachable,
+        else => return null,
     }
 }
+
+pub const SwitchProngSrc = union(enum) {
+    scalar: u32,
+    multi: Multi,
+    range: Multi,
+
+    pub const Multi = struct {
+        prong: u32,
+        item: u32,
+    };
+
+    /// This function is intended to be called only when it is certain that we need
+    /// the LazySrcLoc in order to emit a compile error.
+    pub fn resolve(
+        prong_src: SwitchProngSrc,
+        decl: *Decl,
+        switch_node_offset: i32,
+        range_expand: enum { none, first, last },
+    ) LazySrcLoc {
+        @setCold(true);
+        const switch_node = decl.relativeToNodeIndex(switch_node_offset);
+        const tree = decl.container.file_scope.base.tree();
+        const main_tokens = tree.nodes.items(.main_token);
+        const node_datas = tree.nodes.items(.data);
+        const node_tags = tree.nodes.items(.tag);
+        const extra = tree.extraData(node_datas[switch_node].rhs, ast.Node.SubRange);
+        const case_nodes = tree.extra_data[extra.start..extra.end];
+
+        var multi_i: u32 = 0;
+        var scalar_i: u32 = 0;
+        for (case_nodes) |case_node| {
+            const case = switch (node_tags[case_node]) {
+                .switch_case_one => tree.switchCaseOne(case_node),
+                .switch_case => tree.switchCase(case_node),
+                else => unreachable,
+            };
+            if (case.ast.values.len == 0)
+                continue;
+            if (case.ast.values.len == 1 and
+                node_tags[case.ast.values[0]] == .identifier and
+                mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"))
+            {
+                continue;
+            }
+            const is_multi = case.ast.values.len != 1 or
+                getRangeNode(node_tags, node_datas, case.ast.values[0]) != null;
+
+            switch (prong_src) {
+                .scalar => |i| if (!is_multi and i == scalar_i) return LazySrcLoc{
+                    .node_offset = decl.nodeIndexToRelative(case.ast.values[0]),
+                },
+                .multi => |s| if (is_multi and s.prong == multi_i) {
+                    var item_i: u32 = 0;
+                    for (case.ast.values) |item_node| {
+                        if (getRangeNode(node_tags, node_datas, item_node) != null)
+                            continue;
+
+                        if (item_i == s.item) return LazySrcLoc{
+                            .node_offset = decl.nodeIndexToRelative(item_node),
+                        };
+                        item_i += 1;
+                    } else unreachable;
+                },
+                .range => |s| if (is_multi and s.prong == multi_i) {
+                    var range_i: u32 = 0;
+                    for (case.ast.values) |item_node| {
+                        const range = getRangeNode(node_tags, node_datas, item_node) orelse continue;
+
+                        if (range_i == s.item) switch (range_expand) {
+                            .none => return LazySrcLoc{
+                                .node_offset = decl.nodeIndexToRelative(item_node),
+                            },
+                            .first => return LazySrcLoc{
+                                .node_offset = decl.nodeIndexToRelative(node_datas[range].lhs),
+                            },
+                            .last => return LazySrcLoc{
+                                .node_offset = decl.nodeIndexToRelative(node_datas[range].rhs),
+                            },
+                        };
+                        range_i += 1;
+                    } else unreachable;
+                },
+            }
+            if (is_multi) {
+                multi_i += 1;
+            } else {
+                scalar_i += 1;
+            }
+        } else unreachable;
+    }
+};
 
 fn switchExpr(
     parent_gz: *GenZir,

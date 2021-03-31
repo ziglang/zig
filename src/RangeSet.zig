@@ -2,13 +2,14 @@ const std = @import("std");
 const Order = std.math.Order;
 const Value = @import("value.zig").Value;
 const RangeSet = @This();
+const SwitchProngSrc = @import("AstGen.zig").SwitchProngSrc;
 
 ranges: std.ArrayList(Range),
 
 pub const Range = struct {
     start: Value,
     end: Value,
-    src: usize,
+    src: SwitchProngSrc,
 };
 
 pub fn init(allocator: *std.mem.Allocator) RangeSet {
@@ -21,7 +22,7 @@ pub fn deinit(self: *RangeSet) void {
     self.ranges.deinit();
 }
 
-pub fn add(self: *RangeSet, start: Value, end: Value, src: usize) !?usize {
+pub fn add(self: *RangeSet, start: Value, end: Value, src: SwitchProngSrc) !?SwitchProngSrc {
     for (self.ranges.items) |range| {
         if ((start.compare(.gte, range.start) and start.compare(.lte, range.end)) or
             (end.compare(.gte, range.start) and end.compare(.lte, range.end)))
