@@ -2888,7 +2888,7 @@ fn validateSwitchRange(
     // because we only have the switch AST node. Only if we know for sure we need to report
     // a compile error do we resolve the full source locations.
     const first_val = val: {
-        if (last.value()) |val| {
+        if (first.value()) |val| {
             if (val.isUndef()) {
                 const src = switch_prong_src.resolve(block.src_decl, src_node_offset, .first);
                 return sema.failWithUseOfUndef(block, src);
@@ -2899,7 +2899,7 @@ fn validateSwitchRange(
         return sema.failWithNeededComptime(block, src);
     };
     const last_val = val: {
-        if (first.value()) |val| {
+        if (last.value()) |val| {
             if (val.isUndef()) {
                 const src = switch_prong_src.resolve(block.src_decl, src_node_offset, .last);
                 return sema.failWithUseOfUndef(block, src);

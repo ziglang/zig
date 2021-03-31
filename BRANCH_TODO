@@ -38,27 +38,6 @@ Performance optimizations to look into:
  * make decl references in ZIR be u32 indexes to the Decl dependencies array hash map
    instead of duplicating *Decl entries in zir.Code.
 
-                    if (maybe_src) |previous_src| {
-                        return sema.mod.fail(&block.base, item.src, "duplicate switch value", .{});
-                        // TODO notes "previous value is here" previous_src
-                    }
-
-                    const item = try sema.resolveInst(item_ref);
-                    const value = try sema.resolveConstValue(block, item.src, item);
-                    const maybe_src = try range_set.add(value, value, item.src);
-                    try sema.validateSwitchDupeValue(parent_block, maybe_src, item.src);
-
-
-                    const first = try sema.resolveInst(item_first);
-                    const last = try sema.resolveInst(item_last);
-                    const maybe_src = try range_set.add(
-                            try sema.resolveConstValue(block, range_first_src, first_casted),
-                            try sema.resolveConstValue(block, range_last_src, last_casted),
-                            item.src,
-                        );
-                    };
-
-
                     const item = try sema.resolveInst(item_ref);
                     if ((try sema.resolveConstValue(block, item.src, item)).toBool()) {
                         true_count += 1;
