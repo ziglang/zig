@@ -22,6 +22,7 @@ const Scope = Module.Scope;
 const GenZir = Scope.GenZir;
 const InnerError = Module.InnerError;
 const Decl = Module.Decl;
+const LazySrcLoc = Module.LazySrcLoc;
 const BuiltinFn = @import("BuiltinFn.zig");
 
 instructions: std.MultiArrayList(zir.Inst) = .{},
@@ -1215,6 +1216,7 @@ fn blockExprStmts(
                         .negate,
                         .negate_wrap,
                         .typeof,
+                        .typeof_elem,
                         .xor,
                         .optional_type,
                         .optional_type_from_ptr_elem,
@@ -1243,6 +1245,24 @@ fn blockExprStmts(
                         .slice_sentinel,
                         .import,
                         .typeof_peer,
+                        .switch_block,
+                        .switch_block_multi,
+                        .switch_block_else,
+                        .switch_block_else_multi,
+                        .switch_block_under,
+                        .switch_block_under_multi,
+                        .switch_block_ref,
+                        .switch_block_ref_multi,
+                        .switch_block_ref_else,
+                        .switch_block_ref_else_multi,
+                        .switch_block_ref_under,
+                        .switch_block_ref_under_multi,
+                        .switch_capture,
+                        .switch_capture_ref,
+                        .switch_capture_multi,
+                        .switch_capture_multi_ref,
+                        .switch_capture_else,
+                        .switch_capture_else_ref,
                         => break :b false,
 
                         // ZIR instructions that are always either `noreturn` or `void`.
@@ -1257,18 +1277,6 @@ fn blockExprStmts(
                         .break_inline,
                         .condbr,
                         .condbr_inline,
-                        .switch_br,
-                        .switch_br_multi,
-                        .switch_br_else,
-                        .switch_br_else_multi,
-                        .switch_br_under,
-                        .switch_br_under_multi,
-                        .switch_br_ref,
-                        .switch_br_ref_multi,
-                        .switch_br_ref_else,
-                        .switch_br_ref_else_multi,
-                        .switch_br_ref_under,
-                        .switch_br_ref_under_multi,
                         .compile_error,
                         .ret_node,
                         .ret_tok,
@@ -1543,7 +1551,7 @@ fn assignOp(
 
     const lhs_ptr = try lvalExpr(gz, scope, node_datas[infix_node].lhs);
     const lhs = try gz.addUnNode(.load, lhs_ptr, infix_node);
-    const lhs_type = try gz.addUnTok(.typeof, lhs, infix_node);
+    const lhs_type = try gz.addUnNode(.typeof, lhs, infix_node);
     const rhs = try expr(gz, scope, .{ .ty = lhs_type }, node_datas[infix_node].rhs);
 
     const result = try gz.addPlNode(op_inst_tag, infix_node, zir.Inst.Bin{
@@ -2548,15 +2556,28 @@ fn switchExpr(
     rl: ResultLoc,
     switch_node: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
+    const astgen = parent_gz.astgen;
+    const mod = astgen.mod;
+    const gpa = mod.gpa;
     const tree = parent_gz.tree();
     const node_datas = tree.nodes.items(.data);
     const node_tags = tree.nodes.items(.tag);
+    const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
     const operand_node = node_datas[switch_node].lhs;
     const extra = tree.extraData(node_datas[switch_node].rhs, ast.Node.SubRange);
     const case_nodes = tree.extra_data[extra.start..extra.end];
 
+    // We perform two passes over the AST. This first pass is to collect information
+    // for the following variables, make note of the special prong AST node index,
+    // and bail out with a compile error if there are multiple special prongs present.
     var any_payload_is_ref = false;
+    var scalar_cases_len: u32 = 0;
+    var multi_cases_len: u32 = 0;
+    var special_prong: zir.SpecialProng = .none;
+    var special_node: ast.Node.Index = 0;
+    var else_src: ?LazySrcLoc = null;
+    var underscore_src: ?LazySrcLoc = null;
     for (case_nodes) |case_node| {
         const case = switch (node_tags[case_node]) {
             .switch_case_one => tree.switchCaseOne(case_node),
@@ -2568,22 +2589,346 @@ fn switchExpr(
                 any_payload_is_ref = true;
             }
         }
+        // Check for else/`_` prong.
+        if (case.ast.values.len == 0) {
+            const case_src = parent_gz.tokSrcLoc(case.ast.arrow_token - 1);
+            if (else_src) |src| {
+                const msg = msg: {
+                    const msg = try mod.errMsg(
+                        scope,
+                        case_src,
+                        "multiple else prongs in switch expression",
+                        .{},
+                    );
+                    errdefer msg.destroy(gpa);
+                    try mod.errNote(scope, src, msg, "previous else prong is here", .{});
+                    break :msg msg;
+                };
+                return mod.failWithOwnedErrorMsg(scope, msg);
+            } else if (underscore_src) |some_underscore| {
+                const msg = msg: {
+                    const msg = try mod.errMsg(
+                        scope,
+                        parent_gz.nodeSrcLoc(switch_node),
+                        "else and '_' prong in switch expression",
+                        .{},
+                    );
+                    errdefer msg.destroy(gpa);
+                    try mod.errNote(scope, case_src, msg, "else prong is here", .{});
+                    try mod.errNote(scope, some_underscore, msg, "'_' prong is here", .{});
+                    break :msg msg;
+                };
+                return mod.failWithOwnedErrorMsg(scope, msg);
+            }
+            special_node = case_node;
+            special_prong = .@"else";
+            else_src = case_src;
+            continue;
+        } else if (case.ast.values.len == 1 and
+            node_tags[case.ast.values[0]] == .identifier and
+            mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"))
+        {
+            const case_src = parent_gz.tokSrcLoc(case.ast.arrow_token - 1);
+            if (underscore_src) |src| {
+                const msg = msg: {
+                    const msg = try mod.errMsg(
+                        scope,
+                        case_src,
+                        "multiple '_' prongs in switch expression",
+                        .{},
+                    );
+                    errdefer msg.destroy(gpa);
+                    try mod.errNote(scope, src, msg, "previous '_' prong is here", .{});
+                    break :msg msg;
+                };
+                return mod.failWithOwnedErrorMsg(scope, msg);
+            } else if (else_src) |some_else| {
+                const msg = msg: {
+                    const msg = try mod.errMsg(
+                        scope,
+                        parent_gz.nodeSrcLoc(switch_node),
+                        "else and '_' prong in switch expression",
+                        .{},
+                    );
+                    errdefer msg.destroy(gpa);
+                    try mod.errNote(scope, some_else, msg, "else prong is here", .{});
+                    try mod.errNote(scope, case_src, msg, "'_' prong is here", .{});
+                    break :msg msg;
+                };
+                return mod.failWithOwnedErrorMsg(scope, msg);
+            }
+            special_node = case_node;
+            special_prong = .under;
+            underscore_src = case_src;
+            continue;
+        }
+
+        if (case.ast.values.len == 1 and
+            getRangeNode(node_tags, node_datas, case.ast.values[0]) == null)
+        {
+            scalar_cases_len += 1;
+        } else {
+            multi_cases_len += 1;
+        }
     }
 
-    const rl_and_tag: struct { rl: ResultLoc, tag: zir.Inst.Tag } = if (any_payload_is_ref) .{
-        .rl = .ref,
-        .tag = .switch_br_ref,
-    } else .{
-        .rl = .none,
-        .tag = .switch_br,
-    };
-    const operand = try expr(parent_gz, scope, rl_and_tag.rl, operand_node);
+    const operand_rl: ResultLoc = if (any_payload_is_ref) .ref else .none;
+    const operand = try expr(parent_gz, scope, operand_rl, operand_node);
+    // We need the type of the operand to use as the result location for all the prong items.
+    const typeof_tag: zir.Inst.Tag = if (any_payload_is_ref) .typeof_elem else .typeof;
+    const operand_ty_inst = try parent_gz.addUnNode(typeof_tag, operand, operand_node);
+    const item_rl: ResultLoc = .{ .ty = operand_ty_inst };
 
-    const result = try parent_gz.addPlNode(.switch_br, switch_node, zir.Inst.SwitchBr{
-        .operand = operand,
-        .cases_len = 0,
-    });
-    return rvalue(parent_gz, scope, rl, result, switch_node);
+    // Contains the data that goes into the `extra` array for the SwitchBr/SwitchBrMulti.
+    // This is the header as well as the optional else prong body, as well as all the
+    // scalar cases.
+    // At the end we will memcpy this into place.
+    var scalar_cases_payload = std.ArrayListUnmanaged(u32){};
+    defer scalar_cases_payload.deinit(gpa);
+    // Same deal, but this is only the `extra` data for the multi cases.
+    var multi_cases_payload = std.ArrayListUnmanaged(u32){};
+    defer multi_cases_payload.deinit(gpa);
+
+    var block_scope: GenZir = .{
+        .parent = scope,
+        .astgen = astgen,
+        .force_comptime = parent_gz.force_comptime,
+        .instructions = .{},
+    };
+    block_scope.setBreakResultLoc(rl);
+    defer block_scope.instructions.deinit(gpa);
+
+    // This gets added to the parent block later, after the item expressions.
+    const switch_block = try parent_gz.addBlock(undefined, switch_node);
+
+    // We re-use this same scope for all cases, including the special prong, if any.
+    var case_scope: GenZir = .{
+        .parent = &block_scope.base,
+        .astgen = astgen,
+        .force_comptime = parent_gz.force_comptime,
+        .instructions = .{},
+    };
+    defer case_scope.instructions.deinit(gpa);
+
+    // Do the else/`_` first because it goes first in the payload.
+    var capture_val_scope: Scope.LocalVal = undefined;
+    if (special_node != 0) {
+        const case = switch (node_tags[special_node]) {
+            .switch_case_one => tree.switchCaseOne(special_node),
+            .switch_case => tree.switchCase(special_node),
+            else => unreachable,
+        };
+        const sub_scope = blk: {
+            const payload_token = case.payload_token orelse break :blk &case_scope.base;
+            const ident = if (token_tags[payload_token] == .asterisk)
+                payload_token + 1
+            else
+                payload_token;
+            const is_ptr = ident != payload_token;
+            if (mem.eql(u8, tree.tokenSlice(ident), "_")) {
+                if (is_ptr) {
+                    return mod.failTok(&case_scope.base, payload_token, "pointer modifier invalid on discard", .{});
+                }
+                break :blk &case_scope.base;
+            }
+            const capture_tag: zir.Inst.Tag = if (is_ptr)
+                .switch_capture_else_ref
+            else
+                .switch_capture_else;
+            const capture = try case_scope.add(.{
+                .tag = capture_tag,
+                .data = .{ .switch_capture = .{
+                    .switch_inst = switch_block,
+                    .prong_index = undefined,
+                } },
+            });
+            const capture_name = try mod.identifierTokenString(&parent_gz.base, payload_token);
+            capture_val_scope = .{
+                .parent = &case_scope.base,
+                .gen_zir = &case_scope,
+                .name = capture_name,
+                .inst = capture,
+                .src = parent_gz.tokSrcLoc(payload_token),
+            };
+            break :blk &capture_val_scope.base;
+        };
+        block_scope.break_count += 1;
+        const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
+        if (!astgen.refIsNoReturn(case_result)) {
+            _ = try case_scope.addBreak(.@"break", switch_block, case_result);
+        }
+        // Documentation for this: `zir.Inst.SwitchBr` and `zir.Inst.SwitchBrMulti`.
+        try scalar_cases_payload.ensureCapacity(gpa, scalar_cases_payload.items.len +
+            3 + // operand, scalar_cases_len, else body len
+            @boolToInt(multi_cases_len != 0) +
+            case_scope.instructions.items.len);
+        scalar_cases_payload.appendAssumeCapacity(@enumToInt(operand));
+        scalar_cases_payload.appendAssumeCapacity(scalar_cases_len);
+        if (multi_cases_len != 0) {
+            scalar_cases_payload.appendAssumeCapacity(multi_cases_len);
+        }
+        scalar_cases_payload.appendAssumeCapacity(@intCast(u32, case_scope.instructions.items.len));
+        scalar_cases_payload.appendSliceAssumeCapacity(case_scope.instructions.items);
+    } else {
+        // Documentation for this: `zir.Inst.SwitchBr` and `zir.Inst.SwitchBrMulti`.
+        try scalar_cases_payload.ensureCapacity(gpa, scalar_cases_payload.items.len +
+            2 + // operand, scalar_cases_len
+            @boolToInt(multi_cases_len != 0));
+        scalar_cases_payload.appendAssumeCapacity(@enumToInt(operand));
+        scalar_cases_payload.appendAssumeCapacity(scalar_cases_len);
+        if (multi_cases_len != 0) {
+            scalar_cases_payload.appendAssumeCapacity(multi_cases_len);
+        }
+    }
+
+    // In this pass we generate all the item and prong expressions except the special case.
+    for (case_nodes) |case_node| {
+        if (case_node == special_node)
+            continue;
+        const case = switch (node_tags[case_node]) {
+            .switch_case_one => tree.switchCaseOne(case_node),
+            .switch_case => tree.switchCase(case_node),
+            else => unreachable,
+        };
+
+        // Reset the scope.
+        case_scope.instructions.shrinkRetainingCapacity(0);
+
+        const is_multi_case = case.ast.values.len != 1 or
+            getRangeNode(node_tags, node_datas, case.ast.values[0]) != null;
+
+        const sub_scope = blk: {
+            const payload_token = case.payload_token orelse break :blk &case_scope.base;
+            const ident = if (token_tags[payload_token] == .asterisk)
+                payload_token + 1
+            else
+                payload_token;
+            const is_ptr = ident != payload_token;
+            if (mem.eql(u8, tree.tokenSlice(ident), "_")) {
+                if (is_ptr) {
+                    return mod.failTok(&case_scope.base, payload_token, "pointer modifier invalid on discard", .{});
+                }
+                break :blk &case_scope.base;
+            }
+            const is_multi_case_bits: u2 = @boolToInt(is_multi_case);
+            const is_ptr_bits: u2 = @boolToInt(is_ptr);
+            const capture_tag: zir.Inst.Tag = switch ((is_multi_case_bits << 1) | is_ptr_bits) {
+                0b00 => .switch_capture,
+                0b01 => .switch_capture_ref,
+                0b10 => .switch_capture_multi,
+                0b11 => .switch_capture_multi_ref,
+            };
+            const capture_index = if (is_multi_case) multi_cases_len else scalar_cases_len;
+            const capture = try case_scope.add(.{
+                .tag = capture_tag,
+                .data = .{ .switch_capture = .{
+                    .switch_inst = switch_block,
+                    .prong_index = capture_index,
+                } },
+            });
+            const capture_name = try mod.identifierTokenString(&parent_gz.base, payload_token);
+            capture_val_scope = .{
+                .parent = &case_scope.base,
+                .gen_zir = &case_scope,
+                .name = capture_name,
+                .inst = capture,
+                .src = parent_gz.tokSrcLoc(payload_token),
+            };
+            break :blk &capture_val_scope.base;
+        };
+
+        if (is_multi_case) {
+            // items_len, ranges_len, body_len
+            const header_index = multi_cases_payload.items.len;
+            try multi_cases_payload.resize(gpa, multi_cases_payload.items.len + 3);
+
+            // items
+            var items_len: u32 = 0;
+            for (case.ast.values) |item_node| {
+                if (getRangeNode(node_tags, node_datas, item_node) != null) continue;
+                items_len += 1;
+
+                const item_inst = try comptimeExpr(parent_gz, scope, item_rl, item_node);
+                try multi_cases_payload.append(gpa, @enumToInt(item_inst));
+            }
+
+            // ranges
+            var ranges_len: u32 = 0;
+            for (case.ast.values) |item_node| {
+                const range = getRangeNode(node_tags, node_datas, item_node) orelse continue;
+                ranges_len += 1;
+
+                const first = try comptimeExpr(parent_gz, scope, item_rl, node_datas[range].lhs);
+                const last = try comptimeExpr(parent_gz, scope, item_rl, node_datas[range].rhs);
+                try multi_cases_payload.appendSlice(gpa, &[_]u32{
+                    @enumToInt(first), @enumToInt(last),
+                });
+            }
+
+            block_scope.break_count += 1;
+            const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
+            if (!astgen.refIsNoReturn(case_result)) {
+                _ = try case_scope.addBreak(.@"break", switch_block, case_result);
+            }
+
+            multi_cases_payload.items[header_index + 0] = items_len;
+            multi_cases_payload.items[header_index + 1] = ranges_len;
+            multi_cases_payload.items[header_index + 2] = @intCast(u32, case_scope.instructions.items.len);
+            try multi_cases_payload.appendSlice(gpa, case_scope.instructions.items);
+        } else {
+            const item_node = case.ast.values[0];
+            const item_inst = try comptimeExpr(parent_gz, scope, item_rl, item_node);
+            block_scope.break_count += 1;
+            const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
+            if (!astgen.refIsNoReturn(case_result)) {
+                _ = try case_scope.addBreak(.@"break", switch_block, case_result);
+            }
+            try scalar_cases_payload.ensureCapacity(gpa, scalar_cases_payload.items.len +
+                2 + case_scope.instructions.items.len);
+            scalar_cases_payload.appendAssumeCapacity(@enumToInt(item_inst));
+            scalar_cases_payload.appendAssumeCapacity(@intCast(u32, case_scope.instructions.items.len));
+            scalar_cases_payload.appendSliceAssumeCapacity(case_scope.instructions.items);
+        }
+    }
+    // Now that the item expressions are generated we can add this.
+    try parent_gz.instructions.append(gpa, switch_block);
+
+    const ref_bit: u4 = @boolToInt(any_payload_is_ref);
+    const multi_bit: u4 = @boolToInt(multi_cases_len != 0);
+    const special_prong_bits: u4 = @enumToInt(special_prong);
+    comptime {
+        assert(@enumToInt(zir.SpecialProng.none) == 0b00);
+        assert(@enumToInt(zir.SpecialProng.@"else") == 0b01);
+        assert(@enumToInt(zir.SpecialProng.under) == 0b10);
+    }
+    const zir_tags = astgen.instructions.items(.tag);
+    zir_tags[switch_block] = switch ((ref_bit << 3) | (special_prong_bits << 1) | multi_bit) {
+        0b0_00_0 => .switch_block,
+        0b0_00_1 => .switch_block_multi,
+        0b0_01_0 => .switch_block_else,
+        0b0_01_1 => .switch_block_else_multi,
+        0b0_10_0 => .switch_block_under,
+        0b0_10_1 => .switch_block_under_multi,
+        0b1_00_0 => .switch_block_ref,
+        0b1_00_1 => .switch_block_ref_multi,
+        0b1_01_0 => .switch_block_ref_else,
+        0b1_01_1 => .switch_block_ref_else_multi,
+        0b1_10_0 => .switch_block_ref_under,
+        0b1_10_1 => .switch_block_ref_under_multi,
+        else => unreachable,
+    };
+    const zir_datas = astgen.instructions.items(.data);
+    zir_datas[switch_block].pl_node.payload_index = @intCast(u32, astgen.extra.items.len);
+    try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
+        scalar_cases_payload.items.len + multi_cases_payload.items.len);
+    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items);
+    astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items);
+    const strat = rl.strategy(&block_scope);
+    assert(strat.tag == .break_operand); // TODO
+    assert(!strat.elide_store_to_block_ptr_instructions); // TODO
+    assert(rl != .ref); // TODO
+    const switch_block_ref = astgen.indexToRef(switch_block);
+    return rvalue(parent_gz, scope, rl, switch_block_ref, switch_node);
 }
 
 fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
@@ -3021,7 +3366,7 @@ fn typeOf(
         return gz.astgen.mod.failTok(scope, builtin_token, "expected at least 1 argument, found 0", .{});
     }
     if (params.len == 1) {
-        const result = try gz.addUnTok(.typeof, try expr(gz, scope, .none, params[0]), node);
+        const result = try gz.addUnNode(.typeof, try expr(gz, scope, .none, params[0]), node);
         return rvalue(gz, scope, rl, result, node);
     }
     const arena = gz.astgen.arena;

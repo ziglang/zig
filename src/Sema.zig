@@ -84,6 +84,15 @@ pub fn rootAsType(sema: *Sema, root_block: *Scope.Block) !Type {
     return sema.resolveType(root_block, .unneeded, zir_inst_ref);
 }
 
+/// Returns only the result from the body that is specified.
+/// Only appropriate to call when it is determined at comptime that this body
+/// has no peers.
+fn resolveBody(sema: *Sema, block: *Scope.Block, body: []const zir.Inst.Index) InnerError!*Inst {
+    const break_inst = try sema.analyzeBody(block, body);
+    const operand_ref = sema.code.instructions.items(.data)[break_inst].@"break".operand;
+    return sema.resolveInst(operand_ref);
+}
+
 /// ZIR instructions which are always `noreturn` return this. This matches the
 /// return type of `analyzeBody` so that we can tail call them.
 /// Only appropriate to return when the instruction is known to be NoReturn
@@ -229,7 +238,26 @@ pub fn analyzeBody(
             .str => try sema.zirStr(block, inst),
             .sub => try sema.zirArithmetic(block, inst),
             .subwrap => try sema.zirArithmetic(block, inst),
+            .switch_block => try sema.zirSwitchBlock(block, inst, false, .none),
+            .switch_block_multi => try sema.zirSwitchBlockMulti(block, inst, false, .none),
+            .switch_block_else => try sema.zirSwitchBlock(block, inst, false, .@"else"),
+            .switch_block_else_multi => try sema.zirSwitchBlockMulti(block, inst, false, .@"else"),
+            .switch_block_under => try sema.zirSwitchBlock(block, inst, false, .under),
+            .switch_block_under_multi => try sema.zirSwitchBlockMulti(block, inst, false, .under),
+            .switch_block_ref => try sema.zirSwitchBlock(block, inst, true, .none),
+            .switch_block_ref_multi => try sema.zirSwitchBlockMulti(block, inst, true, .none),
+            .switch_block_ref_else => try sema.zirSwitchBlock(block, inst, true, .@"else"),
+            .switch_block_ref_else_multi => try sema.zirSwitchBlockMulti(block, inst, true, .@"else"),
+            .switch_block_ref_under => try sema.zirSwitchBlock(block, inst, true, .under),
+            .switch_block_ref_under_multi => try sema.zirSwitchBlockMulti(block, inst, true, .under),
+            .switch_capture => try sema.zirSwitchCapture(block, inst, false, false),
+            .switch_capture_ref => try sema.zirSwitchCapture(block, inst, false, true),
+            .switch_capture_multi => try sema.zirSwitchCapture(block, inst, true, false),
+            .switch_capture_multi_ref => try sema.zirSwitchCapture(block, inst, true, true),
+            .switch_capture_else => try sema.zirSwitchCaptureElse(block, inst, false),
+            .switch_capture_else_ref => try sema.zirSwitchCaptureElse(block, inst, true),
             .typeof => try sema.zirTypeof(block, inst),
+            .typeof_elem => try sema.zirTypeofElem(block, inst),
             .typeof_peer => try sema.zirTypeofPeer(block, inst),
             .xor => try sema.zirBitwise(block, inst, .xor),
 
@@ -245,18 +273,6 @@ pub fn analyzeBody(
             .ret_tok => return sema.zirRetTok(block, inst, false),
             .@"unreachable" => return sema.zirUnreachable(block, inst),
             .repeat => return sema.zirRepeat(block, inst),
-            .switch_br => return sema.zirSwitchBr(block, inst, false, .none),
-            .switch_br_multi => return sema.zirSwitchBrMulti(block, inst, false, .none),
-            .switch_br_else => return sema.zirSwitchBr(block, inst, false, .@"else"),
-            .switch_br_else_multi => return sema.zirSwitchBrMulti(block, inst, false, .@"else"),
-            .switch_br_under => return sema.zirSwitchBr(block, inst, false, .under),
-            .switch_br_under_multi => return sema.zirSwitchBrMulti(block, inst, false, .under),
-            .switch_br_ref => return sema.zirSwitchBr(block, inst, true, .none),
-            .switch_br_ref_multi => return sema.zirSwitchBrMulti(block, inst, true, .none),
-            .switch_br_ref_else => return sema.zirSwitchBr(block, inst, true, .@"else"),
-            .switch_br_ref_else_multi => return sema.zirSwitchBrMulti(block, inst, true, .@"else"),
-            .switch_br_ref_under => return sema.zirSwitchBr(block, inst, true, .under),
-            .switch_br_ref_under_multi => return sema.zirSwitchBrMulti(block, inst, true, .under),
 
             // Instructions that we know can *never* be noreturn based solely on
             // their tag. We avoid needlessly checking if they are noreturn and
@@ -1034,7 +1050,7 @@ fn analyzeBlockBody(
         }
         assert(coerce_block.instructions.items[coerce_block.instructions.items.len - 1] == coerced_operand);
         // Here we depend on the br instruction having been over-allocated (if necessary)
-        // inide analyzeBreak so that it can be converted into a br_block_flat instruction.
+        // inside zirBreak so that it can be converted into a br_block_flat instruction.
         const br_src = br.base.src;
         const br_ty = br.base.ty;
         const br_block_flat = @ptrCast(*Inst.BrBlockFlat, br);
@@ -1063,22 +1079,15 @@ fn zirBreakpoint(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerEr
     _ = try block.addNoOp(src, Type.initTag(.void), .breakpoint);
 }
 
-fn zirBreak(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
+fn zirBreak(sema: *Sema, start_block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].@"break";
+    const src = sema.src;
     const operand = try sema.resolveInst(inst_data.operand);
-    return sema.analyzeBreak(block, sema.src, inst_data.block_inst, operand);
-}
+    const zir_block = inst_data.block_inst;
 
-fn analyzeBreak(
-    sema: *Sema,
-    start_block: *Scope.Block,
-    src: LazySrcLoc,
-    zir_block: zir.Inst.Index,
-    operand: *Inst,
-) InnerError!zir.Inst.Index {
     var block = start_block;
     while (true) {
         if (block.label) |*label| {
@@ -1103,7 +1112,7 @@ fn analyzeBreak(
                 try start_block.instructions.append(sema.gpa, &br.base);
                 try label.merges.results.append(sema.gpa, operand);
                 try label.merges.br_list.append(sema.gpa, br);
-                return always_noreturn;
+                return inst;
             }
         }
         block = block.parent.?;
@@ -2208,15 +2217,38 @@ fn zirSliceSentinel(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) Inne
     return sema.analyzeSlice(block, src, array_ptr, start, end, sentinel, sentinel_src);
 }
 
-const SpecialProng = enum { none, @"else", under };
+fn zirSwitchCapture(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: zir.Inst.Index,
+    is_multi: bool,
+    is_ref: bool,
+) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
 
-fn zirSwitchBr(
+    @panic("TODO implement Sema for zirSwitchCapture");
+}
+
+fn zirSwitchCaptureElse(
     sema: *Sema,
     block: *Scope.Block,
     inst: zir.Inst.Index,
     is_ref: bool,
-    special_prong: SpecialProng,
-) InnerError!zir.Inst.Index {
+) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    @panic("TODO implement Sema for zirSwitchCaptureElse");
+}
+
+fn zirSwitchBlock(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: zir.Inst.Index,
+    is_ref: bool,
+    special_prong: zir.SpecialProng,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2238,17 +2270,18 @@ fn zirSwitchBr(
         special_prong,
         extra.data.cases_len,
         0,
+        inst,
         inst_data.src_node,
     );
 }
 
-fn zirSwitchBrMulti(
+fn zirSwitchBlockMulti(
     sema: *Sema,
     block: *Scope.Block,
     inst: zir.Inst.Index,
     is_ref: bool,
-    special_prong: SpecialProng,
-) InnerError!zir.Inst.Index {
+    special_prong: zir.SpecialProng,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2270,6 +2303,7 @@ fn zirSwitchBrMulti(
         special_prong,
         extra.data.scalar_cases_len,
         extra.data.multi_cases_len,
+        inst,
         inst_data.src_node,
     );
 }
@@ -2279,11 +2313,12 @@ fn analyzeSwitch(
     block: *Scope.Block,
     operand: *Inst,
     extra_end: usize,
-    special_prong: SpecialProng,
+    special_prong: zir.SpecialProng,
     scalar_cases_len: usize,
     multi_cases_len: usize,
+    switch_inst: zir.Inst.Index,
     src_node_offset: i32,
-) InnerError!zir.Inst.Index {
+) InnerError!*Inst {
     const special: struct { body: []const zir.Inst.Index, end: usize } = switch (special_prong) {
         .none => .{ .body = &.{}, .end = extra_end },
         .under, .@"else" => blk: {
@@ -2584,7 +2619,7 @@ fn analyzeSwitch(
                 const item = try sema.resolveInst(item_ref);
                 const item_val = try sema.resolveConstValue(block, item.src, item);
                 if (operand_val.eql(item_val)) {
-                    return sema.analyzeBody(block, body);
+                    return sema.resolveBody(block, body);
                 }
             }
         }
@@ -2605,7 +2640,7 @@ fn analyzeSwitch(
                     const item = try sema.resolveInst(item_ref);
                     const item_val = try sema.resolveConstValue(block, item.src, item);
                     if (operand_val.eql(item_val)) {
-                        return sema.analyzeBody(block, body);
+                        return sema.resolveBody(block, body);
                     }
                 }
 
@@ -2621,26 +2656,59 @@ fn analyzeSwitch(
                     if (Value.compare(operand_val, .gte, first_tv.val) and
                         Value.compare(operand_val, .lte, last_tv.val))
                     {
-                        return sema.analyzeBody(block, body);
+                        return sema.resolveBody(block, body);
                     }
                 }
 
                 extra_index += body_len;
             }
         }
-        return sema.analyzeBody(block, special.body);
+        return sema.resolveBody(block, special.body);
     }
 
     if (scalar_cases_len + multi_cases_len == 0) {
-        return sema.analyzeBody(block, special.body);
+        return sema.resolveBody(block, special.body);
     }
 
     try sema.requireRuntimeBlock(block, src);
+
+    const block_inst = try sema.arena.create(Inst.Block);
+    block_inst.* = .{
+        .base = .{
+            .tag = Inst.Block.base_tag,
+            .ty = undefined, // Set after analysis.
+            .src = src,
+        },
+        .body = undefined,
+    };
+
+    var child_block: Scope.Block = .{
+        .parent = block,
+        .sema = sema,
+        .src_decl = block.src_decl,
+        .instructions = .{},
+        // TODO @as here is working around a stage1 miscompilation bug :(
+        .label = @as(?Scope.Block.Label, Scope.Block.Label{
+            .zir_block = switch_inst,
+            .merges = .{
+                .results = .{},
+                .br_list = .{},
+                .block_inst = block_inst,
+            },
+        }),
+        .inlining = block.inlining,
+        .is_comptime = block.is_comptime,
+    };
+    const merges = &child_block.label.?.merges;
+    defer child_block.instructions.deinit(sema.gpa);
+    defer merges.results.deinit(sema.gpa);
+    defer merges.br_list.deinit(sema.gpa);
+
     // TODO when reworking TZIR memory layout make multi cases get generated as cases,
     // not as part of the "else" block.
     const cases = try sema.arena.alloc(Inst.SwitchBr.Case, scalar_cases_len);
 
-    var case_block = block.makeSubBlock();
+    var case_block = child_block.makeSubBlock();
     defer case_block.instructions.deinit(sema.gpa);
 
     var extra_index: usize = special.end;
@@ -2656,7 +2724,7 @@ fn analyzeSwitch(
 
         case_block.instructions.shrinkRetainingCapacity(0);
         const item = try sema.resolveInst(item_ref);
-        const item_val = try sema.resolveConstValue(block, item.src, item);
+        const item_val = try sema.resolveConstValue(&case_block, item.src, item);
 
         _ = try sema.analyzeBody(&case_block, body);
 
@@ -2687,7 +2755,7 @@ fn analyzeSwitch(
 
         for (items) |item_ref| {
             const item = try sema.resolveInst(item_ref);
-            _ = try sema.resolveConstValue(block, item.src, item);
+            _ = try sema.resolveConstValue(&child_block, item.src, item);
 
             const cmp_ok = try case_block.addBinOp(item.src, bool_ty, .cmp_eq, operand, item);
             if (any_ok) |some| {
@@ -2707,8 +2775,8 @@ fn analyzeSwitch(
             const item_first = try sema.resolveInst(first_ref);
             const item_last = try sema.resolveInst(last_ref);
 
-            _ = try sema.resolveConstValue(block, item_first.src, item_first);
-            _ = try sema.resolveConstValue(block, item_last.src, item_last);
+            _ = try sema.resolveConstValue(&child_block, item_first.src, item_first);
+            _ = try sema.resolveConstValue(&child_block, item_last.src, item_last);
 
             const range_src = item_first.src;
 
@@ -2779,8 +2847,8 @@ fn analyzeSwitch(
         .instructions = try sema.arena.dupe(*Inst, &[1]*Inst{&first_condbr.base}),
     };
 
-    _ = try block.addSwitchBr(src, operand, cases, final_else_body);
-    return always_noreturn;
+    _ = try child_block.addSwitchBr(src, operand, cases, final_else_body);
+    return sema.analyzeBlockBody(block, &child_block, merges);
 }
 
 fn validateSwitchItem(
@@ -3261,12 +3329,18 @@ fn zirCmp(
 }
 
 fn zirTypeof(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
-    return sema.mod.constType(sema.arena, inst_data.src(), operand.ty);
+    return sema.mod.constType(sema.arena, src, operand.ty);
+}
+
+fn zirTypeofElem(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const operand_ptr = try sema.resolveInst(inst_data.operand);
+    const elem_ty = operand_ptr.ty.elemType();
+    return sema.mod.constType(sema.arena, src, elem_ty);
 }
 
 fn zirTypeofPeer(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -3360,8 +3434,7 @@ fn zirBoolBr(
         // comptime-known left-hand side. No need for a block here; the result
         // is simply the rhs expression. Here we rely on there only being 1
         // break instruction (`break_inline`).
-        const break_inst = try sema.analyzeBody(parent_block, body);
-        return sema.resolveInst(datas[break_inst].@"break".operand);
+        return sema.resolveBody(parent_block, body);
     }
 
     const block_inst = try sema.arena.create(Inst.Block);
@@ -3392,8 +3465,7 @@ fn zirBoolBr(
     });
     _ = try lhs_block.addBr(src, block_inst, lhs_result);
 
-    const rhs_break_inst = try sema.analyzeBody(rhs_block, body);
-    const rhs_result = try sema.resolveInst(datas[rhs_break_inst].@"break".operand);
+    const rhs_result = try sema.resolveBody(rhs_block, body);
     _ = try rhs_block.addBr(src, block_inst, rhs_result);
 
     const tzir_then_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, then_block.instructions.items) };

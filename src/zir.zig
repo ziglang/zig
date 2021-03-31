@@ -514,6 +514,9 @@ pub const Inst = struct {
         /// Returns the type of a value.
         /// Uses the `un_tok` field.
         typeof,
+        /// Given a value which is a pointer, returns the element type.
+        /// Uses the `un_node` field.
+        typeof_elem,
         /// The builtin `@TypeOf` which returns the type after Peer Type Resolution
         /// of one or more params.
         /// Uses the `pl_node` field. AST node is the `@TypeOf` call. Payload is `MultiOp`.
@@ -588,32 +591,55 @@ pub const Inst = struct {
         /// A switch expression. Uses the `pl_node` union field.
         /// AST node is the switch, payload is `SwitchBr`.
         /// All prongs of target handled.
-        switch_br,
-        /// Same as switch_br, except one or more prongs have multiple items.
-        switch_br_multi,
-        /// Same as switch_br, except has an else prong.
-        switch_br_else,
-        /// Same as switch_br_else, except one or more prongs have multiple items.
-        switch_br_else_multi,
-        /// Same as switch_br, except has an underscore prong.
-        switch_br_under,
-        /// Same as switch_br, except one or more prongs have multiple items.
-        switch_br_under_multi,
-        /// Same as `switch_br` but the target is a pointer to the value being switched on.
-        switch_br_ref,
-        /// Same as `switch_br_multi` but the target is a pointer to the value being switched on.
-        switch_br_ref_multi,
-        /// Same as `switch_br_else` but the target is a pointer to the value being switched on.
-        switch_br_ref_else,
-        /// Same as `switch_br_else_multi` but the target is a pointer to the
+        switch_block,
+        /// Same as switch_block, except one or more prongs have multiple items.
+        switch_block_multi,
+        /// Same as switch_block, except has an else prong.
+        switch_block_else,
+        /// Same as switch_block_else, except one or more prongs have multiple items.
+        switch_block_else_multi,
+        /// Same as switch_block, except has an underscore prong.
+        switch_block_under,
+        /// Same as switch_block, except one or more prongs have multiple items.
+        switch_block_under_multi,
+        /// Same as `switch_block` but the target is a pointer to the value being switched on.
+        switch_block_ref,
+        /// Same as `switch_block_multi` but the target is a pointer to the value being switched on.
+        switch_block_ref_multi,
+        /// Same as `switch_block_else` but the target is a pointer to the value being switched on.
+        switch_block_ref_else,
+        /// Same as `switch_block_else_multi` but the target is a pointer to the
         /// value being switched on.
-        switch_br_ref_else_multi,
-        /// Same as `switch_br_under` but the target is a pointer to the value
+        switch_block_ref_else_multi,
+        /// Same as `switch_block_under` but the target is a pointer to the value
         /// being switched on.
-        switch_br_ref_under,
-        /// Same as `switch_br_under_multi` but the target is a pointer to
+        switch_block_ref_under,
+        /// Same as `switch_block_under_multi` but the target is a pointer to
         /// the value being switched on.
-        switch_br_ref_under_multi,
+        switch_block_ref_under_multi,
+        /// Produces the capture value for a switch prong.
+        /// Uses the `switch_capture` field.
+        switch_capture,
+        /// Produces the capture value for a switch prong.
+        /// Result is a pointer to the value.
+        /// Uses the `switch_capture` field.
+        switch_capture_ref,
+        /// Produces the capture value for a switch prong.
+        /// The prong is one of the multi cases.
+        /// Uses the `switch_capture` field.
+        switch_capture_multi,
+        /// Produces the capture value for a switch prong.
+        /// The prong is one of the multi cases.
+        /// Result is a pointer to the value.
+        /// Uses the `switch_capture` field.
+        switch_capture_multi_ref,
+        /// Produces the capture value for the else/'_' switch prong.
+        /// Uses the `switch_capture` field.
+        switch_capture_else,
+        /// Produces the capture value for the else/'_' switch prong.
+        /// Result is a pointer to the value.
+        /// Uses the `switch_capture` field.
+        switch_capture_else_ref,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -710,6 +736,7 @@ pub const Inst = struct {
                 .negate,
                 .negate_wrap,
                 .typeof,
+                .typeof_elem,
                 .xor,
                 .optional_type,
                 .optional_type_from_ptr_elem,
@@ -743,6 +770,24 @@ pub const Inst = struct {
                 .set_eval_branch_quota,
                 .compile_log,
                 .elided,
+                .switch_capture,
+                .switch_capture_ref,
+                .switch_capture_multi,
+                .switch_capture_multi_ref,
+                .switch_capture_else,
+                .switch_capture_else_ref,
+                .switch_block,
+                .switch_block_multi,
+                .switch_block_else,
+                .switch_block_else_multi,
+                .switch_block_under,
+                .switch_block_under_multi,
+                .switch_block_ref,
+                .switch_block_ref_multi,
+                .switch_block_ref_else,
+                .switch_block_ref_else_multi,
+                .switch_block_ref_under,
+                .switch_block_ref_under_multi,
                 => false,
 
                 .@"break",
@@ -756,18 +801,6 @@ pub const Inst = struct {
                 .@"unreachable",
                 .repeat,
                 .repeat_inline,
-                .switch_br,
-                .switch_br_multi,
-                .switch_br_else,
-                .switch_br_else_multi,
-                .switch_br_under,
-                .switch_br_under_multi,
-                .switch_br_ref,
-                .switch_br_ref_multi,
-                .switch_br_ref_else,
-                .switch_br_ref_else_multi,
-                .switch_br_ref_under,
-                .switch_br_ref_under_multi,
                 => true,
             };
         }
@@ -1223,6 +1256,10 @@ pub const Inst = struct {
             block_inst: Index,
             operand: Ref,
         },
+        switch_capture: struct {
+            switch_inst: Index,
+            prong_index: u32,
+        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -1394,6 +1431,8 @@ pub const Inst = struct {
     };
 };
 
+pub const SpecialProng = enum { none, @"else", under };
+
 const Writer = struct {
     gpa: *Allocator,
     arena: *Allocator,
@@ -1461,12 +1500,13 @@ const Writer = struct {
             .is_null_ptr,
             .is_err,
             .is_err_ptr,
+            .typeof,
+            .typeof_elem,
             => try self.writeUnNode(stream, inst),
 
             .ref,
             .ret_tok,
             .ret_coerce,
-            .typeof,
             .ensure_err_payload_void,
             => try self.writeUnTok(stream, inst),
 
@@ -1542,21 +1582,19 @@ const Writer = struct {
             .condbr_inline,
             => try self.writePlNodeCondBr(stream, inst),
 
-            .switch_br,
-            .switch_br_else,
-            .switch_br_under,
-            .switch_br_ref,
-            .switch_br_ref_else,
-            .switch_br_ref_under,
-            => try self.writePlNodeSwitchBr(stream, inst),
+            .switch_block => try self.writePlNodeSwitchBr(stream, inst, .none),
+            .switch_block_else => try self.writePlNodeSwitchBr(stream, inst, .@"else"),
+            .switch_block_under => try self.writePlNodeSwitchBr(stream, inst, .under),
+            .switch_block_ref => try self.writePlNodeSwitchBr(stream, inst, .none),
+            .switch_block_ref_else => try self.writePlNodeSwitchBr(stream, inst, .@"else"),
+            .switch_block_ref_under => try self.writePlNodeSwitchBr(stream, inst, .under),
 
-            .switch_br_multi,
-            .switch_br_else_multi,
-            .switch_br_under_multi,
-            .switch_br_ref_multi,
-            .switch_br_ref_else_multi,
-            .switch_br_ref_under_multi,
-            => try self.writePlNodeSwitchBrMulti(stream, inst),
+            .switch_block_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .none),
+            .switch_block_else_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .@"else"),
+            .switch_block_under_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .under),
+            .switch_block_ref_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .none),
+            .switch_block_ref_else_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .@"else"),
+            .switch_block_ref_under_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .under),
 
             .compile_log,
             .typeof_peer,
@@ -1588,9 +1626,18 @@ const Writer = struct {
             .fn_type_cc => try self.writeFnTypeCc(stream, inst, false),
             .fn_type_var_args => try self.writeFnType(stream, inst, true),
             .fn_type_cc_var_args => try self.writeFnTypeCc(stream, inst, true),
+
             .@"unreachable" => try self.writeUnreachable(stream, inst),
 
             .enum_literal_small => try self.writeSmallStr(stream, inst),
+
+            .switch_capture,
+            .switch_capture_ref,
+            .switch_capture_multi,
+            .switch_capture_multi_ref,
+            .switch_capture_else,
+            .switch_capture_else_ref,
+            => try self.writeSwitchCapture(stream, inst),
 
             .bitcast,
             .bitcast_ref,
@@ -1763,11 +1810,46 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writePlNodeSwitchBr(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+    fn writePlNodeSwitchBr(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+        special_prong: SpecialProng,
+    ) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.SwitchBr, inst_data.payload_index);
+        const special: struct {
+            body: []const Inst.Index,
+            end: usize,
+        } = switch (special_prong) {
+            .none => .{ .body = &.{}, .end = extra.end },
+            .under, .@"else" => blk: {
+                const body_len = self.code.extra[extra.end];
+                const extra_body_start = extra.end + 1;
+                break :blk .{
+                    .body = self.code.extra[extra_body_start..][0..body_len],
+                    .end = extra_body_start + body_len,
+                };
+            },
+        };
+
         try self.writeInstRef(stream, extra.data.operand);
-        var extra_index: usize = extra.end;
+
+        if (special.body.len != 0) {
+            const prong_name = switch (special_prong) {
+                .@"else" => "else",
+                .under => "_",
+                else => unreachable,
+            };
+            try stream.print(", {s} => {{\n", .{prong_name});
+            self.indent += 2;
+            try self.writeBody(stream, special.body);
+            self.indent -= 2;
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.writeAll("}");
+        }
+
+        var extra_index: usize = special.end;
         {
             var scalar_i: usize = 0;
             while (scalar_i < extra.data.cases_len) : (scalar_i += 1) {
@@ -1792,11 +1874,46 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writePlNodeSwitchBrMulti(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+    fn writePlNodeSwitchBlockMulti(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+        special_prong: SpecialProng,
+    ) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.SwitchBrMulti, inst_data.payload_index);
+        const special: struct {
+            body: []const Inst.Index,
+            end: usize,
+        } = switch (special_prong) {
+            .none => .{ .body = &.{}, .end = extra.end },
+            .under, .@"else" => blk: {
+                const body_len = self.code.extra[extra.end];
+                const extra_body_start = extra.end + 1;
+                break :blk .{
+                    .body = self.code.extra[extra_body_start..][0..body_len],
+                    .end = extra_body_start + body_len,
+                };
+            },
+        };
+
         try self.writeInstRef(stream, extra.data.operand);
-        var extra_index: usize = extra.end;
+
+        if (special.body.len != 0) {
+            const prong_name = switch (special_prong) {
+                .@"else" => "else",
+                .under => "_",
+                else => unreachable,
+            };
+            try stream.print(", {s} => {{\n", .{prong_name});
+            self.indent += 2;
+            try self.writeBody(stream, special.body);
+            self.indent -= 2;
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.writeAll("}");
+        }
+
+        var extra_index: usize = special.end;
         {
             var scalar_i: usize = 0;
             while (scalar_i < extra.data.scalar_cases_len) : (scalar_i += 1) {
@@ -2013,6 +2130,12 @@ const Writer = struct {
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const str = self.code.instructions.items(.data)[inst].small_str.get();
         try stream.print("\"{}\")", .{std.zig.fmtEscapes(str)});
+    }
+
+    fn writeSwitchCapture(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].switch_capture;
+        try self.writeInstIndex(stream, inst_data.switch_inst);
+        try stream.print(", {d})", .{inst_data.prong_index});
     }
 
     fn writeInstRef(self: *Writer, stream: anytype, ref: Inst.Ref) !void {
