@@ -2752,9 +2752,9 @@ fn switchExpr(
             };
             break :blk &capture_val_scope.base;
         };
-        block_scope.break_count += 1;
         const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
         if (!astgen.refIsNoReturn(case_result)) {
+            block_scope.break_count += 1;
             _ = try case_scope.addBreak(.@"break", switch_block, case_result);
         }
         // Documentation for this: `zir.Inst.SwitchBlock` and `zir.Inst.SwitchBlockMulti`.
@@ -2873,9 +2873,9 @@ fn switchExpr(
                 });
             }
 
-            block_scope.break_count += 1;
             const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
             if (!astgen.refIsNoReturn(case_result)) {
+                block_scope.break_count += 1;
                 _ = try case_scope.addBreak(.@"break", switch_block, case_result);
             }
 
@@ -2886,9 +2886,9 @@ fn switchExpr(
         } else {
             const item_node = case.ast.values[0];
             const item_inst = try comptimeExpr(parent_gz, scope, item_rl, item_node);
-            block_scope.break_count += 1;
             const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_loc, case.ast.target_expr);
             if (!astgen.refIsNoReturn(case_result)) {
+                block_scope.break_count += 1;
                 _ = try case_scope.addBreak(.@"break", switch_block, case_result);
             }
             try scalar_cases_payload.ensureCapacity(gpa, scalar_cases_payload.items.len +
@@ -2925,13 +2925,11 @@ fn switchExpr(
         0b1_10_1 => .switch_block_ref_under_multi,
         else => unreachable,
     };
-    const zir_datas = astgen.instructions.items(.data);
     const payload_index = astgen.extra.items.len;
+    const zir_datas = astgen.instructions.items(.data);
     zir_datas[switch_block].pl_node.payload_index = @intCast(u32, payload_index);
     try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
         scalar_cases_payload.items.len + multi_cases_payload.items.len);
-    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items);
-    astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items);
     const strat = rl.strategy(&block_scope);
     switch (strat.tag) {
         .break_operand => {
@@ -2939,51 +2937,90 @@ fn switchExpr(
             // this is always true.
             assert(strat.elide_store_to_block_ptr_instructions);
 
+            // There will necessarily be a store_to_block_ptr for
+            // all prongs, except for prongs that ended with a noreturn instruction.
             // Elide all the `store_to_block_ptr` instructions.
-            var extra_index: usize = payload_index;
+
+            var extra_index: usize = 0;
             extra_index += 2;
             extra_index += @boolToInt(multi_cases_len != 0);
             if (special_prong != .none) {
-                const body_len = astgen.extra.items[extra_index];
+                const body_len_index = extra_index;
+                const body_len = scalar_cases_payload.items[extra_index];
                 extra_index += 1;
-                const body = astgen.extra.items[extra_index..][0..body_len];
-                extra_index += body_len;
-                const store_inst = body[body.len - 2];
-                assert(zir_tags[store_inst] == .store_to_block_ptr);
-                assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
-                zir_tags[store_inst] = .elided;
-                zir_datas[store_inst] = undefined;
+                extra_index += body_len - 2;
+                const store_inst = scalar_cases_payload.items[extra_index];
+                if (zir_tags[store_inst] == .store_to_block_ptr) {
+                    assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
+                    scalar_cases_payload.items[body_len_index] -= 1;
+                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
+                    extra_index += 1;
+                    astgen.extra.appendAssumeCapacity(scalar_cases_payload.items[extra_index]);
+                    extra_index += 1;
+                } else {
+                    extra_index += 2;
+                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
+                }
+            } else {
+                astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
             }
             var scalar_i: u32 = 0;
             while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+                const start_index = extra_index;
                 extra_index += 1;
-                const body_len = astgen.extra.items[extra_index];
+                const body_len_index = extra_index;
+                const body_len = scalar_cases_payload.items[extra_index];
                 extra_index += 1;
-                const body = astgen.extra.items[extra_index..][0..body_len];
-                extra_index += body_len;
-                const store_inst = body[body.len - 2];
-                assert(zir_tags[store_inst] == .store_to_block_ptr);
-                assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
-                zir_tags[store_inst] = .elided;
-                zir_datas[store_inst] = undefined;
+                if (body_len < 2) {
+                    extra_index += body_len;
+                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[start_index..extra_index]);
+                    continue;
+                }
+                extra_index += body_len - 2;
+                const store_inst = scalar_cases_payload.items[extra_index];
+                if (zir_tags[store_inst] == .store_to_block_ptr) {
+                    assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
+                    scalar_cases_payload.items[body_len_index] -= 1;
+                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[start_index..extra_index]);
+                    extra_index += 1;
+                    astgen.extra.appendAssumeCapacity(scalar_cases_payload.items[extra_index]);
+                    extra_index += 1;
+                } else {
+                    extra_index += 2;
+                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[start_index..extra_index]);
+                }
             }
+            extra_index = 0;
             var multi_i: u32 = 0;
             while (multi_i < multi_cases_len) : (multi_i += 1) {
-                const items_len = astgen.extra.items[extra_index];
+                const start_index = extra_index;
+                const items_len = multi_cases_payload.items[extra_index];
                 extra_index += 1;
-                const ranges_len = astgen.extra.items[extra_index];
+                const ranges_len = multi_cases_payload.items[extra_index];
                 extra_index += 1;
-                const body_len = astgen.extra.items[extra_index];
+                const body_len_index = extra_index;
+                const body_len = multi_cases_payload.items[extra_index];
                 extra_index += 1;
                 extra_index += items_len;
                 extra_index += 2 * ranges_len;
-                const body = astgen.extra.items[extra_index..][0..body_len];
-                extra_index += body_len;
-                const store_inst = body[body.len - 2];
-                assert(zir_tags[store_inst] == .store_to_block_ptr);
-                assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
-                zir_tags[store_inst] = .elided;
-                zir_datas[store_inst] = undefined;
+                if (body_len < 2) {
+                    extra_index += body_len;
+                    astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items[start_index..extra_index]);
+                    continue;
+                }
+                extra_index += body_len - 2;
+                const store_inst = multi_cases_payload.items[extra_index];
+                if (zir_tags[store_inst] == .store_to_block_ptr) {
+                    assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
+                    multi_cases_payload.items[body_len_index] -= 1;
+                    astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items[start_index..extra_index]);
+                    extra_index += 1;
+                    astgen.extra.appendAssumeCapacity(multi_cases_payload.items[extra_index]);
+                    extra_index += 1;
+                } else {
+                    extra_index += 2;
+                    astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items[start_index..extra_index]);
+                }
             }
 
             const block_ref = astgen.indexToRef(switch_block);
@@ -2994,6 +3031,8 @@ fn switchExpr(
         },
         .break_void => {
             assert(!strat.elide_store_to_block_ptr_instructions);
+            astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items);
+            astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items);
             // Modify all the terminating instruction tags to become `break` variants.
             var extra_index: usize = payload_index;
             extra_index += 2;
@@ -3004,9 +3043,11 @@ fn switchExpr(
                 const body = astgen.extra.items[extra_index..][0..body_len];
                 extra_index += body_len;
                 const last = body[body.len - 1];
-                assert(zir_tags[last] == .@"break");
-                assert(zir_datas[last].@"break".block_inst == switch_block);
-                zir_datas[last].@"break".operand = .void_value;
+                if (zir_tags[last] == .@"break" and
+                    zir_datas[last].@"break".block_inst == switch_block)
+                {
+                    zir_datas[last].@"break".operand = .void_value;
+                }
             }
             var scalar_i: u32 = 0;
             while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
@@ -3016,9 +3057,11 @@ fn switchExpr(
                 const body = astgen.extra.items[extra_index..][0..body_len];
                 extra_index += body_len;
                 const last = body[body.len - 1];
-                assert(zir_tags[last] == .@"break");
-                assert(zir_datas[last].@"break".block_inst == switch_block);
-                zir_datas[last].@"break".operand = .void_value;
+                if (zir_tags[last] == .@"break" and
+                    zir_datas[last].@"break".block_inst == switch_block)
+                {
+                    zir_datas[last].@"break".operand = .void_value;
+                }
             }
             var multi_i: u32 = 0;
             while (multi_i < multi_cases_len) : (multi_i += 1) {
@@ -3033,9 +3076,11 @@ fn switchExpr(
                 const body = astgen.extra.items[extra_index..][0..body_len];
                 extra_index += body_len;
                 const last = body[body.len - 1];
-                assert(zir_tags[last] == .@"break");
-                assert(zir_datas[last].@"break".block_inst == switch_block);
-                zir_datas[last].@"break".operand = .void_value;
+                if (zir_tags[last] == .@"break" and
+                    zir_datas[last].@"break".block_inst == switch_block)
+                {
+                    zir_datas[last].@"break".operand = .void_value;
+                }
             }
 
             return astgen.indexToRef(switch_block);
