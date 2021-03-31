@@ -2255,7 +2255,7 @@ fn zirSwitchBlock(
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = inst_data.src_node };
-    const extra = sema.code.extraData(zir.Inst.SwitchBr, inst_data.payload_index);
+    const extra = sema.code.extraData(zir.Inst.SwitchBlock, inst_data.payload_index);
 
     const operand_ptr = try sema.resolveInst(extra.data.operand);
     const operand = if (is_ref)
@@ -2288,7 +2288,7 @@ fn zirSwitchBlockMulti(
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = inst_data.src_node };
-    const extra = sema.code.extraData(zir.Inst.SwitchBrMulti, inst_data.payload_index);
+    const extra = sema.code.extraData(zir.Inst.SwitchBlockMulti, inst_data.payload_index);
 
     const operand_ptr = try sema.resolveInst(extra.data.operand);
     const operand = if (is_ref)

@@ -589,7 +589,7 @@ pub const Inst = struct {
         /// Uses the `small_str` field.
         enum_literal_small,
         /// A switch expression. Uses the `pl_node` union field.
-        /// AST node is the switch, payload is `SwitchBr`.
+        /// AST node is the switch, payload is `SwitchBlock`.
         /// All prongs of target handled.
         switch_block,
         /// Same as switch_block, except one or more prongs have multiple items.
@@ -1379,7 +1379,7 @@ pub const Inst = struct {
     ///        body_len: u32,
     ///        body member Index for every body_len
     ///    } for every cases_len
-    pub const SwitchBr = struct {
+    pub const SwitchBlock = struct {
         operand: Ref,
         cases_len: u32,
     };
@@ -1408,7 +1408,7 @@ pub const Inst = struct {
     ///        }
     ///        body member Index for every body_len
     ///    }
-    pub const SwitchBrMulti = struct {
+    pub const SwitchBlockMulti = struct {
         operand: Ref,
         scalar_cases_len: u32,
         multi_cases_len: u32,
@@ -1817,7 +1817,7 @@ const Writer = struct {
         special_prong: SpecialProng,
     ) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Inst.SwitchBr, inst_data.payload_index);
+        const extra = self.code.extraData(Inst.SwitchBlock, inst_data.payload_index);
         const special: struct {
             body: []const Inst.Index,
             end: usize,
@@ -1881,7 +1881,7 @@ const Writer = struct {
         special_prong: SpecialProng,
     ) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Inst.SwitchBrMulti, inst_data.payload_index);
+        const extra = self.code.extraData(Inst.SwitchBlockMulti, inst_data.payload_index);
         const special: struct {
             body: []const Inst.Index,
             end: usize,

@@ -2679,7 +2679,7 @@ fn switchExpr(
     const operand_ty_inst = try parent_gz.addUnNode(typeof_tag, operand, operand_node);
     const item_rl: ResultLoc = .{ .ty = operand_ty_inst };
 
-    // Contains the data that goes into the `extra` array for the SwitchBr/SwitchBrMulti.
+    // Contains the data that goes into the `extra` array for the SwitchBlock/SwitchBlockMulti.
     // This is the header as well as the optional else prong body, as well as all the
     // scalar cases.
     // At the end we will memcpy this into place.
@@ -2757,7 +2757,7 @@ fn switchExpr(
         if (!astgen.refIsNoReturn(case_result)) {
             _ = try case_scope.addBreak(.@"break", switch_block, case_result);
         }
-        // Documentation for this: `zir.Inst.SwitchBr` and `zir.Inst.SwitchBrMulti`.
+        // Documentation for this: `zir.Inst.SwitchBlock` and `zir.Inst.SwitchBlockMulti`.
         try scalar_cases_payload.ensureCapacity(gpa, scalar_cases_payload.items.len +
             3 + // operand, scalar_cases_len, else body len
             @boolToInt(multi_cases_len != 0) +
@@ -2770,7 +2770,7 @@ fn switchExpr(
         scalar_cases_payload.appendAssumeCapacity(@intCast(u32, case_scope.instructions.items.len));
         scalar_cases_payload.appendSliceAssumeCapacity(case_scope.instructions.items);
     } else {
-        // Documentation for this: `zir.Inst.SwitchBr` and `zir.Inst.SwitchBrMulti`.
+        // Documentation for this: `zir.Inst.SwitchBlock` and `zir.Inst.SwitchBlockMulti`.
         try scalar_cases_payload.ensureCapacity(gpa, scalar_cases_payload.items.len +
             2 + // operand, scalar_cases_len
             @boolToInt(multi_cases_len != 0));
@@ -2782,6 +2782,8 @@ fn switchExpr(
     }
 
     // In this pass we generate all the item and prong expressions except the special case.
+    var multi_case_index: u32 = 0;
+    var scalar_case_index: u32 = 0;
     for (case_nodes) |case_node| {
         if (case_node == special_node)
             continue;
@@ -2818,7 +2820,13 @@ fn switchExpr(
                 0b10 => .switch_capture_multi,
                 0b11 => .switch_capture_multi_ref,
             };
-            const capture_index = if (is_multi_case) multi_cases_len else scalar_cases_len;
+            const capture_index = if (is_multi_case) ci: {
+                multi_case_index += 1;
+                break :ci multi_case_index - 1;
+            } else ci: {
+                scalar_case_index += 1;
+                break :ci scalar_case_index - 1;
+            };
             const capture = try case_scope.add(.{
                 .tag = capture_tag,
                 .data = .{ .switch_capture = .{
@@ -2918,17 +2926,121 @@ fn switchExpr(
         else => unreachable,
     };
     const zir_datas = astgen.instructions.items(.data);
-    zir_datas[switch_block].pl_node.payload_index = @intCast(u32, astgen.extra.items.len);
+    const payload_index = astgen.extra.items.len;
+    zir_datas[switch_block].pl_node.payload_index = @intCast(u32, payload_index);
     try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
         scalar_cases_payload.items.len + multi_cases_payload.items.len);
     astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items);
     astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items);
     const strat = rl.strategy(&block_scope);
-    assert(strat.tag == .break_operand); // TODO
-    assert(!strat.elide_store_to_block_ptr_instructions); // TODO
-    assert(rl != .ref); // TODO
-    const switch_block_ref = astgen.indexToRef(switch_block);
-    return rvalue(parent_gz, scope, rl, switch_block_ref, switch_node);
+    switch (strat.tag) {
+        .break_operand => {
+            // Switch expressions return `true` for `nodeMayNeedMemoryLocation` thus
+            // this is always true.
+            assert(strat.elide_store_to_block_ptr_instructions);
+
+            // Elide all the `store_to_block_ptr` instructions.
+            var extra_index: usize = payload_index;
+            extra_index += 2;
+            extra_index += @boolToInt(multi_cases_len != 0);
+            if (special_prong != .none) {
+                const body_len = astgen.extra.items[extra_index];
+                extra_index += 1;
+                const body = astgen.extra.items[extra_index..][0..body_len];
+                extra_index += body_len;
+                const store_inst = body[body.len - 2];
+                assert(zir_tags[store_inst] == .store_to_block_ptr);
+                assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
+                zir_tags[store_inst] = .elided;
+                zir_datas[store_inst] = undefined;
+            }
+            var scalar_i: u32 = 0;
+            while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+                extra_index += 1;
+                const body_len = astgen.extra.items[extra_index];
+                extra_index += 1;
+                const body = astgen.extra.items[extra_index..][0..body_len];
+                extra_index += body_len;
+                const store_inst = body[body.len - 2];
+                assert(zir_tags[store_inst] == .store_to_block_ptr);
+                assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
+                zir_tags[store_inst] = .elided;
+                zir_datas[store_inst] = undefined;
+            }
+            var multi_i: u32 = 0;
+            while (multi_i < multi_cases_len) : (multi_i += 1) {
+                const items_len = astgen.extra.items[extra_index];
+                extra_index += 1;
+                const ranges_len = astgen.extra.items[extra_index];
+                extra_index += 1;
+                const body_len = astgen.extra.items[extra_index];
+                extra_index += 1;
+                extra_index += items_len;
+                extra_index += 2 * ranges_len;
+                const body = astgen.extra.items[extra_index..][0..body_len];
+                extra_index += body_len;
+                const store_inst = body[body.len - 2];
+                assert(zir_tags[store_inst] == .store_to_block_ptr);
+                assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
+                zir_tags[store_inst] = .elided;
+                zir_datas[store_inst] = undefined;
+            }
+
+            const block_ref = astgen.indexToRef(switch_block);
+            switch (rl) {
+                .ref => return block_ref,
+                else => return rvalue(parent_gz, scope, rl, block_ref, switch_node),
+            }
+        },
+        .break_void => {
+            assert(!strat.elide_store_to_block_ptr_instructions);
+            // Modify all the terminating instruction tags to become `break` variants.
+            var extra_index: usize = payload_index;
+            extra_index += 2;
+            extra_index += @boolToInt(multi_cases_len != 0);
+            if (special_prong != .none) {
+                const body_len = astgen.extra.items[extra_index];
+                extra_index += 1;
+                const body = astgen.extra.items[extra_index..][0..body_len];
+                extra_index += body_len;
+                const last = body[body.len - 1];
+                assert(zir_tags[last] == .@"break");
+                assert(zir_datas[last].@"break".block_inst == switch_block);
+                zir_datas[last].@"break".operand = .void_value;
+            }
+            var scalar_i: u32 = 0;
+            while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+                extra_index += 1;
+                const body_len = astgen.extra.items[extra_index];
+                extra_index += 1;
+                const body = astgen.extra.items[extra_index..][0..body_len];
+                extra_index += body_len;
+                const last = body[body.len - 1];
+                assert(zir_tags[last] == .@"break");
+                assert(zir_datas[last].@"break".block_inst == switch_block);
+                zir_datas[last].@"break".operand = .void_value;
+            }
+            var multi_i: u32 = 0;
+            while (multi_i < multi_cases_len) : (multi_i += 1) {
+                const items_len = astgen.extra.items[extra_index];
+                extra_index += 1;
+                const ranges_len = astgen.extra.items[extra_index];
+                extra_index += 1;
+                const body_len = astgen.extra.items[extra_index];
+                extra_index += 1;
+                extra_index += items_len;
+                extra_index += 2 * ranges_len;
+                const body = astgen.extra.items[extra_index..][0..body_len];
+                extra_index += body_len;
+                const last = body[body.len - 1];
+                assert(zir_tags[last] == .@"break");
+                assert(zir_datas[last].@"break".block_inst == switch_block);
+                zir_datas[last].@"break".operand = .void_value;
+            }
+
+            return astgen.indexToRef(switch_block);
+        },
+    }
 }
 
 fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!zir.Inst.Ref {
