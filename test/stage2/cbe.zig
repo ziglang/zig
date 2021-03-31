@@ -266,19 +266,19 @@ pub fn addCases(ctx: *TestContext) !void {
         , "");
 
         // Switch expression
-        //case.addCompareOutput(
-        //    \\export fn main() c_int {
-        //    \\    var cond: c_int = 0;
-        //    \\    var a: c_int = switch (cond) {
-        //    \\        1 => 1,
-        //    \\        2 => 2,
-        //    \\        99...300, 12 => 3,
-        //    \\        0 => 4,
-        //    \\        else => 5,
-        //    \\    };
-        //    \\    return a - 4;
-        //    \\}
-        //, "");
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    var a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        99...300, 12 => 3,
+            \\        0 => 4,
+            \\        else => 5,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , "");
     }
     //{
     //    var case = ctx.exeFromCompiledC("optionals", .{});

@@ -774,6 +774,14 @@ const DumpTzir = struct {
                     try dtz.fetchInstsAndResolveConsts(condbr.then_body);
                     try dtz.fetchInstsAndResolveConsts(condbr.else_body);
                 },
+                .switchbr => {
+                    const switchbr = inst.castTag(.switchbr).?;
+                    try dtz.findConst(switchbr.target);
+                    try dtz.fetchInstsAndResolveConsts(switchbr.else_body);
+                    for (switchbr.cases) |case| {
+                        try dtz.fetchInstsAndResolveConsts(case.body);
+                    }
+                },
 
                 .loop => {
                     const loop = inst.castTag(.loop).?;
@@ -791,7 +799,6 @@ const DumpTzir = struct {
                 .assembly,
                 .constant,
                 .varptr,
-                .switchbr,
                 => {},
             }
         }
@@ -981,6 +988,38 @@ const DumpTzir = struct {
                     try writer.writeAll("})\n");
                 },
 
+                .switchbr => {
+                    const switchbr = inst.castTag(.switchbr).?;
+
+                    const condition_kinky = try dtz.writeInst(writer, switchbr.target);
+                    if (condition_kinky != null) {
+                        try writer.writeAll(", { // Instruction does not dominate all uses!\n");
+                    } else {
+                        try writer.writeAll(", {\n");
+                    }
+                    const old_indent = dtz.indent;
+
+                    if (switchbr.else_body.instructions.len != 0) {
+                        dtz.indent += 2;
+                        try dtz.dumpBody(switchbr.else_body, writer);
+
+                        try writer.writeByteNTimes(' ', old_indent);
+                        try writer.writeAll("}, {\n");
+                        dtz.indent = old_indent;
+                    }
+                    for (switchbr.cases) |case| {
+                        dtz.indent += 2;
+                        try dtz.dumpBody(case.body, writer);
+
+                        try writer.writeByteNTimes(' ', old_indent);
+                        try writer.writeAll("}, {\n");
+                        dtz.indent = old_indent;
+                    }
+
+                    try writer.writeByteNTimes(' ', old_indent);
+                    try writer.writeAll("})\n");
+                },
+
                 .loop => {
                     const loop = inst.castTag(.loop).?;
 
@@ -1032,7 +1071,6 @@ const DumpTzir = struct {
                 .assembly,
                 .constant,
                 .varptr,
-                .switchbr,
                 => {
                     try writer.writeAll("!TODO!)\n");
                 },

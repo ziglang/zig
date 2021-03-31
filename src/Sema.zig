@@ -2328,6 +2328,7 @@ fn analyzeSwitch(
     switch_inst: zir.Inst.Index,
     src_node_offset: i32,
 ) InnerError!*Inst {
+    const gpa = sema.gpa;
     const special: struct { body: []const zir.Inst.Index, end: usize } = switch (special_prong) {
         .none => .{ .body = &.{}, .end = extra_end },
         .under, .@"else" => blk: {
@@ -2353,7 +2354,7 @@ fn analyzeSwitch(
                 "'_' prong only allowed when switching on non-exhaustive enums",
                 .{},
             );
-            errdefer msg.destroy(sema.gpa);
+            errdefer msg.destroy(gpa);
             try sema.mod.errNote(
                 &block.base,
                 special_prong_src,
@@ -2372,7 +2373,7 @@ fn analyzeSwitch(
         .ErrorSet => return sema.mod.fail(&block.base, src, "TODO validate switch .ErrorSet", .{}),
         .Union => return sema.mod.fail(&block.base, src, "TODO validate switch .Union", .{}),
         .Int, .ComptimeInt => {
-            var range_set = RangeSet.init(sema.gpa);
+            var range_set = RangeSet.init(gpa);
             defer range_set.deinit();
 
             var extra_index: usize = special.end;
@@ -2440,7 +2441,7 @@ fn analyzeSwitch(
 
             check_range: {
                 if (operand.ty.zigTypeTag() == .Int) {
-                    var arena = std.heap.ArenaAllocator.init(sema.gpa);
+                    var arena = std.heap.ArenaAllocator.init(gpa);
                     defer arena.deinit();
 
                     const min_int = try operand.ty.minInt(&arena, sema.mod.getTarget());
@@ -2549,7 +2550,7 @@ fn analyzeSwitch(
                 );
             }
 
-            var seen_values = ValueSrcMap.init(sema.gpa);
+            var seen_values = ValueSrcMap.init(gpa);
             defer seen_values.deinit();
 
             var extra_index: usize = special.end;
@@ -2712,16 +2713,16 @@ fn analyzeSwitch(
         .is_comptime = block.is_comptime,
     };
     const merges = &child_block.label.?.merges;
-    defer child_block.instructions.deinit(sema.gpa);
-    defer merges.results.deinit(sema.gpa);
-    defer merges.br_list.deinit(sema.gpa);
+    defer child_block.instructions.deinit(gpa);
+    defer merges.results.deinit(gpa);
+    defer merges.br_list.deinit(gpa);
 
     // TODO when reworking TZIR memory layout make multi cases get generated as cases,
     // not as part of the "else" block.
     const cases = try sema.arena.alloc(Inst.SwitchBr.Case, scalar_cases_len);
 
     var case_block = child_block.makeSubBlock();
-    defer case_block.instructions.deinit(sema.gpa);
+    defer case_block.instructions.deinit(gpa);
 
     var extra_index: usize = special.end;
 
@@ -2747,7 +2748,7 @@ fn analyzeSwitch(
         };
     }
 
-    var first_condbr: *Inst.CondBr = undefined;
+    var first_else_body: Body = undefined;
     var prev_condbr: ?*Inst.CondBr = null;
 
     var multi_i: usize = 0;
@@ -2822,12 +2823,6 @@ fn analyzeSwitch(
             }
         }
 
-        const body = sema.code.extra[extra_index..][0..body_len];
-        extra_index += body_len;
-        _ = try sema.analyzeBody(&case_block, body);
-        const then_body: Body = .{
-            .instructions = try sema.arena.dupe(*Inst, case_block.instructions.items),
-        };
         const new_condbr = try sema.arena.create(Inst.CondBr);
         new_condbr.* = .{
             .base = .{
@@ -2836,15 +2831,26 @@ fn analyzeSwitch(
                 .src = src,
             },
             .condition = any_ok.?,
-            .then_body = then_body,
+            .then_body = undefined,
             .else_body = undefined,
         };
+        try case_block.instructions.append(gpa, &new_condbr.base);
+
+        const cond_body: Body = .{
+            .instructions = try sema.arena.dupe(*Inst, case_block.instructions.items),
+        };
+
+        case_block.instructions.shrinkRetainingCapacity(0);
+        const body = sema.code.extra[extra_index..][0..body_len];
+        extra_index += body_len;
+        _ = try sema.analyzeBody(&case_block, body);
+        new_condbr.then_body = .{
+            .instructions = try sema.arena.dupe(*Inst, case_block.instructions.items),
+        };
         if (prev_condbr) |condbr| {
-            condbr.else_body = .{
-                .instructions = try sema.arena.dupe(*Inst, &[1]*Inst{&new_condbr.base}),
-            };
+            condbr.else_body = cond_body;
         } else {
-            first_condbr = new_condbr;
+            first_else_body = cond_body;
         }
         prev_condbr = new_condbr;
     }
@@ -2856,11 +2862,9 @@ fn analyzeSwitch(
             const else_body: Body = .{
                 .instructions = try sema.arena.dupe(*Inst, case_block.instructions.items),
             };
-            if (prev_condbr != null) {
-                first_condbr.else_body = else_body;
-                break :blk .{
-                    .instructions = try sema.arena.dupe(*Inst, &[1]*Inst{&first_condbr.base}),
-                };
+            if (prev_condbr) |condbr| {
+                condbr.else_body = else_body;
+                break :blk first_else_body;
             } else {
                 break :blk else_body;
             }
