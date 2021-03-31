@@ -915,6 +915,8 @@ fn foo() i32 {
     return S.x;
 }
       {#code_end#}
+      {#header_close#}
+
       {#header_open|Static Local Variables#}
       <p>
         Static local variables may also be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
@@ -935,7 +937,7 @@ fn foo() i32 {
       S.x += 1;
       return S.x;
   }
-        {#code_end#}
+      {#code_end#}
       <p>
       The {#syntax#}extern{#endsyntax#} keyword can be used to link against a variable that is exported
       from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
