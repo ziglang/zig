@@ -2474,7 +2474,7 @@ fn analyzeSwitch(
 
             var extra_index: usize = special.end;
             {
-                var scalar_i: usize = 0;
+                var scalar_i: u32 = 0;
                 while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
                     const item_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
                     extra_index += 1;
@@ -2489,11 +2489,12 @@ fn analyzeSwitch(
                         &false_count,
                         item_ref,
                         src_node_offset,
+                        .{ .scalar = scalar_i },
                     );
                 }
             }
             {
-                var multi_i: usize = 0;
+                var multi_i: u32 = 0;
                 while (multi_i < multi_cases_len) : (multi_i += 1) {
                     const items_len = sema.code.extra[extra_index];
                     extra_index += 1;
@@ -2504,13 +2505,14 @@ fn analyzeSwitch(
                     const items = sema.code.refSlice(extra_index, items_len);
                     extra_index += items_len + body_len;
 
-                    for (items) |item_ref| {
+                    for (items) |item_ref, item_i| {
                         try sema.validateSwitchItemBool(
                             block,
                             &true_count,
                             &false_count,
                             item_ref,
                             src_node_offset,
+                            .{ .multi = .{ .prong = multi_i, .item = @intCast(u32, item_i) } },
                         );
                     }
 
@@ -2877,6 +2879,29 @@ fn analyzeSwitch(
     return sema.analyzeBlockBody(block, &child_block, merges);
 }
 
+fn resolveSwitchItemVal(
+    sema: *Sema,
+    block: *Scope.Block,
+    item_ref: zir.Inst.Ref,
+    switch_node_offset: i32,
+    switch_prong_src: AstGen.SwitchProngSrc,
+    range_expand: AstGen.SwitchProngSrc.RangeExpand,
+) InnerError!Value {
+    const item = try sema.resolveInst(item_ref);
+    // We have to avoid the other helper functions here because we cannot construct a LazySrcLoc
+    // because we only have the switch AST node. Only if we know for sure we need to report
+    // a compile error do we resolve the full source locations.
+    if (item.value()) |val| {
+        if (val.isUndef()) {
+            const src = switch_prong_src.resolve(block.src_decl, switch_node_offset, range_expand);
+            return sema.failWithUseOfUndef(block, src);
+        }
+        return val;
+    }
+    const src = switch_prong_src.resolve(block.src_decl, switch_node_offset, range_expand);
+    return sema.failWithNeededComptime(block, src);
+}
+
 fn validateSwitchRange(
     sema: *Sema,
     block: *Scope.Block,
@@ -2886,33 +2911,8 @@ fn validateSwitchRange(
     src_node_offset: i32,
     switch_prong_src: AstGen.SwitchProngSrc,
 ) InnerError!void {
-    const first = try sema.resolveInst(first_ref);
-    const last = try sema.resolveInst(last_ref);
-    // We have to avoid the helper functions here because we cannot construct a LazySrcLoc
-    // because we only have the switch AST node. Only if we know for sure we need to report
-    // a compile error do we resolve the full source locations.
-    const first_val = val: {
-        if (first.value()) |val| {
-            if (val.isUndef()) {
-                const src = switch_prong_src.resolve(block.src_decl, src_node_offset, .first);
-                return sema.failWithUseOfUndef(block, src);
-            }
-            break :val val;
-        }
-        const src = switch_prong_src.resolve(block.src_decl, src_node_offset, .first);
-        return sema.failWithNeededComptime(block, src);
-    };
-    const last_val = val: {
-        if (last.value()) |val| {
-            if (val.isUndef()) {
-                const src = switch_prong_src.resolve(block.src_decl, src_node_offset, .last);
-                return sema.failWithUseOfUndef(block, src);
-            }
-            break :val val;
-        }
-        const src = switch_prong_src.resolve(block.src_decl, src_node_offset, .last);
-        return sema.failWithNeededComptime(block, src);
-    };
+    const first_val = try sema.resolveSwitchItemVal(block, first_ref, src_node_offset, switch_prong_src, .first);
+    const last_val = try sema.resolveSwitchItemVal(block, last_ref, src_node_offset, switch_prong_src, .last);
     const maybe_prev_src = try range_set.add(first_val, last_val, switch_prong_src);
     return sema.validateSwitchDupe(block, maybe_prev_src, switch_prong_src, src_node_offset);
 }
@@ -2925,22 +2925,8 @@ fn validateSwitchItem(
     src_node_offset: i32,
     switch_prong_src: AstGen.SwitchProngSrc,
 ) InnerError!void {
-    const item = try sema.resolveInst(item_ref);
-    // We have to avoid the helper functions here because we cannot construct a LazySrcLoc
-    // because we only have the switch AST node. Only if we know for sure we need to report
-    // a compile error do we resolve the full source locations.
-    const value = val: {
-        if (item.value()) |val| {
-            if (val.isUndef()) {
-                const src = switch_prong_src.resolve(block.src_decl, src_node_offset, .none);
-                return sema.failWithUseOfUndef(block, src);
-            }
-            break :val val;
-        }
-        const src = switch_prong_src.resolve(block.src_decl, src_node_offset, .none);
-        return sema.failWithNeededComptime(block, src);
-    };
-    const maybe_prev_src = try range_set.add(value, value, switch_prong_src);
+    const item_val = try sema.resolveSwitchItemVal(block, item_ref, src_node_offset, switch_prong_src, .none);
+    const maybe_prev_src = try range_set.add(item_val, item_val, switch_prong_src);
     return sema.validateSwitchDupe(block, maybe_prev_src, switch_prong_src, src_node_offset);
 }
 
@@ -2981,8 +2967,18 @@ fn validateSwitchItemBool(
     false_count: *u8,
     item_ref: zir.Inst.Ref,
     src_node_offset: i32,
+    switch_prong_src: AstGen.SwitchProngSrc,
 ) InnerError!void {
-    @panic("TODO");
+    const item_val = try sema.resolveSwitchItemVal(block, item_ref, src_node_offset, switch_prong_src, .none);
+    if (item_val.toBool()) {
+        true_count.* += 1;
+    } else {
+        false_count.* += 1;
+    }
+    if (true_count.* + false_count.* > 2) {
+        const src = switch_prong_src.resolve(block.src_decl, src_node_offset, .none);
+        return sema.mod.fail(&block.base, src, "duplicate switch value", .{});
+    }
 }
 
 fn validateSwitchItemSparse(

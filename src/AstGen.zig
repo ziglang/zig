@@ -2551,13 +2551,15 @@ pub const SwitchProngSrc = union(enum) {
         item: u32,
     };
 
+    pub const RangeExpand = enum { none, first, last };
+
     /// This function is intended to be called only when it is certain that we need
     /// the LazySrcLoc in order to emit a compile error.
     pub fn resolve(
         prong_src: SwitchProngSrc,
         decl: *Decl,
         switch_node_offset: i32,
-        range_expand: enum { none, first, last },
+        range_expand: RangeExpand,
     ) LazySrcLoc {
         @setCold(true);
         const switch_node = decl.relativeToNodeIndex(switch_node_offset);

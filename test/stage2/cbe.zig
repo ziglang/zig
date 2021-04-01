@@ -327,7 +327,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
 
-        // Switch expression has duplicate case value.
+        // Integer switch expression has duplicate case value.
         case.addError(
             \\export fn main() c_int {
             \\    var cond: c_int = 0;
@@ -344,6 +344,20 @@ pub fn addCases(ctx: *TestContext) !void {
         , &.{
             ":8:13: error: duplicate switch value",
             ":6:15: note: previous value here",
+        });
+
+        // Boolean switch expression has duplicate case value.
+        case.addError(
+            \\export fn main() c_int {
+            \\    var a: bool = false;
+            \\    const b: c_int = switch (a) {
+            \\        false => 1,
+            \\        true => 2,
+            \\        false => 3,
+            \\    };
+            \\}
+        , &.{
+            ":6:9: error: duplicate switch value",
         });
     }
     //{
