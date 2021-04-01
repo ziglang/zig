@@ -5689,16 +5689,19 @@ usingnamespace @import("std");
 
 test "using std namespace" {
     testing.expect(true);
-
-    // Also inside struct
-    pub fn main() void {
-        const L = struct {
-            usingnamespace struct {
-                pub fn f() void {}
-            };
+}
+      {#code_end#}
+      <p>
+      You can also use it inside struct:
+      </p>
+      {#code_begin|test|usingnamespace_inside_struct#}
+test "using namespace inside struct" {
+    const L = struct {
+        usingnamespace struct {
+            pub fn f() void {}
         };
-        L.f();
-    }
+    };
+    L.f();
 }
       {#code_end#}
       <p>
