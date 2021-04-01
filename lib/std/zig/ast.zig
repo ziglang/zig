@@ -1252,6 +1252,7 @@ pub const Tree = struct {
         buffer[0] = data.lhs;
         const params = if (data.lhs == 0) buffer[0..0] else buffer[0..1];
         return tree.fullFnProto(.{
+            .proto_node = node,
             .fn_token = tree.nodes.items(.main_token)[node],
             .return_type = data.rhs,
             .params = params,
@@ -1267,6 +1268,7 @@ pub const Tree = struct {
         const params_range = tree.extraData(data.lhs, Node.SubRange);
         const params = tree.extra_data[params_range.start..params_range.end];
         return tree.fullFnProto(.{
+            .proto_node = node,
             .fn_token = tree.nodes.items(.main_token)[node],
             .return_type = data.rhs,
             .params = params,
@@ -1283,6 +1285,7 @@ pub const Tree = struct {
         buffer[0] = extra.param;
         const params = if (extra.param == 0) buffer[0..0] else buffer[0..1];
         return tree.fullFnProto(.{
+            .proto_node = node,
             .fn_token = tree.nodes.items(.main_token)[node],
             .return_type = data.rhs,
             .params = params,
@@ -1298,6 +1301,7 @@ pub const Tree = struct {
         const extra = tree.extraData(data.lhs, Node.FnProto);
         const params = tree.extra_data[extra.params_start..extra.params_end];
         return tree.fullFnProto(.{
+            .proto_node = node,
             .fn_token = tree.nodes.items(.main_token)[node],
             .return_type = data.rhs,
             .params = params,
@@ -2120,6 +2124,7 @@ pub const full = struct {
         ast: Ast,
 
         pub const Ast = struct {
+            proto_node: Node.Index,
             fn_token: TokenIndex,
             return_type: Node.Index,
             params: []const Node.Index,

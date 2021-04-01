@@ -168,15 +168,12 @@ pub const Inst = struct {
         asm_volatile,
         /// Bitwise AND. `&`
         bit_and,
-        /// TODO delete this instruction, it has no purpose.
+        /// Bitcast a value to a different type.
+        /// Uses the pl_node field with payload `Bin`.
         bitcast,
-        /// An arbitrary typed pointer is pointer-casted to a new Pointer.
-        /// The destination type is given by LHS. The cast is to be evaluated
-        /// as if it were a bit-cast operation from the operand pointer element type to the
-        /// provided destination type.
-        bitcast_ref,
         /// A typed result location pointer is bitcasted to a new result location pointer.
         /// The new result location pointer has an inferred type.
+        /// Uses the un_node field.
         bitcast_result_ptr,
         /// Bitwise NOT. `~`
         /// Uses `un_node`.
@@ -338,12 +335,12 @@ pub const Inst = struct {
         /// Payload is `Bin` with lhs as the dest type, rhs the operand.
         floatcast,
         /// Returns a function type, assuming unspecified calling convention.
-        /// Uses the `fn_type` union field. `payload_index` points to a `FnType`.
+        /// Uses the `pl_node` union field. `payload_index` points to a `FnType`.
         fn_type,
         /// Same as `fn_type` but the function is variadic.
         fn_type_var_args,
         /// Returns a function type, with a calling convention instruction operand.
-        /// Uses the `fn_type` union field. `payload_index` points to a `FnTypeCc`.
+        /// Uses the `pl_node` union field. `payload_index` points to a `FnTypeCc`.
         fn_type_cc,
         /// Same as `fn_type_cc` but the function is variadic.
         fn_type_cc_var_args,
@@ -662,7 +659,6 @@ pub const Inst = struct {
                 .asm_volatile,
                 .bit_and,
                 .bitcast,
-                .bitcast_ref,
                 .bitcast_result_ptr,
                 .bit_or,
                 .block,
@@ -1212,12 +1208,6 @@ pub const Inst = struct {
             /// Index into extra. See `PtrType`.
             payload_index: u32,
         },
-        fn_type: struct {
-            return_type: Ref,
-            /// For `fn_type` this points to a `FnType` in `extra`.
-            /// For `fn_type_cc` this points to `FnTypeCc` in `extra`.
-            payload_index: u32,
-        },
         int_type: struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
@@ -1289,6 +1279,7 @@ pub const Inst = struct {
     /// according to `param_types_len`.
     /// Each param type is a `Ref`.
     pub const FnTypeCc = struct {
+        return_type: Ref,
         cc: Ref,
         param_types_len: u32,
     };
@@ -1297,6 +1288,7 @@ pub const Inst = struct {
     /// according to `param_types_len`.
     /// Each param type is a `Ref`.
     pub const FnType = struct {
+        return_type: Ref,
         param_types_len: u32,
     };
 
@@ -1640,7 +1632,6 @@ const Writer = struct {
             => try self.writeSwitchCapture(stream, inst),
 
             .bitcast,
-            .bitcast_ref,
             .bitcast_result_ptr,
             .store_to_inferred_ptr,
             => try stream.writeAll("TODO)"),
@@ -2044,11 +2035,26 @@ const Writer = struct {
         stream: anytype,
         inst: Inst.Index,
         var_args: bool,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].fn_type;
+    ) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const src = inst_data.src();
         const extra = self.code.extraData(Inst.FnType, inst_data.payload_index);
         const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
-        return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, .none);
+        return self.writeFnTypeCommon(stream, param_types, extra.data.return_type, var_args, .none, src);
+    }
+
+    fn writeFnTypeCc(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+        var_args: bool,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const src = inst_data.src();
+        const extra = self.code.extraData(Inst.FnTypeCc, inst_data.payload_index);
+        const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
+        const cc = extra.data.cc;
+        return self.writeFnTypeCommon(stream, param_types, extra.data.return_type, var_args, cc, src);
     }
 
     fn writeBoolBr(self: *Writer, stream: anytype, inst: Inst.Index) !void {
@@ -2062,19 +2068,6 @@ const Writer = struct {
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("})");
-    }
-
-    fn writeFnTypeCc(
-        self: *Writer,
-        stream: anytype,
-        inst: Inst.Index,
-        var_args: bool,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].fn_type;
-        const extra = self.code.extraData(Inst.FnTypeCc, inst_data.payload_index);
-        const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
-        const cc = extra.data.cc;
-        return self.writeFnTypeCommon(stream, param_types, inst_data.return_type, var_args, cc);
     }
 
     fn writeIntType(self: *Writer, stream: anytype, inst: Inst.Index) !void {
@@ -2110,7 +2103,8 @@ const Writer = struct {
         ret_ty: Inst.Ref,
         var_args: bool,
         cc: Inst.Ref,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        src: LazySrcLoc,
+    ) !void {
         try stream.writeAll("[");
         for (param_types) |param_type, i| {
             if (i != 0) try stream.writeAll(", ");
@@ -2120,7 +2114,8 @@ const Writer = struct {
         try self.writeInstRef(stream, ret_ty);
         try self.writeOptionalInstRef(stream, ", cc=", cc);
         try self.writeFlag(stream, ", var_args", var_args);
-        try stream.writeAll(")");
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, src);
     }
 
     fn writeSmallStr(

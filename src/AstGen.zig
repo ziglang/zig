@@ -133,10 +133,6 @@ pub const ResultLoc = union(enum) {
     /// The result instruction from the expression must be ignored.
     /// Always an instruction with tag `alloc_inferred`.
     inferred_ptr: zir.Inst.Ref,
-    /// The expression must store its result into this pointer, which is a typed pointer that
-    /// has been bitcasted to whatever the expression's type is.
-    /// The result instruction from the expression must be ignored.
-    bitcasted_ptr: zir.Inst.Ref,
     /// There is a pointer for the expression to store its result into, however, its type
     /// is inferred based on peer type resolution for a `zir.Inst.Block`.
     /// The result instruction from the expression must be ignored.
@@ -172,7 +168,7 @@ pub const ResultLoc = union(enum) {
                 .tag = .break_void,
                 .elide_store_to_block_ptr_instructions = false,
             },
-            .inferred_ptr, .bitcasted_ptr, .block_ptr => {
+            .inferred_ptr, .block_ptr => {
                 if (block_scope.rvalue_rl_count == block_scope.break_count) {
                     // Neither prong of the if consumed the result location, so we can
                     // use break instructions to create an rvalue.
@@ -388,7 +384,7 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!zir.Ins
 }
 
 /// Turn Zig AST into untyped ZIR istructions.
-/// When `rl` is discard, ptr, inferred_ptr, bitcasted_ptr, or inferred_ptr, the
+/// When `rl` is discard, ptr, inferred_ptr, or inferred_ptr, the
 /// result instruction can be used to inspect whether it is isNoReturn() but that is it,
 /// it must otherwise not be used.
 pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) InnerError!zir.Inst.Ref {
@@ -1155,7 +1151,6 @@ fn blockExprStmts(
                         .asm_volatile,
                         .bit_and,
                         .bitcast,
-                        .bitcast_ref,
                         .bitcast_result_ptr,
                         .bit_or,
                         .block,
@@ -1804,7 +1799,7 @@ fn orelseCatchExpr(
     // TODO handle catch
     const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
         .ref => .ref,
-        .discard, .none, .block_ptr, .inferred_ptr, .bitcasted_ptr => .none,
+        .discard, .none, .block_ptr, .inferred_ptr => .none,
         .ty => |elem_ty| blk: {
             const wrapped_ty = try block_scope.addUnNode(.optional_type, elem_ty, node);
             break :blk .{ .ty = wrapped_ty };
@@ -3519,7 +3514,6 @@ fn as(
     gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
-    builtin_token: ast.TokenIndex,
     node: ast.Node.Index,
     lhs: ast.Node.Index,
     rhs: ast.Node.Index,
@@ -3538,13 +3532,9 @@ fn as(
             return asRlPtr(gz, scope, rl, block_scope.rl_ptr, rhs, dest_type);
         },
 
-        .bitcasted_ptr => |bitcasted_ptr| {
-            // TODO here we should be able to resolve the inference; we now have a type for the result.
-            return gz.astgen.mod.failTok(scope, builtin_token, "TODO implement @as with result location @bitCast", .{});
-        },
         .inferred_ptr => |result_alloc| {
             // TODO here we should be able to resolve the inference; we now have a type for the result.
-            return gz.astgen.mod.failTok(scope, builtin_token, "TODO implement @as with inferred-type result location pointer", .{});
+            return gz.astgen.mod.failNode(scope, node, "TODO implement @as with inferred-type result location pointer", .{});
         },
     }
 }
@@ -3599,47 +3589,32 @@ fn bitCast(
     gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
-    builtin_token: ast.TokenIndex,
     node: ast.Node.Index,
     lhs: ast.Node.Index,
     rhs: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    if (true) @panic("TODO update for zir-memory-layout");
+    const mod = gz.astgen.mod;
     const dest_type = try typeExpr(gz, scope, lhs);
     switch (rl) {
-        .none => {
+        .none, .discard, .ty => {
             const operand = try expr(gz, scope, .none, rhs);
-            return addZIRBinOp(mod, scope, src, .bitcast, dest_type, operand);
+            const result = try gz.addPlNode(.bitcast, node, zir.Inst.Bin{
+                .lhs = dest_type,
+                .rhs = operand,
+            });
+            return rvalue(gz, scope, rl, result, node);
         },
-        .discard => {
-            const operand = try expr(gz, scope, .none, rhs);
-            const result = try addZIRBinOp(mod, scope, src, .bitcast, dest_type, operand);
-            _ = try addZIRUnOp(mod, scope, result.src, .ensure_result_non_error, result);
-            return result;
-        },
-        .ref => {
-            const operand = try expr(gz, scope, .ref, rhs);
-            const result = try addZIRBinOp(mod, scope, src, .bitcast_ref, dest_type, operand);
-            return result;
-        },
-        .ty => |result_ty| {
-            const result = try expr(gz, scope, .none, rhs);
-            const bitcasted = try addZIRBinOp(mod, scope, src, .bitcast, dest_type, result);
-            return addZIRBinOp(mod, scope, src, .as, result_ty, bitcasted);
-        },
+        .ref => unreachable, // `@bitCast` is not allowed as an r-value.
         .ptr => |result_ptr| {
-            const casted_result_ptr = try addZIRUnOp(mod, scope, src, .bitcast_result_ptr, result_ptr);
-            return expr(gz, scope, .{ .bitcasted_ptr = casted_result_ptr.castTag(.bitcast_result_ptr).? }, rhs);
-        },
-        .bitcasted_ptr => |bitcasted_ptr| {
-            return mod.failTok(scope, builtin_token, "TODO implement @bitCast with result location another @bitCast", .{});
+            const casted_result_ptr = try gz.addUnNode(.bitcast_result_ptr, result_ptr, node);
+            return expr(gz, scope, .{ .ptr = casted_result_ptr }, rhs);
         },
         .block_ptr => |block_ptr| {
-            return mod.failTok(scope, builtin_token, "TODO implement @bitCast with result location inferred peer types", .{});
+            return mod.failNode(scope, node, "TODO implement @bitCast with result location inferred peer types", .{});
         },
         .inferred_ptr => |result_alloc| {
             // TODO here we should be able to resolve the inference; we now have a type for the result.
-            return mod.failTok(scope, builtin_token, "TODO implement @bitCast with inferred-type result location pointer", .{});
+            return mod.failNode(scope, node, "TODO implement @bitCast with inferred-type result location pointer", .{});
         },
     }
 }
@@ -3648,12 +3623,11 @@ fn typeOf(
     gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
-    builtin_token: ast.TokenIndex,
     node: ast.Node.Index,
     params: []const ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
     if (params.len < 1) {
-        return gz.astgen.mod.failTok(scope, builtin_token, "expected at least 1 argument, found 0", .{});
+        return gz.astgen.mod.failNode(scope, node, "expected at least 1 argument, found 0", .{});
     }
     if (params.len == 1) {
         const result = try gz.addUnNode(.typeof, try expr(gz, scope, .none, params[0]), node);
@@ -3693,14 +3667,14 @@ fn builtinCall(
     // Also, some builtins have a variable number of parameters.
 
     const info = BuiltinFn.list.get(builtin_name) orelse {
-        return mod.failTok(scope, builtin_token, "invalid builtin function: '{s}'", .{
+        return mod.failNode(scope, node, "invalid builtin function: '{s}'", .{
             builtin_name,
         });
     };
     if (info.param_count) |expected| {
         if (expected != params.len) {
             const s = if (expected == 1) "" else "s";
-            return mod.failTok(scope, builtin_token, "expected {d} parameter{s}, found {d}", .{
+            return mod.failNode(scope, node, "expected {d} parameter{s}, found {d}", .{
                 expected, s, params.len,
             });
         }
@@ -3788,9 +3762,9 @@ fn builtinCall(
             });
             return rvalue(gz, scope, rl, result, node);
         },
-        .as => return as(gz, scope, rl, builtin_token, node, params[0], params[1]),
-        .bit_cast => return bitCast(gz, scope, rl, builtin_token, node, params[0], params[1]),
-        .TypeOf => return typeOf(gz, scope, rl, builtin_token, node, params),
+        .as => return as(gz, scope, rl, node, params[0], params[1]),
+        .bit_cast => return bitCast(gz, scope, rl, node, params[0], params[1]),
+        .TypeOf => return typeOf(gz, scope, rl, node, params),
 
         .add_with_overflow,
         .align_cast,
@@ -3875,7 +3849,7 @@ fn builtinCall(
         .type_info,
         .type_name,
         .union_init,
-        => return mod.failTok(scope, builtin_token, "TODO: implement builtin function {s}", .{
+        => return mod.failNode(scope, node, "TODO: implement builtin function {s}", .{
             builtin_name,
         }),
 
@@ -3884,7 +3858,7 @@ fn builtinCall(
         .Frame,
         .frame_address,
         .frame_size,
-        => return mod.failTok(scope, builtin_token, "async and related features are not yet supported", .{}),
+        => return mod.failNode(scope, node, "async and related features are not yet supported", .{}),
     }
 }
 
@@ -4285,9 +4259,6 @@ fn rvalue(
                 .rhs = result,
             });
             return result;
-        },
-        .bitcasted_ptr => |bitcasted_ptr| {
-            return gz.astgen.mod.failNode(scope, src_node, "TODO implement rvalue .bitcasted_ptr", .{});
         },
         .inferred_ptr => |alloc| {
             _ = try gz.addBin(.store_to_inferred_ptr, alloc, result);

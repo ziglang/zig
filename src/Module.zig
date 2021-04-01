@@ -1016,11 +1016,6 @@ pub const Scope = struct {
                     gz.break_result_loc = .{ .block_ptr = gz };
                 },
 
-                .bitcasted_ptr => |ptr| {
-                    gz.rl_ptr = ptr;
-                    gz.break_result_loc = .{ .block_ptr = gz };
-                },
-
                 .block_ptr => |parent_block_scope| {
                     gz.rl_ty_inst = parent_block_scope.rl_ty_inst;
                     gz.rl_ptr = parent_block_scope.rl_ptr;
@@ -1052,10 +1047,12 @@ pub const Scope = struct {
         }
 
         pub fn addFnTypeCc(gz: *GenZir, tag: zir.Inst.Tag, args: struct {
+            src_node: ast.Node.Index,
             param_types: []const zir.Inst.Ref,
             ret_ty: zir.Inst.Ref,
             cc: zir.Inst.Ref,
         }) !zir.Inst.Ref {
+            assert(args.src_node != 0);
             assert(args.ret_ty != .none);
             assert(args.cc != .none);
             const gpa = gz.astgen.mod.gpa;
@@ -1065,6 +1062,7 @@ pub const Scope = struct {
                 @typeInfo(zir.Inst.FnTypeCc).Struct.fields.len + args.param_types.len);
 
             const payload_index = gz.astgen.addExtraAssumeCapacity(zir.Inst.FnTypeCc{
+                .return_type = args.ret_ty,
                 .cc = args.cc,
                 .param_types_len = @intCast(u32, args.param_types.len),
             });
@@ -1073,8 +1071,8 @@ pub const Scope = struct {
             const new_index = @intCast(zir.Inst.Index, gz.astgen.instructions.len);
             gz.astgen.instructions.appendAssumeCapacity(.{
                 .tag = tag,
-                .data = .{ .fn_type = .{
-                    .return_type = args.ret_ty,
+                .data = .{ .pl_node = .{
+                    .src_node = gz.astgen.decl.nodeIndexToRelative(args.src_node),
                     .payload_index = payload_index,
                 } },
             });
@@ -1082,29 +1080,30 @@ pub const Scope = struct {
             return gz.astgen.indexToRef(new_index);
         }
 
-        pub fn addFnType(
-            gz: *GenZir,
-            tag: zir.Inst.Tag,
+        pub fn addFnType(gz: *GenZir, tag: zir.Inst.Tag, args: struct {
+            src_node: ast.Node.Index,
             ret_ty: zir.Inst.Ref,
             param_types: []const zir.Inst.Ref,
-        ) !zir.Inst.Ref {
-            assert(ret_ty != .none);
+        }) !zir.Inst.Ref {
+            assert(args.src_node != 0);
+            assert(args.ret_ty != .none);
             const gpa = gz.astgen.mod.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.astgen.instructions.ensureCapacity(gpa, gz.astgen.instructions.len + 1);
             try gz.astgen.extra.ensureCapacity(gpa, gz.astgen.extra.items.len +
-                @typeInfo(zir.Inst.FnType).Struct.fields.len + param_types.len);
+                @typeInfo(zir.Inst.FnType).Struct.fields.len + args.param_types.len);
 
             const payload_index = gz.astgen.addExtraAssumeCapacity(zir.Inst.FnType{
-                .param_types_len = @intCast(u32, param_types.len),
+                .return_type = args.ret_ty,
+                .param_types_len = @intCast(u32, args.param_types.len),
             });
-            gz.astgen.appendRefsAssumeCapacity(param_types);
+            gz.astgen.appendRefsAssumeCapacity(args.param_types);
 
             const new_index = @intCast(zir.Inst.Index, gz.astgen.instructions.len);
             gz.astgen.instructions.appendAssumeCapacity(.{
                 .tag = tag,
-                .data = .{ .fn_type = .{
-                    .return_type = ret_ty,
+                .data = .{ .pl_node = .{
+                    .src_node = gz.astgen.decl.nodeIndexToRelative(args.src_node),
                     .payload_index = payload_index,
                 } },
             });
@@ -1513,7 +1512,6 @@ pub const SrcLoc = struct {
     pub fn fileScope(src_loc: SrcLoc) *Scope.File {
         return switch (src_loc.lazy) {
             .unneeded => unreachable,
-            .todo => unreachable,
 
             .byte_abs,
             .token_abs,
@@ -1542,6 +1540,8 @@ pub const SrcLoc = struct {
             .node_offset_switch_operand,
             .node_offset_switch_special_prong,
             .node_offset_switch_range,
+            .node_offset_fn_type_cc,
+            .node_offset_fn_type_ret_ty,
             => src_loc.container.decl.container.file_scope,
         };
     }
@@ -1549,7 +1549,6 @@ pub const SrcLoc = struct {
     pub fn byteOffset(src_loc: SrcLoc) !u32 {
         switch (src_loc.lazy) {
             .unneeded => unreachable,
-            .todo => unreachable,
 
             .byte_abs => |byte_index| return byte_index,
 
@@ -1676,6 +1675,8 @@ pub const SrcLoc = struct {
             .node_offset_switch_operand => @panic("TODO"),
             .node_offset_switch_special_prong => @panic("TODO"),
             .node_offset_switch_range => @panic("TODO"),
+            .node_offset_fn_type_cc => @panic("TODO"),
+            .node_offset_fn_type_ret_ty => @panic("TODO"),
         }
     }
 };
@@ -1695,11 +1696,6 @@ pub const LazySrcLoc = union(enum) {
     /// look into using reverse-continue with a memory watchpoint to see where the
     /// value is being set to this tag.
     unneeded,
-    /// Same as `unneeded`, except the code setting up this tag knew that actually
-    /// the source location was needed, and I wanted to get other stuff compiling
-    /// and working before coming back to messing with source locations.
-    /// TODO delete this tag before merging the zir-memory-layout branch.
-    todo,
     /// The source location points to a byte offset within a source file,
     /// offset from 0. The source file is determined contextually.
     /// Inside a `SrcLoc`, the `file_scope` union field will be active.
@@ -1824,12 +1820,23 @@ pub const LazySrcLoc = union(enum) {
     /// range nodes. The error applies to all of them.
     /// The Decl is determined contextually.
     node_offset_switch_range: i32,
+    /// The source location points to the calling convention of a function type
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a function type AST node. Next, nagivate to
+    /// the calling convention node.
+    /// The Decl is determined contextually.
+    node_offset_fn_type_cc: i32,
+    /// The source location points to the return type of a function type
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a function type AST node. Next, nagivate to
+    /// the return type node.
+    /// The Decl is determined contextually.
+    node_offset_fn_type_ret_ty: i32,
 
     /// Upgrade to a `SrcLoc` based on the `Decl` or file in the provided scope.
     pub fn toSrcLoc(lazy: LazySrcLoc, scope: *Scope) SrcLoc {
         return switch (lazy) {
             .unneeded,
-            .todo,
             .byte_abs,
             .token_abs,
             .node_abs,
@@ -1860,6 +1867,8 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_switch_operand,
             .node_offset_switch_special_prong,
             .node_offset_switch_range,
+            .node_offset_fn_type_cc,
+            .node_offset_fn_type_ret_ty,
             => .{
                 .container = .{ .decl = scope.srcDecl().? },
                 .lazy = lazy,
@@ -1871,7 +1880,6 @@ pub const LazySrcLoc = union(enum) {
     pub fn toSrcLocWithDecl(lazy: LazySrcLoc, decl: *Decl) SrcLoc {
         return switch (lazy) {
             .unneeded,
-            .todo,
             .byte_abs,
             .token_abs,
             .node_abs,
@@ -1902,6 +1910,8 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_switch_operand,
             .node_offset_switch_special_prong,
             .node_offset_switch_range,
+            .node_offset_fn_type_cc,
+            .node_offset_fn_type_ret_ty,
             => .{
                 .container = .{ .decl = decl },
                 .lazy = lazy,
@@ -2340,13 +2350,18 @@ fn astgenAndSemaFn(
     const fn_type_inst: zir.Inst.Ref = if (cc != .none) fn_type: {
         const tag: zir.Inst.Tag = if (is_var_args) .fn_type_cc_var_args else .fn_type_cc;
         break :fn_type try fn_type_scope.addFnTypeCc(tag, .{
+            .src_node = fn_proto.ast.proto_node,
             .ret_ty = return_type_inst,
             .param_types = param_types,
             .cc = cc,
         });
     } else fn_type: {
         const tag: zir.Inst.Tag = if (is_var_args) .fn_type_var_args else .fn_type;
-        break :fn_type try fn_type_scope.addFnType(tag, return_type_inst, param_types);
+        break :fn_type try fn_type_scope.addFnType(tag, .{
+            .src_node = fn_proto.ast.proto_node,
+            .ret_ty = return_type_inst,
+            .param_types = param_types,
+        });
     };
     _ = try fn_type_scope.addBreak(.break_inline, 0, fn_type_inst);
 

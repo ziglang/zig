@@ -148,7 +148,6 @@ pub fn analyzeBody(
             .bit_not => try sema.zirBitNot(block, inst),
             .bit_or => try sema.zirBitwise(block, inst, .bit_or),
             .bitcast => try sema.zirBitcast(block, inst),
-            .bitcast_ref => try sema.zirBitcastRef(block, inst),
             .bitcast_result_ptr => try sema.zirBitcastResultPtr(block, inst),
             .block => try sema.zirBlock(block, inst),
             .bool_not => try sema.zirBoolNot(block, inst),
@@ -496,12 +495,6 @@ fn zirConst(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*
     // expressions.
     const typed_value_copy = try tv_ptr.copy(sema.arena);
     return sema.mod.constInst(sema.arena, .unneeded, typed_value_copy);
-}
-
-fn zirBitcastRef(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-    return sema.mod.fail(&block.base, sema.src, "TODO implement zir_sema.zirBitcastRef", .{});
 }
 
 fn zirBitcastResultPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -942,7 +935,7 @@ fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) InnerE
     try child_block.instructions.append(sema.gpa, &loop_inst.base);
     loop_inst.body = .{ .instructions = try sema.arena.dupe(*Inst, loop_block.instructions.items) };
 
-    return sema.analyzeBlockBody(parent_block, &child_block, merges);
+    return sema.analyzeBlockBody(parent_block, src, &child_block, merges);
 }
 
 fn zirBlock(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -992,12 +985,13 @@ fn zirBlock(sema: *Sema, parent_block: *Scope.Block, inst: zir.Inst.Index) Inner
 
     _ = try sema.analyzeBody(&child_block, body);
 
-    return sema.analyzeBlockBody(parent_block, &child_block, merges);
+    return sema.analyzeBlockBody(parent_block, src, &child_block, merges);
 }
 
 fn analyzeBlockBody(
     sema: *Sema,
     parent_block: *Scope.Block,
+    src: LazySrcLoc,
     child_block: *Scope.Block,
     merges: *Scope.Block.Merges,
 ) InnerError!*Inst {
@@ -1034,7 +1028,7 @@ fn analyzeBlockBody(
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
     try parent_block.instructions.append(sema.gpa, &merges.block_inst.base);
-    const resolved_ty = try sema.resolvePeerTypes(parent_block, .todo, merges.results.items);
+    const resolved_ty = try sema.resolvePeerTypes(parent_block, src, merges.results.items);
     merges.block_inst.base.ty = resolved_ty;
     merges.block_inst.body = .{
         .instructions = try sema.arena.dupe(*Inst, child_block.instructions.items),
@@ -1048,7 +1042,7 @@ fn analyzeBlockBody(
         }
         var coerce_block = parent_block.makeSubBlock();
         defer coerce_block.instructions.deinit(sema.gpa);
-        const coerced_operand = try sema.coerce(&coerce_block, resolved_ty, br.operand, .todo);
+        const coerced_operand = try sema.coerce(&coerce_block, resolved_ty, br.operand, br.operand.src);
         // If no instructions were produced, such as in the case of a coercion of a
         // constant value to a new type, we can simply point the br operand to it.
         if (coerce_block.instructions.items.len == 0) {
@@ -1334,7 +1328,7 @@ fn analyzeCall(
         // the block_inst above.
         _ = try inline_sema.root(&child_block);
 
-        const result = try inline_sema.analyzeBlockBody(block, &child_block, merges);
+        const result = try inline_sema.analyzeBlockBody(block, call_src, &child_block, merges);
 
         sema.branch_quota = inline_sema.branch_quota;
         sema.branch_count = inline_sema.branch_count;
@@ -1845,15 +1839,16 @@ fn zirFnType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index, var_args: b
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].fn_type;
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
     const extra = sema.code.extraData(zir.Inst.FnType, inst_data.payload_index);
     const param_types = sema.code.refSlice(extra.end, extra.data.param_types_len);
 
     return sema.fnTypeCommon(
         block,
-        .unneeded,
+        inst_data.src_node,
         param_types,
-        inst_data.return_type,
+        extra.data.return_type,
         .Unspecified,
         var_args,
     );
@@ -1863,21 +1858,23 @@ fn zirFnTypeCc(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index, var_args:
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].fn_type;
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.FnTypeCc, inst_data.payload_index);
     const param_types = sema.code.refSlice(extra.end, extra.data.param_types_len);
 
-    const cc_tv = try sema.resolveInstConst(block, .todo, extra.data.cc);
+    const cc_tv = try sema.resolveInstConst(block, cc_src, extra.data.cc);
     // TODO once we're capable of importing and analyzing decls from
     // std.builtin, this needs to change
     const cc_str = cc_tv.val.castTag(.enum_literal).?.data;
     const cc = std.meta.stringToEnum(std.builtin.CallingConvention, cc_str) orelse
-        return sema.mod.fail(&block.base, .todo, "Unknown calling convention {s}", .{cc_str});
+        return sema.mod.fail(&block.base, cc_src, "Unknown calling convention {s}", .{cc_str});
     return sema.fnTypeCommon(
         block,
-        .unneeded,
+        inst_data.src_node,
         param_types,
-        inst_data.return_type,
+        extra.data.return_type,
         cc,
         var_args,
     );
@@ -1886,13 +1883,15 @@ fn zirFnTypeCc(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index, var_args:
 fn fnTypeCommon(
     sema: *Sema,
     block: *Scope.Block,
-    src: LazySrcLoc,
+    src_node_offset: i32,
     zir_param_types: []const zir.Inst.Ref,
     zir_return_type: zir.Inst.Ref,
     cc: std.builtin.CallingConvention,
     var_args: bool,
 ) InnerError!*Inst {
-    const return_type = try sema.resolveType(block, src, zir_return_type);
+    const src: LazySrcLoc = .{ .node_offset = src_node_offset };
+    const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
+    const return_type = try sema.resolveType(block, ret_ty_src, zir_return_type);
 
     // Hot path for some common function types.
     if (zir_param_types.len == 0 and !var_args) {
@@ -1915,12 +1914,11 @@ fn fnTypeCommon(
 
     const param_types = try sema.arena.alloc(Type, zir_param_types.len);
     for (zir_param_types) |param_type, i| {
-        const resolved = try sema.resolveType(block, src, param_type);
-        // TODO skip for comptime params
-        if (!resolved.isValidVarType(false)) {
-            return sema.mod.fail(&block.base, .todo, "parameter of type '{}' must be declared comptime", .{resolved});
-        }
-        param_types[i] = resolved;
+        // TODO make a compile error from `resolveType` report the source location
+        // of the specific parameter. Will need to take a similar strategy as
+        // `resolveSwitchItemVal` to avoid resolving the source location unless
+        // we actually need to report an error.
+        param_types[i] = try sema.resolveType(block, src, param_type);
     }
 
     const fn_ty = try Type.Tag.function.create(sema.arena, .{
@@ -2082,9 +2080,14 @@ fn zirBitcast(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const dest_type = try sema.resolveType(block, .todo, bin_inst.lhs);
-    const operand = try sema.resolveInst(bin_inst.rhs);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
+
+    const dest_type = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const operand = try sema.resolveInst(extra.rhs);
     return sema.bitcast(block, dest_type, operand);
 }
 
@@ -2234,7 +2237,12 @@ fn zirSwitchCapture(
     const tracy = trace(@src());
     defer tracy.end();
 
-    @panic("TODO implement Sema for zirSwitchCapture");
+    const zir_datas = sema.code.instructions.items(.data);
+    const capture_info = zir_datas[inst].switch_capture;
+    const switch_info = zir_datas[capture_info.switch_inst].pl_node;
+    const src = switch_info.src();
+
+    return sema.mod.fail(&block.base, src, "TODO implement Sema for zirSwitchCapture", .{});
 }
 
 fn zirSwitchCaptureElse(
@@ -2246,7 +2254,12 @@ fn zirSwitchCaptureElse(
     const tracy = trace(@src());
     defer tracy.end();
 
-    @panic("TODO implement Sema for zirSwitchCaptureElse");
+    const zir_datas = sema.code.instructions.items(.data);
+    const capture_info = zir_datas[inst].switch_capture;
+    const switch_info = zir_datas[capture_info.switch_inst].pl_node;
+    const src = switch_info.src();
+
+    return sema.mod.fail(&block.base, src, "TODO implement Sema for zirSwitchCaptureElse", .{});
 }
 
 fn zirSwitchBlock(
@@ -2631,8 +2644,9 @@ fn analyzeSwitch(
                 const body = sema.code.extra[extra_index..][0..body_len];
                 extra_index += body_len;
 
-                const item = try sema.resolveInst(item_ref);
-                const item_val = try sema.resolveConstValue(block, item.src, item);
+                // Validation above ensured these will succeed.
+                const item = sema.resolveInst(item_ref) catch unreachable;
+                const item_val = sema.resolveConstValue(block, .unneeded, item) catch unreachable;
                 if (operand_val.eql(item_val)) {
                     return sema.resolveBody(block, body);
                 }
@@ -2652,8 +2666,9 @@ fn analyzeSwitch(
                 const body = sema.code.extra[extra_index + 2 * ranges_len ..][0..body_len];
 
                 for (items) |item_ref| {
-                    const item = try sema.resolveInst(item_ref);
-                    const item_val = try sema.resolveConstValue(block, item.src, item);
+                    // Validation above ensured these will succeed.
+                    const item = sema.resolveInst(item_ref) catch unreachable;
+                    const item_val = sema.resolveConstValue(block, item.src, item) catch unreachable;
                     if (operand_val.eql(item_val)) {
                         return sema.resolveBody(block, body);
                     }
@@ -2666,8 +2681,9 @@ fn analyzeSwitch(
                     const item_last = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
                     extra_index += 1;
 
-                    const first_tv = try sema.resolveInstConst(block, .todo, item_first);
-                    const last_tv = try sema.resolveInstConst(block, .todo, item_last);
+                    // Validation above ensured these will succeed.
+                    const first_tv = sema.resolveInstConst(block, .unneeded, item_first) catch unreachable;
+                    const last_tv = sema.resolveInstConst(block, .unneeded, item_last) catch unreachable;
                     if (Value.compare(operand_val, .gte, first_tv.val) and
                         Value.compare(operand_val, .lte, last_tv.val))
                     {
@@ -2876,7 +2892,7 @@ fn analyzeSwitch(
     };
 
     _ = try child_block.addSwitchBr(src, operand, cases, final_else_body);
-    return sema.analyzeBlockBody(block, &child_block, merges);
+    return sema.analyzeBlockBody(block, src, &child_block, merges);
 }
 
 fn resolveSwitchItemVal(

@@ -1,9 +1,6 @@
 this is my WIP branch scratch pad, to be deleted before merging into master
 
 Merge TODO list:
- * remove the LazySrcLoc.todo tag
- * update astgen.zig
- * finish updating Sema.zig
  * finish implementing SrcLoc byteOffset function
  * audit all the .unneeded src locations
  * audit the calls in codegen toSrcLocWithDecl specifically if there is inlined function
