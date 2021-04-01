@@ -1046,6 +1046,16 @@ pub const Scope = struct {
             gz.astgen.extra.appendSliceAssumeCapacity(gz.instructions.items);
         }
 
+        pub fn identAsString(gz: *GenZir, ident_token: ast.TokenIndex) !u32 {
+            const astgen = gz.astgen;
+            const gpa = astgen.mod.gpa;
+            const string_bytes = &astgen.string_bytes;
+            const str_index = @intCast(u32, string_bytes.items.len);
+            try astgen.mod.appendIdentStr(&gz.base, ident_token, string_bytes);
+            try string_bytes.append(gpa, 0);
+            return str_index;
+        }
+
         pub fn addFnTypeCc(gz: *GenZir, tag: zir.Inst.Tag, args: struct {
             src_node: ast.Node.Index,
             param_types: []const zir.Inst.Ref,

@@ -769,15 +769,20 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
         .array_init_comma,
         => return mod.failNode(scope, node, "TODO implement astgen.expr for array literals", .{}),
 
-        .struct_init_one,
-        .struct_init_one_comma,
-        .struct_init_dot_two,
-        .struct_init_dot_two_comma,
+        .struct_init_one, .struct_init_one_comma => {
+            var fields: [1]ast.Node.Index = undefined;
+            return structInitExpr(gz, scope, rl, node, tree.structInitOne(&fields, node));
+        },
+        .struct_init_dot_two, .struct_init_dot_two_comma => {
+            var fields: [2]ast.Node.Index = undefined;
+            return structInitExpr(gz, scope, rl, node, tree.structInitDotTwo(&fields, node));
+        },
         .struct_init_dot,
         .struct_init_dot_comma,
+        => return structInitExpr(gz, scope, rl, node, tree.structInitDot(node)),
         .struct_init,
         .struct_init_comma,
-        => return mod.failNode(scope, node, "TODO implement astgen.expr for struct literals", .{}),
+        => return structInitExpr(gz, scope, rl, node, tree.structInit(node)),
 
         .@"anytype" => return mod.failNode(scope, node, "TODO implement astgen.expr for .anytype", .{}),
         .fn_proto_simple,
@@ -785,6 +790,53 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
         .fn_proto_one,
         .fn_proto,
         => return mod.failNode(scope, node, "TODO implement astgen.expr for function prototypes", .{}),
+    }
+}
+
+pub fn structInitExpr(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+    struct_init: ast.full.StructInit,
+) InnerError!zir.Inst.Ref {
+    const tree = gz.tree();
+    const astgen = gz.astgen;
+    const mod = astgen.mod;
+    const gpa = mod.gpa;
+    switch (rl) {
+        .discard => return mod.failNode(scope, node, "TODO implement structInitExpr discard", .{}),
+        .none => return mod.failNode(scope, node, "TODO implement structInitExpr none", .{}),
+        .ref => unreachable, // struct literal not valid as l-value
+        .ty => |ty_inst| {
+            return mod.failNode(scope, node, "TODO implement structInitExpr ty", .{});
+        },
+        .ptr => |ptr_inst| {
+            const field_ptr_list = try gpa.alloc(zir.Inst.Index, struct_init.ast.fields.len);
+            defer gpa.free(field_ptr_list);
+
+            for (struct_init.ast.fields) |field_init, i| {
+                const name_token = tree.firstToken(field_init) - 2;
+                const str_index = try gz.identAsString(name_token);
+                const field_ptr = try gz.addPlNode(.field_ptr, field_init, zir.Inst.Field{
+                    .lhs = ptr_inst,
+                    .field_name_start = str_index,
+                });
+                field_ptr_list[i] = astgen.refToIndex(field_ptr).?;
+                _ = try expr(gz, scope, .{ .ptr = field_ptr }, field_init);
+            }
+            const validate_inst = try gz.addPlNode(.validate_struct_init_ptr, node, zir.Inst.Block{
+                .body_len = @intCast(u32, field_ptr_list.len),
+            });
+            try astgen.extra.appendSlice(gpa, field_ptr_list);
+            return validate_inst;
+        },
+        .inferred_ptr => |ptr_inst| {
+            return mod.failNode(scope, node, "TODO implement structInitExpr inferred_ptr", .{});
+        },
+        .block_ptr => |block_gz| {
+            return mod.failNode(scope, node, "TODO implement structInitExpr block", .{});
+        },
     }
 }
 
@@ -1285,6 +1337,7 @@ fn blockExprStmts(
                         .resolve_inferred_alloc,
                         .repeat,
                         .repeat_inline,
+                        .validate_struct_init_ptr,
                         => break :b true,
                     }
                 } else switch (maybe_unused_result) {
@@ -1959,7 +2012,8 @@ pub fn fieldAccess(
     rl: ResultLoc,
     node: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    const mod = gz.astgen.mod;
+    const astgen = gz.astgen;
+    const mod = astgen.mod;
     const tree = gz.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const node_datas = tree.nodes.items(.data);
@@ -1967,10 +2021,7 @@ pub fn fieldAccess(
     const object_node = node_datas[node].lhs;
     const dot_token = main_tokens[node];
     const field_ident = dot_token + 1;
-    const string_bytes = &gz.astgen.string_bytes;
-    const str_index = @intCast(u32, string_bytes.items.len);
-    try mod.appendIdentStr(scope, field_ident, string_bytes);
-    try string_bytes.append(mod.gpa, 0);
+    const str_index = try gz.identAsString(field_ident);
     switch (rl) {
         .ref => return gz.addPlNode(.field_ptr, node, zir.Inst.Field{
             .lhs = try expr(gz, scope, .ref, object_node),
@@ -2031,11 +2082,7 @@ fn simpleStrTok(
     node: ast.Node.Index,
     op_inst_tag: zir.Inst.Tag,
 ) InnerError!zir.Inst.Ref {
-    const mod = gz.astgen.mod;
-    const string_bytes = &gz.astgen.string_bytes;
-    const str_index = @intCast(u32, string_bytes.items.len);
-    try mod.appendIdentStr(scope, ident_token, string_bytes);
-    try string_bytes.append(mod.gpa, 0);
+    const str_index = try gz.identAsString(ident_token);
     const result = try gz.addStrTok(op_inst_tag, str_index, ident_token);
     return rvalue(gz, scope, rl, result, node);
 }

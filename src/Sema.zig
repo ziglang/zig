@@ -326,6 +326,10 @@ pub fn analyzeBody(
                 try sema.zirResolveInferredAlloc(block, inst);
                 continue;
             },
+            .validate_struct_init_ptr => {
+                try sema.zirValidateStructInitPtr(block, inst);
+                continue;
+            },
 
             // Special case instructions to handle comptime control flow.
             .repeat_inline => {
@@ -692,6 +696,18 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Inde
     // Change it to a normal alloc.
     ptr.ty = final_ptr_ty;
     ptr.tag = .alloc;
+}
+
+fn zirValidateStructInitPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
+    const instrs = sema.code.extra[extra.end..][0..extra.data.body_len];
+
+    return sema.mod.fail(&block.base, src, "TODO implement zirValidateStructInitPtr", .{});
 }
 
 fn zirStoreToBlockPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {

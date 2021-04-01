@@ -637,6 +637,11 @@ pub const Inst = struct {
         /// Result is a pointer to the value.
         /// Uses the `switch_capture` field.
         switch_capture_else_ref,
+        /// Given a set of `field_ptr` instructions, assumes they are all part of a struct
+        /// initialization expression, and emits compile errors for duplicate fields
+        /// as well as missing fields, if applicable.
+        /// Uses the `pl_node` field. Payload is `Block`.
+        validate_struct_init_ptr,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -784,6 +789,7 @@ pub const Inst = struct {
                 .switch_block_ref_else_multi,
                 .switch_block_ref_under,
                 .switch_block_ref_under_multi,
+                .validate_struct_init_ptr,
                 => false,
 
                 .@"break",
@@ -1568,6 +1574,7 @@ const Writer = struct {
             .block,
             .block_inline,
             .loop,
+            .validate_struct_init_ptr,
             => try self.writePlNodeBlock(stream, inst),
 
             .condbr,
