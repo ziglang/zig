@@ -97,6 +97,13 @@ pub fn parse(self: *Object) !void {
     try self.readLoadCommands(reader);
     if (self.symtab_cmd_index != null) try self.parseSymtab();
     if (self.data_in_code_cmd_index != null) try self.readDataInCode();
+
+    {
+        const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
+        for (seg.sections.items) |_, sect_id| {
+            try self.parseRelocs(@intCast(u16, sect_id));
+        }
+    }
 }
 
 pub fn readLoadCommands(self: *Object, reader: anytype) !void {
@@ -160,6 +167,56 @@ pub fn readLoadCommands(self: *Object, reader: anytype) !void {
             },
         }
         self.load_commands.appendAssumeCapacity(cmd);
+    }
+}
+
+pub fn parseRelocs(self: *Object, sect_id: u16) !void {
+    const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
+    const sect = seg.sections.items[sect_id];
+
+    if (sect.nreloc == 0) return;
+
+    var raw_relocs = try self.allocator.alloc(u8, @sizeOf(macho.relocation_info) * sect.nreloc);
+    defer self.allocator.free(raw_relocs);
+    _ = try self.file.?.preadAll(raw_relocs, sect.reloff);
+    const relocs = mem.bytesAsSlice(macho.relocation_info, raw_relocs);
+
+    for (relocs) |reloc| {
+        const is_addend = is_addend: {
+            switch (self.arch.?) {
+                .x86_64 => {
+                    const rel_type = @intToEnum(macho.reloc_type_x86_64, reloc.r_type);
+                    log.warn("{s}", .{rel_type});
+
+                    break :is_addend false;
+                },
+                .aarch64 => {
+                    const rel_type = @intToEnum(macho.reloc_type_arm64, reloc.r_type);
+                    log.warn("{s}", .{rel_type});
+
+                    break :is_addend rel_type == .ARM64_RELOC_ADDEND;
+                },
+                else => unreachable,
+            }
+        };
+
+        if (!is_addend) {
+            if (reloc.r_extern == 1) {
+                const sym = self.symtab.items[reloc.r_symbolnum];
+                const sym_name = self.getString(sym.inner.n_strx);
+                log.warn("    | symbol = {s}", .{sym_name});
+            } else {
+                const target_sect = seg.sections.items[reloc.r_symbolnum - 1];
+                log.warn("    | section = {s},{s}", .{
+                    parseName(&target_sect.segname),
+                    parseName(&target_sect.sectname),
+                });
+            }
+        }
+
+        log.warn("    | offset = 0x{x}", .{reloc.r_address});
+        log.warn("    | PC = {}", .{reloc.r_pcrel == 1});
+        log.warn("    | length = {}", .{reloc.r_length});
     }
 }
 
