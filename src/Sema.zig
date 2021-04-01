@@ -3737,8 +3737,12 @@ fn analyzeRet(
     if (need_coercion) {
         if (sema.func) |func| {
             const fn_ty = func.owner_decl.typed_value.most_recent.typed_value.ty;
-            const casted_operand = try sema.coerce(block, fn_ty.fnReturnType(), operand, src);
-            _ = try block.addUnOp(src, Type.initTag(.noreturn), .ret, casted_operand);
+            const fn_ret_ty = fn_ty.fnReturnType();
+            const casted_operand = try sema.coerce(block, fn_ret_ty, operand, src);
+            if (fn_ret_ty.zigTypeTag() == .Void)
+                _ = try block.addNoOp(src, Type.initTag(.noreturn), .retvoid)
+            else
+                _ = try block.addUnOp(src, Type.initTag(.noreturn), .ret, casted_operand);
             return always_noreturn;
         }
     }

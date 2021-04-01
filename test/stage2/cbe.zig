@@ -374,36 +374,36 @@ pub fn addCases(ctx: *TestContext) !void {
     //    , "");
     //}
 
-    //{
-    //    var case = ctx.exeFromCompiledC("errors", .{});
-    //    case.addCompareOutput(
-    //        \\export fn main() c_int {
-    //        \\    var e1 = error.Foo;
-    //        \\    var e2 = error.Bar;
-    //        \\    assert(e1 != e2);
-    //        \\    assert(e1 == error.Foo);
-    //        \\    assert(e2 == error.Bar);
-    //        \\    return 0;
-    //        \\}
-    //        \\fn assert(b: bool) void {
-    //        \\    if (!b) unreachable;
-    //        \\}
-    //    , "");
-    //    case.addCompareOutput(
-    //        \\export fn main() c_int {
-    //        \\    var e: anyerror!c_int = 0;
-    //        \\    const i = e catch 69;
-    //        \\    return i;
-    //        \\}
-    //    , "");
-    //    case.addCompareOutput(
-    //        \\export fn main() c_int {
-    //        \\    var e: anyerror!c_int = error.Foo;
-    //        \\    const i = e catch 69;
-    //        \\    return 69 - i;
-    //        \\}
-    //    , "");
-    //}
+    {
+        var case = ctx.exeFromCompiledC("errors", .{});
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var e1 = error.Foo;
+            \\    var e2 = error.Bar;
+            \\    assert(e1 != e2);
+            \\    assert(e1 == error.Foo);
+            \\    assert(e2 == error.Bar);
+            \\    return 0;
+            \\}
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+        , "");
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var e: anyerror!c_int = 0;
+            \\    const i = e catch 69;
+            \\    return i;
+            \\}
+        , "");
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var e: anyerror!c_int = error.Foo;
+            \\    const i = e catch 69;
+            \\    return 69 - i;
+            \\}
+        , "");
+    }
     ctx.c("empty start function", linux_x64,
         \\export fn _start() noreturn {
         \\    unreachable;
@@ -417,64 +417,64 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
     );
-    //ctx.h("simple header", linux_x64,
-    //    \\export fn start() void{}
-    //,
-    //    \\ZIG_EXTERN_C void start(void);
-    //    \\
-    //);
-    //ctx.h("header with single param function", linux_x64,
-    //    \\export fn start(a: u8) void{}
-    //,
-    //    \\ZIG_EXTERN_C void start(uint8_t a0);
-    //    \\
-    //);
-    //ctx.h("header with multiple param function", linux_x64,
-    //    \\export fn start(a: u8, b: u8, c: u8) void{}
-    //,
-    //    \\ZIG_EXTERN_C void start(uint8_t a0, uint8_t a1, uint8_t a2);
-    //    \\
-    //);
-    //ctx.h("header with u32 param function", linux_x64,
-    //    \\export fn start(a: u32) void{}
-    //,
-    //    \\ZIG_EXTERN_C void start(uint32_t a0);
-    //    \\
-    //);
-    //ctx.h("header with usize param function", linux_x64,
-    //    \\export fn start(a: usize) void{}
-    //,
-    //    \\ZIG_EXTERN_C void start(uintptr_t a0);
-    //    \\
-    //);
-    //ctx.h("header with bool param function", linux_x64,
-    //    \\export fn start(a: bool) void{}
-    //,
-    //    \\ZIG_EXTERN_C void start(bool a0);
-    //    \\
-    //);
-    //ctx.h("header with noreturn function", linux_x64,
-    //    \\export fn start() noreturn {
-    //    \\    unreachable;
-    //    \\}
-    //,
-    //    \\ZIG_EXTERN_C zig_noreturn void start(void);
-    //    \\
-    //);
-    //ctx.h("header with multiple functions", linux_x64,
-    //    \\export fn a() void{}
-    //    \\export fn b() void{}
-    //    \\export fn c() void{}
-    //,
-    //    \\ZIG_EXTERN_C void a(void);
-    //    \\ZIG_EXTERN_C void b(void);
-    //    \\ZIG_EXTERN_C void c(void);
-    //    \\
-    //);
-    //ctx.h("header with multiple includes", linux_x64,
-    //    \\export fn start(a: u32, b: usize) void{}
-    //,
-    //    \\ZIG_EXTERN_C void start(uint32_t a0, uintptr_t a1);
-    //    \\
-    //);
+    ctx.h("simple header", linux_x64,
+        \\export fn start() void{}
+    ,
+        \\ZIG_EXTERN_C void start(void);
+        \\
+    );
+    ctx.h("header with single param function", linux_x64,
+        \\export fn start(a: u8) void{}
+    ,
+        \\ZIG_EXTERN_C void start(uint8_t a0);
+        \\
+    );
+    ctx.h("header with multiple param function", linux_x64,
+        \\export fn start(a: u8, b: u8, c: u8) void{}
+    ,
+        \\ZIG_EXTERN_C void start(uint8_t a0, uint8_t a1, uint8_t a2);
+        \\
+    );
+    ctx.h("header with u32 param function", linux_x64,
+        \\export fn start(a: u32) void{}
+    ,
+        \\ZIG_EXTERN_C void start(uint32_t a0);
+        \\
+    );
+    ctx.h("header with usize param function", linux_x64,
+        \\export fn start(a: usize) void{}
+    ,
+        \\ZIG_EXTERN_C void start(uintptr_t a0);
+        \\
+    );
+    ctx.h("header with bool param function", linux_x64,
+        \\export fn start(a: bool) void{}
+    ,
+        \\ZIG_EXTERN_C void start(bool a0);
+        \\
+    );
+    ctx.h("header with noreturn function", linux_x64,
+        \\export fn start() noreturn {
+        \\    unreachable;
+        \\}
+    ,
+        \\ZIG_EXTERN_C zig_noreturn void start(void);
+        \\
+    );
+    ctx.h("header with multiple functions", linux_x64,
+        \\export fn a() void{}
+        \\export fn b() void{}
+        \\export fn c() void{}
+    ,
+        \\ZIG_EXTERN_C void a(void);
+        \\ZIG_EXTERN_C void b(void);
+        \\ZIG_EXTERN_C void c(void);
+        \\
+    );
+    ctx.h("header with multiple includes", linux_x64,
+        \\export fn start(a: u32, b: usize) void{}
+    ,
+        \\ZIG_EXTERN_C void start(uint32_t a0, uintptr_t a1);
+        \\
+    );
 }
