@@ -39,6 +39,21 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\fn unused() void {}
         , "yo!" ++ std.cstr.line_sep);
+
+        // Comptime return type and calling convention expected.
+        case.addError(
+            \\var x: i32 = 1234;
+            \\export fn main() x {
+            \\    return 0;
+            \\}
+            \\export fn foo() callconv(y) c_int {
+            \\    return 0;
+            \\}
+            \\var y: i32 = 1234;
+        , &.{
+            ":2:18: error: unable to resolve comptime value",
+            ":5:26: error: unable to resolve comptime value",
+        });
     }
 
     {
@@ -374,6 +389,38 @@ pub fn addCases(ctx: *TestContext) !void {
         , &.{
             ":6:14: error: duplicate switch value",
             ":4:9: note: previous value here",
+        });
+
+        // Ranges not allowed for some kinds of switches.
+        case.addError(
+            \\export fn main() c_int {
+            \\    const A: type = i32;
+            \\    const b: c_int = switch (A) {
+            \\        i32 => 1,
+            \\        bool => 2,
+            \\        f16...f64 => 3,
+            \\        else => 4,
+            \\    };
+            \\}
+        , &.{
+            ":3:30: error: ranges not allowed when switching on type 'type'",
+            ":6:12: note: range here",
+        });
+
+        // Switch expression has unreachable else prong.
+        case.addError(
+            \\export fn main() c_int {
+            \\    var a: u2 = 0;
+            \\    const b: i32 = switch (a) {
+            \\        0 => 10,
+            \\        1 => 20,
+            \\        2 => 30,
+            \\        3 => 40,
+            \\        else => 50,
+            \\    };
+            \\}
+        , &.{
+            ":8:14: error: unreachable else prong; all cases already handled",
         });
     }
     //{

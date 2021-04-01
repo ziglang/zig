@@ -3476,6 +3476,8 @@ fn asmExpr(
     const asm_source = try expr(gz, scope, .{ .ty = .const_slice_u8_type }, full.ast.template);
 
     if (full.outputs.len != 0) {
+        // when implementing this be sure to add test coverage for the asm return type
+        // not resolving into a type (the node_offset_asm_ret_ty  field of LazySrcLoc)
         return mod.failTok(scope, full.ast.asm_token, "TODO implement asm with an output", .{});
     }
 

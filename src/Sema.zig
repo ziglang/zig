@@ -76,6 +76,7 @@ pub fn rootAsRef(sema: *Sema, root_block: *Scope.Block) !zir.Inst.Ref {
 
 /// Assumes that `root_block` ends with `break_inline`.
 pub fn rootAsType(sema: *Sema, root_block: *Scope.Block) !Type {
+    assert(root_block.is_comptime);
     const zir_inst_ref = try sema.rootAsRef(root_block);
     // Source location is unneeded because resolveConstValue must have already
     // been successfully called when coercing the value to a type, from the
