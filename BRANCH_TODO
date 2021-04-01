@@ -36,16 +36,3 @@ Performance optimizations to look into:
  * look into not emitting redundant dbg stmts to TZIR
  * make decl references in ZIR be u32 indexes to the Decl dependencies array hash map
    instead of duplicating *Decl entries in zir.Code.
-
-
-            for (inst.positionals.items) |item| {
-                const resolved = try sema.resolveInst(item);
-                const casted = try sema.coerce(block, operand.ty, resolved);
-                const val = try sema.resolveConstValue(block, item_src, casted);
-
-                if (try seen_values.fetchPut(val, item.src)) |prev| {
-                    return sema.mod.fail(&block.base, item.src, "duplicate switch value", .{});
-                    // TODO notes "previous value here" prev.value
-                }
-            }
-

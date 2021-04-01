@@ -62,8 +62,6 @@ const LazySrcLoc = Module.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
 const AstGen = @import("AstGen.zig");
 
-const ValueSrcMap = std.HashMap(Value, LazySrcLoc, Value.hash, Value.eql, std.hash_map.DefaultMaxLoadPercentage);
-
 pub fn root(sema: *Sema, root_block: *Scope.Block) !zir.Inst.Index {
     const inst_data = sema.code.instructions.items(.data)[0].pl_node;
     const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
@@ -2557,7 +2555,7 @@ fn analyzeSwitch(
 
             var extra_index: usize = special.end;
             {
-                var scalar_i: usize = 0;
+                var scalar_i: u32 = 0;
                 while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
                     const item_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
                     extra_index += 1;
@@ -2571,11 +2569,12 @@ fn analyzeSwitch(
                         &seen_values,
                         item_ref,
                         src_node_offset,
+                        .{ .scalar = scalar_i },
                     );
                 }
             }
             {
-                var multi_i: usize = 0;
+                var multi_i: u32 = 0;
                 while (multi_i < multi_cases_len) : (multi_i += 1) {
                     const items_len = sema.code.extra[extra_index];
                     extra_index += 1;
@@ -2586,12 +2585,13 @@ fn analyzeSwitch(
                     const items = sema.code.refSlice(extra_index, items_len);
                     extra_index += items_len + body_len;
 
-                    for (items) |item_ref| {
+                    for (items) |item_ref, item_i| {
                         try sema.validateSwitchItemSparse(
                             block,
                             &seen_values,
                             item_ref,
                             src_node_offset,
+                            .{ .multi = .{ .prong = multi_i, .item = @intCast(u32, item_i) } },
                         );
                     }
 
@@ -2981,14 +2981,19 @@ fn validateSwitchItemBool(
     }
 }
 
+const ValueSrcMap = std.HashMap(Value, AstGen.SwitchProngSrc, Value.hash, Value.eql, std.hash_map.DefaultMaxLoadPercentage);
+
 fn validateSwitchItemSparse(
     sema: *Sema,
     block: *Scope.Block,
     seen_values: *ValueSrcMap,
     item_ref: zir.Inst.Ref,
     src_node_offset: i32,
+    switch_prong_src: AstGen.SwitchProngSrc,
 ) InnerError!void {
-    @panic("TODO");
+    const item_val = try sema.resolveSwitchItemVal(block, item_ref, src_node_offset, switch_prong_src, .none);
+    const entry = (try seen_values.fetchPut(item_val, switch_prong_src)) orelse return;
+    return sema.validateSwitchDupe(block, entry.value, switch_prong_src, src_node_offset);
 }
 
 fn validateSwitchNoRange(

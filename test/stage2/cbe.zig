@@ -359,6 +359,22 @@ pub fn addCases(ctx: *TestContext) !void {
         , &.{
             ":6:9: error: duplicate switch value",
         });
+
+        // Sparse (no range capable) switch expression has duplicate case value.
+        case.addError(
+            \\export fn main() c_int {
+            \\    const A: type = i32;
+            \\    const b: c_int = switch (A) {
+            \\        i32 => 1,
+            \\        bool => 2,
+            \\        f64, i32 => 3,
+            \\        else => 4,
+            \\    };
+            \\}
+        , &.{
+            ":6:14: error: duplicate switch value",
+            ":4:9: note: previous value here",
+        });
     }
     //{
     //    var case = ctx.exeFromCompiledC("optionals", .{});
