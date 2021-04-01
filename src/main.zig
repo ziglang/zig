@@ -1487,7 +1487,7 @@ fn buildOutputType(
                 for (diags.arch.?.allCpuModels()) |cpu| {
                     help_text.writer().print(" {s}\n", .{cpu.name}) catch break :help;
                 }
-                std.log.info("Available CPUs for architecture '{s}': {s}", .{
+                std.log.info("Available CPUs for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
                 });
             }
@@ -1499,7 +1499,7 @@ fn buildOutputType(
                 for (diags.arch.?.allFeaturesList()) |feature| {
                     help_text.writer().print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
                 }
-                std.log.info("Available CPU features for architecture '{s}': {s}", .{
+                std.log.info("Available CPU features for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
                 });
             }
@@ -1750,15 +1750,12 @@ fn buildOutputType(
     }
 
     const self_exe_path = try fs.selfExePathAlloc(arena);
-    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir|
-        .{
-            .path = lib_dir,
-            .handle = try fs.cwd().openDir(lib_dir, .{}),
-        }
-    else
-        introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-            fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
-        };
+    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
+        .path = lib_dir,
+        .handle = try fs.cwd().openDir(lib_dir, .{}),
+    } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+        fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
+    };
     defer zig_lib_directory.handle.close();
 
     var thread_pool: ThreadPool = undefined;
@@ -2461,15 +2458,12 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             }
         }
 
-        var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir|
-            .{
-                .path = lib_dir,
-                .handle = try fs.cwd().openDir(lib_dir, .{}),
-            }
-        else
-            introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-                fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
-            };
+        var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
+            .path = lib_dir,
+            .handle = try fs.cwd().openDir(lib_dir, .{}),
+        } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+            fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
+        };
         defer zig_lib_directory.handle.close();
 
         const std_special = "std" ++ fs.path.sep_str ++ "special";
@@ -3281,8 +3275,7 @@ pub const ClangArgIterator = struct {
                 self.zig_equivalent = clang_arg.zig_equivalent;
                 break :find_clang_arg;
             },
-        }
-        else {
+        } else {
             fatal("Unknown Clang option: '{s}'", .{arg});
         }
     }

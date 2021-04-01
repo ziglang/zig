@@ -39,6 +39,21 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\fn unused() void {}
         , "yo!" ++ std.cstr.line_sep);
+
+        // Comptime return type and calling convention expected.
+        case.addError(
+            \\var x: i32 = 1234;
+            \\export fn main() x {
+            \\    return 0;
+            \\}
+            \\export fn foo() callconv(y) c_int {
+            \\    return 0;
+            \\}
+            \\var y: i32 = 1234;
+        , &.{
+            ":2:18: error: unable to resolve comptime value",
+            ":5:26: error: unable to resolve comptime value",
+        });
     }
 
     {
@@ -52,6 +67,42 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return 0;
             \\}
         , "Hello, world!" ++ std.cstr.line_sep);
+    }
+
+    {
+        var case = ctx.exeFromCompiledC("@intToError", .{});
+
+        case.addCompareOutput(
+            \\pub export fn main() c_int {
+            \\    // comptime checks
+            \\    const a = error.A;
+            \\    const b = error.B;
+            \\    const c = @intToError(2);
+            \\    const d = @intToError(1);
+            \\    if (!(c == b)) unreachable;
+            \\    if (!(a == d)) unreachable;
+            \\    // runtime checks
+            \\    var x = error.A;
+            \\    var y = error.B;
+            \\    var z = @intToError(2);
+            \\    var f = @intToError(1);
+            \\    if (!(y == z)) unreachable;
+            \\    if (!(x == f)) unreachable;
+            \\    return 0;
+            \\}
+        , "");
+        case.addError(
+            \\pub export fn main() c_int {
+            \\    const c = @intToError(0);
+            \\    return 0;
+            \\}
+        , &.{":2:27: error: integer value 0 represents no error"});
+        case.addError(
+            \\pub export fn main() c_int {
+            \\    const c = @intToError(3);
+            \\    return 0;
+            \\}
+        , &.{":2:27: error: integer value 3 represents no error"});
     }
 
     {
@@ -243,6 +294,134 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return a - 4;
             \\}
         , "");
+
+        // Switch expression missing else case.
+        case.addError(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    const a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        3 => 3,
+            \\        4 => 4,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , &.{":3:22: error: switch must handle all possibilities"});
+
+        // Switch expression, has an unreachable prong.
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    const a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        99...300, 12 => 3,
+            \\        0 => 4,
+            \\        13 => unreachable,
+            \\        else => 5,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , "");
+
+        // Switch expression, has an unreachable prong and prongs write
+        // to result locations.
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    var a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        99...300, 12 => 3,
+            \\        0 => 4,
+            \\        13 => unreachable,
+            \\        else => 5,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , "");
+
+        // Integer switch expression has duplicate case value.
+        case.addError(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    const a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        96, 11...13, 97 => 3,
+            \\        0 => 4,
+            \\        90, 12 => 100,
+            \\        else => 5,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , &.{
+            ":8:13: error: duplicate switch value",
+            ":6:15: note: previous value here",
+        });
+
+        // Boolean switch expression has duplicate case value.
+        case.addError(
+            \\export fn main() c_int {
+            \\    var a: bool = false;
+            \\    const b: c_int = switch (a) {
+            \\        false => 1,
+            \\        true => 2,
+            \\        false => 3,
+            \\    };
+            \\}
+        , &.{
+            ":6:9: error: duplicate switch value",
+        });
+
+        // Sparse (no range capable) switch expression has duplicate case value.
+        case.addError(
+            \\export fn main() c_int {
+            \\    const A: type = i32;
+            \\    const b: c_int = switch (A) {
+            \\        i32 => 1,
+            \\        bool => 2,
+            \\        f64, i32 => 3,
+            \\        else => 4,
+            \\    };
+            \\}
+        , &.{
+            ":6:14: error: duplicate switch value",
+            ":4:9: note: previous value here",
+        });
+
+        // Ranges not allowed for some kinds of switches.
+        case.addError(
+            \\export fn main() c_int {
+            \\    const A: type = i32;
+            \\    const b: c_int = switch (A) {
+            \\        i32 => 1,
+            \\        bool => 2,
+            \\        f16...f64 => 3,
+            \\        else => 4,
+            \\    };
+            \\}
+        , &.{
+            ":3:30: error: ranges not allowed when switching on type 'type'",
+            ":6:12: note: range here",
+        });
+
+        // Switch expression has unreachable else prong.
+        case.addError(
+            \\export fn main() c_int {
+            \\    var a: u2 = 0;
+            \\    const b: i32 = switch (a) {
+            \\        0 => 10,
+            \\        1 => 20,
+            \\        2 => 30,
+            \\        3 => 40,
+            \\        else => 50,
+            \\    };
+            \\}
+        , &.{
+            ":8:14: error: unreachable else prong; all cases already handled",
+        });
     }
     //{
     //    var case = ctx.exeFromCompiledC("optionals", .{});
@@ -271,6 +450,7 @@ pub fn addCases(ctx: *TestContext) !void {
     //        \\}
     //    , "");
     //}
+
     {
         var case = ctx.exeFromCompiledC("errors", .{});
         case.addCompareOutput(

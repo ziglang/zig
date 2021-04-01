@@ -30,6 +30,8 @@ pub const Value = extern union {
         i32_type,
         u64_type,
         i64_type,
+        u128_type,
+        i128_type,
         usize_type,
         isize_type,
         c_short_type,
@@ -62,18 +64,18 @@ pub const Value = extern union {
         single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
         enum_literal_type,
-        anyframe_type,
 
         undef,
         zero,
         one,
         void_value,
         unreachable_value,
-        empty_struct_value,
-        empty_array,
         null_value,
         bool_true,
-        bool_false, // See last_no_payload_tag below.
+        bool_false,
+
+        empty_struct_value,
+        empty_array, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
         ty,
@@ -100,14 +102,13 @@ pub const Value = extern union {
         float_64,
         float_128,
         enum_literal,
-        error_set,
         @"error",
         error_union,
         /// This is a special value that tracks a set of types that have been stored
         /// to an inferred allocation. It does not support any of the normal value queries.
         inferred_alloc,
 
-        pub const last_no_payload_tag = Tag.bool_false;
+        pub const last_no_payload_tag = Tag.empty_array;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
@@ -120,6 +121,8 @@ pub const Value = extern union {
                 .i32_type,
                 .u64_type,
                 .i64_type,
+                .u128_type,
+                .i128_type,
                 .usize_type,
                 .isize_type,
                 .c_short_type,
@@ -152,7 +155,6 @@ pub const Value = extern union {
                 .single_const_pointer_to_comptime_int_type,
                 .const_slice_u8_type,
                 .enum_literal_type,
-                .anyframe_type,
                 .undef,
                 .zero,
                 .one,
@@ -193,7 +195,6 @@ pub const Value = extern union {
                 .float_32 => Payload.Float_32,
                 .float_64 => Payload.Float_64,
                 .float_128 => Payload.Float_128,
-                .error_set => Payload.ErrorSet,
                 .@"error" => Payload.Error,
                 .inferred_alloc => Payload.InferredAlloc,
             };
@@ -275,6 +276,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -307,7 +310,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .undef,
             .zero,
             .one,
@@ -400,7 +402,6 @@ pub const Value = extern union {
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
 
-            .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .inferred_alloc => unreachable,
         }
     }
@@ -429,6 +430,8 @@ pub const Value = extern union {
             .i32_type => return out_stream.writeAll("i32"),
             .u64_type => return out_stream.writeAll("u64"),
             .i64_type => return out_stream.writeAll("i64"),
+            .u128_type => return out_stream.writeAll("u128"),
+            .i128_type => return out_stream.writeAll("i128"),
             .isize_type => return out_stream.writeAll("isize"),
             .usize_type => return out_stream.writeAll("usize"),
             .c_short_type => return out_stream.writeAll("c_short"),
@@ -461,7 +464,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
             .enum_literal_type => return out_stream.writeAll("@Type(.EnumLiteral)"),
-            .anyframe_type => return out_stream.writeAll("anyframe"),
 
             // TODO this should print `NAME{}`
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
@@ -510,15 +512,6 @@ pub const Value = extern union {
             .float_32 => return out_stream.print("{}", .{val.castTag(.float_32).?.data}),
             .float_64 => return out_stream.print("{}", .{val.castTag(.float_64).?.data}),
             .float_128 => return out_stream.print("{}", .{val.castTag(.float_128).?.data}),
-            .error_set => {
-                const error_set = val.castTag(.error_set).?.data;
-                try out_stream.writeAll("error{");
-                var it = error_set.fields.iterator();
-                while (it.next()) |entry| {
-                    try out_stream.print("{},", .{entry.value});
-                }
-                return out_stream.writeAll("}");
-            },
             .@"error" => return out_stream.print("error.{s}", .{val.castTag(.@"error").?.data.name}),
             // TODO to print this it should be error{ Set, Items }!T(val), but we need the type for that
             .error_union => return out_stream.print("error_union_val({})", .{val.castTag(.error_union).?.data}),
@@ -557,6 +550,8 @@ pub const Value = extern union {
             .i32_type => Type.initTag(.i32),
             .u64_type => Type.initTag(.u64),
             .i64_type => Type.initTag(.i64),
+            .u128_type => Type.initTag(.u128),
+            .i128_type => Type.initTag(.i128),
             .usize_type => Type.initTag(.usize),
             .isize_type => Type.initTag(.isize),
             .c_short_type => Type.initTag(.c_short),
@@ -589,7 +584,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
             .enum_literal_type => Type.initTag(.enum_literal),
-            .anyframe_type => Type.initTag(.@"anyframe"),
 
             .int_type => {
                 const payload = self.castTag(.int_type).?.data;
@@ -601,10 +595,6 @@ pub const Value = extern union {
                     .data = payload.bits,
                 };
                 return Type.initPayload(&new.base);
-            },
-            .error_set => {
-                const payload = self.castTag(.error_set).?.data;
-                return Type.Tag.error_set.create(allocator, payload.decl);
             },
 
             .undef,
@@ -654,6 +644,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -686,7 +678,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .null_value,
             .function,
             .extern_fn,
@@ -704,7 +695,6 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
-            .error_set,
             .error_union,
             .@"error",
             .empty_struct_value,
@@ -741,6 +731,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -773,7 +765,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .null_value,
             .function,
             .extern_fn,
@@ -791,7 +782,6 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
-            .error_set,
             .@"error",
             .error_union,
             .empty_struct_value,
@@ -828,6 +818,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -860,7 +852,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .null_value,
             .function,
             .extern_fn,
@@ -878,7 +869,6 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
-            .error_set,
             .@"error",
             .error_union,
             .empty_struct_value,
@@ -942,6 +932,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -974,7 +966,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .null_value,
             .function,
             .extern_fn,
@@ -993,7 +984,6 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
-            .error_set,
             .@"error",
             .error_union,
             .empty_struct_value,
@@ -1034,6 +1024,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -1066,7 +1058,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .null_value,
             .function,
             .extern_fn,
@@ -1084,7 +1075,6 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
-            .error_set,
             .@"error",
             .error_union,
             .empty_struct_value,
@@ -1191,6 +1181,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -1223,7 +1215,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .bool_true,
             .bool_false,
             .null_value,
@@ -1244,7 +1235,6 @@ pub const Value = extern union {
             .void_value,
             .unreachable_value,
             .enum_literal,
-            .error_set,
             .@"error",
             .error_union,
             .empty_struct_value,
@@ -1275,6 +1265,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -1307,7 +1299,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .null_value,
             .function,
             .extern_fn,
@@ -1322,7 +1313,6 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
-            .error_set,
             .@"error",
             .error_union,
             .empty_struct_value,
@@ -1427,6 +1417,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -1459,17 +1451,11 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .ty,
             => {
-                // Directly return Type.hash, toType can only fail for .int_type and .error_set.
+                // Directly return Type.hash, toType can only fail for .int_type.
                 var allocator = std.heap.FixedBufferAllocator.init(&[_]u8{});
                 return (self.toType(&allocator.allocator) catch unreachable).hash();
-            },
-            .error_set => {
-                // Payload.decl should be same for all instances of the type.
-                const payload = self.castTag(.error_set).?.data;
-                std.hash.autoHash(&hasher, payload.decl);
             },
             .int_type => {
                 const payload = self.castTag(.int_type).?.data;
@@ -1585,6 +1571,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -1617,7 +1605,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .zero,
             .one,
             .bool_true,
@@ -1641,7 +1628,6 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
-            .error_set,
             .@"error",
             .error_union,
             .empty_struct_value,
@@ -1672,6 +1658,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -1704,7 +1692,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .zero,
             .one,
             .bool_true,
@@ -1728,7 +1715,6 @@ pub const Value = extern union {
             .void_value,
             .unreachable_value,
             .enum_literal,
-            .error_set,
             .@"error",
             .error_union,
             .empty_struct_value,
@@ -1776,6 +1762,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -1808,7 +1796,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .zero,
             .one,
             .empty_array,
@@ -1832,7 +1819,6 @@ pub const Value = extern union {
             .float_128,
             .void_value,
             .enum_literal,
-            .error_set,
             .@"error",
             .error_union,
             .empty_struct_value,
@@ -1858,6 +1844,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -1890,7 +1878,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .zero,
             .one,
             .null_value,
@@ -1915,7 +1902,6 @@ pub const Value = extern union {
             .float_128,
             .void_value,
             .enum_literal,
-            .error_set,
             .empty_struct_value,
             => null,
 
@@ -1960,6 +1946,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -1992,8 +1980,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
-            .error_set,
             => true,
 
             .zero,
@@ -2135,18 +2121,6 @@ pub const Value = extern union {
 
             base: Payload = .{ .tag = base_tag },
             data: f128,
-        };
-
-        /// TODO move to type.zig
-        pub const ErrorSet = struct {
-            pub const base_tag = Tag.error_set;
-
-            base: Payload = .{ .tag = base_tag },
-            data: struct {
-                /// TODO revisit this when we have the concept of the error tag type
-                fields: std.StringHashMapUnmanaged(void),
-                decl: *Module.Decl,
-            },
         };
 
         pub const Error = struct {

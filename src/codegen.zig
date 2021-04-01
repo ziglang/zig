@@ -17,6 +17,7 @@ const DW = std.dwarf;
 const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
+const LazySrcLoc = Module.LazySrcLoc;
 
 /// The codegen-related data that is stored in `ir.Inst.Block` instructions.
 pub const BlockData = struct {
@@ -498,7 +499,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             defer function.stack.deinit(bin_file.allocator);
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
-            var call_info = function.resolveCallingConventionValues(src_loc.byte_offset, fn_type) catch |err| switch (err) {
+            var call_info = function.resolveCallingConventionValues(src_loc.lazy, fn_type) catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
                 else => |e| return e,
             };
@@ -791,8 +792,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn dbgAdvancePCAndLine(self: *Self, src: usize) InnerError!void {
-            self.prev_di_src = src;
+        fn dbgAdvancePCAndLine(self: *Self, abs_byte_off: usize) InnerError!void {
+            self.prev_di_src = abs_byte_off;
             self.prev_di_pc = self.code.items.len;
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
@@ -800,7 +801,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // lookup table, and changing ir.Inst from storing byte offset to token. Currently
                     // this involves scanning over the source code for newlines
                     // (but only from the previous byte offset to the new one).
-                    const delta_line = std.zig.lineDelta(self.source, self.prev_di_src, src);
+                    const delta_line = std.zig.lineDelta(self.source, self.prev_di_src, abs_byte_off);
                     const delta_pc = self.code.items.len - self.prev_di_pc;
                     // TODO Look into using the DWARF special opcodes to compress this data. It lets you emit
                     // single-byte opcodes that add different numbers to both the PC and the line number
@@ -897,6 +898,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .is_null_ptr => return self.genIsNullPtr(inst.castTag(.is_null_ptr).?),
                 .is_err => return self.genIsErr(inst.castTag(.is_err).?),
                 .is_err_ptr => return self.genIsErrPtr(inst.castTag(.is_err_ptr).?),
+                .error_to_int => return self.genErrorToInt(inst.castTag(.error_to_int).?),
+                .int_to_error => return self.genIntToError(inst.castTag(.int_to_error).?),
                 .load => return self.genLoad(inst.castTag(.load).?),
                 .loop => return self.genLoop(inst.castTag(.loop).?),
                 .not => return self.genNot(inst.castTag(.not).?),
@@ -978,7 +981,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// Copies a value to a register without tracking the register. The register is not considered
         /// allocated. A second call to `copyToTmpRegister` may return the same register.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
-        fn copyToTmpRegister(self: *Self, src: usize, ty: Type, mcv: MCValue) !Register {
+        fn copyToTmpRegister(self: *Self, src: LazySrcLoc, ty: Type, mcv: MCValue) !Register {
             const reg = self.findUnusedReg() orelse b: {
                 // We'll take over the first register. Move the instruction that was previously
                 // there to a stack allocation.
@@ -1457,7 +1460,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn genArmBinOpCode(
             self: *Self,
-            src: usize,
+            src: LazySrcLoc,
             dst_reg: Register,
             lhs_mcv: MCValue,
             rhs_mcv: MCValue,
@@ -1620,7 +1623,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn genX8664BinMathCode(
             self: *Self,
-            src: usize,
+            src: LazySrcLoc,
             dst_ty: Type,
             dst_mcv: MCValue,
             src_mcv: MCValue,
@@ -1706,7 +1709,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genX8664ModRMRegToStack(self: *Self, src: usize, ty: Type, off: u32, reg: Register, opcode: u8) !void {
+        fn genX8664ModRMRegToStack(self: *Self, src: LazySrcLoc, ty: Type, off: u32, reg: Register, opcode: u8) !void {
             const abi_size = ty.abiSize(self.target.*);
             const adj_off = off + abi_size;
             try self.code.ensureCapacity(self.code.items.len + 7);
@@ -1807,7 +1810,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return result;
         }
 
-        fn genBreakpoint(self: *Self, src: usize) !MCValue {
+        fn genBreakpoint(self: *Self, src: LazySrcLoc) !MCValue {
             switch (arch) {
                 .i386, .x86_64 => {
                     try self.code.append(0xcc); // int3
@@ -2234,7 +2237,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn ret(self: *Self, src: usize, mcv: MCValue) !MCValue {
+        fn ret(self: *Self, src: LazySrcLoc, mcv: MCValue) !MCValue {
             const ret_ty = self.fn_type.fnReturnType();
             try self.setRegOrMem(src, ret_ty, self.ret_mcv, mcv);
             switch (arch) {
@@ -2324,8 +2327,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genDbgStmt(self: *Self, inst: *ir.Inst.NoOp) !MCValue {
-            try self.dbgAdvancePCAndLine(inst.base.src);
+        fn genDbgStmt(self: *Self, inst: *ir.Inst.DbgStmt) !MCValue {
+            // TODO when reworking tzir memory layout, rework source locations here as
+            // well to be more efficient, as well as support inlined function calls correctly.
+            // For now we convert LazySrcLoc to absolute byte offset, to match what the
+            // existing codegen code expects.
+            try self.dbgAdvancePCAndLine(inst.byte_offset);
             assert(inst.base.isUnused());
             return MCValue.dead;
         }
@@ -2562,6 +2569,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return self.fail(inst.base.src, "TODO load the operand and call genIsErr", .{});
         }
 
+        fn genErrorToInt(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            return self.resolveInst(inst.operand);
+        }
+
+        fn genIntToError(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            return self.resolveInst(inst.operand);
+        }
+
         fn genLoop(self: *Self, inst: *ir.Inst.Loop) !MCValue {
             // A loop is a setup to be able to jump back to the beginning.
             const start_index = self.code.items.len;
@@ -2571,7 +2586,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         /// Send control flow to the `index` of `self.code`.
-        fn jump(self: *Self, src: usize, index: usize) !void {
+        fn jump(self: *Self, src: LazySrcLoc, index: usize) !void {
             switch (arch) {
                 .i386, .x86_64 => {
                     try self.code.ensureCapacity(self.code.items.len + 5);
@@ -2628,7 +2643,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn performReloc(self: *Self, src: usize, reloc: Reloc) !void {
+        fn performReloc(self: *Self, src: LazySrcLoc, reloc: Reloc) !void {
             switch (reloc) {
                 .rel32 => |pos| {
                     const amt = self.code.items.len - (pos + 4);
@@ -2692,7 +2707,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn br(self: *Self, src: usize, block: *ir.Inst.Block, operand: *ir.Inst) !MCValue {
+        fn br(self: *Self, src: LazySrcLoc, block: *ir.Inst.Block, operand: *ir.Inst) !MCValue {
             if (operand.ty.hasCodeGenBits()) {
                 const operand_mcv = try self.resolveInst(operand);
                 const block_mcv = @bitCast(MCValue, block.codegen.mcv);
@@ -2705,7 +2720,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return self.brVoid(src, block);
         }
 
-        fn brVoid(self: *Self, src: usize, block: *ir.Inst.Block) !MCValue {
+        fn brVoid(self: *Self, src: LazySrcLoc, block: *ir.Inst.Block) !MCValue {
             // Emit a jump with a relocation. It will be patched up after the block ends.
             try block.codegen.relocs.ensureCapacity(self.gpa, block.codegen.relocs.items.len + 1);
 
@@ -2767,7 +2782,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more arm assembly instructions", .{});
                     }
 
-                    if (inst.output) |output| {
+                    if (inst.output_name) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
@@ -2799,7 +2814,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more aarch64 assembly instructions", .{});
                     }
 
-                    if (inst.output) |output| {
+                    if (inst.output_name) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
@@ -2829,7 +2844,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more riscv64 assembly instructions", .{});
                     }
 
-                    if (inst.output) |output| {
+                    if (inst.output_name) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
@@ -2859,7 +2874,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
                     }
 
-                    if (inst.output) |output| {
+                    if (inst.output_name) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
@@ -2909,7 +2924,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         /// Sets the value without any modifications to register allocation metadata or stack allocation metadata.
-        fn setRegOrMem(self: *Self, src: usize, ty: Type, loc: MCValue, val: MCValue) !void {
+        fn setRegOrMem(self: *Self, src: LazySrcLoc, ty: Type, loc: MCValue, val: MCValue) !void {
             switch (loc) {
                 .none => return,
                 .register => |reg| return self.genSetReg(src, ty, reg, val),
@@ -2921,7 +2936,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genSetStack(self: *Self, src: usize, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
+        fn genSetStack(self: *Self, src: LazySrcLoc, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
             switch (arch) {
                 .arm, .armeb => switch (mcv) {
                     .dead => unreachable,
@@ -3160,7 +3175,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genSetReg(self: *Self, src: usize, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
+        fn genSetReg(self: *Self, src: LazySrcLoc, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
             switch (arch) {
                 .arm, .armeb => switch (mcv) {
                     .dead => unreachable,
@@ -3703,7 +3718,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return mcv;
         }
 
-        fn genTypedValue(self: *Self, src: usize, typed_value: TypedValue) InnerError!MCValue {
+        fn genTypedValue(self: *Self, src: LazySrcLoc, typed_value: TypedValue) InnerError!MCValue {
             if (typed_value.val.isUndef())
                 return MCValue{ .undef = {} };
             const ptr_bits = self.target.cpu.arch.ptrBitWidth();
@@ -3778,7 +3793,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         };
 
         /// Caller must call `CallMCValues.deinit`.
-        fn resolveCallingConventionValues(self: *Self, src: usize, fn_ty: Type) !CallMCValues {
+        fn resolveCallingConventionValues(self: *Self, src: LazySrcLoc, fn_ty: Type) !CallMCValues {
             const cc = fn_ty.fnCallingConvention();
             const param_types = try self.gpa.alloc(Type, fn_ty.fnParamLen());
             defer self.gpa.free(param_types);
@@ -3992,13 +4007,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             };
         }
 
-        fn fail(self: *Self, src: usize, comptime format: []const u8, args: anytype) InnerError {
+        fn fail(self: *Self, src: LazySrcLoc, comptime format: []const u8, args: anytype) InnerError {
             @setCold(true);
             assert(self.err_msg == null);
-            self.err_msg = try ErrorMsg.create(self.bin_file.allocator, .{
-                .file_scope = self.src_loc.file_scope,
-                .byte_offset = src,
-            }, format, args);
+            const src_loc = if (src != .unneeded)
+                src.toSrcLocWithDecl(self.mod_fn.owner_decl)
+            else
+                self.src_loc;
+            self.err_msg = try ErrorMsg.create(self.bin_file.allocator, src_loc, format, args);
             return error.CodegenFail;
         }
 

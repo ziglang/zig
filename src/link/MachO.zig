@@ -1340,7 +1340,7 @@ pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.D
 pub fn updateDeclExports(
     self: *MachO,
     module: *Module,
-    decl: *const Module.Decl,
+    decl: *Module.Decl,
     exports: []const *Module.Export,
 ) !void {
     const tracy = trace(@src());

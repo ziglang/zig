@@ -539,7 +539,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/ThreadPool.zig"
     "${CMAKE_SOURCE_DIR}/src/TypedValue.zig"
     "${CMAKE_SOURCE_DIR}/src/WaitGroup.zig"
-    "${CMAKE_SOURCE_DIR}/src/astgen.zig"
+    "${CMAKE_SOURCE_DIR}/src/AstGen.zig"
     "${CMAKE_SOURCE_DIR}/src/clang.zig"
     "${CMAKE_SOURCE_DIR}/src/clang_options.zig"
     "${CMAKE_SOURCE_DIR}/src/clang_options_data.zig"
@@ -591,7 +591,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/value.zig"
     "${CMAKE_SOURCE_DIR}/src/windows_sdk.zig"
     "${CMAKE_SOURCE_DIR}/src/zir.zig"
-    "${CMAKE_SOURCE_DIR}/src/zir_sema.zig"
+    "${CMAKE_SOURCE_DIR}/src/Sema.zig"
 )
 
 if(MSVC)
