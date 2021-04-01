@@ -2112,12 +2112,37 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
     } else switch (hook) {
         .none => {},
         .print => |bin_path| try io.getStdOut().writer().print("{s}\n", .{bin_path}),
-        .update => |full_path| _ = try comp.bin_file.options.emit.?.directory.handle.updateFile(
-            comp.bin_file.options.emit.?.sub_path,
-            fs.cwd(),
-            full_path,
-            .{},
-        ),
+        .update => |full_path| {
+            const bin_sub_path = comp.bin_file.options.emit.?.sub_path;
+            const cwd = fs.cwd();
+            const cache_dir = comp.bin_file.options.emit.?.directory.handle;
+            _ = try cache_dir.updateFile(bin_sub_path, cwd, full_path, .{});
+
+            // If a .pdb file is part of the expected output, we must also copy
+            // it into place here.
+            const coff_or_pe = switch (comp.bin_file.options.object_format) {
+                .coff, .pe => true,
+                else => false,
+            };
+            const have_pdb = coff_or_pe and !comp.bin_file.options.strip;
+            if (have_pdb) {
+                // Replace `.out` or `.exe` with `.pdb` on both the source and destination
+                const src_bin_ext = fs.path.extension(bin_sub_path);
+                const dst_bin_ext = fs.path.extension(full_path);
+
+                const src_pdb_path = try std.fmt.allocPrint(gpa, "{s}.pdb", .{
+                    bin_sub_path[0 .. bin_sub_path.len - src_bin_ext.len],
+                });
+                defer gpa.free(src_pdb_path);
+
+                const dst_pdb_path = try std.fmt.allocPrint(gpa, "{s}.pdb", .{
+                    full_path[0 .. full_path.len - dst_bin_ext.len],
+                });
+                defer gpa.free(dst_pdb_path);
+
+                _ = try cache_dir.updateFile(src_pdb_path, cwd, dst_pdb_path, .{});
+            }
+        },
     }
 }
 
