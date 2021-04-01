@@ -5681,7 +5681,7 @@ test "@intToPtr for pointer to zero bit type" {
 
       {#header_open|usingnamespace#}
       <p>
-      {#syntax#}usingnamespace{#endsyntax#} is a top level declaration that imports all the public declarations of
+      {#syntax#}usingnamespace{#endsyntax#} is a declaration that imports all the public declarations of
       the operand, which must be a {#link|struct#}, {#link|union#}, or {#link|enum#}, into the current scope:
       </p>
       {#code_begin|test|usingnamespace#}
@@ -5689,6 +5689,16 @@ usingnamespace @import("std");
 
 test "using std namespace" {
     testing.expect(true);
+
+    // Also inside struct
+    pub fn main() void {
+        const L = struct {
+            usingnamespace struct {
+                pub fn f() void {}
+            };
+        };
+        L.f();
+    }
 }
       {#code_end#}
       <p>
