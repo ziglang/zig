@@ -78,14 +78,9 @@ undefs: std.StringArrayHashMapUnmanaged(Symbol) = .{},
 externs: std.StringArrayHashMapUnmanaged(Symbol) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
-// locals: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(Symbol)) = .{},
-// exports: std.StringArrayHashMapUnmanaged(macho.nlist_64) = .{},
-// nonlazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
-// lazy_imports: std.StringArrayHashMapUnmanaged(Import) = .{},
-// tlv_bootstrap: ?Import = null,
-// threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
-// local_rebases: std.ArrayListUnmanaged(Pointer) = .{},
-// nonlazy_pointers: std.StringArrayHashMapUnmanaged(GotEntry) = .{},
+threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
+rebases: std.ArrayListUnmanaged(Pointer) = .{},
+got_entries: std.StringArrayHashMapUnmanaged(GotEntry) = .{},
 
 stub_helper_stubs_start_off: ?u64 = null,
 
@@ -279,12 +274,12 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.populateMetadata();
     try self.parseInputFiles(files);
     try self.resolveSymbols();
-    self.printSymtab();
-    // try self.sortSections();
-    // try self.allocateTextSegment();
-    // try self.allocateDataConstSegment();
-    // try self.allocateDataSegment();
-    // self.allocateLinkeditSegment();
+    try self.updateMetadata();
+    try self.sortSections();
+    try self.allocateTextSegment();
+    try self.allocateDataConstSegment();
+    try self.allocateDataSegment();
+    self.allocateLinkeditSegment();
     // try self.writeStubHelperCommon();
     // try self.doRelocs();
     // try self.flush();
@@ -403,28 +398,69 @@ fn mapAndUpdateSections(
     target_sect.size = offset + size;
 }
 
-fn updateMetadata(self: *Zld, object_id: u16) !void {
-    const object = self.objects.items[object_id];
-    const object_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-    const text_seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const data_const_seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-    const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+fn updateMetadata(self: *Zld) !void {
+    for (self.objects.items) |object, id| {
+        const object_id = @intCast(u16, id);
+        const object_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
+        const text_seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        const data_const_seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
 
-    // Create missing metadata
-    for (object_seg.sections.items) |source_sect, id| {
-        if (id == object.text_section_index.?) continue;
-        const segname = parseName(&source_sect.segname);
-        const sectname = parseName(&source_sect.sectname);
-        const flags = source_sect.flags;
+        // Create missing metadata
+        for (object_seg.sections.items) |source_sect, sect_id| {
+            if (sect_id == object.text_section_index.?) continue;
+            const segname = parseName(&source_sect.segname);
+            const sectname = parseName(&source_sect.sectname);
+            const flags = source_sect.flags;
 
-        switch (flags) {
-            macho.S_REGULAR, macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
-                if (mem.eql(u8, segname, "__TEXT")) {
-                    if (self.text_const_section_index != null) continue;
+            switch (flags) {
+                macho.S_REGULAR, macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
+                    if (mem.eql(u8, segname, "__TEXT")) {
+                        if (self.text_const_section_index != null) continue;
 
-                    self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
+                        self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
+                        try text_seg.addSection(self.allocator, .{
+                            .sectname = makeStaticString("__const"),
+                            .segname = makeStaticString("__TEXT"),
+                            .addr = 0,
+                            .size = 0,
+                            .offset = 0,
+                            .@"align" = 0,
+                            .reloff = 0,
+                            .nreloc = 0,
+                            .flags = macho.S_REGULAR,
+                            .reserved1 = 0,
+                            .reserved2 = 0,
+                            .reserved3 = 0,
+                        });
+                    } else if (mem.eql(u8, segname, "__DATA")) {
+                        if (!mem.eql(u8, sectname, "__const")) continue;
+                        if (self.data_const_section_index != null) continue;
+
+                        self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                        try data_const_seg.addSection(self.allocator, .{
+                            .sectname = makeStaticString("__const"),
+                            .segname = makeStaticString("__DATA_CONST"),
+                            .addr = 0,
+                            .size = 0,
+                            .offset = 0,
+                            .@"align" = 0,
+                            .reloff = 0,
+                            .nreloc = 0,
+                            .flags = macho.S_REGULAR,
+                            .reserved1 = 0,
+                            .reserved2 = 0,
+                            .reserved3 = 0,
+                        });
+                    }
+                },
+                macho.S_CSTRING_LITERALS => {
+                    if (!mem.eql(u8, segname, "__TEXT")) continue;
+                    if (self.cstring_section_index != null) continue;
+
+                    self.cstring_section_index = @intCast(u16, text_seg.sections.items.len);
                     try text_seg.addSection(self.allocator, .{
-                        .sectname = makeStaticString("__const"),
+                        .sectname = makeStaticString("__cstring"),
                         .segname = makeStaticString("__TEXT"),
                         .addr = 0,
                         .size = 0,
@@ -432,18 +468,19 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
                         .@"align" = 0,
                         .reloff = 0,
                         .nreloc = 0,
-                        .flags = macho.S_REGULAR,
+                        .flags = macho.S_CSTRING_LITERALS,
                         .reserved1 = 0,
                         .reserved2 = 0,
                         .reserved3 = 0,
                     });
-                } else if (mem.eql(u8, segname, "__DATA")) {
-                    if (!mem.eql(u8, sectname, "__const")) continue;
-                    if (self.data_const_section_index != null) continue;
+                },
+                macho.S_MOD_INIT_FUNC_POINTERS => {
+                    if (!mem.eql(u8, segname, "__DATA")) continue;
+                    if (self.mod_init_func_section_index != null) continue;
 
-                    self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                    self.mod_init_func_section_index = @intCast(u16, data_const_seg.sections.items.len);
                     try data_const_seg.addSection(self.allocator, .{
-                        .sectname = makeStaticString("__const"),
+                        .sectname = makeStaticString("__mod_init_func"),
                         .segname = makeStaticString("__DATA_CONST"),
                         .addr = 0,
                         .size = 0,
@@ -451,183 +488,143 @@ fn updateMetadata(self: *Zld, object_id: u16) !void {
                         .@"align" = 0,
                         .reloff = 0,
                         .nreloc = 0,
-                        .flags = macho.S_REGULAR,
+                        .flags = macho.S_MOD_INIT_FUNC_POINTERS,
                         .reserved1 = 0,
                         .reserved2 = 0,
                         .reserved3 = 0,
                     });
-                }
-            },
-            macho.S_CSTRING_LITERALS => {
-                if (!mem.eql(u8, segname, "__TEXT")) continue;
-                if (self.cstring_section_index != null) continue;
+                },
+                macho.S_MOD_TERM_FUNC_POINTERS => {
+                    if (!mem.eql(u8, segname, "__DATA")) continue;
+                    if (self.mod_term_func_section_index != null) continue;
 
-                self.cstring_section_index = @intCast(u16, text_seg.sections.items.len);
-                try text_seg.addSection(self.allocator, .{
-                    .sectname = makeStaticString("__cstring"),
-                    .segname = makeStaticString("__TEXT"),
-                    .addr = 0,
-                    .size = 0,
-                    .offset = 0,
-                    .@"align" = 0,
-                    .reloff = 0,
-                    .nreloc = 0,
-                    .flags = macho.S_CSTRING_LITERALS,
-                    .reserved1 = 0,
-                    .reserved2 = 0,
-                    .reserved3 = 0,
-                });
-            },
-            macho.S_MOD_INIT_FUNC_POINTERS => {
-                if (!mem.eql(u8, segname, "__DATA")) continue;
-                if (self.mod_init_func_section_index != null) continue;
+                    self.mod_term_func_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                    try data_const_seg.addSection(self.allocator, .{
+                        .sectname = makeStaticString("__mod_term_func"),
+                        .segname = makeStaticString("__DATA_CONST"),
+                        .addr = 0,
+                        .size = 0,
+                        .offset = 0,
+                        .@"align" = 0,
+                        .reloff = 0,
+                        .nreloc = 0,
+                        .flags = macho.S_MOD_TERM_FUNC_POINTERS,
+                        .reserved1 = 0,
+                        .reserved2 = 0,
+                        .reserved3 = 0,
+                    });
+                },
+                macho.S_ZEROFILL => {
+                    if (!mem.eql(u8, segname, "__DATA")) continue;
+                    if (self.bss_section_index != null) continue;
 
-                self.mod_init_func_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                try data_const_seg.addSection(self.allocator, .{
-                    .sectname = makeStaticString("__mod_init_func"),
-                    .segname = makeStaticString("__DATA_CONST"),
-                    .addr = 0,
-                    .size = 0,
-                    .offset = 0,
-                    .@"align" = 0,
-                    .reloff = 0,
-                    .nreloc = 0,
-                    .flags = macho.S_MOD_INIT_FUNC_POINTERS,
-                    .reserved1 = 0,
-                    .reserved2 = 0,
-                    .reserved3 = 0,
-                });
-            },
-            macho.S_MOD_TERM_FUNC_POINTERS => {
-                if (!mem.eql(u8, segname, "__DATA")) continue;
-                if (self.mod_term_func_section_index != null) continue;
+                    self.bss_section_index = @intCast(u16, data_seg.sections.items.len);
+                    try data_seg.addSection(self.allocator, .{
+                        .sectname = makeStaticString("__bss"),
+                        .segname = makeStaticString("__DATA"),
+                        .addr = 0,
+                        .size = 0,
+                        .offset = 0,
+                        .@"align" = 0,
+                        .reloff = 0,
+                        .nreloc = 0,
+                        .flags = macho.S_ZEROFILL,
+                        .reserved1 = 0,
+                        .reserved2 = 0,
+                        .reserved3 = 0,
+                    });
+                },
+                macho.S_THREAD_LOCAL_VARIABLES => {
+                    if (!mem.eql(u8, segname, "__DATA")) continue;
+                    if (self.tlv_section_index != null) continue;
 
-                self.mod_term_func_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                try data_const_seg.addSection(self.allocator, .{
-                    .sectname = makeStaticString("__mod_term_func"),
-                    .segname = makeStaticString("__DATA_CONST"),
-                    .addr = 0,
-                    .size = 0,
-                    .offset = 0,
-                    .@"align" = 0,
-                    .reloff = 0,
-                    .nreloc = 0,
-                    .flags = macho.S_MOD_TERM_FUNC_POINTERS,
-                    .reserved1 = 0,
-                    .reserved2 = 0,
-                    .reserved3 = 0,
-                });
-            },
-            macho.S_ZEROFILL => {
-                if (!mem.eql(u8, segname, "__DATA")) continue;
-                if (self.bss_section_index != null) continue;
+                    self.tlv_section_index = @intCast(u16, data_seg.sections.items.len);
+                    try data_seg.addSection(self.allocator, .{
+                        .sectname = makeStaticString("__thread_vars"),
+                        .segname = makeStaticString("__DATA"),
+                        .addr = 0,
+                        .size = 0,
+                        .offset = 0,
+                        .@"align" = 0,
+                        .reloff = 0,
+                        .nreloc = 0,
+                        .flags = macho.S_THREAD_LOCAL_VARIABLES,
+                        .reserved1 = 0,
+                        .reserved2 = 0,
+                        .reserved3 = 0,
+                    });
+                },
+                macho.S_THREAD_LOCAL_REGULAR => {
+                    if (!mem.eql(u8, segname, "__DATA")) continue;
+                    if (self.tlv_data_section_index != null) continue;
 
-                self.bss_section_index = @intCast(u16, data_seg.sections.items.len);
-                try data_seg.addSection(self.allocator, .{
-                    .sectname = makeStaticString("__bss"),
-                    .segname = makeStaticString("__DATA"),
-                    .addr = 0,
-                    .size = 0,
-                    .offset = 0,
-                    .@"align" = 0,
-                    .reloff = 0,
-                    .nreloc = 0,
-                    .flags = macho.S_ZEROFILL,
-                    .reserved1 = 0,
-                    .reserved2 = 0,
-                    .reserved3 = 0,
-                });
-            },
-            macho.S_THREAD_LOCAL_VARIABLES => {
-                if (!mem.eql(u8, segname, "__DATA")) continue;
-                if (self.tlv_section_index != null) continue;
+                    self.tlv_data_section_index = @intCast(u16, data_seg.sections.items.len);
+                    try data_seg.addSection(self.allocator, .{
+                        .sectname = makeStaticString("__thread_data"),
+                        .segname = makeStaticString("__DATA"),
+                        .addr = 0,
+                        .size = 0,
+                        .offset = 0,
+                        .@"align" = 0,
+                        .reloff = 0,
+                        .nreloc = 0,
+                        .flags = macho.S_THREAD_LOCAL_REGULAR,
+                        .reserved1 = 0,
+                        .reserved2 = 0,
+                        .reserved3 = 0,
+                    });
+                },
+                macho.S_THREAD_LOCAL_ZEROFILL => {
+                    if (!mem.eql(u8, segname, "__DATA")) continue;
+                    if (self.tlv_bss_section_index != null) continue;
 
-                self.tlv_section_index = @intCast(u16, data_seg.sections.items.len);
-                try data_seg.addSection(self.allocator, .{
-                    .sectname = makeStaticString("__thread_vars"),
-                    .segname = makeStaticString("__DATA"),
-                    .addr = 0,
-                    .size = 0,
-                    .offset = 0,
-                    .@"align" = 0,
-                    .reloff = 0,
-                    .nreloc = 0,
-                    .flags = macho.S_THREAD_LOCAL_VARIABLES,
-                    .reserved1 = 0,
-                    .reserved2 = 0,
-                    .reserved3 = 0,
-                });
-            },
-            macho.S_THREAD_LOCAL_REGULAR => {
-                if (!mem.eql(u8, segname, "__DATA")) continue;
-                if (self.tlv_data_section_index != null) continue;
-
-                self.tlv_data_section_index = @intCast(u16, data_seg.sections.items.len);
-                try data_seg.addSection(self.allocator, .{
-                    .sectname = makeStaticString("__thread_data"),
-                    .segname = makeStaticString("__DATA"),
-                    .addr = 0,
-                    .size = 0,
-                    .offset = 0,
-                    .@"align" = 0,
-                    .reloff = 0,
-                    .nreloc = 0,
-                    .flags = macho.S_THREAD_LOCAL_REGULAR,
-                    .reserved1 = 0,
-                    .reserved2 = 0,
-                    .reserved3 = 0,
-                });
-            },
-            macho.S_THREAD_LOCAL_ZEROFILL => {
-                if (!mem.eql(u8, segname, "__DATA")) continue;
-                if (self.tlv_bss_section_index != null) continue;
-
-                self.tlv_bss_section_index = @intCast(u16, data_seg.sections.items.len);
-                try data_seg.addSection(self.allocator, .{
-                    .sectname = makeStaticString("__thread_bss"),
-                    .segname = makeStaticString("__DATA"),
-                    .addr = 0,
-                    .size = 0,
-                    .offset = 0,
-                    .@"align" = 0,
-                    .reloff = 0,
-                    .nreloc = 0,
-                    .flags = macho.S_THREAD_LOCAL_ZEROFILL,
-                    .reserved1 = 0,
-                    .reserved2 = 0,
-                    .reserved3 = 0,
-                });
-            },
-            else => {
-                log.debug("unhandled section type 0x{x} for '{s}/{s}'", .{ flags, segname, sectname });
-            },
-        }
-    }
-
-    // Find ideal section alignment.
-    for (object_seg.sections.items) |source_sect, id| {
-        if (self.getMatchingSection(source_sect)) |res| {
-            const target_seg = &self.load_commands.items[res.seg].Segment;
-            const target_sect = &target_seg.sections.items[res.sect];
-            target_sect.@"align" = math.max(target_sect.@"align", source_sect.@"align");
-        }
-    }
-
-    // Update section mappings
-    for (object_seg.sections.items) |source_sect, id| {
-        const source_sect_id = @intCast(u16, id);
-        if (self.getMatchingSection(source_sect)) |res| {
-            try self.mapAndUpdateSections(object_id, source_sect_id, res.seg, res.sect);
-            continue;
+                    self.tlv_bss_section_index = @intCast(u16, data_seg.sections.items.len);
+                    try data_seg.addSection(self.allocator, .{
+                        .sectname = makeStaticString("__thread_bss"),
+                        .segname = makeStaticString("__DATA"),
+                        .addr = 0,
+                        .size = 0,
+                        .offset = 0,
+                        .@"align" = 0,
+                        .reloff = 0,
+                        .nreloc = 0,
+                        .flags = macho.S_THREAD_LOCAL_ZEROFILL,
+                        .reserved1 = 0,
+                        .reserved2 = 0,
+                        .reserved3 = 0,
+                    });
+                },
+                else => {
+                    log.debug("unhandled section type 0x{x} for '{s}/{s}'", .{ flags, segname, sectname });
+                },
+            }
         }
 
-        const segname = parseName(&source_sect.segname);
-        const sectname = parseName(&source_sect.sectname);
-        log.debug("section '{s}/{s}' will be unmapped", .{ segname, sectname });
-        try self.unhandled_sections.putNoClobber(self.allocator, .{
-            .object_id = object_id,
-            .source_sect_id = source_sect_id,
-        }, 0);
+        // Find ideal section alignment.
+        for (object_seg.sections.items) |source_sect| {
+            if (self.getMatchingSection(source_sect)) |res| {
+                const target_seg = &self.load_commands.items[res.seg].Segment;
+                const target_sect = &target_seg.sections.items[res.sect];
+                target_sect.@"align" = math.max(target_sect.@"align", source_sect.@"align");
+            }
+        }
+
+        // Update section mappings
+        for (object_seg.sections.items) |source_sect, sect_id| {
+            const source_sect_id = @intCast(u16, sect_id);
+            if (self.getMatchingSection(source_sect)) |res| {
+                try self.mapAndUpdateSections(object_id, source_sect_id, res.seg, res.sect);
+                continue;
+            }
+
+            const segname = parseName(&source_sect.segname);
+            const sectname = parseName(&source_sect.sectname);
+            log.debug("section '{s}/{s}' will be unmapped", .{ segname, sectname });
+            try self.unhandled_sections.putNoClobber(self.allocator, .{
+                .object_id = object_id,
+                .source_sect_id = source_sect_id,
+            }, 0);
+        }
     }
 }
 
@@ -826,7 +823,10 @@ fn sortSections(self: *Zld) !void {
 
 fn allocateTextSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const nexterns = @intCast(u32, self.lazy_imports.items().len);
+    // TODO This should be worked out by scanning the relocations in the __text sections of all combined
+    // object files. For the time being, assume all externs are stubs (this is wasting space but should
+    // correspond to the worst-case upper bound).
+    const nstubs = @intCast(u32, self.externs.count());
 
     const base_vmaddr = self.load_commands.items[self.pagezero_segment_cmd_index.?].Segment.inner.vmsize;
     seg.inner.fileoff = 0;
@@ -835,14 +835,14 @@ fn allocateTextSegment(self: *Zld) !void {
     // Set stubs and stub_helper sizes
     const stubs = &seg.sections.items[self.stubs_section_index.?];
     const stub_helper = &seg.sections.items[self.stub_helper_section_index.?];
-    stubs.size += nexterns * stubs.reserved2;
+    stubs.size += nstubs * stubs.reserved2;
 
     const stub_size: u4 = switch (self.arch.?) {
         .x86_64 => 10,
         .aarch64 => 3 * @sizeOf(u32),
         else => unreachable,
     };
-    stub_helper.size += nexterns * stub_size;
+    stub_helper.size += nstubs * stub_size;
 
     var sizeofcmds: u64 = 0;
     for (self.load_commands.items) |lc| {
@@ -877,7 +877,10 @@ fn allocateTextSegment(self: *Zld) !void {
 
 fn allocateDataConstSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-    const nonlazy = @intCast(u32, self.nonlazy_imports.items().len);
+    // TODO This should be worked out by scanning the relocations in the __text sections of all
+    // combined object files. For the time being, assume all externs are GOT entries (this is wasting space but
+    // should correspond to the worst-case upper bound).
+    const nexterns = @intCast(u32, self.externs.count());
 
     const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     seg.inner.fileoff = text_seg.inner.fileoff + text_seg.inner.filesize;
@@ -888,14 +891,17 @@ fn allocateDataConstSegment(self: *Zld) !void {
     // TODO this will require scanning the relocations at least one to work out
     // the exact amount of local GOT indirections. For the time being, set some
     // default value.
-    got.size += (max_local_got_indirections + nonlazy) * @sizeOf(u64);
+    got.size += (max_local_got_indirections + nexterns) * @sizeOf(u64);
 
     try self.allocateSegment(self.data_const_segment_cmd_index.?, 0);
 }
 
 fn allocateDataSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    const lazy = @intCast(u32, self.lazy_imports.items().len);
+    // TODO This should be worked out by scanning the relocations in the __text sections of all combined
+    // object files. For the time being, assume all externs are stubs (this is wasting space but should
+    // correspond to the worst-case upper bound).
+    const nstubs = @intCast(u32, self.externs.count());
 
     const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
     seg.inner.fileoff = data_const_seg.inner.fileoff + data_const_seg.inner.filesize;
@@ -904,8 +910,8 @@ fn allocateDataSegment(self: *Zld) !void {
     // Set la_symbol_ptr and data size
     const la_symbol_ptr = &seg.sections.items[self.la_symbol_ptr_section_index.?];
     const data = &seg.sections.items[self.data_section_index.?];
-    la_symbol_ptr.size += lazy * @sizeOf(u64);
-    data.size += @sizeOf(u64); // TODO when do we need more?
+    la_symbol_ptr.size += nstubs * @sizeOf(u64);
+    data.size += @sizeOf(u64); // We need at least 8bytes for address of dyld_stub_binder
 
     try self.allocateSegment(self.data_segment_cmd_index.?, 0);
 }
@@ -1303,7 +1309,13 @@ fn resolveSymbols(self: *Zld) !void {
     while (self.undefs.items().len > 0) {
         const entry = self.undefs.pop();
         try self.externs.putNoClobber(self.allocator, entry.key, .{
-            .inner = entry.value.inner,
+            .inner = .{
+                .n_strx = 0, // This will be populated once we write the string table.
+                .n_type = macho.N_UNDF | macho.N_EXT,
+                .n_sect = 0,
+                .n_desc = macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | macho.N_SYMBOL_RESOLVER,
+                .n_value = 0,
+            },
             .file = 0,
         });
     }
@@ -1316,6 +1328,19 @@ fn resolveSymbols(self: *Zld) !void {
 
         return error.UndefinedSymbolReference;
     }
+
+    // Finally, put in a reference to 'dyld_stub_binder'.
+    const name = try self.allocator.dupe(u8, "dyld_stub_binder");
+    try self.externs.putNoClobber(self.allocator, name, .{
+        .inner = .{
+            .n_strx = 0, // This will be populated once we write the string table.
+            .n_type = std.macho.N_UNDF | std.macho.N_EXT,
+            .n_sect = 0,
+            .n_desc = std.macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | std.macho.N_SYMBOL_RESOLVER,
+            .n_value = 0,
+        },
+        .file = 0,
+    });
 }
 
 fn doRelocs(self: *Zld) !void {
@@ -1879,10 +1904,33 @@ fn doRelocs(self: *Zld) !void {
 fn relocTargetAddr(self: *Zld, object_id: u16, rel: macho.relocation_info) !u64 {
     const object = self.objects.items[object_id];
     const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
+
+    const is_got: bool = is_got: {
+        switch (self.arch.?) {
+            .x86_64 => {
+                const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
+                break :is_got = switch (rel_type) {
+                    .X86_64_RELOC_GOT, .X86_64_RELOC_GOT_LOAD => true,
+                    else => false,
+                };
+            },
+            .aarch64 => {
+                const rel_type = @intToEnum(macho.reloc_type_aarch64, rel.r_type);
+                break :is_got = switch (rel_type) {
+                    .ARM64_RELOC_GOT_LOAD_PAGE21,
+                    .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
+                    .ARM64_RELOC_POINTER_TO_GOT,
+                    => true,
+                    else => false,
+                };
+            },
+        }
+    };
+
     const target_addr = blk: {
         if (rel.r_extern == 1) {
             const sym = object.symtab.items[rel.r_symbolnum];
-            if (isLocal(&sym) or isExport(&sym)) {
+            if (sym.isSect()) {
                 // Relocate using section offsets only.
                 const target_mapping = self.mappings.get(.{
                     .object_id = object_id,
@@ -1894,30 +1942,13 @@ fn relocTargetAddr(self: *Zld, object_id: u16, rel: macho.relocation_info) !u64 
                 const target_sect_addr = target_sect.addr + target_mapping.offset;
                 log.debug("    | symbol local to object", .{});
                 break :blk target_sect_addr + sym.n_value - source_sect.addr;
-            } else if (isImport(&sym)) {
-                // Relocate to either the artifact's local symbol, or an import from
+            } else if (sym.isUndf()) {
+                // Relocate to either the global symbol, or an import from
                 // shared library.
                 const sym_name = object.getString(sym.n_strx);
-                if (self.locals.get(sym_name)) |locs| {
-                    var n_value: ?u64 = null;
-                    for (locs.items) |loc| {
-                        switch (loc.tt) {
-                            .Global => {
-                                n_value = loc.inner.n_value;
-                                break;
-                            },
-                            .WeakGlobal => {
-                                n_value = loc.inner.n_value;
-                            },
-                            .Local => {},
-                        }
-                    }
-                    if (n_value) |v| {
-                        break :blk v;
-                    }
-                    log.err("local symbol export '{s}' not found", .{sym_name});
-                    return error.LocalSymbolExportNotFound;
-                } else if (self.lazy_imports.get(sym_name)) |ext| {
+                if (self.globals.get(sym_name)) |glob| {
+                    break :blk glob.inner.n_value;
+                } else if (self.externs.getEntry(sym_name)) |ext| {
                     const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                     const stubs = segment.sections.items[self.stubs_section_index.?];
                     break :blk stubs.addr + ext.index * stubs.reserved2;
@@ -1928,7 +1959,7 @@ fn relocTargetAddr(self: *Zld, object_id: u16, rel: macho.relocation_info) !u64 
                 } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
                     const segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
                     const tlv = segment.sections.items[self.tlv_section_index.?];
-                    break :blk tlv.addr + self.tlv_bootstrap.?.index * @sizeOf(u64);
+                    break :blk tlv.addr;
                 } else {
                     log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
                     return error.FailedToResolveRelocationTarget;
@@ -1951,6 +1982,7 @@ fn relocTargetAddr(self: *Zld, object_id: u16, rel: macho.relocation_info) !u64 
             break :blk target_sect.addr + target_mapping.offset;
         }
     };
+
     return target_addr;
 }
 
