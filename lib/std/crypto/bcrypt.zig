@@ -13,6 +13,8 @@ const mem = std.mem;
 
 const phc = @import("phc_encoding.zig");
 
+const Error = crypto.Error;
+
 /// bcrypt salt length
 pub const salt_length: usize = 16;
 /// bcrypt derived key length
@@ -21,9 +23,6 @@ pub const derived_key_length: usize = 24;
 pub const hash_length: usize = 60;
 /// Algorithm for PhcEncoding
 pub const phc_algorithm_id = "bcrypt";
-
-const Error = crypto.Error;
-
 pub const PhcParamsIterator = phc.ParamsIterator(fmt.count("{d}", .{math.maxInt(u6)}));
 pub const PhcParser = phc.Parser(
     PhcParamsIterator,
@@ -201,20 +200,20 @@ const Codec = struct {
         var i: usize = 0;
         var j: usize = 0;
         while (j < bin.len) {
-            const c1 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i]) orelse return error.InvalidEncoding);
-            const c2 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 1]) orelse return error.InvalidEncoding);
+            const c1 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i]) orelse return Error.InvalidEncoding);
+            const c2 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 1]) orelse return Error.InvalidEncoding);
             bin[j] = (c1 << 2) | ((c2 & 0x30) >> 4);
             j += 1;
             if (j >= bin.len) {
                 break;
             }
-            const c3 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 2]) orelse return error.InvalidEncoding);
+            const c3 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 2]) orelse return Error.InvalidEncoding);
             bin[j] = ((c2 & 0x0f) << 4) | ((c3 & 0x3c) >> 2);
             j += 1;
             if (j >= bin.len) {
                 break;
             }
-            const c4 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 3]) orelse return error.InvalidEncoding);
+            const c4 = @intCast(u8, mem.indexOfScalar(u8, alphabet, b64[i + 3]) orelse return Error.InvalidEncoding);
             bin[j] = ((c3 & 0x03) << 6) | c4;
             j += 1;
             i += 4;
@@ -234,10 +233,10 @@ pub const Params = struct {
             if (mem.eql(u8, param.key, "lr")) {
                 lr = try param.decimal(u6);
             } else {
-                return error.InvalidEncoding;
+                return Error.InvalidEncoding;
             }
         }
-        return Self{ .log_rounds = lr orelse return error.InvalidEncoding };
+        return Self{ .log_rounds = lr orelse return Error.InvalidEncoding };
     }
 
     /// Public interface for PhcEncoding
@@ -305,19 +304,19 @@ pub const CryptHasher = struct {
 
     fn parseParams(encoded: *const [7]u8) Error!Params {
         if (!mem.eql(u8, prefix, encoded[0..2])) {
-            return error.InvalidEncoding;
+            return Error.InvalidEncoding;
         }
         if (encoded[3] != '$' or encoded[6] != '$') {
-            return error.InvalidEncoding;
+            return Error.InvalidEncoding;
         }
-        const lr = fmt.parseInt(u6, encoded[4..][0..2], 10) catch return error.InvalidEncoding;
+        const lr = fmt.parseInt(u6, encoded[4..][0..2], 10) catch return Error.InvalidEncoding;
         return Params{ .log_rounds = lr };
     }
 
     /// Verify password against crypt encoded string
     pub fn verify(str: []const u8, password: []const u8) Error!void {
         if (str.len != pwhash_str_length) {
-            return error.InvalidEncoding;
+            return Error.InvalidEncoding;
         }
         const params = try parseParams(str[0..7]);
         const salt_str = str[7..][0..salt_str_length];
@@ -339,7 +338,7 @@ pub const CryptHasher = struct {
         );
         crypto.utils.secureZero(u8, &derived_key);
         if (!passed) {
-            return error.PasswordVerificationFailed;
+            return Error.PasswordVerificationFailed;
         }
     }
 
@@ -394,7 +393,7 @@ pub fn strHash(
     password: []const u8,
     options: HashOptions,
     out: []u8,
-) ![]u8 {
+) (Error || mem.Allocator.Error)![]u8 {
     switch (options.encoding) {
         .phc => return PhcHasher.create(allocator, password, options.kdf_params, out),
         .crypt => {
@@ -413,7 +412,7 @@ pub fn strVerify(
     str: []const u8,
     password: []const u8,
     options: VerifyOptions,
-) !void {
+) (Error || mem.Allocator.Error)!void {
     if (mem.startsWith(u8, str, CryptHasher.prefix) and str.len >= 4 and str[3] == '$') {
         return CryptHasher.verify(str, password);
     } else {

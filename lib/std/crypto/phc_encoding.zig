@@ -59,10 +59,10 @@ pub fn Parser(
         pub fn fromString(str: []const u8) Error!Self {
             var it = mem.split(str, fields_delimiter);
             _ = it.next();
-            var s = it.next() orelse return error.InvalidEncoding;
+            var s = it.next() orelse return Error.InvalidEncoding;
             var res = Self{ .algorithm_id = AlgorithmId{} };
             if (s.len == 0 or s.len > res.algorithm_id.buf.len) {
-                return error.InvalidEncoding;
+                return Error.InvalidEncoding;
             }
             res.algorithm_id.len = s.len;
             mem.copy(u8, &res.algorithm_id.buf, s);
@@ -71,7 +71,7 @@ pub fn Parser(
                 mem.indexOf(u8, s, params_delimiter) == null)
             {
                 res.version = fmt.parseInt(u32, s[version_prefix.len..], 10) catch {
-                    return error.InvalidEncoding;
+                    return Error.InvalidEncoding;
                 };
                 s = it.next() orelse return res;
             }
@@ -81,12 +81,12 @@ pub fn Parser(
                 s = it.next() orelse return res;
             }
             res.salt = Salt{};
-            b64decode(&res.salt.?, s) catch return error.InvalidEncoding;
+            b64decode(&res.salt.?, s) catch return Error.InvalidEncoding;
             s = it.next() orelse return res;
             res.derived_key = DerivedKey{};
-            b64decode(&res.derived_key.?, s) catch return error.InvalidEncoding;
+            b64decode(&res.derived_key.?, s) catch return Error.InvalidEncoding;
             if (it.next() != null) {
-                return error.InvalidEncoding;
+                return Error.InvalidEncoding;
             }
             return res;
         }
@@ -126,7 +126,7 @@ pub fn Parser(
         /// Create phc encoded string
         pub fn toString(self: *Self, out: []u8) Error![]u8 {
             if (self.salt == null and self.derived_key != null) {
-                return error.InvalidEncoding;
+                return Error.InvalidEncoding;
             }
             mem.copy(u8, out, fields_delimiter);
             mem.copy(u8, out[fields_delimiter.len..], self.algorithm_id.unwrap());
@@ -194,7 +194,7 @@ pub fn Hasher(
             allocator: *mem.Allocator,
             str: []const u8,
             password: []const u8,
-        ) !void {
+        ) (Error || mem.Allocator.Error)!void {
             var parser = try PhcParser.fromString(str);
             if (!mem.eql(u8, parser.algorithm_id.unwrap(), algorithm_id)) {
                 return Error.InvalidEncoding;
@@ -238,7 +238,7 @@ pub fn Hasher(
             password: []const u8,
             params: Params,
             out: []u8,
-        ) ![]u8 {
+        ) (Error || mem.Allocator.Error)![]u8 {
             var salt: [salt_len]u8 = undefined;
             crypto.random.bytes(&salt);
             var derived_key: [derived_key_len]u8 = undefined;
@@ -279,7 +279,7 @@ fn IteratorParam(comptime value_buf_len: usize) type {
         value: Value,
 
         pub fn decimal(self: Self, comptime T: type) Error!T {
-            return fmt.parseInt(T, self.value.unwrap(), 10) catch return error.InvalidEncoding;
+            return fmt.parseInt(T, self.value.unwrap(), 10) catch return Error.InvalidEncoding;
         }
     };
 }
@@ -301,20 +301,20 @@ pub fn ParamsIterator(comptime value_buf_len: usize) type {
         pub fn next(self: *Self) Error!?Param {
             const s = self.it.next() orelse return null;
             if (self.pos == self.limit) {
-                return error.InvalidEncoding;
+                return Error.InvalidEncoding;
             }
             var it = mem.split(s, kv_delimiter);
-            const key = it.next() orelse return error.InvalidEncoding;
+            const key = it.next() orelse return Error.InvalidEncoding;
             if (key.len == 0 or key.len > max_param_key_len) {
-                return error.InvalidEncoding;
+                return Error.InvalidEncoding;
             }
-            const value = it.next() orelse return error.InvalidEncoding;
+            const value = it.next() orelse return Error.InvalidEncoding;
             if (it.next() != null) {
-                return error.InvalidEncoding;
+                return Error.InvalidEncoding;
             }
             var param = Param{ .key = key, .value = Param.Value{} };
             if (value.len > param.value.buf.len) {
-                return error.InvalidEncoding;
+                return Error.InvalidEncoding;
             }
             param.value.len = value.len;
             mem.copy(u8, &param.value.buf, value);
