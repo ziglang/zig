@@ -4104,69 +4104,9 @@ fn coerce(
     }
     assert(inst.ty.zigTypeTag() != .Undefined);
 
-    // null to ?T
-    if (dest_type.zigTypeTag() == .Optional and inst.ty.zigTypeTag() == .Null) {
-        return sema.mod.constInst(sema.arena, inst_src, .{ .ty = dest_type, .val = Value.initTag(.null_value) });
-    }
-
-    // T to ?T
-    if (dest_type.zigTypeTag() == .Optional) {
-        var buf: Type.Payload.ElemType = undefined;
-        const child_type = dest_type.optionalChild(&buf);
-        if (child_type.eql(inst.ty)) {
-            return sema.wrapOptional(block, dest_type, inst);
-        } else if (try sema.coerceNum(block, child_type, inst)) |some| {
-            return sema.wrapOptional(block, dest_type, some);
-        }
-    }
-
     // T to E!T or E to E!T
     if (dest_type.tag() == .error_union) {
         return try sema.wrapErrorUnion(block, dest_type, inst);
-    }
-
-    // Coercions where the source is a single pointer to an array.
-    src_array_ptr: {
-        if (!inst.ty.isSinglePointer()) break :src_array_ptr;
-        const array_type = inst.ty.elemType();
-        if (array_type.zigTypeTag() != .Array) break :src_array_ptr;
-        const array_elem_type = array_type.elemType();
-        if (inst.ty.isConstPtr() and !dest_type.isConstPtr()) break :src_array_ptr;
-        if (inst.ty.isVolatilePtr() and !dest_type.isVolatilePtr()) break :src_array_ptr;
-
-        const dst_elem_type = dest_type.elemType();
-        switch (coerceInMemoryAllowed(dst_elem_type, array_elem_type)) {
-            .ok => {},
-            .no_match => break :src_array_ptr,
-        }
-
-        switch (dest_type.ptrSize()) {
-            .Slice => {
-                // *[N]T to []T
-                return sema.coerceArrayPtrToSlice(block, dest_type, inst);
-            },
-            .C => {
-                // *[N]T to [*c]T
-                return sema.coerceArrayPtrToMany(block, dest_type, inst);
-            },
-            .Many => {
-                // *[N]T to [*]T
-                // *[N:s]T to [*:s]T
-                const src_sentinel = array_type.sentinel();
-                const dst_sentinel = dest_type.sentinel();
-                if (src_sentinel == null and dst_sentinel == null)
-                    return sema.coerceArrayPtrToMany(block, dest_type, inst);
-
-                if (src_sentinel) |src_s| {
-                    if (dst_sentinel) |dst_s| {
-                        if (src_s.eql(dst_s)) {
-                            return sema.coerceArrayPtrToMany(block, dest_type, inst);
-                        }
-                    }
-                }
-            },
-            .One => {},
-        }
     }
 
     // comptime known number to other number
@@ -4175,31 +4115,97 @@ fn coerce(
 
     const target = sema.mod.getTarget();
 
-    // integer widening
-    if (inst.ty.zigTypeTag() == .Int and dest_type.zigTypeTag() == .Int) {
-        assert(inst.value() == null); // handled above
+    switch (dest_type.zigTypeTag()) {
+        .Optional => {
+            // null to ?T
+            if (inst.ty.zigTypeTag() == .Null) {
+                return sema.mod.constInst(sema.arena, inst_src, .{ .ty = dest_type, .val = Value.initTag(.null_value) });
+            }
 
-        const src_info = inst.ty.intInfo(target);
-        const dst_info = dest_type.intInfo(target);
-        if ((src_info.signedness == dst_info.signedness and dst_info.bits >= src_info.bits) or
-            // small enough unsigned ints can get casted to large enough signed ints
-            (src_info.signedness == .signed and dst_info.signedness == .unsigned and dst_info.bits > src_info.bits))
-        {
-            try sema.requireRuntimeBlock(block, inst_src);
-            return block.addUnOp(inst_src, dest_type, .intcast, inst);
-        }
-    }
+            // T to ?T
+            var buf: Type.Payload.ElemType = undefined;
+            const child_type = dest_type.optionalChild(&buf);
+            if (child_type.eql(inst.ty)) {
+                return sema.wrapOptional(block, dest_type, inst);
+            } else if (try sema.coerceNum(block, child_type, inst)) |some| {
+                return sema.wrapOptional(block, dest_type, some);
+            }
+        },
+        .Pointer => {
+            // Coercions where the source is a single pointer to an array.
+            src_array_ptr: {
+                if (!inst.ty.isSinglePointer()) break :src_array_ptr;
+                const array_type = inst.ty.elemType();
+                if (array_type.zigTypeTag() != .Array) break :src_array_ptr;
+                const array_elem_type = array_type.elemType();
+                if (inst.ty.isConstPtr() and !dest_type.isConstPtr()) break :src_array_ptr;
+                if (inst.ty.isVolatilePtr() and !dest_type.isVolatilePtr()) break :src_array_ptr;
 
-    // float widening
-    if (inst.ty.zigTypeTag() == .Float and dest_type.zigTypeTag() == .Float) {
-        assert(inst.value() == null); // handled above
+                const dst_elem_type = dest_type.elemType();
+                switch (coerceInMemoryAllowed(dst_elem_type, array_elem_type)) {
+                    .ok => {},
+                    .no_match => break :src_array_ptr,
+                }
 
-        const src_bits = inst.ty.floatBits(target);
-        const dst_bits = dest_type.floatBits(target);
-        if (dst_bits >= src_bits) {
-            try sema.requireRuntimeBlock(block, inst_src);
-            return block.addUnOp(inst_src, dest_type, .floatcast, inst);
-        }
+                switch (dest_type.ptrSize()) {
+                    .Slice => {
+                        // *[N]T to []T
+                        return sema.coerceArrayPtrToSlice(block, dest_type, inst);
+                    },
+                    .C => {
+                        // *[N]T to [*c]T
+                        return sema.coerceArrayPtrToMany(block, dest_type, inst);
+                    },
+                    .Many => {
+                        // *[N]T to [*]T
+                        // *[N:s]T to [*:s]T
+                        const src_sentinel = array_type.sentinel();
+                        const dst_sentinel = dest_type.sentinel();
+                        if (src_sentinel == null and dst_sentinel == null)
+                            return sema.coerceArrayPtrToMany(block, dest_type, inst);
+
+                        if (src_sentinel) |src_s| {
+                            if (dst_sentinel) |dst_s| {
+                                if (src_s.eql(dst_s)) {
+                                    return sema.coerceArrayPtrToMany(block, dest_type, inst);
+                                }
+                            }
+                        }
+                    },
+                    .One => {},
+                }
+            }
+        },
+        .Int => {
+            // integer widening
+            if (inst.ty.zigTypeTag() == .Int) {
+                assert(inst.value() == null); // handled above
+
+                const dst_info = dest_type.intInfo(target);
+                const src_info = inst.ty.intInfo(target);
+                if ((src_info.signedness == dst_info.signedness and dst_info.bits >= src_info.bits) or
+                    // small enough unsigned ints can get casted to large enough signed ints
+                    (src_info.signedness == .signed and dst_info.signedness == .unsigned and dst_info.bits > src_info.bits))
+                {
+                    try sema.requireRuntimeBlock(block, inst_src);
+                    return block.addUnOp(inst_src, dest_type, .intcast, inst);
+                }
+            }
+        },
+        .Float => {
+            // float widening
+            if (inst.ty.zigTypeTag() == .Float) {
+                assert(inst.value() == null); // handled above
+
+                const src_bits = inst.ty.floatBits(target);
+                const dst_bits = dest_type.floatBits(target);
+                if (dst_bits >= src_bits) {
+                    try sema.requireRuntimeBlock(block, inst_src);
+                    return block.addUnOp(inst_src, dest_type, .floatcast, inst);
+                }
+            }
+        },
+        else => {},
     }
 
     return sema.mod.fail(&block.base, inst_src, "expected {}, found {}", .{ dest_type, inst.ty });

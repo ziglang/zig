@@ -942,6 +942,8 @@ pub const Scope = struct {
         break_result_loc: AstGen.ResultLoc = undefined,
         /// When a block has a pointer result location, here it is.
         rl_ptr: zir.Inst.Ref = .none,
+        /// When a block has a type result location, here it is.
+        rl_ty_inst: zir.Inst.Ref = .none,
         /// Keeps track of how many branches of a block did not actually
         /// consume the result location. astgen uses this to figure out
         /// whether to rely on break instructions or writing to the result
@@ -1001,7 +1003,11 @@ pub const Scope = struct {
             // we emit ZIR for the block break instructions to have the result values,
             // and then rvalue() on that to pass the value to the result location.
             switch (parent_rl) {
-                .discard, .none, .ty, .ptr, .ref => {
+                .ty => |ty_inst| {
+                    gz.rl_ty_inst = ty_inst;
+                    gz.break_result_loc = parent_rl;
+                },
+                .discard, .none, .ptr, .ref => {
                     gz.break_result_loc = parent_rl;
                 },
 
@@ -1016,6 +1022,7 @@ pub const Scope = struct {
                 },
 
                 .block_ptr => |parent_block_scope| {
+                    gz.rl_ty_inst = parent_block_scope.rl_ty_inst;
                     gz.rl_ptr = parent_block_scope.rl_ptr;
                     gz.break_result_loc = .{ .block_ptr = gz };
                 },

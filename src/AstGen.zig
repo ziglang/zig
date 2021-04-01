@@ -1415,6 +1415,7 @@ fn varDecl(
                 const type_inst = try typeExpr(gz, &init_scope.base, var_decl.ast.type_node);
                 opt_type_inst = type_inst;
                 init_scope.rl_ptr = try init_scope.addUnNode(.alloc, type_inst, node);
+                init_scope.rl_ty_inst = type_inst;
             } else {
                 const alloc = try init_scope.addUnNode(.alloc_inferred, undefined, node);
                 resolve_inferred_alloc = alloc;
@@ -1441,20 +1442,13 @@ fn varDecl(
                     parent_zir.appendAssumeCapacity(src_inst);
                 }
                 assert(parent_zir.items.len == expected_len);
-                const casted_init = if (opt_type_inst != .none)
-                    try gz.addPlNode(.as_node, var_decl.ast.type_node, zir.Inst.As{
-                        .dest_type = opt_type_inst,
-                        .operand = init_inst,
-                    })
-                else
-                    init_inst;
 
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
                     .parent = scope,
                     .gen_zir = gz,
                     .name = ident_name,
-                    .inst = casted_init,
+                    .inst = init_inst,
                     .src = name_src,
                 };
                 return &sub_scope.base;
@@ -3029,25 +3023,48 @@ fn switchExpr(
             // all prongs, except for prongs that ended with a noreturn instruction.
             // Elide all the `store_to_block_ptr` instructions.
 
+            // The break instructions need to have their operands coerced if the
+            // switch's result location is a `ty`. In this case we overwrite the
+            // `store_to_block_ptr` instruction with an `as` instruction and repurpose
+            // it as the break operand.
+
             var extra_index: usize = 0;
             extra_index += 2;
             extra_index += @boolToInt(multi_cases_len != 0);
-            if (special_prong != .none) {
+            if (special_prong != .none) special_prong: {
                 const body_len_index = extra_index;
                 const body_len = scalar_cases_payload.items[extra_index];
                 extra_index += 1;
+                if (body_len < 2) {
+                    extra_index += body_len;
+                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
+                    break :special_prong;
+                }
                 extra_index += body_len - 2;
                 const store_inst = scalar_cases_payload.items[extra_index];
-                if (zir_tags[store_inst] == .store_to_block_ptr) {
-                    assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
+                if (zir_tags[store_inst] != .store_to_block_ptr) {
+                    extra_index += 2;
+                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
+                    break :special_prong;
+                }
+                assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
+                if (block_scope.rl_ty_inst != .none) {
+                    extra_index += 1;
+                    const break_inst = scalar_cases_payload.items[extra_index];
+                    extra_index += 1;
+                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
+                    zir_tags[store_inst] = .as;
+                    zir_datas[store_inst].bin = .{
+                        .lhs = block_scope.rl_ty_inst,
+                        .rhs = zir_datas[break_inst].@"break".operand,
+                    };
+                    zir_datas[break_inst].@"break".operand = astgen.indexToRef(store_inst);
+                } else {
                     scalar_cases_payload.items[body_len_index] -= 1;
                     astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
                     extra_index += 1;
                     astgen.extra.appendAssumeCapacity(scalar_cases_payload.items[extra_index]);
                     extra_index += 1;
-                } else {
-                    extra_index += 2;
-                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
                 }
             } else {
                 astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
@@ -3066,16 +3083,29 @@ fn switchExpr(
                 }
                 extra_index += body_len - 2;
                 const store_inst = scalar_cases_payload.items[extra_index];
-                if (zir_tags[store_inst] == .store_to_block_ptr) {
+                if (zir_tags[store_inst] != .store_to_block_ptr) {
+                    extra_index += 2;
+                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[start_index..extra_index]);
+                    continue;
+                }
+                if (block_scope.rl_ty_inst != .none) {
+                    extra_index += 1;
+                    const break_inst = scalar_cases_payload.items[extra_index];
+                    extra_index += 1;
+                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[start_index..extra_index]);
+                    zir_tags[store_inst] = .as;
+                    zir_datas[store_inst].bin = .{
+                        .lhs = block_scope.rl_ty_inst,
+                        .rhs = zir_datas[break_inst].@"break".operand,
+                    };
+                    zir_datas[break_inst].@"break".operand = astgen.indexToRef(store_inst);
+                } else {
                     assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
                     scalar_cases_payload.items[body_len_index] -= 1;
                     astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[start_index..extra_index]);
                     extra_index += 1;
                     astgen.extra.appendAssumeCapacity(scalar_cases_payload.items[extra_index]);
                     extra_index += 1;
-                } else {
-                    extra_index += 2;
-                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[start_index..extra_index]);
                 }
             }
             extra_index = 0;
@@ -3098,16 +3128,29 @@ fn switchExpr(
                 }
                 extra_index += body_len - 2;
                 const store_inst = multi_cases_payload.items[extra_index];
-                if (zir_tags[store_inst] == .store_to_block_ptr) {
+                if (zir_tags[store_inst] != .store_to_block_ptr) {
+                    extra_index += 2;
+                    astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items[start_index..extra_index]);
+                    continue;
+                }
+                if (block_scope.rl_ty_inst != .none) {
+                    extra_index += 1;
+                    const break_inst = multi_cases_payload.items[extra_index];
+                    extra_index += 1;
+                    astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items[start_index..extra_index]);
+                    zir_tags[store_inst] = .as;
+                    zir_datas[store_inst].bin = .{
+                        .lhs = block_scope.rl_ty_inst,
+                        .rhs = zir_datas[break_inst].@"break".operand,
+                    };
+                    zir_datas[break_inst].@"break".operand = astgen.indexToRef(store_inst);
+                } else {
                     assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
                     multi_cases_payload.items[body_len_index] -= 1;
                     astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items[start_index..extra_index]);
                     extra_index += 1;
                     astgen.extra.appendAssumeCapacity(multi_cases_payload.items[extra_index]);
                     extra_index += 1;
-                } else {
-                    extra_index += 2;
-                    astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items[start_index..extra_index]);
                 }
             }
 

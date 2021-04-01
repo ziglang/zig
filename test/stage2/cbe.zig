@@ -279,6 +279,72 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return a - 4;
             \\}
         , "");
+
+        // Switch expression missing else case.
+        case.addError(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    const a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        3 => 3,
+            \\        4 => 4,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , &.{":3:22: error: switch must handle all possibilities"});
+
+        // Switch expression, has an unreachable prong.
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    const a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        99...300, 12 => 3,
+            \\        0 => 4,
+            \\        13 => unreachable,
+            \\        else => 5,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , "");
+
+        // Switch expression, has an unreachable prong and prongs write
+        // to result locations.
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    var a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        99...300, 12 => 3,
+            \\        0 => 4,
+            \\        13 => unreachable,
+            \\        else => 5,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , "");
+
+        // Switch expression has duplicate case value.
+        case.addError(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    const a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        96, 11...13, 97 => 3,
+            \\        0 => 4,
+            \\        90, 12 => 100,
+            \\        else => 5,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , &.{
+            ":8:13: error: duplicate switch value",
+            ":6:15: note: previous value here",
+        });
     }
     //{
     //    var case = ctx.exeFromCompiledC("optionals", .{});
