@@ -92,6 +92,13 @@ test "openDirAbsolute" {
     }
 }
 
+test "openDir cwd parent .." {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var cwd = try fs.cwd().openDir("..", .{});
+    defer cwd.close();
+}
+
 test "readLinkAbsolute" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
