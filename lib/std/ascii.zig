@@ -10,7 +10,7 @@
 // (and 128 bytes is not much to pay).
 // Also does not handle Unicode character classes.
 //
-// https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/USASCII_code_chart.png/1200px-USASCII_code_chart.png
+// https://en.wikipedia.org/wiki/ASCII#Character_set
 
 const std = @import("std");
 
@@ -56,7 +56,7 @@ pub const control_code = struct {
     pub const XOFF = 0x13;
 };
 
-const tIndex = enum(u3) {
+const tIndex = enum(u4) {
     Alpha,
     Hex,
     Space,
@@ -69,13 +69,10 @@ const tIndex = enum(u3) {
     Graph,
     //ASCII, | ~0b01111111
     //isBlank, == ' ' || == '\x09'
+    Symbol,
 };
 
 const combinedTable = init: {
-    comptime var table: [256]u8 = undefined;
-
-    const mem = std.mem;
-
     const alpha = [_]u1{
         //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -152,13 +149,13 @@ const combinedTable = init: {
         //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1,
+        0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1,
 
         1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1,
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0,
     };
     const graph = [_]u1{
         //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
@@ -172,25 +169,39 @@ const combinedTable = init: {
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
     };
+    const symbol = [_]u1{
+        //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0,
 
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0,
+    };
+
+    comptime var table: [256]u9 = undefined;
     comptime var i = 0;
     inline while (i < 128) : (i += 1) {
         table[i] =
-            @as(u8, alpha[i]) << @enumToInt(tIndex.Alpha) |
-            @as(u8, hex[i]) << @enumToInt(tIndex.Hex) |
-            @as(u8, space[i]) << @enumToInt(tIndex.Space) |
-            @as(u8, digit[i]) << @enumToInt(tIndex.Digit) |
-            @as(u8, lower[i]) << @enumToInt(tIndex.Lower) |
-            @as(u8, upper[i]) << @enumToInt(tIndex.Upper) |
-            @as(u8, punct[i]) << @enumToInt(tIndex.Punct) |
-            @as(u8, graph[i]) << @enumToInt(tIndex.Graph);
+            @as(u9, alpha[i]) << @enumToInt(tIndex.Alpha) |
+            @as(u9, hex[i]) << @enumToInt(tIndex.Hex) |
+            @as(u9, space[i]) << @enumToInt(tIndex.Space) |
+            @as(u9, digit[i]) << @enumToInt(tIndex.Digit) |
+            @as(u9, lower[i]) << @enumToInt(tIndex.Lower) |
+            @as(u9, upper[i]) << @enumToInt(tIndex.Upper) |
+            @as(u9, punct[i]) << @enumToInt(tIndex.Punct) |
+            @as(u9, graph[i]) << @enumToInt(tIndex.Graph) |
+            @as(u9, symbol[i]) << @enumToInt(tIndex.Symbol);
     }
-    mem.set(u8, table[128..256], 0);
+    std.mem.set(u9, table[128..256], 0);
     break :init table;
 };
 
 fn inTable(c: u8, t: tIndex) bool {
-    return (combinedTable[c] & (@as(u8, 1) << @enumToInt(t))) != 0;
+    return (combinedTable[c] & (@as(u9, 1) << @enumToInt(t))) != 0;
 }
 
 pub fn isAlNum(c: u8) bool {
@@ -228,6 +239,10 @@ pub fn isPunct(c: u8) bool {
 
 pub fn isSpace(c: u8) bool {
     return inTable(c, tIndex.Space);
+}
+
+pub fn isSymbol(c: u8) bool {
+    return inTable(c, tIndex.Symbol);
 }
 
 /// All the values for which isSpace() returns true. This may be used with
