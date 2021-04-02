@@ -270,6 +270,21 @@ pub const Inst = struct {
         /// A comptime known value.
         /// Uses the `const` union field.
         @"const",
+        /// A struct type definition. Contains references to ZIR instructions for
+        /// the field types, defaults, and alignments.
+        /// Uses the `pl_node` union field. Payload is `StructDecl`.
+        struct_decl,
+        /// A union type definition. Contains references to ZIR instructions for
+        /// the field types and optional type tag expression.
+        /// Uses the `pl_node` union field. Payload is `UnionDecl`.
+        union_decl,
+        /// An enum type definition. Contains references to ZIR instructions for
+        /// the field value expressions and optional type tag expression.
+        /// Uses the `pl_node` union field. Payload is `EnumDecl`.
+        enum_decl,
+        /// An opaque type definition. Provides an AST node only.
+        /// Uses the `node` union field.
+        opaque_decl,
         /// Declares the beginning of a statement. Used for debug info.
         /// Uses the `node` union field.
         dbg_stmt_node,
@@ -642,6 +657,9 @@ pub const Inst = struct {
         /// as well as missing fields, if applicable.
         /// Uses the `pl_node` field. Payload is `Block`.
         validate_struct_init_ptr,
+        /// A struct literal with a specified type, with no fields.
+        /// Uses the `un_node` field.
+        struct_init_empty,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -688,6 +706,10 @@ pub const Inst = struct {
                 .cmp_neq,
                 .coerce_result_ptr,
                 .@"const",
+                .struct_decl,
+                .union_decl,
+                .enum_decl,
+                .opaque_decl,
                 .dbg_stmt_node,
                 .decl_ref,
                 .decl_val,
@@ -790,6 +812,7 @@ pub const Inst = struct {
                 .switch_block_ref_under,
                 .switch_block_ref_under_multi,
                 .validate_struct_init_ptr,
+                .struct_init_empty,
                 => false,
 
                 .@"break",
@@ -893,6 +916,8 @@ pub const Inst = struct {
         bool_true,
         /// `false`
         bool_false,
+        /// `.{}` (untyped)
+        empty_struct,
         /// `0` (usize)
         zero_usize,
         /// `1` (usize)
@@ -1103,6 +1128,10 @@ pub const Inst = struct {
             .bool_false = .{
                 .ty = Type.initTag(.bool),
                 .val = Value.initTag(.bool_false),
+            },
+            .empty_struct = .{
+                .ty = Type.initTag(.empty_struct_literal),
+                .val = Value.initTag(.empty_struct_value),
             },
         });
     };
@@ -1427,6 +1456,48 @@ pub const Inst = struct {
         dest_type: Ref,
         operand: Ref,
     };
+
+    /// Trailing:
+    /// 0. has_bits: u32 // for every 16 fields
+    ///    - sets of 2 bits:
+    ///      0b0X: whether corresponding field has an align expression
+    ///      0bX0: whether corresponding field has a default expression
+    /// 1. fields: { // for every fields_len
+    ///        field_name: u32,
+    ///        field_type: Ref,
+    ///        align: Ref, // if corresponding bit is set
+    ///        default_value: Ref, // if corresponding bit is set
+    ///    }
+    pub const StructDecl = struct {
+        fields_len: u32,
+    };
+
+    /// Trailing:
+    /// 0. has_bits: u32 // for every 32 fields
+    ///    - the bit is whether corresponding field has an value expression
+    /// 1. field_name: u32 // for every field: null terminated string index
+    /// 2. value: Ref // for every field for which corresponding bit is set
+    pub const EnumDecl = struct {
+        /// Can be `Ref.none`.
+        tag_type: Ref,
+        fields_len: u32,
+    };
+
+    /// Trailing:
+    /// 0. has_bits: u32 // for every 10 fields (+1)
+    ///    - first bit is special: set if and only if auto enum tag is enabled.
+    ///    - sets of 3 bits:
+    ///      0b00X: whether corresponding field has a type expression
+    ///      0b0X0: whether corresponding field has a align expression
+    ///      0bX00: whether corresponding field has a tag value expression
+    /// 1. field_name: u32 // for every field: null terminated string index
+    /// 2. opt_exprs // Ref for every field for which corresponding bit is set
+    ///    - interleaved. type if present, align if present, tag value if present.
+    pub const UnionDecl = struct {
+        /// Can be `Ref.none`.
+        tag_type: Ref,
+        fields_len: u32,
+    };
 };
 
 pub const SpecialProng = enum { none, @"else", under };
@@ -1500,6 +1571,7 @@ const Writer = struct {
             .is_err_ptr,
             .typeof,
             .typeof_elem,
+            .struct_init_empty,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -1536,6 +1608,8 @@ const Writer = struct {
             .slice_start,
             .slice_end,
             .slice_sentinel,
+            .union_decl,
+            .enum_decl,
             => try self.writePlNode(stream, inst),
 
             .add,
@@ -1581,6 +1655,8 @@ const Writer = struct {
             .condbr_inline,
             => try self.writePlNodeCondBr(stream, inst),
 
+            .struct_decl => try self.writeStructDecl(stream, inst),
+
             .switch_block => try self.writePlNodeSwitchBr(stream, inst, .none),
             .switch_block_else => try self.writePlNodeSwitchBr(stream, inst, .@"else"),
             .switch_block_under => try self.writePlNodeSwitchBr(stream, inst, .under),
@@ -1610,6 +1686,7 @@ const Writer = struct {
             .as_node => try self.writeAs(stream, inst),
 
             .breakpoint,
+            .opaque_decl,
             .dbg_stmt_node,
             .ret_ptr,
             .ret_type,
@@ -1802,6 +1879,62 @@ const Writer = struct {
         try stream.writeAll("}, {\n");
         self.indent += 2;
         try self.writeBody(stream, else_body);
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
+        try stream.writeAll("}) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeStructDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.StructDecl, inst_data.payload_index);
+        const fields_len = extra.data.fields_len;
+        const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
+
+        try stream.writeAll("{\n");
+        self.indent += 2;
+
+        var field_index: usize = extra.end + bit_bags_count;
+        var bit_bag_index: usize = extra.end;
+        var cur_bit_bag: u32 = undefined;
+        var field_i: u32 = 0;
+        while (field_i < fields_len) : (field_i += 1) {
+            if (field_i % 16 == 0) {
+                cur_bit_bag = self.code.extra[bit_bag_index];
+                bit_bag_index += 1;
+            }
+            const has_align = @truncate(u1, cur_bit_bag) != 0;
+            cur_bit_bag >>= 1;
+            const has_default = @truncate(u1, cur_bit_bag) != 0;
+            cur_bit_bag >>= 1;
+
+            const field_name = self.code.nullTerminatedString(self.code.extra[field_index]);
+            field_index += 1;
+            const field_type = @intToEnum(Inst.Ref, self.code.extra[field_index]);
+            field_index += 1;
+
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.print("{}: ", .{std.zig.fmtId(field_name)});
+            try self.writeInstRef(stream, field_type);
+
+            if (has_align) {
+                const align_ref = @intToEnum(Inst.Ref, self.code.extra[field_index]);
+                field_index += 1;
+
+                try stream.writeAll(" align(");
+                try self.writeInstRef(stream, align_ref);
+                try stream.writeAll(")");
+            }
+            if (has_default) {
+                const default_ref = @intToEnum(Inst.Ref, self.code.extra[field_index]);
+                field_index += 1;
+
+                try stream.writeAll(" = ");
+                try self.writeInstRef(stream, default_ref);
+            }
+            try stream.writeAll(",\n");
+        }
+
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("}) ");

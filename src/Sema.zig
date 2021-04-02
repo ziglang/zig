@@ -259,6 +259,12 @@ pub fn analyzeBody(
             .typeof_elem => try sema.zirTypeofElem(block, inst),
             .typeof_peer => try sema.zirTypeofPeer(block, inst),
             .xor => try sema.zirBitwise(block, inst, .xor),
+            .struct_init_empty => try sema.zirStructInitEmpty(block, inst),
+
+            .struct_decl => try sema.zirStructDecl(block, inst),
+            .enum_decl => try sema.zirEnumDecl(block, inst),
+            .union_decl => try sema.zirUnionDecl(block, inst),
+            .opaque_decl => try sema.zirOpaqueDecl(block, inst),
 
             // Instructions that we know to *always* be noreturn based solely on their tag.
             // These functions match the return type of analyzeBody so that we can
@@ -512,6 +518,56 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) In
     const tracy = trace(@src());
     defer tracy.end();
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirCoerceResultPtr", .{});
+}
+
+fn zirStructDecl(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
+
+    return sema.mod.fail(&block.base, sema.src, "TODO implement zirStructDecl", .{});
+
+    //const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
+    //    .ty = decl_ty,
+    //    .val = decl_val,
+    //});
+    //return sema.analyzeDeclVal(block, src, new_decl);
+}
+
+fn zirEnumDecl(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
+
+    return sema.mod.fail(&block.base, sema.src, "TODO implement zirEnumDecl", .{});
+}
+
+fn zirUnionDecl(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
+
+    return sema.mod.fail(&block.base, sema.src, "TODO implement zirUnionDecl", .{});
+}
+
+fn zirOpaqueDecl(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
+
+    return sema.mod.fail(&block.base, sema.src, "TODO implement zirOpaqueDecl", .{});
 }
 
 fn zirRetPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -3865,6 +3921,20 @@ fn zirPtrType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
         inst_data.size,
     );
     return sema.mod.constType(sema.arena, src, ty);
+}
+
+fn zirStructInitEmpty(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const struct_type = try sema.resolveType(block, src, inst_data.operand);
+
+    return sema.mod.constInst(sema.arena, src, .{
+        .ty = struct_type,
+        .val = Value.initTag(.empty_struct_value),
+    });
 }
 
 fn requireFunctionBlock(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void {

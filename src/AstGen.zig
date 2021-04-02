@@ -719,25 +719,25 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
 
         .container_decl,
         .container_decl_trailing,
-        => return containerDecl(gz, scope, rl, tree.containerDecl(node)),
+        => return containerDecl(gz, scope, rl, node, tree.containerDecl(node)),
         .container_decl_two, .container_decl_two_trailing => {
             var buffer: [2]ast.Node.Index = undefined;
-            return containerDecl(gz, scope, rl, tree.containerDeclTwo(&buffer, node));
+            return containerDecl(gz, scope, rl, node, tree.containerDeclTwo(&buffer, node));
         },
         .container_decl_arg,
         .container_decl_arg_trailing,
-        => return containerDecl(gz, scope, rl, tree.containerDeclArg(node)),
+        => return containerDecl(gz, scope, rl, node, tree.containerDeclArg(node)),
 
         .tagged_union,
         .tagged_union_trailing,
-        => return containerDecl(gz, scope, rl, tree.taggedUnion(node)),
+        => return containerDecl(gz, scope, rl, node, tree.taggedUnion(node)),
         .tagged_union_two, .tagged_union_two_trailing => {
             var buffer: [2]ast.Node.Index = undefined;
-            return containerDecl(gz, scope, rl, tree.taggedUnionTwo(&buffer, node));
+            return containerDecl(gz, scope, rl, node, tree.taggedUnionTwo(&buffer, node));
         },
         .tagged_union_enum_tag,
         .tagged_union_enum_tag_trailing,
-        => return containerDecl(gz, scope, rl, tree.taggedUnionEnumTag(node)),
+        => return containerDecl(gz, scope, rl, node, tree.taggedUnionEnumTag(node)),
 
         .@"break" => return breakExpr(gz, scope, node),
         .@"continue" => return continueExpr(gz, scope, node),
@@ -804,6 +804,16 @@ pub fn structInitExpr(
     const astgen = gz.astgen;
     const mod = astgen.mod;
     const gpa = mod.gpa;
+
+    if (struct_init.ast.fields.len == 0) {
+        if (struct_init.ast.type_expr == 0) {
+            return rvalue(gz, scope, rl, .empty_struct, node);
+        } else {
+            const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+            const result = try gz.addUnNode(.struct_init_empty, ty_inst, node);
+            return rvalue(gz, scope, rl, result, node);
+        }
+    }
     switch (rl) {
         .discard => return mod.failNode(scope, node, "TODO implement structInitExpr discard", .{}),
         .none => return mod.failNode(scope, node, "TODO implement structInitExpr none", .{}),
@@ -1310,6 +1320,11 @@ fn blockExprStmts(
                         .switch_capture_multi_ref,
                         .switch_capture_else,
                         .switch_capture_else_ref,
+                        .struct_init_empty,
+                        .struct_decl,
+                        .union_decl,
+                        .enum_decl,
+                        .opaque_decl,
                         => break :b false,
 
                         // ZIR instructions that are always either `noreturn` or `void`.
@@ -1754,9 +1769,115 @@ fn containerDecl(
     gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
+    node: ast.Node.Index,
     container_decl: ast.full.ContainerDecl,
 ) InnerError!zir.Inst.Ref {
-    return gz.astgen.mod.failTok(scope, container_decl.ast.main_token, "TODO implement container decls", .{});
+    const astgen = gz.astgen;
+    const mod = astgen.mod;
+    const gpa = mod.gpa;
+    const tree = gz.tree();
+    const token_tags = tree.tokens.items(.tag);
+    const node_tags = tree.nodes.items(.tag);
+
+    // We must not create any types until Sema. Here the goal is only to generate
+    // ZIR for all the field types, alignments, and default value expressions.
+
+    const arg_inst: zir.Inst.Ref = if (container_decl.ast.arg != 0)
+        try comptimeExpr(gz, scope, .none, container_decl.ast.arg)
+    else
+        .none;
+
+    switch (token_tags[container_decl.ast.main_token]) {
+        .keyword_struct => {
+            if (container_decl.ast.members.len == 0) {
+                const result = try gz.addPlNode(.struct_decl, node, zir.Inst.StructDecl{
+                    .fields_len = 0,
+                });
+                return rvalue(gz, scope, rl, result, node);
+            }
+
+            assert(arg_inst == .none);
+            var fields_data = ArrayListUnmanaged(u32){};
+            defer fields_data.deinit(gpa);
+
+            // field_name and field_type are both mandatory
+            try fields_data.ensureCapacity(gpa, container_decl.ast.members.len * 2);
+
+            // We only need this if there are greater than 16 fields.
+            var bit_bag = ArrayListUnmanaged(u32){};
+            defer bit_bag.deinit(gpa);
+
+            var cur_bit_bag: u32 = 0;
+            var member_index: usize = 0;
+            while (true) {
+                const member_node = container_decl.ast.members[member_index];
+                const member = switch (node_tags[member_node]) {
+                    .container_field_init => tree.containerFieldInit(member_node),
+                    .container_field_align => tree.containerFieldAlign(member_node),
+                    .container_field => tree.containerField(member_node),
+                    else => unreachable,
+                };
+                if (member.comptime_token) |comptime_token| {
+                    return mod.failTok(scope, comptime_token, "TODO implement comptime struct fields", .{});
+                }
+                try fields_data.ensureCapacity(gpa, fields_data.items.len + 4);
+
+                const field_name = try gz.identAsString(member.ast.name_token);
+                fields_data.appendAssumeCapacity(field_name);
+
+                const field_type = try typeExpr(gz, scope, member.ast.type_expr);
+                fields_data.appendAssumeCapacity(@enumToInt(field_type));
+
+                const have_align = member.ast.align_expr != 0;
+                const have_value = member.ast.value_expr != 0;
+                cur_bit_bag = (cur_bit_bag >> 2) |
+                    (@as(u32, @boolToInt(have_align)) << 30) |
+                    (@as(u32, @boolToInt(have_value)) << 31);
+
+                if (have_align) {
+                    const align_inst = try comptimeExpr(gz, scope, .{ .ty = .u32_type }, member.ast.align_expr);
+                    fields_data.appendAssumeCapacity(@enumToInt(align_inst));
+                }
+                if (have_value) {
+                    const default_inst = try comptimeExpr(gz, scope, .{ .ty = field_type }, member.ast.value_expr);
+                    fields_data.appendAssumeCapacity(@enumToInt(default_inst));
+                }
+
+                member_index += 1;
+                if (member_index < container_decl.ast.members.len) {
+                    if (member_index % 16 == 0) {
+                        try bit_bag.append(gpa, cur_bit_bag);
+                        cur_bit_bag = 0;
+                    }
+                } else {
+                    break;
+                }
+            }
+            const empty_slot_count = 16 - ((member_index - 1) % 16);
+            cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
+
+            const result = try gz.addPlNode(.struct_decl, node, zir.Inst.StructDecl{
+                .fields_len = @intCast(u32, container_decl.ast.members.len),
+            });
+            try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
+                bit_bag.items.len + 1 + fields_data.items.len);
+            astgen.extra.appendSliceAssumeCapacity(bit_bag.items); // Likely empty.
+            astgen.extra.appendAssumeCapacity(cur_bit_bag);
+            astgen.extra.appendSliceAssumeCapacity(fields_data.items);
+            return rvalue(gz, scope, rl, result, node);
+        },
+        .keyword_union => {
+            return mod.failTok(scope, container_decl.ast.main_token, "TODO AstGen for union decl", .{});
+        },
+        .keyword_enum => {
+            return mod.failTok(scope, container_decl.ast.main_token, "TODO AstGen for enum decl", .{});
+        },
+        .keyword_opaque => {
+            const result = try gz.addNode(.opaque_decl, node);
+            return rvalue(gz, scope, rl, result, node);
+        },
+        else => unreachable,
+    }
 }
 
 fn errorSetDecl(
@@ -2809,10 +2930,10 @@ fn switchExpr(
     // This is the header as well as the optional else prong body, as well as all the
     // scalar cases.
     // At the end we will memcpy this into place.
-    var scalar_cases_payload = std.ArrayListUnmanaged(u32){};
+    var scalar_cases_payload = ArrayListUnmanaged(u32){};
     defer scalar_cases_payload.deinit(gpa);
     // Same deal, but this is only the `extra` data for the multi cases.
-    var multi_cases_payload = std.ArrayListUnmanaged(u32){};
+    var multi_cases_payload = ArrayListUnmanaged(u32){};
     defer multi_cases_payload.deinit(gpa);
 
     var block_scope: GenZir = .{
