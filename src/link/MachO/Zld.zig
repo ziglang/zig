@@ -73,9 +73,7 @@ la_symbol_ptr_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
 bss_section_index: ?u16 = null,
 
-globals: std.StringArrayHashMapUnmanaged(Symbol) = .{},
-undefs: std.StringArrayHashMapUnmanaged(Symbol) = .{},
-externs: std.StringArrayHashMapUnmanaged(Symbol) = .{},
+symtab: std.StringArrayHashMapUnmanaged(Symbol) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
 threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
@@ -210,20 +208,11 @@ pub fn deinit(self: *Zld) void {
     self.mappings.deinit(self.allocator);
     self.unhandled_sections.deinit(self.allocator);
 
-    for (self.globals.items()) |*entry| {
+    for (self.symtab.items()) |*entry| {
         self.allocator.free(entry.key);
     }
-    self.globals.deinit(self.allocator);
-
-    for (self.undefs.items()) |*entry| {
-        self.allocator.free(entry.key);
-    }
-    self.undefs.deinit(self.allocator);
-
-    for (self.externs.items()) |*entry| {
-        self.allocator.free(entry.key);
-    }
-    self.externs.deinit(self.allocator);
+    self.symtab.deinit(self.allocator);
+    self.strtab.deinit(self.allocator);
 }
 
 pub fn closeFiles(self: Zld) void {
@@ -276,10 +265,11 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.resolveSymbols();
     try self.updateMetadata();
     try self.sortSections();
-    try self.allocateTextSegment();
-    try self.allocateDataConstSegment();
-    try self.allocateDataSegment();
-    self.allocateLinkeditSegment();
+    self.printSymtab();
+    // try self.allocateTextSegment();
+    // try self.allocateDataConstSegment();
+    // try self.allocateDataSegment();
+    // self.allocateLinkeditSegment();
     // try self.writeStubHelperCommon();
     // try self.doRelocs();
     // try self.flush();
@@ -1216,48 +1206,64 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
     log.warn("resolving symbols in '{s}'", .{object.name});
 
     for (object.symtab.items) |sym, sym_id| {
-        if (sym.isLocal()) continue; // If symbol is local to CU, we don't put it in the global symbol table.
+        switch (sym.tag) {
+            .Local, .Stab => continue, // If symbol is local to CU, we don't put it in the global symbol table.
+            .Weak, .Strong => {
+                const sym_name = object.getString(sym.inner.n_strx);
+                const global = self.symtab.getEntry(sym_name) orelse {
+                    // Put new global symbol into the symbol table.
+                    const name = try self.allocator.dupe(u8, sym_name);
+                    try self.symtab.putNoClobber(self.allocator, name, .{
+                        .tag = sym.tag,
+                        .inner = .{
+                            .n_strx = 0, // This will be populated later.
+                            .n_value = 0, // This will be populated later,
+                            .n_type = macho.N_SECT | macho.N_EXT,
+                            .n_desc = 0,
+                            .n_sect = 0, // This will be populated later.
+                        },
+                        .file = object_id,
+                        .index = @intCast(u32, sym_id),
+                    });
+                    continue;
+                };
 
-        const sym_name = object.getString(sym.inner.n_strx);
-        if (sym.isGlobal()) {
-            const global = self.globals.getEntry(sym_name) orelse {
-                const name = try self.allocator.dupe(u8, sym_name);
-                try self.globals.putNoClobber(self.allocator, name, .{
-                    .inner = sym.inner,
-                    .file = object_id,
-                    .index = @intCast(u32, sym_id),
-                });
-
-                if (self.undefs.swapRemove(sym_name)) |undef| {
-                    self.allocator.free(undef.key);
+                if (sym.tag == .Weak) continue; // If symbol is weak, nothing to do.
+                if (global.value.tag == .Strong) { // If both symbols are strong, we have a collision.
+                    log.err("symbol '{s}' defined multiple times", .{sym_name});
+                    return error.MultipleSymbolDefinitions;
                 }
 
-                continue;
-            };
+                global.value = .{
+                    .tag = .Strong,
+                    .inner = .{
+                        .n_strx = 0, // This will be populated later.
+                        .n_value = 0, // This will be populated later,
+                        .n_type = macho.N_SECT | macho.N_EXT,
+                        .n_desc = 0,
+                        .n_sect = 0, // This will be populated later.
+                    },
+                    .file = object_id,
+                    .index = @intCast(u32, sym_id),
+                };
+            },
+            .Undef => {
+                const sym_name = object.getString(sym.inner.n_strx);
+                if (self.symtab.contains(sym_name)) continue; // Nothing to do if we already found a definition.
 
-            if (sym.isWeakDef()) continue; // If symbol is weak, nothing to do.
-            if (!global.value.isWeakDef()) { // If both symbols are strong, we have a collision.
-                log.err("symbol '{s}' defined multiple times", .{sym_name});
-                return error.MultipleSymbolDefinitions;
-            }
-
-            global.value = .{
-                .inner = sym.inner,
-                .file = object_id,
-                .index = @intCast(u32, sym_id),
-            };
-        } else if (sym.isUndef()) {
-            if (self.globals.contains(sym_name)) continue; // Nothing to do if we already found a definition.
-            if (self.undefs.contains(sym_name)) continue; // No need to reinsert the undef ref.
-
-            const name = try self.allocator.dupe(u8, sym_name);
-            try self.undefs.putNoClobber(self.allocator, name, .{
-                .inner = sym.inner,
-            });
-        } else {
-            // Oh no, unhandled symbol type, report back to the user.
-            log.err("unhandled symbol type for symbol {any}", .{sym});
-            return error.UnhandledSymbolType;
+                const name = try self.allocator.dupe(u8, sym_name);
+                try self.symtab.putNoClobber(self.allocator, name, .{
+                    .tag = .Undef,
+                    .inner = .{
+                        .n_strx = 0,
+                        .n_value = 0,
+                        .n_type = 0,
+                        .n_desc = 0,
+                        .n_sect = 0,
+                    },
+                });
+            },
+            .Import => unreachable, // We don't expect any imports just yet.
         }
     }
 }
@@ -1274,7 +1280,9 @@ fn resolveSymbols(self: *Zld) !void {
         var archive = &self.archives.items[next];
         var hit: bool = false;
 
-        for (self.undefs.items()) |entry| {
+        for (self.symtab.items()) |entry| {
+            if (entry.value.tag != .Undef) continue;
+
             const sym_name = entry.key;
 
             // Check if the entry exists in a static archive.
@@ -1306,9 +1314,10 @@ fn resolveSymbols(self: *Zld) !void {
     // Third pass, resolve symbols in dynamic libraries.
     // TODO Implement libSystem as a hard-coded library, or ship with
     // a libSystem.B.tbd definition file?
-    while (self.undefs.items().len > 0) {
-        const entry = self.undefs.pop();
-        try self.externs.putNoClobber(self.allocator, entry.key, .{
+    for (self.symtab.items()) |*entry| {
+        if (entry.value.tag != .Undef) continue;
+        entry.value = .{
+            .tag = .Import,
             .inner = .{
                 .n_strx = 0, // This will be populated once we write the string table.
                 .n_type = macho.N_UNDF | macho.N_EXT,
@@ -1317,30 +1326,19 @@ fn resolveSymbols(self: *Zld) !void {
                 .n_value = 0,
             },
             .file = 0,
-        });
+        };
     }
 
     // If there are any undefs left, flag an error.
-    if (self.undefs.items().len > 0) {
-        for (self.undefs.items()) |entry| {
-            log.err("undefined reference to symbol '{s}'", .{entry.key});
-        }
-
+    var has_unresolved = false;
+    for (self.symtab.items()) |entry| {
+        if (entry.value.tag != .Undef) continue;
+        has_unresolved = true;
+        log.err("undefined reference to symbol '{s}'", .{entry.key});
+    }
+    if (has_unresolved) {
         return error.UndefinedSymbolReference;
     }
-
-    // Finally, put in a reference to 'dyld_stub_binder'.
-    const name = try self.allocator.dupe(u8, "dyld_stub_binder");
-    try self.externs.putNoClobber(self.allocator, name, .{
-        .inner = .{
-            .n_strx = 0, // This will be populated once we write the string table.
-            .n_type = std.macho.N_UNDF | std.macho.N_EXT,
-            .n_sect = 0,
-            .n_desc = std.macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | std.macho.N_SYMBOL_RESOLVER,
-            .n_value = 0,
-        },
-        .file = 0,
-    });
 }
 
 fn doRelocs(self: *Zld) !void {
@@ -3261,18 +3259,8 @@ fn aarch64IsArithmetic(inst: *const [4]u8) callconv(.Inline) bool {
 }
 
 fn printSymtab(self: Zld) void {
-    log.warn("globals", .{});
-    for (self.globals.items()) |entry| {
-        log.warn("    | {s} => {any}", .{ entry.key, entry.value });
-    }
-
-    log.warn("externs", .{});
-    for (self.externs.items()) |entry| {
-        log.warn("    | {s} => {any}", .{ entry.key, entry.value });
-    }
-
-    log.warn("undefs", .{});
-    for (self.undefs.items()) |entry| {
+    log.warn("symtab", .{});
+    for (self.symtab.items()) |entry| {
         log.warn("    | {s} => {any}", .{ entry.key, entry.value });
     }
 }
