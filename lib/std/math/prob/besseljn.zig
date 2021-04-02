@@ -13,7 +13,7 @@ const std = @import("../../std.zig");
 const math = std.math;
 const prob = std.math.prob;
 const gamma = prob.gamma;
-const lgam = prob.lgam;
+const lnGamma = prob.lnGamma;
 const airy = prob.airy;
 const polevl = prob.polevl;
 const p1evl = prob.p1evl;
@@ -351,7 +351,7 @@ fn jvs(n: f64, x: f64) f64 {
         t = math.pow(f64, 0.5 * x, n) / gamma(n + 1.0);
         y *= t;
     } else {
-        t = n * math.ln(0.5 * x) - lgam(n + 1.0);
+        t = n * math.ln(0.5 * x) - lnGamma(n + 1.0);
         if (y < 0) {
             sgngam = -sgngam;
             y = -y;
