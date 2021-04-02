@@ -6,28 +6,381 @@
 //
 // Ported from the Cephes library. Original license below:
 //
-// Cephes Math Library Release 2.8:  June, 2000
-// Copyright 1984, 1996, 2000 by Stephen L. Moshier
+// Cephes Math Library, Release 2.8:  June, 2000
+// Copyright 1984, 1995, 2000 by Stephen L. Moshier
 
 const std = @import("../../std.zig");
 const math = std.math;
 
 usingnamespace @import("constants.zig");
 
-const ndtri = math.prob.ndtri;
+const gamma = math.prob.gamma;
 const lgam = math.prob.lgam;
 
-fn done(rflg: bool, x: f64) f64 {
-    if (rflg) {
-        if (x <= MACHEP) {
+const MAXGAM = 34.84425627277176174;
+const big = 4.503599627370496e15;
+const biginv = 2.22044604925031308085e-16;
+
+fn done(flag: bool, t: f64) f64 {
+    if (flag) {
+        if (t <= MACHEP) {
             return 1.0 - MACHEP;
         } else {
-            return 1.0 - x;
+            return 1.0 - t;
+        }
+    }
+    return t;
+}
+
+/// Incomplete beta integral
+///
+/// Returns incomplete beta integral of the arguments, evaluated
+/// from zero to x.  The function is defined as
+///
+///                  x
+///     -            -
+///    | (a+b)      | |  a-1     b-1
+///  -----------    |   t   (1-t)   dt.
+///   -     -     | |
+///  | (a) | (b)   -
+///                 0
+///
+/// The domain of definition is 0 <= x <= 1.  In this
+/// implementation a and b are restricted to positive values.
+/// The integral from x to 1 may be obtained by the symmetry
+/// relation
+///
+///    1 - incbet( a, b, x )  =  incbet( b, a, 1-x ).
+///
+/// The integral is evaluated by a continued fraction expansion
+/// or, when b*x is small, by a power series.
+///
+/// ACCURACY:
+///
+/// Tested at uniformly distributed random points (a,b,x) with a and b
+/// in "domain" and x between 0 and 1.
+///                                        Relative error
+/// arithmetic   domain     # trials      peak         rms
+///    IEEE      0,5         10000       6.9e-15     4.5e-16
+///    IEEE      0,85       250000       2.2e-13     1.7e-14
+///    IEEE      0,1000      30000       5.3e-12     6.3e-13
+///    IEEE      0,10000    250000       9.3e-11     7.1e-12
+///    IEEE      0,100000    10000       8.7e-10     4.8e-11
+/// Outputs smaller than the IEEE gradual underflow threshold
+/// were excluded from these statistics.
+///
+/// ERROR MESSAGES:
+///   message         condition      value returned
+/// incbet domain      x<0, x>1          0.0
+/// incbet underflow                     0.0
+pub fn incbet(aa: f64, bb: f64, xx: f64) f64 {
+    if (aa <= 0.0 or bb <= 0.0) {
+        return 0.0; // Domain
+    }
+
+    if (xx <= 0.0 or xx >= 1.0) {
+        if (xx == 0.0) {
+            return (0.0);
+        }
+        if (xx == 1.0) {
+            return 1.0;
+        }
+
+        return 0.0; // Domain
+    }
+
+    var flag = false;
+
+    if (bb * xx <= 1.0 and xx <= 0.95) {
+        const t = pseries(aa, bb, xx);
+        return done(flag, t);
+    }
+
+    var w = 1.0 - xx;
+    var a = aa;
+    var b = bb;
+    var xc = w;
+    var x = xx;
+
+    // Reverse a and b if x is greater than the mean.
+    if (xx > aa / (aa + bb)) {
+        flag = true;
+        a = bb;
+        b = aa;
+        xc = xx;
+        x = w;
+    }
+
+    if (flag and b * x <= 1.0 and x <= 0.95) {
+        const t = pseries(a, b, x);
+        return done(flag, t);
+    }
+
+    // Choose expansion for better convergence.
+    var y = x * (a + b - 2.0) - (a - 1.0);
+    if (y < 0.0) {
+        w = incbcf(a, b, x);
+    } else {
+        w = incbd(a, b, x) / xc;
+    }
+
+    // Multiply w by the factor
+    //   a      b   _             _     _
+    //  x  (1-x)   | (a+b) / ( a | (a) | (b) )
+    y = a * math.ln(x);
+    var t = b * math.ln(xc);
+    if (a + b < MAXGAM and math.fabs(y) < MAXLOG and math.fabs(t) < MAXLOG) {
+        t = math.pow(f64, xc, b);
+        t *= math.pow(f64, x, a);
+        t /= a;
+        t *= w;
+        t *= gamma(a + b) / (gamma(a) * gamma(b));
+        return done(flag, t);
+    }
+
+    // Resort to logarithms.
+    y += t + lgam(a + b) - lgam(a) - lgam(b);
+    y += math.ln(w / a);
+    if (y < MINLOG) {
+        t = 0.0;
+    } else {
+        t = math.exp(y);
+    }
+
+    return done(flag, t);
+}
+
+/// Continued fraction expansion #1
+/// for incomplete beta integral
+pub fn incbcf(a: f64, b: f64, x: f64) f64 {
+    var k1 = a;
+    var k2 = a + b;
+    var k3 = a;
+    var k4 = a + 1.0;
+    var k5 = @as(f64, 1.0);
+    var k6 = b - 1.0;
+    var k7 = k4;
+    var k8 = a + 2.0;
+
+    var pkm2: f64 = 0;
+    var qkm2: f64 = 1;
+    var pkm1: f64 = 1;
+    var qkm1: f64 = 1;
+    var ans: f64 = 1;
+    var r: f64 = 1;
+    var n: f64 = 0;
+    var thresh: f64 = 3.0 * MACHEP;
+
+    // mimic do-while
+    while (true) {
+        var xk = -(x * k1 * k2) / (k3 * k4);
+        var pk = pkm1 + pkm2 * xk;
+        var qk = qkm1 + qkm2 * xk;
+        pkm2 = pkm1;
+        pkm1 = pk;
+        qkm2 = qkm1;
+        qkm1 = qk;
+
+        xk = (x * k5 * k6) / (k7 * k8);
+        pk = pkm1 + pkm2 * xk;
+        qk = qkm1 + qkm2 * xk;
+        pkm2 = pkm1;
+        pkm1 = pk;
+        qkm2 = qkm1;
+        qkm1 = qk;
+
+        if (qk != 0) {
+            r = pk / qk;
+        }
+
+        var t: f64 = 1.0;
+        if (r != 0) {
+            t = math.fabs((ans - r) / r);
+            ans = r;
+        }
+
+        if (t < thresh) {
+            break;
+        }
+
+        k1 += 1.0;
+        k2 += 1.0;
+        k3 += 2.0;
+        k4 += 2.0;
+        k5 += 1.0;
+        k6 -= 1.0;
+        k7 += 2.0;
+        k8 += 2.0;
+
+        if (math.fabs(qk) + math.fabs(pk) > big) {
+            pkm2 *= biginv;
+            pkm1 *= biginv;
+            qkm2 *= biginv;
+            qkm1 *= biginv;
+        }
+
+        if (math.fabs(qk) < biginv or math.fabs(pk) < biginv) {
+            pkm2 *= big;
+            pkm1 *= big;
+            qkm2 *= big;
+            qkm1 *= big;
+        }
+
+        n += 1;
+        if (n >= 300) break;
+    }
+
+    return ans;
+}
+
+/// Continued fraction expansion #2
+/// for incomplete beta integral
+pub fn incbd(a: f64, b: f64, x: f64) f64 {
+    var k1 = a;
+    var k2 = b - 1.0;
+    var k3 = a;
+    var k4 = a + 1.0;
+    var k5 = @as(f64, 1.0);
+    var k6 = a + b;
+    var k7 = a + 1.0;
+    var k8 = a + 2.0;
+
+    var pkm2: f64 = 0;
+    var qkm2: f64 = 1;
+    var pkm1: f64 = 1;
+    var qkm1: f64 = 1;
+    var z: f64 = x / (1.0 - x);
+    var ans: f64 = 1;
+    var r: f64 = 1;
+    var n: f64 = 0;
+    var thresh: f64 = 3.0 * MACHEP;
+
+    // mimic do-while
+    while (true) {
+        var xk = -(z * k1 * k2) / (k3 * k4);
+        var pk = pkm1 + pkm2 * xk;
+        var qk = qkm1 + qkm2 * xk;
+        pkm2 = pkm1;
+        pkm1 = pk;
+        qkm2 = qkm1;
+        qkm1 = qk;
+
+        xk = (z * k5 * k6) / (k7 * k8);
+        pk = pkm1 + pkm2 * xk;
+        qk = qkm1 + qkm2 * xk;
+        pkm2 = pkm1;
+        pkm1 = pk;
+        qkm2 = qkm1;
+        qkm1 = qk;
+
+        if (qk != 0) {
+            r = pk / qk;
+        }
+
+        const t = blk: {
+            if (r != 0) {
+                const tv = math.fabs((ans - r) / r);
+                ans = r;
+                break :blk tv;
+            } else {
+                break :blk 1.0;
+            }
+        };
+
+        if (t < thresh) {
+            break;
+        }
+
+        k1 += 1.0;
+        k2 -= 1.0;
+        k3 += 2.0;
+        k4 += 2.0;
+        k5 += 1.0;
+        k6 += 1.0;
+        k7 += 2.0;
+        k8 += 2.0;
+
+        if (math.fabs(qk) + math.fabs(pk) > big) {
+            pkm2 *= biginv;
+            pkm1 *= biginv;
+            qkm2 *= biginv;
+            qkm1 *= biginv;
+        }
+        if (math.fabs(qk) < biginv or math.fabs(pk) < biginv) {
+            pkm2 *= big;
+            pkm1 *= big;
+            qkm2 *= big;
+            qkm1 *= big;
+        }
+
+        n += 1;
+        while (n >= 300) break;
+    }
+
+    return ans;
+}
+
+/// Power series for incomplete beta integral.
+/// Use when b*x is small and x not too close to 1.
+pub fn pseries(a: f64, b: f64, x: f64) f64 {
+    var ai = 1.0 / a;
+    var u = (1.0 - b) * x;
+    var v = u / (a + 1.0);
+    var t1 = v;
+    var t = u;
+    var n: f64 = 2.0;
+    var s: f64 = 0.0;
+    var z: f64 = MACHEP * ai;
+
+    while (math.fabs(v) > z) {
+        u = (n - b) * x / n;
+        t *= u;
+        v = t / (a + n);
+        s += v;
+        n += 1.0;
+    }
+
+    s += t1;
+    s += ai;
+
+    u = a * math.ln(x);
+    if ((a + b) < MAXGAM and math.fabs(u) < MAXLOG) {
+        t = gamma(a + b) / (gamma(a) * gamma(b));
+        s = s * t * math.pow(f64, x, a);
+    } else {
+        t = lgam(a + b) - lgam(a) - lgam(b) + u + math.ln(s);
+        if (t < MINLOG) {
+            s = 0.0;
+        } else {
+            s = math.exp(t);
         }
     }
 
-    return x;
+    return s;
 }
+
+const expectApproxEqRel = std.testing.expectApproxEqRel;
+const expect = std.testing.expect;
+const epsilon = 1e-10;
+
+test "incbet" {
+    const cases = [_][4]f64{
+        [_]f64{ 1, 1, 0.8, 0.8 },
+        [_]f64{ 1, 5, 0.8, 0.99968000000000001 },
+        [_]f64{ 10, 10, 0.8, 0.99842087945083291 },
+        [_]f64{ 10, 10, 0.1, 3.929882327128003e-06 },
+        [_]f64{ 10, 2, 0.4, 0.00073400320000000028 },
+        [_]f64{ 0.1, 0.2, 0.6, 0.69285678232066683 },
+        [_]f64{ 1, 10, 0.7489, 0.99999900352334858 },
+    };
+
+    for (cases) |c| {
+        expectApproxEqRel(incbet(c[0], c[1], c[2]), c[3], epsilon);
+        expectApproxEqRel(1 - incbet(c[1], c[0], 1 - c[2]), c[3], epsilon);
+    }
+}
+
+const ndtri = math.prob.ndtri;
 
 /// Inverse of imcomplete beta integral
 ///
@@ -306,11 +659,6 @@ pub fn incbi(aa: f64, bb: f64, yy0: f64) f64 {
 
     unreachable;
 }
-
-const expectApproxEqRel = std.testing.expectApproxEqRel;
-const expect = std.testing.expect;
-const epsilon = 1e-10;
-const incbet = std.math.prob.incbet;
 
 test "incbi" {
     const cases = [_][4]f64{
