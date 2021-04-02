@@ -1349,7 +1349,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         }
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const colored_stderr = try termColor(allocator, escaped_stderr);
-                        try out.print("<pre><code class=\"shell\">$ zig test {s}.zig{s}\n{s}</code></pre>\n", .{
+                        try out.print("<pre><code class=\"shell\">$ zig test {s}.zig {s}\n{s}</code></pre>\n", .{
                             code.name,
                             mode_arg,
                             colored_stderr,
