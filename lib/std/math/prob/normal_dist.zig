@@ -94,7 +94,7 @@ const UTHRESH = 37.519379347;
 ///
 ///   message         condition         value returned
 /// erfc underflow    x > 37.519379347       0.0
-pub fn ndtr(a: f64) f64 {
+pub fn normalDist(a: f64) f64 {
     var x = a * SQRTH;
     var z = math.fabs(x);
 
@@ -202,7 +202,7 @@ const Q2 = [_]f64{
 ///   message         condition    value returned
 /// ndtri domain       x <= 0        -inf
 /// ndtri domain       x >= 1         inf
-pub fn ndtri(y0: f64) f64 {
+pub fn inverseNormalDist(y0: f64) f64 {
     if (y0 <= 0.0) {
         return -math.inf(f64); // Domain error
     }
@@ -251,12 +251,12 @@ const expectApproxEqRel = std.testing.expectApproxEqRel;
 const expect = std.testing.expect;
 const epsilon = 1e5;
 
-test "ndtri" {
-    expectApproxEqRel(ndtri(7.62e-24), 10, epsilon);
-    expectApproxEqRel(ndtri(0.1587), -1, epsilon);
-    expectApproxEqRel(ndtri(0.5), 0, epsilon);
-    expectApproxEqRel(ndtri(0.8413), 1, epsilon);
-    expectApproxEqRel(ndtri(1 - 2.867e-7), 5, epsilon);
+test "inverseNormalDist" {
+    expectApproxEqRel(inverseNormalDist(7.62e-24), 10, epsilon);
+    expectApproxEqRel(inverseNormalDist(0.1587), -1, epsilon);
+    expectApproxEqRel(inverseNormalDist(0.5), 0, epsilon);
+    expectApproxEqRel(inverseNormalDist(0.8413), 1, epsilon);
+    expectApproxEqRel(inverseNormalDist(1 - 2.867e-7), 5, epsilon);
 }
 
 fn under(a: f64) f64 {
@@ -413,9 +413,9 @@ test "erfce" {
 test "ndtr" {
     const e2 = 1e-3; // TODO: Get more accurate reference
 
-    expectApproxEqRel(ndtr(-10), 7.62e-24, e2);
-    expectApproxEqRel(ndtr(-1), 0.1587, e2);
-    expectApproxEqRel(ndtr(0), 0.5, e2);
-    expectApproxEqRel(ndtr(1), 0.8413, e2);
-    expectApproxEqRel(ndtr(5), 1 - 2.867e-7, e2);
+    expectApproxEqRel(normalDist(-10), 7.62e-24, e2);
+    expectApproxEqRel(normalDist(-1), 0.1587, e2);
+    expectApproxEqRel(normalDist(0), 0.5, e2);
+    expectApproxEqRel(normalDist(1), 0.8413, e2);
+    expectApproxEqRel(normalDist(5), 1 - 2.867e-7, e2);
 }

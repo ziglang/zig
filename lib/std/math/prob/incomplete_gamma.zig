@@ -247,7 +247,7 @@ test "igam" {
     }
 }
 
-const ndtri = math.prob.ndtri;
+const inverseNormalDist = math.prob.inverseNormalDist;
 
 /// Inverse of complemented imcomplete gamma integral
 ///
@@ -292,7 +292,7 @@ pub fn igami(a: f64, y0: f64) f64 {
 
     // approximation to inverse function
     var d: f64 = 1.0 / (9.0 * a);
-    var y: f64 = (1.0 - d - ndtri(y0) * math.sqrt(d));
+    var y: f64 = (1.0 - d - inverseNormalDist(y0) * math.sqrt(d));
     var x: f64 = a * y * y * y;
 
     var lgm = lnGamma(a);

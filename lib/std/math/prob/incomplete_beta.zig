@@ -380,7 +380,7 @@ test "incbet" {
     }
 }
 
-const ndtri = math.prob.ndtri;
+const inverseNormalDist = math.prob.inverseNormalDist;
 
 /// Inverse of imcomplete beta integral
 ///
@@ -445,8 +445,7 @@ pub fn incbi(aa: f64, bb: f64, yy0: f64) f64 {
         }
 
         // approximation to inverse function
-
-        yp = -ndtri(yy0);
+        yp = -inverseNormalDist(yy0);
 
         if (yy0 > 0.5) {
             rflg = true;
