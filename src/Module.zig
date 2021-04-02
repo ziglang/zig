@@ -356,6 +356,25 @@ pub const ErrorSet = struct {
     names_ptr: [*]const []const u8,
 };
 
+/// Represents the data that a struct declaration provides.
+pub const Struct = struct {
+    owner_decl: *Decl,
+    /// Set of field names in declaration order.
+    fields: std.StringArrayHashMapUnmanaged(Field),
+    /// Represents the declarations inside this struct.
+    container: Scope.Container,
+
+    /// Offset from Decl node index, points to the struct AST node.
+    node_offset: i32,
+
+    pub const Field = struct {
+        ty: Type,
+        abi_align: Value,
+        /// Uses `unreachable_value` to indicate no default.
+        default_val: Value,
+    };
+};
+
 /// Some Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.
 /// Extern functions do not have this data structure; they are represented by
 /// the `Decl` only, with a `Value` tag of `extern_fn`.
@@ -822,6 +841,7 @@ pub const Scope = struct {
             try block.instructions.append(block.sema.gpa, &inst.base);
             return &inst.base;
         }
+
         pub fn addBr(
             scope_block: *Scope.Block,
             src: LazySrcLoc,
@@ -916,6 +936,27 @@ pub const Scope = struct {
                     .src = src,
                 },
                 .byte_offset = abs_byte_off,
+            };
+            try block.instructions.append(block.sema.gpa, &inst.base);
+            return &inst.base;
+        }
+
+        pub fn addStructFieldPtr(
+            block: *Scope.Block,
+            src: LazySrcLoc,
+            ty: Type,
+            struct_ptr: *ir.Inst,
+            field_index: u32,
+        ) !*ir.Inst {
+            const inst = try block.sema.arena.create(ir.Inst.StructFieldPtr);
+            inst.* = .{
+                .base = .{
+                    .tag = .struct_field_ptr,
+                    .ty = ty,
+                    .src = src,
+                },
+                .struct_ptr = struct_ptr,
+                .field_index = field_index,
             };
             try block.instructions.append(block.sema.gpa, &inst.base);
             return &inst.base;

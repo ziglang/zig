@@ -910,6 +910,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .ret => return self.genRet(inst.castTag(.ret).?),
                 .retvoid => return self.genRetVoid(inst.castTag(.retvoid).?),
                 .store => return self.genStore(inst.castTag(.store).?),
+                .struct_field_ptr => return self.genStructFieldPtr(inst.castTag(.struct_field_ptr).?),
                 .sub => return self.genSub(inst.castTag(.sub).?),
                 .subwrap => return self.genSubWrap(inst.castTag(.subwrap).?),
                 .switchbr => return self.genSwitch(inst.castTag(.switchbr).?),
@@ -1401,6 +1402,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
             }
             return .none;
+        }
+
+        fn genStructFieldPtr(self: *Self, inst: *ir.Inst.StructFieldPtr) !MCValue {
+            return self.fail(inst.base.src, "TODO implement codegen struct_field_ptr", .{});
         }
 
         fn genSub(self: *Self, inst: *ir.Inst.BinOp) !MCValue {

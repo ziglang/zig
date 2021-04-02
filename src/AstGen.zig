@@ -1322,6 +1322,8 @@ fn blockExprStmts(
                         .switch_capture_else_ref,
                         .struct_init_empty,
                         .struct_decl,
+                        .struct_decl_packed,
+                        .struct_decl_extern,
                         .union_decl,
                         .enum_decl,
                         .opaque_decl,
@@ -1789,8 +1791,13 @@ fn containerDecl(
 
     switch (token_tags[container_decl.ast.main_token]) {
         .keyword_struct => {
+            const tag = if (container_decl.layout_token) |t| switch (token_tags[t]) {
+                .keyword_packed => zir.Inst.Tag.struct_decl_packed,
+                .keyword_extern => zir.Inst.Tag.struct_decl_extern,
+                else => unreachable,
+            } else zir.Inst.Tag.struct_decl;
             if (container_decl.ast.members.len == 0) {
-                const result = try gz.addPlNode(.struct_decl, node, zir.Inst.StructDecl{
+                const result = try gz.addPlNode(tag, node, zir.Inst.StructDecl{
                     .fields_len = 0,
                 });
                 return rvalue(gz, scope, rl, result, node);
@@ -1856,7 +1863,7 @@ fn containerDecl(
             const empty_slot_count = 16 - ((member_index - 1) % 16);
             cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
 
-            const result = try gz.addPlNode(.struct_decl, node, zir.Inst.StructDecl{
+            const result = try gz.addPlNode(tag, node, zir.Inst.StructDecl{
                 .fields_len = @intCast(u32, container_decl.ast.members.len),
             });
             try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +

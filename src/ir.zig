@@ -137,6 +137,8 @@ pub const Inst = struct {
         wrap_errunion_err,
         xor,
         switchbr,
+        /// Given a pointer to a struct and a field index, returns a pointer to the field.
+        struct_field_ptr,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -204,6 +206,7 @@ pub const Inst = struct {
                 .constant => Constant,
                 .loop => Loop,
                 .varptr => VarPtr,
+                .struct_field_ptr => StructFieldPtr,
                 .switchbr => SwitchBr,
                 .dbg_stmt => DbgStmt,
             };
@@ -552,6 +555,27 @@ pub const Inst = struct {
         }
     };
 
+    pub const StructFieldPtr = struct {
+        pub const base_tag = Tag.struct_field_ptr;
+
+        base: Inst,
+        struct_ptr: *Inst,
+        field_index: usize,
+
+        pub fn operandCount(self: *const StructFieldPtr) usize {
+            return 1;
+        }
+        pub fn getOperand(self: *const StructFieldPtr, index: usize) ?*Inst {
+            var i = index;
+
+            if (i < 1)
+                return self.struct_ptr;
+            i -= 1;
+
+            return null;
+        }
+    };
+
     pub const SwitchBr = struct {
         pub const base_tag = Tag.switchbr;
 
@@ -793,6 +817,10 @@ const DumpTzir = struct {
                     for (call.args) |arg| {
                         try dtz.findConst(arg);
                     }
+                },
+                .struct_field_ptr => {
+                    const struct_field_ptr = inst.castTag(.struct_field_ptr).?;
+                    try dtz.findConst(struct_field_ptr.struct_ptr);
                 },
 
                 // TODO fill out this debug printing
@@ -1064,6 +1092,18 @@ const DumpTzir = struct {
                         try writer.writeAll("\n");
                     } else {
                         try writer.writeAll(")\n");
+                    }
+                },
+
+                .struct_field_ptr => {
+                    const struct_field_ptr = inst.castTag(.struct_field_ptr).?;
+                    const kinky = try dtz.writeInst(writer, struct_field_ptr.struct_ptr);
+                    if (kinky != null) {
+                        try writer.print("{d}) // Instruction does not dominate all uses!\n", .{
+                            struct_field_ptr.field_index,
+                        });
+                    } else {
+                        try writer.print("{d})\n", .{struct_field_ptr.field_index});
                     }
                 },
 

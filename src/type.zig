@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Target = std.Target;
 const Module = @import("Module.zig");
+const log = std.log.scoped(.Type);
 
 /// This is the raw data, with no bookkeeping, no memory awareness, no de-duplication.
 /// It's important for this type to be small.
@@ -94,6 +95,7 @@ pub const Type = extern union {
 
             .empty_struct => return .Struct,
             .empty_struct_literal => return .Struct,
+            .@"struct" => return .Struct,
 
             .var_args_param => unreachable, // can be any type
         }
@@ -611,7 +613,7 @@ pub const Type = extern union {
             .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.Name),
             .empty_struct => return self.copyPayloadShallow(allocator, Payload.ContainerScope),
-
+            .@"struct" => return self.copyPayloadShallow(allocator, Payload.Struct),
             .@"opaque" => return self.copyPayloadShallow(allocator, Payload.Opaque),
         }
     }
@@ -675,6 +677,7 @@ pub const Type = extern union {
                 .@"undefined" => return out_stream.writeAll("@Type(.Undefined)"),
 
                 .empty_struct, .empty_struct_literal => return out_stream.writeAll("struct {}"),
+                .@"struct" => return out_stream.writeAll("(struct)"),
                 .anyerror_void_error_union => return out_stream.writeAll("anyerror!void"),
                 .const_slice_u8 => return out_stream.writeAll("[]const u8"),
                 .fn_noreturn_no_args => return out_stream.writeAll("fn() noreturn"),
@@ -940,6 +943,18 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             => true,
+
+            .@"struct" => {
+                // TODO introduce lazy value mechanism
+                const struct_obj = self.castTag(.@"struct").?.data;
+                for (struct_obj.fields.entries.items) |entry| {
+                    if (entry.value.ty.hasCodeGenBits())
+                        return true;
+                } else {
+                    return false;
+                }
+            },
+
             // TODO lazy types
             .array => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
             .array_u8 => self.arrayLen() != 0,
@@ -1100,6 +1115,10 @@ pub const Type = extern union {
                 @panic("TODO abiAlignment error union");
             },
 
+            .@"struct" => {
+                @panic("TODO abiAlignment struct");
+            },
+
             .c_void,
             .void,
             .type,
@@ -1143,6 +1162,10 @@ pub const Type = extern union {
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
             .var_args_param => unreachable,
+
+            .@"struct" => {
+                @panic("TODO abiSize struct");
+            },
 
             .u8,
             .i8,
@@ -1316,6 +1339,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .@"opaque",
@@ -1393,6 +1417,7 @@ pub const Type = extern union {
             .empty_struct,
             .empty_struct_literal,
             .@"opaque",
+            .@"struct",
             .var_args_param,
             => unreachable,
 
@@ -1487,6 +1512,7 @@ pub const Type = extern union {
             .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
+            .@"struct",
             .@"opaque",
             .var_args_param,
             => false,
@@ -1564,6 +1590,7 @@ pub const Type = extern union {
             .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
+            .@"struct",
             .@"opaque",
             .var_args_param,
             => false,
@@ -1650,6 +1677,7 @@ pub const Type = extern union {
             .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
+            .@"struct",
             .@"opaque",
             .var_args_param,
             => false,
@@ -1731,6 +1759,7 @@ pub const Type = extern union {
             .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
+            .@"struct",
             .@"opaque",
             .var_args_param,
             => false,
@@ -1792,7 +1821,11 @@ pub const Type = extern union {
             .ErrorUnion => ty = ty.errorUnionChild(),
 
             .Fn => @panic("TODO fn isValidVarType"),
-            .Struct => @panic("TODO struct isValidVarType"),
+            .Struct => {
+                // TODO this is not always correct; introduce lazy value mechanism
+                // and here we need to force a resolve of "type requires comptime".
+                return true;
+            },
             .Union => @panic("TODO union isValidVarType"),
         };
     }
@@ -1850,6 +1883,7 @@ pub const Type = extern union {
             .anyerror_void_error_union => unreachable,
             .error_set => unreachable,
             .error_set_single => unreachable,
+            .@"struct" => unreachable,
             .empty_struct => unreachable,
             .empty_struct_literal => unreachable,
             .inferred_alloc_const => unreachable,
@@ -1999,6 +2033,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -2070,6 +2105,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -2156,6 +2192,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -2238,6 +2275,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -2306,6 +2344,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -2402,6 +2441,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -2519,6 +2559,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -2602,6 +2643,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -2684,6 +2726,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -2766,6 +2809,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -2845,6 +2889,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -2924,6 +2969,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -3003,6 +3049,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -3069,6 +3116,11 @@ pub const Type = extern union {
             .@"opaque",
             .var_args_param,
             => return null,
+
+            .@"struct" => {
+                log.warn("TODO implement Type.onePossibleValue for structs", .{});
+                return null;
+            },
 
             .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
             .void => return Value.initTag(.void_value),
@@ -3172,6 +3224,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
             .empty_struct_literal,
             .inferred_alloc_const,
@@ -3269,6 +3322,7 @@ pub const Type = extern union {
             .empty_struct_literal,
             => unreachable,
 
+            .@"struct" => &self.castTag(.@"struct").?.data.container,
             .empty_struct => self.castTag(.empty_struct).?.data,
             .@"opaque" => &self.castTag(.@"opaque").?.data,
         };
@@ -3421,6 +3475,7 @@ pub const Type = extern union {
         error_set_single,
         empty_struct,
         @"opaque",
+        @"struct",
 
         pub const last_no_payload_tag = Tag.inferred_alloc_const;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -3506,6 +3561,7 @@ pub const Type = extern union {
                 .error_union => Payload.ErrorUnion,
                 .error_set_single => Payload.Name,
                 .@"opaque" => Payload.Opaque,
+                .@"struct" => Payload.Struct,
                 .empty_struct => Payload.ContainerScope,
             };
         }
@@ -3637,6 +3693,11 @@ pub const Type = extern union {
         pub const Opaque = struct {
             base: Payload = .{ .tag = .@"opaque" },
             data: Module.Scope.Container,
+        };
+
+        pub const Struct = struct {
+            base: Payload = .{ .tag = .@"struct" },
+            data: *Module.Struct,
         };
     };
 };

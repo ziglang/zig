@@ -74,6 +74,7 @@ pub const Value = extern union {
         bool_true,
         bool_false,
 
+        abi_align_default,
         empty_struct_value,
         empty_array, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
@@ -165,6 +166,7 @@ pub const Value = extern union {
                 .null_value,
                 .bool_true,
                 .bool_false,
+                .abi_align_default,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .int_big_positive,
@@ -320,6 +322,7 @@ pub const Value = extern union {
             .bool_true,
             .bool_false,
             .empty_struct_value,
+            .abi_align_default,
             => unreachable,
 
             .ty => {
@@ -464,8 +467,8 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
             .enum_literal_type => return out_stream.writeAll("@Type(.EnumLiteral)"),
+            .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
-            // TODO this should print `NAME{}`
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
             .null_value => return out_stream.writeAll("null"),
             .undef => return out_stream.writeAll("undefined"),
@@ -627,6 +630,7 @@ pub const Value = extern union {
             .error_union,
             .empty_struct_value,
             .inferred_alloc,
+            .abi_align_default,
             => unreachable,
         };
     }
@@ -699,6 +703,7 @@ pub const Value = extern union {
             .@"error",
             .empty_struct_value,
             .inferred_alloc,
+            .abi_align_default,
             => unreachable,
 
             .undef => unreachable,
@@ -786,6 +791,7 @@ pub const Value = extern union {
             .error_union,
             .empty_struct_value,
             .inferred_alloc,
+            .abi_align_default,
             => unreachable,
 
             .undef => unreachable,
@@ -873,6 +879,7 @@ pub const Value = extern union {
             .error_union,
             .empty_struct_value,
             .inferred_alloc,
+            .abi_align_default,
             => unreachable,
 
             .undef => unreachable,
@@ -988,6 +995,7 @@ pub const Value = extern union {
             .error_union,
             .empty_struct_value,
             .inferred_alloc,
+            .abi_align_default,
             => unreachable,
 
             .zero,
@@ -1079,6 +1087,7 @@ pub const Value = extern union {
             .error_union,
             .empty_struct_value,
             .inferred_alloc,
+            .abi_align_default,
             => unreachable,
 
             .zero,
@@ -1239,6 +1248,7 @@ pub const Value = extern union {
             .error_union,
             .empty_struct_value,
             .inferred_alloc,
+            .abi_align_default,
             => unreachable,
 
             .zero,
@@ -1317,6 +1327,7 @@ pub const Value = extern union {
             .error_union,
             .empty_struct_value,
             .inferred_alloc,
+            .abi_align_default,
             => unreachable,
 
             .zero,
@@ -1452,6 +1463,7 @@ pub const Value = extern union {
             .const_slice_u8_type,
             .enum_literal_type,
             .ty,
+            .abi_align_default,
             => {
                 // Directly return Type.hash, toType can only fail for .int_type.
                 var allocator = std.heap.FixedBufferAllocator.init(&[_]u8{});
@@ -1632,6 +1644,7 @@ pub const Value = extern union {
             .error_union,
             .empty_struct_value,
             .inferred_alloc,
+            .abi_align_default,
             => unreachable,
 
             .ref_val => self.castTag(.ref_val).?.data,
@@ -1719,6 +1732,7 @@ pub const Value = extern union {
             .error_union,
             .empty_struct_value,
             .inferred_alloc,
+            .abi_align_default,
             => unreachable,
 
             .empty_array => unreachable, // out of bounds array index
@@ -1822,6 +1836,7 @@ pub const Value = extern union {
             .@"error",
             .error_union,
             .empty_struct_value,
+            .abi_align_default,
             => false,
 
             .undef => unreachable,
@@ -1903,6 +1918,7 @@ pub const Value = extern union {
             .void_value,
             .enum_literal,
             .empty_struct_value,
+            .abi_align_default,
             => null,
 
             .error_union => {
@@ -2009,6 +2025,7 @@ pub const Value = extern union {
             .error_union,
             .empty_struct_value,
             .null_value,
+            .abi_align_default,
             => false,
 
             .undef => unreachable,

@@ -274,6 +274,10 @@ pub const Inst = struct {
         /// the field types, defaults, and alignments.
         /// Uses the `pl_node` union field. Payload is `StructDecl`.
         struct_decl,
+        /// Same as `struct_decl`, except has the `packed` layout.
+        struct_decl_packed,
+        /// Same as `struct_decl`, except has the `extern` layout.
+        struct_decl_extern,
         /// A union type definition. Contains references to ZIR instructions for
         /// the field types and optional type tag expression.
         /// Uses the `pl_node` union field. Payload is `UnionDecl`.
@@ -707,6 +711,8 @@ pub const Inst = struct {
                 .coerce_result_ptr,
                 .@"const",
                 .struct_decl,
+                .struct_decl_packed,
+                .struct_decl_extern,
                 .union_decl,
                 .enum_decl,
                 .opaque_decl,
@@ -1655,7 +1661,10 @@ const Writer = struct {
             .condbr_inline,
             => try self.writePlNodeCondBr(stream, inst),
 
-            .struct_decl => try self.writeStructDecl(stream, inst),
+            .struct_decl,
+            .struct_decl_packed,
+            .struct_decl_extern,
+            => try self.writeStructDecl(stream, inst),
 
             .switch_block => try self.writePlNodeSwitchBr(stream, inst, .none),
             .switch_block_else => try self.writePlNodeSwitchBr(stream, inst, .@"else"),
