@@ -12,11 +12,11 @@ pub const ndtri = @import("prob/normal_dist.zig").ndtri;
 pub const erfc = @import("prob/normal_dist.zig").erfc;
 pub const erf = @import("prob/normal_dist.zig").erf;
 
-pub const j1 = @import("prob/besselj1.zig").j1;
-pub const y1 = @import("prob/besselj1.zig").y1;
-pub const j0 = @import("prob/besselj0.zig").j0;
-pub const y0 = @import("prob/besselj0.zig").y0;
-pub const jv = @import("prob/besseljv.zig").jv;
+pub const besselj0 = @import("prob/besselj0.zig").besselj0;
+pub const bessely0 = @import("prob/besselj0.zig").bessely0;
+pub const besselj1 = @import("prob/besselj1.zig").besselj1;
+pub const bessely1 = @import("prob/besselj1.zig").bessely1;
+pub const besselj = @import("prob/besseljn.zig").besselj;
 
 pub const airy = @import("prob/airy.zig").airy;
 
