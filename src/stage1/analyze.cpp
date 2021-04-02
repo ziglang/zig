@@ -8723,7 +8723,9 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
                 assert(async_frame_type->id == ZigTypeIdFnFrame);
                 assert(field_type->id == ZigTypeIdFn);
                 resolve_llvm_types_fn(g, async_frame_type->data.frame.fn);
-                llvm_type = LLVMPointerType(async_frame_type->data.frame.fn->raw_type_ref, 0);
+
+                const unsigned addrspace = ZigLLVMDataLayoutGetProgramAddressSpace(g->target_data_ref);
+                llvm_type = LLVMPointerType(async_frame_type->data.frame.fn->raw_type_ref, addrspace);
             } else {
                 llvm_type = get_llvm_type(g, field_type);
             }

@@ -35,7 +35,7 @@ base: File,
 ptr_width: PtrWidth,
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
-llvm_ir_module: ?*llvm_backend.LLVMIRModule = null,
+llvm_object: ?*llvm_backend.Object = null,
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
@@ -232,7 +232,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         const self = try createEmpty(allocator, options);
         errdefer self.base.destroy();
 
-        self.llvm_ir_module = try llvm_backend.LLVMIRModule.create(allocator, sub_path, options);
+        self.llvm_object = try llvm_backend.Object.create(allocator, sub_path, options);
         return self;
     }
 
@@ -299,7 +299,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Elf {
 
 pub fn deinit(self: *Elf) void {
     if (build_options.have_llvm)
-        if (self.llvm_ir_module) |ir_module|
+        if (self.llvm_object) |ir_module|
             ir_module.deinit(self.base.allocator);
 
     self.sections.deinit(self.base.allocator);
@@ -318,7 +318,7 @@ pub fn deinit(self: *Elf) void {
 }
 
 pub fn getDeclVAddr(self: *Elf, decl: *const Module.Decl) u64 {
-    assert(self.llvm_ir_module == null);
+    assert(self.llvm_object == null);
     assert(decl.link.elf.local_sym_index != 0);
     return self.local_symbols.items[decl.link.elf.local_sym_index].st_value;
 }
@@ -438,7 +438,7 @@ fn updateString(self: *Elf, old_str_off: u32, new_name: []const u8) !u32 {
 }
 
 pub fn populateMissingMetadata(self: *Elf) !void {
-    assert(self.llvm_ir_module == null);
+    assert(self.llvm_object == null);
 
     const small_ptr = switch (self.ptr_width) {
         .p32 => true,
@@ -745,7 +745,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     defer tracy.end();
 
     if (build_options.have_llvm)
-        if (self.llvm_ir_module) |llvm_ir_module| return try llvm_ir_module.flushModule(comp);
+        if (self.llvm_object) |llvm_object| return try llvm_object.flushModule(comp);
 
     // TODO This linker code currently assumes there is only 1 compilation unit and it corresponds to the
     // Zig source code.
@@ -2111,7 +2111,7 @@ fn allocateTextBlock(self: *Elf, text_block: *TextBlock, new_block_size: u64, al
 }
 
 pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
-    if (self.llvm_ir_module) |_| return;
+    if (self.llvm_object) |_| return;
 
     if (decl.link.elf.local_sym_index != 0) return;
 
@@ -2149,7 +2149,7 @@ pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
 }
 
 pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
-    if (self.llvm_ir_module) |_| return;
+    if (self.llvm_object) |_| return;
 
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     self.freeTextBlock(&decl.link.elf);
@@ -2189,7 +2189,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     defer tracy.end();
 
     if (build_options.have_llvm)
-        if (self.llvm_ir_module) |llvm_ir_module| return try llvm_ir_module.updateDecl(module, decl);
+        if (self.llvm_object) |llvm_object| return try llvm_object.updateDecl(module, decl);
 
     const typed_value = decl.typed_value.most_recent.typed_value;
     if (typed_value.val.tag() == .extern_fn) {
@@ -2670,10 +2670,10 @@ fn writeDeclDebugInfo(self: *Elf, text_block: *TextBlock, dbg_info_buf: []const 
 pub fn updateDeclExports(
     self: *Elf,
     module: *Module,
-    decl: *const Module.Decl,
+    decl: *Module.Decl,
     exports: []const *Module.Export,
 ) !void {
-    if (self.llvm_ir_module) |_| return;
+    if (self.llvm_object) |_| return;
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -2748,7 +2748,7 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (self.llvm_ir_module) |_| return;
+    if (self.llvm_object) |_| return;
 
     const tree = decl.container.file_scope.tree;
     const node_tags = tree.nodes.items(.tag);
@@ -2773,7 +2773,7 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
 }
 
 pub fn deleteExport(self: *Elf, exp: Export) void {
-    if (self.llvm_ir_module) |_| return;
+    if (self.llvm_object) |_| return;
 
     const sym_index = exp.sym_index orelse return;
     self.global_symbol_free_list.append(self.base.allocator, sym_index) catch {};

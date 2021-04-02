@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Target = std.Target;
 const Module = @import("Module.zig");
+const log = std.log.scoped(.Type);
 
 /// This is the raw data, with no bookkeeping, no memory awareness, no de-duplication.
 /// It's important for this type to be small.
@@ -92,11 +93,9 @@ pub const Type = extern union {
 
             .anyerror_void_error_union, .error_union => return .ErrorUnion,
 
-            .anyframe_T, .@"anyframe" => return .AnyFrame,
-
-            .@"struct", .empty_struct => return .Struct,
-            .@"enum" => return .Enum,
-            .@"union" => return .Union,
+            .empty_struct => return .Struct,
+            .empty_struct_literal => return .Struct,
+            .@"struct" => return .Struct,
 
             .var_args_param => unreachable, // can be any type
         }
@@ -173,6 +172,125 @@ pub const Type = extern union {
         };
     }
 
+    pub fn ptrInfo(self: Type) Payload.Pointer {
+        switch (self.tag()) {
+            .single_const_pointer_to_comptime_int => return .{ .data = .{
+                .pointee_type = Type.initTag(.comptime_int),
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .One,
+            } },
+            .const_slice_u8 => return .{ .data = .{
+                .pointee_type = Type.initTag(.u8),
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .Slice,
+            } },
+            .single_const_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .One,
+            } },
+            .single_mut_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = true,
+                .@"volatile" = false,
+                .size = .One,
+            } },
+            .many_const_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .Many,
+            } },
+            .many_mut_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = true,
+                .@"volatile" = false,
+                .size = .Many,
+            } },
+            .c_const_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .C,
+            } },
+            .c_mut_pointer => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = true,
+                .@"volatile" = false,
+                .size = .C,
+            } },
+            .const_slice => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .Slice,
+            } },
+            .mut_slice => return .{ .data = .{
+                .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = true,
+                .@"volatile" = false,
+                .size = .Slice,
+            } },
+
+            .pointer => return self.castTag(.pointer).?.*,
+
+            else => unreachable,
+        }
+    }
+
     pub fn eql(a: Type, b: Type) bool {
         // As a shortcut, if the small tags / addresses match, we're done.
         if (a.tag_if_small_enough == b.tag_if_small_enough)
@@ -195,25 +313,38 @@ pub const Type = extern union {
                 return a.elemType().eql(b.elemType());
             },
             .Pointer => {
-                // Hot path for common case:
-                if (a.castPointer()) |a_payload| {
-                    if (b.castPointer()) |b_payload| {
-                        return a.tag() == b.tag() and eql(a_payload.data, b_payload.data);
+                const info_a = a.ptrInfo().data;
+                const info_b = b.ptrInfo().data;
+                if (!info_a.pointee_type.eql(info_b.pointee_type))
+                    return false;
+                if (info_a.size != info_b.size)
+                    return false;
+                if (info_a.mutable != info_b.mutable)
+                    return false;
+                if (info_a.@"volatile" != info_b.@"volatile")
+                    return false;
+                if (info_a.@"allowzero" != info_b.@"allowzero")
+                    return false;
+                if (info_a.bit_offset != info_b.bit_offset)
+                    return false;
+                if (info_a.host_size != info_b.host_size)
+                    return false;
+
+                const sentinel_a = info_a.sentinel;
+                const sentinel_b = info_b.sentinel;
+                if (sentinel_a) |sa| {
+                    if (sentinel_b) |sb| {
+                        if (!sa.eql(sb))
+                            return false;
+                    } else {
+                        return false;
                     }
+                } else {
+                    if (sentinel_b != null)
+                        return false;
                 }
-                const is_slice_a = isSlice(a);
-                const is_slice_b = isSlice(b);
-                if (is_slice_a != is_slice_b)
-                    return false;
 
-                const ptr_size_a = ptrSize(a);
-                const ptr_size_b = ptrSize(b);
-                if (ptr_size_a != ptr_size_b)
-                    return false;
-
-                std.debug.panic("TODO implement more pointer Type equality comparison: {} and {}", .{
-                    a, b,
-                });
+                return true;
             },
             .Int => {
                 // Detect that e.g. u64 != usize, even if the bits match on a particular target.
@@ -399,10 +530,10 @@ pub const Type = extern union {
             .const_slice_u8,
             .enum_literal,
             .anyerror_void_error_union,
-            .@"anyframe",
             .inferred_alloc_const,
             .inferred_alloc_mut,
             .var_args_param,
+            .empty_struct_literal,
             => unreachable,
 
             .array_u8,
@@ -420,7 +551,6 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
-            .anyframe_T,
             => return self.copyPayloadShallow(allocator, Payload.ElemType),
 
             .int_signed,
@@ -480,13 +610,10 @@ pub const Type = extern union {
                     .payload = try payload.payload.copy(allocator),
                 });
             },
-            .error_set => return self.copyPayloadShallow(allocator, Payload.Decl),
+            .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.Name),
             .empty_struct => return self.copyPayloadShallow(allocator, Payload.ContainerScope),
-
-            .@"enum" => return self.copyPayloadShallow(allocator, Payload.Enum),
             .@"struct" => return self.copyPayloadShallow(allocator, Payload.Struct),
-            .@"union" => return self.copyPayloadShallow(allocator, Payload.Union),
             .@"opaque" => return self.copyPayloadShallow(allocator, Payload.Opaque),
         }
     }
@@ -549,9 +676,8 @@ pub const Type = extern union {
                 .@"null" => return out_stream.writeAll("@Type(.Null)"),
                 .@"undefined" => return out_stream.writeAll("@Type(.Undefined)"),
 
-                // TODO this should print the structs name
-                .empty_struct => return out_stream.writeAll("struct {}"),
-                .@"anyframe" => return out_stream.writeAll("anyframe"),
+                .empty_struct, .empty_struct_literal => return out_stream.writeAll("struct {}"),
+                .@"struct" => return out_stream.writeAll("(struct)"),
                 .anyerror_void_error_union => return out_stream.writeAll("anyerror!void"),
                 .const_slice_u8 => return out_stream.writeAll("[]const u8"),
                 .fn_noreturn_no_args => return out_stream.writeAll("fn() noreturn"),
@@ -579,12 +705,6 @@ pub const Type = extern union {
                     continue;
                 },
 
-                .anyframe_T => {
-                    const return_type = ty.castTag(.anyframe_T).?.data;
-                    try out_stream.print("anyframe->", .{});
-                    ty = return_type;
-                    continue;
-                },
                 .array_u8 => {
                     const len = ty.castTag(.array_u8).?.data;
                     return out_stream.print("[{d}]u8", .{len});
@@ -715,8 +835,8 @@ pub const Type = extern union {
                     continue;
                 },
                 .error_set => {
-                    const decl = ty.castTag(.error_set).?.data;
-                    return out_stream.writeAll(std.mem.spanZ(decl.name));
+                    const error_set = ty.castTag(.error_set).?.data;
+                    return out_stream.writeAll(std.mem.spanZ(error_set.owner_decl.name));
                 },
                 .error_set_single => {
                     const name = ty.castTag(.error_set_single).?.data;
@@ -725,9 +845,6 @@ pub const Type = extern union {
                 .inferred_alloc_const => return out_stream.writeAll("(inferred_alloc_const)"),
                 .inferred_alloc_mut => return out_stream.writeAll("(inferred_alloc_mut)"),
                 // TODO use declaration name
-                .@"enum" => return out_stream.writeAll("enum {}"),
-                .@"struct" => return out_stream.writeAll("struct {}"),
-                .@"union" => return out_stream.writeAll("union {}"),
                 .@"opaque" => return out_stream.writeAll("opaque {}"),
             }
             unreachable;
@@ -822,12 +939,22 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
             => true,
+
+            .@"struct" => {
+                // TODO introduce lazy value mechanism
+                const struct_obj = self.castTag(.@"struct").?.data;
+                for (struct_obj.fields.entries.items) |entry| {
+                    if (entry.value.ty.hasCodeGenBits())
+                        return true;
+                } else {
+                    return false;
+                }
+            },
+
             // TODO lazy types
             .array => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
             .array_u8 => self.arrayLen() != 0,
@@ -839,10 +966,6 @@ pub const Type = extern union {
                 return payload.error_set.hasCodeGenBits() or payload.payload.hasCodeGenBits();
             },
 
-            .@"enum" => @panic("TODO"),
-            .@"struct" => @panic("TODO"),
-            .@"union" => @panic("TODO"),
-
             .c_void,
             .void,
             .type,
@@ -853,6 +976,7 @@ pub const Type = extern union {
             .@"undefined",
             .enum_literal,
             .empty_struct,
+            .empty_struct_literal,
             .@"opaque",
             => false,
 
@@ -863,7 +987,39 @@ pub const Type = extern union {
     }
 
     pub fn isNoReturn(self: Type) bool {
-        return self.zigTypeTag() == .NoReturn;
+        const definitely_correct_result = self.zigTypeTag() == .NoReturn;
+        const fast_result = self.tag_if_small_enough == @enumToInt(Tag.noreturn);
+        assert(fast_result == definitely_correct_result);
+        return fast_result;
+    }
+
+    pub fn ptrAlignment(self: Type, target: Target) u32 {
+        switch (self.tag()) {
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .optional_single_const_pointer,
+            .optional_single_mut_pointer,
+            => return self.cast(Payload.ElemType).?.data.abiAlignment(target),
+
+            .const_slice_u8 => return 1,
+
+            .pointer => {
+                const ptr_info = self.castTag(.pointer).?.data;
+                if (ptr_info.@"align" != 0) {
+                    return ptr_info.@"align";
+                } else {
+                    return ptr_info.pointee_type.abiAlignment();
+                }
+            },
+
+            else => unreachable,
+        }
     }
 
     /// Asserts that hasCodeGenBits() is true.
@@ -907,16 +1063,8 @@ pub const Type = extern union {
             .mut_slice,
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
-            .@"anyframe",
-            .anyframe_T,
+            .pointer,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
-
-            .pointer => {
-                const payload = self.castTag(.pointer).?.data;
-
-                if (payload.@"align" != 0) return payload.@"align";
-                return @divExact(target.cpu.arch.ptrBitWidth(), 8);
-            },
 
             .c_short => return @divExact(CType.short.sizeInBits(target), 8),
             .c_ushort => return @divExact(CType.ushort.sizeInBits(target), 8),
@@ -967,9 +1115,9 @@ pub const Type = extern union {
                 @panic("TODO abiAlignment error union");
             },
 
-            .@"enum" => self.cast(Payload.Enum).?.abiAlignment(target),
-            .@"struct" => @panic("TODO"),
-            .@"union" => @panic("TODO"),
+            .@"struct" => {
+                @panic("TODO abiAlignment struct");
+            },
 
             .c_void,
             .void,
@@ -981,6 +1129,7 @@ pub const Type = extern union {
             .@"undefined",
             .enum_literal,
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
             .@"opaque",
@@ -1008,10 +1157,15 @@ pub const Type = extern union {
             .enum_literal => unreachable,
             .single_const_pointer_to_comptime_int => unreachable,
             .empty_struct => unreachable,
+            .empty_struct_literal => unreachable,
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
             .var_args_param => unreachable,
+
+            .@"struct" => {
+                @panic("TODO abiSize struct");
+            },
 
             .u8,
             .i8,
@@ -1038,7 +1192,7 @@ pub const Type = extern union {
             .i64, .u64 => return 8,
             .u128, .i128 => return 16,
 
-            .@"anyframe", .anyframe_T, .isize, .usize => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
+            .isize, .usize => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
             .const_slice,
             .mut_slice,
@@ -1119,10 +1273,6 @@ pub const Type = extern union {
                 }
                 @panic("TODO abiSize error union");
             },
-
-            .@"enum" => @panic("TODO"),
-            .@"struct" => @panic("TODO"),
-            .@"union" => @panic("TODO"),
         };
     }
 
@@ -1186,15 +1336,12 @@ pub const Type = extern union {
             .const_slice,
             .mut_slice,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
-            .empty_struct,
-            .@"enum",
             .@"struct",
-            .@"union",
+            .empty_struct,
+            .empty_struct_literal,
             .@"opaque",
             .var_args_param,
             => false,
@@ -1264,16 +1411,13 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
             .empty_struct,
-            .@"enum",
-            .@"struct",
-            .@"union",
+            .empty_struct_literal,
             .@"opaque",
+            .@"struct",
             .var_args_param,
             => unreachable,
 
@@ -1361,17 +1505,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
             .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => false,
@@ -1442,17 +1583,14 @@ pub const Type = extern union {
             .enum_literal,
             .mut_slice,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
             .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => false,
@@ -1532,17 +1670,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
             .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => false,
@@ -1617,17 +1752,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
             .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => false,
@@ -1689,7 +1821,11 @@ pub const Type = extern union {
             .ErrorUnion => ty = ty.errorUnionChild(),
 
             .Fn => @panic("TODO fn isValidVarType"),
-            .Struct => @panic("TODO struct isValidVarType"),
+            .Struct => {
+                // TODO this is not always correct; introduce lazy value mechanism
+                // and here we need to force a resolve of "type requires comptime".
+                return true;
+            },
             .Union => @panic("TODO union isValidVarType"),
         };
     }
@@ -1744,17 +1880,14 @@ pub const Type = extern union {
             .optional_single_mut_pointer => unreachable,
             .enum_literal => unreachable,
             .error_union => unreachable,
-            .@"anyframe" => unreachable,
-            .anyframe_T => unreachable,
             .anyerror_void_error_union => unreachable,
             .error_set => unreachable,
             .error_set_single => unreachable,
+            .@"struct" => unreachable,
             .empty_struct => unreachable,
+            .empty_struct_literal => unreachable,
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
-            .@"enum" => unreachable,
-            .@"struct" => unreachable,
-            .@"union" => unreachable,
             .@"opaque" => unreachable,
             .var_args_param => unreachable,
 
@@ -1897,17 +2030,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => unreachable,
@@ -1972,17 +2102,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => unreachable,
@@ -2062,17 +2189,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => false,
@@ -2148,17 +2272,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => false,
@@ -2220,17 +2341,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => unreachable,
@@ -2320,17 +2438,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => false,
@@ -2441,17 +2556,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => unreachable,
@@ -2528,17 +2640,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => unreachable,
@@ -2614,17 +2723,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => unreachable,
@@ -2700,17 +2806,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => unreachable,
@@ -2783,17 +2886,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => unreachable,
@@ -2866,17 +2966,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => unreachable,
@@ -2949,17 +3046,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => false,
@@ -3016,8 +3110,6 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .anyerror_void_error_union,
-            .anyframe_T,
-            .@"anyframe",
             .error_union,
             .error_set,
             .error_set_single,
@@ -3025,11 +3117,12 @@ pub const Type = extern union {
             .var_args_param,
             => return null,
 
-            .@"enum" => @panic("TODO onePossibleValue enum"),
-            .@"struct" => @panic("TODO onePossibleValue struct"),
-            .@"union" => @panic("TODO onePossibleValue union"),
+            .@"struct" => {
+                log.warn("TODO implement Type.onePossibleValue for structs", .{});
+                return null;
+            },
 
-            .empty_struct => return Value.initTag(.empty_struct_value),
+            .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
             .void => return Value.initTag(.void_value),
             .noreturn => return Value.initTag(.unreachable_value),
             .@"null" => return Value.initTag(.null_value),
@@ -3128,17 +3221,14 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .@"struct",
             .empty_struct,
+            .empty_struct_literal,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .@"enum",
-            .@"struct",
-            .@"union",
             .@"opaque",
             .var_args_param,
             => return false,
@@ -3220,8 +3310,6 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .error_union,
-            .@"anyframe",
-            .anyframe_T,
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
@@ -3231,13 +3319,12 @@ pub const Type = extern union {
             .inferred_alloc_const,
             .inferred_alloc_mut,
             .var_args_param,
+            .empty_struct_literal,
             => unreachable,
 
+            .@"struct" => &self.castTag(.@"struct").?.data.container,
             .empty_struct => self.castTag(.empty_struct).?.data,
-            .@"enum" => &self.castTag(.@"enum").?.scope,
-            .@"struct" => &self.castTag(.@"struct").?.scope,
-            .@"union" => &self.castTag(.@"union").?.scope,
-            .@"opaque" => &self.castTag(.@"opaque").?.scope,
+            .@"opaque" => &self.castTag(.@"opaque").?.data,
         };
     }
 
@@ -3296,6 +3383,10 @@ pub const Type = extern union {
         }
     }
 
+    pub fn isExhaustiveEnum(ty: Type) bool {
+        return false; // TODO
+    }
+
     /// This enum does not directly correspond to `std.builtin.TypeId` because
     /// it has extra enum tags in it, as a way of using less memory. For example,
     /// even though Zig recognizes `*align(10) i32` and `*i32` both as Pointer types
@@ -3346,11 +3437,12 @@ pub const Type = extern union {
         fn_ccc_void_no_args,
         single_const_pointer_to_comptime_int,
         anyerror_void_error_union,
-        @"anyframe",
         const_slice_u8,
         /// This is a special type for variadic parameters of a function call.
         /// Casts to it will validate that the type can be passed to a c calling convetion function.
         var_args_param,
+        /// Same as `empty_struct` except it has an empty namespace.
+        empty_struct_literal,
         /// This is a special value that tracks a set of types that have been stored
         /// to an inferred allocation. It does not support most of the normal type queries.
         /// However it does respond to `isConstPtr`, `ptrSize`, `zigTypeTag`, etc.
@@ -3379,14 +3471,11 @@ pub const Type = extern union {
         optional_single_mut_pointer,
         optional_single_const_pointer,
         error_union,
-        anyframe_T,
         error_set,
         error_set_single,
         empty_struct,
-        @"enum",
-        @"struct",
-        @"union",
         @"opaque",
+        @"struct",
 
         pub const last_no_payload_tag = Tag.inferred_alloc_const;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -3435,11 +3524,11 @@ pub const Type = extern union {
                 .fn_ccc_void_no_args,
                 .single_const_pointer_to_comptime_int,
                 .anyerror_void_error_union,
-                .@"anyframe",
                 .const_slice_u8,
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
                 .var_args_param,
+                .empty_struct_literal,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .array_u8,
@@ -3457,25 +3546,23 @@ pub const Type = extern union {
                 .optional,
                 .optional_single_mut_pointer,
                 .optional_single_const_pointer,
-                .anyframe_T,
                 => Payload.ElemType,
 
                 .int_signed,
                 .int_unsigned,
                 => Payload.Bits,
 
+                .error_set => Payload.ErrorSet,
+
                 .array => Payload.Array,
                 .array_sentinel => Payload.ArraySentinel,
                 .pointer => Payload.Pointer,
                 .function => Payload.Function,
                 .error_union => Payload.ErrorUnion,
-                .error_set => Payload.Decl,
                 .error_set_single => Payload.Name,
-                .empty_struct => Payload.ContainerScope,
-                .@"enum" => Payload.Enum,
-                .@"struct" => Payload.Struct,
-                .@"union" => Payload.Union,
                 .@"opaque" => Payload.Opaque,
+                .@"struct" => Payload.Struct,
+                .empty_struct => Payload.ContainerScope,
             };
         }
 
@@ -3550,6 +3637,13 @@ pub const Type = extern union {
             },
         };
 
+        pub const ErrorSet = struct {
+            pub const base_tag = Tag.error_set;
+
+            base: Payload = Payload{ .tag = base_tag },
+            data: *Module.ErrorSet,
+        };
+
         pub const Pointer = struct {
             pub const base_tag = Tag.pointer;
 
@@ -3598,13 +3692,13 @@ pub const Type = extern union {
 
         pub const Opaque = struct {
             base: Payload = .{ .tag = .@"opaque" },
-
-            scope: Module.Scope.Container,
+            data: Module.Scope.Container,
         };
 
-        pub const Enum = @import("type/Enum.zig");
-        pub const Struct = @import("type/Struct.zig");
-        pub const Union = @import("type/Union.zig");
+        pub const Struct = struct {
+            base: Payload = .{ .tag = .@"struct" },
+            data: *Module.Struct,
+        };
     };
 };
 

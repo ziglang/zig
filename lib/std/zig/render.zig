@@ -717,9 +717,9 @@ fn renderArrayType(
     ais.pushIndentNextLine();
     try renderToken(ais, tree, array_type.ast.lbracket, inner_space); // lbracket
     try renderExpression(gpa, ais, tree, array_type.ast.elem_count, inner_space);
-    if (array_type.ast.sentinel) |sentinel| {
-        try renderToken(ais, tree, tree.firstToken(sentinel) - 1, inner_space); // colon
-        try renderExpression(gpa, ais, tree, sentinel, inner_space);
+    if (array_type.ast.sentinel != 0) {
+        try renderToken(ais, tree, tree.firstToken(array_type.ast.sentinel) - 1, inner_space); // colon
+        try renderExpression(gpa, ais, tree, array_type.ast.sentinel, inner_space);
     }
     ais.popIndent();
     try renderToken(ais, tree, rbracket, .none); // rbracket

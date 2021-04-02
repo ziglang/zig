@@ -14,6 +14,7 @@ const TypedValue = @import("../TypedValue.zig");
 const C = link.File.C;
 const Decl = Module.Decl;
 const trace = @import("../tracy.zig").trace;
+const LazySrcLoc = Module.LazySrcLoc;
 
 const Mutability = enum { Const, Mut };
 
@@ -145,11 +146,10 @@ pub const DeclGen = struct {
     error_msg: ?*Module.ErrorMsg,
     typedefs: TypedefMap,
 
-    fn fail(dg: *DeclGen, src: usize, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
-        dg.error_msg = try Module.ErrorMsg.create(dg.module.gpa, .{
-            .file_scope = dg.decl.getFileScope(),
-            .byte_offset = src,
-        }, format, args);
+    fn fail(dg: *DeclGen, src: LazySrcLoc, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
+        @setCold(true);
+        const src_loc = src.toSrcLocWithDecl(dg.decl);
+        dg.error_msg = try Module.ErrorMsg.create(dg.module.gpa, src_loc, format, args);
         return error.AnalysisFail;
     }
 
@@ -160,7 +160,7 @@ pub const DeclGen = struct {
         val: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
         if (val.isUndef()) {
-            return dg.fail(dg.decl.src(), "TODO: C backend: properly handle undefined in all cases (with debug safety?)", .{});
+            return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: properly handle undefined in all cases (with debug safety?)", .{});
         }
         switch (t.zigTypeTag()) {
             .Int => {
@@ -193,7 +193,7 @@ pub const DeclGen = struct {
                     try writer.print("{s}", .{decl.name});
                 },
                 else => |e| return dg.fail(
-                    dg.decl.src(),
+                    .{ .node_offset = 0 },
                     "TODO: C backend: implement Pointer value {s}",
                     .{@tagName(e)},
                 ),
@@ -276,7 +276,7 @@ pub const DeclGen = struct {
                     try writer.writeAll(", .error = 0 }");
                 }
             },
-            else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement value {s}", .{
+            else => |e| return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement value {s}", .{
                 @tagName(e),
             }),
         }
@@ -350,7 +350,7 @@ pub const DeclGen = struct {
                                 break;
                             }
                         } else {
-                            return dg.fail(dg.decl.src(), "TODO: C backend: implement integer types larger than 128 bits", .{});
+                            return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement integer types larger than 128 bits", .{});
                         }
                     },
                     else => unreachable,
@@ -358,7 +358,7 @@ pub const DeclGen = struct {
             },
             .Pointer => {
                 if (t.isSlice()) {
-                    return dg.fail(dg.decl.src(), "TODO: C backend: implement slices", .{});
+                    return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement slices", .{});
                 } else {
                     try dg.renderType(w, t.elemType());
                     try w.writeAll(" *");
@@ -431,7 +431,7 @@ pub const DeclGen = struct {
                 dg.typedefs.putAssumeCapacityNoClobber(t, .{ .name = name, .rendered = rendered });
             },
             .Null, .Undefined => unreachable, // must be const or comptime
-            else => |e| return dg.fail(dg.decl.src(), "TODO: C backend: implement type {s}", .{
+            else => |e| return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type {s}", .{
                 @tagName(e),
             }),
         }
@@ -569,13 +569,15 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .optional_payload_ptr => try genOptionalPayload(o, inst.castTag(.optional_payload_ptr).?),
             .is_err => try genIsErr(o, inst.castTag(.is_err).?),
             .is_err_ptr => try genIsErr(o, inst.castTag(.is_err_ptr).?),
+            .error_to_int => try genErrorToInt(o, inst.castTag(.error_to_int).?),
+            .int_to_error => try genIntToError(o, inst.castTag(.int_to_error).?),
             .unwrap_errunion_payload => try genUnwrapErrUnionPay(o, inst.castTag(.unwrap_errunion_payload).?),
             .unwrap_errunion_err => try genUnwrapErrUnionErr(o, inst.castTag(.unwrap_errunion_err).?),
             .unwrap_errunion_payload_ptr => try genUnwrapErrUnionPay(o, inst.castTag(.unwrap_errunion_payload_ptr).?),
             .unwrap_errunion_err_ptr => try genUnwrapErrUnionErr(o, inst.castTag(.unwrap_errunion_err_ptr).?),
             .wrap_errunion_payload => try genWrapErrUnionPay(o, inst.castTag(.wrap_errunion_payload).?),
             .wrap_errunion_err => try genWrapErrUnionErr(o, inst.castTag(.wrap_errunion_err).?),
-            else => |e| return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement codegen for {}", .{e}),
+            else => |e| return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement codegen for {}", .{e}),
         };
         switch (result_value) {
             .none => {},
@@ -756,11 +758,11 @@ fn genCall(o: *Object, inst: *Inst.Call) !CValue {
         try writer.writeAll(");\n");
         return result_local;
     } else {
-        return o.dg.fail(o.dg.decl.src(), "TODO: C backend: implement function pointers", .{});
+        return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement function pointers", .{});
     }
 }
 
-fn genDbgStmt(o: *Object, inst: *Inst.NoOp) !CValue {
+fn genDbgStmt(o: *Object, inst: *Inst.DbgStmt) !CValue {
     // TODO emit #line directive here with line number and filename
     return CValue.none;
 }
@@ -913,13 +915,13 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
             try o.writeCValue(writer, arg_c_value);
             try writer.writeAll(";\n");
         } else {
-            return o.dg.fail(o.dg.decl.src(), "TODO non-explicit inline asm regs", .{});
+            return o.dg.fail(.{ .node_offset = 0 }, "TODO non-explicit inline asm regs", .{});
         }
     }
     const volatile_string: []const u8 = if (as.is_volatile) "volatile " else "";
     try writer.print("__asm {s}(\"{s}\"", .{ volatile_string, as.asm_source });
     if (as.output) |_| {
-        return o.dg.fail(o.dg.decl.src(), "TODO inline asm output", .{});
+        return o.dg.fail(.{ .node_offset = 0 }, "TODO inline asm output", .{});
     }
     if (as.inputs.len > 0) {
         if (as.output == null) {
@@ -945,7 +947,7 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
     if (as.base.isUnused())
         return CValue.none;
 
-    return o.dg.fail(o.dg.decl.src(), "TODO: C backend: inline asm expression result used", .{});
+    return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: inline asm expression result used", .{});
 }
 
 fn genIsNull(o: *Object, inst: *Inst.UnOp) !CValue {
@@ -1070,6 +1072,14 @@ fn genIsErr(o: *Object, inst: *Inst.UnOp) !CValue {
     try o.writeCValue(writer, operand);
     try writer.print("){s}.error != 0;\n", .{maybe_deref});
     return local;
+}
+
+fn genIntToError(o: *Object, inst: *Inst.UnOp) !CValue {
+    return o.resolveInst(inst.operand);
+}
+
+fn genErrorToInt(o: *Object, inst: *Inst.UnOp) !CValue {
+    return o.resolveInst(inst.operand);
 }
 
 fn IndentWriter(comptime UnderlyingWriter: type) type {

@@ -7641,12 +7641,7 @@ static IrInstSrc *ir_gen_fn_call(IrBuilderSrc *irb, Scope *scope, AstNode *node,
 
     bool is_nosuspend = get_scope_nosuspend(scope) != nullptr;
     CallModifier modifier = node->data.fn_call_expr.modifier;
-    if (is_nosuspend) {
-        if (modifier == CallModifierAsync) {
-            add_node_error(irb->codegen, node,
-                    buf_sprintf("async call in nosuspend scope"));
-            return irb->codegen->invalid_inst_src;
-        }
+    if (is_nosuspend && modifier != CallModifierAsync) {
         modifier = CallModifierNoSuspend;
     }
 
@@ -10129,10 +10124,6 @@ static IrInstSrc *ir_gen_fn_proto(IrBuilderSrc *irb, Scope *parent_scope, AstNod
 
 static IrInstSrc *ir_gen_resume(IrBuilderSrc *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeResume);
-    if (get_scope_nosuspend(scope) != nullptr) {
-        add_node_error(irb->codegen, node, buf_sprintf("resume in nosuspend scope"));
-        return irb->codegen->invalid_inst_src;
-    }
 
     IrInstSrc *target_inst = ir_gen_node_extra(irb, node->data.resume_expr.expr, scope, LValPtr, nullptr);
     if (target_inst == irb->codegen->invalid_inst_src)

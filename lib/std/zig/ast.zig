@@ -1252,6 +1252,7 @@ pub const Tree = struct {
         buffer[0] = data.lhs;
         const params = if (data.lhs == 0) buffer[0..0] else buffer[0..1];
         return tree.fullFnProto(.{
+            .proto_node = node,
             .fn_token = tree.nodes.items(.main_token)[node],
             .return_type = data.rhs,
             .params = params,
@@ -1267,6 +1268,7 @@ pub const Tree = struct {
         const params_range = tree.extraData(data.lhs, Node.SubRange);
         const params = tree.extra_data[params_range.start..params_range.end];
         return tree.fullFnProto(.{
+            .proto_node = node,
             .fn_token = tree.nodes.items(.main_token)[node],
             .return_type = data.rhs,
             .params = params,
@@ -1283,6 +1285,7 @@ pub const Tree = struct {
         buffer[0] = extra.param;
         const params = if (extra.param == 0) buffer[0..0] else buffer[0..1];
         return tree.fullFnProto(.{
+            .proto_node = node,
             .fn_token = tree.nodes.items(.main_token)[node],
             .return_type = data.rhs,
             .params = params,
@@ -1298,6 +1301,7 @@ pub const Tree = struct {
         const extra = tree.extraData(data.lhs, Node.FnProto);
         const params = tree.extra_data[extra.params_start..extra.params_end];
         return tree.fullFnProto(.{
+            .proto_node = node,
             .fn_token = tree.nodes.items(.main_token)[node],
             .return_type = data.rhs,
             .params = params,
@@ -1430,7 +1434,7 @@ pub const Tree = struct {
             .ast = .{
                 .lbracket = tree.nodes.items(.main_token)[node],
                 .elem_count = data.lhs,
-                .sentinel = null,
+                .sentinel = 0,
                 .elem_type = data.rhs,
             },
         };
@@ -1440,6 +1444,7 @@ pub const Tree = struct {
         assert(tree.nodes.items(.tag)[node] == .array_type_sentinel);
         const data = tree.nodes.items(.data)[node];
         const extra = tree.extraData(data.rhs, Node.ArrayTypeSentinel);
+        assert(extra.sentinel != 0);
         return .{
             .ast = .{
                 .lbracket = tree.nodes.items(.main_token)[node],
@@ -2119,6 +2124,7 @@ pub const full = struct {
         ast: Ast,
 
         pub const Ast = struct {
+            proto_node: Node.Index,
             fn_token: TokenIndex,
             return_type: Node.Index,
             params: []const Node.Index,
@@ -2262,7 +2268,7 @@ pub const full = struct {
         pub const Ast = struct {
             lbracket: TokenIndex,
             elem_count: Node.Index,
-            sentinel: ?Node.Index,
+            sentinel: Node.Index,
             elem_type: Node.Index,
         };
     };
@@ -2549,9 +2555,9 @@ pub const Node = struct {
         @"await",
         /// `?lhs`. rhs unused. main_token is the `?`.
         optional_type,
-        /// `[lhs]rhs`. lhs can be omitted to make it a slice.
+        /// `[lhs]rhs`.
         array_type,
-        /// `[lhs:a]b`. `array_type_sentinel[rhs]`.
+        /// `[lhs:a]b`. `ArrayTypeSentinel[rhs]`.
         array_type_sentinel,
         /// `[*]align(lhs) rhs`. lhs can be omitted.
         /// `*align(lhs) rhs`. lhs can be omitted.

@@ -355,7 +355,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    const z = @TypeOf(true, 1);
             \\    unreachable;
             \\}
-        , &[_][]const u8{":2:29: error: incompatible types: 'bool' and 'comptime_int'"});
+        , &[_][]const u8{":2:15: error: incompatible types: 'bool' and 'comptime_int'"});
     }
 
     {
@@ -620,6 +620,43 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "hello\nhello\nhello\nhello\n",
         );
+
+        // inline while requires the condition to be comptime known.
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    var i: u32 = 0;
+            \\    inline while (i < 4) : (i += 1) print();
+            \\    assert(i == 4);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("hello\n")),
+            \\          [arg3] "{rdx}" (6)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        , &[_][]const u8{":3:21: error: unable to resolve comptime value"});
 
         // Labeled blocks (no conditional branch)
         case.addCompareOutput(
@@ -1070,7 +1107,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\fn x() void {}
         , &[_][]const u8{
-            ":11:8: error: found compile log statement",
+            ":9:5: error: found compile log statement",
             ":4:5: note: also here",
         });
     }
@@ -1294,10 +1331,9 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
-        // TODO this should be :8:21 not :8:19. we need to improve source locations
-        // to be relative to the containing Decl so that they can survive when the byte
-        // offset of a previous Decl changes. Here the change from 7 to 999 introduces
-        // +2 to the byte offset and makes the error location wrong by 2 bytes.
+        // This additionally tests that the compile error reports the correct source location.
+        // Without storing source locations relative to the owner decl, the compile error
+        // here would be off by 2 bytes (from the "7" -> "999").
         case.addError(
             \\export fn _start() noreturn {
             \\    const y = fibonacci(999);
@@ -1318,7 +1354,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-        , &[_][]const u8{":8:19: error: evaluation exceeded 1000 backwards branches"});
+        , &[_][]const u8{":8:21: error: evaluation exceeded 1000 backwards branches"});
     }
     {
         var case = ctx.exe("orelse at comptime", linux_x64);
@@ -1442,6 +1478,7 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
+
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    const i: anyerror!u64 = error.B;
@@ -1464,6 +1501,7 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
+
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    const a: anyerror!comptime_int = 42;
@@ -1485,11 +1523,12 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    unreachable;
             \\}
         , "");
+
         case.addCompareOutput(
             \\export fn _start() noreturn {
-            \\const a: anyerror!u32 = error.B;
-            \\_ = &(a catch |err| assert(err == error.B));
-            \\exit();
+            \\    const a: anyerror!u32 = error.B;
+            \\    _ = &(a catch |err| assert(err == error.B));
+            \\    exit();
             \\}
             \\fn assert(b: bool) void {
             \\    if (!b) unreachable;
@@ -1504,6 +1543,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    unreachable;
             \\}
         , "");
+
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    const a: anyerror!u32 = error.Bar;
