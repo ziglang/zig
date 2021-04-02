@@ -16,6 +16,106 @@ usingnamespace @import("constants.zig");
 
 const lnGamma = math.prob.lnGamma;
 
+/// Incomplete gamma integral
+///
+/// The function is defined by
+///
+///                           x
+///                            -
+///                   1       | |  -t  a-1
+///  igam(a,x)  =   -----     |   e   t   dt.
+///                  -      | |
+///                 | (a)    -
+///                           0
+///
+///
+/// In this implementation both arguments must be positive.
+/// The integral is evaluated by either a power series or
+/// continued fraction expansion, depending on the relative
+/// values of a and x.
+///
+/// ACCURACY:
+///
+///                      Relative error:
+/// arithmetic   domain     # trials      peak         rms
+///    IEEE      0,30       200000       3.6e-14     2.9e-15
+///    IEEE      0,100      300000       9.9e-14     1.5e-14
+////
+///
+/// left tail of incomplete gamma function:
+///
+///          inf.      k
+///   a  -x   -       x
+///  x  e     >   ----------
+///           -     -
+///          k=0   | (a+k+1)
+pub fn incompleteGamma(a: f64, x: f64) f64 {
+    if (x <= 0 or a <= 0) {
+        return 0.0;
+    }
+
+    if (x > 1.0 and x > a) {
+        return 1.0 - complementedIncompleteGamma(a, x);
+    }
+
+    // TODO: Verify this condition, are we flipped with igamc?
+    if (math.isInf(x)) {
+        return 1.0;
+    }
+
+    // Compute  x**a * exp(-x) / gamma(a)
+    var ax = a * math.ln(x) - x - lnGamma(a);
+    if (ax < -MAXLOG) {
+        return 0.0; // Underflow
+    }
+    ax = math.exp(ax);
+
+    // power series
+    var r: f64 = a;
+    var c: f64 = 1.0;
+    var ans: f64 = 1.0;
+
+    // mimic do-while
+    while (true) {
+        r += 1.0;
+        c *= x / r;
+        ans += c;
+
+        if (c / ans <= MACHEP) break;
+    }
+
+    return ans * ax / a;
+}
+
+test "incompleteGamma" {
+    const cases = [_][3]f64{
+        [_]f64{ 0, 0, 0 },
+        [_]f64{ 0.0001, 1, 0.99997805936186279 },
+        [_]f64{ 0.001, 0.005, 0.99528424172333985 },
+        [_]f64{ 0.01, 10, 0.99999995718295021 },
+        [_]f64{ 0.1, 10, 0.99999944520142825 },
+        [_]f64{ 0.25, 0.75, 0.89993651328449831 },
+        [_]f64{ 0.5, 0.5, 0.68268949213708596 },
+        [_]f64{ 0.5, 2, 0.95449973610364147 },
+        [_]f64{ 0.75, 2.5, 0.95053039734695643 },
+        [_]f64{ 1, 0.5, 0.39346934028736652 },
+        [_]f64{ 1, 1, 0.63212055882855778 },
+        [_]f64{ 1.5, 0.75, 0.31772966966378746 },
+        [_]f64{ 2.5, 1, 0.15085496391539038 },
+        [_]f64{ 3, 0.05, 2.0067493624397931e-05 },
+        [_]f64{ 3, 20, 0.99999954448504946 },
+        [_]f64{ 5, 50, 1 },
+        [_]f64{ 7, 10, 0.86985857911751696 },
+        [_]f64{ 10, 0.9, 4.2519575433351128e-08 },
+        [_]f64{ 10, 5, 0.031828057306204811 },
+        [_]f64{ 25, 10, 4.6949381426799868e-05 },
+    };
+
+    for (cases) |c| {
+        expectApproxEqRel(incompleteGamma(c[0], c[1]), c[2], epsilon);
+    }
+}
+
 const big = 4.503599627370496e15;
 const biginv = 2.22044604925031308085e-16;
 
@@ -47,13 +147,13 @@ const biginv = 2.22044604925031308085e-16;
 /// arithmetic   domain   domain     # trials      peak         rms
 ///    IEEE     0.5,100   0,100      200000       1.9e-14     1.7e-15
 ///    IEEE     0.01,0.5  0,100      200000       1.4e-13     1.6e-15
-pub fn igamc(a: f64, x: f64) f64 {
+pub fn complementedIncompleteGamma(a: f64, x: f64) f64 {
     if (x <= 0 or a <= 0) {
         return 1.0;
     }
 
     if (x < 1.0 or x < a) {
-        return 1.0 - igam(a, x);
+        return 1.0 - incompleteGamma(a, x);
     }
 
     // TODO: Verify this condition, are we flipped with igam?
@@ -118,7 +218,7 @@ const expect = std.testing.expect;
 const epsilon = 1e-2; // TODO: Improve precision
 
 // Test cases from gonum/gonum
-test "igamc" {
+test "complementedIncompleteGamma" {
     const cases = [_][3]f64{
         [_]f64{ 0.00001, 0.075, 2.0866541002417804e-05 },
         [_]f64{ 0.0001, 1, 2.1940638138146658e-05 },
@@ -143,107 +243,7 @@ test "igamc" {
     };
 
     for (cases) |c| {
-        expectApproxEqRel(igamc(c[0], c[1]), c[2], epsilon);
-    }
-}
-
-/// Incomplete gamma integral
-///
-/// The function is defined by
-///
-///                           x
-///                            -
-///                   1       | |  -t  a-1
-///  igam(a,x)  =   -----     |   e   t   dt.
-///                  -      | |
-///                 | (a)    -
-///                           0
-///
-///
-/// In this implementation both arguments must be positive.
-/// The integral is evaluated by either a power series or
-/// continued fraction expansion, depending on the relative
-/// values of a and x.
-///
-/// ACCURACY:
-///
-///                      Relative error:
-/// arithmetic   domain     # trials      peak         rms
-///    IEEE      0,30       200000       3.6e-14     2.9e-15
-///    IEEE      0,100      300000       9.9e-14     1.5e-14
-////
-///
-/// left tail of incomplete gamma function:
-///
-///          inf.      k
-///   a  -x   -       x
-///  x  e     >   ----------
-///           -     -
-///          k=0   | (a+k+1)
-pub fn igam(a: f64, x: f64) f64 {
-    if (x <= 0 or a <= 0) {
-        return 0.0;
-    }
-
-    if (x > 1.0 and x > a) {
-        return 1.0 - igamc(a, x);
-    }
-
-    // TODO: Verify this condition, are we flipped with igamc?
-    if (math.isInf(x)) {
-        return 1.0;
-    }
-
-    // Compute  x**a * exp(-x) / gamma(a)
-    var ax = a * math.ln(x) - x - lnGamma(a);
-    if (ax < -MAXLOG) {
-        return 0.0; // Underflow
-    }
-    ax = math.exp(ax);
-
-    // power series
-    var r: f64 = a;
-    var c: f64 = 1.0;
-    var ans: f64 = 1.0;
-
-    // mimic do-while
-    while (true) {
-        r += 1.0;
-        c *= x / r;
-        ans += c;
-
-        if (c / ans <= MACHEP) break;
-    }
-
-    return ans * ax / a;
-}
-
-test "igam" {
-    const cases = [_][3]f64{
-        [_]f64{ 0, 0, 0 },
-        [_]f64{ 0.0001, 1, 0.99997805936186279 },
-        [_]f64{ 0.001, 0.005, 0.99528424172333985 },
-        [_]f64{ 0.01, 10, 0.99999995718295021 },
-        [_]f64{ 0.1, 10, 0.99999944520142825 },
-        [_]f64{ 0.25, 0.75, 0.89993651328449831 },
-        [_]f64{ 0.5, 0.5, 0.68268949213708596 },
-        [_]f64{ 0.5, 2, 0.95449973610364147 },
-        [_]f64{ 0.75, 2.5, 0.95053039734695643 },
-        [_]f64{ 1, 0.5, 0.39346934028736652 },
-        [_]f64{ 1, 1, 0.63212055882855778 },
-        [_]f64{ 1.5, 0.75, 0.31772966966378746 },
-        [_]f64{ 2.5, 1, 0.15085496391539038 },
-        [_]f64{ 3, 0.05, 2.0067493624397931e-05 },
-        [_]f64{ 3, 20, 0.99999954448504946 },
-        [_]f64{ 5, 50, 1 },
-        [_]f64{ 7, 10, 0.86985857911751696 },
-        [_]f64{ 10, 0.9, 4.2519575433351128e-08 },
-        [_]f64{ 10, 5, 0.031828057306204811 },
-        [_]f64{ 25, 10, 4.6949381426799868e-05 },
-    };
-
-    for (cases) |c| {
-        expectApproxEqRel(igam(c[0], c[1]), c[2], epsilon);
+        expectApproxEqRel(complementedIncompleteGamma(c[0], c[1]), c[2], epsilon);
     }
 }
 
@@ -280,7 +280,7 @@ const inverseNormalDist = math.prob.inverseNormalDist;
 ///    IEEE     0.5,100   0,0.5       100000       1.0e-14     1.7e-15
 ///    IEEE     0.01,0.5  0,0.5       100000       9.0e-14     3.4e-15
 ///    IEEE    0.5,10000  0,0.5        20000       2.3e-13     3.8e-14
-pub fn igami(a: f64, y0: f64) f64 {
+pub fn inverseComplementedIncompleteGamma(a: f64, y0: f64) f64 {
     var i: usize = 0;
 
     // bound the solution
@@ -303,7 +303,7 @@ pub fn igami(a: f64, y0: f64) f64 {
             break;
         }
 
-        y = igamc(a, x);
+        y = complementedIncompleteGamma(a, x);
         if (y < yl or y > yh) {
             break;
         }
@@ -338,7 +338,7 @@ pub fn igami(a: f64, y0: f64) f64 {
         }
         while (x0 == MAXNUM) {
             x = (1.0 + d) * x;
-            y = igamc(a, x);
+            y = complementedIncompleteGamma(a, x);
             if (y < y0) {
                 x0 = x;
                 yl = y;
@@ -354,7 +354,7 @@ pub fn igami(a: f64, y0: f64) f64 {
     i = 0;
     while (i < 400) : (i += 1) {
         x = x1 + d * (x0 - x1);
-        y = igamc(a, x);
+        y = complementedIncompleteGamma(a, x);
         lgm = (x0 - x1) / (x1 + x0);
         if (math.fabs(lgm) < dithresh) {
             break;
@@ -400,7 +400,7 @@ pub fn igami(a: f64, y0: f64) f64 {
     return x;
 }
 
-test "igami" {
+test "inverseComplementedIncompleteGamma" {
     const cases = [_][3]f64{
         [_]f64{ 0.001, 0.01, 2.4259428385570885e-05 },
         [_]f64{ 0.01, 0.01, 0.26505255025158292 },
@@ -425,6 +425,6 @@ test "igami" {
     };
 
     for (cases) |c| {
-        expectApproxEqRel(igami(c[0], c[1]), c[2], epsilon);
+        expectApproxEqRel(inverseComplementedIncompleteGamma(c[0], c[1]), c[2], epsilon);
     }
 }
