@@ -98,14 +98,6 @@ char *ZigLLVMGetNativeFeatures(void) {
     return strdup((const char *)StringRef(features.getString()).bytes_begin());
 }
 
-static void addDiscriminatorsPass(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
-    PM.add(createAddDiscriminatorsPass());
-}
-
-static void addThreadSanitizerPass(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
-    PM.add(createThreadSanitizerLegacyPassPass());
-}
-
 #ifndef NDEBUG
 static const bool assertions_on = true;
 #else
