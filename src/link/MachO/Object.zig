@@ -7,8 +7,10 @@ const io = std.io;
 const log = std.log.scoped(.object);
 const macho = std.macho;
 const mem = std.mem;
+const reloc = @import("reloc.zig");
 
 const Allocator = mem.Allocator;
+const Relocation = reloc.Relocation;
 const Symbol = @import("Symbol.zig");
 const parseName = @import("Zld.zig").parseName;
 
@@ -22,6 +24,7 @@ file_offset: ?u32 = null,
 name: ?[]u8 = null,
 
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
+sections: std.ArrayListUnmanaged(Section) = .{},
 
 segment_cmd_index: ?u16 = null,
 symtab_cmd_index: ?u16 = null,
@@ -42,6 +45,24 @@ strtab: std.ArrayListUnmanaged(u8) = .{},
 
 data_in_code_entries: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
+const Section = struct {
+    inner: macho.section_64,
+    code: []u8,
+    relocs: ?[]*Relocation,
+    // TODO store object-to-exe-section mapping here
+
+    pub fn deinit(self: *Section, allocator: *Allocator) void {
+        allocator.free(self.code);
+
+        if (self.relocs) |relocs| {
+            for (relocs) |rel| {
+                allocator.destroy(rel);
+            }
+            allocator.free(relocs);
+        }
+    }
+};
+
 pub fn init(allocator: *Allocator) Object {
     return .{
         .allocator = allocator,
@@ -53,6 +74,12 @@ pub fn deinit(self: *Object) void {
         lc.deinit(self.allocator);
     }
     self.load_commands.deinit(self.allocator);
+
+    for (self.sections.items) |*sect| {
+        sect.deinit(self.allocator);
+    }
+    self.sections.deinit(self.allocator);
+
     self.symtab.deinit(self.allocator);
     self.strtab.deinit(self.allocator);
     self.data_in_code_entries.deinit(self.allocator);
@@ -95,15 +122,9 @@ pub fn parse(self: *Object) !void {
     }
 
     try self.readLoadCommands(reader);
+    try self.parseSections();
     if (self.symtab_cmd_index != null) try self.parseSymtab();
     if (self.data_in_code_cmd_index != null) try self.readDataInCode();
-
-    {
-        const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
-        for (seg.sections.items) |_, sect_id| {
-            try self.parseRelocs(@intCast(u16, sect_id));
-        }
-    }
 }
 
 pub fn readLoadCommands(self: *Object, reader: anytype) !void {
@@ -170,53 +191,37 @@ pub fn readLoadCommands(self: *Object, reader: anytype) !void {
     }
 }
 
-pub fn parseRelocs(self: *Object, sect_id: u16) !void {
+pub fn parseSections(self: *Object) !void {
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
-    const sect = seg.sections.items[sect_id];
 
-    if (sect.nreloc == 0) return;
+    try self.sections.ensureCapacity(self.allocator, seg.sections.items.len);
 
-    var raw_relocs = try self.allocator.alloc(u8, @sizeOf(macho.relocation_info) * sect.nreloc);
-    defer self.allocator.free(raw_relocs);
-    _ = try self.file.?.preadAll(raw_relocs, sect.reloff);
-    const relocs = mem.bytesAsSlice(macho.relocation_info, raw_relocs);
+    for (seg.sections.items) |sect| {
+        // Read sections' code
+        var code = try self.allocator.alloc(u8, sect.size);
+        _ = try self.file.?.preadAll(code, sect.offset);
 
-    for (relocs) |reloc| {
-        const is_addend = is_addend: {
-            switch (self.arch.?) {
-                .x86_64 => {
-                    const rel_type = @intToEnum(macho.reloc_type_x86_64, reloc.r_type);
-                    log.warn("{s}", .{rel_type});
-
-                    break :is_addend false;
-                },
-                .aarch64 => {
-                    const rel_type = @intToEnum(macho.reloc_type_arm64, reloc.r_type);
-                    log.warn("{s}", .{rel_type});
-
-                    break :is_addend rel_type == .ARM64_RELOC_ADDEND;
-                },
-                else => unreachable,
-            }
+        var section = Section{
+            .inner = sect,
+            .code = code,
+            .relocs = undefined,
         };
 
-        if (!is_addend) {
-            if (reloc.r_extern == 1) {
-                const sym = self.symtab.items[reloc.r_symbolnum];
-                const sym_name = self.getString(sym.inner.n_strx);
-                log.warn("    | symbol = {s}", .{sym_name});
-            } else {
-                const target_sect = seg.sections.items[reloc.r_symbolnum - 1];
-                log.warn("    | section = {s},{s}", .{
-                    parseName(&target_sect.segname),
-                    parseName(&target_sect.sectname),
-                });
-            }
-        }
+        // Parse relocations
+        var relocs: ?[]*Relocation = if (sect.nreloc > 0) relocs: {
+            var raw_relocs = try self.allocator.alloc(u8, @sizeOf(macho.relocation_info) * sect.nreloc);
+            defer self.allocator.free(raw_relocs);
 
-        log.warn("    | offset = 0x{x}", .{reloc.r_address});
-        log.warn("    | PC = {}", .{reloc.r_pcrel == 1});
-        log.warn("    | length = {}", .{reloc.r_length});
+            _ = try self.file.?.preadAll(raw_relocs, sect.reloff);
+
+            break :relocs try reloc.parse(
+                self.allocator,
+                &section.code,
+                mem.bytesAsSlice(macho.relocation_info, raw_relocs),
+            );
+        } else null;
+
+        self.sections.appendAssumeCapacity(section);
     }
 }
 
