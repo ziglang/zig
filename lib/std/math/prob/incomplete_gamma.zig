@@ -14,7 +14,7 @@ const math = std.math;
 
 usingnamespace @import("constants.zig");
 
-const lgam = math.prob.lgam;
+const lnGamma = math.prob.lnGamma;
 
 const big = 4.503599627370496e15;
 const biginv = 2.22044604925031308085e-16;
@@ -61,7 +61,7 @@ pub fn igamc(a: f64, x: f64) f64 {
         return 0.0;
     }
 
-    var ax = a * math.ln(x) - x - lgam(a);
+    var ax = a * math.ln(x) - x - lnGamma(a);
     if (ax < -MAXLOG) {
         return 0.0; // Underflow
     }
@@ -195,7 +195,7 @@ pub fn igam(a: f64, x: f64) f64 {
     }
 
     // Compute  x**a * exp(-x) / gamma(a)
-    var ax = a * math.ln(x) - x - lgam(a);
+    var ax = a * math.ln(x) - x - lnGamma(a);
     if (ax < -MAXLOG) {
         return 0.0; // Underflow
     }
@@ -295,7 +295,7 @@ pub fn igami(a: f64, y0: f64) f64 {
     var y: f64 = (1.0 - d - ndtri(y0) * math.sqrt(d));
     var x: f64 = a * y * y * y;
 
-    var lgm = lgam(a);
+    var lgm = lnGamma(a);
 
     i = 0;
     while (i < 10) : (i += 1) {

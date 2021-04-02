@@ -263,7 +263,7 @@ const MAXLGM = 2.556348e305;
 /// at certain points the relative error could be much higher than
 /// indicated.
 ///    IEEE    -200, -4             10000     4.8e-16     1.3e-16
-pub fn lgam(x_: f64) f64 {
+pub fn lnGamma(x_: f64) f64 {
     var x = x_;
     var sgngam: f64 = 1;
 
@@ -277,7 +277,7 @@ pub fn lgam(x_: f64) f64 {
     var z: f64 = undefined;
     if (x < -34.0) {
         var q = -x;
-        var w = lgam(q);
+        var w = lnGamma(q);
 
         var p = math.floor(q);
         if (p == q) {
@@ -356,13 +356,13 @@ pub fn lgam(x_: f64) f64 {
     return q;
 }
 
-test "log gamma" {
-    expect(math.isInf(lgam(0)));
-    expect(math.isInf(lgam(-1)));
+test "lnGamma" {
+    expect(math.isInf(lnGamma(0)));
+    expect(math.isInf(lnGamma(-1)));
 
-    expectApproxEqRel(lgam(1), 0, epsilon);
-    expectApproxEqRel(lgam(1.5), -0.12078223764, epsilon);
-    expectApproxEqRel(lgam(1.9), -0.03898427592, epsilon);
+    expectApproxEqRel(lnGamma(1), 0, epsilon);
+    expectApproxEqRel(lnGamma(1.5), -0.12078223764, epsilon);
+    expectApproxEqRel(lnGamma(1.9), -0.03898427592, epsilon);
 
-    expectApproxEqRel(lgam(-0.5), 1.26551212348, epsilon);
+    expectApproxEqRel(lnGamma(-0.5), 1.26551212348, epsilon);
 }

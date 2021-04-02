@@ -15,7 +15,7 @@ const math = std.math;
 usingnamespace @import("constants.zig");
 
 const gamma = math.prob.gamma;
-const lgam = math.prob.lgam;
+const lnGamma = math.prob.lnGamma;
 
 const MAXGAM = 34.84425627277176174;
 const big = 4.503599627370496e15;
@@ -139,7 +139,7 @@ pub fn incbet(aa: f64, bb: f64, xx: f64) f64 {
     }
 
     // Resort to logarithms.
-    y += t + lgam(a + b) - lgam(a) - lgam(b);
+    y += t + lnGamma(a + b) - lnGamma(a) - lnGamma(b);
     y += math.ln(w / a);
     if (y < MINLOG) {
         t = 0.0;
@@ -348,7 +348,7 @@ pub fn pseries(a: f64, b: f64, x: f64) f64 {
         t = gamma(a + b) / (gamma(a) * gamma(b));
         s = s * t * math.pow(f64, x, a);
     } else {
-        t = lgam(a + b) - lgam(a) - lgam(b) + u + math.ln(s);
+        t = lnGamma(a + b) - lnGamma(a) - lnGamma(b) + u + math.ln(s);
         if (t < MINLOG) {
             s = 0.0;
         } else {
@@ -592,7 +592,7 @@ pub fn incbi(aa: f64, bb: f64, yy0: f64) f64 {
                 }
 
                 nflg = true;
-                const lgm = lgam(a + b) - lgam(a) - lgam(b);
+                const lgm = lnGamma(a + b) - lnGamma(a) - lnGamma(b);
 
                 var i: usize = 0;
                 while (i < 8) : (i += 1) {
