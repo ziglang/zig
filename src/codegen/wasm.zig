@@ -225,6 +225,7 @@ pub const Context = struct {
             .ret => self.genRet(inst.castTag(.ret).?),
             .retvoid => WValue.none,
             .store => self.genStore(inst.castTag(.store).?),
+            .sub => self.genSub(inst.castTag(.sub).?),
             .unreach => self.genUnreachable(inst.castTag(.unreach).?),
             else => self.fail(inst.src, "TODO: Implement wasm inst: {s}", .{inst.tag}),
         };
@@ -318,6 +319,25 @@ pub const Context = struct {
             .f32 => .f32_add,
             .f64 => .f64_add,
             else => return self.fail(inst.base.src, "TODO - Implement wasm genAdd for type '{s}'", .{inst.base.ty.tag()}),
+        };
+
+        try self.code.append(wasm.opcode(opcode));
+        return .none;
+    }
+
+    fn genSub(self: *Context, inst: *Inst.BinOp) InnerError!WValue {
+        const lhs = self.resolveInst(inst.lhs);
+        const rhs = self.resolveInst(inst.rhs);
+
+        try self.emitWValue(lhs);
+        try self.emitWValue(rhs);
+
+        const opcode: wasm.Opcode = switch (inst.base.ty.tag()) {
+            .u32, .i32 => .i32_sub,
+            .u64, .i64 => .i64_sub,
+            .f32 => .f32_sub,
+            .f64 => .f64_sub,
+            else => return self.fail(inst.base.src, "TODO - Implement wasm genSub for type '{s}'", .{inst.base.ty.tag()}),
         };
 
         try self.code.append(wasm.opcode(opcode));

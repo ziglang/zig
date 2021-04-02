@@ -121,6 +121,26 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return x + y;
             \\}
         , "35\n");
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 20;
+            \\    i -= 5;
+            \\    return i;
+            \\}
+        , "15\n");
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 5;
+            \\    i -= 3;
+            \\    var result: u32 = foo(i, 10);
+            \\    return result;
+            \\}
+            \\fn foo(x: u32, y: u32) u32 {
+            \\    return y - x;
+            \\}
+        , "8\n");
     }
 
     {
