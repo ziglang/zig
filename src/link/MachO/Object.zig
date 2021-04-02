@@ -237,7 +237,23 @@ pub fn parseSymtab(self: *Object) !void {
             error.EndOfStream => break,
             else => |e| return e,
         };
+        const tag: Symbol.Tag = tag: {
+            if (Symbol.isLocal(symbol)) {
+                if (Symbol.isStab(symbol))
+                    break :tag .Stab
+                else
+                    break :tag .Local;
+            } else if (Symbol.isGlobal(symbol)) {
+                if (Symbol.isWeakDef(symbol))
+                    break :tag .Weak
+                else
+                    break :tag .Strong;
+            } else {
+                break :tag .Undef;
+            }
+        };
         self.symtab.appendAssumeCapacity(.{
+            .tag = tag,
             .inner = symbol,
         });
     }
