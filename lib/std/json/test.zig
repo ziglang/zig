@@ -52,12 +52,29 @@ fn anyStreamingErrNonStreaming(comptime s: []const u8) void {
     testing.expect(false);
 }
 
+fn roundTrip(comptime s: []const u8) void {
+    testing.expect(json.validate(s));
+
+    var p = json.Parser.init(testing.allocator, false);
+    defer p.deinit();
+
+    var tree = p.parse(s) catch return testing.expect(false);
+    defer tree.deinit();
+
+    var buf: [256]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    var str_array = std.ArrayList(u8).init(&fba.allocator);
+    tree.root.jsonStringify(.{}, str_array.writer()) catch testing.expect(false);
+
+    testing.expectEqualStrings(s, str_array.items);
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Additional tests not part of test JSONTestSuite.
 
 test "y_trailing_comma_after_empty" {
-    ok(
+    roundTrip(
         \\{"1":[],"2":{},"3":"4"}
     );
 }
@@ -71,25 +88,25 @@ test "y_array_arraysWithSpaces" {
 }
 
 test "y_array_empty" {
-    ok(
+    roundTrip(
         \\[]
     );
 }
 
 test "y_array_empty-string" {
-    ok(
+    roundTrip(
         \\[""]
     );
 }
 
 test "y_array_ending_with_newline" {
-    ok(
+    roundTrip(
         \\["a"]
     );
 }
 
 test "y_array_false" {
-    ok(
+    roundTrip(
         \\[false]
     );
 }
@@ -101,7 +118,7 @@ test "y_array_heterogeneous" {
 }
 
 test "y_array_null" {
-    ok(
+    roundTrip(
         \\[null]
     );
 }
@@ -120,7 +137,7 @@ test "y_array_with_leading_space" {
 }
 
 test "y_array_with_several_null" {
-    ok(
+    roundTrip(
         \\[1,null,null,null,2]
     );
 }
@@ -172,13 +189,13 @@ test "y_number_minus_zero" {
 }
 
 test "y_number_negative_int" {
-    ok(
+    roundTrip(
         \\[-123]
     );
 }
 
 test "y_number_negative_one" {
-    ok(
+    roundTrip(
         \\[-1]
     );
 }
@@ -232,7 +249,7 @@ test "y_number_real_pos_exponent" {
 }
 
 test "y_number_simple_int" {
-    ok(
+    roundTrip(
         \\[123]
     );
 }
@@ -244,7 +261,7 @@ test "y_number_simple_real" {
 }
 
 test "y_object_basic" {
-    ok(
+    roundTrip(
         \\{"asd":"sdf"}
     );
 }
@@ -262,13 +279,13 @@ test "y_object_duplicated_key" {
 }
 
 test "y_object_empty" {
-    ok(
+    roundTrip(
         \\{}
     );
 }
 
 test "y_object_empty_key" {
-    ok(
+    roundTrip(
         \\{"":0}
     );
 }
@@ -298,7 +315,7 @@ test "y_object_long_strings" {
 }
 
 test "y_object_simple" {
-    ok(
+    roundTrip(
         \\{"a":[]}
     );
 }
@@ -348,7 +365,7 @@ test "y_string_backslash_and_u_escaped_zero" {
 }
 
 test "y_string_backslash_doublequotes" {
-    ok(
+    roundTrip(
         \\["\""]
     );
 }
@@ -366,7 +383,7 @@ test "y_string_double_escape_a" {
 }
 
 test "y_string_double_escape_n" {
-    ok(
+    roundTrip(
         \\["\\n"]
     );
 }
@@ -450,7 +467,7 @@ test "y_string_simple_ascii" {
 }
 
 test "y_string_space" {
-    ok(
+    roundTrip(
         \\" "
     );
 }
@@ -568,13 +585,13 @@ test "y_string_with_del_character" {
 }
 
 test "y_structure_lonely_false" {
-    ok(
+    roundTrip(
         \\false
     );
 }
 
 test "y_structure_lonely_int" {
-    ok(
+    roundTrip(
         \\42
     );
 }
@@ -586,37 +603,37 @@ test "y_structure_lonely_negative_real" {
 }
 
 test "y_structure_lonely_null" {
-    ok(
+    roundTrip(
         \\null
     );
 }
 
 test "y_structure_lonely_string" {
-    ok(
+    roundTrip(
         \\"asd"
     );
 }
 
 test "y_structure_lonely_true" {
-    ok(
+    roundTrip(
         \\true
     );
 }
 
 test "y_structure_string_empty" {
-    ok(
+    roundTrip(
         \\""
     );
 }
 
 test "y_structure_trailing_newline" {
-    ok(
+    roundTrip(
         \\["a"]
     );
 }
 
 test "y_structure_true_in_array" {
-    ok(
+    roundTrip(
         \\[true]
     );
 }
