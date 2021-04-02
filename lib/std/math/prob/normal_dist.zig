@@ -20,7 +20,7 @@ const expx2 = @import("expx2.zig").expx2;
 // Define this macro to suppress error propagation in exp(x^2)
 // by using the expx2 function.  The tradeoff is that doing so
 // generates two calls to the exponential function instead of one.  */
-const USE_EXPXSQ = true;
+const USE_EXPXSQ = false;
 
 const P = [_]f64{
     2.46196981473530512524E-10, 5.64189564831068821977E-1,
@@ -71,7 +71,7 @@ const UTHRESH = 37.519379347;
 ///                            x
 ///                             -
 ///                   1        | |          2
-///    ndtr(x)  = ---------    |    exp( - t /2 ) dt
+///       f(x)  = ---------    |    exp( - t /2 ) dt
 ///               sqrt(2pi)  | |
 ///                           -
 ///                          -inf.
@@ -119,6 +119,16 @@ pub fn normalDist(a: f64) f64 {
     }
 
     return y;
+}
+
+test "normalDist" {
+    const e2 = 1e-3; // TODO: Get more accurate reference
+
+    expectApproxEqRel(normalDist(-10), 7.62e-24, e2);
+    expectApproxEqRel(normalDist(-1), 0.1587, e2);
+    expectApproxEqRel(normalDist(0), 0.5, e2);
+    expectApproxEqRel(normalDist(1), 0.8413, e2);
+    expectApproxEqRel(normalDist(5), 1 - 2.867e-7, e2);
 }
 
 // sqrt(2pi)
@@ -191,8 +201,6 @@ const Q2 = [_]f64{
 ///
 ///                      Relative error:
 /// arithmetic   domain        # trials      peak         rms
-///    DEC      0.125, 1         5500       9.5e-17     2.1e-17
-///    DEC      6e-39, 0.135     3500       5.7e-17     1.3e-17
 ///    IEEE     0.125, 1        20000       7.2e-16     1.3e-16
 ///    IEEE     3e-308, 0.135   50000       4.6e-16     9.8e-17
 ///
@@ -377,7 +385,6 @@ fn erfce(x: f64) f64 {
 ///
 ///                      Relative error:
 /// arithmetic   domain     # trials      peak         rms
-///    DEC       0,1         14000       4.7e-17     1.5e-17
 ///    IEEE      0,1         30000       3.7e-16     1.0e-16
 pub fn erf(x: f64) f64 {
     if (math.fabs(x) > 1.0) {
@@ -408,14 +415,4 @@ test "erfce" {
     expectApproxEqRel(erfce(1), 0.4275835761558, epsilon);
     expectApproxEqRel(erfce(-1), 5.008980080762283, 1e-3); // TODO: Confirm against c implementation
     expectApproxEqRel(erfce(5), 0.1107046377339686, epsilon);
-}
-
-test "ndtr" {
-    const e2 = 1e-3; // TODO: Get more accurate reference
-
-    expectApproxEqRel(normalDist(-10), 7.62e-24, e2);
-    expectApproxEqRel(normalDist(-1), 0.1587, e2);
-    expectApproxEqRel(normalDist(0), 0.5, e2);
-    expectApproxEqRel(normalDist(1), 0.8413, e2);
-    expectApproxEqRel(normalDist(5), 1 - 2.867e-7, e2);
 }

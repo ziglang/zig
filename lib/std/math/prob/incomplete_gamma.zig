@@ -23,7 +23,7 @@ const lnGamma = math.prob.lnGamma;
 ///                           x
 ///                            -
 ///                   1       | |  -t  a-1
-///  igam(a,x)  =   -----     |   e   t   dt.
+///     f(a,x)  =   -----     |   e   t   dt.
 ///                  -      | |
 ///                 | (a)    -
 ///                           0
@@ -124,7 +124,7 @@ const biginv = 2.22044604925031308085e-16;
 /// The function is defined by
 ///
 ///
-///  igamc(a,x)   =   1 - igam(a,x)
+///  f(a,x)   =   1 - incompleteGamma(a,x)
 ///
 ///                            inf.
 ///                              -
@@ -249,11 +249,11 @@ test "complementedIncompleteGamma" {
 
 const inverseNormalDist = math.prob.inverseNormalDist;
 
-/// Inverse of complemented imcomplete gamma integral
+/// Inverse of complemented incomplete gamma integral
 ///
 /// Given p, the function finds x such that
 ///
-///  igamc( a, x ) = p.
+///  complementedIncompleteGamma(a, x) = p.
 ///
 /// Starting with the approximate value
 ///
@@ -269,7 +269,7 @@ const inverseNormalDist = math.prob.inverseNormalDist;
 ///  d = 1/9a,
 ///
 /// the routine performs up to 10 Newton iterations to find the
-/// root of igamc(a,x) - p = 0.
+/// root of complementedIncompleteGamma(a,x) - p = 0.
 ///
 /// ACCURACY:
 ///
@@ -329,8 +329,6 @@ pub fn inverseComplementedIncompleteGamma(a: f64, y0: f64) f64 {
     }
 
     // Resort to interval halving if Newton iteration did not converge.
-    // ihalve:
-
     d = 0.0625;
     if (x0 == MAXNUM) {
         if (x <= 0.0) {

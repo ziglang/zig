@@ -81,11 +81,7 @@ fn small(x: f64, z: f64) f64 {
 
 /// Gamma function
 ///
-/// Returns gamma function of the argument.  The result is
-/// correctly signed, and the sign (+1 or -1) is also
-/// returned in a global (extern) variable named sgngam.
-/// This variable is also filled in by the logarithmic gamma
-/// function lgam().
+/// Returns gamma function of the argument.
 ///
 /// Arguments |x| <= 34 are reduced by recurrence and the function
 /// approximated by a rational function of degree 6/7 in the
@@ -232,8 +228,6 @@ const MAXLGM = 2.556348e305;
 ///
 /// Returns the base e (2.718...) logarithm of the absolute
 /// value of the gamma function of the argument.
-/// The sign (+1 or -1) of the gamma function is returned in a
-/// global (extern) variable named sgngam.
 ///
 /// For arguments greater than 13, the logarithm of the gamma
 /// function is approximated by the logarithmic version of
@@ -244,16 +238,13 @@ const MAXLGM = 2.556348e305;
 /// less than -33.
 ///
 /// Arguments greater than MAXLGM return MAXNUM and an error
-/// message.  MAXLGM = 2.035093e36 for DEC
-/// arithmetic or 2.556348e305 for IEEE arithmetic.
+/// message.  MAXLGM = 2.556348e305 for IEEE arithmetic.
 ///
 ///
 /// ACCURACY:
 ///
 ///
 /// arithmetic      domain        # trials     peak         rms
-///    DEC     0, 3                  7000     5.2e-17     1.3e-17
-///    DEC     2.718, 2.035e36       5000     3.9e-17     9.9e-18
 ///    IEEE    0, 3                 28000     5.4e-16     1.1e-16
 ///    IEEE    2.718, 2.556e305     40000     3.5e-16     8.3e-17
 /// The error criterion was relative when the function magnitude

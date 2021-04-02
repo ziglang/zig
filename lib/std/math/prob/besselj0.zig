@@ -100,7 +100,6 @@ const DR2 = 3.04712623436620863991E1;
 ///
 ///                      Absolute error:
 /// arithmetic   domain     # trials      peak         rms
-///    DEC       0, 30       10000       4.4e-17     6.3e-18
 ///    IEEE      0, 30       60000       4.2e-16     1.1e-16
 pub fn besselj0(x_: f64) f64 {
     const x = if (x_ < 0) -x_ else x_;
@@ -150,21 +149,21 @@ test "besselj0" {
 /// The domain is divided into the intervals [0, 5] and
 /// (5, infinity). In the first interval a rational approximation
 /// R(x) is employed to compute
-///   y0(x)  = R(x)  +   2 * log(x) * j0(x) / PI.
-/// Thus a call to j0() is required.
+///   bessely0(x)  = R(x)  +   2 * log(x) * besselj0(x) / PI.
+/// Thus a call to besselj0() is required.
 ///
 /// In the second interval, the Hankel asymptotic expansion
 /// is employed with two rational functions of degree 6/6
 /// and 7/7.
 ///
 /// Rational approximation coefficients YP[], YQ[] are used here.
-/// The function computed is  y0(x)  -  2 * log(x) * j0(x) / PI,
+/// The function computed is  bessely0(x)  -  2 * log(x) * besselj0(x) / PI,
 /// whose value at x = 0 is  2 * ( log(0.5) + EUL ) / PI
 /// = 0.073804295108687225.
 ///
 /// ACCURACY:
 ///
-///  Absolute error, when y0(x) < 1; else relative error:
+///  Absolute error, when bessely0(x) < 1; else relative error:
 ///
 /// arithmetic   domain     # trials      peak         rms
 ///    DEC       0, 30        9400       7.0e-17     7.9e-18
