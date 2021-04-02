@@ -88,7 +88,7 @@ const Z2 = 4.92184563216946036703E1;
 /// arithmetic   domain      # trials      peak         rms
 ///    DEC       0, 30       10000       4.0e-17     1.1e-17
 ///    IEEE      0, 30       30000       2.6e-16     1.1e-16
-pub fn j1(x: f64) f64 {
+pub fn besselj1(x: f64) f64 {
     var w = if (x < 0) -x else x;
 
     if (w <= 5.0) {
@@ -111,7 +111,7 @@ const expectApproxEqRel = std.testing.expectApproxEqRel;
 const expect = std.testing.expect;
 const epsilon = 1e-10;
 
-test "j1" {
+test "besselj1" {
     const cases = [_][2]f64{
         [_]f64{ 0, 0 },
         [_]f64{ 1, 0.4400505857449336 },
@@ -121,7 +121,7 @@ test "j1" {
     };
 
     for (cases) |c| {
-        expectApproxEqRel(j1(c[0]), c[1], epsilon);
+        expectApproxEqRel(besselj1(c[0]), c[1], epsilon);
     }
 }
 
@@ -145,7 +145,7 @@ test "j1" {
 ///    IEEE      0, 30       30000       1.0e-15     1.3e-16
 ///
 /// (error criterion relative when |y1| > 1).
-pub fn y1(x: f64) f64 {
+pub fn bessely1(x: f64) f64 {
     if (x <= 0.0) {
         return -math.inf(f64); // Domain Error
     }
@@ -153,7 +153,7 @@ pub fn y1(x: f64) f64 {
     if (x <= 5.0) {
         const z = x * x;
         var w = x * (polevl(z, YP[0..]) / p1evl(z, YQ[0..]));
-        w += TWOOPI * (j1(x) * math.ln(x) - 1.0 / x);
+        w += TWOOPI * (besselj1(x) * math.ln(x) - 1.0 / x);
         return w;
     }
 
@@ -173,9 +173,9 @@ test "y1" {
         [_]f64{ 3.141, 0.3587459411754785 },
     };
 
-    expect(math.isNegativeInf(y1(0)));
+    expect(math.isNegativeInf(bessely1(0)));
 
     for (cases) |c| {
-        expectApproxEqRel(y1(c[0]), c[1], epsilon);
+        expectApproxEqRel(bessely1(c[0]), c[1], epsilon);
     }
 }

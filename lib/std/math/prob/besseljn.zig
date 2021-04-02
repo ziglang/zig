@@ -48,7 +48,7 @@ const big = BIG;
 ///    IEEE      0,500     0,500       20000      4.4e-15    4.0e-16
 /// Integer v:
 ///    IEEE   -125,125   -125,125      50000      3.5e-15*   1.9e-16*
-pub fn jv(n_: f64, x_: f64) f64 {
+pub fn besselj(n_: f64, x_: f64) f64 {
     var n = n_;
     var x = x_;
 
@@ -73,10 +73,10 @@ pub fn jv(n_: f64, x_: f64) f64 {
             x = -x;
         }
         if (n == 0.0) {
-            return prob.j0(x);
+            return prob.besselj0(x);
         }
         if (n == 1.0) {
-            return sign * prob.j1(x);
+            return sign * prob.besselj1(x);
         }
     }
 
@@ -111,12 +111,12 @@ pub fn jv(n_: f64, x_: f64) f64 {
             q = recur(&n, x, &k, true);
 
             if (k == 0.0) {
-                y = prob.j0(x) / q;
+                y = prob.besselj0(x) / q;
                 return sign * y;
             }
 
             if (k == 1.0) {
-                y = prob.j1(x) / q;
+                y = prob.besselj1(x) / q;
                 return sign * y;
             }
         }
@@ -211,11 +211,11 @@ const expectApproxEqRel = std.testing.expectApproxEqRel;
 const expect = std.testing.expect;
 const epsilon = 0.000001;
 
-test "jv" {
-    expectApproxEqRel(jv(1.5, 0), 0, epsilon);
-    expectApproxEqRel(jv(1.5, 1), 0.240297839123, epsilon);
-    expectApproxEqRel(jv(1.5, 1.5), 0.387142217276067, epsilon);
-    expectApproxEqRel(jv(-1.5, 1.5), -0.6805601853491455, epsilon);
+test "besselj" {
+    expectApproxEqRel(besselj(1.5, 0), 0, epsilon);
+    expectApproxEqRel(besselj(1.5, 1), 0.240297839123, epsilon);
+    expectApproxEqRel(besselj(1.5, 1.5), 0.387142217276067, epsilon);
+    expectApproxEqRel(besselj(-1.5, 1.5), -0.6805601853491455, epsilon);
 }
 
 // Reduce the order by backward recurrence.
