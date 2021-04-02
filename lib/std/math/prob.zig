@@ -7,8 +7,8 @@ const std = @import("../std.zig");
 const testing = std.testing;
 const math = std.math;
 
-pub const ndtr = @import("prob/normal_dist.zig").ndtr;
-pub const ndtri = @import("prob/normal_dist.zig").ndtri;
+pub const normalDist = @import("prob/normal_dist.zig").normalDist;
+pub const inverseNormalDist = @import("prob/normal_dist.zig").inverseNormalDist;
 pub const erfc = @import("prob/normal_dist.zig").erfc;
 pub const erf = @import("prob/normal_dist.zig").erf;
 
