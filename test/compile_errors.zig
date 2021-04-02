@@ -1027,9 +1027,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn foo() void {}
     , &[_][]const u8{
-        "tmp.zig:3:21: error: async call in nosuspend scope",
         "tmp.zig:4:9: error: suspend in nosuspend scope",
-        "tmp.zig:5:9: error: resume in nosuspend scope",
     });
 
     cases.add("atomicrmw with bool op not .Xchg",
