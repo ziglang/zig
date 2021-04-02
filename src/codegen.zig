@@ -3302,6 +3302,43 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(reg, .{ .register = .{ .rn = reg } }).toU32());
                         }
                     },
+                    .stack_offset => |unadjusted_off| {
+                        // TODO: maybe addressing from sp instead of fp
+                        const abi_size = ty.abiSize(self.target.*);
+                        const adj_off = unadjusted_off + abi_size;
+
+                        const rn: Register = switch (arch) {
+                            .aarch64, .aarch64_be => .x29,
+                            .aarch64_32 => .w29,
+                            else => unreachable,
+                        };
+
+                        const offset = if (math.cast(i9, adj_off)) |imm|
+                            Instruction.LoadStoreOffset.imm_post_index(-imm)
+                        else |_|
+                            Instruction.LoadStoreOffset.reg(try self.copyToTmpRegister(src, Type.initTag(.u64), MCValue{ .immediate = adj_off }));
+
+                        switch (abi_size) {
+                            1, 2 => {
+                                const ldr = switch (abi_size) {
+                                    1 => Instruction.ldrb,
+                                    2 => Instruction.ldrh,
+                                    else => unreachable, // unexpected abi size
+                                };
+
+                                writeInt(u32, try self.code.addManyAsArray(4), ldr(reg, rn, .{
+                                    .offset = offset,
+                                }).toU32());
+                            },
+                            4, 8 => {
+                                writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldr(reg, .{ .register = .{
+                                    .rn = rn,
+                                    .offset = offset,
+                                } }).toU32());
+                            },
+                            else => return self.fail(src, "TODO implement genSetReg other types abi_size={}", .{abi_size}),
+                        }
+                    },
                     else => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
                 },
                 .riscv64 => switch (mcv) {
