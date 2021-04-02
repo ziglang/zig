@@ -73,7 +73,7 @@ fn done(flag: bool, t: f64) f64 {
 ///   message         condition      value returned
 /// incbet domain      x<0, x>1          0.0
 /// incbet underflow                     0.0
-pub fn incbet(aa: f64, bb: f64, xx: f64) f64 {
+pub fn incompleteBeta(aa: f64, bb: f64, xx: f64) f64 {
     if (aa <= 0.0 or bb <= 0.0) {
         return 0.0; // Domain
     }
@@ -152,7 +152,7 @@ pub fn incbet(aa: f64, bb: f64, xx: f64) f64 {
 
 /// Continued fraction expansion #1
 /// for incomplete beta integral
-pub fn incbcf(a: f64, b: f64, x: f64) f64 {
+fn incbcf(a: f64, b: f64, x: f64) f64 {
     var k1 = a;
     var k2 = a + b;
     var k3 = a;
@@ -235,7 +235,7 @@ pub fn incbcf(a: f64, b: f64, x: f64) f64 {
 
 /// Continued fraction expansion #2
 /// for incomplete beta integral
-pub fn incbd(a: f64, b: f64, x: f64) f64 {
+fn incbd(a: f64, b: f64, x: f64) f64 {
     var k1 = a;
     var k2 = b - 1.0;
     var k3 = a;
@@ -322,7 +322,7 @@ pub fn incbd(a: f64, b: f64, x: f64) f64 {
 
 /// Power series for incomplete beta integral.
 /// Use when b*x is small and x not too close to 1.
-pub fn pseries(a: f64, b: f64, x: f64) f64 {
+fn pseries(a: f64, b: f64, x: f64) f64 {
     var ai = 1.0 / a;
     var u = (1.0 - b) * x;
     var v = u / (a + 1.0);
@@ -363,7 +363,7 @@ const expectApproxEqRel = std.testing.expectApproxEqRel;
 const expect = std.testing.expect;
 const epsilon = 1e-10;
 
-test "incbet" {
+test "incompleteBeta" {
     const cases = [_][4]f64{
         [_]f64{ 1, 1, 0.8, 0.8 },
         [_]f64{ 1, 5, 0.8, 0.99968000000000001 },
@@ -375,8 +375,8 @@ test "incbet" {
     };
 
     for (cases) |c| {
-        expectApproxEqRel(incbet(c[0], c[1], c[2]), c[3], epsilon);
-        expectApproxEqRel(1 - incbet(c[1], c[0], 1 - c[2]), c[3], epsilon);
+        expectApproxEqRel(incompleteBeta(c[0], c[1], c[2]), c[3], epsilon);
+        expectApproxEqRel(1 - incompleteBeta(c[1], c[0], 1 - c[2]), c[3], epsilon);
     }
 }
 
@@ -406,7 +406,7 @@ const inverseNormalDist = math.prob.inverseNormalDist;
 ///    IEEE      0,1    .5,100    100000    1.7e-14   7.9e-16
 /// With a = .5, b constrained to half-integer or integer values:
 ///    IEEE      0,1    .5,10000   10000    8.3e-11   1.0e-11
-pub fn incbi(aa: f64, bb: f64, yy0: f64) f64 {
+pub fn inverseIncompleteBeta(aa: f64, bb: f64, yy0: f64) f64 {
     if (yy0 <= 0) {
         return 0.0;
     }
@@ -437,7 +437,7 @@ pub fn incbi(aa: f64, bb: f64, yy0: f64) f64 {
             b = bb;
             y0 = yy0;
             x = a / (a + b);
-            y = incbet(a, b, x);
+            y = incompleteBeta(a, b, x);
             state = .ihalve;
             break;
         } else {
@@ -468,7 +468,7 @@ pub fn incbi(aa: f64, bb: f64, yy0: f64) f64 {
             return done(rflg, 0.0); // Underflow
         }
         x = a / (a + b * math.exp(d));
-        y = incbet(a, b, x);
+        y = incompleteBeta(a, b, x);
         yp = (y - y0) / y0;
         if (math.fabs(yp) < 0.2) {
             state = .newton;
@@ -504,7 +504,7 @@ pub fn incbi(aa: f64, bb: f64, yy0: f64) f64 {
                                 return done(rflg, 0.0); // Underflow
                             }
                         }
-                        y = incbet(a, b, x);
+                        y = incompleteBeta(a, b, x);
                         yp = (x1 - x0) / (x1 + x0);
                         if (math.fabs(yp) < dithresh) {
                             state = .newton;
@@ -544,7 +544,7 @@ pub fn incbi(aa: f64, bb: f64, yy0: f64) f64 {
                                 y0 = 1.0 - yy0;
                             }
                             x = 1.0 - x;
-                            y = incbet(a, b, x);
+                            y = incompleteBeta(a, b, x);
                             x0 = 0.0;
                             yl = 0.0;
                             x1 = 1.0;
@@ -597,7 +597,7 @@ pub fn incbi(aa: f64, bb: f64, yy0: f64) f64 {
                 while (i < 8) : (i += 1) {
                     // Compute the function at this point.
                     if (i != 0) {
-                        y = incbet(a, b, x);
+                        y = incompleteBeta(a, b, x);
                     }
                     if (y < yl) {
                         x = x0;
@@ -659,7 +659,7 @@ pub fn incbi(aa: f64, bb: f64, yy0: f64) f64 {
     unreachable;
 }
 
-test "incbi" {
+test "inverseIncompleteBeta" {
     const cases = [_][4]f64{
         [_]f64{ 1, 1, 0.8, 0.8 },
         [_]f64{ 1, 5, 0.8, 0.99968000000000001 },
@@ -671,10 +671,10 @@ test "incbi" {
     };
 
     for (cases) |c| {
-        var r = incbet(c[0], c[1], c[2]);
+        var r = incompleteBeta(c[0], c[1], c[2]);
         expectApproxEqRel(r, c[3], epsilon);
 
-        var ri = incbi(c[0], c[1], r);
+        var ri = inverseIncompleteBeta(c[0], c[1], r);
         expectApproxEqRel(ri, c[2], epsilon);
     }
 }

@@ -27,9 +27,8 @@ pub const igam = @import("prob/incomplete_gamma.zig").igam;
 pub const gamma = @import("prob/gamma.zig").gamma;
 pub const lnGamma = @import("prob/gamma.zig").lnGamma;
 
-pub const incbet = @import("prob/incomplete_beta.zig").incbet;
-pub const incbcf = @import("prob/incomplete_beta.zig").incbcf;
-pub const incbi = @import("prob/incomplete_beta.zig").incbi;
+pub const incompleteBeta = @import("prob/incomplete_beta.zig").incompleteBeta;
+pub const inverseIncompleteBeta = @import("prob/incomplete_beta.zig").inverseIncompleteBeta;
 
 pub const polevl = @import("prob/polevl.zig").polevl;
 pub const p1evl = @import("prob/polevl.zig").p1evl;
