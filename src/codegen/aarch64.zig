@@ -487,11 +487,17 @@ pub const Instruction = union(enum) {
     /// Which kind of load/store to perform
     const LoadStoreVariant = enum {
         /// 32-bit or 64-bit
-        normal,
-        /// 16-bit
-        half,
-        /// 8-bit
-        byte,
+        str,
+        /// 16-bit, zero-extended
+        strh,
+        /// 8-bit, zero-extended
+        strb,
+        /// 32-bit or 64-bit
+        ldr,
+        /// 16-bit, zero-extended
+        ldrh,
+        /// 8-bit, zero-extended
+        ldrb,
     };
 
     fn loadStoreRegister(
@@ -499,7 +505,6 @@ pub const Instruction = union(enum) {
         rn: Register,
         offset: LoadStoreOffset,
         variant: LoadStoreVariant,
-        load: bool,
     ) Instruction {
         const off = offset.toU12();
         const op1: u2 = blk: {
@@ -512,7 +517,10 @@ pub const Instruction = union(enum) {
             }
             break :blk 0b00;
         };
-        const opc: u2 = if (load) 0b01 else 0b00;
+        const opc: u2 = switch (variant) {
+            .ldr, .ldrh, .ldrb => 0b01,
+            .str, .strh, .strb => 0b00,
+        };
         return Instruction{
             .LoadStoreRegister = .{
                 .rt = rt.id(),
@@ -523,13 +531,13 @@ pub const Instruction = union(enum) {
                 .v = 0,
                 .size = blk: {
                     switch (variant) {
-                        .normal => switch (rt.size()) {
+                        .ldr, .str => switch (rt.size()) {
                             32 => break :blk 0b10,
                             64 => break :blk 0b11,
                             else => unreachable, // unexpected register size
                         },
-                        .half => break :blk 0b01,
-                        .byte => break :blk 0b00,
+                        .ldrh, .strh => break :blk 0b01,
+                        .ldrb, .strb => break :blk 0b00,
                     }
                 },
             },
@@ -756,9 +764,17 @@ pub const Instruction = union(enum) {
 
     pub fn ldr(rt: Register, args: LdrArgs) Instruction {
         switch (args) {
-            .register => |info| return loadStoreRegister(rt, info.rn, info.offset, .normal, true),
+            .register => |info| return loadStoreRegister(rt, info.rn, info.offset, .ldr),
             .literal => |literal| return loadLiteral(rt, literal),
         }
+    }
+
+    pub fn ldrh(rt: Register, rn: Register, args: StrArgs) Instruction {
+        return loadStoreRegister(rt, rn, args.offset, .ldrh);
+    }
+
+    pub fn ldrb(rt: Register, rn: Register, args: StrArgs) Instruction {
+        return loadStoreRegister(rt, rn, args.offset, .ldrb);
     }
 
     pub const StrArgs = struct {
@@ -766,15 +782,15 @@ pub const Instruction = union(enum) {
     };
 
     pub fn str(rt: Register, rn: Register, args: StrArgs) Instruction {
-        return loadStoreRegister(rt, rn, args.offset, .normal, false);
+        return loadStoreRegister(rt, rn, args.offset, .str);
     }
 
     pub fn strh(rt: Register, rn: Register, args: StrArgs) Instruction {
-        return loadStoreRegister(rt, rn, args.offset, .half, false);
+        return loadStoreRegister(rt, rn, args.offset, .strh);
     }
 
     pub fn strb(rt: Register, rn: Register, args: StrArgs) Instruction {
-        return loadStoreRegister(rt, rn, args.offset, .byte, false);
+        return loadStoreRegister(rt, rn, args.offset, .strb);
     }
 
     // Load or store pair of registers
@@ -1003,6 +1019,14 @@ test "serialize instructions" {
         .{ // ldr x2, label
             .inst = Instruction.ldr(.x2, .{ .literal = 0x1 }),
             .expected = 0b01_011_0_00_0000000000000000001_00010,
+        },
+        .{ // ldrh x7, [x4], #0xaa
+            .inst = Instruction.ldrh(.x7, .x4, .{ .offset = Instruction.LoadStoreOffset.imm_post_index(0xaa) }),
+            .expected = 0b01_111_0_00_01_0_010101010_01_00100_00111,
+        },
+        .{ // ldrb x9, [x15, #0xff]!
+            .inst = Instruction.ldrb(.x9, .x15, .{ .offset = Instruction.LoadStoreOffset.imm_pre_index(0xff) }),
+            .expected = 0b00_111_0_00_01_0_011111111_11_01111_01001,
         },
         .{ // str x2, [x1]
             .inst = Instruction.str(.x2, .x1, .{}),
