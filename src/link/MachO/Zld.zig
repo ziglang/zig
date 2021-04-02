@@ -265,11 +265,12 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.resolveSymbols();
     try self.updateMetadata();
     try self.sortSections();
+    try self.allocateTextSegment();
+    try self.allocateDataConstSegment();
+    try self.allocateDataSegment();
+    self.allocateLinkeditSegment();
+    try self.allocateSymbols();
     self.printSymtab();
-    // try self.allocateTextSegment();
-    // try self.allocateDataConstSegment();
-    // try self.allocateDataSegment();
-    // self.allocateLinkeditSegment();
     // try self.writeStubHelperCommon();
     // try self.doRelocs();
     // try self.flush();
@@ -816,7 +817,11 @@ fn allocateTextSegment(self: *Zld) !void {
     // TODO This should be worked out by scanning the relocations in the __text sections of all combined
     // object files. For the time being, assume all externs are stubs (this is wasting space but should
     // correspond to the worst-case upper bound).
-    const nstubs = @intCast(u32, self.externs.count());
+    var nexterns: u32 = 0;
+    for (self.symtab.items()) |entry| {
+        if (entry.value.tag != .Import) continue;
+        nexterns += 1;
+    }
 
     const base_vmaddr = self.load_commands.items[self.pagezero_segment_cmd_index.?].Segment.inner.vmsize;
     seg.inner.fileoff = 0;
@@ -825,14 +830,14 @@ fn allocateTextSegment(self: *Zld) !void {
     // Set stubs and stub_helper sizes
     const stubs = &seg.sections.items[self.stubs_section_index.?];
     const stub_helper = &seg.sections.items[self.stub_helper_section_index.?];
-    stubs.size += nstubs * stubs.reserved2;
+    stubs.size += nexterns * stubs.reserved2;
 
     const stub_size: u4 = switch (self.arch.?) {
         .x86_64 => 10,
         .aarch64 => 3 * @sizeOf(u32),
         else => unreachable,
     };
-    stub_helper.size += nstubs * stub_size;
+    stub_helper.size += nexterns * stub_size;
 
     var sizeofcmds: u64 = 0;
     for (self.load_commands.items) |lc| {
@@ -870,7 +875,11 @@ fn allocateDataConstSegment(self: *Zld) !void {
     // TODO This should be worked out by scanning the relocations in the __text sections of all
     // combined object files. For the time being, assume all externs are GOT entries (this is wasting space but
     // should correspond to the worst-case upper bound).
-    const nexterns = @intCast(u32, self.externs.count());
+    var nexterns: u32 = 0;
+    for (self.symtab.items()) |entry| {
+        if (entry.value.tag != .Import) continue;
+        nexterns += 1;
+    }
 
     const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     seg.inner.fileoff = text_seg.inner.fileoff + text_seg.inner.filesize;
@@ -891,7 +900,11 @@ fn allocateDataSegment(self: *Zld) !void {
     // TODO This should be worked out by scanning the relocations in the __text sections of all combined
     // object files. For the time being, assume all externs are stubs (this is wasting space but should
     // correspond to the worst-case upper bound).
-    const nstubs = @intCast(u32, self.externs.count());
+    var nexterns: u32 = 0;
+    for (self.symtab.items()) |entry| {
+        if (entry.value.tag != .Import) continue;
+        nexterns += 1;
+    }
 
     const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
     seg.inner.fileoff = data_const_seg.inner.fileoff + data_const_seg.inner.filesize;
@@ -900,7 +913,7 @@ fn allocateDataSegment(self: *Zld) !void {
     // Set la_symbol_ptr and data size
     const la_symbol_ptr = &seg.sections.items[self.la_symbol_ptr_section_index.?];
     const data = &seg.sections.items[self.data_section_index.?];
-    la_symbol_ptr.size += nstubs * @sizeOf(u64);
+    la_symbol_ptr.size += nexterns * @sizeOf(u64);
     data.size += @sizeOf(u64); // We need at least 8bytes for address of dyld_stub_binder
 
     try self.allocateSegment(self.data_segment_cmd_index.?, 0);
@@ -931,6 +944,60 @@ fn allocateSegment(self: *Zld, index: u16, offset: u64) !void {
     const seg_size_aligned = mem.alignForwardGeneric(u64, start, self.page_size.?);
     seg.inner.filesize = seg_size_aligned;
     seg.inner.vmsize = seg_size_aligned;
+}
+
+fn allocateSymbols(self: *Zld) !void {
+    for (self.symtab.items()) |*entry| {
+        if (entry.value.tag == .Import) continue;
+
+        const object_id = entry.value.file orelse unreachable;
+        const index = entry.value.index orelse unreachable;
+
+        const object = self.objects.items[object_id];
+        const source_sym = object.symtab.items[index];
+        const source_sect_id = source_sym.inner.n_sect - 1;
+
+        // TODO I am more and more convinced we should store the mapping as part of the Object struct.
+        const target_mapping = self.mappings.get(.{
+            .object_id = object_id,
+            .source_sect_id = source_sect_id,
+        }) orelse {
+            if (self.unhandled_sections.get(.{
+                .object_id = object_id,
+                .source_sect_id = source_sect_id,
+            }) != null) continue;
+
+            log.err("section not mapped for symbol '{s}': {}", .{ entry.key, source_sym });
+            return error.SectionNotMappedForSymbol;
+        };
+
+        const source_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
+        const source_sect = source_seg.sections.items[source_sect_id];
+        const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
+        const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
+        const target_addr = target_sect.addr + target_mapping.offset;
+        const n_value = source_sym.inner.n_value - source_sect.addr + target_addr;
+
+        log.warn("resolving '{s}' symbol at 0x{x}", .{ entry.key, n_value });
+
+        // TODO there might be a more generic way of doing this.
+        var n_sect: u8 = 0;
+        for (self.load_commands.items) |cmd, cmd_id| {
+            if (cmd != .Segment) break;
+            if (cmd_id == target_mapping.target_seg_id) {
+                n_sect += @intCast(u8, target_mapping.target_sect_id) + 1;
+                break;
+            }
+            n_sect += @intCast(u8, cmd.Segment.sections.items.len);
+        }
+
+        entry.value.inner.n_value = n_value;
+        entry.value.inner.n_sect = n_sect;
+
+        // TODO This will need to be redone for any CU locals that end up in the final symbol table.
+        // This could be part of writing debug info since this is the only valid reason (is it?) for
+        // including CU locals in the final MachO symbol table.
+    }
 }
 
 fn writeStubHelperCommon(self: *Zld) !void {
