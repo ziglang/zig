@@ -6594,13 +6594,11 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "async and await" {
-    // Here we have an exception where we do not match an async
-    // with an await. The test block is not async and so cannot
-    // have a suspend point in it.
-    // This is well-defined behavior, and everything is OK here.
-    // Note however that there would be no way to collect the
-    // return value of amain, if it were something other than void.
-    _ = async amain();
+    // The test block is not async and so cannot have a suspend
+    // point in it. By using the nosuspend keyword, we promise that
+    // the code in amain will finish executing without suspending
+    // back to the test block.
+    nosuspend amain();
 }
 
 fn amain() void {
@@ -10799,9 +10797,16 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}nosuspend{#endsyntax#}</pre>
           </td>
           <td>
-            The {#syntax#}nosuspend{#endsyntax#} keyword.
+            The {#syntax#}nosuspend{#endsyntax#} keyword can be used in front of a block, statement or expression, to mark a scope where no suspension points are reached.
+            In particular, inside a {#syntax#}nosuspend{#endsyntax#} scope:
             <ul>
-              <li>TODO add documentation for nosuspend</li>
+              <li>Using the {#syntax#}suspend{#endsyntax#} keyword results in a compile error.</li>
+              <li>Using {#syntax#}await{#endsyntax#} on a function frame which hasn't completed yet results in safety-checked {#link|Undefined Behavior#}.</li>
+              <li>Calling an async function may result in safety-checked {#link|Undefined Behavior#}, because it's equivalent to <code>await async some_async_fn()</code>, which contains an {#syntax#}await{#endsyntax#}.</li>
+            </ul>
+            Code inside a {#syntax#}nosuspend{#endsyntax#} scope does not cause the enclosing function to become an {#link|async function|Async Functions#}.
+            <ul>
+              <li>See also {#link|Async Functions#}</li>
             </ul>
           </td>
         </tr>
