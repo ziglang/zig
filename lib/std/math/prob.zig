@@ -20,9 +20,9 @@ pub const besselj = @import("prob/besseljn.zig").besselj;
 
 pub const airy = @import("prob/airy.zig").airy;
 
-pub const igamc = @import("prob/incomplete_gamma.zig").igamc;
-pub const igami = @import("prob/incomplete_gamma.zig").igami;
-pub const igam = @import("prob/incomplete_gamma.zig").igam;
+pub const incompleteGamma = @import("prob/incomplete_gamma.zig").incompleteGamma;
+pub const complementedIncompleteGamma = @import("prob/incomplete_gamma.zig").complementedIncompleteGamma;
+pub const inverseComplementedIncompleteGamma = @import("prob/incomplete_gamma.zig").inverseComplementedIncompleteGamma;
 
 pub const gamma = @import("prob/gamma.zig").gamma;
 pub const lnGamma = @import("prob/gamma.zig").lnGamma;
