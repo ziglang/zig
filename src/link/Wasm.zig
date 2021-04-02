@@ -16,6 +16,7 @@ const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const Cache = @import("../Cache.zig");
+const TypedValue = @import("../TypedValue.zig");
 
 pub const base_tag = link.File.Tag.wasm;
 
@@ -34,24 +35,32 @@ pub const FnData = struct {
 /// where the offset is calculated using the previous segments and the content length
 /// of the data
 pub const DataSection = struct {
-    segments: std.AutoArrayHashMapUnmanaged(*const Module.Decl, []const u8) = .{},
+    segments: std.AutoArrayHashMapUnmanaged(*Module.Decl, struct { data: [*]const u8, len: u32 }) = .{},
 
     /// Returns the offset into the data segment based on a given `Decl`
     pub fn offset(self: DataSection, decl: *const Module.Decl) u32 {
         var cur_offset: u32 = 0;
         return for (self.segments.items()) |entry| {
             if (entry.key == decl) break cur_offset;
-            cur_offset += @intCast(u32, entry.value.len);
-        } else cur_offset;
+            cur_offset += entry.value.len;
+        } else unreachable; // offset() called on declaration that does not live inside 'data' section
     }
 
     /// Returns the total payload size of the data section
     pub fn size(self: DataSection) u32 {
         var total: u32 = 0;
         for (self.segments.items()) |entry| {
-            total += @intCast(u32, entry.value.len);
+            total += entry.value.len;
         }
         return total;
+    }
+
+    /// Updates the data in the data segment belonging to the given decl.
+    /// It's illegal behaviour to call this before allocateDeclIndexes was called
+    /// `data` must be managed externally with a lifetime that last as long as codegen does.
+    pub fn updateData(self: DataSection, decl: *Module.Decl, data: []const u8) void {
+        const entry = self.segments.getEntry(decl).?; // called updateData before the declaration was added to data segments
+        entry.value.data = data.ptr;
     }
 };
 
@@ -111,49 +120,92 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Wasm {
 
 pub fn deinit(self: *Wasm) void {
     for (self.funcs.items) |decl| {
-        decl.fn_link.wasm.?.functype.deinit(self.base.allocator);
-        decl.fn_link.wasm.?.code.deinit(self.base.allocator);
-        decl.fn_link.wasm.?.idx_refs.deinit(self.base.allocator);
+        decl.fn_link.wasm.functype.deinit(self.base.allocator);
+        decl.fn_link.wasm.code.deinit(self.base.allocator);
+        decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
     }
     for (self.ext_funcs.items) |decl| {
-        decl.fn_link.wasm.?.functype.deinit(self.base.allocator);
-        decl.fn_link.wasm.?.code.deinit(self.base.allocator);
-        decl.fn_link.wasm.?.idx_refs.deinit(self.base.allocator);
+        decl.fn_link.wasm.functype.deinit(self.base.allocator);
+        decl.fn_link.wasm.code.deinit(self.base.allocator);
+        decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
+    }
+    for (self.data.segments.items()) |entry| {
+        // data segments only use the code section
+        entry.key.fn_link.wasm.code.deinit(self.base.allocator);
     }
     self.funcs.deinit(self.base.allocator);
     self.ext_funcs.deinit(self.base.allocator);
     self.data.segments.deinit(self.base.allocator);
 }
 
+pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
+    std.debug.print("INIT: '{s}'\n", .{decl.name});
+    const tv = decl.typed_value.most_recent.typed_value;
+    decl.fn_link.wasm = .{};
+
+    switch (tv.ty.zigTypeTag()) {
+        .Array => {
+            // if the codegen of the given decl contributes to the data segment
+            // we must calculate its data length now so that the data offsets are available
+            // to other decls when called
+            const data_len = calcDataLen(self, tv) catch return error.AnalysisFail;
+            try self.data.segments.putNoClobber(self.base.allocator, decl, .{ .data = undefined, .len = data_len });
+        },
+        .Fn => if (self.getFuncidx(decl) == null) switch (tv.val.tag()) {
+            // dependent on function type, appends it to the correct list
+            .function => try self.funcs.append(self.base.allocator, decl),
+            .extern_fn => try self.ext_funcs.append(self.base.allocator, decl),
+            else => unreachable,
+        },
+        else => {},
+    }
+}
+
+// TODO, remove this and use the existing error mechanism
+const DataLenError = error{
+    TODO_WASM_CalcDataLenArray,
+    TODO_WASM_CalcDataLen,
+};
+/// Calculates the length of the data segment that will be occupied by the given `TypedValue`
+fn calcDataLen(bin_file: *Wasm, typed_value: TypedValue) DataLenError!u32 {
+    switch (typed_value.ty.zigTypeTag()) {
+        .Array => {
+            if (typed_value.val.castTag(.bytes)) |payload| {
+                if (typed_value.ty.sentinel()) |sentinel| {
+                    return @intCast(u32, payload.data.len) + try calcDataLen(bin_file, .{
+                        .ty = typed_value.ty.elemType(),
+                        .val = sentinel,
+                    });
+                }
+                return @intCast(u32, payload.data.len);
+            }
+            return error.TODO_WASM_CalcDataLenArray;
+        },
+        .Int => {
+            const info = typed_value.ty.intInfo(bin_file.base.options.target);
+            return info.bits / 8;
+        },
+        .Pointer => return 4,
+        else => return error.TODO_WASM_CalcDataLen,
+    }
+}
+
 // Generate code for the Decl, storing it in memory to be later written to
 // the file on flush().
 pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
+    std.debug.print("Updating '{s}'\n", .{decl.name});
     const typed_value = decl.typed_value.most_recent.typed_value;
 
-    if (decl.fn_link.wasm) |*fn_data| {
-        fn_data.functype.items.len = 0;
-        fn_data.code.items.len = 0;
-        fn_data.idx_refs.items.len = 0;
-    } else {
-        decl.fn_link.wasm = .{};
-        // dependent on function type, appends it to the correct list
-        switch (decl.typed_value.most_recent.typed_value.val.tag()) {
-            .function => try self.funcs.append(self.base.allocator, decl),
-            .extern_fn => try self.ext_funcs.append(self.base.allocator, decl),
-            .bytes => {},
-            else => return error.TODOImplementNonFnDeclsForWasm,
-        }
-    }
-    const fn_data = &decl.fn_link.wasm.?;
-
-    var managed_functype = fn_data.functype.toManaged(self.base.allocator);
-    var managed_code = fn_data.code.toManaged(self.base.allocator);
+    const fn_data = &decl.fn_link.wasm;
+    fn_data.functype.items.len = 0;
+    fn_data.code.items.len = 0;
+    fn_data.idx_refs.items.len = 0;
 
     var context = codegen.Context{
         .gpa = self.base.allocator,
         .values = .{},
-        .code = managed_code,
-        .func_type_data = managed_functype,
+        .code = fn_data.code.toManaged(self.base.allocator),
+        .func_type_data = fn_data.functype.toManaged(self.base.allocator),
         .decl = decl,
         .err_msg = undefined,
         .locals = .{},
@@ -162,7 +214,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     defer context.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = context.gen() catch |err| switch (err) {
+    const result = context.gen(typed_value) catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, context.err_msg);
@@ -175,7 +227,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         .Fn => {
             // as locals are patched afterwards, the offsets of funcidx's are off,
             // here we update them to correct them
-            for (decl.fn_link.wasm.?.idx_refs.items) |*func| {
+            for (decl.fn_link.wasm.idx_refs.items) |*func| {
                 // For each local, add 6 bytes (count + type)
                 func.offset += @intCast(u32, context.locals.items.len * 6);
             }
@@ -184,8 +236,12 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
             fn_data.code = context.code.toUnmanaged();
         },
         .Array => switch (result) {
-            .appended => unreachable,
-            .externally_managed => |payload| try self.data.segments.put(self.base.allocator, decl, payload),
+            .appended => {
+                fn_data.functype = context.func_type_data.toUnmanaged();
+                fn_data.code = context.code.toUnmanaged();
+                self.data.updateData(decl, fn_data.code.items);
+            },
+            .externally_managed => |payload| self.data.updateData(decl, payload),
         },
         else => return error.TODO,
     }
@@ -199,18 +255,18 @@ pub fn updateDeclExports(
 ) !void {}
 
 pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
-    // TODO: remove this assert when non-function Decls are implemented
-    assert(decl.typed_value.most_recent.typed_value.ty.zigTypeTag() == .Fn);
-    const func_idx = self.getFuncidx(decl).?;
-    switch (decl.typed_value.most_recent.typed_value.val.tag()) {
-        .function => _ = self.funcs.swapRemove(func_idx),
-        .extern_fn => _ = self.ext_funcs.swapRemove(func_idx),
-        else => unreachable,
+    if (self.getFuncidx(decl)) |func_idx| {
+        switch (decl.typed_value.most_recent.typed_value.val.tag()) {
+            .function => _ = self.funcs.swapRemove(func_idx),
+            .extern_fn => _ = self.ext_funcs.swapRemove(func_idx),
+            else => unreachable,
+        }
     }
-    decl.fn_link.wasm.?.functype.deinit(self.base.allocator);
-    decl.fn_link.wasm.?.code.deinit(self.base.allocator);
-    decl.fn_link.wasm.?.idx_refs.deinit(self.base.allocator);
-    decl.fn_link.wasm = null;
+    decl.fn_link.wasm.functype.deinit(self.base.allocator);
+    decl.fn_link.wasm.code.deinit(self.base.allocator);
+    decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
+    _ = self.data.segments.orderedRemove(decl);
+    decl.fn_link.wasm = undefined;
 }
 
 pub fn flush(self: *Wasm, comp: *Compilation) !void {
@@ -238,8 +294,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
         // extern functions are defined in the wasm binary first through the `import`
         // section, so define their func types first
-        for (self.ext_funcs.items) |decl| try file.writeAll(decl.fn_link.wasm.?.functype.items);
-        for (self.funcs.items) |decl| try file.writeAll(decl.fn_link.wasm.?.functype.items);
+        for (self.ext_funcs.items) |decl| try file.writeAll(decl.fn_link.wasm.functype.items);
+        for (self.funcs.items) |decl| try file.writeAll(decl.fn_link.wasm.functype.items);
 
         try writeVecSectionHeader(
             file,
@@ -302,13 +358,22 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         const writer = file.writer();
 
         try leb.writeULEB128(writer, @as(u32, 0));
-        try leb.writeULEB128(writer, @as(u32, 1));
+        // Calculate the amount of memory pages are required and write them.
+        // Wasm uses 64kB page sizes. Round up to ensure the data segments fit into the memory
+        try leb.writeULEB128(
+            writer,
+            try std.math.divCeil(
+                u32,
+                self.data.size(),
+                std.mem.page_size,
+            ),
+        );
         try writeVecSectionHeader(
             file,
             header_offset,
             .memory,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @as(u32, 1),
+            @as(u32, 1), // wasm currently only supports 1 linear memory segment
         );
     }
 
@@ -360,7 +425,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
         for (self.funcs.items) |decl| {
-            const fn_data = &decl.fn_link.wasm.?;
+            const fn_data = &decl.fn_link.wasm;
 
             // Write the already generated code to the file, inserting
             // function indexes where required.
@@ -387,34 +452,30 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     }
 
     // Data section
-    {
+    if (self.data.size() != 0) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
-        var offset: i32 = 0;
-        for (self.data.segments.items()) |entry| {
-            // index to memory section (always 0 in current wasm version)
-            try leb.writeULEB128(writer, @as(u32, 0));
+        var len: u32 = 0;
+        // index to memory section (currently, there can only be 1 memory section in wasm)
+        try leb.writeULEB128(writer, @as(u32, 0));
 
-            // offset into data section
-            try writer.writeByte(wasm.opcode(.i32_const));
-            try leb.writeILEB128(writer, offset);
-            try writer.writeByte(wasm.opcode(.end));
+        // offset into data section
+        try writer.writeByte(wasm.opcode(.i32_const));
+        try leb.writeILEB128(writer, @as(i32, 0));
+        try writer.writeByte(wasm.opcode(.end));
 
-            // payload size
-            const len = @intCast(u32, entry.value.len);
-            try leb.writeULEB128(writer, len);
+        // payload size
+        try leb.writeULEB128(writer, self.data.size());
 
-            // write payload
-            try writer.writeAll(entry.value);
-            offset += @bitCast(i32, len);
-        }
+        // write payload
+        for (self.data.segments.items()) |entry| try writer.writeAll(entry.value.data[0..entry.value.len]);
 
         try writeVecSectionHeader(
             file,
             header_offset,
             .data,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @intCast(u32, self.data.segments.items().len),
+            @intCast(u32, 1),
         );
     }
 }
@@ -681,7 +742,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 /// Get the current index of a given Decl in the function list
 /// This will correctly provide the index, regardless whether the function is extern or not
 /// TODO: we could maintain a hash map to potentially make this simpler
-fn getFuncidx(self: Wasm, decl: *Module.Decl) ?u32 {
+fn getFuncidx(self: Wasm, decl: *const Module.Decl) ?u32 {
     var offset: u32 = 0;
     const slice = switch (decl.typed_value.most_recent.typed_value.val.tag()) {
         .function => blk: {

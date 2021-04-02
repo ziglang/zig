@@ -16,9 +16,12 @@ const Value = @import("../value.zig").Value;
 const Compilation = @import("../Compilation.zig");
 const AnyMCValue = @import("../codegen.zig").AnyMCValue;
 const LazySrcLoc = Module.LazySrcLoc;
+const link = @import("../link.zig");
+const TypedValue = @import("../TypedValue.zig");
 
 /// Wasm Value, created when generating an instruction
 const WValue = union(enum) {
+    /// May be referenced but is unused
     none: void,
     /// Index of the local variable
     local: u32,
@@ -611,11 +614,8 @@ pub const Context = struct {
     }
 
     /// Generates the wasm bytecode for the function declaration belonging to `Context`
-    pub fn gen(self: *Context) InnerError!Result {
-        assert(self.code.items.len == 0);
-
-        const tv = self.decl.typed_value.most_recent.typed_value;
-        switch (tv.ty.zigTypeTag()) {
+    pub fn gen(self: *Context, typed_value: TypedValue) InnerError!Result {
+        switch (typed_value.ty.zigTypeTag()) {
             .Fn => {
                 try self.genFunctype();
 
@@ -654,21 +654,41 @@ pub const Context = struct {
 
                 // Fill in the size of the generated code to the reserved space at the
                 // beginning of the buffer.
-                const size = self.code.items.len - 5 + self.decl.fn_link.wasm.?.idx_refs.items.len * 5;
+                const size = self.code.items.len - 5 + self.decl.fn_link.wasm.idx_refs.items.len * 5;
                 leb.writeUnsignedFixed(5, self.code.items[0..5], @intCast(u32, size));
 
                 // codegen data has been appended to `code`
                 return Result.appended;
             },
             .Array => {
-                if (tv.val.castTag(.bytes)) |payload| {
-                    if (tv.ty.sentinel()) |sentinel| {
-                        // TODO, handle sentinel correctly
+                if (typed_value.val.castTag(.bytes)) |payload| {
+                    if (typed_value.ty.sentinel()) |sentinel| {
+                        try self.code.appendSlice(payload.data);
+
+                        switch (try self.gen(.{
+                            .ty = typed_value.ty.elemType(),
+                            .val = sentinel,
+                        })) {
+                            .appended => return Result.appended,
+                            .externally_managed => |data| {
+                                try self.code.appendSlice(data);
+                                return Result.appended;
+                            },
+                        }
                     }
                     return Result{ .externally_managed = payload.data };
                 } else return self.fail(.{ .node_offset = 0 }, "TODO implement gen for more kinds of arrays", .{});
             },
-            else => |tag| return self.fail(.{ .node_offset = 0 }, "TODO: Implement zig type codegen for type: '{s}'", .{tag}),
+            .Int => {
+                const info = typed_value.ty.intInfo(self.bin_file.base.options.target);
+                if (info.bits == 8 and info.signedness == .unsigned) {
+                    const int_byte = typed_value.val.toUnsignedInt();
+                    try self.code.append(@intCast(u8, int_byte));
+                    return Result.appended;
+                }
+                return self.fail(self.decl.src(), "TODO: Implement codegen for int type: '{}'", .{typed_value.ty});
+            },
+            else => |tag| return self.fail(self.decl.src(), "TODO: Implement zig type codegen for type: '{s}'", .{tag}),
         }
     }
 
@@ -745,7 +765,7 @@ pub const Context = struct {
 
         // The function index immediate argument will be filled in using this data
         // in link.Wasm.flush().
-        try self.decl.fn_link.wasm.?.idx_refs.append(self.gpa, .{
+        try self.decl.fn_link.wasm.idx_refs.append(self.gpa, .{
             .offset = @intCast(u32, self.code.items.len),
             .decl = target,
         });

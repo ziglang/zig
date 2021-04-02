@@ -3842,7 +3842,7 @@ fn allocateNewDecl(
             .elf => .{ .elf = link.File.Elf.SrcFn.empty },
             .macho => .{ .macho = link.File.MachO.SrcFn.empty },
             .c => .{ .c = link.File.C.FnBlock.empty },
-            .wasm => .{ .wasm = null },
+            .wasm => .{ .wasm = .{} },
             .spirv => .{ .spirv = .{} },
         },
         .generation = 0,
