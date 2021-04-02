@@ -43,8 +43,9 @@ pub fn log2(x: anytype) @TypeOf(x) {
             }) : (result += 1) {}
             return result;
         },
-        .Int => {
-            return math.log2_int(T, x);
+        .Int => |IntType| switch (IntType.signedness) {
+            .signed => return @compileError("log2 not implemented for signed integers"),
+            .unsigned => return math.log2_int(T, x),
         },
         else => @compileError("log2 not implemented for " ++ @typeName(T)),
     }

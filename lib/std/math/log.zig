@@ -31,9 +31,11 @@ pub fn log(comptime T: type, base: T, x: T) T {
         .ComptimeInt => {
             return @as(comptime_int, math.floor(math.ln(@as(f64, x)) / math.ln(float_base)));
         },
-        .Int => {
-            // TODO implement integer log without using float math
-            return @floatToInt(T, math.floor(math.ln(@intToFloat(f64, x)) / math.ln(float_base)));
+
+        // TODO implement integer log without using float math
+        .Int => |IntType| switch (IntType.signedness) {
+            .signed => return @compileError("log not implemented for signed integers"),
+            .unsigned => return @floatToInt(T, math.floor(math.ln(@intToFloat(f64, x)) / math.ln(float_base))),
         },
 
         .Float => {
@@ -53,7 +55,7 @@ pub fn log(comptime T: type, base: T, x: T) T {
 test "math.log integer" {
     expect(log(u8, 2, 0x1) == 0);
     expect(log(u8, 2, 0x2) == 1);
-    expect(log(i16, 2, 0x72) == 6);
+    expect(log(u16, 2, 0x72) == 6);
     expect(log(u32, 2, 0xFFFFFF) == 23);
     expect(log(u64, 2, 0x7FF0123456789ABC) == 62);
 }
