@@ -40,7 +40,7 @@ const big = BIG;
 /// Results for integer v are indicated by *, where x and v
 /// both vary from -125 to +125.  Otherwise,
 /// x ranges from 0 to 125, v ranges as indicated by "domain."
-/// Error criterion is absolute, except relative when |jv()| > 1.
+/// Error criterion is absolute, except relative when |besselj()| > 1.
 ///
 /// arithmetic  v domain  x domain    # trials      peak       rms
 ///    IEEE      0,125     0,125      100000      4.6e-15    2.2e-16
@@ -373,7 +373,7 @@ fn jvs(n: f64, x: f64) f64 {
 // Hankel's asymptotic expansion
 // for large x.
 // AMS55 #9.2.5.
-pub fn hankel(n: f64, x: f64) f64 {
+fn hankel(n: f64, x: f64) f64 {
     var m: f64 = 4 * n * n;
     var j: f64 = 1;
     var z: f64 = 8 * x;
@@ -478,7 +478,7 @@ const P7 = [_]f64{
 
 // Asymptotic expansion for large n.
 // AMS55 #9.3.35.
-pub fn jnx(n: f64, x: f64) f64 {
+fn jnx(n: f64, x: f64) f64 {
     // Test for x very close to n.
     // Use expansion for transition region if so.
     var cbn = math.cbrt(n);
@@ -648,7 +648,7 @@ const PG3 = [_]f64{
 // Asymptotic expansion for transition region,
 // n large and x close to n.
 // AMS55 #9.3.23.
-pub fn jnt(n: f64, x: f64) f64 {
+fn jnt(n: f64, x: f64) f64 {
     var cbn = math.cbrt(n);
     var z = (x - n) / cbn;
     var cbtwo = math.cbrt(@as(f64, 2.0));

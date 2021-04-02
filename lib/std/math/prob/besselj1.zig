@@ -86,7 +86,6 @@ const Z2 = 4.92184563216946036703E1;
 ///
 ///                      Absolute error:
 /// arithmetic   domain      # trials      peak         rms
-///    DEC       0, 30       10000       4.0e-17     1.1e-17
 ///    IEEE      0, 30       30000       2.6e-16     1.1e-16
 pub fn besselj1(x: f64) f64 {
     var w = if (x < 0) -x else x;
@@ -132,7 +131,7 @@ test "besselj1" {
 ///
 /// The domain is divided into the intervals [0, 8] and
 /// (8, infinity). In the first interval a 25 term Chebyshev
-/// expansion is used, and a call to j1() is required.
+/// expansion is used, and a call to besselj1() is required.
 /// In the second, the asymptotic trigonometric representation
 /// is employed using two rational functions of degree 5/5.
 ///
@@ -141,7 +140,6 @@ test "besselj1" {
 ///
 ///                      Absolute error:
 /// arithmetic   domain      # trials      peak         rms
-///    DEC       0, 30       10000       8.6e-17     1.3e-17
 ///    IEEE      0, 30       30000       1.0e-15     1.3e-16
 ///
 /// (error criterion relative when |y1| > 1).
