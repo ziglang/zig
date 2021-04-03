@@ -498,6 +498,8 @@ pub const Context = struct {
     /// List of all locals' types generated throughout this declaration
     /// used to emit locals count at start of 'code' section.
     locals: std.ArrayListUnmanaged(u8),
+    /// The Target we're emitting (used to call intInfo)
+    target: std.Target,
 
     const InnerError = error{
         OutOfMemory,
@@ -529,15 +531,20 @@ pub const Context = struct {
         return self.values.get(inst).?; // Instruction does not dominate all uses!
     }
 
-    /// Using a given `Type`, returns the corresponding wasm value type
-    fn genValtype(self: *Context, src: LazySrcLoc, ty: Type) InnerError!u8 {
+    /// Using a given `Type`, returns the corresponding wasm Valtype
+    fn typeToValtype(self: *Context, src: LazySrcLoc, ty: Type) InnerError!wasm.Valtype {
         return switch (ty.tag()) {
-            .f32 => wasm.valtype(.f32),
-            .f64 => wasm.valtype(.f64),
-            .u32, .i32, .bool => wasm.valtype(.i32),
-            .u64, .i64 => wasm.valtype(.i64),
-            else => self.fail(src, "TODO - Wasm genValtype for type '{s}'", .{ty.tag()}),
+            .f32 => .f32,
+            .f64 => .f64,
+            .u32, .i32, .bool => .i32,
+            .u64, .i64 => .i64,
+            else => self.fail(src, "TODO - Wasm valtype for type '{s}'", .{ty.tag()}),
         };
+    }
+
+    /// Using a given `Type`, returns the byte representation of its wasm value type
+    fn genValtype(self: *Context, src: LazySrcLoc, ty: Type) InnerError!u8 {
+        return wasm.valtype(try self.typeToValtype(src, ty));
     }
 
     /// Using a given `Type`, returns the corresponding wasm value type
@@ -643,7 +650,7 @@ pub const Context = struct {
 
     fn genInst(self: *Context, inst: *Inst) InnerError!WValue {
         return switch (inst.tag) {
-            .add => self.genAdd(inst.castTag(.add).?),
+            .add => self.genBinOp(inst.castTag(.add).?, .add),
             .alloc => self.genAlloc(inst.castTag(.alloc).?),
             .arg => self.genArg(inst.castTag(.arg).?),
             .block => self.genBlock(inst.castTag(.block).?),
@@ -661,12 +668,12 @@ pub const Context = struct {
             .dbg_stmt => WValue.none,
             .load => self.genLoad(inst.castTag(.load).?),
             .loop => self.genLoop(inst.castTag(.loop).?),
-            .mul => self.genMul(inst.castTag(.mul).?),
+            .mul => self.genBinOp(inst.castTag(.mul).?, .mul),
             .not => self.genNot(inst.castTag(.not).?),
             .ret => self.genRet(inst.castTag(.ret).?),
             .retvoid => WValue.none,
             .store => self.genStore(inst.castTag(.store).?),
-            .sub => self.genSub(inst.castTag(.sub).?),
+            .sub => self.genBinOp(inst.castTag(.sub).?, .sub),
             .unreach => self.genUnreachable(inst.castTag(.unreach).?),
             else => self.fail(inst.src, "TODO: Implement wasm inst: {s}", .{inst.tag}),
         };
@@ -747,94 +754,59 @@ pub const Context = struct {
         return WValue{ .local = self.local_index };
     }
 
-    fn genAdd(self: *Context, inst: *Inst.BinOp) InnerError!WValue {
+    fn genBinOp(self: *Context, inst: *Inst.BinOp, op: Op) InnerError!WValue {
         const lhs = self.resolveInst(inst.lhs);
         const rhs = self.resolveInst(inst.rhs);
 
         try self.emitWValue(lhs);
         try self.emitWValue(rhs);
 
-        const opcode: wasm.Opcode = switch (inst.base.ty.tag()) {
-            .u32, .i32 => .i32_add,
-            .u64, .i64 => .i64_add,
-            .f32 => .f32_add,
-            .f64 => .f64_add,
-            else => return self.fail(inst.base.src, "TODO - Implement wasm genAdd for type '{s}'", .{inst.base.ty.tag()}),
-        };
-
-        try self.code.append(wasm.opcode(opcode));
-        return .none;
-    }
-
-    fn genSub(self: *Context, inst: *Inst.BinOp) InnerError!WValue {
-        const lhs = self.resolveInst(inst.lhs);
-        const rhs = self.resolveInst(inst.rhs);
-
-        try self.emitWValue(lhs);
-        try self.emitWValue(rhs);
-
-        const opcode: wasm.Opcode = switch (inst.base.ty.tag()) {
-            .u32, .i32 => .i32_sub,
-            .u64, .i64 => .i64_sub,
-            .f32 => .f32_sub,
-            .f64 => .f64_sub,
-            else => return self.fail(inst.base.src, "TODO - Implement wasm genSub for type '{s}'", .{inst.base.ty.tag()}),
-        };
-
-        try self.code.append(wasm.opcode(opcode));
-        return .none;
-    }
-
-    fn genMul(self: *Context, inst: *Inst.BinOp) InnerError!WValue {
-        const lhs = self.resolveInst(inst.lhs);
-        const rhs = self.resolveInst(inst.rhs);
-
-        try self.emitWValue(lhs);
-        try self.emitWValue(rhs);
-
-        const opcode: wasm.Opcode = switch (inst.base.ty.tag()) {
-            .u32, .i32 => .i32_mul,
-            .u64, .i64 => .i64_mul,
-            .f32 => .f32_mul,
-            .f64 => .f64_mul,
-            else => return self.fail(inst.base.src, "TODO - Implement wasm genMul for type '{s}'", .{inst.base.ty.tag()}),
-        };
-
+        const opcode: wasm.Opcode = buildOpcode(.{
+            .op = op,
+            .valtype1 = try self.typeToValtype(inst.base.src, inst.base.ty),
+        });
         try self.code.append(wasm.opcode(opcode));
         return .none;
     }
 
     fn emitConstant(self: *Context, inst: *Inst.Constant) InnerError!void {
         const writer = self.code.writer();
-        switch (inst.base.ty.tag()) {
-            .u32 => {
-                try writer.writeByte(wasm.opcode(.i32_const));
-                try leb.writeILEB128(writer, inst.val.toUnsignedInt());
+        switch (inst.base.ty.zigTypeTag()) {
+            .Int => {
+                // write opcode
+                const opcode: wasm.Opcode = buildOpcode(.{
+                    .op = .@"const",
+                    .valtype1 = try self.typeToValtype(inst.base.src, inst.base.ty),
+                });
+                try writer.writeByte(wasm.opcode(opcode));
+                // write constant
+                switch (inst.base.ty.intInfo(self.target).signedness) {
+                    .signed => try leb.writeILEB128(writer, inst.val.toSignedInt()),
+                    .unsigned => try leb.writeILEB128(writer, inst.val.toUnsignedInt()),
+                }
             },
-            .i32, .bool => {
+            .Bool => {
+                // write opcode
                 try writer.writeByte(wasm.opcode(.i32_const));
+                // write constant
                 try leb.writeILEB128(writer, inst.val.toSignedInt());
             },
-            .u64 => {
-                try writer.writeByte(wasm.opcode(.i64_const));
-                try leb.writeILEB128(writer, inst.val.toUnsignedInt());
+            .Float => {
+                // write opcode
+                const opcode: wasm.Opcode = buildOpcode(.{
+                    .op = .@"const",
+                    .valtype1 = try self.typeToValtype(inst.base.src, inst.base.ty),
+                });
+                try writer.writeByte(wasm.opcode(opcode));
+                // write constant
+                switch (inst.base.ty.floatBits(self.target)) {
+                    0...32 => try writer.writeIntLittle(u32, @bitCast(u32, inst.val.toFloat(f32))),
+                    64 => try writer.writeIntLittle(u64, @bitCast(u64, inst.val.toFloat(f64))),
+                    else => |bits| return self.fail(inst.base.src, "Wasm TODO: emitConstant for float with {d} bits", .{bits}),
+                }
             },
-            .i64 => {
-                try writer.writeByte(wasm.opcode(.i64_const));
-                try leb.writeILEB128(writer, inst.val.toSignedInt());
-            },
-            .f32 => {
-                try writer.writeByte(wasm.opcode(.f32_const));
-                // TODO: enforce LE byte order
-                try writer.writeAll(mem.asBytes(&inst.val.toFloat(f32)));
-            },
-            .f64 => {
-                try writer.writeByte(wasm.opcode(.f64_const));
-                // TODO: enforce LE byte order
-                try writer.writeAll(mem.asBytes(&inst.val.toFloat(f64)));
-            },
-            .void => {},
-            else => |ty| return self.fail(inst.base.src, "Wasm TODO: emitConstant for type {s}", .{ty}),
+            .Void => {},
+            else => |ty| return self.fail(inst.base.src, "Wasm TODO: emitConstant for zigTypeTag {s}", .{ty}),
         }
     }
 
@@ -935,62 +907,18 @@ pub const Context = struct {
         try self.emitWValue(lhs);
         try self.emitWValue(rhs);
 
-        const opcode_maybe: ?wasm.Opcode = switch (op) {
-            .lt => @as(?wasm.Opcode, switch (ty) {
-                .i32 => .i32_lt_s,
-                .u32 => .i32_lt_u,
-                .i64 => .i64_lt_s,
-                .u64 => .i64_lt_u,
-                .f32 => .f32_lt,
-                .f64 => .f64_lt,
-                else => null,
-            }),
-            .lte => @as(?wasm.Opcode, switch (ty) {
-                .i32 => .i32_le_s,
-                .u32 => .i32_le_u,
-                .i64 => .i64_le_s,
-                .u64 => .i64_le_u,
-                .f32 => .f32_le,
-                .f64 => .f64_le,
-                else => null,
-            }),
-            .eq => @as(?wasm.Opcode, switch (ty) {
-                .i32, .u32 => .i32_eq,
-                .i64, .u64 => .i64_eq,
-                .f32 => .f32_eq,
-                .f64 => .f64_eq,
-                else => null,
-            }),
-            .gte => @as(?wasm.Opcode, switch (ty) {
-                .i32 => .i32_ge_s,
-                .u32 => .i32_ge_u,
-                .i64 => .i64_ge_s,
-                .u64 => .i64_ge_u,
-                .f32 => .f32_ge,
-                .f64 => .f64_ge,
-                else => null,
-            }),
-            .gt => @as(?wasm.Opcode, switch (ty) {
-                .i32 => .i32_gt_s,
-                .u32 => .i32_gt_u,
-                .i64 => .i64_gt_s,
-                .u64 => .i64_gt_u,
-                .f32 => .f32_gt,
-                .f64 => .f64_gt,
-                else => null,
-            }),
-            .neq => @as(?wasm.Opcode, switch (ty) {
-                .i32, .u32 => .i32_ne,
-                .i64, .u64 => .i64_ne,
-                .f32 => .f32_ne,
-                .f64 => .f64_ne,
-                else => null,
-            }),
-        };
-
-        const opcode = opcode_maybe orelse
-            return self.fail(inst.base.src, "TODO - Wasm genCmp for type '{s}' and operator '{s}'", .{ ty, @tagName(op) });
-
+        const opcode: wasm.Opcode = buildOpcode(.{
+            .valtype1 = try self.typeToValtype(inst.base.src, inst.lhs.ty),
+            .op = switch (op) {
+                .lt => .lt,
+                .lte => .le,
+                .eq => .eq,
+                .neq => .ne,
+                .gte => .ge,
+                .gt => .gt,
+            },
+            .signedness = inst.lhs.ty.intInfo(self.target).signedness,
+        });
         try self.code.append(wasm.opcode(opcode));
         return WValue{ .code_offset = offset };
     }
