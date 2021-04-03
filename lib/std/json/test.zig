@@ -73,7 +73,7 @@ fn roundTrip(s: []const u8) !void {
 // Additional tests not part of test JSONTestSuite.
 
 test "y_trailing_comma_after_empty" {
-    roundTrip(
+    try roundTrip(
         \\{"1":[],"2":{},"3":"4"}
     );
 }
@@ -87,25 +87,25 @@ test "y_array_arraysWithSpaces" {
 }
 
 test "y_array_empty" {
-    roundTrip(
+    try roundTrip(
         \\[]
     );
 }
 
 test "y_array_empty-string" {
-    roundTrip(
+    try roundTrip(
         \\[""]
     );
 }
 
 test "y_array_ending_with_newline" {
-    roundTrip(
+    try roundTrip(
         \\["a"]
     );
 }
 
 test "y_array_false" {
-    roundTrip(
+    try roundTrip(
         \\[false]
     );
 }
@@ -117,7 +117,7 @@ test "y_array_heterogeneous" {
 }
 
 test "y_array_null" {
-    roundTrip(
+    try roundTrip(
         \\[null]
     );
 }
@@ -136,7 +136,7 @@ test "y_array_with_leading_space" {
 }
 
 test "y_array_with_several_null" {
-    roundTrip(
+    try roundTrip(
         \\[1,null,null,null,2]
     );
 }
@@ -188,13 +188,13 @@ test "y_number_minus_zero" {
 }
 
 test "y_number_negative_int" {
-    roundTrip(
+    try roundTrip(
         \\[-123]
     );
 }
 
 test "y_number_negative_one" {
-    roundTrip(
+    try roundTrip(
         \\[-1]
     );
 }
@@ -248,7 +248,7 @@ test "y_number_real_pos_exponent" {
 }
 
 test "y_number_simple_int" {
-    roundTrip(
+    try roundTrip(
         \\[123]
     );
 }
@@ -260,7 +260,7 @@ test "y_number_simple_real" {
 }
 
 test "y_object_basic" {
-    roundTrip(
+    try roundTrip(
         \\{"asd":"sdf"}
     );
 }
@@ -278,13 +278,13 @@ test "y_object_duplicated_key" {
 }
 
 test "y_object_empty" {
-    roundTrip(
+    try roundTrip(
         \\{}
     );
 }
 
 test "y_object_empty_key" {
-    roundTrip(
+    try roundTrip(
         \\{"":0}
     );
 }
@@ -314,7 +314,7 @@ test "y_object_long_strings" {
 }
 
 test "y_object_simple" {
-    roundTrip(
+    try roundTrip(
         \\{"a":[]}
     );
 }
@@ -364,7 +364,7 @@ test "y_string_backslash_and_u_escaped_zero" {
 }
 
 test "y_string_backslash_doublequotes" {
-    roundTrip(
+    try roundTrip(
         \\["\""]
     );
 }
@@ -382,7 +382,7 @@ test "y_string_double_escape_a" {
 }
 
 test "y_string_double_escape_n" {
-    roundTrip(
+    try roundTrip(
         \\["\\n"]
     );
 }
@@ -466,7 +466,7 @@ test "y_string_simple_ascii" {
 }
 
 test "y_string_space" {
-    roundTrip(
+    try roundTrip(
         \\" "
     );
 }
@@ -584,13 +584,13 @@ test "y_string_with_del_character" {
 }
 
 test "y_structure_lonely_false" {
-    roundTrip(
+    try roundTrip(
         \\false
     );
 }
 
 test "y_structure_lonely_int" {
-    roundTrip(
+    try roundTrip(
         \\42
     );
 }
@@ -602,37 +602,37 @@ test "y_structure_lonely_negative_real" {
 }
 
 test "y_structure_lonely_null" {
-    roundTrip(
+    try roundTrip(
         \\null
     );
 }
 
 test "y_structure_lonely_string" {
-    roundTrip(
+    try roundTrip(
         \\"asd"
     );
 }
 
 test "y_structure_lonely_true" {
-    roundTrip(
+    try roundTrip(
         \\true
     );
 }
 
 test "y_structure_string_empty" {
-    roundTrip(
+    try roundTrip(
         \\""
     );
 }
 
 test "y_structure_trailing_newline" {
-    roundTrip(
+    try roundTrip(
         \\["a"]
     );
 }
 
 test "y_structure_true_in_array" {
-    roundTrip(
+    try roundTrip(
         \\[true]
     );
 }
