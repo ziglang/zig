@@ -5211,21 +5211,26 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 }
             },
             .LParen => {
-                var args = std.ArrayList(Node).init(c.gpa);
-                defer args.deinit();
-                while (true) {
-                    const arg = try parseCCondExpr(c, m, scope);
-                    try args.append(arg);
-                    switch (m.next().?) {
-                        .Comma => {},
-                        .RParen => break,
-                        else => {
-                            try m.fail(c, "unable to translate C expr: expected ',' or ')'", .{});
-                            return error.ParseError;
-                        },
+                if (m.peek().? == .RParen) {
+                    m.i += 1;
+                    node = try Tag.call.create(c.arena, .{ .lhs = node, .args = &[0]Node{} });
+                } else {
+                    var args = std.ArrayList(Node).init(c.gpa);
+                    defer args.deinit();
+                    while (true) {
+                        const arg = try parseCCondExpr(c, m, scope);
+                        try args.append(arg);
+                        switch (m.next().?) {
+                            .Comma => {},
+                            .RParen => break,
+                            else => {
+                                try m.fail(c, "unable to translate C expr: expected ',' or ')'", .{});
+                                return error.ParseError;
+                            },
+                        }
                     }
+                    node = try Tag.call.create(c.arena, .{ .lhs = node, .args = try c.arena.dupe(Node, args.items) });
                 }
-                node = try Tag.call.create(c.arena, .{ .lhs = node, .args = try c.arena.dupe(Node, args.items) });
             },
             .LBrace => {
                 var init_vals = std.ArrayList(Node).init(c.gpa);
