@@ -660,6 +660,8 @@ pub const Inst = struct {
         /// Given a set of `field_ptr` instructions, assumes they are all part of a struct
         /// initialization expression, and emits compile errors for duplicate fields
         /// as well as missing fields, if applicable.
+        /// This instruction asserts that there is at least one field_ptr instruction,
+        /// because it must use one of them to find out the struct type.
         /// Uses the `pl_node` field. Payload is `Block`.
         validate_struct_init_ptr,
         /// A struct literal with a specified type, with no fields.
