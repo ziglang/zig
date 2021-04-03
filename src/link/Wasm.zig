@@ -35,22 +35,28 @@ pub const FnData = struct {
 /// where the offset is calculated using the previous segments and the content length
 /// of the data
 pub const DataSection = struct {
-    segments: std.AutoArrayHashMapUnmanaged(*Module.Decl, struct { data: [*]const u8, len: u32 }) = .{},
+    /// Every data object will be appended to this list,
+    /// containing its `Decl`, the data in bytes, and its length.
+    segments: std.ArrayListUnmanaged(struct {
+        decl: *Module.Decl,
+        data: [*]const u8,
+        len: u32,
+    }) = .{},
 
     /// Returns the offset into the data segment based on a given `Decl`
     pub fn offset(self: DataSection, decl: *const Module.Decl) u32 {
         var cur_offset: u32 = 0;
-        return for (self.segments.items()) |entry| {
-            if (entry.key == decl) break cur_offset;
-            cur_offset += entry.value.len;
+        return for (self.segments.items) |entry| {
+            if (entry.decl == decl) break cur_offset;
+            cur_offset += entry.len;
         } else unreachable; // offset() called on declaration that does not live inside 'data' section
     }
 
     /// Returns the total payload size of the data section
     pub fn size(self: DataSection) u32 {
         var total: u32 = 0;
-        for (self.segments.items()) |entry| {
-            total += entry.value.len;
+        for (self.segments.items) |entry| {
+            total += entry.len;
         }
         return total;
     }
@@ -59,8 +65,17 @@ pub const DataSection = struct {
     /// It's illegal behaviour to call this before allocateDeclIndexes was called
     /// `data` must be managed externally with a lifetime that last as long as codegen does.
     pub fn updateData(self: DataSection, decl: *Module.Decl, data: []const u8) void {
-        const entry = self.segments.getEntry(decl).?; // called updateData before the declaration was added to data segments
-        entry.value.data = data.ptr;
+        const entry = for (self.segments.items) |*item| {
+            if (item.decl == decl) break item;
+        } else unreachable; // called updateData before the declaration was added to data segments
+        entry.data = data.ptr;
+    }
+
+    /// Returns the index of a declaration and `null` when not found
+    pub fn idx(self: DataSection, decl: *Module.Decl) ?usize {
+        return for (self.segments.items) |entry, i| {
+            if (entry.decl == decl) break i;
+        } else null;
     }
 };
 
@@ -129,9 +144,10 @@ pub fn deinit(self: *Wasm) void {
         decl.fn_link.wasm.code.deinit(self.base.allocator);
         decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
     }
-    for (self.data.segments.items()) |entry| {
-        // data segments only use the code section
-        entry.key.fn_link.wasm.code.deinit(self.base.allocator);
+    for (self.data.segments.items) |entry| {
+        entry.decl.fn_link.wasm.functype.deinit(self.base.allocator);
+        entry.decl.fn_link.wasm.code.deinit(self.base.allocator);
+        entry.decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
     }
     self.funcs.deinit(self.base.allocator);
     self.ext_funcs.deinit(self.base.allocator);
@@ -139,7 +155,6 @@ pub fn deinit(self: *Wasm) void {
 }
 
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
-    std.debug.print("INIT: '{s}'\n", .{decl.name});
     const tv = decl.typed_value.most_recent.typed_value;
     decl.fn_link.wasm = .{};
 
@@ -149,7 +164,22 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
             // we must calculate its data length now so that the data offsets are available
             // to other decls when called
             const data_len = calcDataLen(self, tv) catch return error.AnalysisFail;
-            try self.data.segments.putNoClobber(self.base.allocator, decl, .{ .data = undefined, .len = data_len });
+            try self.data.segments.append(self.base.allocator, .{
+                .decl = decl,
+                .data = undefined,
+                .len = data_len,
+            });
+
+            // detect if we can replace it into a to-be-deleted decl's spot to ensure no gaps are
+            // made in our data segment
+            const idx: ?usize = for (self.data.segments.items) |entry, i| {
+                if (entry.decl.deletion_flag) break i;
+            } else null;
+            if (idx) |id| {
+                const old_decl = self.data.segments.swapRemove(id); // current decl is now in to-be-deleted decl's spot
+                // re-append to end of list so it can be cleaned up by `freeDecl`
+                try self.data.segments.append(self.base.allocator, old_decl);
+            }
         },
         .Fn => if (self.getFuncidx(decl) == null) switch (tv.val.tag()) {
             // dependent on function type, appends it to the correct list
@@ -193,7 +223,6 @@ fn calcDataLen(bin_file: *Wasm, typed_value: TypedValue) DataLenError!u32 {
 // Generate code for the Decl, storing it in memory to be later written to
 // the file on flush().
 pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
-    std.debug.print("Updating '{s}'\n", .{decl.name});
     const typed_value = decl.typed_value.most_recent.typed_value;
 
     const fn_data = &decl.fn_link.wasm;
@@ -262,10 +291,12 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
             else => unreachable,
         }
     }
+    if (self.data.idx(decl)) |idx| {
+        _ = self.data.segments.swapRemove(idx);
+    }
     decl.fn_link.wasm.functype.deinit(self.base.allocator);
     decl.fn_link.wasm.code.deinit(self.base.allocator);
     decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
-    _ = self.data.segments.orderedRemove(decl);
     decl.fn_link.wasm = undefined;
 }
 
@@ -468,7 +499,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try leb.writeULEB128(writer, self.data.size());
 
         // write payload
-        for (self.data.segments.items()) |entry| try writer.writeAll(entry.value.data[0..entry.value.len]);
+        for (self.data.segments.items) |entry| try writer.writeAll(entry.data[0..entry.len]);
 
         try writeVecSectionHeader(
             file,
@@ -742,7 +773,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 /// Get the current index of a given Decl in the function list
 /// This will correctly provide the index, regardless whether the function is extern or not
 /// TODO: we could maintain a hash map to potentially make this simpler
-fn getFuncidx(self: Wasm, decl: *const Module.Decl) ?u32 {
+fn getFuncidx(self: Wasm, decl: *Module.Decl) ?u32 {
     var offset: u32 = 0;
     const slice = switch (decl.typed_value.most_recent.typed_value.val.tag()) {
         .function => blk: {
