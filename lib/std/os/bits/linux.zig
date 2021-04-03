@@ -586,6 +586,92 @@ pub const IP_DEFAULT_MULTICAST_TTL = 1;
 pub const IP_DEFAULT_MULTICAST_LOOP = 1;
 pub const IP_MAX_MEMBERSHIPS = 20;
 
+// IPv6 socket options
+
+pub const IPV6_ADDRFORM = 1;
+pub const IPV6_2292PKTINFO = 2;
+pub const IPV6_2292HOPOPTS = 3;
+pub const IPV6_2292DSTOPTS = 4;
+pub const IPV6_2292RTHDR = 5;
+pub const IPV6_2292PKTOPTIONS = 6;
+pub const IPV6_CHECKSUM = 7;
+pub const IPV6_2292HOPLIMIT = 8;
+pub const IPV6_NEXTHOP = 9;
+pub const IPV6_AUTHHDR = 10;
+pub const IPV6_FLOWINFO = 11;
+
+pub const IPV6_UNICAST_HOPS = 16;
+pub const IPV6_MULTICAST_IF = 17;
+pub const IPV6_MULTICAST_HOPS = 18;
+pub const IPV6_MULTICAST_LOOP = 19;
+pub const IPV6_ADD_MEMBERSHIP = 20;
+pub const IPV6_DROP_MEMBERSHIP = 21;
+pub const IPV6_ROUTER_ALERT = 22;
+pub const IPV6_MTU_DISCOVER = 23;
+pub const IPV6_MTU = 24;
+pub const IPV6_RECVERR = 25;
+pub const IPV6_V6ONLY = 26;
+pub const IPV6_JOIN_ANYCAST = 27;
+pub const IPV6_LEAVE_ANYCAST = 28;
+
+// IPV6_MTU_DISCOVER values
+pub const IPV6_PMTUDISC_DONT = 0;
+pub const IPV6_PMTUDISC_WANT = 1;
+pub const IPV6_PMTUDISC_DO = 2;
+pub const IPV6_PMTUDISC_PROBE = 3;
+pub const IPV6_PMTUDISC_INTERFACE = 4;
+pub const IPV6_PMTUDISC_OMIT = 5;
+
+// Flowlabel
+pub const IPV6_FLOWLABEL_MGR = 32;
+pub const IPV6_FLOWINFO_SEND = 33;
+pub const IPV6_IPSEC_POLICY = 34;
+pub const IPV6_XFRM_POLICY = 35;
+pub const IPV6_HDRINCL = 36;
+
+// Advanced API (RFC3542) (1)
+pub const IPV6_RECVPKTINFO = 49;
+pub const IPV6_PKTINFO = 50;
+pub const IPV6_RECVHOPLIMIT = 51;
+pub const IPV6_HOPLIMIT = 52;
+pub const IPV6_RECVHOPOPTS = 53;
+pub const IPV6_HOPOPTS = 54;
+pub const IPV6_RTHDRDSTOPTS = 55;
+pub const IPV6_RECVRTHDR = 56;
+pub const IPV6_RTHDR = 57;
+pub const IPV6_RECVDSTOPTS = 58;
+pub const IPV6_DSTOPTS = 59;
+pub const IPV6_RECVPATHMTU = 60;
+pub const IPV6_PATHMTU = 61;
+pub const IPV6_DONTFRAG = 62;
+
+// Advanced API (RFC3542) (2)
+pub const IPV6_RECVTCLASS = 66;
+pub const IPV6_TCLASS = 67;
+
+pub const IPV6_AUTOFLOWLABEL = 70;
+
+// RFC5014: Source address selection
+pub const IPV6_ADDR_PREFERENCES = 72;
+
+pub const IPV6_PREFER_SRC_TMP = 0x0001;
+pub const IPV6_PREFER_SRC_PUBLIC = 0x0002;
+pub const IPV6_PREFER_SRC_PUBTMP_DEFAULT = 0x0100;
+pub const IPV6_PREFER_SRC_COA = 0x0004;
+pub const IPV6_PREFER_SRC_HOME = 0x0400;
+pub const IPV6_PREFER_SRC_CGA = 0x0008;
+pub const IPV6_PREFER_SRC_NONCGA = 0x0800;
+
+// RFC5082: Generalized Ttl Security Mechanism
+pub const IPV6_MINHOPCOUNT = 73;
+
+pub const IPV6_ORIGDSTADDR = 74;
+pub const IPV6_RECVORIGDSTADDR = IPV6_ORIGDSTADDR;
+pub const IPV6_TRANSPARENT = 75;
+pub const IPV6_UNICAST_IF = 76;
+pub const IPV6_RECVFRAGSIZE = 77;
+pub const IPV6_FREEBIND = 78;
+
 pub const MSG_OOB = 0x0001;
 pub const MSG_PEEK = 0x0002;
 pub const MSG_DONTROUTE = 0x0004;
