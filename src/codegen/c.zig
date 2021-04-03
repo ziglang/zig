@@ -44,22 +44,34 @@ fn formatTypeAsCIdentifier(
     var buffer = [1]u8{0} ** 128;
     // We don't care if it gets cut off, it's still more unique than a number
     var buf = std.fmt.bufPrint(&buffer, "{}", .{data}) catch &buffer;
-
-    for (buf) |c, i| {
-        switch (c) {
-            0 => return writer.writeAll(buf[0..i]),
-            'a'...'z', 'A'...'Z', '_', '$' => {},
-            '0'...'9' => if (i == 0) {
-                buf[i] = '_';
-            },
-            else => buf[i] = '_',
-        }
-    }
-    return writer.writeAll(buf);
+    return formatIdent(buf, "", .{}, writer);
 }
 
 pub fn typeToCIdentifier(t: Type) std.fmt.Formatter(formatTypeAsCIdentifier) {
     return .{ .data = t };
+}
+
+fn formatIdent(
+    ident: []const u8,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    for (ident) |c, i| {
+        switch (c) {
+            'a'...'z', 'A'...'Z', '_' => try writer.writeByte(c),
+            '0'...'9' => if (i == 0) {
+                try writer.print("${x:2}", .{c});
+            } else {
+                try writer.writeByte(c);
+            },
+            else => try writer.print("${x:2}", .{c}),
+        }
+    }
+}
+
+pub fn fmtIdent(ident: []const u8) std.fmt.Formatter(formatIdent) {
+    return .{ .data = ident };
 }
 
 /// This data is available when outputting .c code for a Module.
@@ -430,6 +442,36 @@ pub const DeclGen = struct {
                 try w.writeAll(name);
                 dg.typedefs.putAssumeCapacityNoClobber(t, .{ .name = name, .rendered = rendered });
             },
+            .Struct => {
+                if (dg.typedefs.get(t)) |some| {
+                    return w.writeAll(some.name);
+                }
+                const struct_obj = t.castTag(.@"struct").?.data; // Handle 0 bit types elsewhere.
+                const fqn = try struct_obj.getFullyQualifiedName(dg.typedefs.allocator);
+                defer dg.typedefs.allocator.free(fqn);
+
+                var buffer = std.ArrayList(u8).init(dg.typedefs.allocator);
+                defer buffer.deinit();
+
+                try buffer.appendSlice("typedef struct {\n");
+                for (struct_obj.fields.entries.items) |entry| {
+                    try buffer.append(' ');
+                    try dg.renderType(buffer.writer(), entry.value.ty);
+                    try buffer.writer().print(" {s};\n", .{fmtIdent(entry.key)});
+                }
+                try buffer.appendSlice("} ");
+
+                const name_start = buffer.items.len;
+                try buffer.writer().print("zig_S_{s};\n", .{fmtIdent(fqn)});
+
+                const rendered = buffer.toOwnedSlice();
+                errdefer dg.typedefs.allocator.free(rendered);
+                const name = rendered[name_start .. rendered.len - 2];
+
+                try dg.typedefs.ensureCapacity(dg.typedefs.capacity() + 1);
+                try w.writeAll(name);
+                dg.typedefs.putAssumeCapacityNoClobber(t, .{ .name = name, .rendered = rendered });
+            },
             .Null, .Undefined => unreachable, // must be const or comptime
             else => |e| return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type {s}", .{
                 @tagName(e),
@@ -525,8 +567,23 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
 
     for (body.instructions) |inst| {
         const result_value = switch (inst.tag) {
-            .constant => unreachable, // excluded from function bodies
+            // TODO use a different strategy for add that communicates to the optimizer
+            // that wrapping is UB.
             .add => try genBinOp(o, inst.castTag(.add).?, " + "),
+            // TODO make this do wrapping arithmetic for signed ints
+            .addwrap => try genBinOp(o, inst.castTag(.add).?, " + "),
+            // TODO use a different strategy for sub that communicates to the optimizer
+            // that wrapping is UB.
+            .sub => try genBinOp(o, inst.castTag(.sub).?, " - "),
+            // TODO make this do wrapping arithmetic for signed ints
+            .subwrap => try genBinOp(o, inst.castTag(.sub).?, " - "),
+            // TODO use a different strategy for mul that communicates to the optimizer
+            // that wrapping is UB.
+            .mul => try genBinOp(o, inst.castTag(.sub).?, " * "),
+            // TODO make this do wrapping multiplication for signed ints
+            .mulwrap => try genBinOp(o, inst.castTag(.sub).?, " * "),
+
+            .constant => unreachable, // excluded from function bodies
             .alloc => try genAlloc(o, inst.castTag(.alloc).?),
             .arg => genArg(o),
             .assembly => try genAsm(o, inst.castTag(.assembly).?),
@@ -546,7 +603,6 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .ret => try genRet(o, inst.castTag(.ret).?),
             .retvoid => try genRetVoid(o),
             .store => try genStore(o, inst.castTag(.store).?),
-            .sub => try genBinOp(o, inst.castTag(.sub).?, " - "),
             .unreach => try genUnreach(o, inst.castTag(.unreach).?),
             .loop => try genLoop(o, inst.castTag(.loop).?),
             .condbr => try genCondBr(o, inst.castTag(.condbr).?),
@@ -567,17 +623,24 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .wrap_optional => try genWrapOptional(o, inst.castTag(.wrap_optional).?),
             .optional_payload => try genOptionalPayload(o, inst.castTag(.optional_payload).?),
             .optional_payload_ptr => try genOptionalPayload(o, inst.castTag(.optional_payload_ptr).?),
+            .ref => try genRef(o, inst.castTag(.ref).?),
+            .struct_field_ptr => try genStructFieldPtr(o, inst.castTag(.struct_field_ptr).?),
+
             .is_err => try genIsErr(o, inst.castTag(.is_err).?),
             .is_err_ptr => try genIsErr(o, inst.castTag(.is_err_ptr).?),
             .error_to_int => try genErrorToInt(o, inst.castTag(.error_to_int).?),
             .int_to_error => try genIntToError(o, inst.castTag(.int_to_error).?),
+
             .unwrap_errunion_payload => try genUnwrapErrUnionPay(o, inst.castTag(.unwrap_errunion_payload).?),
             .unwrap_errunion_err => try genUnwrapErrUnionErr(o, inst.castTag(.unwrap_errunion_err).?),
             .unwrap_errunion_payload_ptr => try genUnwrapErrUnionPay(o, inst.castTag(.unwrap_errunion_payload_ptr).?),
             .unwrap_errunion_err_ptr => try genUnwrapErrUnionErr(o, inst.castTag(.unwrap_errunion_err_ptr).?),
             .wrap_errunion_payload => try genWrapErrUnionPay(o, inst.castTag(.wrap_errunion_payload).?),
             .wrap_errunion_err => try genWrapErrUnionErr(o, inst.castTag(.wrap_errunion_err).?),
-            else => |e| return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement codegen for {}", .{e}),
+            .br_block_flat => return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement codegen for br_block_flat", .{}),
+            .ptrtoint => return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement codegen for ptrtoint", .{}),
+            .varptr => return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement codegen for varptr", .{}),
+            .floatcast => return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement codegen for floatcast", .{}),
         };
         switch (result_value) {
             .none => {},
@@ -996,6 +1059,37 @@ fn genOptionalPayload(o: *Object, inst: *Inst.UnOp) !CValue {
     return local;
 }
 
+fn genRef(o: *Object, inst: *Inst.UnOp) !CValue {
+    const writer = o.writer();
+    const operand = try o.resolveInst(inst.operand);
+
+    const local = try o.allocLocal(inst.base.ty, .Const);
+    try writer.writeAll(" = ");
+    try o.writeCValue(writer, operand);
+    try writer.writeAll(";\n");
+    return local;
+}
+
+fn genStructFieldPtr(o: *Object, inst: *Inst.StructFieldPtr) !CValue {
+    const writer = o.writer();
+    const struct_ptr = try o.resolveInst(inst.struct_ptr);
+    const struct_obj = inst.struct_ptr.ty.elemType().castTag(.@"struct").?.data;
+    const field_name = struct_obj.fields.entries.items[inst.field_index].key;
+
+    const local = try o.allocLocal(inst.base.ty, .Const);
+    switch (struct_ptr) {
+        .local_ref => |i| {
+            try writer.print(" = &t{d}.{};\n", .{ i, fmtIdent(field_name) });
+        },
+        else => {
+            try writer.writeAll(" = &");
+            try o.writeCValue(writer, struct_ptr);
+            try writer.print("->{};\n", .{fmtIdent(field_name)});
+        },
+    }
+    return local;
+}
+
 // *(E!T) -> E NOT *E
 fn genUnwrapErrUnionErr(o: *Object, inst: *Inst.UnOp) !CValue {
     const writer = o.writer();
@@ -1088,7 +1182,7 @@ fn IndentWriter(comptime UnderlyingWriter: type) type {
         pub const Error = UnderlyingWriter.Error;
         pub const Writer = std.io.Writer(*Self, Error, write);
 
-        pub const indent_delta = 4;
+        pub const indent_delta = 1;
 
         underlying_writer: UnderlyingWriter,
         indent_count: usize = 0,

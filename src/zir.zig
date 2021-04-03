@@ -338,6 +338,7 @@ pub const Inst = struct {
         field_ptr,
         /// Given a struct or object that contains virtual fields, returns the named field.
         /// The field name is stored in string_bytes. Used by a.b syntax.
+        /// This instruction also accepts a pointer.
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
         field_val,
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer

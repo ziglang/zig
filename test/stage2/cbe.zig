@@ -489,8 +489,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\ZIG_EXTERN_C zig_noreturn void _start(void);
         \\
         \\zig_noreturn void _start(void) {
-        \\    zig_breakpoint();
-        \\    zig_unreachable();
+        \\ zig_breakpoint();
+        \\ zig_unreachable();
         \\}
         \\
     );

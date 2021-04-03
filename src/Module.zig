@@ -373,6 +373,11 @@ pub const Struct = struct {
         /// Uses `unreachable_value` to indicate no default.
         default_val: Value,
     };
+
+    pub fn getFullyQualifiedName(struct_obj: *Struct, gpa: *Allocator) ![]u8 {
+        // TODO this should return e.g. "std.fs.Dir.OpenOptions"
+        return gpa.dupe(u8, mem.spanZ(struct_obj.owner_decl.name));
+    }
 };
 
 /// Some Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.
@@ -1047,6 +1052,9 @@ pub const Scope = struct {
                 .ty => |ty_inst| {
                     gz.rl_ty_inst = ty_inst;
                     gz.break_result_loc = parent_rl;
+                },
+                .none_or_ref => {
+                    gz.break_result_loc = .ref;
                 },
                 .discard, .none, .ptr, .ref => {
                     gz.break_result_loc = parent_rl;

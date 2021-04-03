@@ -600,6 +600,7 @@ fn zirStructDecl(
 
     const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
+    const struct_val = try Value.Tag.ty.create(&new_decl_arena.allocator, struct_ty);
     struct_obj.* = .{
         .owner_decl = sema.owner_decl,
         .fields = fields_map,
@@ -611,7 +612,7 @@ fn zirStructDecl(
     };
     const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
         .ty = Type.initTag(.type),
-        .val = try Value.Tag.ty.create(gpa, struct_ty),
+        .val = struct_val,
     });
     return sema.analyzeDeclVal(block, src, new_decl);
 }
@@ -2139,7 +2140,10 @@ fn zirFieldVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const extra = sema.code.extraData(zir.Inst.Field, inst_data.payload_index).data;
     const field_name = sema.code.nullTerminatedString(extra.field_name_start);
     const object = try sema.resolveInst(extra.lhs);
-    const object_ptr = try sema.analyzeRef(block, src, object);
+    const object_ptr = if (object.ty.zigTypeTag() == .Pointer)
+        object
+    else
+        try sema.analyzeRef(block, src, object);
     const result_ptr = try sema.namedFieldPtr(block, src, object_ptr, field_name, field_name_src);
     return sema.analyzeLoad(block, src, result_ptr, result_ptr.src);
 }
