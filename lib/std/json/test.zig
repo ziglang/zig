@@ -52,21 +52,20 @@ fn anyStreamingErrNonStreaming(comptime s: []const u8) void {
     testing.expect(false);
 }
 
-fn roundTrip(comptime s: []const u8) void {
+fn roundTrip(s: []const u8) !void {
     testing.expect(json.validate(s));
 
     var p = json.Parser.init(testing.allocator, false);
     defer p.deinit();
 
-    var tree = p.parse(s) catch return testing.expect(false);
+    var tree = try p.parse(s);
     defer tree.deinit();
 
     var buf: [256]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
-    var str_array = std.ArrayList(u8).init(&fba.allocator);
-    tree.root.jsonStringify(.{}, str_array.writer()) catch testing.expect(false);
+    var fbs = std.io.fixedBufferStream(&buf);
+    try tree.root.jsonStringify(.{}, fbs.writer());
 
-    testing.expectEqualStrings(s, str_array.items);
+    testing.expectEqualStrings(s, fbs.getWritten());
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
