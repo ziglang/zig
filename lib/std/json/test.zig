@@ -12,7 +12,7 @@ const std = @import("../std.zig");
 const json = std.json;
 const testing = std.testing;
 
-fn testNonStreaming(comptime s: []const u8) !void {
+fn testNonStreaming(s: []const u8) !void {
     var p = json.Parser.init(testing.allocator, false);
     defer p.deinit();
 
@@ -20,32 +20,32 @@ fn testNonStreaming(comptime s: []const u8) !void {
     defer tree.deinit();
 }
 
-fn ok(comptime s: []const u8) void {
+fn ok(s: []const u8) !void {
     testing.expect(json.validate(s));
 
-    testNonStreaming(s) catch testing.expect(false);
+    try testNonStreaming(s);
 }
 
-fn err(comptime s: []const u8) void {
+fn err(s: []const u8) void {
     testing.expect(!json.validate(s));
 
     testNonStreaming(s) catch return;
     testing.expect(false);
 }
 
-fn utf8Error(comptime s: []const u8) void {
+fn utf8Error(s: []const u8) void {
     testing.expect(!json.validate(s));
 
     testing.expectError(error.InvalidUtf8Byte, testNonStreaming(s));
 }
 
-fn any(comptime s: []const u8) void {
+fn any(s: []const u8) void {
     _ = json.validate(s);
 
     testNonStreaming(s) catch {};
 }
 
-fn anyStreamingErrNonStreaming(comptime s: []const u8) void {
+fn anyStreamingErrNonStreaming(s: []const u8) void {
     _ = json.validate(s);
 
     testNonStreaming(s) catch return;
