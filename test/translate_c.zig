@@ -2529,6 +2529,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add("macro call with no args",
+        \\#define CALL(arg) bar()
+    , &[_][]const u8{
+        \\pub fn CALL(arg: anytype) callconv(.Inline) @TypeOf(bar()) {
+        \\    return bar();
+        \\}
+    });
+
     cases.add("logical and, logical or",
         \\int max(int a, int b) {
         \\    if (a < b || a == b)
