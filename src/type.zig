@@ -3118,8 +3118,14 @@ pub const Type = extern union {
             => return null,
 
             .@"struct" => {
-                log.warn("TODO implement Type.onePossibleValue for structs", .{});
-                return null;
+                const s = ty.castTag(.@"struct").?.data;
+                for (s.fields.entries.items) |entry| {
+                    const field_ty = entry.value.ty;
+                    if (field_ty.onePossibleValue() == null) {
+                        return null;
+                    }
+                }
+                return Value.initTag(.empty_struct_value);
             },
 
             .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),

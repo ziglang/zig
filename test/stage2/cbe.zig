@@ -524,6 +524,16 @@ pub fn addCases(ctx: *TestContext) !void {
             ":6:10: error: no field named 'z' in struct 'Point'",
             ":1:15: note: 'Point' declared here",
         });
+        case.addCompareOutput(
+            \\const Point = struct { x: i32, y: i32 };
+            \\export fn main() c_int {
+            \\    var p: Point = .{
+            \\        .x = 12,
+            \\        .y = 24,
+            \\    };
+            \\    return p.y - p.x - p.x;
+            \\}
+        , "");
     }
 
     ctx.c("empty start function", linux_x64,
