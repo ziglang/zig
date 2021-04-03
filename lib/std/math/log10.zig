@@ -37,8 +37,9 @@ pub fn log10(x: anytype) @TypeOf(x) {
         .ComptimeInt => {
             return @as(comptime_int, math.floor(log10_64(@as(f64, x))));
         },
-        .Int => {
-            return @floatToInt(T, math.floor(log10_64(@intToFloat(f64, x))));
+        .Int => |IntType| switch (IntType.signedness) {
+            .signed => return @compileError("log10 not implemented for signed integers"),
+            .unsigned => return @floatToInt(T, math.floor(log10_64(@intToFloat(f64, x)))),
         },
         else => @compileError("log10 not implemented for " ++ @typeName(T)),
     }

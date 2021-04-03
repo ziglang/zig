@@ -36,8 +36,9 @@ pub fn ln(x: anytype) @TypeOf(x) {
         .ComptimeInt => {
             return @as(comptime_int, math.floor(ln_64(@as(f64, x))));
         },
-        .Int => {
-            return @as(T, math.floor(ln_64(@as(f64, x))));
+        .Int => |IntType| switch (IntType.signedness) {
+            .signed => return @compileError("ln not implemented for signed integers"),
+            .unsigned => return @as(T, math.floor(ln_64(@as(f64, x)))),
         },
         else => @compileError("ln not implemented for " ++ @typeName(T)),
     }
