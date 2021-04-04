@@ -481,6 +481,61 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
+
+    {
+        var case = ctx.exeFromCompiledC("structs", .{});
+        case.addError(
+            \\const Point = struct { x: i32, y: i32 };
+            \\export fn main() c_int {
+            \\    var p: Point = .{
+            \\        .y = 24,
+            \\        .x = 12,
+            \\        .y = 24,
+            \\    };
+            \\    return p.y - p.x - p.x;
+            \\}
+        , &.{
+            ":6:10: error: duplicate field",
+            ":4:10: note: other field here",
+        });
+        case.addError(
+            \\const Point = struct { x: i32, y: i32 };
+            \\export fn main() c_int {
+            \\    var p: Point = .{
+            \\        .y = 24,
+            \\    };
+            \\    return p.y - p.x - p.x;
+            \\}
+        , &.{
+            ":3:21: error: mising struct field: x",
+            ":1:15: note: 'Point' declared here",
+        });
+        case.addError(
+            \\const Point = struct { x: i32, y: i32 };
+            \\export fn main() c_int {
+            \\    var p: Point = .{
+            \\        .x = 12,
+            \\        .y = 24,
+            \\        .z = 48,
+            \\    };
+            \\    return p.y - p.x - p.x;
+            \\}
+        , &.{
+            ":6:10: error: no field named 'z' in struct 'Point'",
+            ":1:15: note: 'Point' declared here",
+        });
+        case.addCompareOutput(
+            \\const Point = struct { x: i32, y: i32 };
+            \\export fn main() c_int {
+            \\    var p: Point = .{
+            \\        .x = 12,
+            \\        .y = 24,
+            \\    };
+            \\    return p.y - p.x - p.x;
+            \\}
+        , "");
+    }
+
     ctx.c("empty start function", linux_x64,
         \\export fn _start() noreturn {
         \\    unreachable;
@@ -489,8 +544,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\ZIG_EXTERN_C zig_noreturn void _start(void);
         \\
         \\zig_noreturn void _start(void) {
-        \\    zig_breakpoint();
-        \\    zig_unreachable();
+        \\ zig_breakpoint();
+        \\ zig_unreachable();
         \\}
         \\
     );

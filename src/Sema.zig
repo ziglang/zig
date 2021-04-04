@@ -600,6 +600,7 @@ fn zirStructDecl(
 
     const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
+    const struct_val = try Value.Tag.ty.create(&new_decl_arena.allocator, struct_ty);
     struct_obj.* = .{
         .owner_decl = sema.owner_decl,
         .fields = fields_map,
@@ -611,7 +612,7 @@ fn zirStructDecl(
     };
     const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
         .ty = Type.initTag(.type),
-        .val = try Value.Tag.ty.create(gpa, struct_ty),
+        .val = struct_val,
     });
     return sema.analyzeDeclVal(block, src, new_decl);
 }
@@ -837,12 +838,100 @@ fn zirValidateStructInitPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Ind
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
-    const instrs = sema.code.extra[extra.end..][0..extra.data.body_len];
+    const gpa = sema.gpa;
+    const mod = sema.mod;
+    const validate_inst = sema.code.instructions.items(.data)[inst].pl_node;
+    const struct_init_src = validate_inst.src();
+    const validate_extra = sema.code.extraData(zir.Inst.Block, validate_inst.payload_index);
+    const instrs = sema.code.extra[validate_extra.end..][0..validate_extra.data.body_len];
 
-    log.warn("TODO implement zirValidateStructInitPtr (compile errors for missing/dupe fields)", .{});
+    const struct_obj: *Module.Struct = s: {
+        const field_ptr_data = sema.code.instructions.items(.data)[instrs[0]].pl_node;
+        const field_ptr_extra = sema.code.extraData(zir.Inst.Field, field_ptr_data.payload_index).data;
+        const object_ptr = try sema.resolveInst(field_ptr_extra.lhs);
+        break :s object_ptr.ty.elemType().castTag(.@"struct").?.data;
+    };
+
+    // Maps field index to field_ptr index of where it was already initialized.
+    const found_fields = try gpa.alloc(zir.Inst.Index, struct_obj.fields.entries.items.len);
+    defer gpa.free(found_fields);
+
+    mem.set(zir.Inst.Index, found_fields, 0);
+
+    for (instrs) |field_ptr| {
+        const field_ptr_data = sema.code.instructions.items(.data)[field_ptr].pl_node;
+        const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_ptr_data.src_node };
+        const field_ptr_extra = sema.code.extraData(zir.Inst.Field, field_ptr_data.payload_index).data;
+        const field_name = sema.code.nullTerminatedString(field_ptr_extra.field_name_start);
+        const field_index = struct_obj.fields.getIndex(field_name) orelse
+            return sema.failWithBadFieldAccess(block, struct_obj, field_src, field_name);
+        if (found_fields[field_index] != 0) {
+            const other_field_ptr = found_fields[field_index];
+            const other_field_ptr_data = sema.code.instructions.items(.data)[other_field_ptr].pl_node;
+            const other_field_src: LazySrcLoc = .{ .node_offset_back2tok = other_field_ptr_data.src_node };
+            const msg = msg: {
+                const msg = try mod.errMsg(&block.base, field_src, "duplicate field", .{});
+                errdefer msg.destroy(gpa);
+                try mod.errNote(&block.base, other_field_src, msg, "other field here", .{});
+                break :msg msg;
+            };
+            return mod.failWithOwnedErrorMsg(&block.base, msg);
+        }
+        found_fields[field_index] = field_ptr;
+    }
+
+    var root_msg: ?*Module.ErrorMsg = null;
+
+    for (found_fields) |field_ptr, i| {
+        if (field_ptr != 0) continue;
+
+        const field_name = struct_obj.fields.entries.items[i].key;
+        const template = "mising struct field: {s}";
+        const args = .{field_name};
+        if (root_msg) |msg| {
+            try mod.errNote(&block.base, struct_init_src, msg, template, args);
+        } else {
+            root_msg = try mod.errMsg(&block.base, struct_init_src, template, args);
+        }
+    }
+    if (root_msg) |msg| {
+        const fqn = try struct_obj.getFullyQualifiedName(gpa);
+        defer gpa.free(fqn);
+        try mod.errNoteNonLazy(
+            struct_obj.srcLoc(),
+            msg,
+            "'{s}' declared here",
+            .{fqn},
+        );
+        return mod.failWithOwnedErrorMsg(&block.base, msg);
+    }
+}
+
+fn failWithBadFieldAccess(
+    sema: *Sema,
+    block: *Scope.Block,
+    struct_obj: *Module.Struct,
+    field_src: LazySrcLoc,
+    field_name: []const u8,
+) InnerError {
+    const mod = sema.mod;
+    const gpa = sema.gpa;
+
+    const fqn = try struct_obj.getFullyQualifiedName(gpa);
+    defer gpa.free(fqn);
+
+    const msg = msg: {
+        const msg = try mod.errMsg(
+            &block.base,
+            field_src,
+            "no field named '{s}' in struct '{s}'",
+            .{ field_name, fqn },
+        );
+        errdefer msg.destroy(gpa);
+        try mod.errNoteNonLazy(struct_obj.srcLoc(), msg, "'{s}' declared here", .{fqn});
+        break :msg msg;
+    };
+    return mod.failWithOwnedErrorMsg(&block.base, msg);
 }
 
 fn zirStoreToBlockPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
@@ -2139,7 +2228,10 @@ fn zirFieldVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErro
     const extra = sema.code.extraData(zir.Inst.Field, inst_data.payload_index).data;
     const field_name = sema.code.nullTerminatedString(extra.field_name_start);
     const object = try sema.resolveInst(extra.lhs);
-    const object_ptr = try sema.analyzeRef(block, src, object);
+    const object_ptr = if (object.ty.zigTypeTag() == .Pointer)
+        object
+    else
+        try sema.analyzeRef(block, src, object);
     const result_ptr = try sema.namedFieldPtr(block, src, object_ptr, field_name, field_name_src);
     return sema.analyzeLoad(block, src, result_ptr, result_ptr.src);
 }
@@ -4241,12 +4333,8 @@ fn analyzeStructFieldPtr(
 
     const struct_obj = elem_ty.castTag(.@"struct").?.data;
 
-    const field_index = struct_obj.fields.getIndex(field_name) orelse {
-        // TODO note: struct S declared here
-        return mod.fail(&block.base, field_name_src, "no field named '{s}' in struct '{}'", .{
-            field_name, elem_ty,
-        });
-    };
+    const field_index = struct_obj.fields.getIndex(field_name) orelse
+        return sema.failWithBadFieldAccess(block, struct_obj, field_name_src, field_name);
     const field = struct_obj.fields.entries.items[field_index].value;
     const ptr_field_ty = try mod.simplePtrType(arena, field.ty, true, .One);
     // TODO comptime field access

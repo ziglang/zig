@@ -364,7 +364,7 @@ pub const Struct = struct {
     /// Represents the declarations inside this struct.
     container: Scope.Container,
 
-    /// Offset from Decl node index, points to the struct AST node.
+    /// Offset from `owner_decl`, points to the struct AST node.
     node_offset: i32,
 
     pub const Field = struct {
@@ -373,6 +373,18 @@ pub const Struct = struct {
         /// Uses `unreachable_value` to indicate no default.
         default_val: Value,
     };
+
+    pub fn getFullyQualifiedName(s: *Struct, gpa: *Allocator) ![]u8 {
+        // TODO this should return e.g. "std.fs.Dir.OpenOptions"
+        return gpa.dupe(u8, mem.spanZ(s.owner_decl.name));
+    }
+
+    pub fn srcLoc(s: Struct) SrcLoc {
+        return .{
+            .container = .{ .decl = s.owner_decl },
+            .lazy = .{ .node_offset = s.node_offset },
+        };
+    }
 };
 
 /// Some Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.
@@ -1048,6 +1060,9 @@ pub const Scope = struct {
                     gz.rl_ty_inst = ty_inst;
                     gz.break_result_loc = parent_rl;
                 },
+                .none_or_ref => {
+                    gz.break_result_loc = .ref;
+                },
                 .discard, .none, .ptr, .ref => {
                     gz.break_result_loc = parent_rl;
                 },
@@ -1572,6 +1587,7 @@ pub const SrcLoc = struct {
             .byte_offset,
             .token_offset,
             .node_offset,
+            .node_offset_back2tok,
             .node_offset_var_decl_ty,
             .node_offset_for_cond,
             .node_offset_builtin_call_arg0,
@@ -1630,6 +1646,14 @@ pub const SrcLoc = struct {
                 const tree = decl.container.file_scope.base.tree();
                 const main_tokens = tree.nodes.items(.main_token);
                 const tok_index = main_tokens[node];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
+            .node_offset_back2tok => |node_off| {
+                const decl = src_loc.container.decl;
+                const node = decl.relativeToNodeIndex(node_off);
+                const tree = decl.container.file_scope.base.tree();
+                const tok_index = tree.firstToken(node) - 2;
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
@@ -1747,7 +1771,10 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = decl.relativeToNodeIndex(node_off);
-                const tok_index = node_datas[node].rhs;
+                const tok_index = switch (node_tags[node]) {
+                    .field_access => node_datas[node].rhs,
+                    else => tree.firstToken(node) - 2,
+                };
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
@@ -1988,6 +2015,10 @@ pub const LazySrcLoc = union(enum) {
     /// from its containing Decl node AST index.
     /// The Decl is determined contextually.
     node_offset: i32,
+    /// The source location points to two tokens left of the first token of an AST node,
+    /// which is this value offset from its containing Decl node AST index.
+    /// The Decl is determined contextually.
+    node_offset_back2tok: i32,
     /// The source location points to a variable declaration type expression,
     /// found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a variable declaration AST node. Next, navigate
@@ -2026,10 +2057,10 @@ pub const LazySrcLoc = union(enum) {
     /// to the callee expression.
     /// The Decl is determined contextually.
     node_offset_call_func: i32,
-    /// The source location points to the field name of a field access expression,
-    /// found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a field access AST node. Next, navigate
-    /// to the field name token.
+    /// The payload is offset from the containing Decl AST node.
+    /// The source location points to the field name of:
+    ///  * a field access expression (`a.b`), or
+    ///  * the operand ("b" node) of a field initialization expression (`.a = b`)
     /// The Decl is determined contextually.
     node_offset_field_name: i32,
     /// The source location points to the pointer of a pointer deref expression,
@@ -2114,6 +2145,7 @@ pub const LazySrcLoc = union(enum) {
             .byte_offset,
             .token_offset,
             .node_offset,
+            .node_offset_back2tok,
             .node_offset_var_decl_ty,
             .node_offset_for_cond,
             .node_offset_builtin_call_arg0,
@@ -2156,6 +2188,7 @@ pub const LazySrcLoc = union(enum) {
             .byte_offset,
             .token_offset,
             .node_offset,
+            .node_offset_back2tok,
             .node_offset_var_decl_ty,
             .node_offset_for_cond,
             .node_offset_builtin_call_arg0,
@@ -4004,12 +4037,22 @@ pub fn errNote(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
+    return mod.errNoteNonLazy(src.toSrcLoc(scope), parent, format, args);
+}
+
+pub fn errNoteNonLazy(
+    mod: *Module,
+    src_loc: SrcLoc,
+    parent: *ErrorMsg,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
     const msg = try std.fmt.allocPrint(mod.gpa, format, args);
     errdefer mod.gpa.free(msg);
 
     parent.notes = try mod.gpa.realloc(parent.notes, parent.notes.len + 1);
     parent.notes[parent.notes.len - 1] = .{
-        .src_loc = src.toSrcLoc(scope),
+        .src_loc = src_loc,
         .msg = msg,
     };
 }

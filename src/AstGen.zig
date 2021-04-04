@@ -124,6 +124,9 @@ pub const ResultLoc = union(enum) {
     /// The expression must generate a pointer rather than a value. For example, the left hand side
     /// of an assignment uses this kind of result location.
     ref,
+    /// The callee will accept a ref, but it is not necessary, and the `ResultLoc`
+    /// may be treated as `none` instead.
+    none_or_ref,
     /// The expression will be coerced into this type, but it will be evaluated as an rvalue.
     ty: zir.Inst.Ref,
     /// The expression must store its result into this typed pointer. The result instruction
@@ -157,7 +160,7 @@ pub const ResultLoc = union(enum) {
         var elide_store_to_block_ptr_instructions = false;
         switch (rl) {
             // In this branch there will not be any store_to_block_ptr instructions.
-            .discard, .none, .ty, .ref => return .{
+            .discard, .none, .none_or_ref, .ty, .ref => return .{
                 .tag = .break_operand,
                 .elide_store_to_block_ptr_instructions = false,
             },
@@ -606,8 +609,13 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
 
         .deref => {
             const lhs = try expr(gz, scope, .none, node_datas[node].lhs);
-            const result = try gz.addUnNode(.load, lhs, node);
-            return rvalue(gz, scope, rl, result, node);
+            switch (rl) {
+                .ref, .none_or_ref => return lhs,
+                else => {
+                    const result = try gz.addUnNode(.load, lhs, node);
+                    return rvalue(gz, scope, rl, result, node);
+                },
+            }
         },
         .address_of => {
             const result = try expr(gz, scope, .ref, node_datas[node].lhs);
@@ -816,7 +824,7 @@ pub fn structInitExpr(
     }
     switch (rl) {
         .discard => return mod.failNode(scope, node, "TODO implement structInitExpr discard", .{}),
-        .none => return mod.failNode(scope, node, "TODO implement structInitExpr none", .{}),
+        .none, .none_or_ref => return mod.failNode(scope, node, "TODO implement structInitExpr none", .{}),
         .ref => unreachable, // struct literal not valid as l-value
         .ty => |ty_inst| {
             return mod.failNode(scope, node, "TODO implement structInitExpr ty", .{});
@@ -1980,7 +1988,7 @@ fn orelseCatchExpr(
     // TODO handle catch
     const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
         .ref => .ref,
-        .discard, .none, .block_ptr, .inferred_ptr => .none,
+        .discard, .none, .none_or_ref, .block_ptr, .inferred_ptr => .none,
         .ty => |elem_ty| blk: {
             const wrapped_ty = try block_scope.addUnNode(.optional_type, elem_ty, node);
             break :blk .{ .ty = wrapped_ty };
@@ -2156,7 +2164,7 @@ pub fn fieldAccess(
             .field_name_start = str_index,
         }),
         else => return rvalue(gz, scope, rl, try gz.addPlNode(.field_val, node, zir.Inst.Field{
-            .lhs = try expr(gz, scope, .none, object_node),
+            .lhs = try expr(gz, scope, .none_or_ref, object_node),
             .field_name_start = str_index,
         }), node),
     }
@@ -3474,9 +3482,13 @@ fn identifier(
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (mem.eql(u8, local_ptr.name, ident_name)) {
-                    if (rl == .ref) return local_ptr.ptr;
-                    const loaded = try gz.addUnNode(.load, local_ptr.ptr, ident);
-                    return rvalue(gz, scope, rl, loaded, ident);
+                    switch (rl) {
+                        .ref, .none_or_ref => return local_ptr.ptr,
+                        else => {
+                            const loaded = try gz.addUnNode(.load, local_ptr.ptr, ident);
+                            return rvalue(gz, scope, rl, loaded, ident);
+                        },
+                    }
                 }
                 s = local_ptr.parent;
             },
@@ -3493,7 +3505,7 @@ fn identifier(
     }
     const decl_index = @intCast(u32, gop.index);
     switch (rl) {
-        .ref => return gz.addDecl(.decl_ref, decl_index, ident),
+        .ref, .none_or_ref => return gz.addDecl(.decl_ref, decl_index, ident),
         else => return rvalue(gz, scope, rl, try gz.addDecl(.decl_val, decl_index, ident), ident),
     }
 }
@@ -3697,7 +3709,7 @@ fn as(
 ) InnerError!zir.Inst.Ref {
     const dest_type = try typeExpr(gz, scope, lhs);
     switch (rl) {
-        .none, .discard, .ref, .ty => {
+        .none, .none_or_ref, .discard, .ref, .ty => {
             const result = try expr(gz, scope, .{ .ty = dest_type }, rhs);
             return rvalue(gz, scope, rl, result, node);
         },
@@ -3781,7 +3793,7 @@ fn bitCast(
             });
             return rvalue(gz, scope, rl, result, node);
         },
-        .ref => unreachable, // `@bitCast` is not allowed as an r-value.
+        .ref, .none_or_ref => unreachable, // `@bitCast` is not allowed as an r-value.
         .ptr => |result_ptr| {
             const casted_result_ptr = try gz.addUnNode(.bitcast_result_ptr, result_ptr, node);
             return expr(gz, scope, .{ .ptr = casted_result_ptr }, rhs);
@@ -4354,7 +4366,7 @@ fn rvalue(
     src_node: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
     switch (rl) {
-        .none => return result,
+        .none, .none_or_ref => return result,
         .discard => {
             // Emit a compile error for discarding error values.
             _ = try gz.addUnNode(.ensure_result_non_error, result, src_node);
