@@ -74,7 +74,6 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .spirv32 => return error.LLVMBackendDoesNotSupportSPIRV,
         .spirv64 => return error.LLVMBackendDoesNotSupportSPIRV,
     };
-    // TODO Add a sub-arch for some architectures depending on CPU features.
 
     const llvm_os = switch (target.os.tag) {
         .freestanding => "unknown",
