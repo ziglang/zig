@@ -38,8 +38,11 @@ pub const DataSection = struct {
     /// Every data object will be appended to this list,
     /// containing its `Decl`, the data in bytes, and its length.
     segments: std.ArrayListUnmanaged(struct {
+        /// The decl that lives inside the 'data' section such as an array
         decl: *Module.Decl,
+        /// The contents of the data in bytes
         data: [*]const u8,
+        /// The length of the contents inside the 'data' section
         len: u32,
     }) = .{},
 
@@ -72,7 +75,7 @@ pub const DataSection = struct {
     }
 
     /// Returns the index of a declaration and `null` when not found
-    pub fn idx(self: DataSection, decl: *Module.Decl) ?usize {
+    pub fn getIdx(self: DataSection, decl: *Module.Decl) ?usize {
         return for (self.segments.items) |entry, i| {
             if (entry.decl == decl) break i;
         } else null;
@@ -145,9 +148,8 @@ pub fn deinit(self: *Wasm) void {
         decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
     }
     for (self.data.segments.items) |entry| {
-        entry.decl.fn_link.wasm.functype.deinit(self.base.allocator);
+        // decl's that live in data section do not generate idx_refs or func types
         entry.decl.fn_link.wasm.code.deinit(self.base.allocator);
-        entry.decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
     }
     self.funcs.deinit(self.base.allocator);
     self.ext_funcs.deinit(self.base.allocator);
@@ -155,15 +157,14 @@ pub fn deinit(self: *Wasm) void {
 }
 
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
-    const tv = decl.typed_value.most_recent.typed_value;
-    decl.fn_link.wasm = .{};
+    const typed_value = decl.typed_value.most_recent.typed_value;
 
-    switch (tv.ty.zigTypeTag()) {
+    switch (typed_value.ty.zigTypeTag()) {
         .Array => {
             // if the codegen of the given decl contributes to the data segment
             // we must calculate its data length now so that the data offsets are available
             // to other decls when called
-            const data_len = calcDataLen(self, tv) catch return error.AnalysisFail;
+            const data_len = self.calcDataLen(typed_value);
             try self.data.segments.append(self.base.allocator, .{
                 .decl = decl,
                 .data = undefined,
@@ -175,13 +176,18 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
             const idx: ?usize = for (self.data.segments.items) |entry, i| {
                 if (entry.decl.deletion_flag) break i;
             } else null;
+
             if (idx) |id| {
-                const old_decl = self.data.segments.swapRemove(id); // current decl is now in to-be-deleted decl's spot
-                // re-append to end of list so it can be cleaned up by `freeDecl`
-                try self.data.segments.append(self.base.allocator, old_decl);
+                // swap to-be-removed decl with newly added to create a contigious valid data segment
+                const items = self.data.segments.items;
+                std.mem.swap(
+                    std.meta.Child(@TypeOf(items)),
+                    &items[id],
+                    &items[items.len - 1],
+                );
             }
         },
-        .Fn => if (self.getFuncidx(decl) == null) switch (tv.val.tag()) {
+        .Fn => if (self.getFuncidx(decl) == null) switch (typed_value.val.tag()) {
             // dependent on function type, appends it to the correct list
             .function => try self.funcs.append(self.base.allocator, decl),
             .extern_fn => try self.ext_funcs.append(self.base.allocator, decl),
@@ -191,32 +197,26 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
     }
 }
 
-// TODO, remove this and use the existing error mechanism
-const DataLenError = error{
-    TODO_WASM_CalcDataLenArray,
-    TODO_WASM_CalcDataLen,
-};
 /// Calculates the length of the data segment that will be occupied by the given `TypedValue`
-fn calcDataLen(bin_file: *Wasm, typed_value: TypedValue) DataLenError!u32 {
+fn calcDataLen(self: *Wasm, typed_value: TypedValue) u32 {
     switch (typed_value.ty.zigTypeTag()) {
         .Array => {
             if (typed_value.val.castTag(.bytes)) |payload| {
                 if (typed_value.ty.sentinel()) |sentinel| {
-                    return @intCast(u32, payload.data.len) + try calcDataLen(bin_file, .{
+                    return @intCast(u32, payload.data.len) + self.calcDataLen(.{
                         .ty = typed_value.ty.elemType(),
                         .val = sentinel,
                     });
                 }
-                return @intCast(u32, payload.data.len);
             }
-            return error.TODO_WASM_CalcDataLenArray;
+            return @intCast(u32, typed_value.ty.arrayLen());
         },
         .Int => {
-            const info = typed_value.ty.intInfo(bin_file.base.options.target);
-            return info.bits / 8;
+            const info = typed_value.ty.intInfo(self.base.options.target);
+            return std.math.divCeil(u32, info.bits, 8) catch unreachable;
         },
         .Pointer => return 4,
-        else => return error.TODO_WASM_CalcDataLen,
+        else => unreachable,
     }
 }
 
@@ -256,7 +256,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         .Fn => {
             // as locals are patched afterwards, the offsets of funcidx's are off,
             // here we update them to correct them
-            for (decl.fn_link.wasm.idx_refs.items) |*func| {
+            for (fn_data.idx_refs.items) |*func| {
                 // For each local, add 6 bytes (count + type)
                 func.offset += @intCast(u32, context.locals.items.len * 6);
             }
@@ -291,7 +291,7 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
             else => unreachable,
         }
     }
-    if (self.data.idx(decl)) |idx| {
+    if (self.data.getIdx(decl)) |idx| {
         _ = self.data.segments.swapRemove(idx);
     }
     decl.fn_link.wasm.functype.deinit(self.base.allocator);
@@ -314,6 +314,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
     const file = self.base.file.?;
     const header_size = 5 + 1;
+    const data_size = self.data.size();
 
     // No need to rewrite the magic/version header
     try file.setEndPos(@sizeOf(@TypeOf(wasm.magic ++ wasm.version)));
@@ -384,7 +385,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     }
 
     // Memory section
-    if (self.data.size() != 0) {
+    if (data_size != 0) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
 
@@ -434,7 +435,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         }
 
         // export memory if size is not 0
-        if (self.data.size() != 0) {
+        if (data_size != 0) {
             try leb.writeULEB128(writer, @intCast(u32, "memory".len));
             try writer.writeAll("memory");
             try writer.writeByte(wasm.externalKind(.memory));
@@ -483,7 +484,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     }
 
     // Data section
-    if (self.data.size() != 0) {
+    if (data_size != 0) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
         var len: u32 = 0;
@@ -496,7 +497,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try writer.writeByte(wasm.opcode(.end));
 
         // payload size
-        try leb.writeULEB128(writer, self.data.size());
+        try leb.writeULEB128(writer, data_size);
 
         // write payload
         for (self.data.segments.items) |entry| try writer.writeAll(entry.data[0..entry.len]);

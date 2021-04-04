@@ -622,9 +622,9 @@ pub const Context = struct {
                 // Write instructions
                 // TODO: check for and handle death of instructions
                 const mod_fn = blk: {
-                    if (tv.val.castTag(.function)) |func| break :blk func.data;
-                    if (tv.val.castTag(.extern_fn)) |ext_fn| return Result.appended; // don't need code body for extern functions
-                    return self.fail(.{ .node_offset = 0 }, "TODO: Wasm codegen for decl type '{s}'", .{tv.ty.tag()});
+                    if (typed_value.val.castTag(.function)) |func| break :blk func.data;
+                    if (typed_value.val.castTag(.extern_fn)) |ext_fn| return Result.appended; // don't need code body for extern functions
+                    return self.fail(.{ .node_offset = 0 }, "TODO: Wasm codegen for decl type '{s}'", .{typed_value.ty.tag()});
                 };
 
                 // Reserve space to write the size after generating the code as well as space for locals count
@@ -686,9 +686,9 @@ pub const Context = struct {
                     try self.code.append(@intCast(u8, int_byte));
                     return Result.appended;
                 }
-                return self.fail(self.decl.src(), "TODO: Implement codegen for int type: '{}'", .{typed_value.ty});
+                return self.fail(.{ .node_offset = 0 }, "TODO: Implement codegen for int type: '{}'", .{typed_value.ty});
             },
-            else => |tag| return self.fail(self.decl.src(), "TODO: Implement zig type codegen for type: '{s}'", .{tag}),
+            else => |tag| return self.fail(.{ .node_offset = 0 }, "TODO: Implement zig type codegen for type: '{s}'", .{tag}),
         }
     }
 
