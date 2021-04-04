@@ -1194,6 +1194,7 @@ __write c
 __wscanfieee128 c
 __wuflow c
 __wunderflow c
+__x86_get_cpuid_feature_leaf c
 __xmknod c
 __xmknodat c
 __xpg_basename c
@@ -2096,6 +2097,10 @@ fseeko64 c
 fsetpos c
 fsetpos64 c
 fsetxattr c
+fstat c
+fstat64 c
+fstatat c
+fstatat64 c
 fstatfs c
 fstatfs64 c
 fstatvfs c
@@ -2655,10 +2660,13 @@ lsearch c
 lseek c
 lseek64 c
 lsetxattr c
+lstat c
+lstat64 c
 lutimes c
 madvise c
 makecontext c
 mallinfo c
+mallinfo2 c
 malloc c
 malloc_get_state c
 malloc_info c
@@ -2701,6 +2709,8 @@ mkdirat c
 mkdtemp c
 mkfifo c
 mkfifoat c
+mknod c
+mknodat c
 mkostemp c
 mkostemp64 c
 mkostemps c
@@ -3439,6 +3449,8 @@ srandom_r c
 sscanf c
 ssignal c
 sstk c
+stat c
+stat64 c
 statfs c
 statfs64 c
 statvfs c
