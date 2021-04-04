@@ -1051,6 +1051,8 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_arm, OsLinux, ZigLLVM_MuslEABI},
     {ZigLLVM_arm, OsLinux, ZigLLVM_MuslEABIHF},
     {ZigLLVM_arm, OsWindows, ZigLLVM_GNU},
+    {ZigLLVM_csky, OsLinux, ZigLLVM_GNUEABI},
+    {ZigLLVM_csky, OsLinux, ZigLLVM_GNUEABIHF},
     {ZigLLVM_x86, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_x86, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_x86, OsWindows, ZigLLVM_GNU},

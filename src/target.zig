@@ -25,6 +25,8 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .arm, .os = .linux, .abi = .musleabi },
     .{ .arch = .arm, .os = .linux, .abi = .musleabihf },
     .{ .arch = .arm, .os = .windows, .abi = .gnu },
+    .{ .arch = .csky, .os = .linux, .abi = .gnueabi },
+    .{ .arch = .csky, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .i386, .os = .linux, .abi = .gnu },
     .{ .arch = .i386, .os = .linux, .abi = .musl },
     .{ .arch = .i386, .os = .windows, .abi = .gnu },
