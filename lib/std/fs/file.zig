@@ -223,15 +223,15 @@ pub const File = struct {
         return os.lseek_SET(self.handle, offset);
     }
 
-    pub const GetPosError = os.SeekError || os.FStatError;
+    pub const GetSeekPosError = os.SeekError || os.FStatError;
 
     /// TODO: integrate with async I/O
-    pub fn getPos(self: File) GetPosError!u64 {
+    pub fn getPos(self: File) GetSeekPosError!u64 {
         return os.lseek_CUR_get(self.handle);
     }
 
     /// TODO: integrate with async I/O
-    pub fn getEndPos(self: File) GetPosError!u64 {
+    pub fn getEndPos(self: File) GetSeekPosError!u64 {
         if (builtin.os.tag == .windows) {
             return windows.GetFileSizeEx(self.handle);
         }
@@ -819,7 +819,7 @@ pub const File = struct {
     pub const SeekableStream = io.SeekableStream(
         File,
         SeekError,
-        GetPosError,
+        GetSeekPosError,
         seekTo,
         seekBy,
         getPos,
