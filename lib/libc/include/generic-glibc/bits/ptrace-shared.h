@@ -1,6 +1,6 @@
 /* `ptrace' debugger support interface.  Linux version,
    not architecture-specific.
-   Copyright (C) 1996-2020 Free Software Foundation, Inc.
+   Copyright (C) 1996-2021 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 

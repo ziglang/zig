@@ -1,6 +1,6 @@
 /* Extended cpio format from POSIX.1.
    This file is part of the GNU C Library.
-   Copyright (C) 1992-2020 Free Software Foundation, Inc.
+   Copyright (C) 1992-2021 Free Software Foundation, Inc.
    NOTE: The canonical source of this file is maintained with the GNU cpio.
 
    The GNU C Library is free software; you can redistribute it and/or

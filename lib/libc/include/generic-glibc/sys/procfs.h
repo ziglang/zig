@@ -1,5 +1,5 @@
 /* Definitions for core files and libthread_db.  Generic Linux version.
-   Copyright (C) 1996-2020 Free Software Foundation, Inc.
+   Copyright (C) 1996-2021 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 

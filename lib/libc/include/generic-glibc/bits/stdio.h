@@ -1,5 +1,5 @@
 /* Optimizing macros and inline functions for stdio functions.
-   Copyright (C) 1998-2020 Free Software Foundation, Inc.
+   Copyright (C) 1998-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -31,7 +31,7 @@
 
 
 #ifdef __USE_EXTERN_INLINES
-/* For -D_FORTIFY_SOURCE{,=2} bits/stdio2.h will define a different
+/* For -D_FORTIFY_SOURCE{,=2,=3} bits/stdio2.h will define a different
    inline.  */
 # if !(__USE_FORTIFY_LEVEL > 0 && defined __fortify_function)
 /* Write formatted output to stdout from argument list ARG.  */
@@ -60,7 +60,7 @@ fgetc_unlocked (FILE *__fp)
 # endif /* misc */
 
 
-# ifdef __USE_POSIX
+# ifdef __USE_POSIX199506
 /* This is defined in POSIX.1:1996.  */
 __STDIO_INLINE int
 getc_unlocked (FILE *__fp)
@@ -95,7 +95,7 @@ fputc_unlocked (int __c, FILE *__stream)
 # endif /* misc */
 
 
-# ifdef __USE_POSIX
+# ifdef __USE_POSIX199506
 /* This is defined in POSIX.1:1996.  */
 __STDIO_INLINE int
 putc_unlocked (int __c, FILE *__stream)

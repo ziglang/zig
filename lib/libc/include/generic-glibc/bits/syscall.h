@@ -1,11 +1,11 @@
 /* Generated at libc build time from syscall list.  */
-/* The system call list corresponds to kernel 5.7.  */
+/* The system call list corresponds to kernel 5.10.  */
 
 #ifndef _SYSCALL_H
 # error "Never use <bits/syscall.h> directly; include <sys/syscall.h> instead."
 #endif
 
-#define __GLIBC_LINUX_VERSION_CODE 329472
+#define __GLIBC_LINUX_VERSION_CODE 330240
 
 #ifdef __NR_FAST_atomic_update
 # define SYS_FAST_atomic_update __NR_FAST_atomic_update
@@ -227,6 +227,10 @@
 # define SYS_close __NR_close
 #endif
 
+#ifdef __NR_close_range
+# define SYS_close_range __NR_close_range
+#endif
+
 #ifdef __NR_cmpxchg_badaddr
 # define SYS_cmpxchg_badaddr __NR_cmpxchg_badaddr
 #endif
@@ -329,6 +333,10 @@
 
 #ifdef __NR_faccessat
 # define SYS_faccessat __NR_faccessat
+#endif
+
+#ifdef __NR_faccessat2
+# define SYS_faccessat2 __NR_faccessat2
 #endif
 
 #ifdef __NR_fadvise64
@@ -1633,6 +1641,10 @@
 
 #ifdef __NR_prlimit64
 # define SYS_prlimit64 __NR_prlimit64
+#endif
+
+#ifdef __NR_process_madvise
+# define SYS_process_madvise __NR_process_madvise
 #endif
 
 #ifdef __NR_process_vm_readv
