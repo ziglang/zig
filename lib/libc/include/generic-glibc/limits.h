@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -177,6 +177,18 @@
 #  define ULLONG_WIDTH 64
 # endif
 #endif /* Use IEC_60559_BFP_EXT.  */
+
+/* The macros for _Bool are not defined by GCC's <limits.h> before GCC
+   11, or if _GNU_SOURCE is defined rather than enabling C2x support
+   with -std.  */
+#if __GLIBC_USE (ISOC2X)
+# ifndef BOOL_MAX
+#  define BOOL_MAX 1
+# endif
+# ifndef BOOL_WIDTH
+#  define BOOL_WIDTH 1
+# endif
+#endif
 
 #ifdef	__USE_POSIX
 /* POSIX adds things to <limits.h>.  */

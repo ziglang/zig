@@ -1,5 +1,5 @@
 /* This file defines standard ELF types, structures, and macros.
-   Copyright (C) 1995-2020 Free Software Foundation, Inc.
+   Copyright (C) 1995-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -18,10 +18,6 @@
 
 #ifndef _ELF_H
 #define	_ELF_H 1
-
-#include <features.h>
-
-__BEGIN_DECLS
 
 /* Standard ELF types.  */
 
@@ -322,7 +318,7 @@ typedef struct
 				/* reserved 184 */
 #define EM_AVR32	185	/* Amtel 32-bit microprocessor */
 #define EM_STM8		186	/* STMicroelectronics STM8 */
-#define EM_TILE64	187	/* Tileta TILE64 */
+#define EM_TILE64	187	/* Tilera TILE64 */
 #define EM_TILEPRO	188	/* Tilera TILEPro */
 #define EM_MICROBLAZE	189	/* Xilinx MicroBlaze */
 #define EM_CUDA		190	/* NVIDIA CUDA */
@@ -445,7 +441,7 @@ typedef struct
 #define SHT_FINI_ARRAY	  15		/* Array of destructors */
 #define SHT_PREINIT_ARRAY 16		/* Array of pre-constructors */
 #define SHT_GROUP	  17		/* Section group */
-#define SHT_SYMTAB_SHNDX  18		/* Extended section indeces */
+#define SHT_SYMTAB_SHNDX  18		/* Extended section indices */
 #define	SHT_NUM		  19		/* Number of defined types.  */
 #define SHT_LOOS	  0x60000000	/* Start OS-specific.  */
 #define SHT_GNU_ATTRIBUTES 0x6ffffff5	/* Object attributes.  */
@@ -482,6 +478,7 @@ typedef struct
 #define SHF_COMPRESSED	     (1 << 11)	/* Section with compressed data. */
 #define SHF_MASKOS	     0x0ff00000	/* OS-specific.  */
 #define SHF_MASKPROC	     0xf0000000	/* Processor-specific */
+#define SHF_GNU_RETAIN	     (1 << 21)  /* Not to be GCed by linker.  */
 #define SHF_ORDERED	     (1 << 30)	/* Special ordering requirement
 					   (Solaris).  */
 #define SHF_EXCLUDE	     (1U << 31)	/* Section is excluded unless
@@ -1050,7 +1047,7 @@ typedef struct
 #define	VER_NDX_LORESERVE	0xff00	/* Beginning of reserved entries.  */
 #define	VER_NDX_ELIMINATE	0xff01	/* Symbol is to be eliminated.  */
 
-/* Auxialiary version information.  */
+/* Auxiliary version information.  */
 
 typedef struct
 {
@@ -1327,31 +1324,26 @@ typedef struct
 
 /* The x86 instruction sets indicated by the corresponding bits are
    used in program.  Their support in the hardware is optional.  */
-#define GNU_PROPERTY_X86_ISA_1_USED		0xc0000000
+#define GNU_PROPERTY_X86_ISA_1_USED		0xc0010002
 /* The x86 instruction sets indicated by the corresponding bits are
    used in program and they must be supported by the hardware.   */
-#define GNU_PROPERTY_X86_ISA_1_NEEDED		0xc0000001
+#define GNU_PROPERTY_X86_ISA_1_NEEDED		0xc0008002
 /* X86 processor-specific features used in program.  */
 #define GNU_PROPERTY_X86_FEATURE_1_AND		0xc0000002
 
-#define GNU_PROPERTY_X86_ISA_1_486		(1U << 0)
-#define GNU_PROPERTY_X86_ISA_1_586		(1U << 1)
-#define GNU_PROPERTY_X86_ISA_1_686		(1U << 2)
-#define GNU_PROPERTY_X86_ISA_1_SSE		(1U << 3)
-#define GNU_PROPERTY_X86_ISA_1_SSE2		(1U << 4)
-#define GNU_PROPERTY_X86_ISA_1_SSE3		(1U << 5)
-#define GNU_PROPERTY_X86_ISA_1_SSSE3		(1U << 6)
-#define GNU_PROPERTY_X86_ISA_1_SSE4_1		(1U << 7)
-#define GNU_PROPERTY_X86_ISA_1_SSE4_2		(1U << 8)
-#define GNU_PROPERTY_X86_ISA_1_AVX		(1U << 9)
-#define GNU_PROPERTY_X86_ISA_1_AVX2		(1U << 10)
-#define GNU_PROPERTY_X86_ISA_1_AVX512F		(1U << 11)
-#define GNU_PROPERTY_X86_ISA_1_AVX512CD		(1U << 12)
-#define GNU_PROPERTY_X86_ISA_1_AVX512ER		(1U << 13)
-#define GNU_PROPERTY_X86_ISA_1_AVX512PF		(1U << 14)
-#define GNU_PROPERTY_X86_ISA_1_AVX512VL		(1U << 15)
-#define GNU_PROPERTY_X86_ISA_1_AVX512DQ		(1U << 16)
-#define GNU_PROPERTY_X86_ISA_1_AVX512BW		(1U << 17)
+/* GNU_PROPERTY_X86_ISA_1_BASELINE: CMOV, CX8 (cmpxchg8b), FPU (fld),
+   MMX, OSFXSR (fxsave), SCE (syscall), SSE and SSE2.  */
+#define GNU_PROPERTY_X86_ISA_1_BASELINE		(1U << 0)
+/* GNU_PROPERTY_X86_ISA_1_V2: GNU_PROPERTY_X86_ISA_1_BASELINE,
+   CMPXCHG16B (cmpxchg16b), LAHF-SAHF (lahf), POPCNT (popcnt), SSE3,
+   SSSE3, SSE4.1 and SSE4.2.  */
+#define GNU_PROPERTY_X86_ISA_1_V2		(1U << 1)
+/* GNU_PROPERTY_X86_ISA_1_V3: GNU_PROPERTY_X86_ISA_1_V2, AVX, AVX2, BMI1,
+   BMI2, F16C, FMA, LZCNT, MOVBE, XSAVE.  */
+#define GNU_PROPERTY_X86_ISA_1_V3		(1U << 2)
+/* GNU_PROPERTY_X86_ISA_1_V4: GNU_PROPERTY_X86_ISA_1_V3, AVX512F,
+   AVX512BW, AVX512CD, AVX512DQ and AVX512VL.  */
+#define GNU_PROPERTY_X86_ISA_1_V4		(1U << 3)
 
 /* This indicates that all executable sections are compatible with
    IBT.  */
@@ -2143,9 +2135,9 @@ enum
 #define EFA_PARISC_1_1		    0x0210 /* PA-RISC 1.1 big-endian.  */
 #define EFA_PARISC_2_0		    0x0214 /* PA-RISC 2.0 big-endian.  */
 
-/* Additional section indeces.  */
+/* Additional section indices.  */
 
-#define SHN_PARISC_ANSI_COMMON	0xff00	   /* Section for tenatively declared
+#define SHN_PARISC_ANSI_COMMON	0xff00	   /* Section for tentatively declared
 					      symbols in ANSI C.  */
 #define SHN_PARISC_HUGE_COMMON	0xff01	   /* Common blocks in huge model.  */
 
@@ -2875,6 +2867,8 @@ enum
 #define R_AARCH64_IRELATIVE	1032	/* STT_GNU_IFUNC relocation.  */
 
 /* AArch64 specific values for the Dyn d_tag field.  */
+#define DT_AARCH64_BTI_PLT	(DT_LOPROC + 1)
+#define DT_AARCH64_PAC_PLT	(DT_LOPROC + 3)
 #define DT_AARCH64_VARIANT_PCS	(DT_LOPROC + 5)
 #define DT_AARCH64_NUM		6
 
@@ -3972,7 +3966,7 @@ enum
 #define R_METAG_RELBRANCH	4
 #define R_METAG_GETSETOFF	5
 
-/* Backward compatability */
+/* Backward compatibility */
 #define R_METAG_REG32OP1	6
 #define R_METAG_REG32OP2	7
 #define R_METAG_REG32OP3	8
@@ -4102,7 +4096,5 @@ enum
 #define R_ARC_TLS_DTPOFF_S9	0x4a
 #define R_ARC_TLS_LE_S9		0x4a
 #define R_ARC_TLS_LE_32		0x4b
-
-__END_DECLS
 
 #endif	/* elf.h */

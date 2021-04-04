@@ -1,4 +1,4 @@
-/* Copyright (C) 1996-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1996-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -25,7 +25,7 @@
 
 __BEGIN_DECLS
 
-/* Structure to represent one entry of the alias data base.  */
+/* Structure to represent one entry of the alias database.  */
 struct aliasent
   {
     char *alias_name;
@@ -38,13 +38,13 @@ struct aliasent
 /* Open alias data base files.  */
 extern void setaliasent (void) __THROW;
 
-/* Close alias data base files.  */
+/* Close alias database files.  */
 extern void endaliasent (void) __THROW;
 
-/* Get the next entry from the alias data base.  */
+/* Get the next entry from the alias database.  */
 extern struct aliasent *getaliasent (void) __THROW;
 
-/* Get the next entry from the alias data base and put it in RESULT_BUF.  */
+/* Get the next entry from the alias database and put it in RESULT_BUF.  */
 extern int getaliasent_r (struct aliasent *__restrict __result_buf,
 			  char *__restrict __buffer, size_t __buflen,
 			  struct aliasent **__restrict __result) __THROW;

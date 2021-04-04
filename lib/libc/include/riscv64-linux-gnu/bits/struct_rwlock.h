@@ -1,5 +1,5 @@
 /* RISC-V internal rwlock struct definitions.
-   Copyright (C) 2019-2020 Free Software Foundation, Inc.
+   Copyright (C) 2019-2021 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -15,7 +15,7 @@
 
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
-   <http://www.gnu.org/licenses/>.  */
+   <https://www.gnu.org/licenses/>.  */
 
 #ifndef _RWLOCK_INTERNAL_H
 #define _RWLOCK_INTERNAL_H
@@ -32,14 +32,37 @@ struct __pthread_rwlock_arch_t
   unsigned int __writers_futex;
   unsigned int __pad3;
   unsigned int __pad4;
+#if __WORDSIZE == 64
   int __cur_writer;
   int __shared;
   unsigned long int __pad1;
   unsigned long int __pad2;
   unsigned int __flags;
+#else
+# if __BYTE_ORDER == __BIG_ENDIAN
+  unsigned char __pad1;
+  unsigned char __pad2;
+  unsigned char __shared;
+  unsigned char __flags;
+# else
+  unsigned char __flags;
+  unsigned char __shared;
+  unsigned char __pad1;
+  unsigned char __pad2;
+# endif
+  int __cur_writer;
+#endif
 };
 
-#define __PTHREAD_RWLOCK_INITIALIZER(__flags) \
+#if __WORDSIZE == 64
+# define __PTHREAD_RWLOCK_INITIALIZER(__flags) \
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, __flags
+#elif __BYTE_ORDER == __BIG_ENDIAN
+# define __PTHREAD_RWLOCK_INITIALIZER(__flags) \
+  0, 0, 0, 0, 0, 0, 0, 0, 0, __flags, 0
+#else
+# define __PTHREAD_RWLOCK_INITIALIZER(__flags) \
+  0, 0, 0, 0, 0, 0, __flags, 0, 0, 0, 0
+#endif
 
 #endif

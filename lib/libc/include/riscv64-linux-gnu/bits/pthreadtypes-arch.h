@@ -1,5 +1,5 @@
 /* Machine-specific pthread type layouts.  RISC-V version.
-   Copyright (C) 2011-2020 Free Software Foundation, Inc.
+   Copyright (C) 2011-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -21,18 +21,22 @@
 
 #include <bits/endian.h>
 
-#if __riscv_xlen == 64
-# define __SIZEOF_PTHREAD_ATTR_T 		56
-# define __SIZEOF_PTHREAD_MUTEX_T 		40
-# define __SIZEOF_PTHREAD_MUTEXATTR_T 		 4
-# define __SIZEOF_PTHREAD_COND_T 		48
-# define __SIZEOF_PTHREAD_CONDATTR_T 		 4
-# define __SIZEOF_PTHREAD_RWLOCK_T 		56
-# define __SIZEOF_PTHREAD_RWLOCKATTR_T 		 8
-# define __SIZEOF_PTHREAD_BARRIER_T 		32
-# define __SIZEOF_PTHREAD_BARRIERATTR_T 	 4
+#define __SIZEOF_PTHREAD_MUTEXATTR_T		4
+#define __SIZEOF_PTHREAD_COND_T			48
+#define __SIZEOF_PTHREAD_CONDATTR_T		4
+#define __SIZEOF_PTHREAD_RWLOCKATTR_T		8
+#define __SIZEOF_PTHREAD_BARRIERATTR_T		4
+
+#if __WORDSIZE == 64
+# define __SIZEOF_PTHREAD_ATTR_T		56
+# define __SIZEOF_PTHREAD_MUTEX_T		40
+# define __SIZEOF_PTHREAD_RWLOCK_T		56
+# define __SIZEOF_PTHREAD_BARRIER_T		32
 #else
-# error "rv32i-based systems are not supported"
+# define __SIZEOF_PTHREAD_ATTR_T		32
+# define __SIZEOF_PTHREAD_MUTEX_T		32
+# define __SIZEOF_PTHREAD_RWLOCK_T		48
+# define __SIZEOF_PTHREAD_BARRIER_T		20
 #endif
 
 #define __LOCK_ALIGNMENT

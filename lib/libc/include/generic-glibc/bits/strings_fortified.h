@@ -1,5 +1,5 @@
 /* Fortify macros for strings.h functions.
-   Copyright (C) 2017-2020 Free Software Foundation, Inc.
+   Copyright (C) 2017-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -22,13 +22,15 @@
 __fortify_function void
 __NTH (bcopy (const void *__src, void *__dest, size_t __len))
 {
-  (void) __builtin___memmove_chk (__dest, __src, __len, __bos0 (__dest));
+  (void) __builtin___memmove_chk (__dest, __src, __len,
+				  __glibc_objsize0 (__dest));
 }
 
 __fortify_function void
 __NTH (bzero (void *__dest, size_t __len))
 {
-  (void) __builtin___memset_chk (__dest, '\0', __len, __bos0 (__dest));
+  (void) __builtin___memset_chk (__dest, '\0', __len,
+				 __glibc_objsize0 (__dest));
 }
 
 #endif
