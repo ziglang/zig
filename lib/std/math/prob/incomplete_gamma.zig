@@ -262,7 +262,7 @@ const inverseNormalDist = math.prob.inverseNormalDist;
 ///
 ///  where
 ///
-///  t = 1 - d - ndtri(p) sqrt(d)
+///  t = 1 - d - normalDist(p) sqrt(d)
 ///
 /// and
 ///
