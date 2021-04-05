@@ -140,6 +140,17 @@ const APGD = [_]f64{
     1.37480673554219441465E-6, 5.79912514929147598821E-9,
 };
 
+pub const AiryResult = struct {
+    /// Ai
+    ai: f64,
+    /// Ai'
+    aip: f64,
+    /// Bi
+    bi: f64,
+    /// Bi'
+    bip: f64,
+};
+
 /// Airy function
 ///
 /// Solution of the differential equation
@@ -167,15 +178,15 @@ const APGD = [_]f64{
 /// IEEE          0, 10    Ai'       10000       1.8e-14*    1.5e-15*
 /// IEEE        -10, 10    Bi        30000       4.2e-15     5.3e-16
 /// IEEE        -10, 10    Bi'       30000       4.9e-15     7.3e-16
-pub fn airy(x: f64, ai: *f64, aip: *f64, bi: *f64, bip: *f64) bool {
+pub fn airy(x: f64) AiryResult {
     var domflg: u32 = 0;
+    var ai: f64 = undefined;
+    var aip: f64 = undefined;
+    var bi: f64 = undefined;
+    var bip: f64 = undefined;
 
     if (x > MAXAIRY) {
-        ai.* = 0;
-        aip.* = 0;
-        bi.* = math.inf(f64);
-        bip.* = math.inf(f64);
-        return false;
+        return AiryResult{ .ai = 0, .aip = 0, .bi = math.inf(f64), .bip = math.inf(f64) };
     }
 
     if (x < -2.09) {
@@ -191,16 +202,16 @@ pub fn airy(x: f64, ai: *f64, aip: *f64, bi: *f64, bip: *f64) bool {
         var theta = zeta + 0.25 * PI;
         var f = math.sin(theta);
         var g = math.cos(theta);
-        ai.* = k * (f * uf - g * ug);
-        bi.* = k * (g * uf + f * ug);
+        ai = k * (f * uf - g * ug);
+        bi = k * (g * uf + f * ug);
 
         uf = 1.0 + zz * polevl(zz, APFN[0..]) / p1evl(zz, APFD[0..]);
         ug = z * polevl(zz, APGN[0..]) / p1evl(zz, APGD[0..]);
         k = sqpii * t;
-        aip.* = -k * (g * uf + f * ug);
-        bip.* = k * (f * uf - g * ug);
+        aip = -k * (g * uf + f * ug);
+        bip = k * (f * uf - g * ug);
 
-        return true;
+        return AiryResult{ .ai = ai, .aip = aip, .bi = bi, .bip = bip };
     }
 
     // cbrt(9)
@@ -213,21 +224,22 @@ pub fn airy(x: f64, ai: *f64, aip: *f64, bi: *f64, bip: *f64) bool {
         var k = 2.0 * t * g;
         var z = 1.0 / zeta;
         var f = polevl(z, AN[0..]) / polevl(z, AD[0..]);
-        ai.* = sqpii * f / k;
+        ai = sqpii * f / k;
 
         k = -0.5 * sqpii * t / g;
         f = polevl(z, APN[0..]) / polevl(z, APD[0..]);
-        aip.* = f * k;
+        aip = f * k;
 
         // zeta > 16
         if (x > 8.3203353) {
             f = z * polevl(z, BN16[0..]) / p1evl(z, BD16[0..]);
             k = sqpii * g;
-            bi.* = k * (1.0 + f) / t;
+            bi = k * (1.0 + f) / t;
 
             f = z * polevl(z, BPPN[0..]) / p1evl(z, BPPD[0..]);
-            bip.* = k * t * (1.0 + f);
-            return true;
+            bip = k * t * (1.0 + f);
+
+            return AiryResult{ .ai = ai, .aip = aip, .bi = bi, .bip = bip };
         }
     }
 
@@ -258,11 +270,11 @@ pub fn airy(x: f64, ai: *f64, aip: *f64, bi: *f64, bip: *f64) bool {
     ug = c2 * g;
 
     if ((domflg & 1) == 0) {
-        ai.* = uf - ug;
+        ai = uf - ug;
     }
 
     if ((domflg & 2) == 0) {
-        bi.* = sqrt3 * (uf + ug);
+        bi = sqrt3 * (uf + ug);
     }
 
     // the deriviative of ai
@@ -293,14 +305,14 @@ pub fn airy(x: f64, ai: *f64, aip: *f64, bi: *f64, bip: *f64) bool {
     ug = c2 * g;
 
     if ((domflg & 4) == 0) {
-        aip.* = uf - ug;
+        aip = uf - ug;
     }
 
     if ((domflg & 8) == 0) {
-        bip.* = sqrt3 * (uf + ug);
+        bip = sqrt3 * (uf + ug);
     }
 
-    return true;
+    return AiryResult{ .ai = ai, .aip = aip, .bi = bi, .bip = bip };
 }
 
 const expectApproxEqRel = std.testing.expectApproxEqRel;
@@ -308,20 +320,19 @@ const expectEqual = std.testing.expectEqual;
 const epsilon = 0.000001;
 
 test "airy" {
-    var ai: f64 = undefined;
-    var aip: f64 = undefined;
-    var bi: f64 = undefined;
-    var bip: f64 = undefined;
+    {
+        const r = airy(0);
+        expectApproxEqRel(r.ai, 0.3550280538878, epsilon);
+        expectApproxEqRel(r.aip, -0.2588194037928, epsilon);
+        expectApproxEqRel(r.bi, 0.614926627446, epsilon);
+        expectApproxEqRel(r.bip, 0.448288357353826, epsilon);
+    }
 
-    expectEqual(airy(0, &ai, &aip, &bi, &bip), true);
-    expectApproxEqRel(ai, 0.3550280538878, epsilon);
-    expectApproxEqRel(aip, -0.2588194037928, epsilon);
-    expectApproxEqRel(bi, 0.614926627446, epsilon);
-    expectApproxEqRel(bip, 0.448288357353826, epsilon);
-
-    expectEqual(airy(5, &ai, &aip, &bi, &bip), true);
-    expectApproxEqRel(ai, 0.0001083444281, epsilon);
-    expectApproxEqRel(aip, -0.00024741389, epsilon);
-    expectApproxEqRel(bi, 657.792044171171182, epsilon);
-    expectApproxEqRel(bip, 1435.81908021798252, epsilon);
+    {
+        const r = airy(5);
+        expectApproxEqRel(r.ai, 0.0001083444281, epsilon);
+        expectApproxEqRel(r.aip, -0.00024741389, epsilon);
+        expectApproxEqRel(r.bi, 657.792044171171182, epsilon);
+        expectApproxEqRel(r.bip, 1435.81908021798252, epsilon);
+    }
 }
