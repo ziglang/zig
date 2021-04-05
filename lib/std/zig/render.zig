@@ -1632,9 +1632,9 @@ fn renderArrayInit(
         }
     }
 
-    const contains_newlines = !tree.tokensOnSameLine(array_init.ast.lbrace, rbrace);
+    const contains_comment = hasComment(tree, array_init.ast.lbrace, rbrace);
 
-    if (!trailing_comma and !contains_newlines) {
+    if (!trailing_comma and !contains_comment) {
         // Render all on one line, no trailing comma.
         if (array_init.ast.elements.len == 1) {
             // If there is only one element, we don't use spaces
