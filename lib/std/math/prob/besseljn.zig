@@ -516,11 +516,7 @@ fn jnx(n: f64, x: f64) f64 {
     var n23 = math.cbrt(n * n);
     t = n23 * zeta;
 
-    var ai: f64 = undefined;
-    var bi: f64 = undefined;
-    var aip: f64 = undefined;
-    var bip: f64 = undefined;
-    _ = airy(t, &ai, &aip, &bi, &bip);
+    const ar = airy(t);
 
     // polynomials in expansion
     var zzi = 1.0 / zz;
@@ -613,7 +609,7 @@ fn jnx(n: f64, x: f64) f64 {
     t = 4.0 * zeta / zz;
     t = math.sqrt(math.sqrt(t));
 
-    t *= ai * pp / math.cbrt(n) + aip * qq / (n23 * n);
+    t *= ar.ai * pp / math.cbrt(n) + ar.aip * qq / (n23 * n);
     return t;
 }
 
@@ -656,11 +652,7 @@ fn jnt(n: f64, x: f64) f64 {
     // Airy function
     var zz = -cbtwo * z;
 
-    var ai: f64 = undefined;
-    var aip: f64 = undefined;
-    var bi: f64 = undefined;
-    var bip: f64 = undefined;
-    _ = airy(zz, &ai, &aip, &bi, &bip);
+    const ar = airy(zz);
 
     // polynomials in expansion
     zz = z * z;
@@ -697,6 +689,6 @@ fn jnt(n: f64, x: f64) f64 {
         nk /= n23;
     }
 
-    var fk = cbtwo * ai * pp / cbn + math.cbrt(@as(f64, 4.0)) * aip * qq / n;
+    var fk = cbtwo * ar.ai * pp / cbn + math.cbrt(@as(f64, 4.0)) * ar.aip * qq / n;
     return fk;
 }
