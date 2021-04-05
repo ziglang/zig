@@ -510,11 +510,11 @@ pub const InitOptions = struct {
 fn addPackageTableToCacheHash(
     hash: *Cache.HashHelper,
     arena: *std.heap.ArenaAllocator,
-    pkg_table: Package.Table,
+    package: *Package,
     hash_type: union(enum) { path_bytes, files: *Cache.Manifest },
 ) (error{OutOfMemory} || std.os.GetCwdError)!void {
     const allocator = &arena.allocator;
-
+    const pkg_table = package.table;
     const packages = try allocator.alloc(Package.Table.Entry, pkg_table.count());
     {
         // Copy over the hashmap entries to our slice
@@ -547,7 +547,8 @@ fn addPackageTableToCacheHash(
             },
         }
         // Recurse to handle the package's dependencies
-        try addPackageTableToCacheHash(hash, arena, pkg.value.table, hash_type);
+        if (package != pkg.value)
+            try addPackageTableToCacheHash(hash, arena, pkg.value, hash_type);
     }
 }
 
@@ -885,7 +886,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             {
                 var local_arena = std.heap.ArenaAllocator.init(gpa);
                 defer local_arena.deinit();
-                try addPackageTableToCacheHash(&hash, &local_arena, root_pkg.table, .path_bytes);
+                try addPackageTableToCacheHash(&hash, &local_arena, root_pkg, .path_bytes);
             }
             hash.add(valgrind);
             hash.add(single_threaded);
@@ -908,6 +909,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
             const builtin_pkg = try Package.create(gpa, zig_cache_artifact_directory.path.?, "builtin2.zig");
             try root_pkg.add(gpa, "builtin", builtin_pkg);
+            try root_pkg.add(gpa, "root", root_pkg);
 
             // TODO when we implement serialization and deserialization of incremental compilation metadata,
             // this is where we would load it. We have open a handle to the directory where
@@ -3203,7 +3205,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     {
         var local_arena = std.heap.ArenaAllocator.init(comp.gpa);
         defer local_arena.deinit();
-        try addPackageTableToCacheHash(&man.hash, &local_arena, mod.root_pkg.table, .{ .files = &man });
+        try addPackageTableToCacheHash(&man.hash, &local_arena, mod.root_pkg, .{ .files = &man });
     }
     man.hash.add(comp.bin_file.options.valgrind);
     man.hash.add(comp.bin_file.options.single_threaded);

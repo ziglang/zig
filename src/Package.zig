@@ -58,7 +58,9 @@ pub fn destroy(pkg: *Package, gpa: *Allocator) void {
     {
         var it = pkg.table.iterator();
         while (it.next()) |kv| {
-            kv.value.destroy(gpa);
+            if (pkg != kv.value) {
+                kv.value.destroy(gpa);
+            }
             gpa.free(kv.key);
         }
     }
