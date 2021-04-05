@@ -1732,6 +1732,8 @@ fn buildOutputType(
         },
     }
 
+    // This gets cleaned up, because root_pkg becomes part of the
+    // package table of the start_pkg.
     const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
         if (main_pkg_path) |p| {
             const rel_src_path = try fs.path.relative(gpa, p, src_path);
@@ -1741,7 +1743,6 @@ fn buildOutputType(
             break :blk try Package.create(gpa, fs.path.dirname(src_path), fs.path.basename(src_path));
         }
     } else null;
-    defer if (root_pkg) |p| p.destroy(gpa);
 
     // Transfer packages added with --pkg-begin/--pkg-end to the root package
     if (root_pkg) |pkg| {

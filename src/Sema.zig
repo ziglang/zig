@@ -4699,7 +4699,7 @@ fn namedFieldPtr(
                         }
 
                         // TODO this will give false positives for structs inside the root file
-                        if (container_scope.file_scope == mod.root_scope) {
+                        if (container_scope.file_scope == mod.root_scope.?) {
                             return mod.fail(
                                 &block.base,
                                 src,
@@ -5338,6 +5338,9 @@ fn analyzeImport(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, target_strin
             .ty = struct_ty,
         },
     };
+    if (mem.eql(u8, target_string, "root")) {
+        sema.mod.root_scope = file_scope;
+    }
     sema.mod.analyzeContainer(&file_scope.root_container) catch |err| switch (err) {
         error.AnalysisFail => {
             assert(sema.mod.comp.totalErrorCount() != 0);

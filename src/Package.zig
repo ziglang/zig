@@ -15,6 +15,9 @@ root_src_path: []const u8,
 table: Table = .{},
 parent: ?*Package = null,
 
+// Used when freeing packages
+seen: bool = false,
+
 /// Allocate a Package. No references to the slices passed are kept.
 pub fn create(
     gpa: *Allocator,
@@ -55,6 +58,14 @@ pub fn destroy(pkg: *Package, gpa: *Allocator) void {
         pkg.root_src_directory.handle.close();
     }
 
+    // First we recurse into all the packages and remove packages from the tables
+    // once we have seen it before. We do this to make sure that that
+    // a package can only be found once in the whole tree.
+    if (!pkg.seen) {
+        pkg.seen = true;
+        pkg.markSeen(gpa);
+    }
+
     {
         var it = pkg.table.iterator();
         while (it.next()) |kv| {
@@ -67,6 +78,20 @@ pub fn destroy(pkg: *Package, gpa: *Allocator) void {
 
     pkg.table.deinit(gpa);
     gpa.destroy(pkg);
+}
+
+fn markSeen(pkg: *Package, gpa: *Allocator) void {
+    var it = pkg.table.iterator();
+    while (it.next()) |kv| {
+        if (pkg != kv.value) {
+            if (kv.value.seen) {
+                pkg.table.removeAssertDiscard(kv.key);
+            } else {
+                kv.value.seen = true;
+                kv.value.markSeen(gpa);
+            }
+        }
+    }
 }
 
 pub fn add(pkg: *Package, gpa: *Allocator, name: []const u8, package: *Package) !void {
