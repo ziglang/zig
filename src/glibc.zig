@@ -446,10 +446,14 @@ fn start_asm_path(comp: *Compilation, arena: *Allocator, basename: []const u8) !
     try result.appendSlice(comp.zig_lib_directory.path.?);
     try result.appendSlice(s ++ "libc" ++ s ++ "glibc" ++ s ++ "sysdeps" ++ s);
     if (is_sparc) {
-        if (is_64) {
-            try result.appendSlice("sparc" ++ s ++ "sparc64");
+        if (mem.eql(u8, basename, "crti.S") or mem.eql(u8, basename, "crtn.S")) {
+            try result.appendSlice("sparc");
         } else {
-            try result.appendSlice("sparc" ++ s ++ "sparc32");
+            if (is_64) {
+                try result.appendSlice("sparc" ++ s ++ "sparc64");
+            } else {
+                try result.appendSlice("sparc" ++ s ++ "sparc32");
+            }
         }
     } else if (arch.isARM()) {
         try result.appendSlice("arm");
