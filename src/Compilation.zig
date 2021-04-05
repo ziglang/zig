@@ -906,6 +906,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                     artifact_sub_dir,
             };
 
+            const builtin_pkg = try Package.create(gpa, zig_cache_artifact_directory.path.?, "builtin2.zig");
+            try root_pkg.add(gpa, "builtin", builtin_pkg);
+
             // TODO when we implement serialization and deserialization of incremental compilation metadata,
             // this is where we would load it. We have open a handle to the directory where
             // the output either already is, or will be.
@@ -2822,6 +2825,11 @@ fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) !void {
     const source = try comp.generateBuiltinZigSource(comp.gpa);
     defer comp.gpa.free(source);
     try mod.zig_cache_artifact_directory.handle.writeFile("builtin.zig", source);
+
+    // FIXME: Remove builtin2.zig when stage2 can correctly generate code for builtin.zig!
+    const source2 = try comp.generateBuiltin2ZigSource(comp.gpa);
+    defer comp.gpa.free(source2);
+    try mod.zig_cache_artifact_directory.handle.writeFile("builtin2.zig", source2);
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
@@ -2829,6 +2837,26 @@ pub fn dump_argv(argv: []const []const u8) void {
         std.debug.print("{s} ", .{arg});
     }
     std.debug.print("{s}\n", .{argv[argv.len - 1]});
+}
+
+fn generateBuiltin2ZigSource(comp: *Compilation, allocator: *Allocator) ![]u8 {
+    var buffer = std.ArrayList(u8).init(allocator);
+    defer buffer.deinit();
+
+    const target = comp.getTarget();
+
+    try buffer.writer().print(
+        \\pub const link_libc = {};
+        \\pub const arch = {};
+        \\pub const os = {};
+        \\
+    , .{
+        comp.bin_file.options.link_libc,
+        @enumToInt(target.cpu.arch),
+        @enumToInt(target.os.tag),
+    });
+
+    return buffer.toOwnedSlice();
 }
 
 pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8 {
