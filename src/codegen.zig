@@ -1783,8 +1783,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             switch (mc_arg) {
                                 .none => continue,
                                 .register => |reg| {
+                                    try self.register_manager.getRegWithoutTracking(reg);
                                     try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
-                                    // TODO interact with the register allocator to mark the instruction as moved.
                                 },
                                 .stack_offset => {
                                     // Here we need to emit instructions like this:
@@ -1925,8 +1925,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 .compare_flags_signed => unreachable,
                                 .compare_flags_unsigned => unreachable,
                                 .register => |reg| {
+                                    try self.register_manager.getRegWithoutTracking(reg);
                                     try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
-                                    // TODO interact with the register allocator to mark the instruction as moved.
                                 },
                                 .stack_offset => {
                                     return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
@@ -1988,8 +1988,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 .compare_flags_signed => unreachable,
                                 .compare_flags_unsigned => unreachable,
                                 .register => |reg| {
+                                    try self.register_manager.getRegWithoutTracking(reg);
                                     try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
-                                    // TODO interact with the register allocator to mark the instruction as moved.
                                 },
                                 .stack_offset => {
                                     return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
@@ -2039,8 +2039,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     switch (mc_arg) {
                         .none => continue,
                         .register => |reg| {
+                            try self.register_manager.getRegWithoutTracking(reg);
                             try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
-                            // TODO interact with the register allocator to mark the instruction as moved.
                         },
                         .stack_offset => {
                             // Here we need to emit instructions like this:
@@ -2704,8 +2704,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const reg_name = input[1 .. input.len - 1];
                         const reg = parseRegName(reg_name) orelse
                             return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
-                        const arg = try self.resolveInst(inst.args[i]);
-                        try self.genSetReg(inst.base.src, inst.args[i].ty, reg, arg);
+
+                        const arg = inst.args[i];
+                        const arg_mcv = try self.resolveInst(arg);
+                        try self.register_manager.getRegWithoutTracking(reg);
+                        try self.genSetReg(inst.base.src, arg.ty, reg, arg_mcv);
                     }
 
                     if (mem.eql(u8, inst.asm_source, "svc #0")) {
@@ -2734,8 +2737,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const reg_name = input[1 .. input.len - 1];
                         const reg = parseRegName(reg_name) orelse
                             return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
-                        const arg = try self.resolveInst(inst.args[i]);
-                        try self.genSetReg(inst.base.src, inst.args[i].ty, reg, arg);
+
+                        const arg = inst.args[i];
+                        const arg_mcv = try self.resolveInst(arg);
+                        try self.register_manager.getRegWithoutTracking(reg);
+                        try self.genSetReg(inst.base.src, arg.ty, reg, arg_mcv);
                     }
 
                     if (mem.eql(u8, inst.asm_source, "svc #0")) {
@@ -2766,8 +2772,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const reg_name = input[1 .. input.len - 1];
                         const reg = parseRegName(reg_name) orelse
                             return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
-                        const arg = try self.resolveInst(inst.args[i]);
-                        try self.genSetReg(inst.base.src, inst.args[i].ty, reg, arg);
+
+                        const arg = inst.args[i];
+                        const arg_mcv = try self.resolveInst(arg);
+                        try self.register_manager.getRegWithoutTracking(reg);
+                        try self.genSetReg(inst.base.src, arg.ty, reg, arg_mcv);
                     }
 
                     if (mem.eql(u8, inst.asm_source, "ecall")) {
@@ -2796,8 +2805,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const reg_name = input[1 .. input.len - 1];
                         const reg = parseRegName(reg_name) orelse
                             return self.fail(inst.base.src, "unrecognized register: '{s}'", .{reg_name});
-                        const arg = try self.resolveInst(inst.args[i]);
-                        try self.genSetReg(inst.base.src, inst.args[i].ty, reg, arg);
+
+                        const arg = inst.args[i];
+                        const arg_mcv = try self.resolveInst(arg);
+                        try self.register_manager.getRegWithoutTracking(reg);
+                        try self.genSetReg(inst.base.src, arg.ty, reg, arg_mcv);
                     }
 
                     if (mem.eql(u8, inst.asm_source, "syscall")) {

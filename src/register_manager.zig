@@ -35,6 +35,10 @@ pub fn RegisterManager(
             self.registers.deinit(allocator);
         }
 
+        fn isTracked(reg: Register) bool {
+            return std.mem.indexOfScalar(Register, callee_preserved_regs, reg) != null;
+        }
+
         fn markRegUsed(self: *Self, reg: Register) void {
             if (FreeRegInt == u0) return;
             const index = reg.allocIndex() orelse return;
@@ -49,6 +53,13 @@ pub fn RegisterManager(
             const index = reg.allocIndex() orelse return;
             const shift = @intCast(ShiftInt, index);
             self.free_registers |= @as(FreeRegInt, 1) << shift;
+        }
+
+        pub fn isRegFree(self: Self, reg: Register) bool {
+            if (FreeRegInt == u0) return true;
+            const index = reg.allocIndex() orelse return true;
+            const shift = @intCast(ShiftInt, index);
+            return self.free_registers & @as(FreeRegInt, 1) << shift != 0;
         }
 
         /// Returns whether this register was allocated in the course
@@ -117,17 +128,59 @@ pub fn RegisterManager(
                 const regs_entry = self.registers.remove(reg).?;
                 const spilled_inst = regs_entry.value;
                 try self.getFunction().spillInstruction(spilled_inst.src, reg, spilled_inst);
+                self.markRegFree(reg);
 
                 break :b reg;
             };
         }
 
+        /// Allocates the specified register with the specified
+        /// instruction. Spills the register if it is currently
+        /// allocated.
+        pub fn getReg(self: *Self, reg: Register, inst: *ir.Inst) !void {
+            if (!isTracked(reg)) return;
+
+            if (!self.isRegFree(reg)) {
+                // Move the instruction that was previously there to a
+                // stack allocation.
+                const regs_entry = self.registers.getEntry(reg).?;
+                const spilled_inst = regs_entry.value;
+                regs_entry.value = inst;
+                try self.getFunction().spillInstruction(spilled_inst.src, reg, spilled_inst);
+            } else {
+                try self.getRegAssumeFree(reg, inst);
+            }
+        }
+
+        /// Spills the register if it is currently allocated.
+        /// Does not track the register.
+        pub fn getRegWithoutTracking(self: *Self, reg: Register) !void {
+            if (!isTracked(reg)) return;
+
+            if (!self.isRegFree(reg)) {
+                // Move the instruction that was previously there to a
+                // stack allocation.
+                const regs_entry = self.registers.getEntry(reg).?;
+                const spilled_inst = regs_entry.value;
+                try self.getFunction().spillInstruction(spilled_inst.src, reg, spilled_inst);
+                self.markRegFree(reg);
+            }
+        }
+
+        /// Allocates the specified register with the specified
+        /// instruction. Assumes that the register is free and no
+        /// spilling is necessary.
         pub fn getRegAssumeFree(self: *Self, reg: Register, inst: *ir.Inst) !void {
+            if (!isTracked(reg)) return;
+
             try self.registers.putNoClobber(self.getFunction().gpa, reg, inst);
             self.markRegUsed(reg);
         }
 
+        /// Marks the specified register as free
         pub fn freeReg(self: *Self, reg: Register) void {
+            if (!isTracked(reg)) return;
+
             _ = self.registers.remove(reg);
             self.markRegFree(reg);
         }
