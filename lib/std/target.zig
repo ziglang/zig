@@ -1170,7 +1170,7 @@ pub const Target = struct {
                 return switch (arch) {
                     .arm, .armeb, .thumb, .thumbeb => &arm.cpu.generic,
                     .aarch64, .aarch64_be, .aarch64_32 => &aarch64.cpu.generic,
-                    .avr => &avr.cpu.avr1,
+                    .avr => &avr.cpu.avr2,
                     .bpfel, .bpfeb => &bpf.cpu.generic,
                     .hexagon => &hexagon.cpu.generic,
                     .mips, .mipsel => &mips.cpu.mips32,
