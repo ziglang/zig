@@ -21,6 +21,25 @@ pub const Relocation = struct {
         return @fieldParentPtr(T, "base", base);
     }
 
+    pub const ResolveArgs = struct {
+        source_addr: u64,
+        target_addr: u64,
+        subtractor: i64 = undefined,
+    };
+
+    pub fn resolve(base: *Relocation, args: ResolveArgs) !void {
+        switch (base.@"type") {
+            .branch => try base.cast(Branch).?.resolve(args.source_addr, args.target_addr),
+            .unsigned => try base.cast(Unsigned).?.resolve(args.target_addr, args.subtractor),
+            .page => try base.cast(Page).?.resolve(args.source_addr, args.target_addr),
+            .page_off => try base.cast(PageOff).?.resolve(args.target_addr),
+            .got_page => try base.cast(GotPage).?.resolve(args.source_addr, args.target_addr),
+            .got_page_off => try base.cast(GotPageOff).?.resolve(args.target_addr),
+            .tlvp_page => try base.cast(TlvpPage).?.resolve(args.source_addr, args.target_addr),
+            .tlvp_page_off => try base.cast(TlvpPageOff).?.resolve(args.target_addr),
+        }
+    }
+
     pub const Type = enum {
         branch,
         unsigned,
