@@ -153,6 +153,11 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
     }
 
     TargetOptions opt;
+
+    // Work around the missing initialization of this field in the default
+    // constructor. Use -1 so that the default value is used.
+    opt.StackProtectorGuardOffset = (unsigned)-1;
+
     opt.FunctionSections = function_sections;
     switch (float_abi) {
         case ZigLLVMABITypeDefault:
