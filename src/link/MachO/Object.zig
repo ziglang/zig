@@ -45,11 +45,10 @@ strtab: std.ArrayListUnmanaged(u8) = .{},
 
 data_in_code_entries: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
-const Section = struct {
+pub const Section = struct {
     inner: macho.section_64,
     code: []u8,
     relocs: ?[]*Relocation,
-    // TODO store object-to-exe-section mapping here
 
     pub fn deinit(self: *Section, allocator: *Allocator) void {
         allocator.free(self.code);

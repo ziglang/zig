@@ -78,17 +78,13 @@ strtab: std.ArrayListUnmanaged(u8) = .{},
 
 threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
 rebases: std.ArrayListUnmanaged(Pointer) = .{},
+stubs: std.StringArrayHashMapUnmanaged(u32) = .{},
 got_entries: std.StringArrayHashMapUnmanaged(GotEntry) = .{},
 
 stub_helper_stubs_start_off: ?u64 = null,
 
 mappings: std.AutoHashMapUnmanaged(MappingKey, SectionMapping) = .{},
 unhandled_sections: std.AutoHashMapUnmanaged(MappingKey, u0) = .{},
-
-// TODO this will require scanning the relocations at least one to work out
-// the exact amount of local GOT indirections. For the time being, set some
-// default value.
-const max_local_got_indirections: u16 = 1000;
 
 const GotEntry = struct {
     index: u32,
@@ -100,7 +96,7 @@ const MappingKey = struct {
     source_sect_id: u16,
 };
 
-const SectionMapping = struct {
+pub const SectionMapping = struct {
     source_sect_id: u16,
     target_seg_id: u16,
     target_sect_id: u16,
@@ -172,24 +168,30 @@ const DebugInfo = struct {
 };
 
 /// Default path to dyld
-/// TODO instead of hardcoding it, we should probably look through some env vars and search paths
-/// instead but this will do for now.
 const DEFAULT_DYLD_PATH: [*:0]const u8 = "/usr/lib/dyld";
 
-/// Default lib search path
-/// TODO instead of hardcoding it, we should probably look through some env vars and search paths
-/// instead but this will do for now.
-const DEFAULT_LIB_SEARCH_PATH: []const u8 = "/usr/lib";
-
 const LIB_SYSTEM_NAME: [*:0]const u8 = "System";
-/// TODO we should search for libSystem and fail if it doesn't exist, instead of hardcoding it
-const LIB_SYSTEM_PATH: [*:0]const u8 = DEFAULT_LIB_SEARCH_PATH ++ "/libSystem.B.dylib";
+/// TODO this should be inferred from included libSystem.tbd or similar.
+const LIB_SYSTEM_PATH: [*:0]const u8 = "/usr/lib/libSystem.B.dylib";
 
 pub fn init(allocator: *Allocator) Zld {
     return .{ .allocator = allocator };
 }
 
 pub fn deinit(self: *Zld) void {
+    self.threadlocal_offsets.deinit(self.allocator);
+    self.rebases.deinit(self.allocator);
+
+    for (self.stubs.items()) |entry| {
+        self.allocator.free(entry.key);
+    }
+    self.stubs.deinit(self.allocator);
+
+    for (self.got_entries.items()) |entry| {
+        self.allocator.free(entry.key);
+    }
+    self.got_entries.deinit(self.allocator);
+
     for (self.load_commands.items) |*lc| {
         lc.deinit(self.allocator);
     }
@@ -263,6 +265,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.populateMetadata();
     try self.parseInputFiles(files);
     try self.resolveSymbols();
+    try self.resolveStubsAndGotEntries();
     try self.updateMetadata();
     try self.sortSections();
     try self.allocateTextSegment();
@@ -272,7 +275,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.allocateSymbols();
     self.printSymtab();
     // try self.writeStubHelperCommon();
-    // try self.doRelocs();
+    // try self.resolveRelocsAndWriteSections();
     // try self.flush();
 }
 
@@ -814,14 +817,7 @@ fn sortSections(self: *Zld) !void {
 
 fn allocateTextSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    // TODO This should be worked out by scanning the relocations in the __text sections of all combined
-    // object files. For the time being, assume all externs are stubs (this is wasting space but should
-    // correspond to the worst-case upper bound).
-    var nexterns: u32 = 0;
-    for (self.symtab.items()) |entry| {
-        if (entry.value.tag != .Import) continue;
-        nexterns += 1;
-    }
+    const nstubs = @intCast(u32, self.stubs.items().len);
 
     const base_vmaddr = self.load_commands.items[self.pagezero_segment_cmd_index.?].Segment.inner.vmsize;
     seg.inner.fileoff = 0;
@@ -830,14 +826,14 @@ fn allocateTextSegment(self: *Zld) !void {
     // Set stubs and stub_helper sizes
     const stubs = &seg.sections.items[self.stubs_section_index.?];
     const stub_helper = &seg.sections.items[self.stub_helper_section_index.?];
-    stubs.size += nexterns * stubs.reserved2;
+    stubs.size += nstubs * stubs.reserved2;
 
     const stub_size: u4 = switch (self.arch.?) {
         .x86_64 => 10,
         .aarch64 => 3 * @sizeOf(u32),
         else => unreachable,
     };
-    stub_helper.size += nexterns * stub_size;
+    stub_helper.size += nstubs * stub_size;
 
     var sizeofcmds: u64 = 0;
     for (self.load_commands.items) |lc| {
@@ -872,14 +868,7 @@ fn allocateTextSegment(self: *Zld) !void {
 
 fn allocateDataConstSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-    // TODO This should be worked out by scanning the relocations in the __text sections of all
-    // combined object files. For the time being, assume all externs are GOT entries (this is wasting space but
-    // should correspond to the worst-case upper bound).
-    var nexterns: u32 = 0;
-    for (self.symtab.items()) |entry| {
-        if (entry.value.tag != .Import) continue;
-        nexterns += 1;
-    }
+    const nentries = @intCast(u32, self.got_entries.items().len);
 
     const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     seg.inner.fileoff = text_seg.inner.fileoff + text_seg.inner.filesize;
@@ -887,24 +876,14 @@ fn allocateDataConstSegment(self: *Zld) !void {
 
     // Set got size
     const got = &seg.sections.items[self.got_section_index.?];
-    // TODO this will require scanning the relocations at least one to work out
-    // the exact amount of local GOT indirections. For the time being, set some
-    // default value.
-    got.size += (max_local_got_indirections + nexterns) * @sizeOf(u64);
+    got.size += nentries * @sizeOf(u64);
 
     try self.allocateSegment(self.data_const_segment_cmd_index.?, 0);
 }
 
 fn allocateDataSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    // TODO This should be worked out by scanning the relocations in the __text sections of all combined
-    // object files. For the time being, assume all externs are stubs (this is wasting space but should
-    // correspond to the worst-case upper bound).
-    var nexterns: u32 = 0;
-    for (self.symtab.items()) |entry| {
-        if (entry.value.tag != .Import) continue;
-        nexterns += 1;
-    }
+    const nstubs = @intCast(u32, self.stubs.items().len);
 
     const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
     seg.inner.fileoff = data_const_seg.inner.fileoff + data_const_seg.inner.filesize;
@@ -913,7 +892,7 @@ fn allocateDataSegment(self: *Zld) !void {
     // Set la_symbol_ptr and data size
     const la_symbol_ptr = &seg.sections.items[self.la_symbol_ptr_section_index.?];
     const data = &seg.sections.items[self.data_section_index.?];
-    la_symbol_ptr.size += nexterns * @sizeOf(u64);
+    la_symbol_ptr.size += nstubs * @sizeOf(u64);
     data.size += @sizeOf(u64); // We need at least 8bytes for address of dyld_stub_binder
 
     try self.allocateSegment(self.data_segment_cmd_index.?, 0);
@@ -1408,26 +1387,16 @@ fn resolveSymbols(self: *Zld) !void {
     }
 }
 
-fn doRelocs(self: *Zld) !void {
+fn resolveStubsAndGotEntries(self: *Zld) !void {}
+
+fn resolveRelocsAndWriteSections(self: *Zld) !void {
     for (self.objects.items) |object, object_id| {
         log.debug("\n\n", .{});
         log.debug("relocating object {s}", .{object.name});
 
-        const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-
-        for (seg.sections.items) |sect, source_sect_id| {
-            const segname = parseName(&sect.segname);
-            const sectname = parseName(&sect.sectname);
-
-            var code = try self.allocator.alloc(u8, sect.size);
-            _ = try object.file.preadAll(code, sect.offset);
-            defer self.allocator.free(code);
-
-            // Parse relocs (if any)
-            var raw_relocs = try self.allocator.alloc(u8, @sizeOf(macho.relocation_info) * sect.nreloc);
-            defer self.allocator.free(raw_relocs);
-            _ = try object.file.preadAll(raw_relocs, sect.reloff);
-            const relocs = mem.bytesAsSlice(macho.relocation_info, raw_relocs);
+        for (object.sections.items) |sect, source_sect_id| {
+            const segname = parseName(&sect.inner.segname);
+            const sectname = parseName(&sect.inner.sectname);
 
             // Get mapping
             const target_mapping = self.mappings.get(.{
@@ -1442,498 +1411,75 @@ fn doRelocs(self: *Zld) !void {
             const target_sect_addr = target_sect.addr + target_mapping.offset;
             const target_sect_off = target_sect.offset + target_mapping.offset;
 
-            var addend: ?u64 = null;
-            var sub: ?i64 = null;
+            for (sect.relocs) |reloc| {
+                const source_addr = target_sect_addr + reloc.offset;
 
-            for (relocs) |rel| {
-                const off = @intCast(u32, rel.r_address);
-                const this_addr = target_sect_addr + off;
+                var args: Relocation.ResolveArgs = .{
+                    .source_addr = source_addr,
+                    .target_addr = undefined,
+                };
 
-                switch (self.arch.?) {
-                    .aarch64 => {
-                        const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
-                        log.debug("{s}", .{rel_type});
-                        log.debug("    | source address 0x{x}", .{this_addr});
-                        log.debug("    | offset 0x{x}", .{off});
+                if (reloc.cast(Relocation.Unsigned)) |unsigned| {
+                    // TODO resolve target addr
 
-                        if (rel_type == .ARM64_RELOC_ADDEND) {
-                            addend = rel.r_symbolnum;
-                            log.debug("    | calculated addend = 0x{x}", .{addend});
-                            // TODO followed by either PAGE21 or PAGEOFF12 only.
-                            continue;
+                    if (unsigned.subtractor) |subtractor| {
+                        args.subtractor = undefined; // TODO resolve
+                    }
+
+                    rebases: {
+                        var hit: bool = false;
+                        if (target_mapping.target_seg_id == self.data_segment_cmd_index.?) {
+                            if (self.data_section_index) |index| {
+                                if (index == target_mapping.target_sect_id) hit = true;
+                            }
                         }
-                    },
-                    .x86_64 => {
-                        const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
-                        log.debug("{s}", .{rel_type});
-                        log.debug("    | source address 0x{x}", .{this_addr});
-                        log.debug("    | offset 0x{x}", .{off});
-                    },
-                    else => {},
-                }
+                        if (target_mapping.target_seg_id == self.data_const_segment_cmd_index.?) {
+                            if (self.data_const_section_index) |index| {
+                                if (index == target_mapping.target_sect_id) hit = true;
+                            }
+                        }
 
-                const target_addr = try self.relocTargetAddr(@intCast(u16, object_id), rel);
-                log.debug("    | target address 0x{x}", .{target_addr});
-                if (rel.r_extern == 1) {
-                    const target_symname = object.getString(object.symtab.items[rel.r_symbolnum].n_strx);
-                    log.debug("    | target symbol '{s}'", .{target_symname});
+                        if (!hit) break :rebases;
+
+                        try self.local_rebases.append(self.allocator, .{
+                            .offset = source_addr - target_seg.inner.vmaddr,
+                            .segment_id = target_mapping.target_seg_id,
+                        });
+                    }
+                    // TLV is handled via a separate offset mechanism.
+                    // Calculate the offset to the initializer.
+                    if (target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES) tlv: {
+                        const sym = object.symtab.items[reloc.target.symbol];
+                        const sym_name = object.getString(sym.inner.n_strx);
+
+                        // TODO we don't want to save offset to tlv_bootstrap
+                        if (mem.eql(u8, sym_name, "__tlv_boostrap")) break :tlv;
+
+                        const base_addr = blk: {
+                            if (self.tlv_data_section_index) |index| {
+                                const tlv_data = target_seg.sections.items[index];
+                                break :blk tlv_data.addr;
+                            } else {
+                                const tlv_bss = target_seg.sections.items[self.tlv_bss_section_index.?];
+                                break :blk tlv_bss.addr;
+                            }
+                        };
+                        // Since we require TLV data to always preceed TLV bss section, we calculate
+                        // offsets wrt to the former if it is defined; otherwise, wrt to the latter.
+                        try self.threadlocal_offsets.append(self.allocator, target_addr - base_addr);
+                    }
+                } else if (reloc.cast(Relocation.GotPageOff)) |page_off| {
+                    // TODO here we need to work out the indirection to GOT.
                 } else {
-                    const target_sectname = seg.sections.items[rel.r_symbolnum - 1].sectname;
-                    log.debug("    | target section '{s}'", .{parseName(&target_sectname)});
+                    // TODO resolve target addr.
                 }
 
-                switch (self.arch.?) {
-                    .x86_64 => {
-                        const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
+                log.debug("{s}", .{reloc.@"type"});
+                log.debug("    | offset 0x{x}", .{reloc.offset});
+                log.debug("    | source address 0x{x}", .{args.source_addr});
+                log.debug("    | target address 0x{x}", .{args.target_addr});
 
-                        switch (rel_type) {
-                            .X86_64_RELOC_BRANCH => {
-                                assert(rel.r_length == 2);
-                                const inst = code[off..][0..4];
-                                const displacement = @bitCast(u32, @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, this_addr) - 4));
-                                mem.writeIntLittle(u32, inst, displacement);
-                            },
-                            .X86_64_RELOC_GOT_LOAD => {
-                                assert(rel.r_length == 2);
-                                const inst = code[off..][0..4];
-                                const displacement = @bitCast(u32, @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, this_addr) - 4));
-
-                                blk: {
-                                    const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-                                    const got = data_const_seg.sections.items[self.got_section_index.?];
-                                    if (got.addr <= target_addr and target_addr < got.addr + got.size) break :blk;
-                                    log.debug("    | rewriting to leaq", .{});
-                                    code[off - 2] = 0x8d;
-                                }
-
-                                mem.writeIntLittle(u32, inst, displacement);
-                            },
-                            .X86_64_RELOC_GOT => {
-                                assert(rel.r_length == 2);
-                                // TODO Instead of referring to the target symbol directly, we refer to it
-                                // indirectly via GOT. Getting actual target address should be done in the
-                                // helper relocTargetAddr function rather than here.
-                                const sym = object.symtab.items[rel.r_symbolnum];
-                                const sym_name = try self.allocator.dupe(u8, object.getString(sym.n_strx));
-                                const res = try self.nonlazy_pointers.getOrPut(self.allocator, sym_name);
-                                defer if (res.found_existing) self.allocator.free(sym_name);
-
-                                const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-                                const got = data_const_seg.sections.items[self.got_section_index.?];
-
-                                if (!res.found_existing) {
-                                    const index = @intCast(u32, self.nonlazy_pointers.items().len) - 1;
-                                    assert(index < max_local_got_indirections); // TODO This is just a temp solution.
-                                    res.entry.value = .{
-                                        .index = index,
-                                        .target_addr = target_addr,
-                                    };
-                                    var buf: [@sizeOf(u64)]u8 = undefined;
-                                    mem.writeIntLittle(u64, &buf, target_addr);
-                                    const got_offset = got.offset + (index + self.nonlazy_imports.items().len) * @sizeOf(u64);
-
-                                    log.debug("    | GOT off 0x{x}", .{got.offset});
-                                    log.debug("    | writing GOT entry 0x{x} at 0x{x}", .{ target_addr, got_offset });
-
-                                    try self.file.?.pwriteAll(&buf, got_offset);
-                                }
-
-                                const index = res.entry.value.index + self.nonlazy_imports.items().len;
-                                const actual_target_addr = got.addr + index * @sizeOf(u64);
-
-                                log.debug("    | GOT addr 0x{x}", .{got.addr});
-                                log.debug("    | actual target address in GOT 0x{x}", .{actual_target_addr});
-
-                                const inst = code[off..][0..4];
-                                const displacement = @bitCast(u32, @intCast(i32, @intCast(i64, actual_target_addr) - @intCast(i64, this_addr) - 4));
-                                mem.writeIntLittle(u32, inst, displacement);
-                            },
-                            .X86_64_RELOC_TLV => {
-                                assert(rel.r_length == 2);
-                                // We need to rewrite the opcode from movq to leaq.
-                                code[off - 2] = 0x8d;
-                                // Add displacement.
-                                const inst = code[off..][0..4];
-                                const displacement = @bitCast(u32, @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, this_addr) - 4));
-                                mem.writeIntLittle(u32, inst, displacement);
-                            },
-                            .X86_64_RELOC_SIGNED,
-                            .X86_64_RELOC_SIGNED_1,
-                            .X86_64_RELOC_SIGNED_2,
-                            .X86_64_RELOC_SIGNED_4,
-                            => {
-                                assert(rel.r_length == 2);
-                                const inst = code[off..][0..4];
-                                const offset = @intCast(i64, mem.readIntLittle(i32, inst));
-                                log.debug("    | calculated addend 0x{x}", .{offset});
-                                const actual_target_addr = blk: {
-                                    if (rel.r_extern == 1) {
-                                        break :blk @intCast(i64, target_addr) + offset;
-                                    } else {
-                                        const correction: i4 = switch (rel_type) {
-                                            .X86_64_RELOC_SIGNED => 0,
-                                            .X86_64_RELOC_SIGNED_1 => 1,
-                                            .X86_64_RELOC_SIGNED_2 => 2,
-                                            .X86_64_RELOC_SIGNED_4 => 4,
-                                            else => unreachable,
-                                        };
-                                        log.debug("    | calculated correction 0x{x}", .{correction});
-
-                                        // The value encoded in the instruction is a displacement - 4 - correction.
-                                        // To obtain the adjusted target address in the final binary, we need
-                                        // calculate the original target address within the object file, establish
-                                        // what the offset from the original target section was, and apply this
-                                        // offset to the resultant target section with this relocated binary.
-                                        const orig_sect_id = @intCast(u16, rel.r_symbolnum - 1);
-                                        const target_map = self.mappings.get(.{
-                                            .object_id = @intCast(u16, object_id),
-                                            .source_sect_id = orig_sect_id,
-                                        }) orelse unreachable;
-                                        const orig_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-                                        const orig_sect = orig_seg.sections.items[orig_sect_id];
-                                        const orig_offset = off + offset + 4 + correction - @intCast(i64, orig_sect.addr);
-                                        log.debug("    | original offset 0x{x}", .{orig_offset});
-                                        const adjusted = @intCast(i64, target_addr) + orig_offset;
-                                        log.debug("    | adjusted target address 0x{x}", .{adjusted});
-                                        break :blk adjusted - correction;
-                                    }
-                                };
-                                const result = actual_target_addr - @intCast(i64, this_addr) - 4;
-                                const displacement = @bitCast(u32, @intCast(i32, result));
-                                mem.writeIntLittle(u32, inst, displacement);
-                            },
-                            .X86_64_RELOC_SUBTRACTOR => {
-                                sub = @intCast(i64, target_addr);
-                            },
-                            .X86_64_RELOC_UNSIGNED => {
-                                switch (rel.r_length) {
-                                    3 => {
-                                        const inst = code[off..][0..8];
-                                        const offset = mem.readIntLittle(i64, inst);
-
-                                        const result = outer: {
-                                            if (rel.r_extern == 1) {
-                                                log.debug("    | calculated addend 0x{x}", .{offset});
-                                                if (sub) |s| {
-                                                    break :outer @intCast(i64, target_addr) - s + offset;
-                                                } else {
-                                                    break :outer @intCast(i64, target_addr) + offset;
-                                                }
-                                            } else {
-                                                // The value encoded in the instruction is an absolute offset
-                                                // from the start of MachO header to the target address in the
-                                                // object file. To extract the address, we calculate the offset from
-                                                // the beginning of the source section to the address, and apply it to
-                                                // the target address value.
-                                                const orig_sect_id = @intCast(u16, rel.r_symbolnum - 1);
-                                                const target_map = self.mappings.get(.{
-                                                    .object_id = @intCast(u16, object_id),
-                                                    .source_sect_id = orig_sect_id,
-                                                }) orelse unreachable;
-                                                const orig_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-                                                const orig_sect = orig_seg.sections.items[orig_sect_id];
-                                                const orig_offset = offset - @intCast(i64, orig_sect.addr);
-                                                const actual_target_addr = inner: {
-                                                    if (sub) |s| {
-                                                        break :inner @intCast(i64, target_addr) - s + orig_offset;
-                                                    } else {
-                                                        break :inner @intCast(i64, target_addr) + orig_offset;
-                                                    }
-                                                };
-                                                log.debug("    | adjusted target address 0x{x}", .{actual_target_addr});
-                                                break :outer actual_target_addr;
-                                            }
-                                        };
-                                        mem.writeIntLittle(u64, inst, @bitCast(u64, result));
-                                        sub = null;
-
-                                        rebases: {
-                                            var hit: bool = false;
-                                            if (target_mapping.target_seg_id == self.data_segment_cmd_index.?) {
-                                                if (self.data_section_index) |index| {
-                                                    if (index == target_mapping.target_sect_id) hit = true;
-                                                }
-                                            }
-                                            if (target_mapping.target_seg_id == self.data_const_segment_cmd_index.?) {
-                                                if (self.data_const_section_index) |index| {
-                                                    if (index == target_mapping.target_sect_id) hit = true;
-                                                }
-                                            }
-
-                                            if (!hit) break :rebases;
-
-                                            try self.local_rebases.append(self.allocator, .{
-                                                .offset = this_addr - target_seg.inner.vmaddr,
-                                                .segment_id = target_mapping.target_seg_id,
-                                            });
-                                        }
-                                        // TLV is handled via a separate offset mechanism.
-                                        // Calculate the offset to the initializer.
-                                        if (target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES) tlv: {
-                                            assert(rel.r_extern == 1);
-                                            const sym = object.symtab.items[rel.r_symbolnum];
-                                            if (isImport(&sym)) break :tlv;
-
-                                            const base_addr = blk: {
-                                                if (self.tlv_data_section_index) |index| {
-                                                    const tlv_data = target_seg.sections.items[index];
-                                                    break :blk tlv_data.addr;
-                                                } else {
-                                                    const tlv_bss = target_seg.sections.items[self.tlv_bss_section_index.?];
-                                                    break :blk tlv_bss.addr;
-                                                }
-                                            };
-                                            // Since we require TLV data to always preceed TLV bss section, we calculate
-                                            // offsets wrt to the former if it is defined; otherwise, wrt to the latter.
-                                            try self.threadlocal_offsets.append(self.allocator, target_addr - base_addr);
-                                        }
-                                    },
-                                    2 => {
-                                        const inst = code[off..][0..4];
-                                        const offset = mem.readIntLittle(i32, inst);
-                                        log.debug("    | calculated addend 0x{x}", .{offset});
-                                        const result = if (sub) |s|
-                                            @intCast(i64, target_addr) - s + offset
-                                        else
-                                            @intCast(i64, target_addr) + offset;
-                                        mem.writeIntLittle(u32, inst, @truncate(u32, @bitCast(u64, result)));
-                                        sub = null;
-                                    },
-                                    else => |len| {
-                                        log.err("unexpected relocation length 0x{x}", .{len});
-                                        return error.UnexpectedRelocationLength;
-                                    },
-                                }
-                            },
-                        }
-                    },
-                    .aarch64 => {
-                        const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
-
-                        switch (rel_type) {
-                            .ARM64_RELOC_BRANCH26 => {
-                                assert(rel.r_length == 2);
-                                const inst = code[off..][0..4];
-                                const displacement = @intCast(
-                                    i28,
-                                    @intCast(i64, target_addr) - @intCast(i64, this_addr),
-                                );
-                                var parsed = mem.bytesAsValue(
-                                    meta.TagPayload(
-                                        aarch64.Instruction,
-                                        aarch64.Instruction.unconditional_branch_immediate,
-                                    ),
-                                    inst,
-                                );
-                                parsed.imm26 = @truncate(u26, @bitCast(u28, displacement) >> 2);
-                            },
-                            .ARM64_RELOC_PAGE21,
-                            .ARM64_RELOC_GOT_LOAD_PAGE21,
-                            .ARM64_RELOC_TLVP_LOAD_PAGE21,
-                            => {
-                                assert(rel.r_length == 2);
-                                const inst = code[off..][0..4];
-                                const ta = if (addend) |a| target_addr + a else target_addr;
-                                const this_page = @intCast(i32, this_addr >> 12);
-                                const target_page = @intCast(i32, ta >> 12);
-                                const pages = @bitCast(u21, @intCast(i21, target_page - this_page));
-                                log.debug("    | moving by {} pages", .{pages});
-                                var parsed = mem.bytesAsValue(
-                                    meta.TagPayload(
-                                        aarch64.Instruction,
-                                        aarch64.Instruction.pc_relative_address,
-                                    ),
-                                    inst,
-                                );
-                                parsed.immhi = @truncate(u19, pages >> 2);
-                                parsed.immlo = @truncate(u2, pages);
-                                addend = null;
-                            },
-                            .ARM64_RELOC_PAGEOFF12,
-                            .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
-                            => {
-                                const inst = code[off..][0..4];
-                                if (aarch64IsArithmetic(inst)) {
-                                    log.debug("    | detected ADD opcode", .{});
-                                    // add
-                                    var parsed = mem.bytesAsValue(
-                                        meta.TagPayload(
-                                            aarch64.Instruction,
-                                            aarch64.Instruction.add_subtract_immediate,
-                                        ),
-                                        inst,
-                                    );
-                                    const ta = if (addend) |a| target_addr + a else target_addr;
-                                    const narrowed = @truncate(u12, ta);
-                                    parsed.imm12 = narrowed;
-                                } else {
-                                    log.debug("    | detected LDR/STR opcode", .{});
-                                    // ldr/str
-                                    var parsed = mem.bytesAsValue(
-                                        meta.TagPayload(
-                                            aarch64.Instruction,
-                                            aarch64.Instruction.load_store_register,
-                                        ),
-                                        inst,
-                                    );
-
-                                    const ta = if (addend) |a| target_addr + a else target_addr;
-                                    const narrowed = @truncate(u12, ta);
-                                    log.debug("    | narrowed 0x{x}", .{narrowed});
-                                    log.debug("    | parsed.size 0x{x}", .{parsed.size});
-
-                                    if (rel_type == .ARM64_RELOC_GOT_LOAD_PAGEOFF12) blk: {
-                                        const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-                                        const got = data_const_seg.sections.items[self.got_section_index.?];
-                                        if (got.addr <= target_addr and target_addr < got.addr + got.size) break :blk;
-
-                                        log.debug("    | rewriting to add", .{});
-                                        mem.writeIntLittle(u32, inst, aarch64.Instruction.add(
-                                            @intToEnum(aarch64.Register, parsed.rt),
-                                            @intToEnum(aarch64.Register, parsed.rn),
-                                            narrowed,
-                                            false,
-                                        ).toU32());
-                                        addend = null;
-                                        continue;
-                                    }
-
-                                    const offset: u12 = blk: {
-                                        if (parsed.size == 0) {
-                                            if (parsed.v == 1) {
-                                                // 128-bit SIMD is scaled by 16.
-                                                break :blk try math.divExact(u12, narrowed, 16);
-                                            }
-                                            // Otherwise, 8-bit SIMD or ldrb.
-                                            break :blk narrowed;
-                                        } else {
-                                            const denom: u4 = try math.powi(u4, 2, parsed.size);
-                                            break :blk try math.divExact(u12, narrowed, denom);
-                                        }
-                                    };
-                                    parsed.offset = offset;
-                                }
-                                addend = null;
-                            },
-                            .ARM64_RELOC_TLVP_LOAD_PAGEOFF12 => {
-                                const RegInfo = struct {
-                                    rd: u5,
-                                    rn: u5,
-                                    size: u1,
-                                };
-                                const inst = code[off..][0..4];
-                                const parsed: RegInfo = blk: {
-                                    if (aarch64IsArithmetic(inst)) {
-                                        const curr = mem.bytesAsValue(
-                                            meta.TagPayload(
-                                                aarch64.Instruction,
-                                                aarch64.Instruction.add_subtract_immediate,
-                                            ),
-                                            inst,
-                                        );
-                                        break :blk .{ .rd = curr.rd, .rn = curr.rn, .size = curr.sf };
-                                    } else {
-                                        const curr = mem.bytesAsValue(
-                                            meta.TagPayload(
-                                                aarch64.Instruction,
-                                                aarch64.Instruction.load_store_register,
-                                            ),
-                                            inst,
-                                        );
-                                        break :blk .{ .rd = curr.rt, .rn = curr.rn, .size = @truncate(u1, curr.size) };
-                                    }
-                                };
-                                const ta = if (addend) |a| target_addr + a else target_addr;
-                                const narrowed = @truncate(u12, ta);
-                                log.debug("    | rewriting TLV access to ADD opcode", .{});
-                                // For TLV, we always generate an add instruction.
-                                mem.writeIntLittle(u32, inst, aarch64.Instruction.add(
-                                    @intToEnum(aarch64.Register, parsed.rd),
-                                    @intToEnum(aarch64.Register, parsed.rn),
-                                    narrowed,
-                                    false,
-                                ).toU32());
-                            },
-                            .ARM64_RELOC_SUBTRACTOR => {
-                                sub = @intCast(i64, target_addr);
-                            },
-                            .ARM64_RELOC_UNSIGNED => {
-                                switch (rel.r_length) {
-                                    3 => {
-                                        const inst = code[off..][0..8];
-                                        const offset = mem.readIntLittle(i64, inst);
-                                        log.debug("    | calculated addend 0x{x}", .{offset});
-                                        const result = if (sub) |s|
-                                            @intCast(i64, target_addr) - s + offset
-                                        else
-                                            @intCast(i64, target_addr) + offset;
-                                        mem.writeIntLittle(u64, inst, @bitCast(u64, result));
-                                        sub = null;
-
-                                        rebases: {
-                                            var hit: bool = false;
-                                            if (target_mapping.target_seg_id == self.data_segment_cmd_index.?) {
-                                                if (self.data_section_index) |index| {
-                                                    if (index == target_mapping.target_sect_id) hit = true;
-                                                }
-                                            }
-                                            if (target_mapping.target_seg_id == self.data_const_segment_cmd_index.?) {
-                                                if (self.data_const_section_index) |index| {
-                                                    if (index == target_mapping.target_sect_id) hit = true;
-                                                }
-                                            }
-
-                                            if (!hit) break :rebases;
-
-                                            try self.local_rebases.append(self.allocator, .{
-                                                .offset = this_addr - target_seg.inner.vmaddr,
-                                                .segment_id = target_mapping.target_seg_id,
-                                            });
-                                        }
-                                        // TLV is handled via a separate offset mechanism.
-                                        // Calculate the offset to the initializer.
-                                        if (target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES) tlv: {
-                                            assert(rel.r_extern == 1);
-                                            const sym = object.symtab.items[rel.r_symbolnum];
-                                            if (isImport(&sym)) break :tlv;
-
-                                            const base_addr = blk: {
-                                                if (self.tlv_data_section_index) |index| {
-                                                    const tlv_data = target_seg.sections.items[index];
-                                                    break :blk tlv_data.addr;
-                                                } else {
-                                                    const tlv_bss = target_seg.sections.items[self.tlv_bss_section_index.?];
-                                                    break :blk tlv_bss.addr;
-                                                }
-                                            };
-                                            // Since we require TLV data to always preceed TLV bss section, we calculate
-                                            // offsets wrt to the former if it is defined; otherwise, wrt to the latter.
-                                            try self.threadlocal_offsets.append(self.allocator, target_addr - base_addr);
-                                        }
-                                    },
-                                    2 => {
-                                        const inst = code[off..][0..4];
-                                        const offset = mem.readIntLittle(i32, inst);
-                                        log.debug("    | calculated addend 0x{x}", .{offset});
-                                        const result = if (sub) |s|
-                                            @intCast(i64, target_addr) - s + offset
-                                        else
-                                            @intCast(i64, target_addr) + offset;
-                                        mem.writeIntLittle(u32, inst, @truncate(u32, @bitCast(u64, result)));
-                                        sub = null;
-                                    },
-                                    else => |len| {
-                                        log.err("unexpected relocation length 0x{x}", .{len});
-                                        return error.UnexpectedRelocationLength;
-                                    },
-                                }
-                            },
-                            .ARM64_RELOC_POINTER_TO_GOT => return error.TODOArm64RelocPointerToGot,
-                            else => unreachable,
-                        }
-                    },
-                    else => unreachable,
-                }
+                try reloc.resolve(args);
             }
 
             log.debug("writing contents of '{s},{s}' section from '{s}' from 0x{x} to 0x{x}", .{
@@ -1941,7 +1487,7 @@ fn doRelocs(self: *Zld) !void {
                 sectname,
                 object.name,
                 target_sect_off,
-                target_sect_off + code.len,
+                target_sect_off + sect.code.len,
             });
 
             if (target_sect.flags == macho.S_ZEROFILL or
@@ -1952,15 +1498,15 @@ fn doRelocs(self: *Zld) !void {
                     parseName(&target_sect.segname),
                     parseName(&target_sect.sectname),
                     target_sect_off,
-                    target_sect_off + code.len,
+                    target_sect_off + sect.code.len,
                 });
                 // Zero-out the space
-                var zeroes = try self.allocator.alloc(u8, code.len);
+                var zeroes = try self.allocator.alloc(u8, sect.code.len);
                 defer self.allocator.free(zeroes);
                 mem.set(u8, zeroes, 0);
                 try self.file.?.pwriteAll(zeroes, target_sect_off);
             } else {
-                try self.file.?.pwriteAll(code, target_sect_off);
+                try self.file.?.pwriteAll(sect.code, target_sect_off);
             }
         }
     }
