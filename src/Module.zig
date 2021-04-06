@@ -3138,9 +3138,7 @@ pub fn getAstTree(mod: *Module, root_scope: *Scope.File) !*const ast.Tree {
 
             const source = try root_scope.getSource(mod);
 
-            var keep_tree = false;
             root_scope.tree = try std.zig.parse(mod.gpa, source);
-            defer if (!keep_tree) root_scope.tree.deinit(mod.gpa);
 
             const tree = &root_scope.tree;
 
@@ -3166,7 +3164,6 @@ pub fn getAstTree(mod: *Module, root_scope: *Scope.File) !*const ast.Tree {
             }
 
             root_scope.status = .loaded_success;
-            keep_tree = true;
 
             return tree;
         },
