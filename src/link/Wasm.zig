@@ -127,6 +127,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         .decl = decl,
         .err_msg = undefined,
         .locals = .{},
+        .target = self.base.options.target,
     };
     defer context.deinit();
 

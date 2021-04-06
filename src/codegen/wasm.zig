@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
+const testing = std.testing;
 const leb = std.leb;
 const mem = std.mem;
 const wasm = std.wasm;
@@ -28,6 +29,445 @@ const WValue = union(enum) {
     /// The label of the block, used by breaks to find its relative distance
     block_idx: u32,
 };
+
+/// Wasm ops, but without input/output/signedness information
+/// Used for `buildOpcode`
+const Op = enum {
+    @"unreachable",
+    nop,
+    block,
+    loop,
+    @"if",
+    @"else",
+    end,
+    br,
+    br_if,
+    br_table,
+    @"return",
+    call,
+    call_indirect,
+    drop,
+    select,
+    local_get,
+    local_set,
+    local_tee,
+    global_get,
+    global_set,
+    load,
+    store,
+    memory_size,
+    memory_grow,
+    @"const",
+    eqz,
+    eq,
+    ne,
+    lt,
+    gt,
+    le,
+    ge,
+    clz,
+    ctz,
+    popcnt,
+    add,
+    sub,
+    mul,
+    div,
+    rem,
+    @"and",
+    @"or",
+    xor,
+    shl,
+    shr,
+    rotl,
+    rotr,
+    abs,
+    neg,
+    ceil,
+    floor,
+    trunc,
+    nearest,
+    sqrt,
+    min,
+    max,
+    copysign,
+    wrap,
+    convert,
+    demote,
+    promote,
+    reinterpret,
+    extend,
+};
+
+/// Contains the settings needed to create an `Opcode` using `buildOpcode`.
+///
+/// The fields correspond to the opcode name. Here is an example
+///          i32_trunc_f32_s
+///          ^   ^     ^   ^
+///          |   |     |   |
+///   valtype1   |     |   |
+///     = .i32   |     |   |
+///              |     |   |
+///             op     |   |
+///       = .trunc     |   |
+///                    |   |
+///             valtype2   |
+///               = .f32   |
+///                        |
+///                width   |
+///               = null   |
+///                        |
+///                   signed
+///                   = true
+///
+/// There can be missing fields, here are some more examples:
+///   i64_load8_u
+///     --> .{ .valtype1 = .i64, .op = .load, .width = 8, signed = false }
+///   i32_mul
+///     --> .{ .valtype1 = .i32, .op = .trunc }
+///   nop
+///     --> .{ .op = .nop }
+const OpcodeBuildArguments = struct {
+    /// First valtype in the opcode (usually represents the type of the output)
+    valtype1: ?wasm.Valtype = null,
+    /// The operation (e.g. call, unreachable, div, min, sqrt, etc.)
+    op: Op,
+    /// Width of the operation (e.g. 8 for i32_load8_s, 16 for i64_extend16_i32_s)
+    width: ?u8 = null,
+    /// Second valtype in the opcode name (usually represents the type of the input)
+    valtype2: ?wasm.Valtype = null,
+    /// Signedness of the op
+    signedness: ?std.builtin.Signedness = null,
+};
+
+/// Helper function that builds an Opcode given the arguments needed
+fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
+    switch (args.op) {
+        .@"unreachable" => return .@"unreachable",
+        .nop => return .nop,
+        .block => return .block,
+        .loop => return .loop,
+        .@"if" => return .@"if",
+        .@"else" => return .@"else",
+        .end => return .end,
+        .br => return .br,
+        .br_if => return .br_if,
+        .br_table => return .br_table,
+        .@"return" => return .@"return",
+        .call => return .call,
+        .call_indirect => return .call_indirect,
+        .drop => return .drop,
+        .select => return .select,
+        .local_get => return .local_get,
+        .local_set => return .local_set,
+        .local_tee => return .local_tee,
+        .global_get => return .global_get,
+        .global_set => return .global_set,
+
+        .load => if (args.width) |width|
+            switch (width) {
+                8 => switch (args.valtype1.?) {
+                    .i32 => if (args.signedness.? == .signed) return .i32_load8_s else return .i32_load8_u,
+                    .i64 => if (args.signedness.? == .signed) return .i64_load8_s else return .i64_load8_u,
+                    .f32, .f64 => unreachable,
+                },
+                16 => switch (args.valtype1.?) {
+                    .i32 => if (args.signedness.? == .signed) return .i32_load16_s else return .i32_load16_u,
+                    .i64 => if (args.signedness.? == .signed) return .i64_load16_s else return .i64_load16_u,
+                    .f32, .f64 => unreachable,
+                },
+                32 => switch (args.valtype1.?) {
+                    .i64 => if (args.signedness.? == .signed) return .i64_load32_s else return .i64_load32_u,
+                    .i32, .f32, .f64 => unreachable,
+                },
+                else => unreachable,
+            }
+        else switch (args.valtype1.?) {
+            .i32 => return .i32_load,
+            .i64 => return .i64_load,
+            .f32 => return .f32_load,
+            .f64 => return .f64_load,
+        },
+        .store => if (args.width) |width| {
+            switch (width) {
+                8 => switch (args.valtype1.?) {
+                    .i32 => return .i32_store8,
+                    .i64 => return .i64_store8,
+                    .f32, .f64 => unreachable,
+                },
+                16 => switch (args.valtype1.?) {
+                    .i32 => return .i32_store16,
+                    .i64 => return .i64_store16,
+                    .f32, .f64 => unreachable,
+                },
+                32 => switch (args.valtype1.?) {
+                    .i64 => return .i64_store32,
+                    .i32, .f32, .f64 => unreachable,
+                },
+                else => unreachable,
+            }
+        } else {
+            switch (args.valtype1.?) {
+                .i32 => return .i32_store,
+                .i64 => return .i64_store,
+                .f32 => return .f32_store,
+                .f64 => return .f64_store,
+            }
+        },
+
+        .memory_size => return .memory_size,
+        .memory_grow => return .memory_grow,
+
+        .@"const" => switch (args.valtype1.?) {
+            .i32 => return .i32_const,
+            .i64 => return .i64_const,
+            .f32 => return .f32_const,
+            .f64 => return .f64_const,
+        },
+
+        .eqz => switch (args.valtype1.?) {
+            .i32 => return .i32_eqz,
+            .i64 => return .i64_eqz,
+            .f32, .f64 => unreachable,
+        },
+        .eq => switch (args.valtype1.?) {
+            .i32 => return .i32_eq,
+            .i64 => return .i64_eq,
+            .f32 => return .f32_eq,
+            .f64 => return .f64_eq,
+        },
+        .ne => switch (args.valtype1.?) {
+            .i32 => return .i32_ne,
+            .i64 => return .i64_ne,
+            .f32 => return .f32_ne,
+            .f64 => return .f64_ne,
+        },
+
+        .lt => switch (args.valtype1.?) {
+            .i32 => if (args.signedness.? == .signed) return .i32_lt_s else return .i32_lt_u,
+            .i64 => if (args.signedness.? == .signed) return .i64_lt_s else return .i64_lt_u,
+            .f32 => return .f32_lt,
+            .f64 => return .f64_lt,
+        },
+        .gt => switch (args.valtype1.?) {
+            .i32 => if (args.signedness.? == .signed) return .i32_gt_s else return .i32_gt_u,
+            .i64 => if (args.signedness.? == .signed) return .i64_gt_s else return .i64_gt_u,
+            .f32 => return .f32_gt,
+            .f64 => return .f64_gt,
+        },
+        .le => switch (args.valtype1.?) {
+            .i32 => if (args.signedness.? == .signed) return .i32_le_s else return .i32_le_u,
+            .i64 => if (args.signedness.? == .signed) return .i64_le_s else return .i64_le_u,
+            .f32 => return .f32_le,
+            .f64 => return .f64_le,
+        },
+        .ge => switch (args.valtype1.?) {
+            .i32 => if (args.signedness.? == .signed) return .i32_ge_s else return .i32_ge_u,
+            .i64 => if (args.signedness.? == .signed) return .i64_ge_s else return .i64_ge_u,
+            .f32 => return .f32_ge,
+            .f64 => return .f64_ge,
+        },
+
+        .clz => switch (args.valtype1.?) {
+            .i32 => return .i32_clz,
+            .i64 => return .i64_clz,
+            .f32, .f64 => unreachable,
+        },
+        .ctz => switch (args.valtype1.?) {
+            .i32 => return .i32_ctz,
+            .i64 => return .i64_ctz,
+            .f32, .f64 => unreachable,
+        },
+        .popcnt => switch (args.valtype1.?) {
+            .i32 => return .i32_popcnt,
+            .i64 => return .i64_popcnt,
+            .f32, .f64 => unreachable,
+        },
+
+        .add => switch (args.valtype1.?) {
+            .i32 => return .i32_add,
+            .i64 => return .i64_add,
+            .f32 => return .f32_add,
+            .f64 => return .f64_add,
+        },
+        .sub => switch (args.valtype1.?) {
+            .i32 => return .i32_sub,
+            .i64 => return .i64_sub,
+            .f32 => return .f32_sub,
+            .f64 => return .f64_sub,
+        },
+        .mul => switch (args.valtype1.?) {
+            .i32 => return .i32_mul,
+            .i64 => return .i64_mul,
+            .f32 => return .f32_mul,
+            .f64 => return .f64_mul,
+        },
+
+        .div => switch (args.valtype1.?) {
+            .i32 => if (args.signedness.? == .signed) return .i32_div_s else return .i32_div_u,
+            .i64 => if (args.signedness.? == .signed) return .i64_div_s else return .i64_div_u,
+            .f32 => return .f32_div,
+            .f64 => return .f64_div,
+        },
+        .rem => switch (args.valtype1.?) {
+            .i32 => if (args.signedness.? == .signed) return .i32_rem_s else return .i32_rem_u,
+            .i64 => if (args.signedness.? == .signed) return .i64_rem_s else return .i64_rem_u,
+            .f32, .f64 => unreachable,
+        },
+
+        .@"and" => switch (args.valtype1.?) {
+            .i32 => return .i32_and,
+            .i64 => return .i64_and,
+            .f32, .f64 => unreachable,
+        },
+        .@"or" => switch (args.valtype1.?) {
+            .i32 => return .i32_or,
+            .i64 => return .i64_or,
+            .f32, .f64 => unreachable,
+        },
+        .xor => switch (args.valtype1.?) {
+            .i32 => return .i32_xor,
+            .i64 => return .i64_xor,
+            .f32, .f64 => unreachable,
+        },
+
+        .shl => switch (args.valtype1.?) {
+            .i32 => return .i32_shl,
+            .i64 => return .i64_shl,
+            .f32, .f64 => unreachable,
+        },
+        .shr => switch (args.valtype1.?) {
+            .i32 => if (args.signedness.? == .signed) return .i32_shr_s else return .i32_shr_u,
+            .i64 => if (args.signedness.? == .signed) return .i64_shr_s else return .i64_shr_u,
+            .f32, .f64 => unreachable,
+        },
+        .rotl => switch (args.valtype1.?) {
+            .i32 => return .i32_rotl,
+            .i64 => return .i64_rotl,
+            .f32, .f64 => unreachable,
+        },
+        .rotr => switch (args.valtype1.?) {
+            .i32 => return .i32_rotr,
+            .i64 => return .i64_rotr,
+            .f32, .f64 => unreachable,
+        },
+
+        .abs => switch (args.valtype1.?) {
+            .i32, .i64 => unreachable,
+            .f32 => return .f32_abs,
+            .f64 => return .f64_abs,
+        },
+        .neg => switch (args.valtype1.?) {
+            .i32, .i64 => unreachable,
+            .f32 => return .f32_neg,
+            .f64 => return .f64_neg,
+        },
+        .ceil => switch (args.valtype1.?) {
+            .i32, .i64 => unreachable,
+            .f32 => return .f32_ceil,
+            .f64 => return .f64_ceil,
+        },
+        .floor => switch (args.valtype1.?) {
+            .i32, .i64 => unreachable,
+            .f32 => return .f32_floor,
+            .f64 => return .f64_floor,
+        },
+        .trunc => switch (args.valtype1.?) {
+            .i32 => switch (args.valtype2.?) {
+                .i32 => unreachable,
+                .i64 => unreachable,
+                .f32 => if (args.signedness.? == .signed) return .i32_trunc_f32_s else return .i32_trunc_f32_u,
+                .f64 => if (args.signedness.? == .signed) return .i32_trunc_f64_s else return .i32_trunc_f64_u,
+            },
+            .i64 => unreachable,
+            .f32 => return .f32_trunc,
+            .f64 => return .f64_trunc,
+        },
+        .nearest => switch (args.valtype1.?) {
+            .i32, .i64 => unreachable,
+            .f32 => return .f32_nearest,
+            .f64 => return .f64_nearest,
+        },
+        .sqrt => switch (args.valtype1.?) {
+            .i32, .i64 => unreachable,
+            .f32 => return .f32_sqrt,
+            .f64 => return .f64_sqrt,
+        },
+        .min => switch (args.valtype1.?) {
+            .i32, .i64 => unreachable,
+            .f32 => return .f32_min,
+            .f64 => return .f64_min,
+        },
+        .max => switch (args.valtype1.?) {
+            .i32, .i64 => unreachable,
+            .f32 => return .f32_max,
+            .f64 => return .f64_max,
+        },
+        .copysign => switch (args.valtype1.?) {
+            .i32, .i64 => unreachable,
+            .f32 => return .f32_copysign,
+            .f64 => return .f64_copysign,
+        },
+
+        .wrap => switch (args.valtype1.?) {
+            .i32 => switch (args.valtype2.?) {
+                .i32 => unreachable,
+                .i64 => return .i32_wrap_i64,
+                .f32, .f64 => unreachable,
+            },
+            .i64, .f32, .f64 => unreachable,
+        },
+        .convert => switch (args.valtype1.?) {
+            .i32, .i64 => unreachable,
+            .f32 => switch (args.valtype2.?) {
+                .i32 => if (args.signedness.? == .signed) return .f32_convert_i32_s else return .f32_convert_i32_u,
+                .i64 => if (args.signedness.? == .signed) return .f32_convert_i64_s else return .f32_convert_i64_u,
+                .f32, .f64 => unreachable,
+            },
+            .f64 => switch (args.valtype2.?) {
+                .i32 => if (args.signedness.? == .signed) return .f64_convert_i32_s else return .f64_convert_i32_u,
+                .i64 => if (args.signedness.? == .signed) return .f64_convert_i64_s else return .f64_convert_i64_u,
+                .f32, .f64 => unreachable,
+            },
+        },
+        .demote => if (args.valtype1.? == .f32 and args.valtype2.? == .f64) return .f32_demote_f64 else unreachable,
+        .promote => if (args.valtype1.? == .f64 and args.valtype2.? == .f32) return .f64_promote_f32 else unreachable,
+        .reinterpret => switch (args.valtype1.?) {
+            .i32 => if (args.valtype2.? == .f32) return .i32_reinterpret_f32 else unreachable,
+            .i64 => if (args.valtype2.? == .f64) return .i64_reinterpret_f64 else unreachable,
+            .f32 => if (args.valtype2.? == .i32) return .f32_reinterpret_i32 else unreachable,
+            .f64 => if (args.valtype2.? == .i64) return .f64_reinterpret_i64 else unreachable,
+        },
+        .extend => switch (args.valtype1.?) {
+            .i32 => switch (args.width.?) {
+                8 => if (args.signedness.? == .signed) return .i32_extend8_s else unreachable,
+                16 => if (args.signedness.? == .signed) return .i32_extend16_s else unreachable,
+                else => unreachable,
+            },
+            .i64 => switch (args.width.?) {
+                8 => if (args.signedness.? == .signed) return .i64_extend8_s else unreachable,
+                16 => if (args.signedness.? == .signed) return .i64_extend16_s else unreachable,
+                32 => if (args.signedness.? == .signed) return .i64_extend32_s else unreachable,
+                else => unreachable,
+            },
+            .f32, .f64 => unreachable,
+        },
+    }
+}
+
+test "Wasm - buildOpcode" {
+    // Make sure buildOpcode is referenced, and test some examples
+    const i32_const = buildOpcode(.{ .op = .@"const", .valtype1 = .i32 });
+    const end = buildOpcode(.{ .op = .end });
+    const local_get = buildOpcode(.{ .op = .local_get });
+    const i64_extend32_s = buildOpcode(.{ .op = .extend, .valtype1 = .i64, .width = 32, .signedness = .signed });
+    const f64_reinterpret_i64 = buildOpcode(.{ .op = .reinterpret, .valtype1 = .f64, .valtype2 = .i64 });
+
+    testing.expectEqual(@as(wasm.Opcode, .i32_const), i32_const);
+    testing.expectEqual(@as(wasm.Opcode, .end), end);
+    testing.expectEqual(@as(wasm.Opcode, .local_get), local_get);
+    testing.expectEqual(@as(wasm.Opcode, .i64_extend32_s), i64_extend32_s);
+    testing.expectEqual(@as(wasm.Opcode, .f64_reinterpret_i64), f64_reinterpret_i64);
+}
 
 /// Hashmap to store generated `WValue` for each `Inst`
 pub const ValueTable = std.AutoHashMapUnmanaged(*Inst, WValue);
@@ -58,6 +498,8 @@ pub const Context = struct {
     /// List of all locals' types generated throughout this declaration
     /// used to emit locals count at start of 'code' section.
     locals: std.ArrayListUnmanaged(u8),
+    /// The Target we're emitting (used to call intInfo)
+    target: std.Target,
 
     const InnerError = error{
         OutOfMemory,
@@ -89,15 +531,20 @@ pub const Context = struct {
         return self.values.get(inst).?; // Instruction does not dominate all uses!
     }
 
-    /// Using a given `Type`, returns the corresponding wasm value type
-    fn genValtype(self: *Context, src: LazySrcLoc, ty: Type) InnerError!u8 {
+    /// Using a given `Type`, returns the corresponding wasm Valtype
+    fn typeToValtype(self: *Context, src: LazySrcLoc, ty: Type) InnerError!wasm.Valtype {
         return switch (ty.tag()) {
-            .f32 => wasm.valtype(.f32),
-            .f64 => wasm.valtype(.f64),
-            .u32, .i32, .bool => wasm.valtype(.i32),
-            .u64, .i64 => wasm.valtype(.i64),
-            else => self.fail(src, "TODO - Wasm genValtype for type '{s}'", .{ty.tag()}),
+            .f32 => .f32,
+            .f64 => .f64,
+            .u32, .i32, .bool => .i32,
+            .u64, .i64 => .i64,
+            else => self.fail(src, "TODO - Wasm valtype for type '{s}'", .{ty.tag()}),
         };
+    }
+
+    /// Using a given `Type`, returns the byte representation of its wasm value type
+    fn genValtype(self: *Context, src: LazySrcLoc, ty: Type) InnerError!u8 {
+        return wasm.valtype(try self.typeToValtype(src, ty));
     }
 
     /// Using a given `Type`, returns the corresponding wasm value type
@@ -203,7 +650,7 @@ pub const Context = struct {
 
     fn genInst(self: *Context, inst: *Inst) InnerError!WValue {
         return switch (inst.tag) {
-            .add => self.genAdd(inst.castTag(.add).?),
+            .add => self.genBinOp(inst.castTag(.add).?, .add),
             .alloc => self.genAlloc(inst.castTag(.alloc).?),
             .arg => self.genArg(inst.castTag(.arg).?),
             .block => self.genBlock(inst.castTag(.block).?),
@@ -221,10 +668,12 @@ pub const Context = struct {
             .dbg_stmt => WValue.none,
             .load => self.genLoad(inst.castTag(.load).?),
             .loop => self.genLoop(inst.castTag(.loop).?),
+            .mul => self.genBinOp(inst.castTag(.mul).?, .mul),
             .not => self.genNot(inst.castTag(.not).?),
             .ret => self.genRet(inst.castTag(.ret).?),
             .retvoid => WValue.none,
             .store => self.genStore(inst.castTag(.store).?),
+            .sub => self.genBinOp(inst.castTag(.sub).?, .sub),
             .unreach => self.genUnreachable(inst.castTag(.unreach).?),
             else => self.fail(inst.src, "TODO: Implement wasm inst: {s}", .{inst.tag}),
         };
@@ -305,56 +754,59 @@ pub const Context = struct {
         return WValue{ .local = self.local_index };
     }
 
-    fn genAdd(self: *Context, inst: *Inst.BinOp) InnerError!WValue {
+    fn genBinOp(self: *Context, inst: *Inst.BinOp, op: Op) InnerError!WValue {
         const lhs = self.resolveInst(inst.lhs);
         const rhs = self.resolveInst(inst.rhs);
 
         try self.emitWValue(lhs);
         try self.emitWValue(rhs);
 
-        const opcode: wasm.Opcode = switch (inst.base.ty.tag()) {
-            .u32, .i32 => .i32_add,
-            .u64, .i64 => .i64_add,
-            .f32 => .f32_add,
-            .f64 => .f64_add,
-            else => return self.fail(inst.base.src, "TODO - Implement wasm genAdd for type '{s}'", .{inst.base.ty.tag()}),
-        };
-
+        const opcode: wasm.Opcode = buildOpcode(.{
+            .op = op,
+            .valtype1 = try self.typeToValtype(inst.base.src, inst.base.ty),
+        });
         try self.code.append(wasm.opcode(opcode));
         return .none;
     }
 
     fn emitConstant(self: *Context, inst: *Inst.Constant) InnerError!void {
         const writer = self.code.writer();
-        switch (inst.base.ty.tag()) {
-            .u32 => {
-                try writer.writeByte(wasm.opcode(.i32_const));
-                try leb.writeILEB128(writer, inst.val.toUnsignedInt());
+        switch (inst.base.ty.zigTypeTag()) {
+            .Int => {
+                // write opcode
+                const opcode: wasm.Opcode = buildOpcode(.{
+                    .op = .@"const",
+                    .valtype1 = try self.typeToValtype(inst.base.src, inst.base.ty),
+                });
+                try writer.writeByte(wasm.opcode(opcode));
+                // write constant
+                switch (inst.base.ty.intInfo(self.target).signedness) {
+                    .signed => try leb.writeILEB128(writer, inst.val.toSignedInt()),
+                    .unsigned => try leb.writeILEB128(writer, inst.val.toUnsignedInt()),
+                }
             },
-            .i32, .bool => {
+            .Bool => {
+                // write opcode
                 try writer.writeByte(wasm.opcode(.i32_const));
+                // write constant
                 try leb.writeILEB128(writer, inst.val.toSignedInt());
             },
-            .u64 => {
-                try writer.writeByte(wasm.opcode(.i64_const));
-                try leb.writeILEB128(writer, inst.val.toUnsignedInt());
+            .Float => {
+                // write opcode
+                const opcode: wasm.Opcode = buildOpcode(.{
+                    .op = .@"const",
+                    .valtype1 = try self.typeToValtype(inst.base.src, inst.base.ty),
+                });
+                try writer.writeByte(wasm.opcode(opcode));
+                // write constant
+                switch (inst.base.ty.floatBits(self.target)) {
+                    0...32 => try writer.writeIntLittle(u32, @bitCast(u32, inst.val.toFloat(f32))),
+                    64 => try writer.writeIntLittle(u64, @bitCast(u64, inst.val.toFloat(f64))),
+                    else => |bits| return self.fail(inst.base.src, "Wasm TODO: emitConstant for float with {d} bits", .{bits}),
+                }
             },
-            .i64 => {
-                try writer.writeByte(wasm.opcode(.i64_const));
-                try leb.writeILEB128(writer, inst.val.toSignedInt());
-            },
-            .f32 => {
-                try writer.writeByte(wasm.opcode(.f32_const));
-                // TODO: enforce LE byte order
-                try writer.writeAll(mem.asBytes(&inst.val.toFloat(f32)));
-            },
-            .f64 => {
-                try writer.writeByte(wasm.opcode(.f64_const));
-                // TODO: enforce LE byte order
-                try writer.writeAll(mem.asBytes(&inst.val.toFloat(f64)));
-            },
-            .void => {},
-            else => |ty| return self.fail(inst.base.src, "Wasm TODO: emitConstant for type {s}", .{ty}),
+            .Void => {},
+            else => |ty| return self.fail(inst.base.src, "Wasm TODO: emitConstant for zigTypeTag {s}", .{ty}),
         }
     }
 
@@ -455,62 +907,18 @@ pub const Context = struct {
         try self.emitWValue(lhs);
         try self.emitWValue(rhs);
 
-        const opcode_maybe: ?wasm.Opcode = switch (op) {
-            .lt => @as(?wasm.Opcode, switch (ty) {
-                .i32 => .i32_lt_s,
-                .u32 => .i32_lt_u,
-                .i64 => .i64_lt_s,
-                .u64 => .i64_lt_u,
-                .f32 => .f32_lt,
-                .f64 => .f64_lt,
-                else => null,
-            }),
-            .lte => @as(?wasm.Opcode, switch (ty) {
-                .i32 => .i32_le_s,
-                .u32 => .i32_le_u,
-                .i64 => .i64_le_s,
-                .u64 => .i64_le_u,
-                .f32 => .f32_le,
-                .f64 => .f64_le,
-                else => null,
-            }),
-            .eq => @as(?wasm.Opcode, switch (ty) {
-                .i32, .u32 => .i32_eq,
-                .i64, .u64 => .i64_eq,
-                .f32 => .f32_eq,
-                .f64 => .f64_eq,
-                else => null,
-            }),
-            .gte => @as(?wasm.Opcode, switch (ty) {
-                .i32 => .i32_ge_s,
-                .u32 => .i32_ge_u,
-                .i64 => .i64_ge_s,
-                .u64 => .i64_ge_u,
-                .f32 => .f32_ge,
-                .f64 => .f64_ge,
-                else => null,
-            }),
-            .gt => @as(?wasm.Opcode, switch (ty) {
-                .i32 => .i32_gt_s,
-                .u32 => .i32_gt_u,
-                .i64 => .i64_gt_s,
-                .u64 => .i64_gt_u,
-                .f32 => .f32_gt,
-                .f64 => .f64_gt,
-                else => null,
-            }),
-            .neq => @as(?wasm.Opcode, switch (ty) {
-                .i32, .u32 => .i32_ne,
-                .i64, .u64 => .i64_ne,
-                .f32 => .f32_ne,
-                .f64 => .f64_ne,
-                else => null,
-            }),
-        };
-
-        const opcode = opcode_maybe orelse
-            return self.fail(inst.base.src, "TODO - Wasm genCmp for type '{s}' and operator '{s}'", .{ ty, @tagName(op) });
-
+        const opcode: wasm.Opcode = buildOpcode(.{
+            .valtype1 = try self.typeToValtype(inst.base.src, inst.lhs.ty),
+            .op = switch (op) {
+                .lt => .lt,
+                .lte => .le,
+                .eq => .eq,
+                .neq => .ne,
+                .gte => .ge,
+                .gt => .gt,
+            },
+            .signedness = inst.lhs.ty.intInfo(self.target).signedness,
+        });
         try self.code.append(wasm.opcode(opcode));
         return WValue{ .code_offset = offset };
     }
