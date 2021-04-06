@@ -2107,7 +2107,7 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
 
     if (errors.list.len != 0) {
         for (errors.list) |full_err_msg| {
-            full_err_msg.renderToStdErr();
+            try full_err_msg.renderToStdErr(comp.bin_file.options.module);
         }
         const log_text = comp.getCompileLogOutput();
         if (log_text.len != 0) {
