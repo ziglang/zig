@@ -396,6 +396,9 @@ pub const DeclGen = struct {
                     else => unreachable,
                 }
             },
+
+            .Float => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type Float", .{}),
+
             .Pointer => {
                 if (t.isSlice()) {
                     return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement slices", .{});
@@ -507,10 +510,22 @@ pub const DeclGen = struct {
 
                 try dg.renderType(w, int_tag_ty);
             },
-            .Null, .Undefined => unreachable, // must be const or comptime
-            else => |e| return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type {s}", .{
-                @tagName(e),
-            }),
+            .Union => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type Union", .{}),
+            .Fn => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type Fn", .{}),
+            .Opaque => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type Opaque", .{}),
+            .Frame => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type Frame", .{}),
+            .AnyFrame => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type AnyFrame", .{}),
+            .Vector => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type Vector", .{}),
+
+            .Null,
+            .Undefined,
+            .EnumLiteral,
+            .ComptimeFloat,
+            .ComptimeInt,
+            .Type,
+            => unreachable, // must be const or comptime
+
+            .BoundFn => unreachable, // this type will be deleted from the language
         }
     }
 
