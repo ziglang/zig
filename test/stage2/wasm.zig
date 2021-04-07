@@ -153,6 +153,106 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return x * y;
             \\}
         , "350\n");
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 352;
+            \\    i /= 7; // i = 50
+            \\    var result: u32 = foo(i, 7);
+            \\    return result;
+            \\}
+            \\fn foo(x: u32, y: u32) u32 {
+            \\    return x / y;
+            \\}
+        , "7\n");
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 5;
+            \\    i &= 6;
+            \\    return i;
+            \\}
+        , "4\n");
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 5;
+            \\    i |= 6;
+            \\    return i;
+            \\}
+        , "7\n");
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    var i: u32 = 5;
+            \\    i ^= 6;
+            \\    return i;
+            \\}
+        , "3\n");
+
+        case.addCompareOutput(
+            \\export fn _start() bool {
+            \\    var b: bool = false;
+            \\    b = b or false;
+            \\    return b;
+            \\}
+        , "0\n");
+
+        case.addCompareOutput(
+            \\export fn _start() bool {
+            \\    var b: bool = true;
+            \\    b = b or false;
+            \\    return b;
+            \\}
+        , "1\n");
+
+        case.addCompareOutput(
+            \\export fn _start() bool {
+            \\    var b: bool = false;
+            \\    b = b or true;
+            \\    return b;
+            \\}
+        , "1\n");
+
+        case.addCompareOutput(
+            \\export fn _start() bool {
+            \\    var b: bool = true;
+            \\    b = b or true;
+            \\    return b;
+            \\}
+        , "1\n");
+
+        case.addCompareOutput(
+            \\export fn _start() bool {
+            \\    var b: bool = false;
+            \\    b = b and false;
+            \\    return b;
+            \\}
+        , "0\n");
+
+        case.addCompareOutput(
+            \\export fn _start() bool {
+            \\    var b: bool = true;
+            \\    b = b and false;
+            \\    return b;
+            \\}
+        , "0\n");
+
+        case.addCompareOutput(
+            \\export fn _start() bool {
+            \\    var b: bool = false;
+            \\    b = b and true;
+            \\    return b;
+            \\}
+        , "0\n");
+
+        case.addCompareOutput(
+            \\export fn _start() bool {
+            \\    var b: bool = true;
+            \\    b = b and true;
+            \\    return b;
+            \\}
+        , "1\n");
     }
 
     {
