@@ -855,6 +855,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .not => return self.genNot(inst.castTag(.not).?),
                 .mul => return self.genMul(inst.castTag(.mul).?),
                 .mulwrap => return self.genMulWrap(inst.castTag(.mulwrap).?),
+                .div => return self.genDiv(inst.castTag(.div).?),
                 .ptrtoint => return self.genPtrToInt(inst.castTag(.ptrtoint).?),
                 .ref => return self.genRef(inst.castTag(.ref).?),
                 .ret => return self.genRet(inst.castTag(.ret).?),
@@ -1089,6 +1090,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 return MCValue.dead;
             switch (arch) {
                 else => return self.fail(inst.base.src, "TODO implement mulwrap for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genDiv(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement div for {}", .{self.target.cpu.arch}),
             }
         }
 

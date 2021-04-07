@@ -3540,6 +3540,7 @@ fn analyzeArithmetic(
         .subwrap => .subwrap,
         .mul => .mul,
         .mulwrap => .mulwrap,
+        .div => .div,
         else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}''", .{@tagName(zir_tag)}),
     };
 
