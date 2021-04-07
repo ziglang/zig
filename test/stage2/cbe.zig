@@ -280,6 +280,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
 
+        // If expression with breakpoint that does not get hit
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var x: i32 = 1;
+            \\    if (x != 1) @breakpoint();
+            \\    return 0;
+            \\}
+        , "");
+
         // Switch expression
         case.addCompareOutput(
             \\export fn main() c_int {

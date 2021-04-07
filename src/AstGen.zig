@@ -3894,11 +3894,11 @@ fn builtinCall(
             return rvalue(gz, scope, rl, result, node);
         },
         .breakpoint => {
-            const result = try gz.add(.{
+            _ = try gz.add(.{
                 .tag = .breakpoint,
                 .data = .{ .node = gz.astgen.decl.nodeIndexToRelative(node) },
             });
-            return rvalue(gz, scope, rl, result, node);
+            return rvalue(gz, scope, rl, .void_value, node);
         },
         .import => {
             const target = try expr(gz, scope, .none, params[0]);
