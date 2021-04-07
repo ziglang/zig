@@ -107,6 +107,42 @@ pub const Type = extern union {
         }
     }
 
+    pub fn isSelfComparable(ty: Type, is_equality_cmp: bool) bool {
+        return switch (ty.zigTypeTag()) {
+            .Int,
+            .Float,
+            .ComptimeFloat,
+            .ComptimeInt,
+            .Vector, // TODO some vectors require is_equality_cmp==true
+            => true,
+
+            .Bool,
+            .Type,
+            .Void,
+            .ErrorSet,
+            .Fn,
+            .BoundFn,
+            .Opaque,
+            .AnyFrame,
+            .Enum,
+            .EnumLiteral,
+            => is_equality_cmp,
+
+            .NoReturn,
+            .Array,
+            .Struct,
+            .Undefined,
+            .Null,
+            .ErrorUnion,
+            .Union,
+            .Frame,
+            => false,
+
+            .Pointer => is_equality_cmp or ty.isCPtr(),
+            .Optional => is_equality_cmp and ty.isAbiPtr(),
+        };
+    }
+
     pub fn initTag(comptime small_tag: Tag) Type {
         comptime assert(@enumToInt(small_tag) < Tag.no_payload_count);
         return .{ .tag_if_small_enough = @enumToInt(small_tag) };
@@ -1581,6 +1617,11 @@ pub const Type = extern union {
             },
             else => unreachable,
         }
+    }
+
+    /// Returns whether the type is represented as a pointer in the ABI.
+    pub fn isAbiPtr(self: Type) bool {
+        @panic("TODO implement this");
     }
 
     /// Asserts that the type is an error union.

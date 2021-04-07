@@ -536,6 +536,27 @@ pub fn addCases(ctx: *TestContext) !void {
         , "");
     }
 
+    {
+        var case = ctx.exeFromCompiledC("enums", .{});
+        case.addCompareOutput(
+            \\const Number = enum { One, Two, Three };
+            \\
+            \\export fn main() c_int {
+            \\    var number1 = Number.One;
+            \\    var number2: Number = .Two;
+            \\    const number3 = @intToEnum(Number, 2);
+            \\    if (number1 == number2) return 1;
+            \\    if (number2 == number3) return 1;
+            \\    if (@enumToInt(number1) != 0) return 1;
+            \\    if (@enumToInt(number2) != 1) return 1;
+            \\    if (@enumToInt(number3) != 2) return 1;
+            \\    var x: Number = .Two;
+            \\    if (number2 != x) return 1;
+            \\    return 0;
+            \\}
+        , "");
+    }
+
     ctx.c("empty start function", linux_x64,
         \\export fn _start() noreturn {
         \\    unreachable;
