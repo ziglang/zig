@@ -1815,6 +1815,11 @@ fn buildOutputType(
         @import("codegen/llvm/bindings.zig").ParseCommandLineOptions(argv.len, &argv);
     }
 
+    const clang_passthrough_mode = switch (arg_mode) {
+        .cc, .cpp, .translate_c => true,
+        else => false,
+    };
+
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 
     const comp = Compilation.create(gpa, .{
@@ -1886,7 +1891,7 @@ fn buildOutputType(
         .function_sections = function_sections,
         .self_exe_path = self_exe_path,
         .thread_pool = &thread_pool,
-        .clang_passthrough_mode = arg_mode != .build,
+        .clang_passthrough_mode = clang_passthrough_mode,
         .clang_preprocessor_mode = clang_preprocessor_mode,
         .version = optional_version,
         .libc_installation = if (libc_installation) |*lci| lci else null,
