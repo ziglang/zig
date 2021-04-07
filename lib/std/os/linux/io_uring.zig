@@ -1354,7 +1354,7 @@ test "timeout (after a relative time)" {
         .flags = 0,
     }, cqe);
 
-    // Tests should not depend on timings: skip test (result) if outside margin.
+    // Tests should not depend on timings: skip test if outside margin.
     if (!std.math.approxEqAbs(f64, ms, @intToFloat(f64, stopped - started), margin)) return error.SkipZigTest;
 }
 
