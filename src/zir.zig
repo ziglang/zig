@@ -130,7 +130,7 @@ pub const Inst = struct {
         /// Same as `alloc` except mutable.
         alloc_mut,
         /// Same as `alloc` except the type is inferred.
-        /// The operand is unused.
+        /// Uses the `node` union field.
         alloc_inferred,
         /// Same as `alloc_inferred` except mutable.
         alloc_inferred_mut,
@@ -1577,8 +1577,6 @@ const Writer = struct {
 
             .alloc,
             .alloc_mut,
-            .alloc_inferred,
-            .alloc_inferred_mut,
             .indexable_ptr_len,
             .bit_not,
             .bool_not,
@@ -1745,6 +1743,8 @@ const Writer = struct {
             .ret_type,
             .repeat,
             .repeat_inline,
+            .alloc_inferred,
+            .alloc_inferred_mut,
             => try self.writeNode(stream, inst),
 
             .error_value,

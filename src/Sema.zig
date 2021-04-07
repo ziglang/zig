@@ -785,8 +785,8 @@ fn zirAllocInferred(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
+    const src_node = sema.code.instructions.items(.data)[inst].node;
+    const src: LazySrcLoc = .{ .node_offset = src_node };
 
     const val_payload = try sema.arena.create(Value.Payload.InferredAlloc);
     val_payload.* = .{

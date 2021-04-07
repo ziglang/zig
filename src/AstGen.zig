@@ -1484,7 +1484,7 @@ fn varDecl(
                 init_scope.rl_ptr = try init_scope.addUnNode(.alloc, type_inst, node);
                 init_scope.rl_ty_inst = type_inst;
             } else {
-                const alloc = try init_scope.addUnNode(.alloc_inferred, undefined, node);
+                const alloc = try init_scope.addNode(.alloc_inferred, node);
                 resolve_inferred_alloc = alloc;
                 init_scope.rl_ptr = alloc;
             }
@@ -1559,7 +1559,7 @@ fn varDecl(
                 const alloc = try gz.addUnNode(.alloc_mut, type_inst, node);
                 break :a .{ .alloc = alloc, .result_loc = .{ .ptr = alloc } };
             } else a: {
-                const alloc = try gz.addUnNode(.alloc_inferred_mut, undefined, node);
+                const alloc = try gz.addNode(.alloc_inferred_mut, node);
                 resolve_inferred_alloc = alloc;
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };
