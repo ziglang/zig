@@ -691,7 +691,7 @@ pub const Type = extern union {
                     return struct_obj.owner_decl.renderFullyQualifiedName(writer);
                 },
                 .enum_full, .enum_nonexhaustive => {
-                    const enum_full = ty.castTag(.enum_full).?.data;
+                    const enum_full = ty.cast(Payload.EnumFull).?.data;
                     return enum_full.owner_decl.renderFullyQualifiedName(writer);
                 },
                 .enum_simple => {
@@ -1344,7 +1344,7 @@ pub const Type = extern union {
     /// Asserts the type is an enum.
     pub fn intTagType(self: Type, buffer: *Payload.Bits) Type {
         switch (self.tag()) {
-            .enum_full, .enum_nonexhaustive => return self.castTag(.enum_full).?.data.tag_ty,
+            .enum_full, .enum_nonexhaustive => return self.cast(Payload.EnumFull).?.data.tag_ty,
             .enum_simple => {
                 const enum_simple = self.castTag(.enum_simple).?.data;
                 const bits = std.math.log2_int_ceil(usize, enum_simple.fields.count());
@@ -1969,7 +1969,7 @@ pub const Type = extern union {
                     return null;
                 }
             },
-            .enum_nonexhaustive => ty = ty.castTag(.enum_full).?.data.tag_ty,
+            .enum_nonexhaustive => ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty,
 
             .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
             .void => return Value.initTag(.void_value),

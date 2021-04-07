@@ -1918,11 +1918,20 @@ fn zirEnumToInt(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErr
             switch (enum_tag.ty.tag()) {
                 .enum_full => {
                     const enum_full = enum_tag.ty.castTag(.enum_full).?.data;
-                    const val = enum_full.values.entries.items[field_index].key;
-                    return mod.constInst(arena, src, .{
-                        .ty = int_tag_ty,
-                        .val = val,
-                    });
+                    if (enum_full.values.count() != 0) {
+                        const val = enum_full.values.entries.items[field_index].key;
+                        return mod.constInst(arena, src, .{
+                            .ty = int_tag_ty,
+                            .val = val,
+                        });
+                    } else {
+                        // Field index and integer values are the same.
+                        const val = try Value.Tag.int_u64.create(arena, field_index);
+                        return mod.constInst(arena, src, .{
+                            .ty = int_tag_ty,
+                            .val = val,
+                        });
+                    }
                 },
                 .enum_simple => {
                     // Field index and integer values are the same.

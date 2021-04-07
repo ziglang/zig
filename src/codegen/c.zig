@@ -172,7 +172,10 @@ pub const DeclGen = struct {
         val: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
         if (val.isUndef()) {
-            return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: properly handle undefined in all cases (with debug safety?)", .{});
+            // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
+            // lower to leaving variables uninitialized (that might need to be implemented
+            // outside of this function).
+            return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement renderValue undef", .{});
         }
         switch (t.zigTypeTag()) {
             .Int => {
@@ -286,6 +289,31 @@ pub const DeclGen = struct {
                         data,
                     );
                     try writer.writeAll(", .error = 0 }");
+                }
+            },
+            .Enum => {
+                switch (val.tag()) {
+                    .enum_field_index => {
+                        const field_index = val.castTag(.enum_field_index).?.data;
+                        switch (t.tag()) {
+                            .enum_simple => return writer.print("{d}", .{field_index}),
+                            .enum_full, .enum_nonexhaustive => {
+                                const enum_full = t.cast(Type.Payload.EnumFull).?.data;
+                                if (enum_full.values.count() != 0) {
+                                    const tag_val = enum_full.values.entries.items[field_index].key;
+                                    return dg.renderValue(writer, enum_full.tag_ty, tag_val);
+                                } else {
+                                    return writer.print("{d}", .{field_index});
+                                }
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    else => {
+                        var int_tag_ty_buffer: Type.Payload.Bits = undefined;
+                        const int_tag_ty = t.intTagType(&int_tag_ty_buffer);
+                        return dg.renderValue(writer, int_tag_ty, val);
+                    },
                 }
             },
             else => |e| return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement value {s}", .{
@@ -471,6 +499,13 @@ pub const DeclGen = struct {
                 try dg.typedefs.ensureCapacity(dg.typedefs.capacity() + 1);
                 try w.writeAll(name);
                 dg.typedefs.putAssumeCapacityNoClobber(t, .{ .name = name, .rendered = rendered });
+            },
+            .Enum => {
+                // For enums, we simply use the integer tag type.
+                var int_tag_ty_buffer: Type.Payload.Bits = undefined;
+                const int_tag_ty = t.intTagType(&int_tag_ty_buffer);
+
+                try dg.renderType(w, int_tag_ty);
             },
             .Null, .Undefined => unreachable, // must be const or comptime
             else => |e| return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type {s}", .{
