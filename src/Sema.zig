@@ -4702,6 +4702,60 @@ fn coerce(
                 }
             }
         },
+        .Enum => {
+            if (inst.ty.zigTypeTag() == .EnumLiteral) {
+                const val = (try sema.resolveDefinedValue(block, inst_src, inst)).?;
+                const bytes = val.castTag(.enum_literal).?.data;
+                switch (dest_type.tag()) {
+                    .enum_full => {
+                        const enumeration = dest_type.castTag(.enum_full).?.data;
+                        const enum_fields = enumeration.fields;
+                        const i = enum_fields.getIndex(bytes) orelse return sema.mod.fail(
+                            &block.base,
+                            inst_src,
+                            "enum '{s}' has no field named '{s}'",
+                            .{ enumeration.owner_decl.name, bytes },
+                        );
+                        const val_pl = try Value.Tag.enum_field_index.create(sema.arena, @intCast(u32, i));
+                        return sema.mod.constInst(sema.arena, inst_src, .{
+                            .ty = dest_type,
+                            .val = val_pl,
+                        });
+                    },
+                    .enum_simple => {
+                        const enumeration = dest_type.castTag(.enum_simple).?.data;
+                        const enum_fields = enumeration.fields;
+                        const i = enum_fields.getIndex(bytes) orelse return sema.mod.fail(
+                            &block.base,
+                            inst_src,
+                            "enum '{s}' has no field named '{s}'",
+                            .{ enumeration.owner_decl.name, bytes },
+                        );
+                        const val_pl = try Value.Tag.enum_field_index.create(sema.arena, @intCast(u32, i));
+                        return sema.mod.constInst(sema.arena, inst_src, .{
+                            .ty = dest_type,
+                            .val = val_pl,
+                        });
+                    },
+                    .enum_nonexhaustive => {
+                        const enumeration = dest_type.castTag(.enum_nonexhaustive).?.data;
+                        const enum_fields = enumeration.fields;
+                        const i = enum_fields.getIndex(bytes) orelse return sema.mod.fail(
+                            &block.base,
+                            inst_src,
+                            "enum '{s}' has no field named '{s}'",
+                            .{ enumeration.owner_decl.name, bytes },
+                        );
+                        const val_pl = try Value.Tag.enum_field_index.create(sema.arena, @intCast(u32, i));
+                        return sema.mod.constInst(sema.arena, inst_src, .{
+                            .ty = dest_type,
+                            .val = val_pl,
+                        });
+                    },
+                    else => unreachable,
+                }
+            }
+        },
         else => {},
     }
 
