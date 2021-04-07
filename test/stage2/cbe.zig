@@ -552,7 +552,11 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (@enumToInt(number3) != 2) return 1;
             \\    var x: Number = .Two;
             \\    if (number2 != x) return 1;
-            \\    return 0;
+            \\    switch (x) {
+            \\        .One => return 1,
+            \\        .Two => return 0,
+            \\        number3 => return 2,
+            \\    }
             \\}
         , "");
     }

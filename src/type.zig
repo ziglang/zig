@@ -2126,6 +2126,34 @@ pub const Type = extern union {
         };
     }
 
+    pub fn enumFieldCount(ty: Type) usize {
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Payload.EnumFull).?.data;
+                return enum_full.fields.count();
+            },
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                return enum_simple.fields.count();
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn enumFieldName(ty: Type, field_index: usize) []const u8 {
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Payload.EnumFull).?.data;
+                return enum_full.fields.entries.items[field_index].key;
+            },
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                return enum_simple.fields.entries.items[field_index].key;
+            },
+            else => unreachable,
+        }
+    }
+
     pub fn enumFieldIndex(ty: Type, field_name: []const u8) ?usize {
         switch (ty.tag()) {
             .enum_full, .enum_nonexhaustive => {
@@ -2135,6 +2163,42 @@ pub const Type = extern union {
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.getIndex(field_name);
+            },
+            else => unreachable,
+        }
+    }
+
+    /// Asserts `ty` is an enum. `enum_tag` can either be `enum_field_index` or
+    /// an integer which represents the enum value. Returns the field index in
+    /// declaration order, or `null` if `enum_tag` does not match any field.
+    pub fn enumTagFieldIndex(ty: Type, enum_tag: Value) ?usize {
+        if (enum_tag.castTag(.enum_field_index)) |payload| {
+            return @as(usize, payload.data);
+        }
+        const S = struct {
+            fn fieldWithRange(int_val: Value, end: usize) ?usize {
+                if (int_val.compareWithZero(.lt)) return null;
+                var end_payload: Value.Payload.U64 = .{
+                    .base = .{ .tag = .int_u64 },
+                    .data = end,
+                };
+                const end_val = Value.initPayload(&end_payload.base);
+                if (int_val.compare(.gte, end_val)) return null;
+                return int_val.toUnsignedInt();
+            }
+        };
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Payload.EnumFull).?.data;
+                if (enum_full.values.count() == 0) {
+                    return S.fieldWithRange(enum_tag, enum_full.fields.count());
+                } else {
+                    return enum_full.values.getIndex(enum_tag);
+                }
+            },
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                return S.fieldWithRange(enum_tag, enum_simple.fields.count());
             },
             else => unreachable,
         }
