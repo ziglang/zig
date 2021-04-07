@@ -634,13 +634,13 @@ pub const Type = extern union {
     }
 
     pub fn format(
-        self: Type,
+        start_type: Type,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         comptime assert(fmt.len == 0);
-        var ty = self;
+        var ty = start_type;
         while (true) {
             const t = ty.tag();
             switch (t) {
@@ -687,15 +687,15 @@ pub const Type = extern union {
                 .empty_struct, .empty_struct_literal => return writer.writeAll("struct {}"),
 
                 .@"struct" => {
-                    const struct_obj = self.castTag(.@"struct").?.data;
+                    const struct_obj = ty.castTag(.@"struct").?.data;
                     return struct_obj.owner_decl.renderFullyQualifiedName(writer);
                 },
                 .enum_full, .enum_nonexhaustive => {
-                    const enum_full = self.castTag(.enum_full).?.data;
+                    const enum_full = ty.castTag(.enum_full).?.data;
                     return enum_full.owner_decl.renderFullyQualifiedName(writer);
                 },
                 .enum_simple => {
-                    const enum_simple = self.castTag(.enum_simple).?.data;
+                    const enum_simple = ty.castTag(.enum_simple).?.data;
                     return enum_simple.owner_decl.renderFullyQualifiedName(writer);
                 },
                 .@"opaque" => {
@@ -1886,8 +1886,8 @@ pub const Type = extern union {
         };
     }
 
-    pub fn onePossibleValue(self: Type) ?Value {
-        var ty = self;
+    pub fn onePossibleValue(starting_type: Type) ?Value {
+        var ty = starting_type;
         while (true) switch (ty.tag()) {
             .f16,
             .f32,
@@ -1954,7 +1954,7 @@ pub const Type = extern union {
                 return Value.initTag(.empty_struct_value);
             },
             .enum_full => {
-                const enum_full = self.castTag(.enum_full).?.data;
+                const enum_full = ty.castTag(.enum_full).?.data;
                 if (enum_full.fields.count() == 1) {
                     return enum_full.values.entries.items[0].key;
                 } else {
@@ -1962,14 +1962,14 @@ pub const Type = extern union {
                 }
             },
             .enum_simple => {
-                const enum_simple = self.castTag(.enum_simple).?.data;
+                const enum_simple = ty.castTag(.enum_simple).?.data;
                 if (enum_simple.fields.count() == 1) {
                     return Value.initTag(.zero);
                 } else {
                     return null;
                 }
             },
-            .enum_nonexhaustive => return self.castTag(.enum_full).?.data.tag_ty.onePossibleValue(),
+            .enum_nonexhaustive => ty = ty.castTag(.enum_full).?.data.tag_ty,
 
             .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
             .void => return Value.initTag(.void_value),
@@ -2016,15 +2016,15 @@ pub const Type = extern union {
             (self.isSinglePointer() and self.elemType().zigTypeTag() == .Array);
     }
 
-    /// Asserts that the type is a container. (note: ErrorSet is not a container).
-    pub fn getContainerScope(self: Type) *Module.Scope.Container {
+    /// Returns null if the type has no container.
+    pub fn getContainerScope(self: Type) ?*Module.Scope.Container {
         return switch (self.tag()) {
             .@"struct" => &self.castTag(.@"struct").?.data.container,
             .enum_full => &self.castTag(.enum_full).?.data.container,
             .empty_struct => self.castTag(.empty_struct).?.data,
             .@"opaque" => &self.castTag(.@"opaque").?.data,
 
-            else => unreachable,
+            else => null,
         };
     }
 

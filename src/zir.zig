@@ -1572,6 +1572,7 @@ const Writer = struct {
             .intcast,
             .store,
             .store_to_block_ptr,
+            .store_to_inferred_ptr,
             => try self.writeBin(stream, inst),
 
             .alloc,
@@ -1769,7 +1770,6 @@ const Writer = struct {
 
             .bitcast,
             .bitcast_result_ptr,
-            .store_to_inferred_ptr,
             => try stream.writeAll("TODO)"),
         }
     }

@@ -4351,22 +4351,25 @@ fn namedFieldPtr(
     field_name: []const u8,
     field_name_src: LazySrcLoc,
 ) InnerError!*Inst {
+    const mod = sema.mod;
+    const arena = sema.arena;
+
     const elem_ty = switch (object_ptr.ty.zigTypeTag()) {
         .Pointer => object_ptr.ty.elemType(),
-        else => return sema.mod.fail(&block.base, object_ptr.src, "expected pointer, found '{}'", .{object_ptr.ty}),
+        else => return mod.fail(&block.base, object_ptr.src, "expected pointer, found '{}'", .{object_ptr.ty}),
     };
     switch (elem_ty.zigTypeTag()) {
         .Array => {
             if (mem.eql(u8, field_name, "len")) {
-                return sema.mod.constInst(sema.arena, src, .{
+                return mod.constInst(arena, src, .{
                     .ty = Type.initTag(.single_const_pointer_to_comptime_int),
                     .val = try Value.Tag.ref_val.create(
-                        sema.arena,
-                        try Value.Tag.int_u64.create(sema.arena, elem_ty.arrayLen()),
+                        arena,
+                        try Value.Tag.int_u64.create(arena, elem_ty.arrayLen()),
                     ),
                 });
             } else {
-                return sema.mod.fail(
+                return mod.fail(
                     &block.base,
                     field_name_src,
                     "no member named '{s}' in '{}'",
@@ -4379,15 +4382,15 @@ fn namedFieldPtr(
             switch (ptr_child.zigTypeTag()) {
                 .Array => {
                     if (mem.eql(u8, field_name, "len")) {
-                        return sema.mod.constInst(sema.arena, src, .{
+                        return mod.constInst(arena, src, .{
                             .ty = Type.initTag(.single_const_pointer_to_comptime_int),
                             .val = try Value.Tag.ref_val.create(
-                                sema.arena,
-                                try Value.Tag.int_u64.create(sema.arena, ptr_child.arrayLen()),
+                                arena,
+                                try Value.Tag.int_u64.create(arena, ptr_child.arrayLen()),
                             ),
                         });
                     } else {
-                        return sema.mod.fail(
+                        return mod.fail(
                             &block.base,
                             field_name_src,
                             "no member named '{s}' in '{}'",
@@ -4402,7 +4405,7 @@ fn namedFieldPtr(
             _ = try sema.resolveConstValue(block, object_ptr.src, object_ptr);
             const result = try sema.analyzeLoad(block, src, object_ptr, object_ptr.src);
             const val = result.value().?;
-            const child_type = try val.toType(sema.arena);
+            const child_type = try val.toType(arena);
             switch (child_type.zigTypeTag()) {
                 .ErrorSet => {
                     // TODO resolve inferred error sets
@@ -4416,42 +4419,87 @@ fn namedFieldPtr(
                                 break :blk name;
                             }
                         }
-                        return sema.mod.fail(&block.base, src, "no error named '{s}' in '{}'", .{
+                        return mod.fail(&block.base, src, "no error named '{s}' in '{}'", .{
                             field_name,
                             child_type,
                         });
-                    } else (try sema.mod.getErrorValue(field_name)).key;
+                    } else (try mod.getErrorValue(field_name)).key;
 
-                    return sema.mod.constInst(sema.arena, src, .{
-                        .ty = try sema.mod.simplePtrType(sema.arena, child_type, false, .One),
+                    return mod.constInst(arena, src, .{
+                        .ty = try mod.simplePtrType(arena, child_type, false, .One),
                         .val = try Value.Tag.ref_val.create(
-                            sema.arena,
-                            try Value.Tag.@"error".create(sema.arena, .{
+                            arena,
+                            try Value.Tag.@"error".create(arena, .{
                                 .name = name,
                             }),
                         ),
                     });
                 },
-                .Struct => {
-                    const container_scope = child_type.getContainerScope();
-                    if (sema.mod.lookupDeclName(&container_scope.base, field_name)) |decl| {
-                        // TODO if !decl.is_pub and inDifferentFiles() "{} is private"
-                        return sema.analyzeDeclRef(block, src, decl);
-                    }
+                .Struct, .Opaque, .Union => {
+                    if (child_type.getContainerScope()) |container_scope| {
+                        if (mod.lookupDeclName(&container_scope.base, field_name)) |decl| {
+                            // TODO if !decl.is_pub and inDifferentFiles() "{} is private"
+                            return sema.analyzeDeclRef(block, src, decl);
+                        }
 
-                    if (container_scope.file_scope == sema.mod.root_scope) {
-                        return sema.mod.fail(&block.base, src, "root source file has no member called '{s}'", .{field_name});
-                    } else {
-                        return sema.mod.fail(&block.base, src, "container '{}' has no member called '{s}'", .{ child_type, field_name });
+                        // TODO this will give false positives for structs inside the root file
+                        if (container_scope.file_scope == mod.root_scope) {
+                            return mod.fail(
+                                &block.base,
+                                src,
+                                "root source file has no member named '{s}'",
+                                .{field_name},
+                            );
+                        }
                     }
+                    // TODO add note: declared here
+                    const kw_name = switch (child_type.zigTypeTag()) {
+                        .Struct => "struct",
+                        .Opaque => "opaque",
+                        .Union => "union",
+                        else => unreachable,
+                    };
+                    return mod.fail(&block.base, src, "{s} '{}' has no member named '{s}'", .{
+                        kw_name, child_type, field_name,
+                    });
                 },
-                else => return sema.mod.fail(&block.base, src, "type '{}' does not support field access", .{child_type}),
+                .Enum => {
+                    if (child_type.getContainerScope()) |container_scope| {
+                        if (mod.lookupDeclName(&container_scope.base, field_name)) |decl| {
+                            // TODO if !decl.is_pub and inDifferentFiles() "{} is private"
+                            return sema.analyzeDeclRef(block, src, decl);
+                        }
+                    }
+                    const maybe_field_index: ?usize = switch (child_type.tag()) {
+                        .enum_full, .enum_nonexhaustive => blk: {
+                            const enum_full = child_type.castTag(.enum_full).?.data;
+                            break :blk enum_full.fields.getIndex(field_name);
+                        },
+                        .enum_simple => blk: {
+                            const enum_simple = child_type.castTag(.enum_simple).?.data;
+                            break :blk enum_simple.fields.getIndex(field_name);
+                        },
+                        else => unreachable,
+                    };
+                    const field_index = maybe_field_index orelse {
+                        return mod.fail(&block.base, src, "enum '{}' has no member named '{s}'", .{
+                            child_type, field_name,
+                        });
+                    };
+                    const field_index_u32 = @intCast(u32, field_index);
+                    const enum_val = try Value.Tag.enum_field_index.create(arena, field_index_u32);
+                    return mod.constInst(arena, src, .{
+                        .ty = try mod.simplePtrType(arena, child_type, false, .One),
+                        .val = try Value.Tag.ref_val.create(arena, enum_val),
+                    });
+                },
+                else => return mod.fail(&block.base, src, "type '{}' has no members", .{child_type}),
             }
         },
         .Struct => return sema.analyzeStructFieldPtr(block, src, object_ptr, field_name, field_name_src, elem_ty),
         else => {},
     }
-    return sema.mod.fail(&block.base, src, "type '{}' does not support field access", .{elem_ty});
+    return mod.fail(&block.base, src, "type '{}' does not support field access", .{elem_ty});
 }
 
 fn analyzeStructFieldPtr(
