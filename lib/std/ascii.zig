@@ -321,7 +321,7 @@ test "allocUpperString" {
 }
 
 /// Compares strings `a` and `b` case insensitively and returns whether they are equal.
-pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
+pub fn eqlInsensitive(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
     for (a) |a_c, i| {
         if (toLower(a_c) != toLower(b[i])) return false;
@@ -329,59 +329,59 @@ pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
     return true;
 }
 
-test "eqlIgnoreCase" {
-    std.testing.expect(eqlIgnoreCase("HEl💩Lo!", "hel💩lo!"));
-    std.testing.expect(!eqlIgnoreCase("hElLo!", "hello! "));
-    std.testing.expect(!eqlIgnoreCase("hElLo!", "helro!"));
+test "eqlInsensitive" {
+    std.testing.expect(eqlInsensitive("HEl💩Lo!", "hel💩lo!"));
+    std.testing.expect(!eqlInsensitive("hElLo!", "hello! "));
+    std.testing.expect(!eqlInsensitive("hElLo!", "helro!"));
 }
 
-pub fn startsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
-    return if (needle.len > haystack.len) false else eqlIgnoreCase(haystack[0..needle.len], needle);
+pub fn startsWithInsensitive(haystack: []const u8, needle: []const u8) bool {
+    return if (needle.len > haystack.len) false else eqlInsensitive(haystack[0..needle.len], needle);
 }
 
-test "ascii.startsWithIgnoreCase" {
-    std.testing.expect(startsWithIgnoreCase("boB", "Bo"));
-    std.testing.expect(!startsWithIgnoreCase("Needle in hAyStAcK", "haystack"));
+test "ascii.startsWithInsensitive" {
+    std.testing.expect(startsWithInsensitive("boB", "Bo"));
+    std.testing.expect(!startsWithInsensitive("Needle in hAyStAcK", "haystack"));
 }
 
-pub fn endsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
-    return if (needle.len > haystack.len) false else eqlIgnoreCase(haystack[haystack.len - needle.len ..], needle);
+pub fn endsWithInsensitive(haystack: []const u8, needle: []const u8) bool {
+    return if (needle.len > haystack.len) false else eqlInsensitive(haystack[haystack.len - needle.len ..], needle);
 }
 
-test "ascii.endsWithIgnoreCase" {
-    std.testing.expect(endsWithIgnoreCase("Needle in HaYsTaCk", "haystack"));
-    std.testing.expect(!endsWithIgnoreCase("BoB", "Bo"));
+test "ascii.endsWithInsensitive" {
+    std.testing.expect(endsWithInsensitive("Needle in HaYsTaCk", "haystack"));
+    std.testing.expect(!endsWithInsensitive("BoB", "Bo"));
 }
 
 /// Finds `substr` in `container`, ignoring case, starting at `start_index`.
 /// TODO boyer-moore algorithm
-pub fn indexOfIgnoreCasePos(container: []const u8, start_index: usize, substr: []const u8) ?usize {
+pub fn indexOfInsensitivePos(container: []const u8, start_index: usize, substr: []const u8) ?usize {
     if (substr.len > container.len) return null;
 
     var i: usize = start_index;
     const end = container.len - substr.len;
     while (i <= end) : (i += 1) {
-        if (eqlIgnoreCase(container[i .. i + substr.len], substr)) return i;
+        if (eqlInsensitive(container[i .. i + substr.len], substr)) return i;
     }
     return null;
 }
 
 /// Finds `substr` in `container`, ignoring case, starting at index 0.
-pub fn indexOfIgnoreCase(container: []const u8, substr: []const u8) ?usize {
-    return indexOfIgnoreCasePos(container, 0, substr);
+pub fn indexOfInsensitive(container: []const u8, substr: []const u8) ?usize {
+    return indexOfInsensitivePos(container, 0, substr);
 }
 
-test "indexOfIgnoreCase" {
-    std.testing.expect(indexOfIgnoreCase("one Two Three Four", "foUr").? == 14);
-    std.testing.expect(indexOfIgnoreCase("one two three FouR", "gOur") == null);
-    std.testing.expect(indexOfIgnoreCase("foO", "Foo").? == 0);
-    std.testing.expect(indexOfIgnoreCase("foo", "fool") == null);
+test "indexOfInsensitive" {
+    std.testing.expect(indexOfInsensitive("one Two Three Four", "foUr").? == 14);
+    std.testing.expect(indexOfInsensitive("one two three FouR", "gOur") == null);
+    std.testing.expect(indexOfInsensitive("foO", "Foo").? == 0);
+    std.testing.expect(indexOfInsensitive("foo", "fool") == null);
 
-    std.testing.expect(indexOfIgnoreCase("FOO foo", "fOo").? == 0);
+    std.testing.expect(indexOfInsensitive("FOO foo", "fOo").? == 0);
 }
 
 /// Compares two slices of numbers lexicographically. O(n).
-pub fn orderIgnoreCase(lhs: []const u8, rhs: []const u8) std.math.Order {
+pub fn orderInsensitive(lhs: []const u8, rhs: []const u8) std.math.Order {
     const n = std.math.min(lhs.len, rhs.len);
     var i: usize = 0;
     while (i < n) : (i += 1) {
@@ -395,7 +395,6 @@ pub fn orderIgnoreCase(lhs: []const u8, rhs: []const u8) std.math.Order {
 }
 
 /// Returns true if lhs < rhs, false otherwise
-/// TODO rename "IgnoreCase" to "Insensitive" in this entire file.
-pub fn lessThanIgnoreCase(lhs: []const u8, rhs: []const u8) bool {
-    return orderIgnoreCase(lhs, rhs) == .lt;
+pub fn lessThanInsensitive(lhs: []const u8, rhs: []const u8) bool {
+    return orderInsensitive(lhs, rhs) == .lt;
 }

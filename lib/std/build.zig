@@ -1696,14 +1696,14 @@ pub const LibExeObjStep = struct {
 
             // Next we'll try ignoring case.
             for (pkgs) |pkg| {
-                if (std.ascii.eqlIgnoreCase(pkg.name, lib_name)) {
+                if (std.ascii.eqlInsensitive(pkg.name, lib_name)) {
                     break :match pkg.name;
                 }
             }
 
             // Now try appending ".0".
             for (pkgs) |pkg| {
-                if (std.ascii.indexOfIgnoreCase(pkg.name, lib_name)) |pos| {
+                if (std.ascii.indexOfInsensitive(pkg.name, lib_name)) |pos| {
                     if (pos != 0) continue;
                     if (mem.eql(u8, pkg.name[lib_name.len..], ".0")) {
                         break :match pkg.name;
@@ -1715,7 +1715,7 @@ pub const LibExeObjStep = struct {
             if (mem.endsWith(u8, lib_name, "-1.0")) {
                 const trimmed_lib_name = lib_name[0 .. lib_name.len - "-1.0".len];
                 for (pkgs) |pkg| {
-                    if (std.ascii.eqlIgnoreCase(pkg.name, trimmed_lib_name)) {
+                    if (std.ascii.eqlInsensitive(pkg.name, trimmed_lib_name)) {
                         break :match pkg.name;
                     }
                 }

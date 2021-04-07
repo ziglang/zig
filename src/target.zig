@@ -286,7 +286,7 @@ pub fn archToLLVM(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
 
 fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
     if (ignore_case) {
-        return std.ascii.eqlIgnoreCase(a, b);
+        return std.ascii.eqlInsensitive(a, b);
     } else {
         return std.mem.eql(u8, a, b);
     }
