@@ -2863,8 +2863,9 @@ fn astgenAndSemaFn(
 
         _ = try AstGen.expr(&gen_scope, params_scope, .none, body_node);
 
-        if (gen_scope.instructions.items.len == 0 or
-            !astgen.instructions.items(.tag)[gen_scope.instructions.items.len - 1]
+        const inst_tags = astgen.instructions.items(.tag);
+        if (inst_tags.len == 0 or
+            !inst_tags[inst_tags.len - 1]
             .isNoReturn())
         {
             // astgen uses result location semantics to coerce return operands.
