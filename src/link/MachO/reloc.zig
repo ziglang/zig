@@ -3,6 +3,7 @@ const aarch64 = @import("../../codegen/aarch64.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.reloc);
 const macho = std.macho;
+const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
 
@@ -10,7 +11,7 @@ const Allocator = mem.Allocator;
 
 pub const Relocation = struct {
     @"type": Type,
-    code: *[]u8,
+    code: []u8,
     offset: u32,
     target: Target,
 
@@ -24,20 +25,26 @@ pub const Relocation = struct {
     pub const ResolveArgs = struct {
         source_addr: u64,
         target_addr: u64,
-        subtractor: i64 = undefined,
+        subtractor: ?u64,
     };
 
     pub fn resolve(base: *Relocation, args: ResolveArgs) !void {
-        switch (base.@"type") {
-            .branch => try base.cast(Branch).?.resolve(args.source_addr, args.target_addr),
-            .unsigned => try base.cast(Unsigned).?.resolve(args.target_addr, args.subtractor),
-            .page => try base.cast(Page).?.resolve(args.source_addr, args.target_addr),
-            .page_off => try base.cast(PageOff).?.resolve(args.target_addr),
-            .got_page => try base.cast(GotPage).?.resolve(args.source_addr, args.target_addr),
-            .got_page_off => try base.cast(GotPageOff).?.resolve(args.target_addr),
-            .tlvp_page => try base.cast(TlvpPage).?.resolve(args.source_addr, args.target_addr),
-            .tlvp_page_off => try base.cast(TlvpPageOff).?.resolve(args.target_addr),
-        }
+        log.warn("{s}", .{base.@"type"});
+        log.warn("    | offset 0x{x}", .{base.offset});
+        log.warn("    | source address 0x{x}", .{args.source_addr});
+        log.warn("    | target address 0x{x}", .{args.target_addr});
+        log.warn("    | subtractor address 0x{x}", .{args.subtractor});
+
+        return switch (base.@"type") {
+            .branch => @fieldParentPtr(Branch, "base", base).resolve(args.source_addr, args.target_addr),
+            .unsigned => @fieldParentPtr(Unsigned, "base", base).resolve(args.target_addr, args.subtractor),
+            .page => @fieldParentPtr(Page, "base", base).resolve(args.source_addr, args.target_addr),
+            .page_off => @fieldParentPtr(PageOff, "base", base).resolve(args.target_addr),
+            .got_page => @fieldParentPtr(GotPage, "base", base).resolve(args.source_addr, args.target_addr),
+            .got_page_off => @fieldParentPtr(GotPageOff, "base", base).resolve(args.target_addr),
+            .tlvp_page => @fieldParentPtr(TlvpPage, "base", base).resolve(args.source_addr, args.target_addr),
+            .tlvp_page_off => @fieldParentPtr(TlvpPageOff, "base", base).resolve(args.target_addr),
+        };
     }
 
     pub const Type = enum {
@@ -73,9 +80,12 @@ pub const Relocation = struct {
 
         pub fn resolve(branch: Branch, source_addr: u64, target_addr: u64) !void {
             const displacement = try math.cast(i28, @intCast(i64, target_addr) - @intCast(i64, source_addr));
+
+            log.warn("    | displacement 0x{x}", .{displacement});
+
             var inst = branch.inst;
-            inst.AddSubtractImmediate.imm26 = @truncate(u26, @bitCast(u28, displacement) >> 2);
-            mem.writeIntLittle(u32, branch.base.code.*[branch.base.offset..], inst.toU32());
+            inst.UnconditionalBranchImmediate.imm26 = @truncate(u26, @bitCast(u28, displacement) >> 2);
+            mem.writeIntLittle(u32, branch.base.code[0..4], inst.toU32());
         }
     };
 
@@ -92,22 +102,25 @@ pub const Relocation = struct {
 
         pub const base_type: Relocation.Type = .unsigned;
 
-        pub fn resolve(unsigned: Unsigned, target_addr: u64, subtractor: i64) !void {
-            const result = @intCast(i64, target_addr) - subtractor + unsigned.addend;
+        pub fn resolve(unsigned: Unsigned, target_addr: u64, subtractor: ?u64) !void {
+            const result = if (subtractor) |sub|
+                @intCast(i64, target_addr) - @intCast(i64, sub) + unsigned.addend
+            else
+                @intCast(i64, target_addr) + unsigned.addend;
 
-            log.debug("    | calculated addend 0x{x}", .{unsigned.addend});
-            log.debug("    | calculated unsigned value 0x{x}", .{result});
+            log.warn("    | calculated addend 0x{x}", .{unsigned.addend});
+            log.warn("    | calculated unsigned value 0x{x}", .{result});
 
             if (unsigned.is_64bit) {
                 mem.writeIntLittle(
                     u64,
-                    unsigned.base.code.*[unsigned.base.offset..],
+                    unsigned.base.code[0..8],
                     @bitCast(u64, result),
                 );
             } else {
                 mem.writeIntLittle(
                     u32,
-                    unsigned.base.code.*[unsigned.base.offset..],
+                    unsigned.base.code[0..4],
                     @truncate(u32, @bitCast(u64, result)),
                 );
             }
@@ -128,13 +141,14 @@ pub const Relocation = struct {
             const target_page = @intCast(i32, ta >> 12);
             const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
 
-            log.debug("    | moving by {} pages", .{pages});
+            log.warn("    | calculated addend 0x{x}", .{page.addend});
+            log.warn("    | moving by {} pages", .{pages});
 
             var inst = page.inst;
             inst.PCRelativeAddress.immhi = @truncate(u19, pages >> 2);
             inst.PCRelativeAddress.immlo = @truncate(u2, pages);
 
-            mem.writeIntLittle(u32, page.base.code.*[page.base.offset..], inst.toU32());
+            mem.writeIntLittle(u32, page.base.code[0..4], inst.toU32());
         }
     };
 
@@ -155,8 +169,8 @@ pub const Relocation = struct {
             const ta = if (page_off.addend) |a| target_addr + a else target_addr;
             const narrowed = @truncate(u12, ta);
 
-            log.debug("    | narrowed address within the page 0x{x}", .{narrowed});
-            log.debug("    | {s} opcode", .{page_off.op_kind});
+            log.warn("    | narrowed address within the page 0x{x}", .{narrowed});
+            log.warn("    | {s} opcode", .{page_off.op_kind});
 
             var inst = page_off.inst;
             if (page_off.op_kind == .arithmetic) {
@@ -178,7 +192,7 @@ pub const Relocation = struct {
                 inst.LoadStoreRegister.offset = offset;
             }
 
-            mem.writeIntLittle(u32, page_off.base.code.*[page_off.base.offset..], inst.toU32());
+            mem.writeIntLittle(u32, page_off.base.code[0..4], inst.toU32());
         }
     };
 
@@ -194,13 +208,13 @@ pub const Relocation = struct {
             const target_page = @intCast(i32, target_addr >> 12);
             const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
 
-            log.debug("    | moving by {} pages", .{pages});
+            log.warn("    | moving by {} pages", .{pages});
 
             var inst = page.inst;
             inst.PCRelativeAddress.immhi = @truncate(u19, pages >> 2);
             inst.PCRelativeAddress.immlo = @truncate(u2, pages);
 
-            mem.writeIntLittle(u32, page.base.code.*[page.base.offset..], inst.toU32());
+            mem.writeIntLittle(u32, page.base.code[0..4], inst.toU32());
         }
     };
 
@@ -214,13 +228,13 @@ pub const Relocation = struct {
         pub fn resolve(page_off: GotPageOff, target_addr: u64) !void {
             const narrowed = @truncate(u12, target_addr);
 
-            log.debug("    | narrowed address within the page 0x{x}", .{narrowed});
+            log.warn("    | narrowed address within the page 0x{x}", .{narrowed});
 
             var inst = page_off.inst;
             const offset = try math.divExact(u12, narrowed, 8);
             inst.LoadStoreRegister.offset = offset;
 
-            mem.writeIntLittle(u32, page_off.base.code.*[page_off.base.offset..], inst.toU32());
+            mem.writeIntLittle(u32, page_off.base.code[0..4], inst.toU32());
         }
     };
 
@@ -236,13 +250,13 @@ pub const Relocation = struct {
             const target_page = @intCast(i32, target_addr >> 12);
             const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
 
-            log.debug("    | moving by {} pages", .{pages});
+            log.warn("    | moving by {} pages", .{pages});
 
             var inst = page.inst;
             inst.PCRelativeAddress.immhi = @truncate(u19, pages >> 2);
             inst.PCRelativeAddress.immlo = @truncate(u2, pages);
 
-            mem.writeIntLittle(u32, page.base.code.*[page.base.offset..], inst.toU32());
+            mem.writeIntLittle(u32, page.base.code[0..4], inst.toU32());
         }
     };
 
@@ -258,17 +272,17 @@ pub const Relocation = struct {
         pub fn resolve(page_off: TlvpPageOff, target_addr: u64) !void {
             const narrowed = @truncate(u12, target_addr);
 
-            log.debug("    | narrowed address within the page 0x{x}", .{narrowed});
+            log.warn("    | narrowed address within the page 0x{x}", .{narrowed});
 
             var inst = page_off.inst;
             inst.AddSubtractImmediate.imm12 = narrowed;
 
-            mem.writeIntLittle(u32, page_off.base.code.*[page_off.base.offset..], inst.toU32());
+            mem.writeIntLittle(u32, page_off.base.code[0..4], inst.toU32());
         }
     };
 };
 
-pub fn parse(allocator: *Allocator, code: *[]u8, relocs: []const macho.relocation_info) ![]*Relocation {
+pub fn parse(allocator: *Allocator, code: []u8, relocs: []const macho.relocation_info) ![]*Relocation {
     var it = RelocIterator{
         .buffer = relocs,
     };
@@ -280,8 +294,9 @@ pub fn parse(allocator: *Allocator, code: *[]u8, relocs: []const macho.relocatio
         .parsed = std.ArrayList(*Relocation).init(allocator),
     };
     defer parser.deinit();
+    try parser.parse();
 
-    return parser.parse();
+    return parser.parsed.toOwnedSlice();
 }
 
 const RelocIterator = struct {
@@ -292,12 +307,12 @@ const RelocIterator = struct {
         self.index += 1;
         if (self.index < self.buffer.len) {
             const reloc = self.buffer[@intCast(u64, self.index)];
-            log.debug("{s}", .{@intToEnum(macho.reloc_type_arm64, reloc.r_type)});
-            log.debug("    | offset = {}", .{reloc.r_address});
-            log.debug("    | PC = {}", .{reloc.r_pcrel == 1});
-            log.debug("    | length = {}", .{reloc.r_length});
-            log.debug("    | symbolnum = {}", .{reloc.r_symbolnum});
-            log.debug("    | extern = {}", .{reloc.r_extern == 1});
+            log.warn("{s}", .{@intToEnum(macho.reloc_type_arm64, reloc.r_type)});
+            log.warn("    | offset = {}", .{reloc.r_address});
+            log.warn("    | PC = {}", .{reloc.r_pcrel == 1});
+            log.warn("    | length = {}", .{reloc.r_length});
+            log.warn("    | symbolnum = {}", .{reloc.r_symbolnum});
+            log.warn("    | extern = {}", .{reloc.r_extern == 1});
             return reloc;
         }
         return null;
@@ -316,7 +331,7 @@ const RelocIterator = struct {
 const Parser = struct {
     allocator: *Allocator,
     it: *RelocIterator,
-    code: *[]u8,
+    code: []u8,
     parsed: std.ArrayList(*Relocation),
     addend: ?u32 = null,
     subtractor: ?Relocation.Target = null,
@@ -325,7 +340,7 @@ const Parser = struct {
         parser.parsed.deinit();
     }
 
-    fn parse(parser: *Parser) ![]*Relocation {
+    fn parse(parser: *Parser) !void {
         while (parser.it.next()) |reloc| {
             switch (@intToEnum(macho.reloc_type_arm64, reloc.r_type)) {
                 .ARM64_RELOC_BRANCH26 => {
@@ -360,8 +375,6 @@ const Parser = struct {
                 },
             }
         }
-
-        return parser.parsed.toOwnedSlice();
     }
 
     fn parseAddend(parser: *Parser, reloc: macho.relocation_info) !void {
@@ -395,7 +408,7 @@ const Parser = struct {
         assert(reloc.r_length == 2);
 
         const offset = @intCast(u32, reloc.r_address);
-        const inst = parser.code.*[offset..][0..4];
+        const inst = parser.code[offset..][0..4];
         const parsed_inst = aarch64.Instruction{ .UnconditionalBranchImmediate = mem.bytesToValue(
             meta.TagPayload(
                 aarch64.Instruction,
@@ -412,14 +425,14 @@ const Parser = struct {
         branch.* = .{
             .base = .{
                 .@"type" = .branch,
-                .code = parser.code,
+                .code = inst,
                 .offset = @intCast(u32, reloc.r_address),
                 .target = target,
             },
             .inst = parsed_inst,
         };
 
-        log.debug("    | emitting {}", .{branch});
+        log.warn("    | emitting {}", .{branch});
         try parser.parsed.append(&branch.base);
     }
 
@@ -431,7 +444,7 @@ const Parser = struct {
         const target = Relocation.Target.from_reloc(reloc);
 
         const offset = @intCast(u32, reloc.r_address);
-        const inst = parser.code.*[offset..][0..4];
+        const inst = parser.code[offset..][0..4];
         const parsed_inst = aarch64.Instruction{ .PCRelativeAddress = mem.bytesToValue(meta.TagPayload(
             aarch64.Instruction,
             aarch64.Instruction.PCRelativeAddress,
@@ -450,7 +463,7 @@ const Parser = struct {
                     page.* = .{
                         .base = .{
                             .@"type" = .page,
-                            .code = parser.code,
+                            .code = inst,
                             .offset = offset,
                             .target = target,
                         },
@@ -458,7 +471,7 @@ const Parser = struct {
                         .inst = parsed_inst,
                     };
 
-                    log.debug("    | emitting {}", .{page});
+                    log.warn("    | emitting {}", .{page});
 
                     break :ptr &page.base;
                 },
@@ -469,14 +482,14 @@ const Parser = struct {
                     page.* = .{
                         .base = .{
                             .@"type" = .got_page,
-                            .code = parser.code,
+                            .code = inst,
                             .offset = offset,
                             .target = target,
                         },
                         .inst = parsed_inst,
                     };
 
-                    log.debug("    | emitting {}", .{page});
+                    log.warn("    | emitting {}", .{page});
 
                     break :ptr &page.base;
                 },
@@ -487,14 +500,14 @@ const Parser = struct {
                     page.* = .{
                         .base = .{
                             .@"type" = .tlvp_page,
-                            .code = parser.code,
+                            .code = inst,
                             .offset = offset,
                             .target = target,
                         },
                         .inst = parsed_inst,
                     };
 
-                    log.debug("    | emitting {}", .{page});
+                    log.warn("    | emitting {}", .{page});
 
                     break :ptr &page.base;
                 },
@@ -517,7 +530,7 @@ const Parser = struct {
         assert(reloc.r_length == 2);
 
         const offset = @intCast(u32, reloc.r_address);
-        const inst = parser.code.*[offset..][0..4];
+        const inst = parser.code[offset..][0..4];
 
         var op_kind: Relocation.PageOff.OpKind = undefined;
         var parsed_inst: aarch64.Instruction = undefined;
@@ -542,7 +555,7 @@ const Parser = struct {
         page_off.* = .{
             .base = .{
                 .@"type" = .page_off,
-                .code = parser.code,
+                .code = inst,
                 .offset = offset,
                 .target = target,
             },
@@ -551,7 +564,7 @@ const Parser = struct {
             .addend = parser.addend,
         };
 
-        log.debug("    | emitting {}", .{page_off});
+        log.warn("    | emitting {}", .{page_off});
         try parser.parsed.append(&page_off.base);
     }
 
@@ -562,7 +575,7 @@ const Parser = struct {
         assert(reloc.r_length == 2);
 
         const offset = @intCast(u32, reloc.r_address);
-        const inst = parser.code.*[offset..][0..4];
+        const inst = parser.code[offset..][0..4];
         assert(!isArithmeticOp(inst));
 
         const parsed_inst = mem.bytesToValue(meta.TagPayload(
@@ -579,7 +592,7 @@ const Parser = struct {
         page_off.* = .{
             .base = .{
                 .@"type" = .got_page_off,
-                .code = parser.code,
+                .code = inst,
                 .offset = offset,
                 .target = target,
             },
@@ -588,7 +601,7 @@ const Parser = struct {
             },
         };
 
-        log.debug("    | emitting {}", .{page_off});
+        log.warn("    | emitting {}", .{page_off});
         try parser.parsed.append(&page_off.base);
     }
 
@@ -605,7 +618,7 @@ const Parser = struct {
         };
 
         const offset = @intCast(u32, reloc.r_address);
-        const inst = parser.code.*[offset..][0..4];
+        const inst = parser.code[offset..][0..4];
         const parsed: RegInfo = parsed: {
             if (isArithmeticOp(inst)) {
                 const parsed_inst = mem.bytesAsValue(meta.TagPayload(
@@ -638,7 +651,7 @@ const Parser = struct {
         page_off.* = .{
             .base = .{
                 .@"type" = .tlvp_page_off,
-                .code = parser.code,
+                .code = inst,
                 .offset = @intCast(u32, reloc.r_address),
                 .target = target,
             },
@@ -655,7 +668,7 @@ const Parser = struct {
             },
         };
 
-        log.debug("    | emitting {}", .{page_off});
+        log.warn("    | emitting {}", .{page_off});
         try parser.parsed.append(&page_off.base);
     }
 
@@ -700,14 +713,14 @@ const Parser = struct {
         };
         const offset = @intCast(u32, reloc.r_address);
         const addend: i64 = if (is_64bit)
-            mem.readIntLittle(i64, parser.code.*[offset..][0..8])
+            mem.readIntLittle(i64, parser.code[offset..][0..8])
         else
-            mem.readIntLittle(i32, parser.code.*[offset..][0..4]);
+            mem.readIntLittle(i32, parser.code[offset..][0..4]);
 
         unsigned.* = .{
             .base = .{
                 .@"type" = .unsigned,
-                .code = parser.code,
+                .code = if (is_64bit) parser.code[offset..][0..8] else parser.code[offset..][0..4],
                 .offset = offset,
                 .target = target,
             },
@@ -716,7 +729,7 @@ const Parser = struct {
             .addend = addend,
         };
 
-        log.debug("    | emitting {}", .{unsigned});
+        log.warn("    | emitting {}", .{unsigned});
         try parser.parsed.append(&unsigned.base);
     }
 };

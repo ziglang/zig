@@ -16,6 +16,7 @@ const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const CodeSignature = @import("CodeSignature.zig");
 const Object = @import("Object.zig");
+const Relocation = @import("reloc.zig").Relocation;
 const Symbol = @import("Symbol.zig");
 const Trie = @import("Trie.zig");
 
@@ -77,7 +78,7 @@ symtab: std.StringArrayHashMapUnmanaged(Symbol) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
 threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
-rebases: std.ArrayListUnmanaged(Pointer) = .{},
+local_rebases: std.ArrayListUnmanaged(Pointer) = .{},
 stubs: std.StringArrayHashMapUnmanaged(u32) = .{},
 got_entries: std.StringArrayHashMapUnmanaged(GotEntry) = .{},
 
@@ -186,7 +187,7 @@ pub fn init(allocator: *Allocator) Zld {
 
 pub fn deinit(self: *Zld) void {
     self.threadlocal_offsets.deinit(self.allocator);
-    self.rebases.deinit(self.allocator);
+    self.local_rebases.deinit(self.allocator);
 
     for (self.stubs.items()) |entry| {
         self.allocator.free(entry.key);
@@ -280,9 +281,8 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     self.allocateLinkeditSegment();
     try self.allocateSymbols();
     try self.allocateStubsAndGotEntries();
-    self.printDebug();
-    // try self.writeStubHelperCommon();
-    // try self.resolveRelocsAndWriteSections();
+    try self.writeStubHelperCommon();
+    try self.resolveRelocsAndWriteSections();
     // try self.flush();
 }
 
@@ -1051,7 +1051,7 @@ fn writeStubHelperCommon(self: *Zld) !void {
                 code[9] = 0xff;
                 code[10] = 0x25;
                 {
-                    const dyld_stub_binder = self.nonlazy_imports.get("dyld_stub_binder").?;
+                    const dyld_stub_binder = self.got_entries.get("dyld_stub_binder").?;
                     const addr = (got.addr + dyld_stub_binder.index * @sizeOf(u64));
                     const displacement = try math.cast(u32, addr - stub_helper.addr - code_size);
                     mem.writeIntLittle(u32, code[11..], displacement);
@@ -1095,7 +1095,7 @@ fn writeStubHelperCommon(self: *Zld) !void {
                 code[10] = 0xbf;
                 code[11] = 0xa9;
                 binder_blk_outer: {
-                    const dyld_stub_binder = self.nonlazy_imports.get("dyld_stub_binder").?;
+                    const dyld_stub_binder = self.got_entries.get("dyld_stub_binder").?;
                     const this_addr = stub_helper.addr + 3 * @sizeOf(u32);
                     const target_addr = (got.addr + dyld_stub_binder.index * @sizeOf(u64));
                     binder_blk: {
@@ -1113,7 +1113,6 @@ fn writeStubHelperCommon(self: *Zld) !void {
                         const new_this_addr = this_addr + @sizeOf(u32);
                         const displacement = math.divExact(u64, target_addr - new_this_addr, 4) catch |_| break :binder_blk;
                         const literal = math.cast(u18, displacement) catch |_| break :binder_blk;
-                        log.debug("2: disp=0x{x}, literal=0x{x}", .{ displacement, literal });
                         // Pad with nop to please division.
                         // nop
                         mem.writeIntLittle(u32, code[12..16], aarch64.Instruction.nop().toU32());
@@ -1149,8 +1148,8 @@ fn writeStubHelperCommon(self: *Zld) !void {
         }
     };
 
-    for (self.lazy_imports.items()) |_, i| {
-        const index = @intCast(u32, i);
+    for (self.stubs.items()) |entry| {
+        const index = entry.value;
         try self.writeLazySymbolPointer(index);
         try self.writeStub(index);
         try self.writeStubInStubHelper(index);
@@ -1458,6 +1457,7 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
 
                         if (self.got_entries.contains(sym_name)) continue;
 
+                        // TODO clean this up
                         const is_import = self.symtab.get(sym_name).?.tag == .Import;
                         var name = try self.allocator.dupe(u8, sym_name);
                         const index = @intCast(u32, self.got_entries.items().len);
@@ -1509,8 +1509,7 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
 
 fn resolveRelocsAndWriteSections(self: *Zld) !void {
     for (self.objects.items) |object, object_id| {
-        log.debug("\n\n", .{});
-        log.debug("relocating object {s}", .{object.name});
+        log.warn("relocating object {s}", .{object.name});
 
         for (object.sections.items) |sect, source_sect_id| {
             const segname = parseName(&sect.inner.segname);
@@ -1529,78 +1528,86 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
             const target_sect_addr = target_sect.addr + target_mapping.offset;
             const target_sect_off = target_sect.offset + target_mapping.offset;
 
-            for (sect.relocs) |reloc| {
-                const source_addr = target_sect_addr + reloc.offset;
+            if (sect.relocs) |relocs| {
+                for (relocs) |rel| {
+                    const source_addr = target_sect_addr + rel.offset;
 
-                var args: Relocation.ResolveArgs = .{
-                    .source_addr = source_addr,
-                    .target_addr = undefined,
-                };
+                    var args: Relocation.ResolveArgs = .{
+                        .source_addr = source_addr,
+                        .target_addr = undefined,
+                        .subtractor = null,
+                    };
 
-                if (reloc.cast(Relocation.Unsigned)) |unsigned| {
-                    // TODO resolve target addr
+                    switch (rel.@"type") {
+                        .unsigned => {
+                            args.target_addr = try self.relocTargetAddr(@intCast(u16, object_id), rel.target);
 
-                    if (unsigned.subtractor) |subtractor| {
-                        args.subtractor = undefined; // TODO resolve
+                            const unsigned = rel.cast(Relocation.Unsigned) orelse unreachable;
+                            if (unsigned.subtractor) |subtractor| {
+                                args.subtractor = try self.relocTargetAddr(@intCast(u16, object_id), subtractor);
+                            }
+
+                            rebases: {
+                                var hit: bool = false;
+                                if (target_mapping.target_seg_id == self.data_segment_cmd_index.?) {
+                                    if (self.data_section_index) |index| {
+                                        if (index == target_mapping.target_sect_id) hit = true;
+                                    }
+                                }
+                                if (target_mapping.target_seg_id == self.data_const_segment_cmd_index.?) {
+                                    if (self.data_const_section_index) |index| {
+                                        if (index == target_mapping.target_sect_id) hit = true;
+                                    }
+                                }
+
+                                if (!hit) break :rebases;
+
+                                try self.local_rebases.append(self.allocator, .{
+                                    .offset = source_addr - target_seg.inner.vmaddr,
+                                    .segment_id = target_mapping.target_seg_id,
+                                });
+                            }
+                            // TLV is handled via a separate offset mechanism.
+                            // Calculate the offset to the initializer.
+                            if (target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES) tlv: {
+                                const sym = object.symtab.items[rel.target.symbol];
+                                const sym_name = object.getString(sym.inner.n_strx);
+
+                                // TODO we don't want to save offset to tlv_bootstrap
+                                if (mem.eql(u8, sym_name, "__tlv_boostrap")) break :tlv;
+
+                                const base_addr = blk: {
+                                    if (self.tlv_data_section_index) |index| {
+                                        const tlv_data = target_seg.sections.items[index];
+                                        break :blk tlv_data.addr;
+                                    } else {
+                                        const tlv_bss = target_seg.sections.items[self.tlv_bss_section_index.?];
+                                        break :blk tlv_bss.addr;
+                                    }
+                                };
+                                // Since we require TLV data to always preceed TLV bss section, we calculate
+                                // offsets wrt to the former if it is defined; otherwise, wrt to the latter.
+                                try self.threadlocal_offsets.append(self.allocator, args.target_addr - base_addr);
+                            }
+                        },
+                        .got_page, .got_page_off => {
+                            const dc_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+                            const got = dc_seg.sections.items[self.got_section_index.?];
+                            const sym = object.symtab.items[rel.target.symbol];
+                            const sym_name = object.getString(sym.inner.n_strx);
+                            const entry = self.got_entries.get(sym_name) orelse unreachable;
+                            args.target_addr = got.addr + entry.index * @sizeOf(u64);
+                        },
+                        else => {
+                            args.target_addr = try self.relocTargetAddr(@intCast(u16, object_id), rel.target);
+                        },
                     }
 
-                    rebases: {
-                        var hit: bool = false;
-                        if (target_mapping.target_seg_id == self.data_segment_cmd_index.?) {
-                            if (self.data_section_index) |index| {
-                                if (index == target_mapping.target_sect_id) hit = true;
-                            }
-                        }
-                        if (target_mapping.target_seg_id == self.data_const_segment_cmd_index.?) {
-                            if (self.data_const_section_index) |index| {
-                                if (index == target_mapping.target_sect_id) hit = true;
-                            }
-                        }
-
-                        if (!hit) break :rebases;
-
-                        try self.local_rebases.append(self.allocator, .{
-                            .offset = source_addr - target_seg.inner.vmaddr,
-                            .segment_id = target_mapping.target_seg_id,
-                        });
-                    }
-                    // TLV is handled via a separate offset mechanism.
-                    // Calculate the offset to the initializer.
-                    if (target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES) tlv: {
-                        const sym = object.symtab.items[reloc.target.symbol];
-                        const sym_name = object.getString(sym.inner.n_strx);
-
-                        // TODO we don't want to save offset to tlv_bootstrap
-                        if (mem.eql(u8, sym_name, "__tlv_boostrap")) break :tlv;
-
-                        const base_addr = blk: {
-                            if (self.tlv_data_section_index) |index| {
-                                const tlv_data = target_seg.sections.items[index];
-                                break :blk tlv_data.addr;
-                            } else {
-                                const tlv_bss = target_seg.sections.items[self.tlv_bss_section_index.?];
-                                break :blk tlv_bss.addr;
-                            }
-                        };
-                        // Since we require TLV data to always preceed TLV bss section, we calculate
-                        // offsets wrt to the former if it is defined; otherwise, wrt to the latter.
-                        try self.threadlocal_offsets.append(self.allocator, target_addr - base_addr);
-                    }
-                } else if (reloc.cast(Relocation.GotPageOff)) |page_off| {
-                    // TODO here we need to work out the indirection to GOT.
-                } else {
-                    // TODO resolve target addr.
+                    try rel.resolve(args);
                 }
-
-                log.debug("{s}", .{reloc.@"type"});
-                log.debug("    | offset 0x{x}", .{reloc.offset});
-                log.debug("    | source address 0x{x}", .{args.source_addr});
-                log.debug("    | target address 0x{x}", .{args.target_addr});
-
-                try reloc.resolve(args);
             }
 
-            log.debug("writing contents of '{s},{s}' section from '{s}' from 0x{x} to 0x{x}", .{
+            log.warn("writing contents of '{s},{s}' section from '{s}' from 0x{x} to 0x{x}", .{
                 segname,
                 sectname,
                 object.name,
@@ -1612,7 +1619,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                 target_sect.flags == macho.S_THREAD_LOCAL_ZEROFILL or
                 target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES)
             {
-                log.debug("zeroing out '{s},{s}' from 0x{x} to 0x{x}", .{
+                log.warn("zeroing out '{s},{s}' from 0x{x} to 0x{x}", .{
                     parseName(&target_sect.segname),
                     parseName(&target_sect.sectname),
                     target_sect_off,
@@ -1630,88 +1637,60 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
     }
 }
 
-fn relocTargetAddr(self: *Zld, object_id: u16, rel: macho.relocation_info) !u64 {
+fn relocTargetAddr(self: *Zld, object_id: u16, target: Relocation.Target) !u64 {
     const object = self.objects.items[object_id];
-    const seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-
-    const is_got: bool = is_got: {
-        switch (self.arch.?) {
-            .x86_64 => {
-                const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
-                break :is_got = switch (rel_type) {
-                    .X86_64_RELOC_GOT, .X86_64_RELOC_GOT_LOAD => true,
-                    else => false,
-                };
-            },
-            .aarch64 => {
-                const rel_type = @intToEnum(macho.reloc_type_aarch64, rel.r_type);
-                break :is_got = switch (rel_type) {
-                    .ARM64_RELOC_GOT_LOAD_PAGE21,
-                    .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
-                    .ARM64_RELOC_POINTER_TO_GOT,
-                    => true,
-                    else => false,
-                };
-            },
-        }
-    };
-
     const target_addr = blk: {
-        if (rel.r_extern == 1) {
-            const sym = object.symtab.items[rel.r_symbolnum];
-            if (sym.isSect()) {
-                // Relocate using section offsets only.
+        switch (target) {
+            .symbol => |sym_id| {
+                const sym = object.symtab.items[sym_id];
+                const sym_name = object.getString(sym.inner.n_strx);
+
+                switch (sym.tag) {
+                    .Stab => unreachable, // TODO is this even allowed to happen?
+                    .Local, .Weak, .Strong => {
+                        // Relocate using section offsets only.
+                        const target_mapping = self.mappings.get(.{
+                            .object_id = object_id,
+                            .source_sect_id = sym.inner.n_sect - 1,
+                        }) orelse unreachable;
+                        const source_sect = object.sections.items[target_mapping.source_sect_id];
+                        const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
+                        const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
+                        const target_sect_addr = target_sect.addr + target_mapping.offset;
+                        log.warn("    | symbol local to object", .{});
+                        break :blk target_sect_addr + sym.inner.n_value - source_sect.inner.addr;
+                    },
+                    else => {
+                        if (self.stubs.get(sym_name)) |index| {
+                            log.warn("    | symbol stub {s}", .{sym_name});
+                            const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+                            const stubs = segment.sections.items[self.stubs_section_index.?];
+                            break :blk stubs.addr + index * stubs.reserved2;
+                        } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
+                            const segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+                            const tlv = segment.sections.items[self.tlv_section_index.?];
+                            break :blk tlv.addr;
+                        } else {
+                            const global = self.symtab.get(sym_name) orelse {
+                                log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
+                                return error.FailedToResolveRelocationTarget;
+                            };
+                            break :blk global.inner.n_value;
+                        }
+                    },
+                }
+            },
+            .section => |sect_id| {
                 const target_mapping = self.mappings.get(.{
                     .object_id = object_id,
-                    .source_sect_id = sym.n_sect - 1,
+                    .source_sect_id = sect_id,
                 }) orelse unreachable;
-                const source_sect = seg.sections.items[target_mapping.source_sect_id];
                 const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
                 const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
-                const target_sect_addr = target_sect.addr + target_mapping.offset;
-                log.debug("    | symbol local to object", .{});
-                break :blk target_sect_addr + sym.n_value - source_sect.addr;
-            } else if (sym.isUndf()) {
-                // Relocate to either the global symbol, or an import from
-                // shared library.
-                const sym_name = object.getString(sym.n_strx);
-                if (self.globals.get(sym_name)) |glob| {
-                    break :blk glob.inner.n_value;
-                } else if (self.externs.getEntry(sym_name)) |ext| {
-                    const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-                    const stubs = segment.sections.items[self.stubs_section_index.?];
-                    break :blk stubs.addr + ext.index * stubs.reserved2;
-                } else if (self.nonlazy_imports.get(sym_name)) |ext| {
-                    const segment = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-                    const got = segment.sections.items[self.got_section_index.?];
-                    break :blk got.addr + ext.index * @sizeOf(u64);
-                } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
-                    const segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-                    const tlv = segment.sections.items[self.tlv_section_index.?];
-                    break :blk tlv.addr;
-                } else {
-                    log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
-                    return error.FailedToResolveRelocationTarget;
-                }
-            } else {
-                log.err("unexpected symbol {}, {s}", .{ sym, object.getString(sym.n_strx) });
-                return error.UnexpectedSymbolWhenRelocating;
-            }
-        } else {
-            // TODO I think we need to reparse the relocation_info as scattered_relocation_info
-            // here to get the actual section plus offset into that section of the relocated
-            // symbol. Unless the fine-grained location is encoded within the cell in the code
-            // buffer?
-            const target_mapping = self.mappings.get(.{
-                .object_id = object_id,
-                .source_sect_id = @intCast(u16, rel.r_symbolnum - 1),
-            }) orelse unreachable;
-            const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
-            const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
-            break :blk target_sect.addr + target_mapping.offset;
+                break :blk target_sect.addr + target_mapping.offset;
+            },
         }
     };
-
     return target_addr;
 }
 
