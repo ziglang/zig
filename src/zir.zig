@@ -364,6 +364,9 @@ pub const Inst = struct {
         fn_type_cc,
         /// Same as `fn_type_cc` but the function is variadic.
         fn_type_cc_var_args,
+        /// Determines whether a container has a declaration matching name.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        has_decl,
         /// `@import(operand)`.
         /// Uses the `un_node` field.
         import,
@@ -751,6 +754,7 @@ pub const Inst = struct {
                 .fn_type_var_args,
                 .fn_type_cc,
                 .fn_type_cc_var_args,
+                .has_decl,
                 .int,
                 .float,
                 .float128,
@@ -1681,6 +1685,7 @@ const Writer = struct {
             .cmp_gt,
             .cmp_neq,
             .div,
+            .has_decl,
             .mod_rem,
             .shl,
             .shr,

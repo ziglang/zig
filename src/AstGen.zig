@@ -1245,6 +1245,7 @@ fn blockExprStmts(
                         .fn_type_var_args,
                         .fn_type_cc,
                         .fn_type_cc_var_args,
+                        .has_decl,
                         .int,
                         .float,
                         .float128,
@@ -4159,6 +4160,16 @@ fn builtinCall(
             return rvalue(gz, scope, rl, .void_value, node);
         },
 
+        .has_decl => {
+            const container_type = try typeExpr(gz, scope, params[0]);
+            const name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
+            const result = try gz.addPlNode(.has_decl, node, zir.Inst.Bin{
+                .lhs = container_type,
+                .rhs = name,
+            });
+            return rvalue(gz, scope, rl, result, node);
+        },
+
         .add_with_overflow,
         .align_cast,
         .align_of,
@@ -4191,7 +4202,6 @@ fn builtinCall(
         .fence,
         .field_parent_ptr,
         .float_to_int,
-        .has_decl,
         .has_field,
         .int_to_float,
         .int_to_ptr,

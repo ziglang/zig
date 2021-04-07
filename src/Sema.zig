@@ -199,6 +199,7 @@ pub fn analyzeBody(
             .fn_type_cc => try sema.zirFnTypeCc(block, inst, false),
             .fn_type_cc_var_args => try sema.zirFnTypeCc(block, inst, true),
             .fn_type_var_args => try sema.zirFnType(block, inst, true),
+            .has_decl => try sema.zirHasDecl(block, inst),
             .import => try sema.zirImport(block, inst),
             .indexable_ptr_len => try sema.zirIndexablePtrLen(block, inst),
             .int => try sema.zirInt(block, inst),
@@ -3622,6 +3623,39 @@ fn validateSwitchNoRange(
         break :msg msg;
     };
     return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
+}
+
+fn zirHasDecl(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
+    const src = inst_data.src();
+    const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const container_type = try sema.resolveType(block, lhs_src, extra.lhs);
+    const decl_name = try sema.resolveConstString(block, rhs_src, extra.rhs);
+
+    const maybe_scope = container_type.getContainerScope();
+    if (maybe_scope == null) {
+        return sema.mod.fail(
+            &block.base,
+            src,
+            "expected container (struct, enum, or union), found '{}'",
+            .{container_type},
+        );
+    }
+
+    const found = blk: {
+        for (maybe_scope.?.decls.items()) |kv| {
+            if (mem.eql(u8, mem.spanZ(kv.key.name), decl_name))
+                break :blk true;
+        }
+        break :blk false;
+    };
+
+    return sema.mod.constBool(sema.arena, src, found);
 }
 
 fn zirImport(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
