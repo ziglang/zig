@@ -87,8 +87,14 @@ mappings: std.AutoHashMapUnmanaged(MappingKey, SectionMapping) = .{},
 unhandled_sections: std.AutoHashMapUnmanaged(MappingKey, u0) = .{},
 
 const GotEntry = struct {
+    tag: enum {
+        local,
+        import,
+    },
     index: u32,
     target_addr: u64,
+    file: u16,
+    local_index: u32,
 };
 
 const MappingKey = struct {
@@ -273,7 +279,8 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.allocateDataSegment();
     self.allocateLinkeditSegment();
     try self.allocateSymbols();
-    self.printSymtab();
+    try self.allocateStubsAndGotEntries();
+    self.printDebug();
     // try self.writeStubHelperCommon();
     // try self.resolveRelocsAndWriteSections();
     // try self.flush();
@@ -957,7 +964,7 @@ fn allocateSymbols(self: *Zld) !void {
         const target_addr = target_sect.addr + target_mapping.offset;
         const n_value = source_sym.inner.n_value - source_sect.addr + target_addr;
 
-        log.warn("resolving '{s}' symbol at 0x{x}", .{ entry.key, n_value });
+        log.debug("resolving '{s}' symbol at 0x{x}", .{ entry.key, n_value });
 
         // TODO there might be a more generic way of doing this.
         var n_sect: u8 = 0;
@@ -976,6 +983,41 @@ fn allocateSymbols(self: *Zld) !void {
         // TODO This will need to be redone for any CU locals that end up in the final symbol table.
         // This could be part of writing debug info since this is the only valid reason (is it?) for
         // including CU locals in the final MachO symbol table.
+    }
+}
+
+fn allocateStubsAndGotEntries(self: *Zld) !void {
+    for (self.got_entries.items()) |*entry| {
+        if (entry.value.tag == .import) continue;
+
+        const object = self.objects.items[entry.value.file];
+        const sym = object.symtab.items[entry.value.local_index];
+        const sym_name = object.getString(sym.inner.n_strx);
+        assert(mem.eql(u8, sym_name, entry.key));
+
+        // TODO clean this up
+        entry.value.target_addr = target_addr: {
+            if (sym.tag != .Local) {
+                const glob = self.symtab.get(sym_name) orelse unreachable;
+                break :target_addr glob.inner.n_value;
+            }
+
+            const target_mapping = self.mappings.get(.{
+                .object_id = entry.value.file,
+                .source_sect_id = sym.inner.n_sect - 1,
+            }) orelse unreachable;
+            const source_sect = object.sections.items[target_mapping.source_sect_id];
+            const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
+            const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
+            const target_sect_addr = target_sect.addr + target_mapping.offset;
+
+            break :target_addr target_sect_addr + sym.inner.n_value - source_sect.inner.addr;
+        };
+
+        log.warn("resolving GOT entry '{s}' at 0x{x}", .{
+            entry.key,
+            entry.value.target_addr,
+        });
     }
 }
 
@@ -1385,9 +1427,85 @@ fn resolveSymbols(self: *Zld) !void {
     if (has_unresolved) {
         return error.UndefinedSymbolReference;
     }
+
+    // Finally put dyld_stub_binder as an Import
+    var name = try self.allocator.dupe(u8, "dyld_stub_binder");
+    try self.symtab.putNoClobber(self.allocator, name, .{
+        .tag = .Import,
+        .inner = .{
+            .n_strx = 0, // This will be populated once we write the string table.
+            .n_type = macho.N_UNDF | macho.N_EXT,
+            .n_sect = 0,
+            .n_desc = macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | macho.N_SYMBOL_RESOLVER,
+            .n_value = 0,
+        },
+        .file = 0,
+    });
 }
 
-fn resolveStubsAndGotEntries(self: *Zld) !void {}
+fn resolveStubsAndGotEntries(self: *Zld) !void {
+    for (self.objects.items) |object, object_id| {
+        log.debug("\nresolving stubs and got entries from {s}", .{object.name});
+
+        for (object.sections.items) |sect| {
+            const relocs = sect.relocs orelse continue;
+            for (relocs) |reloc| {
+                switch (reloc.@"type") {
+                    .unsigned => continue,
+                    .got_page, .got_page_off => {
+                        const sym = object.symtab.items[reloc.target.symbol];
+                        const sym_name = object.getString(sym.inner.n_strx);
+
+                        if (self.got_entries.contains(sym_name)) continue;
+
+                        const is_import = self.symtab.get(sym_name).?.tag == .Import;
+                        var name = try self.allocator.dupe(u8, sym_name);
+                        const index = @intCast(u32, self.got_entries.items().len);
+                        try self.got_entries.putNoClobber(self.allocator, name, .{
+                            .tag = if (is_import) .import else .local,
+                            .index = index,
+                            .target_addr = 0,
+                            .file = if (is_import) 0 else @intCast(u16, object_id),
+                            .local_index = if (is_import) 0 else reloc.target.symbol,
+                        });
+
+                        log.debug("    | found GOT entry {s}: {}", .{ sym_name, self.got_entries.get(sym_name) });
+                    },
+                    else => {
+                        const sym = object.symtab.items[reloc.target.symbol];
+                        const sym_name = object.getString(sym.inner.n_strx);
+
+                        if (sym.tag != .Undef) continue;
+
+                        const in_globals = self.symtab.get(sym_name) orelse unreachable;
+
+                        if (in_globals.tag != .Import) continue;
+                        if (self.stubs.contains(sym_name)) continue;
+
+                        var name = try self.allocator.dupe(u8, sym_name);
+                        const index = @intCast(u32, self.stubs.items().len);
+                        try self.stubs.putNoClobber(self.allocator, name, index);
+
+                        log.debug("    | found stub {s}: {}", .{ sym_name, self.stubs.get(sym_name) });
+                    },
+                }
+            }
+        }
+    }
+
+    // Finally, put dyld_stub_binder as the final GOT entry
+    var name = try self.allocator.dupe(u8, "dyld_stub_binder");
+    const index = @intCast(u32, self.got_entries.items().len);
+    try self.got_entries.putNoClobber(self.allocator, name, .{
+        .tag = .import,
+        .index = index,
+        .target_addr = 0,
+        .file = 0,
+        .local_index = 0,
+    });
+
+    log.debug("    | found GOT entry dyld_stub_binder: {}", .{self.got_entries.get("dyld_stub_binder")});
+}
 
 fn resolveRelocsAndWriteSections(self: *Zld) !void {
     for (self.objects.items) |object, object_id| {
@@ -2871,9 +2989,21 @@ fn aarch64IsArithmetic(inst: *const [4]u8) callconv(.Inline) bool {
     return ((group_decode >> 2) == 4);
 }
 
-fn printSymtab(self: Zld) void {
+fn printDebug(self: Zld) void {
     log.warn("symtab", .{});
     for (self.symtab.items()) |entry| {
+        log.warn("    | {s} => {any}", .{ entry.key, entry.value });
+    }
+
+    log.warn("\n", .{});
+    log.warn("GOT entries", .{});
+    for (self.got_entries.items()) |entry| {
+        log.warn("    | {s} => {any}", .{ entry.key, entry.value });
+    }
+
+    log.warn("\n", .{});
+    log.warn("stubs", .{});
+    for (self.stubs.items()) |entry| {
         log.warn("    | {s} => {any}", .{ entry.key, entry.value });
     }
 }
