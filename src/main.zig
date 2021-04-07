@@ -1886,7 +1886,7 @@ fn buildOutputType(
         .function_sections = function_sections,
         .self_exe_path = self_exe_path,
         .thread_pool = &thread_pool,
-        .clang_passthrough_mode = arg_mode != .build,
+        .clang_passthrough_mode = arg_mode != .build and arg_mode != .run,
         .clang_preprocessor_mode = clang_preprocessor_mode,
         .version = optional_version,
         .libc_installation = if (libc_installation) |*lci| lci else null,
