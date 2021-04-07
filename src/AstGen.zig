@@ -1857,7 +1857,7 @@ fn containerDecl(
 
                 field_index += 1;
             }
-            const empty_slot_count = 16 - ((field_index - 1) % 16);
+            const empty_slot_count = 16 - (field_index % 16);
             cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
 
             const result = try gz.addPlNode(tag, node, zir.Inst.StructDecl{
