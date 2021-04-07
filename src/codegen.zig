@@ -1735,7 +1735,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             switch (result) {
                 .register => |reg| {
-                    try self.register_manager.getRegAssumeFree(toCanonicalReg(reg), &inst.base);
+                    try self.register_manager.registers.ensureCapacity(self.gpa, self.register_manager.registers.count() + 1);
+                    self.register_manager.getRegAssumeFree(toCanonicalReg(reg), &inst.base);
                 },
                 else => {},
             }

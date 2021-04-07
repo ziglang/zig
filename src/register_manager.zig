@@ -137,6 +137,7 @@ pub fn RegisterManager(
         /// Allocates the specified register with the specified
         /// instruction. Spills the register if it is currently
         /// allocated.
+        /// Before calling, must ensureCapacity + 1 on self.registers.
         pub fn getReg(self: *Self, reg: Register, inst: *ir.Inst) !void {
             if (!isTracked(reg)) return;
 
@@ -148,7 +149,7 @@ pub fn RegisterManager(
                 regs_entry.value = inst;
                 try self.getFunction().spillInstruction(spilled_inst.src, reg, spilled_inst);
             } else {
-                try self.getRegAssumeFree(reg, inst);
+                self.getRegAssumeFree(reg, inst);
             }
         }
 
@@ -160,7 +161,7 @@ pub fn RegisterManager(
             if (!self.isRegFree(reg)) {
                 // Move the instruction that was previously there to a
                 // stack allocation.
-                const regs_entry = self.registers.getEntry(reg).?;
+                const regs_entry = self.registers.remove(reg).?;
                 const spilled_inst = regs_entry.value;
                 try self.getFunction().spillInstruction(spilled_inst.src, reg, spilled_inst);
                 self.markRegFree(reg);
@@ -170,10 +171,11 @@ pub fn RegisterManager(
         /// Allocates the specified register with the specified
         /// instruction. Assumes that the register is free and no
         /// spilling is necessary.
-        pub fn getRegAssumeFree(self: *Self, reg: Register, inst: *ir.Inst) !void {
+        /// Before calling, must ensureCapacity + 1 on self.registers.
+        pub fn getRegAssumeFree(self: *Self, reg: Register, inst: *ir.Inst) void {
             if (!isTracked(reg)) return;
 
-            try self.registers.putNoClobber(self.getFunction().gpa, reg, inst);
+            self.registers.putAssumeCapacityNoClobber(reg, inst);
             self.markRegUsed(reg);
         }
 
@@ -278,4 +280,36 @@ test "allocReg: spilling" {
     function.register_manager.freeReg(.r3);
     std.testing.expectEqual(@as(?MockRegister, .r3), try function.register_manager.allocReg(&mock_instruction));
     std.testing.expectEqualSlices(MockRegister, &[_]MockRegister{.r2}, function.spilled.items);
+}
+
+test "getReg" {
+    const allocator = std.testing.allocator;
+
+    var function = MockFunction{
+        .allocator = allocator,
+    };
+    defer function.deinit();
+
+    var mock_instruction = ir.Inst{
+        .tag = .breakpoint,
+        .ty = Type.initTag(.void),
+        .src = .unneeded,
+    };
+
+    std.testing.expect(!function.register_manager.isRegAllocated(.r2));
+    std.testing.expect(!function.register_manager.isRegAllocated(.r3));
+
+    try function.register_manager.registers.ensureCapacity(allocator, function.register_manager.registers.count() + 2);
+    try function.register_manager.getReg(.r3, &mock_instruction);
+
+    std.testing.expect(!function.register_manager.isRegAllocated(.r2));
+    std.testing.expect(function.register_manager.isRegAllocated(.r3));
+
+    // Spill r3
+    try function.register_manager.registers.ensureCapacity(allocator, function.register_manager.registers.count() + 2);
+    try function.register_manager.getReg(.r3, &mock_instruction);
+
+    std.testing.expect(!function.register_manager.isRegAllocated(.r2));
+    std.testing.expect(function.register_manager.isRegAllocated(.r3));
+    std.testing.expectEqualSlices(MockRegister, &[_]MockRegister{.r3}, function.spilled.items);
 }
