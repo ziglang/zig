@@ -970,12 +970,15 @@ fn castPtr(comptime DestType: type, target: anytype) DestType {
 
     if (source.is_const and !dest.is_const or source.is_volatile and !dest.is_volatile)
         return @intToPtr(DestType, @ptrToInt(target))
+    else if (@typeInfo(dest.child) == .Opaque)
+        // dest.alignment would error out
+        return @ptrCast(DestType, target)
     else
         return @ptrCast(DestType, @alignCast(dest.alignment, target));
 }
 
 fn ptrInfo(comptime PtrType: type) TypeInfo.Pointer {
-    return switch(@typeInfo(PtrType)){
+    return switch (@typeInfo(PtrType)) {
         .Optional => |opt_info| @typeInfo(opt_info.child).Pointer,
         .Pointer => |ptr_info| ptr_info,
         else => unreachable,
@@ -1010,6 +1013,8 @@ test "std.meta.cast" {
 
     testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*const u8, 2)));
     testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*volatile u8, 2)));
+
+    testing.expectEqual(@intToPtr(?*c_void, 2), cast(?*c_void, @intToPtr(*u8, 2)));
 }
 
 /// Given a value returns its size as C's sizeof operator would.
