@@ -1899,22 +1899,38 @@ pub fn replace(comptime T: type, input: []const T, needle: []const T, replacemen
 test "replace" {
     var output: [29]u8 = undefined;
     var replacements = replace(u8, "All your base are belong to us", "base", "Zig", output[0..]);
+    var expected: []const u8 = "All your Zig are belong to us";
     testing.expect(replacements == 1);
-    testing.expect(eql(u8, output[0..], "All your Zig are belong to us"));
+    testing.expect(eql(u8, output[0..expected.len], expected));
 
     replacements = replace(u8, "Favor reading code over writing code.", "code", "", output[0..]);
+    expected = "Favor reading  over writing .";
     testing.expect(replacements == 2);
-    testing.expect(eql(u8, output[0..], "Favor reading  over writing ."));
+    testing.expect(eql(u8, output[0..expected.len], expected));
+
+    // Try adjacent replacements.
+
+    replacements = replace(u8, "\\n\\n", "\\n", "\n", output[0..]);
+    expected = "\n\n";
+    testing.expect(replacements == 2);
+    testing.expect(eql(u8, output[0..expected.len], expected));
+
+    replacements = replace(u8, "abbba", "b", "cd", output[0..]);
+    expected = "acdcdcda";
+    testing.expect(replacements == 3);
+    testing.expect(eql(u8, output[0..expected.len], expected));
 }
 
 /// Calculate the size needed in an output buffer to perform a replacement.
 pub fn replacementSize(comptime T: type, input: []const T, needle: []const T, replacement: []const T) usize {
     var i: usize = 0;
     var size: usize = input.len;
-    while (i < input.len) : (i += 1) {
+    while (i < input.len) {
         if (mem.indexOf(T, input[i..], needle) == @as(usize, 0)) {
             size = size - needle.len + replacement.len;
             i += needle.len;
+        } else {
+            i += 1;
         }
     }
 
@@ -1926,6 +1942,11 @@ test "replacementSize" {
     testing.expect(replacementSize(u8, "", "", "") == 0);
     testing.expect(replacementSize(u8, "Favor reading code over writing code.", "code", "") == 29);
     testing.expect(replacementSize(u8, "Only one obvious way to do things.", "things.", "things in Zig.") == 41);
+
+    // Try adjacent replacements.
+
+    testing.expect(replacementSize(u8, "\\n\\n", "\\n", "\n") == 2);
+    testing.expect(replacementSize(u8, "abbba", "b", "cd") == 8);
 }
 
 /// Perform a replacement on an allocated buffer of pre-determined size. Caller must free returned memory.
