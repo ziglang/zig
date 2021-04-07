@@ -366,6 +366,13 @@ pub const ErrorSet = struct {
     /// The string bytes are stored in the owner Decl arena.
     /// They are in the same order they appear in the AST.
     names_ptr: [*]const []const u8,
+
+    pub fn srcLoc(self: ErrorSet) SrcLoc {
+        return .{
+            .container = .{ .decl = self.owner_decl },
+            .lazy = .{ .node_offset = self.node_offset },
+        };
+    }
 };
 
 /// Represents the data that a struct declaration provides.
@@ -408,6 +415,13 @@ pub const EnumSimple = struct {
     fields: std.StringArrayHashMapUnmanaged(void),
     /// Offset from `owner_decl`, points to the enum decl AST node.
     node_offset: i32,
+
+    pub fn srcLoc(self: EnumSimple) SrcLoc {
+        return .{
+            .container = .{ .decl = self.owner_decl },
+            .lazy = .{ .node_offset = self.node_offset },
+        };
+    }
 };
 
 /// Represents the data that an enum declaration provides, when there is
@@ -429,6 +443,13 @@ pub const EnumFull = struct {
     node_offset: i32,
 
     pub const ValueMap = std.ArrayHashMapUnmanaged(Value, void, Value.hash_u32, Value.eql, false);
+
+    pub fn srcLoc(self: EnumFull) SrcLoc {
+        return .{
+            .container = .{ .decl = self.owner_decl },
+            .lazy = .{ .node_offset = self.node_offset },
+        };
+    }
 };
 
 /// Some Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.

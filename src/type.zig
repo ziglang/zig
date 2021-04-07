@@ -2090,6 +2090,42 @@ pub const Type = extern union {
         };
     }
 
+    pub fn enumFieldIndex(ty: Type, field_name: []const u8) ?usize {
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Payload.EnumFull).?.data;
+                return enum_full.fields.getIndex(field_name);
+            },
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                return enum_simple.fields.getIndex(field_name);
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn declSrcLoc(ty: Type) Module.SrcLoc {
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Payload.EnumFull).?.data;
+                return enum_full.srcLoc();
+            },
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                return enum_simple.srcLoc();
+            },
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return struct_obj.srcLoc();
+            },
+            .error_set => {
+                const error_set = ty.castTag(.error_set).?.data;
+                return error_set.srcLoc();
+            },
+            else => unreachable,
+        }
+    }
+
     /// Asserts the type is an enum.
     pub fn enumHasInt(ty: Type, int: Value, target: Target) bool {
         const S = struct {

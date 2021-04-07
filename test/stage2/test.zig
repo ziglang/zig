@@ -1022,7 +1022,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
         try case.files.append(.{
-            .src =
+            .src = 
             \\pub fn print() void {
             \\    asm volatile ("syscall"
             \\        :
@@ -1621,11 +1621,11 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
         case.addError(
-            \\const E = enum { a, b };
             \\export fn _start() noreturn {
             \\    const a: E = .c;
             \\    exit();
             \\}
+            \\const E = enum { a, b };
             \\fn exit() noreturn {
             \\    asm volatile ("syscall"
             \\        :
@@ -1635,6 +1635,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-        , &.{":3:19: error: enum 'E' has no field named 'c'"});
+        , &.{
+            ":2:19: error: enum 'E' has no field named 'c'",
+            ":5:11: note: enum declared here",
+        });
     }
 }

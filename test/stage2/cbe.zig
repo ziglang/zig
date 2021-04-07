@@ -508,7 +508,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &.{
             ":3:21: error: mising struct field: x",
-            ":1:15: note: 'Point' declared here",
+            ":1:15: note: struct 'Point' declared here",
         });
         case.addError(
             \\const Point = struct { x: i32, y: i32 };
@@ -522,7 +522,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &.{
             ":6:10: error: no field named 'z' in struct 'Point'",
-            ":1:15: note: 'Point' declared here",
+            ":1:15: note: struct declared here",
         });
         case.addCompareOutput(
             \\const Point = struct { x: i32, y: i32 };

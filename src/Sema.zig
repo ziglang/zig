@@ -897,7 +897,7 @@ fn zirValidateStructInitPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Ind
         try mod.errNoteNonLazy(
             struct_obj.srcLoc(),
             msg,
-            "'{s}' declared here",
+            "struct '{s}' declared here",
             .{fqn},
         );
         return mod.failWithOwnedErrorMsg(&block.base, msg);
@@ -925,7 +925,7 @@ fn failWithBadFieldAccess(
             .{ field_name, fqn },
         );
         errdefer msg.destroy(gpa);
-        try mod.errNoteNonLazy(struct_obj.srcLoc(), msg, "'{s}' declared here", .{fqn});
+        try mod.errNoteNonLazy(struct_obj.srcLoc(), msg, "struct declared here", .{});
         break :msg msg;
     };
     return mod.failWithOwnedErrorMsg(&block.base, msg);
@@ -4479,21 +4479,24 @@ fn namedFieldPtr(
                             return sema.analyzeDeclRef(block, src, decl);
                         }
                     }
-                    const maybe_field_index: ?usize = switch (child_type.tag()) {
-                        .enum_full, .enum_nonexhaustive => blk: {
-                            const enum_full = child_type.castTag(.enum_full).?.data;
-                            break :blk enum_full.fields.getIndex(field_name);
-                        },
-                        .enum_simple => blk: {
-                            const enum_simple = child_type.castTag(.enum_simple).?.data;
-                            break :blk enum_simple.fields.getIndex(field_name);
-                        },
-                        else => unreachable,
-                    };
-                    const field_index = maybe_field_index orelse {
-                        return mod.fail(&block.base, src, "enum '{}' has no member named '{s}'", .{
-                            child_type, field_name,
-                        });
+                    const field_index = child_type.enumFieldIndex(field_name) orelse {
+                        const msg = msg: {
+                            const msg = try mod.errMsg(
+                                &block.base,
+                                src,
+                                "enum '{}' has no member named '{s}'",
+                                .{ child_type, field_name },
+                            );
+                            errdefer msg.destroy(sema.gpa);
+                            try mod.errNoteNonLazy(
+                                child_type.declSrcLoc(),
+                                msg,
+                                "enum declared here",
+                                .{},
+                            );
+                            break :msg msg;
+                        };
+                        return mod.failWithOwnedErrorMsg(&block.base, msg);
                     };
                     const field_index_u32 = @intCast(u32, field_index);
                     const enum_val = try Value.Tag.enum_field_index.create(arena, field_index_u32);
@@ -4593,10 +4596,13 @@ fn coerce(
         return sema.bitcast(block, dest_type, inst);
     }
 
+    const mod = sema.mod;
+    const arena = sema.arena;
+
     // undefined to anything
     if (inst.value()) |val| {
         if (val.isUndef() or inst.ty.zigTypeTag() == .Undefined) {
-            return sema.mod.constInst(sema.arena, inst_src, .{ .ty = dest_type, .val = val });
+            return mod.constInst(arena, inst_src, .{ .ty = dest_type, .val = val });
         }
     }
     assert(inst.ty.zigTypeTag() != .Undefined);
@@ -4610,13 +4616,13 @@ fn coerce(
     if (try sema.coerceNum(block, dest_type, inst)) |some|
         return some;
 
-    const target = sema.mod.getTarget();
+    const target = mod.getTarget();
 
     switch (dest_type.zigTypeTag()) {
         .Optional => {
             // null to ?T
             if (inst.ty.zigTypeTag() == .Null) {
-                return sema.mod.constInst(sema.arena, inst_src, .{ .ty = dest_type, .val = Value.initTag(.null_value) });
+                return mod.constInst(arena, inst_src, .{ .ty = dest_type, .val = Value.initTag(.null_value) });
             }
 
             // T to ?T
@@ -4703,63 +4709,39 @@ fn coerce(
             }
         },
         .Enum => {
+            // enum literal to enum
             if (inst.ty.zigTypeTag() == .EnumLiteral) {
-                const val = (try sema.resolveDefinedValue(block, inst_src, inst)).?;
+                const val = try sema.resolveConstValue(block, inst_src, inst);
                 const bytes = val.castTag(.enum_literal).?.data;
-                switch (dest_type.tag()) {
-                    .enum_full => {
-                        const enumeration = dest_type.castTag(.enum_full).?.data;
-                        const enum_fields = enumeration.fields;
-                        const i = enum_fields.getIndex(bytes) orelse return sema.mod.fail(
+                const field_index = dest_type.enumFieldIndex(bytes) orelse {
+                    const msg = msg: {
+                        const msg = try mod.errMsg(
                             &block.base,
                             inst_src,
-                            "enum '{s}' has no field named '{s}'",
-                            .{ enumeration.owner_decl.name, bytes },
+                            "enum '{}' has no field named '{s}'",
+                            .{ dest_type, bytes },
                         );
-                        const val_pl = try Value.Tag.enum_field_index.create(sema.arena, @intCast(u32, i));
-                        return sema.mod.constInst(sema.arena, inst_src, .{
-                            .ty = dest_type,
-                            .val = val_pl,
-                        });
-                    },
-                    .enum_simple => {
-                        const enumeration = dest_type.castTag(.enum_simple).?.data;
-                        const enum_fields = enumeration.fields;
-                        const i = enum_fields.getIndex(bytes) orelse return sema.mod.fail(
-                            &block.base,
-                            inst_src,
-                            "enum '{s}' has no field named '{s}'",
-                            .{ enumeration.owner_decl.name, bytes },
+                        errdefer msg.destroy(sema.gpa);
+                        try mod.errNoteNonLazy(
+                            dest_type.declSrcLoc(),
+                            msg,
+                            "enum declared here",
+                            .{},
                         );
-                        const val_pl = try Value.Tag.enum_field_index.create(sema.arena, @intCast(u32, i));
-                        return sema.mod.constInst(sema.arena, inst_src, .{
-                            .ty = dest_type,
-                            .val = val_pl,
-                        });
-                    },
-                    .enum_nonexhaustive => {
-                        const enumeration = dest_type.castTag(.enum_nonexhaustive).?.data;
-                        const enum_fields = enumeration.fields;
-                        const i = enum_fields.getIndex(bytes) orelse return sema.mod.fail(
-                            &block.base,
-                            inst_src,
-                            "enum '{s}' has no field named '{s}'",
-                            .{ enumeration.owner_decl.name, bytes },
-                        );
-                        const val_pl = try Value.Tag.enum_field_index.create(sema.arena, @intCast(u32, i));
-                        return sema.mod.constInst(sema.arena, inst_src, .{
-                            .ty = dest_type,
-                            .val = val_pl,
-                        });
-                    },
-                    else => unreachable,
-                }
+                        break :msg msg;
+                    };
+                    return mod.failWithOwnedErrorMsg(&block.base, msg);
+                };
+                return mod.constInst(arena, inst_src, .{
+                    .ty = dest_type,
+                    .val = try Value.Tag.enum_field_index.create(arena, @intCast(u32, field_index)),
+                });
             }
         },
         else => {},
     }
 
-    return sema.mod.fail(&block.base, inst_src, "expected {}, found {}", .{ dest_type, inst.ty });
+    return mod.fail(&block.base, inst_src, "expected {}, found {}", .{ dest_type, inst.ty });
 }
 
 const InMemoryCoercionResult = enum {
