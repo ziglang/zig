@@ -484,7 +484,7 @@ pub const list = list: {
             "@intToEnum",
             .{
                 .tag = .int_to_enum,
-                .param_count = 1,
+                .param_count = 2,
             },
         },
         .{

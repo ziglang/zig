@@ -290,6 +290,18 @@ pub const Decl = struct {
         return decl.container.fullyQualifiedNameHash(mem.spanZ(decl.name));
     }
 
+    pub fn renderFullyQualifiedName(decl: Decl, writer: anytype) !void {
+        const unqualified_name = mem.spanZ(decl.name);
+        return decl.container.renderFullyQualifiedName(unqualified_name, writer);
+    }
+
+    pub fn getFullyQualifiedName(decl: Decl, gpa: *Allocator) ![]u8 {
+        var buffer = std.ArrayList(u8).init(gpa);
+        defer buffer.deinit();
+        try decl.renderFullyQualifiedName(buffer.writer());
+        return buffer.toOwnedSlice();
+    }
+
     pub fn typedValue(decl: *Decl) error{AnalysisFail}!TypedValue {
         const tvm = decl.typedValueManaged() orelse return error.AnalysisFail;
         return tvm.typed_value;
@@ -375,8 +387,7 @@ pub const Struct = struct {
     };
 
     pub fn getFullyQualifiedName(s: *Struct, gpa: *Allocator) ![]u8 {
-        // TODO this should return e.g. "std.fs.Dir.OpenOptions"
-        return gpa.dupe(u8, mem.spanZ(s.owner_decl.name));
+        return s.owner_decl.getFullyQualifiedName(gpa);
     }
 
     pub fn srcLoc(s: Struct) SrcLoc {
@@ -385,6 +396,39 @@ pub const Struct = struct {
             .lazy = .{ .node_offset = s.node_offset },
         };
     }
+};
+
+/// Represents the data that an enum declaration provides, when the fields
+/// are auto-numbered, and there are no declarations. The integer tag type
+/// is inferred to be the smallest power of two unsigned int that fits
+/// the number of fields.
+pub const EnumSimple = struct {
+    owner_decl: *Decl,
+    /// Set of field names in declaration order.
+    fields: std.StringArrayHashMapUnmanaged(void),
+    /// Offset from `owner_decl`, points to the enum decl AST node.
+    node_offset: i32,
+};
+
+/// Represents the data that an enum declaration provides, when there is
+/// at least one tag value explicitly specified, or at least one declaration.
+pub const EnumFull = struct {
+    owner_decl: *Decl,
+    /// An integer type which is used for the numerical value of the enum.
+    /// Whether zig chooses this type or the user specifies it, it is stored here.
+    tag_ty: Type,
+    /// Set of field names in declaration order.
+    fields: std.StringArrayHashMapUnmanaged(void),
+    /// Maps integer tag value to field index.
+    /// Entries are in declaration order, same as `fields`.
+    /// If this hash map is empty, it means the enum tags are auto-numbered.
+    values: ValueMap,
+    /// Represents the declarations inside this struct.
+    container: Scope.Container,
+    /// Offset from `owner_decl`, points to the enum decl AST node.
+    node_offset: i32,
+
+    pub const ValueMap = std.ArrayHashMapUnmanaged(Value, void, Value.hash_u32, Value.eql, false);
 };
 
 /// Some Fn struct memory is owned by the Decl's TypedValue.Managed arena allocator.
@@ -633,6 +677,11 @@ pub const Scope = struct {
         pub fn fullyQualifiedNameHash(cont: *Container, name: []const u8) NameHash {
             // TODO container scope qualified names.
             return std.zig.hashSrc(name);
+        }
+
+        pub fn renderFullyQualifiedName(cont: Container, name: []const u8, writer: anytype) !void {
+            // TODO this should render e.g. "std.fs.Dir.OpenOptions"
+            return writer.writeAll(name);
         }
     };
 
@@ -1030,7 +1079,6 @@ pub const Scope = struct {
                 .instructions = gz.astgen.instructions.toOwnedSlice(),
                 .string_bytes = gz.astgen.string_bytes.toOwnedSlice(gpa),
                 .extra = gz.astgen.extra.toOwnedSlice(gpa),
-                .decls = gz.astgen.decls.toOwnedSlice(gpa),
             };
         }
 
@@ -1242,6 +1290,16 @@ pub const Scope = struct {
             });
         }
 
+        pub fn addFloat(gz: *GenZir, number: f32, src_node: ast.Node.Index) !zir.Inst.Ref {
+            return gz.add(.{
+                .tag = .float,
+                .data = .{ .float = .{
+                    .src_node = gz.astgen.decl.nodeIndexToRelative(src_node),
+                    .number = number,
+                } },
+            });
+        }
+
         pub fn addUnNode(
             gz: *GenZir,
             tag: zir.Inst.Tag,
@@ -1448,13 +1506,6 @@ pub const Scope = struct {
             });
             gz.instructions.appendAssumeCapacity(new_index);
             return new_index;
-        }
-
-        pub fn addConst(gz: *GenZir, typed_value: *TypedValue) !zir.Inst.Ref {
-            return gz.add(.{
-                .tag = .@"const",
-                .data = .{ .@"const" = typed_value },
-            });
         }
 
         pub fn add(gz: *GenZir, inst: zir.Inst) !zir.Inst.Ref {
@@ -3120,12 +3171,14 @@ fn astgenAndSemaVarDecl(
     return type_changed;
 }
 
-pub fn declareDeclDependency(mod: *Module, depender: *Decl, dependee: *Decl) !void {
-    try depender.dependencies.ensureCapacity(mod.gpa, depender.dependencies.items().len + 1);
-    try dependee.dependants.ensureCapacity(mod.gpa, dependee.dependants.items().len + 1);
+/// Returns the depender's index of the dependee.
+pub fn declareDeclDependency(mod: *Module, depender: *Decl, dependee: *Decl) !u32 {
+    try depender.dependencies.ensureCapacity(mod.gpa, depender.dependencies.count() + 1);
+    try dependee.dependants.ensureCapacity(mod.gpa, dependee.dependants.count() + 1);
 
-    depender.dependencies.putAssumeCapacity(dependee, {});
     dependee.dependants.putAssumeCapacity(depender, {});
+    const gop = depender.dependencies.getOrPutAssumeCapacity(dependee);
+    return @intCast(u32, gop.index);
 }
 
 pub fn getAstTree(mod: *Module, root_scope: *Scope.File) !*const ast.Tree {
@@ -4445,7 +4498,17 @@ pub fn optimizeMode(mod: Module) std.builtin.Mode {
 /// Otherwise, returns a reference to the source code bytes directly.
 /// See also `appendIdentStr` and `parseStrLit`.
 pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
-    const tree = scope.tree();
+    return mod.identifierTokenStringTreeArena(scope, token, scope.tree(), scope.arena());
+}
+
+/// `scope` is only used for error reporting.
+pub fn identifierTokenStringTreeArena(
+    mod: *Module,
+    scope: *Scope,
+    token: ast.TokenIndex,
+    tree: *const ast.Tree,
+    arena: *Allocator,
+) InnerError![]const u8 {
     const token_tags = tree.tokens.items(.tag);
     assert(token_tags[token] == .identifier);
     const ident_name = tree.tokenSlice(token);
@@ -4455,7 +4518,8 @@ pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex)
     var buf: ArrayListUnmanaged(u8) = .{};
     defer buf.deinit(mod.gpa);
     try parseStrLit(mod, scope, token, &buf, ident_name, 1);
-    return buf.toOwnedSlice(mod.gpa);
+    const duped = try arena.dupe(u8, buf.items);
+    return duped;
 }
 
 /// Given an identifier token, obtain the string for it (possibly parsing as a string

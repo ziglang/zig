@@ -168,7 +168,6 @@ pub fn analyzeBody(
             .cmp_lte => try sema.zirCmp(block, inst, .lte),
             .cmp_neq => try sema.zirCmp(block, inst, .neq),
             .coerce_result_ptr => try sema.zirCoerceResultPtr(block, inst),
-            .@"const" => try sema.zirConst(block, inst),
             .decl_ref => try sema.zirDeclRef(block, inst),
             .decl_val => try sema.zirDeclVal(block, inst),
             .load => try sema.zirLoad(block, inst),
@@ -179,6 +178,8 @@ pub fn analyzeBody(
             .elem_val_node => try sema.zirElemValNode(block, inst),
             .enum_literal => try sema.zirEnumLiteral(block, inst),
             .enum_literal_small => try sema.zirEnumLiteralSmall(block, inst),
+            .enum_to_int => try sema.zirEnumToInt(block, inst),
+            .int_to_enum => try sema.zirIntToEnum(block, inst),
             .err_union_code => try sema.zirErrUnionCode(block, inst),
             .err_union_code_ptr => try sema.zirErrUnionCodePtr(block, inst),
             .err_union_payload_safe => try sema.zirErrUnionPayload(block, inst, true),
@@ -201,6 +202,8 @@ pub fn analyzeBody(
             .import => try sema.zirImport(block, inst),
             .indexable_ptr_len => try sema.zirIndexablePtrLen(block, inst),
             .int => try sema.zirInt(block, inst),
+            .float => try sema.zirFloat(block, inst),
+            .float128 => try sema.zirFloat128(block, inst),
             .int_type => try sema.zirIntType(block, inst),
             .intcast => try sema.zirIntcast(block, inst),
             .is_err => try sema.zirIsErr(block, inst),
@@ -264,7 +267,8 @@ pub fn analyzeBody(
             .struct_decl => try sema.zirStructDecl(block, inst, .Auto),
             .struct_decl_packed => try sema.zirStructDecl(block, inst, .Packed),
             .struct_decl_extern => try sema.zirStructDecl(block, inst, .Extern),
-            .enum_decl => try sema.zirEnumDecl(block, inst),
+            .enum_decl => try sema.zirEnumDecl(block, inst, false),
+            .enum_decl_nonexhaustive => try sema.zirEnumDecl(block, inst, true),
             .union_decl => try sema.zirUnionDecl(block, inst),
             .opaque_decl => try sema.zirOpaqueDecl(block, inst),
 
@@ -498,18 +502,6 @@ fn resolveInstConst(
     };
 }
 
-fn zirConst(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const tv_ptr = sema.code.instructions.items(.data)[inst].@"const";
-    // Move the TypedValue from old memory to new memory. This allows freeing the ZIR instructions
-    // after analysis. This happens, for example, with variable declaration initialization
-    // expressions.
-    const typed_value_copy = try tv_ptr.copy(sema.arena);
-    return sema.mod.constInst(sema.arena, .unneeded, typed_value_copy);
-}
-
 fn zirBitcastResultPtr(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
@@ -617,7 +609,12 @@ fn zirStructDecl(
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
-fn zirEnumDecl(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+fn zirEnumDecl(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: zir.Inst.Index,
+    nonexhaustive: bool,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1070,6 +1067,31 @@ fn zirInt(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*In
     return sema.mod.constIntUnsigned(sema.arena, .unneeded, Type.initTag(.comptime_int), int);
 }
 
+fn zirFloat(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const arena = sema.arena;
+    const inst_data = sema.code.instructions.items(.data)[inst].float;
+    const src = inst_data.src();
+    const number = inst_data.number;
+
+    return sema.mod.constInst(arena, src, .{
+        .ty = Type.initTag(.comptime_float),
+        .val = try Value.Tag.float_32.create(arena, number),
+    });
+}
+
+fn zirFloat128(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const arena = sema.arena;
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(zir.Inst.Float128, inst_data.payload_index).data;
+    const src = inst_data.src();
+    const number = extra.get();
+
+    return sema.mod.constInst(arena, src, .{
+        .ty = Type.initTag(.comptime_float),
+        .val = try Value.Tag.float_128.create(arena, number),
+    });
+}
+
 fn zirCompileError(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!zir.Inst.Index {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1385,7 +1407,7 @@ fn zirDeclRef(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    const decl = sema.code.decls[inst_data.payload_index];
+    const decl = sema.owner_decl.dependencies.entries.items[inst_data.payload_index].key;
     return sema.analyzeDeclRef(block, src, decl);
 }
 
@@ -1395,7 +1417,7 @@ fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    const decl = sema.code.decls[inst_data.payload_index];
+    const decl = sema.owner_decl.dependencies.entries.items[inst_data.payload_index].key;
     return sema.analyzeDeclVal(block, src, decl);
 }
 
@@ -1850,6 +1872,120 @@ fn zirEnumLiteralSmall(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) I
         .ty = Type.initTag(.enum_literal),
         .val = try Value.Tag.enum_literal.create(sema.arena, duped_name),
     });
+}
+
+fn zirEnumToInt(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const mod = sema.mod;
+    const arena = sema.arena;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand = try sema.resolveInst(inst_data.operand);
+
+    const enum_tag: *Inst = switch (operand.ty.zigTypeTag()) {
+        .Enum => operand,
+        .Union => {
+            //if (!operand.ty.unionHasTag()) {
+            //    return mod.fail(
+            //        &block.base,
+            //        operand_src,
+            //        "untagged union '{}' cannot be converted to integer",
+            //        .{dest_ty_src},
+            //    );
+            //}
+            return mod.fail(&block.base, operand_src, "TODO zirEnumToInt for tagged unions", .{});
+        },
+        else => {
+            return mod.fail(&block.base, operand_src, "expected enum or tagged union, found {}", .{
+                operand.ty,
+            });
+        },
+    };
+
+    var int_tag_type_buffer: Type.Payload.Bits = undefined;
+    const int_tag_ty = try enum_tag.ty.intTagType(&int_tag_type_buffer).copy(arena);
+
+    if (enum_tag.ty.onePossibleValue()) |opv| {
+        return mod.constInst(arena, src, .{
+            .ty = int_tag_ty,
+            .val = opv,
+        });
+    }
+
+    if (enum_tag.value()) |enum_tag_val| {
+        if (enum_tag_val.castTag(.enum_field_index)) |enum_field_payload| {
+            const field_index = enum_field_payload.data;
+            switch (enum_tag.ty.tag()) {
+                .enum_full => {
+                    const enum_full = enum_tag.ty.castTag(.enum_full).?.data;
+                    const val = enum_full.values.entries.items[field_index].key;
+                    return mod.constInst(arena, src, .{
+                        .ty = int_tag_ty,
+                        .val = val,
+                    });
+                },
+                .enum_simple => {
+                    // Field index and integer values are the same.
+                    const val = try Value.Tag.int_u64.create(arena, field_index);
+                    return mod.constInst(arena, src, .{
+                        .ty = int_tag_ty,
+                        .val = val,
+                    });
+                },
+                else => unreachable,
+            }
+        } else {
+            // Assume it is already an integer and return it directly.
+            return mod.constInst(arena, src, .{
+                .ty = int_tag_ty,
+                .val = enum_tag_val,
+            });
+        }
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    return block.addUnOp(src, int_tag_ty, .bitcast, enum_tag);
+}
+
+fn zirIntToEnum(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const mod = sema.mod;
+    const target = mod.getTarget();
+    const arena = sema.arena;
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
+    const src = inst_data.src();
+    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const operand = try sema.resolveInst(extra.rhs);
+
+    if (dest_ty.zigTypeTag() != .Enum) {
+        return mod.fail(&block.base, dest_ty_src, "expected enum, found {}", .{dest_ty});
+    }
+
+    if (!dest_ty.isExhaustiveEnum()) {
+        if (operand.value()) |int_val| {
+            return mod.constInst(arena, src, .{
+                .ty = dest_ty,
+                .val = int_val,
+            });
+        }
+    }
+
+    if (try sema.resolveDefinedValue(block, operand_src, operand)) |int_val| {
+        if (!dest_ty.enumHasInt(int_val, target)) {
+            return mod.fail(&block.base, src, "enum '{}' has no tag with value {}", .{
+                dest_ty, int_val,
+            });
+        }
+        return mod.constInst(arena, src, .{
+            .ty = dest_ty,
+            .val = int_val,
+        });
+    }
+
+    try sema.requireRuntimeBlock(block, src);
+    return block.addUnOp(src, dest_ty, .bitcast, operand);
 }
 
 /// Pointer in, pointer out.
@@ -4630,7 +4766,7 @@ fn analyzeDeclVal(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, decl: *Decl
 }
 
 fn analyzeDeclRef(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, decl: *Decl) InnerError!*Inst {
-    try sema.mod.declareDeclDependency(sema.owner_decl, decl);
+    _ = try sema.mod.declareDeclDependency(sema.owner_decl, decl);
     sema.mod.ensureDeclAnalyzed(decl) catch |err| {
         if (sema.func) |func| {
             func.state = .dependency_failure;
