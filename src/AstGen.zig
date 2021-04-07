@@ -3356,8 +3356,13 @@ fn switchExpr(
     switch (strat.tag) {
         .break_operand => {
             // Switch expressions return `true` for `nodeMayNeedMemoryLocation` thus
-            // this is always true.
-            assert(strat.elide_store_to_block_ptr_instructions);
+            // `elide_store_to_block_ptr_instructions` will either be true,
+            // or all prongs are noreturn.
+            if (!strat.elide_store_to_block_ptr_instructions) {
+                astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items);
+                astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items);
+                return astgen.indexToRef(switch_block);
+            }
 
             // There will necessarily be a store_to_block_ptr for
             // all prongs, except for prongs that ended with a noreturn instruction.
