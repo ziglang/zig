@@ -139,7 +139,7 @@ pub const Type = extern union {
             => false,
 
             .Pointer => is_equality_cmp or ty.isCPtr(),
-            .Optional => is_equality_cmp and ty.isAbiPtr(),
+            .Optional => is_equality_cmp and ty.isPtrLikeOptional(),
         };
     }
 
@@ -1617,11 +1617,6 @@ pub const Type = extern union {
             },
             else => unreachable,
         }
-    }
-
-    /// Returns whether the type is represented as a pointer in the ABI.
-    pub fn isAbiPtr(self: Type) bool {
-        @panic("TODO implement this");
     }
 
     /// Asserts that the type is an error union.
