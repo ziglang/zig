@@ -207,7 +207,7 @@ pub fn parseSections(self: *Object) !void {
         };
 
         // Parse relocations
-        var relocs: ?[]*Relocation = if (sect.nreloc > 0) relocs: {
+        section.relocs = if (sect.nreloc > 0) relocs: {
             var raw_relocs = try self.allocator.alloc(u8, @sizeOf(macho.relocation_info) * sect.nreloc);
             defer self.allocator.free(raw_relocs);
 

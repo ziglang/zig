@@ -292,12 +292,12 @@ const RelocIterator = struct {
         self.index += 1;
         if (self.index < self.buffer.len) {
             const reloc = self.buffer[@intCast(u64, self.index)];
-            log.warn("{s}", .{@intToEnum(macho.reloc_type_arm64, reloc.r_type)});
-            log.warn("    | offset = {}", .{reloc.r_address});
-            log.warn("    | PC = {}", .{reloc.r_pcrel == 1});
-            log.warn("    | length = {}", .{reloc.r_length});
-            log.warn("    | symbolnum = {}", .{reloc.r_symbolnum});
-            log.warn("    | extern = {}", .{reloc.r_extern == 1});
+            log.debug("{s}", .{@intToEnum(macho.reloc_type_arm64, reloc.r_type)});
+            log.debug("    | offset = {}", .{reloc.r_address});
+            log.debug("    | PC = {}", .{reloc.r_pcrel == 1});
+            log.debug("    | length = {}", .{reloc.r_length});
+            log.debug("    | symbolnum = {}", .{reloc.r_symbolnum});
+            log.debug("    | extern = {}", .{reloc.r_extern == 1});
             return reloc;
         }
         return null;
@@ -419,7 +419,7 @@ const Parser = struct {
             .inst = parsed_inst,
         };
 
-        log.warn("    | emitting {}", .{branch});
+        log.debug("    | emitting {}", .{branch});
         try parser.parsed.append(&branch.base);
     }
 
@@ -458,7 +458,7 @@ const Parser = struct {
                         .inst = parsed_inst,
                     };
 
-                    log.warn("    | emitting {}", .{page});
+                    log.debug("    | emitting {}", .{page});
 
                     break :ptr &page.base;
                 },
@@ -476,7 +476,7 @@ const Parser = struct {
                         .inst = parsed_inst,
                     };
 
-                    log.warn("    | emitting {}", .{page});
+                    log.debug("    | emitting {}", .{page});
 
                     break :ptr &page.base;
                 },
@@ -494,7 +494,7 @@ const Parser = struct {
                         .inst = parsed_inst,
                     };
 
-                    log.warn("    | emitting {}", .{page});
+                    log.debug("    | emitting {}", .{page});
 
                     break :ptr &page.base;
                 },
@@ -551,7 +551,7 @@ const Parser = struct {
             .addend = parser.addend,
         };
 
-        log.warn("    | emitting {}", .{page_off});
+        log.debug("    | emitting {}", .{page_off});
         try parser.parsed.append(&page_off.base);
     }
 
@@ -588,7 +588,7 @@ const Parser = struct {
             },
         };
 
-        log.warn("    | emitting {}", .{page_off});
+        log.debug("    | emitting {}", .{page_off});
         try parser.parsed.append(&page_off.base);
     }
 
@@ -655,7 +655,7 @@ const Parser = struct {
             },
         };
 
-        log.warn("    | emitting {}", .{page_off});
+        log.debug("    | emitting {}", .{page_off});
         try parser.parsed.append(&page_off.base);
     }
 
@@ -716,7 +716,7 @@ const Parser = struct {
             .addend = addend,
         };
 
-        log.warn("    | emitting {}", .{unsigned});
+        log.debug("    | emitting {}", .{unsigned});
         try parser.parsed.append(&unsigned.base);
     }
 };
