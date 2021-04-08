@@ -236,6 +236,11 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
     // First, classify input files as either object or archive.
     for (files) |file_name| {
         const file = try fs.cwd().openFile(file_name, .{});
+        const full_path = full_path: {
+            var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+            const path = try std.fs.realpath(file_name, &buffer);
+            break :full_path try self.allocator.dupe(u8, path);
+        };
 
         try_object: {
             const header = try file.reader().readStruct(macho.mach_header_64);
@@ -248,7 +253,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
             try classified.append(.{
                 .kind = .object,
                 .file = file,
-                .name = file_name,
+                .name = full_path,
             });
             continue;
         }
@@ -264,7 +269,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
             try classified.append(.{
                 .kind = .archive,
                 .file = file,
-                .name = file_name,
+                .name = full_path,
             });
             continue;
         }
@@ -2441,7 +2446,7 @@ fn writeDebugInfo(self: *Zld) !void {
     var stabs = std.ArrayList(macho.nlist_64).init(self.allocator);
     defer stabs.deinit();
 
-    for (self.objects.items) |object| {
+    for (self.objects.items) |object, object_id| {
         const tu_path = object.tu_path orelse continue;
         const tu_mtime = object.tu_mtime orelse continue;
         const dirname = std.fs.path.dirname(tu_path) orelse "./";
@@ -2472,6 +2477,15 @@ fn writeDebugInfo(self: *Zld) !void {
 
         for (object.stabs.items) |stab| {
             const sym = object.symtab.items[stab.symbol];
+
+            // TODO We should clean this up.
+            if (self.unhandled_sections.contains(.{
+                .object_id = @intCast(u16, object_id),
+                .source_sect_id = stab.source_sect_id,
+            })) {
+                continue;
+            }
+
             switch (stab.tag) {
                 .function => {
                     try stabs.append(.{
@@ -2549,8 +2563,8 @@ fn populateStringTable(self: *Zld) !void {
     for (self.objects.items) |*object| {
         for (object.symtab.items) |*sym| {
             switch (sym.tag) {
-                .Stab, .Local => {},
-                else => continue,
+                .Undef, .Import => continue,
+                else => {},
             }
             const sym_name = object.getString(sym.inner.n_strx);
             const n_strx = try self.makeString(sym_name);
@@ -2559,6 +2573,8 @@ fn populateStringTable(self: *Zld) !void {
     }
 
     for (self.symtab.items()) |*entry| {
+        if (entry.value.tag != .Import) continue;
+
         const n_strx = try self.makeString(entry.key);
         entry.value.inner.n_strx = n_strx;
     }
