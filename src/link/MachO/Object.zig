@@ -183,7 +183,7 @@ pub fn readLoadCommands(self: *Object, reader: anytype) !void {
                 cmd.LinkeditData.dataoff += offset;
             },
             else => {
-                log.debug("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
+                log.warn("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
             },
         }
         self.load_commands.appendAssumeCapacity(cmd);
