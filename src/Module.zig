@@ -75,7 +75,7 @@ next_anon_name_index: usize = 0,
 
 /// Candidates for deletion. After a semantic analysis update completes, this list
 /// contains Decls that need to be deleted if they end up having no references to them.
-deletion_set: ArrayListUnmanaged(*Decl) = .{},
+deletion_set: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
 
 /// Error tags and their values, tag names are duped with mod.gpa.
 /// Corresponds with `error_name_list`.
@@ -192,7 +192,7 @@ pub const Decl = struct {
         /// to require re-analysis.
         outdated,
     },
-    /// This flag is set when this Decl is added to a check_for_deletion set, and cleared
+    /// This flag is set when this Decl is added to `Module.deletion_set`, and cleared
     /// when removed.
     deletion_flag: bool,
     /// Whether the corresponding AST decl has a `pub` keyword.
@@ -2393,7 +2393,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
                     // We don't perform a deletion here, because this Decl or another one
                     // may end up referencing it before the update is complete.
                     dep.deletion_flag = true;
-                    try mod.deletion_set.append(mod.gpa, dep);
+                    try mod.deletion_set.put(mod.gpa, dep, {});
                 }
             }
             decl.dependencies.clearRetainingCapacity();
@@ -3197,6 +3197,11 @@ pub fn declareDeclDependency(mod: *Module, depender: *Decl, dependee: *Decl) !u3
     try depender.dependencies.ensureCapacity(mod.gpa, depender.dependencies.count() + 1);
     try dependee.dependants.ensureCapacity(mod.gpa, dependee.dependants.count() + 1);
 
+    if (dependee.deletion_flag) {
+        dependee.deletion_flag = false;
+        mod.deletion_set.removeAssertDiscard(dependee);
+    }
+
     dependee.dependants.putAssumeCapacity(depender, {});
     const gop = depender.dependencies.getOrPutAssumeCapacity(dependee);
     return @intCast(u32, gop.index);
@@ -3224,12 +3229,14 @@ pub fn getAstTree(mod: *Module, root_scope: *Scope.File) !*const ast.Tree {
                 var msg = std.ArrayList(u8).init(mod.gpa);
                 defer msg.deinit();
 
+                const token_starts = tree.tokens.items(.start);
+
                 try tree.renderError(parse_err, msg.writer());
                 const err_msg = try mod.gpa.create(ErrorMsg);
                 err_msg.* = .{
                     .src_loc = .{
                         .container = .{ .file_scope = root_scope },
-                        .lazy = .{ .token_abs = parse_err.token },
+                        .lazy = .{ .byte_abs = token_starts[parse_err.token] },
                     },
                     .msg = msg.toOwnedSlice(),
                 };
@@ -3274,6 +3281,14 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         deleted_decls.putAssumeCapacityNoClobber(entry.key, {});
     }
 
+    // Keep track of decls that are invalidated from the update. Ultimately,
+    // the goal is to queue up `analyze_decl` tasks in the work queue for
+    // the outdated decls, but we cannot queue up the tasks until after
+    // we find out which ones have been deleted, otherwise there would be
+    // deleted Decl pointers in the work queue.
+    var outdated_decls = std.AutoArrayHashMap(*Decl, void).init(mod.gpa);
+    defer outdated_decls.deinit();
+
     for (decls) |decl_node, decl_i| switch (node_tags[decl_node]) {
         .fn_decl => {
             const fn_proto = node_datas[decl_node].lhs;
@@ -3284,6 +3299,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                     try mod.semaContainerFn(
                         container_scope,
                         &deleted_decls,
+                        &outdated_decls,
                         decl_node,
                         decl_i,
                         tree.*,
@@ -3294,6 +3310,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                 .fn_proto_multi => try mod.semaContainerFn(
                     container_scope,
                     &deleted_decls,
+                    &outdated_decls,
                     decl_node,
                     decl_i,
                     tree.*,
@@ -3305,6 +3322,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                     try mod.semaContainerFn(
                         container_scope,
                         &deleted_decls,
+                        &outdated_decls,
                         decl_node,
                         decl_i,
                         tree.*,
@@ -3315,6 +3333,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                 .fn_proto => try mod.semaContainerFn(
                     container_scope,
                     &deleted_decls,
+                    &outdated_decls,
                     decl_node,
                     decl_i,
                     tree.*,
@@ -3329,6 +3348,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             try mod.semaContainerFn(
                 container_scope,
                 &deleted_decls,
+                &outdated_decls,
                 decl_node,
                 decl_i,
                 tree.*,
@@ -3339,6 +3359,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .fn_proto_multi => try mod.semaContainerFn(
             container_scope,
             &deleted_decls,
+            &outdated_decls,
             decl_node,
             decl_i,
             tree.*,
@@ -3350,6 +3371,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             try mod.semaContainerFn(
                 container_scope,
                 &deleted_decls,
+                &outdated_decls,
                 decl_node,
                 decl_i,
                 tree.*,
@@ -3360,6 +3382,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .fn_proto => try mod.semaContainerFn(
             container_scope,
             &deleted_decls,
+            &outdated_decls,
             decl_node,
             decl_i,
             tree.*,
@@ -3370,6 +3393,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .global_var_decl => try mod.semaContainerVar(
             container_scope,
             &deleted_decls,
+            &outdated_decls,
             decl_node,
             decl_i,
             tree.*,
@@ -3378,6 +3402,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .local_var_decl => try mod.semaContainerVar(
             container_scope,
             &deleted_decls,
+            &outdated_decls,
             decl_node,
             decl_i,
             tree.*,
@@ -3386,6 +3411,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .simple_var_decl => try mod.semaContainerVar(
             container_scope,
             &deleted_decls,
+            &outdated_decls,
             decl_node,
             decl_i,
             tree.*,
@@ -3394,6 +3420,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .aligned_var_decl => try mod.semaContainerVar(
             container_scope,
             &deleted_decls,
+            &outdated_decls,
             decl_node,
             decl_i,
             tree.*,
@@ -3446,11 +3473,27 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         },
         else => unreachable,
     };
-    // Handle explicitly deleted decls from the source code. Not to be confused
-    // with when we delete decls because they are no longer referenced.
+    // Handle explicitly deleted decls from the source code. This is one of two
+    // places that Decl deletions happen. The other is in `Compilation`, after
+    // `performAllTheWork`, where we iterate over `Module.deletion_set` and
+    // delete Decls which are no longer referenced.
+    // If a Decl is explicitly deleted from source, and also no longer referenced,
+    // it may be both in this `deleted_decls` set, as well as in the
+    // `Module.deletion_set`. To avoid deleting it twice, we remove it from the
+    // deletion set at this time.
     for (deleted_decls.items()) |entry| {
-        log.debug("noticed '{s}' deleted from source", .{entry.key.name});
-        try mod.deleteDecl(entry.key);
+        const decl = entry.key;
+        log.debug("'{s}' deleted from source", .{decl.name});
+        if (decl.deletion_flag) {
+            log.debug("'{s}' redundantly in deletion set; removing", .{decl.name});
+            mod.deletion_set.removeAssertDiscard(decl);
+        }
+        try mod.deleteDecl(decl, &outdated_decls);
+    }
+    // Finally we can queue up re-analysis tasks after we have processed
+    // the deleted decls.
+    for (outdated_decls.items()) |entry| {
+        try mod.markOutdatedDecl(entry.key);
     }
 }
 
@@ -3458,6 +3501,7 @@ fn semaContainerFn(
     mod: *Module,
     container_scope: *Scope.Container,
     deleted_decls: *std.AutoArrayHashMap(*Decl, void),
+    outdated_decls: *std.AutoArrayHashMap(*Decl, void),
     decl_node: ast.Node.Index,
     decl_i: usize,
     tree: ast.Tree,
@@ -3489,7 +3533,7 @@ fn semaContainerFn(
             try mod.failed_decls.putNoClobber(mod.gpa, decl, msg);
         } else {
             if (!srcHashEql(decl.contents_hash, contents_hash)) {
-                try mod.markOutdatedDecl(decl);
+                try outdated_decls.put(decl, {});
                 decl.contents_hash = contents_hash;
             } else switch (mod.comp.bin_file.tag) {
                 .coff => {
@@ -3524,6 +3568,7 @@ fn semaContainerVar(
     mod: *Module,
     container_scope: *Scope.Container,
     deleted_decls: *std.AutoArrayHashMap(*Decl, void),
+    outdated_decls: *std.AutoArrayHashMap(*Decl, void),
     decl_node: ast.Node.Index,
     decl_i: usize,
     tree: ast.Tree,
@@ -3549,7 +3594,7 @@ fn semaContainerVar(
             errdefer err_msg.destroy(mod.gpa);
             try mod.failed_decls.putNoClobber(mod.gpa, decl, err_msg);
         } else if (!srcHashEql(decl.contents_hash, contents_hash)) {
-            try mod.markOutdatedDecl(decl);
+            try outdated_decls.put(decl, {});
             decl.contents_hash = contents_hash;
         }
     } else {
@@ -3579,17 +3624,27 @@ fn semaContainerField(
     log.err("TODO: analyze container field", .{});
 }
 
-pub fn deleteDecl(mod: *Module, decl: *Decl) !void {
+pub fn deleteDecl(
+    mod: *Module,
+    decl: *Decl,
+    outdated_decls: ?*std.AutoArrayHashMap(*Decl, void),
+) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    try mod.deletion_set.ensureCapacity(mod.gpa, mod.deletion_set.items.len + decl.dependencies.items().len);
+    log.debug("deleting decl '{s}'", .{decl.name});
+
+    if (outdated_decls) |map| {
+        _ = map.swapRemove(decl);
+        try map.ensureCapacity(map.count() + decl.dependants.count());
+    }
+    try mod.deletion_set.ensureCapacity(mod.gpa, mod.deletion_set.count() +
+        decl.dependencies.count());
 
     // Remove from the namespace it resides in. In the case of an anonymous Decl it will
     // not be present in the set, and this does nothing.
     decl.container.removeDecl(decl);
 
-    log.debug("deleting decl '{s}'", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
     mod.decl_table.removeAssertDiscard(name_hash);
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
@@ -3600,16 +3655,22 @@ pub fn deleteDecl(mod: *Module, decl: *Decl) !void {
             // We don't recursively perform a deletion here, because during the update,
             // another reference to it may turn up.
             dep.deletion_flag = true;
-            mod.deletion_set.appendAssumeCapacity(dep);
+            mod.deletion_set.putAssumeCapacity(dep, {});
         }
     }
-    // Anything that depends on this deleted decl certainly needs to be re-analyzed.
+    // Anything that depends on this deleted decl needs to be re-analyzed.
     for (decl.dependants.items()) |entry| {
         const dep = entry.key;
         dep.removeDependency(decl);
-        if (dep.analysis != .outdated) {
-            // TODO Move this failure possibility to the top of the function.
-            try mod.markOutdatedDecl(dep);
+        if (outdated_decls) |map| {
+            map.putAssumeCapacity(dep, {});
+        } else if (std.debug.runtime_safety) {
+            // If `outdated_decls` is `null`, it means we're being called from
+            // `Compilation` after `performAllTheWork` and we cannot queue up any
+            // more work. `dep` must necessarily be another Decl that is no longer
+            // being referenced, and will be in the `deletion_set`. Otherwise,
+            // something has gone wrong.
+            assert(mod.deletion_set.contains(dep));
         }
     }
     if (mod.failed_decls.swapRemove(decl)) |entry| {

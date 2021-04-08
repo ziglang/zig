@@ -1899,9 +1899,9 @@ fn containerDecl(
                     if (member.ast.type_expr != 0) {
                         return mod.failNode(scope, member.ast.type_expr, "enum fields do not have types", .{});
                     }
-                    if (member.ast.align_expr != 0) {
-                        return mod.failNode(scope, member.ast.align_expr, "enum fields do not have alignments", .{});
-                    }
+                    // Alignment expressions in enums are caught by the parser.
+                    assert(member.ast.align_expr == 0);
+
                     const name_token = member.ast.name_token;
                     if (mem.eql(u8, tree.tokenSlice(name_token), "_")) {
                         if (nonexhaustive_node != 0) {

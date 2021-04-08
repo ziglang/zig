@@ -538,6 +538,45 @@ pub fn addCases(ctx: *TestContext) !void {
 
     {
         var case = ctx.exeFromCompiledC("enums", .{});
+
+        case.addError(
+            \\const E1 = packed enum { a, b, c };
+            \\const E2 = extern enum { a, b, c };
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+            \\export fn bar() void {
+            \\    const x = E2.a;
+            \\}
+        , &.{
+            ":1:12: error: enums do not support 'packed' or 'extern'; instead provide an explicit integer tag type",
+            ":2:12: error: enums do not support 'packed' or 'extern'; instead provide an explicit integer tag type",
+        });
+
+        // comptime and types are caught in AstGen.
+        case.addError(
+            \\const E1 = enum {
+            \\    a,
+            \\    comptime b,
+            \\    c,
+            \\};
+            \\const E2 = enum {
+            \\    a,
+            \\    b: i32,
+            \\    c,
+            \\};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+            \\export fn bar() void {
+            \\    const x = E2.a;
+            \\}
+        , &.{
+            ":3:5: error: enum fields cannot be marked comptime",
+            ":8:8: error: enum fields do not have types",
+        });
+
+        // @enumToInt, @intToEnum, enum literal coercion, field access syntax, comparison, switch
         case.addCompareOutput(
             \\const Number = enum { One, Two, Three };
             \\
@@ -559,6 +598,20 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    }
             \\}
         , "");
+
+        // Specifying alignment is a parse error.
+        case.addError(
+            \\const E1 = enum {
+            \\    a,
+            \\    b align(4),
+            \\    c,
+            \\};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":3:7: error: expected ',', found 'align'",
+        });
     }
 
     ctx.c("empty start function", linux_x64,

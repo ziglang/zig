@@ -1598,46 +1598,4 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
-    {
-        var case = ctx.exe("enum_literal -> enum", linux_x64);
-
-        case.addCompareOutput(
-            \\const E = enum { a, b };
-            \\export fn _start() noreturn {
-            \\    const a: E = .a;
-            \\    const b: E = .b;
-            \\    exit();
-            \\}
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
-        ,
-            "",
-        );
-        case.addError(
-            \\export fn _start() noreturn {
-            \\    const a: E = .c;
-            \\    exit();
-            \\}
-            \\const E = enum { a, b };
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
-        , &.{
-            ":2:19: error: enum 'E' has no field named 'c'",
-            ":5:11: note: enum declared here",
-        });
-    }
 }

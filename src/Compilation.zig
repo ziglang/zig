@@ -1377,14 +1377,17 @@ pub fn update(self: *Compilation) !void {
 
     if (!use_stage1) {
         if (self.bin_file.options.module) |module| {
-            // Process the deletion set.
-            while (module.deletion_set.popOrNull()) |decl| {
-                if (decl.dependants.items().len != 0) {
-                    decl.deletion_flag = false;
-                    continue;
-                }
-                try module.deleteDecl(decl);
+            // Process the deletion set. We use a while loop here because the
+            // deletion set may grow as we call `deleteDecl` within this loop,
+            // and more unreferenced Decls are revealed.
+            var entry_i: usize = 0;
+            while (entry_i < module.deletion_set.entries.items.len) : (entry_i += 1) {
+                const decl = module.deletion_set.entries.items[entry_i].key;
+                assert(decl.deletion_flag);
+                assert(decl.dependants.items().len == 0);
+                try module.deleteDecl(decl, null);
             }
+            module.deletion_set.shrinkRetainingCapacity(0);
         }
     }
 
