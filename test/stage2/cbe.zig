@@ -763,6 +763,26 @@ pub fn addCases(ctx: *TestContext) !void {
             ":4:5: error: '_' prong only allowed when switching on non-exhaustive enums",
             ":7:11: note: '_' prong here",
         });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x = E.d;
+            \\}
+        , &.{
+            ":3:14: error: enum 'E' has no member named 'd'",
+            ":1:11: note: enum declared here",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .d;
+            \\}
+        , &.{
+            ":3:17: error: enum 'E' has no field named 'd'",
+            ":1:11: note: enum declared here",
+        });
     }
 
     ctx.c("empty start function", linux_x64,
