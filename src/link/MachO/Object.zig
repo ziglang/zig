@@ -2,6 +2,7 @@ const Object = @This();
 
 const std = @import("std");
 const assert = std.debug.assert;
+const dwarf = std.dwarf;
 const fs = std.fs;
 const io = std.io;
 const log = std.log.scoped(.object);
@@ -43,6 +44,10 @@ dwarf_debug_ranges_index: ?u16 = null,
 symtab: std.ArrayListUnmanaged(Symbol) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
+stabs: std.ArrayListUnmanaged(Stab) = .{},
+tu_path: ?[]const u8 = null,
+tu_mtime: ?u64 = null,
+
 data_in_code_entries: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
 pub const Section = struct {
@@ -59,6 +64,82 @@ pub const Section = struct {
             }
             allocator.free(relocs);
         }
+    }
+};
+
+const Stab = struct {
+    tag: Tag,
+    symbol: u32,
+    size: ?u64 = null,
+
+    const Tag = enum {
+        function,
+        global,
+        static,
+    };
+};
+
+const DebugInfo = struct {
+    inner: dwarf.DwarfInfo,
+    debug_info: []u8,
+    debug_abbrev: []u8,
+    debug_str: []u8,
+    debug_line: []u8,
+    debug_ranges: []u8,
+
+    pub fn parseFromObject(allocator: *Allocator, object: *const Object) !?DebugInfo {
+        var debug_info = blk: {
+            const index = object.dwarf_debug_info_index orelse return null;
+            break :blk try object.readSection(allocator, index);
+        };
+        var debug_abbrev = blk: {
+            const index = object.dwarf_debug_abbrev_index orelse return null;
+            break :blk try object.readSection(allocator, index);
+        };
+        var debug_str = blk: {
+            const index = object.dwarf_debug_str_index orelse return null;
+            break :blk try object.readSection(allocator, index);
+        };
+        var debug_line = blk: {
+            const index = object.dwarf_debug_line_index orelse return null;
+            break :blk try object.readSection(allocator, index);
+        };
+        var debug_ranges = blk: {
+            if (object.dwarf_debug_ranges_index) |ind| {
+                break :blk try object.readSection(allocator, ind);
+            }
+            break :blk try allocator.alloc(u8, 0);
+        };
+
+        var inner: dwarf.DwarfInfo = .{
+            .endian = .Little,
+            .debug_info = debug_info,
+            .debug_abbrev = debug_abbrev,
+            .debug_str = debug_str,
+            .debug_line = debug_line,
+            .debug_ranges = debug_ranges,
+        };
+        try dwarf.openDwarfDebugInfo(&inner, allocator);
+
+        return DebugInfo{
+            .inner = inner,
+            .debug_info = debug_info,
+            .debug_abbrev = debug_abbrev,
+            .debug_str = debug_str,
+            .debug_line = debug_line,
+            .debug_ranges = debug_ranges,
+        };
+    }
+
+    pub fn deinit(self: *DebugInfo, allocator: *Allocator) void {
+        allocator.free(self.debug_info);
+        allocator.free(self.debug_abbrev);
+        allocator.free(self.debug_str);
+        allocator.free(self.debug_line);
+        allocator.free(self.debug_ranges);
+        self.inner.abbrev_table_list.deinit();
+        self.inner.compile_unit_list.deinit();
+        self.inner.func_list.deinit();
     }
 };
 
@@ -81,10 +162,15 @@ pub fn deinit(self: *Object) void {
 
     self.symtab.deinit(self.allocator);
     self.strtab.deinit(self.allocator);
+    self.stabs.deinit(self.allocator);
     self.data_in_code_entries.deinit(self.allocator);
 
     if (self.name) |n| {
         self.allocator.free(n);
+    }
+
+    if (self.tu_path) |tu_path| {
+        self.allocator.free(tu_path);
     }
 }
 
@@ -124,6 +210,7 @@ pub fn parse(self: *Object) !void {
     try self.parseSections();
     if (self.symtab_cmd_index != null) try self.parseSymtab();
     if (self.data_in_code_cmd_index != null) try self.readDataInCode();
+    try self.parseDebugInfo();
 }
 
 pub fn readLoadCommands(self: *Object, reader: anytype) !void {
@@ -269,6 +356,54 @@ pub fn parseSymtab(self: *Object) !void {
 
     _ = try self.file.?.preadAll(strtab, symtab_cmd.stroff);
     try self.strtab.appendSlice(self.allocator, strtab);
+}
+
+pub fn parseDebugInfo(self: *Object) !void {
+    var debug_info = blk: {
+        var di = try DebugInfo.parseFromObject(self.allocator, self);
+        break :blk di orelse return;
+    };
+    defer debug_info.deinit(self.allocator);
+
+    log.warn("parsing debug info in '{s}'", .{self.name.?});
+
+    // We assume there is only one CU.
+    const compile_unit = debug_info.inner.findCompileUnit(0x0) catch |err| switch (err) {
+        error.MissingDebugInfo => {
+            // TODO audit cases with missing debug info and audit our dwarf.zig module.
+            log.warn("invalid or missing debug info in {s}; skipping", .{self.name.?});
+            return;
+        },
+        else => |e| return e,
+    };
+    const name = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT_name);
+    const comp_dir = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT_comp_dir);
+
+    self.tu_path = try std.fs.path.join(self.allocator, &[_][]const u8{ comp_dir, name });
+    self.tu_mtime = mtime: {
+        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const stat = try self.file.?.stat();
+        break :mtime @intCast(u64, @divFloor(stat.mtime, 1_000_000_000));
+    };
+
+    for (self.symtab.items) |sym, index| {
+        const sym_name = self.getString(sym.inner.n_strx);
+        const size = blk: for (debug_info.inner.func_list.items) |func| {
+            if (func.pc_range) |range| {
+                if (sym.inner.n_value >= range.start and sym.inner.n_value < range.end) {
+                    break :blk range.end - range.start;
+                }
+            }
+        } else null;
+
+        // TODO How do we work out static, global, local?
+        const tag: Stab.Tag = if (size == null) .global else .function;
+        try self.stabs.append(self.allocator, .{
+            .tag = tag,
+            .size = size,
+            .symbol = @intCast(u32, index),
+        });
+    }
 }
 
 pub fn getString(self: *const Object, str_off: u32) []const u8 {
