@@ -1,4 +1,8 @@
 const std = @import("std");
+const testing = std.testing;
+const mem = std.mem;
+const assert = std.debug.assert;
+const ArrayList = std.ArrayList;
 const Type = @import("../Type.zig");
 const DW = std.dwarf;
 
@@ -68,6 +72,11 @@ pub const Register = enum(u8) {
         return @truncate(u4, @enumToInt(self));
     }
 
+    /// Like id, but only returns the lower 3 bits.
+    pub fn low_id(self: Register) u3 {
+        return @truncate(u3, @enumToInt(self));
+    }
+
     /// Returns the index into `callee_preserved_regs`.
     pub fn allocIndex(self: Register) ?u4 {
         return switch (self) {
@@ -135,6 +144,418 @@ pub const Register = enum(u8) {
 pub const callee_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
 pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
 pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
+
+/// Represents an unencoded x86 instruction.
+///
+/// Roughly based on the table headings at http://ref.x86asm.net/coder64.html
+pub const Instruction = struct {
+    /// Opcode prefix, needed for certain rare ops (e.g. MOVSS)
+    opcode_prefix: ?u8 = null,
+
+    /// One-byte primary opcode
+    primary_opcode_1b: ?u8 = null,
+    /// Two-byte primary opcode (always prefixed with 0f)
+    primary_opcode_2b: ?u8 = null,
+    // TODO: Support 3-byte opcodes
+
+    /// Secondary opcode
+    secondary_opcode: ?u8 = null,
+
+    /// Opcode extension (to be placed in the ModR/M byte in place of reg)
+    opcode_extension: ?u3 = null,
+
+    /// Legacy prefixes to use with this instruction
+    /// Most of the time, this field will be 0 and no prefixes are added.
+    /// Otherwise, a prefix will be added for each field set.
+    legacy_prefixes: LegacyPrefixes = .{},
+
+    /// 64-bit operand size
+    operand_size_64: bool = false,
+
+    /// The opcode-reg field,
+    /// stored in the 3 least significant bits of the opcode
+    /// on certain instructions + REX if extended
+    opcode_reg: ?Register = null,
+
+    /// The reg field
+    reg: ?Register = null,
+    /// The mod + r/m field
+    modrm: ?ModrmEffectiveAddress = null,
+    /// Location of the 3rd operand, if applicable
+    sib: ?SibEffectiveAddress = null,
+
+    /// Number of bytes of immediate
+    immediate_bytes: u8 = 0,
+    /// The value of the immediate
+    immediate: u64 = 0,
+
+    /// See legacy_prefixes
+    pub const LegacyPrefixes = packed struct {
+        /// LOCK
+        prefix_f0: bool = false,
+        /// REPNZ, REPNE, REP, Scalar Double-precision
+        prefix_f2: bool = false,
+        /// REPZ, REPE, REP, Scalar Single-precision
+        prefix_f3: bool = false,
+
+        /// CS segment override or Branch not taken
+        prefix_2e: bool = false,
+        /// DS segment override
+        prefix_36: bool = false,
+        /// ES segment override
+        prefix_26: bool = false,
+        /// FS segment override
+        prefix_64: bool = false,
+        /// GS segment override
+        prefix_65: bool = false,
+
+        /// Branch taken
+        prefix_3e: bool = false,
+
+        /// Operand size override
+        prefix_66: bool = false,
+
+        /// Address size override
+        prefix_67: bool = false,
+
+        padding: u5 = 0,
+    };
+
+    /// Encodes an effective address for the Mod + R/M part of the ModR/M byte
+    ///
+    /// Note that depending on the instruction, not all effective addresses are allowed.
+    ///
+    /// Examples:
+    ///   eax:       .reg = .eax
+    ///   [eax]:     .mem = .eax
+    ///   [eax + 8]: .mem_disp = .{ .reg = .eax, .disp = 8 }
+    ///   [eax - 8]: .mem_disp = .{ .reg = .eax, .disp = -8 }
+    ///   [55]:      .disp32 = 55
+    pub const ModrmEffectiveAddress = union(enum) {
+        reg: Register,
+        mem: Register,
+        mem_disp: struct {
+            reg: Register,
+            disp: i32,
+        },
+        disp32: u32,
+
+        pub fn isExtended(self: @This()) bool {
+            return switch (self) {
+                .reg => |reg| reg.isExtended(),
+                .mem => |memea| memea.isExtended(),
+                .mem_disp => |mem_disp| mem_disp.reg.isExtended(),
+                .disp32 => false,
+            };
+        }
+    };
+
+    /// Encodes an effective address for the SIB byte
+    ///
+    /// Note that depending on the instruction, not all effective addresses are allowed.
+    ///
+    /// Examples:
+    ///   [eax + ebx * 2]:       .base_index = .{ .base = .eax, .index = .ebx, .scale = 2 }
+    ///   [eax]:                 .base_index = .{ .base = .eax, .index = null, .scale = 1 }
+    ///   [ebx * 2 + 256]:       .index_disp = .{ .index = .ebx, .scale = 2, .disp = 256 }
+    ///   [[ebp] + ebx * 2 + 8]: .ebp_index_disp = .{ .index = .ebx, .scale = 2, .disp = 8 }
+    pub const SibEffectiveAddress = union(enum) {
+        base_index: struct {
+            base: Register,
+            index: ?Register,
+            scale: u8, // 1, 2, 4, or 8
+        },
+        index_disp: struct {
+            index: ?Register,
+            scale: u8, // 1, 2, 4, or 8
+            disp: u32,
+        },
+        ebp_index_disp: struct {
+            index: ?Register,
+            scale: u8, // 1, 2, 4, or 8
+            disp: u32,
+        },
+
+        pub fn baseIsExtended(self: @This()) bool {
+            return switch (self) {
+                .base_index => |base_index| base_index.base.isExtended(),
+                .index_disp, .ebp_index_disp => false,
+            };
+        }
+
+        pub fn indexIsExtended(self: @This()) bool {
+            return switch (self) {
+                .base_index => |base_index| if (base_index.index) |idx| idx.isExtended() else false,
+                .index_disp => |index_disp| if (index_disp.index) |idx| idx.isExtended() else false,
+                .ebp_index_disp => |ebp_index_disp| if (ebp_index_disp.index) |idx| idx.isExtended() else false,
+            };
+        }
+    };
+
+    /// Writes the encoded Instruction to the code ArrayList
+    pub fn encodeInto(inst: Instruction, code: *ArrayList(u8)) !void {
+        // We need to write the following, in that order:
+        // - Legacy prefixes (0 to 13 bytes)
+        // - REX prefix (0 to 1 byte)
+        // - Opcode (1, 2, or 3 bytes)
+        // - ModR/M (0 or 1 byte)
+        // - SIB (0 or 1 byte)
+        // - Displacement (0, 1, 2, or 4 bytes)
+        // - Immediate (0, 1, 2, 4, or 8 bytes)
+
+        // By this calculation, an instruction could be up to 31 bytes long (will probably not happen)
+        try code.ensureCapacity(code.items.len + 31);
+
+        // Legacy prefixes
+        if (@bitCast(u16, inst.legacy_prefixes) != 0) {
+            // Hopefully this path isn't taken very often, so we'll do it the slow way for now
+
+            // LOCK
+            if (inst.legacy_prefixes.prefix_f0) code.appendAssumeCapacity(0xf0);
+            // REPNZ, REPNE, REP, Scalar Double-precision
+            if (inst.legacy_prefixes.prefix_f2) code.appendAssumeCapacity(0xf2);
+            // REPZ, REPE, REP, Scalar Single-precision
+            if (inst.legacy_prefixes.prefix_f3) code.appendAssumeCapacity(0xf3);
+
+            // CS segment override or Branch not taken
+            if (inst.legacy_prefixes.prefix_2e) code.appendAssumeCapacity(0x2e);
+            // DS segment override
+            if (inst.legacy_prefixes.prefix_36) code.appendAssumeCapacity(0x36);
+            // ES segment override
+            if (inst.legacy_prefixes.prefix_26) code.appendAssumeCapacity(0x26);
+            // FS segment override
+            if (inst.legacy_prefixes.prefix_64) code.appendAssumeCapacity(0x64);
+            // GS segment override
+            if (inst.legacy_prefixes.prefix_65) code.appendAssumeCapacity(0x65);
+
+            // Branch taken
+            if (inst.legacy_prefixes.prefix_3e) code.appendAssumeCapacity(0x3e);
+
+            // Operand size override
+            if (inst.legacy_prefixes.prefix_66) code.appendAssumeCapacity(0x66);
+
+            // Address size override
+            if (inst.legacy_prefixes.prefix_67) code.appendAssumeCapacity(0x67);
+        }
+
+        // REX prefix
+        //
+        // A REX prefix has the following form:
+        //   0b0100_WRXB
+        // 0100: fixed bits
+        // W: stands for "wide", indicates that the instruction uses 64-bit operands.
+        // R, X, and B each contain the 4th bit of a register
+        // these have to be set when using registers 8-15.
+        // R: stands for "reg", extends the reg field in the ModR/M byte.
+        // X: stands for "index", extends the index field in the SIB byte.
+        // B: stands for "base", extends either the r/m field in the ModR/M byte,
+        //                                      the base field in the SIB byte,
+        //                                      or the opcode reg field in the Opcode byte.
+        {
+            var value: u8 = 0x40;
+            if (inst.opcode_reg) |opcode_reg| {
+                if (opcode_reg.isExtended()) {
+                    value |= 0x1;
+                }
+            }
+            if (inst.modrm) |modrm| {
+                if (modrm.isExtended()) {
+                    value |= 0x1;
+                }
+            }
+            if (inst.sib) |sib| {
+                if (sib.baseIsExtended()) {
+                    value |= 0x1;
+                }
+                if (sib.indexIsExtended()) {
+                    value |= 0x2;
+                }
+            }
+            if (inst.reg) |reg| {
+                if (reg.isExtended()) {
+                    value |= 0x4;
+                }
+            }
+            if (inst.operand_size_64) {
+                value |= 0x8;
+            }
+            if (value != 0x40) {
+                code.appendAssumeCapacity(value);
+            }
+        }
+
+        // Opcode
+        if (inst.primary_opcode_1b) |opcode| {
+            var value = opcode;
+            if (inst.opcode_reg) |opcode_reg| {
+                value |= opcode_reg.low_id();
+            }
+            code.appendAssumeCapacity(value);
+        } else if (inst.primary_opcode_2b) |opcode| {
+            code.appendAssumeCapacity(0x0f);
+            var value = opcode;
+            if (inst.opcode_reg) |opcode_reg| {
+                value |= opcode_reg.low_id();
+            }
+            code.appendAssumeCapacity(value);
+        }
+
+        var disp8: ?u8 = null;
+        var disp16: ?u16 = null;
+        var disp32: ?u32 = null;
+
+        // ModR/M
+        //
+        // Example ModR/M byte:
+        //   c7: ModR/M byte that contains:
+        //     11 000 111:
+        //     ^  ^   ^
+        //   mod  |   |
+        //      reg   |
+        //          r/m
+        //   where mod = 11 indicates that both operands are registers,
+        //         reg = 000 indicates that the first operand is register EAX
+        //         r/m = 111 indicates that the second operand is register EDI (since mod = 11)
+        if (inst.modrm != null or inst.reg != null or inst.opcode_extension != null) {
+            var value: u8 = 0;
+
+            // mod + rm
+            if (inst.modrm) |modrm| {
+                switch (modrm) {
+                    .reg => |reg| {
+                        value |= reg.low_id();
+                        value |= 0b11_000_000;
+                    },
+                    .mem => |memea| {
+                        assert(memea.low_id() != 4 and memea.low_id() != 5);
+                        value |= memea.low_id();
+                        // value |= 0b00_000_000;
+                    },
+                    .mem_disp => |mem_disp| {
+                        assert(mem_disp.reg.low_id() != 4);
+                        value |= mem_disp.reg.low_id();
+                        if (mem_disp.disp < 128) {
+                            // Use 1 byte of displacement
+                            value |= 0b01_000_000;
+                            disp8 = @bitCast(u8, @intCast(i8, mem_disp.disp));
+                        } else {
+                            // Use all 4 bytes of displacement
+                            value |= 0b10_000_000;
+                            disp32 = @bitCast(u32, mem_disp.disp);
+                        }
+                    },
+                    .disp32 => |d| {
+                        value |= 0b00_000_101;
+                        disp32 = d;
+                    },
+                }
+            }
+
+            // reg
+            if (inst.reg) |reg| {
+                value |= @as(u8, reg.low_id()) << 3;
+            } else if (inst.opcode_extension) |ext| {
+                value |= @as(u8, ext) << 3;
+            }
+
+            code.appendAssumeCapacity(value);
+        }
+
+        // SIB
+        {
+            if (inst.sib) |sib| {
+                return error.TODOSIBByteForX8664;
+            }
+        }
+
+        // Displacement
+        //
+        // The size of the displacement depends on the instruction used and is very fragile.
+        // The bytes are simply written in LE order.
+        {
+
+            // These writes won't fail because we ensured capacity earlier.
+            if (disp8) |d|
+                code.appendAssumeCapacity(d)
+            else if (disp16) |d|
+                mem.writeIntLittle(u16, code.addManyAsArrayAssumeCapacity(2), d)
+            else if (disp32) |d|
+                mem.writeIntLittle(u32, code.addManyAsArrayAssumeCapacity(4), d);
+        }
+
+        // Immediate
+        //
+        // The size of the immediate depends on the instruction used and is very fragile.
+        // The bytes are simply written in LE order.
+        {
+            // These writes won't fail because we ensured capacity earlier.
+            if (inst.immediate_bytes == 1)
+                code.appendAssumeCapacity(@intCast(u8, inst.immediate))
+            else if (inst.immediate_bytes == 2)
+                mem.writeIntLittle(u16, code.addManyAsArrayAssumeCapacity(2), @intCast(u16, inst.immediate))
+            else if (inst.immediate_bytes == 4)
+                mem.writeIntLittle(u32, code.addManyAsArrayAssumeCapacity(4), @intCast(u32, inst.immediate))
+            else if (inst.immediate_bytes == 8)
+                mem.writeIntLittle(u64, code.addManyAsArrayAssumeCapacity(8), inst.immediate);
+        }
+    }
+};
+
+fn expectEncoded(inst: Instruction, expected: []const u8) !void {
+    var code = ArrayList(u8).init(testing.allocator);
+    defer code.deinit();
+    try inst.encodeInto(&code);
+    testing.expectEqualSlices(u8, expected, code.items);
+}
+
+test "x86_64 Instruction.encodeInto" {
+    // simple integer multiplication
+
+    // imul eax,edi
+    // 0faf   c7
+    try expectEncoded(Instruction{
+        .primary_opcode_2b = 0xaf, // imul
+        .reg = .eax, // destination
+        .modrm = .{ .reg = .edi }, // source
+    }, &[_]u8{ 0x0f, 0xaf, 0xc7 });
+
+    // simple mov
+
+    // mov eax,edi
+    // 89    f8
+    try expectEncoded(Instruction{
+        .primary_opcode_1b = 0x89, // mov (with rm as destination)
+        .reg = .edi, // source
+        .modrm = .{ .reg = .eax }, // destination
+    }, &[_]u8{ 0x89, 0xf8 });
+
+    // signed integer addition of 32-bit sign extended immediate to 64 bit register
+
+    // add rcx, 2147483647
+    //
+    // Using the following opcode: REX.W + 81 /0 id, we expect the following encoding
+    //
+    // 48       :  REX.W set for 64 bit operand (*r*cx)
+    // 81       :  opcode for "<arithmetic> with immediate"
+    // c1       :  id = rcx,
+    //          :  c1 = 11  <-- mod = 11 indicates r/m is register (rcx)
+    //          :       000 <-- opcode_extension = 0 because opcode extension is /0. /0 specifies ADD
+    //          :       001 <-- 001 is rcx
+    // ffffff7f :  2147483647
+    try expectEncoded(Instruction{
+        // REX.W +
+        .operand_size_64 = true,
+        // 81
+        .primary_opcode_1b = 0x81,
+        // /0
+        .opcode_extension = 0,
+        // rcx
+        .modrm = .{ .reg = .rcx },
+        // immediate
+        .immediate_bytes = 4,
+        .immediate = 2147483647,
+    }, &[_]u8{ 0x48, 0x81, 0xc1, 0xff, 0xff, 0xff, 0x7f });
+}
 
 // TODO add these registers to the enum and populate dwarfLocOp
 //    // Return Address register. This is stored in `0(%rsp, "")` and is not a physical register.
