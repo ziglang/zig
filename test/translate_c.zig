@@ -2072,40 +2072,49 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn switch_fn(arg_i: c_int) void {
         \\    var i = arg_i;
         \\    var res: c_int = 0;
-        \\    switch (i) {
-        \\        @as(c_int, 0) => {
-        \\            res = 1;
-        \\            res = 2;
-        \\            res = @as(c_int, 3) * i;
-        \\        },
-        \\        @as(c_int, 1)...@as(c_int, 3) => {
-        \\            res = 2;
-        \\            res = @as(c_int, 3) * i;
-        \\        },
-        \\        else => {
-        \\            res = @as(c_int, 3) * i;
-        \\        },
-        \\        @as(c_int, 7) => {
-        \\            {
-        \\                res = 7;
+        \\    while (true) {
+        \\        switch (i) {
+        \\            @as(c_int, 0) => {
+        \\                res = 1;
+        \\                res = 2;
+        \\                res = @as(c_int, 3) * i;
         \\                break;
-        \\            }
-        \\        },
-        \\        @as(c_int, 4), @as(c_int, 5) => {
-        \\            res = 69;
-        \\            {
-        \\                res = 5;
+        \\            },
+        \\            @as(c_int, 1)...@as(c_int, 3) => {
+        \\                res = 2;
+        \\                res = @as(c_int, 3) * i;
+        \\                break;
+        \\            },
+        \\            else => {
+        \\                res = @as(c_int, 3) * i;
+        \\                break;
+        \\            },
+        \\            @as(c_int, 7) => {
+        \\                {
+        \\                    res = 7;
+        \\                    break;
+        \\                }
+        \\            },
+        \\            @as(c_int, 4), @as(c_int, 5) => {
+        \\                res = 69;
+        \\                {
+        \\                    res = 5;
+        \\                    return;
+        \\                }
+        \\            },
+        \\            @as(c_int, 6) => {
+        \\                while (true) {
+        \\                    switch (res) {
+        \\                        @as(c_int, 9) => break,
+        \\                        else => {},
+        \\                    }
+        \\                    break;
+        \\                }
+        \\                res = 1;
         \\                return;
-        \\            }
-        \\        },
-        \\        @as(c_int, 6) => {
-        \\            switch (res) {
-        \\                @as(c_int, 9) => {},
-        \\                else => {},
-        \\            }
-        \\            res = 1;
-        \\            return;
-        \\        },
+        \\            },
+        \\        }
+        \\        break;
         \\    }
         \\}
     });
