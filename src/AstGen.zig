@@ -1999,14 +1999,14 @@ fn containerDecl(
                             // don't need to waste time with a hash map.
                             const bad_node = for (container_decl.ast.members) |other_member_node| {
                                 const other_member = switch (node_tags[other_member_node]) {
-                                    .container_field_init => tree.containerFieldInit(member_node),
-                                    .container_field_align => tree.containerFieldAlign(member_node),
-                                    .container_field => tree.containerField(member_node),
+                                    .container_field_init => tree.containerFieldInit(other_member_node),
+                                    .container_field_align => tree.containerFieldAlign(other_member_node),
+                                    .container_field => tree.containerField(other_member_node),
                                     else => unreachable, // We checked earlier.
                                 };
                                 const other_tag_name = try mod.identifierTokenStringTreeArena(
                                     scope,
-                                    name_token,
+                                    other_member.ast.name_token,
                                     tree,
                                     arena,
                                 );

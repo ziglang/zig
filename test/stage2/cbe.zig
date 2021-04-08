@@ -631,6 +631,49 @@ pub fn addCases(ctx: *TestContext) !void {
             ":6:5: error: redundant non-exhaustive enum mark",
             ":3:5: note: other mark here",
         });
+
+        case.addError(
+            \\const E1 = enum {
+            \\    a,
+            \\    b,
+            \\    c,
+            \\    _ = 10,
+            \\};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":5:9: error: '_' is used to mark an enum as non-exhaustive and cannot be assigned a value",
+        });
+
+        case.addError(
+            \\const E1 = enum {};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":1:12: error: enum declarations must have at least one tag",
+        });
+
+        case.addError(
+            \\const E1 = enum { a, b, _ };
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":1:12: error: non-exhaustive enum missing integer tag type",
+            ":1:25: note: marked non-exhaustive here",
+        });
+
+        case.addError(
+            \\const E1 = enum { a, b, c, b, d };
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":1:28: error: duplicate enum tag",
+            ":1:22: note: other tag here",
+        });
     }
 
     ctx.c("empty start function", linux_x64,
