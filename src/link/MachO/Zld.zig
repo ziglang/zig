@@ -2406,26 +2406,22 @@ fn writeExportInfo(self: *Zld) !void {
     defer trie.deinit();
 
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    for (self.symtab.items()) |entry| {
-        switch (entry.value.tag) {
-            .Weak, .Strong => {},
-            else => continue,
-        }
-        const name = entry.key;
-        const symbol = entry.value.inner;
 
-        assert(symbol.n_value >= text_segment.inner.vmaddr);
+    // TODO export items for dylibs
+    const sym = self.symtab.get("_main") orelse return error.MissingMainEntrypoint;
+    assert(sym.inner.n_value >= text_segment.inner.vmaddr);
 
-        try trie.put(.{
-            .name = name,
-            .vmaddr_offset = symbol.n_value - text_segment.inner.vmaddr,
-            .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-        });
-    }
+    try trie.put(.{
+        .name = "_main",
+        .vmaddr_offset = sym.inner.n_value - text_segment.inner.vmaddr,
+        .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+    });
 
     try trie.finalize();
+
     var buffer = try self.allocator.alloc(u8, @intCast(usize, trie.size));
     defer self.allocator.free(buffer);
+
     var stream = std.io.fixedBufferStream(buffer);
     const nwritten = try trie.write(stream.writer());
     assert(nwritten == trie.size);
