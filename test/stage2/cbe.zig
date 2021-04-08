@@ -674,6 +674,34 @@ pub fn addCases(ctx: *TestContext) !void {
             ":1:28: error: duplicate enum tag",
             ":1:22: note: other tag here",
         });
+
+        case.addError(
+            \\export fn foo() void {
+            \\    const a = true;
+            \\    const b = @enumToInt(a);
+            \\}
+        , &.{
+            ":3:26: error: expected enum or tagged union, found bool",
+        });
+
+        case.addError(
+            \\export fn foo() void {
+            \\    const a = 1;
+            \\    const b = @intToEnum(bool, a);
+            \\}
+        , &.{
+            ":3:26: error: expected enum, found bool",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    const b = @intToEnum(E, 3);
+            \\}
+        , &.{
+            ":3:15: error: enum 'E' has no tag with value 3",
+            ":1:11: note: enum declared here",
+        });
     }
 
     ctx.c("empty start function", linux_x64,

@@ -1983,9 +1983,23 @@ fn zirIntToEnum(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErr
 
     if (try sema.resolveDefinedValue(block, operand_src, operand)) |int_val| {
         if (!dest_ty.enumHasInt(int_val, target)) {
-            return mod.fail(&block.base, src, "enum '{}' has no tag with value {}", .{
-                dest_ty, int_val,
-            });
+            const msg = msg: {
+                const msg = try mod.errMsg(
+                    &block.base,
+                    src,
+                    "enum '{}' has no tag with value {}",
+                    .{ dest_ty, int_val },
+                );
+                errdefer msg.destroy(sema.gpa);
+                try mod.errNoteNonLazy(
+                    dest_ty.declSrcLoc(),
+                    msg,
+                    "enum declared here",
+                    .{},
+                );
+                break :msg msg;
+            };
+            return mod.failWithOwnedErrorMsg(&block.base, msg);
         }
         return mod.constInst(arena, src, .{
             .ty = dest_ty,
