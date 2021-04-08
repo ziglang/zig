@@ -2,7 +2,6 @@ const Zld = @This();
 
 const std = @import("std");
 const assert = std.debug.assert;
-const dwarf = std.dwarf;
 const leb = std.leb;
 const mem = std.mem;
 const meta = std.meta;
@@ -108,70 +107,6 @@ pub const SectionMapping = struct {
     target_seg_id: u16,
     target_sect_id: u16,
     offset: u32,
-};
-
-const DebugInfo = struct {
-    inner: dwarf.DwarfInfo,
-    debug_info: []u8,
-    debug_abbrev: []u8,
-    debug_str: []u8,
-    debug_line: []u8,
-    debug_ranges: []u8,
-
-    pub fn parseFromObject(allocator: *Allocator, object: Object) !?DebugInfo {
-        var debug_info = blk: {
-            const index = object.dwarf_debug_info_index orelse return null;
-            break :blk try object.readSection(allocator, index);
-        };
-        var debug_abbrev = blk: {
-            const index = object.dwarf_debug_abbrev_index orelse return null;
-            break :blk try object.readSection(allocator, index);
-        };
-        var debug_str = blk: {
-            const index = object.dwarf_debug_str_index orelse return null;
-            break :blk try object.readSection(allocator, index);
-        };
-        var debug_line = blk: {
-            const index = object.dwarf_debug_line_index orelse return null;
-            break :blk try object.readSection(allocator, index);
-        };
-        var debug_ranges = blk: {
-            if (object.dwarf_debug_ranges_index) |ind| {
-                break :blk try object.readSection(allocator, ind);
-            }
-            break :blk try allocator.alloc(u8, 0);
-        };
-
-        var inner: dwarf.DwarfInfo = .{
-            .endian = .Little,
-            .debug_info = debug_info,
-            .debug_abbrev = debug_abbrev,
-            .debug_str = debug_str,
-            .debug_line = debug_line,
-            .debug_ranges = debug_ranges,
-        };
-        try dwarf.openDwarfDebugInfo(&inner, allocator);
-
-        return DebugInfo{
-            .inner = inner,
-            .debug_info = debug_info,
-            .debug_abbrev = debug_abbrev,
-            .debug_str = debug_str,
-            .debug_line = debug_line,
-            .debug_ranges = debug_ranges,
-        };
-    }
-
-    pub fn deinit(self: *DebugInfo, allocator: *Allocator) void {
-        allocator.free(self.debug_info);
-        allocator.free(self.debug_abbrev);
-        allocator.free(self.debug_str);
-        allocator.free(self.debug_line);
-        allocator.free(self.debug_ranges);
-        self.inner.abbrev_table_list.deinit();
-        self.inner.compile_unit_list.deinit();
-        self.inner.func_list.deinit();
-    }
 };
 
 /// Default path to dyld
@@ -2510,108 +2445,77 @@ fn writeDebugInfo(self: *Zld) !void {
     var stabs = std.ArrayList(macho.nlist_64).init(self.allocator);
     defer stabs.deinit();
 
-    for (self.objects.items) |object, object_id| {
-        var debug_info = blk: {
-            var di = try DebugInfo.parseFromObject(self.allocator, object);
-            break :blk di orelse continue;
-        };
-        defer debug_info.deinit(self.allocator);
+    for (self.objects.items) |object| {
+        const tu_path = object.tu_path orelse continue;
+        const tu_mtime = object.tu_mtime orelse continue;
+        const dirname = std.fs.path.dirname(tu_path) orelse "./";
+        // Current dir
+        try stabs.append(.{
+            .n_strx = try self.makeString(tu_path[0 .. dirname.len + 1]),
+            .n_type = macho.N_SO,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_value = 0,
+        });
+        // Artifact name
+        try stabs.append(.{
+            .n_strx = try self.makeString(tu_path[dirname.len + 1 ..]),
+            .n_type = macho.N_SO,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_value = 0,
+        });
+        // Path to object file with debug info
+        try stabs.append(.{
+            .n_strx = try self.makeString(object.name.?),
+            .n_type = macho.N_OSO,
+            .n_sect = 0,
+            .n_desc = 1,
+            .n_value = tu_mtime,
+        });
 
-        // We assume there is only one CU.
-        const compile_unit = debug_info.inner.findCompileUnit(0x0) catch |err| switch (err) {
-            error.MissingDebugInfo => {
-                // TODO audit cases with missing debug info and audit our dwarf.zig module.
-                log.warn("invalid or missing debug info in {s}; skipping", .{object.name});
-                continue;
-            },
-            else => |e| return e,
-        };
-        const name = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT_name);
-        const comp_dir = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT_comp_dir);
-
-        {
-            const tu_path = try std.fs.path.join(self.allocator, &[_][]const u8{ comp_dir, name });
-            defer self.allocator.free(tu_path);
-            const dirname = std.fs.path.dirname(tu_path) orelse "./";
-            // Current dir
-            try stabs.append(.{
-                .n_strx = try self.makeString(tu_path[0 .. dirname.len + 1]),
-                .n_type = macho.N_SO,
-                .n_sect = 0,
-                .n_desc = 0,
-                .n_value = 0,
-            });
-            // Artifact name
-            try stabs.append(.{
-                .n_strx = try self.makeString(tu_path[dirname.len + 1 ..]),
-                .n_type = macho.N_SO,
-                .n_sect = 0,
-                .n_desc = 0,
-                .n_value = 0,
-            });
-            // Path to object file with debug info
-            var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-            const stat = try object.file.?.stat();
-            const mtime = @intCast(u64, @divFloor(stat.mtime, 1_000_000_000));
-            try stabs.append(.{
-                .n_strx = try self.makeString(object.name.?),
-                .n_type = macho.N_OSO,
-                .n_sect = 0,
-                .n_desc = 1,
-                .n_value = mtime,
-            });
-        }
-        log.warn("analyzing debug info in '{s}'", .{object.name});
-
-        for (object.symtab.items) |sym| {
-            const sym_name = object.getString(sym.inner.n_strx);
-            const maybe_size = blk: for (debug_info.inner.func_list.items) |func| {
-                if (func.pc_range) |range| {
-                    // TODO source address needs to be preserved
-                    if (sym.inner.n_value >= range.start and sym.inner.n_value < range.end) {
-                        break :blk range.end - range.start;
-                    }
-                }
-            } else null;
-
-            if (maybe_size) |size| {
-                try stabs.append(.{
-                    .n_strx = 0,
-                    .n_type = macho.N_BNSYM,
-                    .n_sect = sym.inner.n_sect,
-                    .n_desc = 0,
-                    .n_value = sym.inner.n_value,
-                });
-                try stabs.append(.{
-                    .n_strx = sym.inner.n_strx,
-                    .n_type = macho.N_FUN,
-                    .n_sect = sym.inner.n_sect,
-                    .n_desc = 0,
-                    .n_value = sym.inner.n_value,
-                });
-                try stabs.append(.{
-                    .n_strx = 0,
-                    .n_type = macho.N_FUN,
-                    .n_sect = 0,
-                    .n_desc = 0,
-                    .n_value = size,
-                });
-                try stabs.append(.{
-                    .n_strx = 0,
-                    .n_type = macho.N_ENSYM,
-                    .n_sect = sym.inner.n_sect,
-                    .n_desc = 0,
-                    .n_value = size,
-                });
-            } else {
-                // TODO need a way to differentiate symbols: global, static, local, etc.
-                try stabs.append(.{
-                    .n_strx = sym.inner.n_strx,
-                    .n_type = macho.N_STSYM,
-                    .n_sect = sym.inner.n_sect,
-                    .n_desc = 0,
-                    .n_value = sym.inner.n_value,
-                });
+        for (object.stabs.items) |stab| {
+            const sym = object.symtab.items[stab.symbol];
+            switch (stab.tag) {
+                .function => {
+                    try stabs.append(.{
+                        .n_strx = 0,
+                        .n_type = macho.N_BNSYM,
+                        .n_sect = sym.inner.n_sect,
+                        .n_desc = 0,
+                        .n_value = sym.inner.n_value,
+                    });
+                    try stabs.append(.{
+                        .n_strx = sym.inner.n_strx,
+                        .n_type = macho.N_FUN,
+                        .n_sect = sym.inner.n_sect,
+                        .n_desc = 0,
+                        .n_value = sym.inner.n_value,
+                    });
+                    try stabs.append(.{
+                        .n_strx = 0,
+                        .n_type = macho.N_FUN,
+                        .n_sect = 0,
+                        .n_desc = 0,
+                        .n_value = stab.size.?,
+                    });
+                    try stabs.append(.{
+                        .n_strx = 0,
+                        .n_type = macho.N_ENSYM,
+                        .n_sect = sym.inner.n_sect,
+                        .n_desc = 0,
+                        .n_value = stab.size.?,
+                    });
+                },
+                else => {
+                    try stabs.append(.{
+                        .n_strx = sym.inner.n_strx,
+                        .n_type = macho.N_STSYM,
+                        .n_sect = sym.inner.n_sect,
+                        .n_desc = 0,
+                        .n_value = sym.inner.n_value,
+                    });
+                },
             }
         }
 
