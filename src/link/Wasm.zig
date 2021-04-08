@@ -20,70 +20,7 @@ const TypedValue = @import("../TypedValue.zig");
 
 pub const base_tag = link.File.Tag.wasm;
 
-pub const FnData = struct {
-    /// Generated code for the type of the function
-    functype: std.ArrayListUnmanaged(u8) = .{},
-    /// Generated code for the body of the function
-    code: std.ArrayListUnmanaged(u8) = .{},
-    /// Locations in the generated code where function indexes must be filled in.
-    /// This must be kept ordered by offset.
-    idx_refs: std.ArrayListUnmanaged(struct { offset: u32, decl: *Module.Decl }) = .{},
-};
-
-/// Data section of the wasm binary
-/// Each declaration will have its own 'data_segment' within the section
-/// where the offset is calculated using the previous segments and the content length
-/// of the data
-pub const DataSection = struct {
-    /// Every data object will be appended to this list,
-    /// containing its `Decl`, the data in bytes, and its length.
-    segments: std.ArrayListUnmanaged(struct {
-        /// The decl that lives inside the 'data' section such as an array
-        decl: *Module.Decl,
-        /// The contents of the data in bytes
-        data: [*]const u8,
-        /// The length of the contents inside the 'data' section
-        len: u32,
-    }) = .{},
-
-    /// Returns the offset into the data segment based on a given `Decl`
-    pub fn offset(self: DataSection, decl: *const Module.Decl) u32 {
-        var cur_offset: u32 = 0;
-        return for (self.segments.items) |entry| {
-            if (entry.decl == decl) break cur_offset;
-            cur_offset += entry.len;
-        } else unreachable; // offset() called on declaration that does not live inside 'data' section
-    }
-
-    /// Returns the total payload size of the data section
-    pub fn size(self: DataSection) u32 {
-        var total: u32 = 0;
-        for (self.segments.items) |entry| {
-            total += entry.len;
-        }
-        return total;
-    }
-
-    /// Updates the data in the data segment belonging to the given decl.
-    /// It's illegal behaviour to call this before allocateDeclIndexes was called
-    /// `data` must be managed externally with a lifetime that last as long as codegen does.
-    pub fn updateData(self: DataSection, decl: *Module.Decl, data: []const u8) void {
-        const entry = for (self.segments.items) |*item| {
-            if (item.decl == decl) break item;
-        } else unreachable; // called updateData before the declaration was added to data segments
-        entry.data = data.ptr;
-    }
-
-    /// Returns the index of a declaration and `null` when not found
-    pub fn getIdx(self: DataSection, decl: *Module.Decl) ?usize {
-        return for (self.segments.items) |entry, i| {
-            if (entry.decl == decl) break i;
-        } else null;
-    }
-};
-
 base: link.File,
-
 /// List of all function Decls to be written to the output file. The index of
 /// each Decl in this list at the time of writing the binary is used as the
 /// function index. In the event where ext_funcs' size is not 0, the index of
@@ -98,10 +35,67 @@ ext_funcs: std.ArrayListUnmanaged(*Module.Decl) = .{},
 /// to support existing code.
 /// TODO: Allow setting this through a flag?
 host_name: []const u8 = "env",
-/// Map of declarations with its bytes payload, used to keep track of all data segments
-/// that needs to be emit when creating the wasm binary.
-/// The `DataSection`'s lifetime must be kept alive until the linking stage.
-data: DataSection = .{},
+/// The last `DeclBlock` that was initialized will be saved here.
+last_block: ?*DeclBlock = null,
+/// Table with offsets, each element represents an offset with the value being
+/// the offset into the 'data' section where the data lives
+offset_table: std.ArrayListUnmanaged(u32) = .{},
+/// List of offset indexes which are free to be used for new decl's.
+/// Each element's value points to an index into the offset_table.
+offset_table_free_list: std.ArrayListUnmanaged(u32) = .{},
+/// List of all `Decl` that are currently alive.
+/// This is ment for bookkeeping so we can safely cleanup all codegen memory
+/// when calling `deinit`
+symbols: std.ArrayListUnmanaged(*Module.Decl) = .{},
+/// Contains indexes into `symbols` that are no longer used and can be populated instead,
+/// removing the need to search for a symbol and remove it when it's dereferenced.
+symbols_free_list: std.ArrayListUnmanaged(u32) = .{},
+
+pub const FnData = struct {
+    /// Generated code for the type of the function
+    functype: std.ArrayListUnmanaged(u8),
+    /// Generated code for the body of the function
+    code: std.ArrayListUnmanaged(u8),
+    /// Locations in the generated code where function indexes must be filled in.
+    /// This must be kept ordered by offset.
+    idx_refs: std.ArrayListUnmanaged(struct { offset: u32, decl: *Module.Decl }),
+
+    pub const empty: FnData = .{
+        .functype = .{},
+        .code = .{},
+        .idx_refs = .{},
+    };
+};
+
+pub const DeclBlock = struct {
+    /// Determines whether the `DeclBlock` has been initialized for codegen.
+    init: bool,
+    /// Index into the `symbols` list.
+    symbol_index: u32,
+    /// Index into the offset table
+    offset_index: u32,
+    /// The size of the block and how large part of the data section it occupies.
+    /// Will be 0 when the Decl will not live inside the data section and `data` will be undefined.
+    size: u32,
+    /// Points to the previous and next blocks.
+    /// Can be used to find the total size, and used to calculate the `offset` based on the previous block.
+    prev: ?*DeclBlock,
+    next: ?*DeclBlock,
+    /// Pointer to data that will be written to the 'data' section.
+    /// This data either lives in `FnData.code` or is externally managed.
+    /// For data that does not live inside the 'data' section, this field will be undefined. (size == 0).
+    data: [*]const u8,
+
+    pub const empty: DeclBlock = .{
+        .init = false,
+        .symbol_index = 0,
+        .offset_index = 0,
+        .size = 0,
+        .prev = null,
+        .next = null,
+        .data = undefined,
+    };
+};
 
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
     assert(options.object_format == .wasm);
@@ -137,94 +131,66 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Wasm {
 }
 
 pub fn deinit(self: *Wasm) void {
-    for (self.funcs.items) |decl| {
+    while (self.symbols_free_list.popOrNull()) |idx| {
+        //dead decl's so remove them from symbol list before trying to clean them up
+        _ = self.symbols.swapRemove(idx);
+    }
+    for (self.symbols.items) |decl| {
         decl.fn_link.wasm.functype.deinit(self.base.allocator);
         decl.fn_link.wasm.code.deinit(self.base.allocator);
         decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
     }
-    for (self.ext_funcs.items) |decl| {
-        decl.fn_link.wasm.functype.deinit(self.base.allocator);
-        decl.fn_link.wasm.code.deinit(self.base.allocator);
-        decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
-    }
-    for (self.data.segments.items) |entry| {
-        // decl's that live in data section do not generate idx_refs or func types
-        entry.decl.fn_link.wasm.code.deinit(self.base.allocator);
-    }
+
     self.funcs.deinit(self.base.allocator);
     self.ext_funcs.deinit(self.base.allocator);
-    self.data.segments.deinit(self.base.allocator);
+    self.offset_table.deinit(self.base.allocator);
+    self.offset_table_free_list.deinit(self.base.allocator);
+    self.symbols.deinit(self.base.allocator);
+    self.symbols_free_list.deinit(self.base.allocator);
 }
 
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
+    if (decl.link.wasm.init) return;
+
+    try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
+    try self.symbols.ensureCapacity(self.base.allocator, self.symbols.items.len + 1);
+
+    const block = &decl.link.wasm;
+    block.init = true;
+
+    if (self.symbols_free_list.popOrNull()) |index| {
+        block.symbol_index = index;
+    } else {
+        block.symbol_index = @intCast(u32, self.symbols.items.len);
+        _ = self.symbols.addOneAssumeCapacity();
+    }
+
+    if (self.offset_table_free_list.popOrNull()) |index| {
+        block.offset_index = index;
+    } else {
+        block.offset_index = @intCast(u32, self.offset_table.items.len);
+        _ = self.offset_table.addOneAssumeCapacity();
+    }
+
+    self.offset_table.items[block.offset_index] = 0;
+
     const typed_value = decl.typed_value.most_recent.typed_value;
-
-    switch (typed_value.ty.zigTypeTag()) {
-        .Array => {
-            // if the codegen of the given decl contributes to the data segment
-            // we must calculate its data length now so that the data offsets are available
-            // to other decls when called
-            const data_len = self.calcDataLen(typed_value);
-            try self.data.segments.append(self.base.allocator, .{
-                .decl = decl,
-                .data = undefined,
-                .len = data_len,
-            });
-
-            // detect if we can replace it into a to-be-deleted decl's spot to ensure no gaps are
-            // made in our data segment
-            const idx: ?usize = for (self.data.segments.items) |entry, i| {
-                if (entry.decl.deletion_flag) break i;
-            } else null;
-
-            if (idx) |id| {
-                // swap to-be-removed decl with newly added to create a contigious valid data segment
-                const items = self.data.segments.items;
-                std.mem.swap(
-                    std.meta.Child(@TypeOf(items)),
-                    &items[id],
-                    &items[items.len - 1],
-                );
-            }
-        },
-        .Fn => if (self.getFuncidx(decl) == null) switch (typed_value.val.tag()) {
+    if (typed_value.ty.zigTypeTag() == .Fn) {
+        switch (typed_value.val.tag()) {
             // dependent on function type, appends it to the correct list
             .function => try self.funcs.append(self.base.allocator, decl),
             .extern_fn => try self.ext_funcs.append(self.base.allocator, decl),
             else => unreachable,
-        },
-        else => {},
-    }
-}
-
-/// Calculates the length of the data segment that will be occupied by the given `TypedValue`
-fn calcDataLen(self: *Wasm, typed_value: TypedValue) u32 {
-    switch (typed_value.ty.zigTypeTag()) {
-        .Array => {
-            if (typed_value.val.castTag(.bytes)) |payload| {
-                if (typed_value.ty.sentinel()) |sentinel| {
-                    return @intCast(u32, payload.data.len) + self.calcDataLen(.{
-                        .ty = typed_value.ty.elemType(),
-                        .val = sentinel,
-                    });
-                }
-            }
-            return @intCast(u32, typed_value.ty.arrayLen());
-        },
-        .Int => {
-            const info = typed_value.ty.intInfo(self.base.options.target);
-            return std.math.divCeil(u32, info.bits, 8) catch unreachable;
-        },
-        .Pointer => return 4,
-        else => unreachable,
+        }
     }
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
 // the file on flush().
 pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
-    const typed_value = decl.typed_value.most_recent.typed_value;
+    std.debug.assert(decl.link.wasm.init); // Must call allocateDeclIndexes()
 
+    const typed_value = decl.typed_value.most_recent.typed_value;
     const fn_data = &decl.fn_link.wasm;
     fn_data.functype.items.len = 0;
     fn_data.code.items.len = 0;
@@ -252,28 +218,43 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         else => |e| return err,
     };
 
-    switch (typed_value.ty.zigTypeTag()) {
-        .Fn => {
-            // as locals are patched afterwards, the offsets of funcidx's are off,
-            // here we update them to correct them
-            for (fn_data.idx_refs.items) |*func| {
-                // For each local, add 6 bytes (count + type)
-                func.offset += @intCast(u32, context.locals.items.len * 6);
-            }
+    const code: []const u8 = switch (result) {
+        .appended => @as([]const u8, context.code.items),
+        .externally_managed => |payload| payload,
+    };
 
-            fn_data.functype = context.func_type_data.toUnmanaged();
-            fn_data.code = context.code.toUnmanaged();
-        },
-        .Array => switch (result) {
-            .appended => {
-                fn_data.functype = context.func_type_data.toUnmanaged();
-                fn_data.code = context.code.toUnmanaged();
-                self.data.updateData(decl, fn_data.code.items);
-            },
-            .externally_managed => |payload| self.data.updateData(decl, payload),
-        },
-        else => return error.TODO,
+    fn_data.code = context.code.toUnmanaged();
+    fn_data.functype = context.func_type_data.toUnmanaged();
+
+    const block = &decl.link.wasm;
+    if (typed_value.ty.zigTypeTag() == .Fn) {
+        // as locals are patched afterwards, the offsets of funcidx's are off,
+        // here we update them to correct them
+        for (fn_data.idx_refs.items) |*func| {
+            // For each local, add 6 bytes (count + type)
+            func.offset += @intCast(u32, context.locals.items.len * 6);
+        }
+    } else {
+        block.size = @intCast(u32, code.len);
+        block.data = code.ptr;
     }
+
+    // If we're updating an existing decl, unplug it first
+    // to avoid infinite loops due to earlier links
+    if (block.prev) |prev| {
+        prev.next = block.next;
+    }
+    if (block.next) |next| {
+        next.prev = block.prev;
+    }
+
+    if (self.last_block) |last| {
+        if (last != block) {
+            last.next = block;
+            block.prev = last;
+        }
+    }
+    self.last_block = block;
 }
 
 pub fn updateDeclExports(
@@ -291,9 +272,24 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
             else => unreachable,
         }
     }
-    if (self.data.getIdx(decl)) |idx| {
-        _ = self.data.segments.swapRemove(idx);
+    const block = &decl.link.wasm;
+
+    if (self.last_block == block) {
+        self.last_block = block.prev;
     }
+
+    if (block.prev) |prev| {
+        prev.next = block.next;
+    }
+
+    if (block.next) |next| {
+        next.prev = block.prev;
+    }
+
+    self.offset_table_free_list.append(self.base.allocator, decl.link.wasm.offset_index) catch {};
+    self.symbols_free_list.append(self.base.allocator, decl.link.wasm.symbol_index) catch {};
+    block.init = false;
+
     decl.fn_link.wasm.functype.deinit(self.base.allocator);
     decl.fn_link.wasm.code.deinit(self.base.allocator);
     decl.fn_link.wasm.idx_refs.deinit(self.base.allocator);
@@ -314,7 +310,25 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
 
     const file = self.base.file.?;
     const header_size = 5 + 1;
-    const data_size = self.data.size();
+    // ptr_width in bytes
+    const ptr_width = self.base.options.target.cpu.arch.ptrBitWidth() / 8;
+    // The size of the offset table in bytes
+    // The table contains all decl's with its corresponding offset into
+    // the 'data' section
+    const offset_table_size = @intCast(u32, self.offset_table.items.len * ptr_width);
+
+    // The size of the data, this together with `offset_table_size` amounts to the
+    // total size of the 'data' section
+    var first_decl: ?*DeclBlock = null;
+    const data_size: u32 = if (self.last_block) |last| blk: {
+        var size = last.size;
+        var cur = last;
+        while (cur.prev) |prev| : (cur = prev) {
+            size += prev.size;
+        }
+        first_decl = cur;
+        break :blk size;
+    } else 0;
 
     // No need to rewrite the magic/version header
     try file.setEndPos(@sizeOf(@TypeOf(wasm.magic ++ wasm.version)));
@@ -396,8 +410,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
             writer,
             try std.math.divCeil(
                 u32,
-                self.data.size(),
-                std.mem.page_size,
+                offset_table_size + data_size,
+                std.wasm.page_size,
             ),
         );
         try writeVecSectionHeader(
@@ -496,18 +510,35 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         try leb.writeILEB128(writer, @as(i32, 0));
         try writer.writeByte(wasm.opcode(.end));
 
-        // payload size
-        try leb.writeULEB128(writer, data_size);
+        const total_size = offset_table_size + data_size;
 
-        // write payload
-        for (self.data.segments.items) |entry| try writer.writeAll(entry.data[0..entry.len]);
+        // offset table + data size
+        try leb.writeULEB128(writer, total_size);
 
+        // fill in the offset table and the data segments
+        const file_offset = try file.getPos();
+        var cur = first_decl;
+        var data_offset = offset_table_size;
+        while (cur) |cur_block| : (cur = cur_block.next) {
+            if (cur_block.size == 0) continue;
+            std.debug.assert(cur_block.init);
+
+            const offset = (cur_block.offset_index) * ptr_width;
+            var buf: [4]u8 = undefined;
+            std.mem.writeIntLittle(u32, &buf, data_offset);
+
+            try file.pwriteAll(&buf, file_offset + offset);
+            try file.pwriteAll(cur_block.data[0..cur_block.size], file_offset + data_offset);
+            data_offset += cur_block.size;
+        }
+
+        try file.seekTo(file_offset + data_offset);
         try writeVecSectionHeader(
             file,
             header_offset,
             .data,
-            @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @intCast(u32, 1),
+            @intCast(u32, (file_offset + data_offset) - header_offset - header_size),
+            @intCast(u32, 1), // only 1 data section
         );
     }
 }

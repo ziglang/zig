@@ -280,3 +280,6 @@ pub const block_empty: u8 = 0x40;
 // binary constants
 pub const magic = [_]u8{ 0x00, 0x61, 0x73, 0x6D }; // \0asm
 pub const version = [_]u8{ 0x01, 0x00, 0x00, 0x00 }; // version 1
+
+// Each wasm page size is 64kB
+pub const page_size = 64 * 1024;

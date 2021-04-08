@@ -543,11 +543,20 @@ pub const Context = struct {
 
     /// Using a given `Type`, returns the corresponding wasm Valtype
     fn typeToValtype(self: *Context, src: LazySrcLoc, ty: Type) InnerError!wasm.Valtype {
-        return switch (ty.tag()) {
-            .f32 => .f32,
-            .f64 => .f64,
-            .u32, .i32, .bool => .i32,
-            .u64, .i64 => .i64,
+        return switch (ty.zigTypeTag()) {
+            .Float => blk: {
+                const bits = ty.floatBits(self.target);
+                if (bits == 16 or bits == 32) break :blk wasm.Valtype.f32;
+                if (bits == 64) break :blk wasm.Valtype.f64;
+                return self.fail(src, "Float bit size not supported by wasm: '{d}'", .{bits});
+            },
+            .Int => blk: {
+                const info = ty.intInfo(self.target);
+                if (info.bits <= 32) break :blk wasm.Valtype.i32;
+                if (info.bits > 32 and info.bits <= 64) break :blk wasm.Valtype.i64;
+                return self.fail(src, "Integer bit size not supported by wasm: '{d}'", .{info.bits});
+            },
+            .Bool, .Pointer => wasm.Valtype.i32,
             else => self.fail(src, "TODO - Wasm valtype for type '{s}'", .{ty.tag()}),
         };
     }
@@ -624,7 +633,7 @@ pub const Context = struct {
                 const mod_fn = blk: {
                     if (typed_value.val.castTag(.function)) |func| break :blk func.data;
                     if (typed_value.val.castTag(.extern_fn)) |ext_fn| return Result.appended; // don't need code body for extern functions
-                    return self.fail(.{ .node_offset = 0 }, "TODO: Wasm codegen for decl type '{s}'", .{typed_value.ty.tag()});
+                    unreachable;
                 };
 
                 // Reserve space to write the size after generating the code as well as space for locals count
@@ -680,7 +689,7 @@ pub const Context = struct {
                 } else return self.fail(.{ .node_offset = 0 }, "TODO implement gen for more kinds of arrays", .{});
             },
             .Int => {
-                const info = typed_value.ty.intInfo(self.bin_file.base.options.target);
+                const info = typed_value.ty.intInfo(self.target);
                 if (info.bits == 8 and info.signedness == .unsigned) {
                     const int_byte = typed_value.val.toUnsignedInt();
                     try self.code.append(@intCast(u8, int_byte));
@@ -855,6 +864,22 @@ pub const Context = struct {
                     64 => try writer.writeIntLittle(u64, @bitCast(u64, inst.val.toFloat(f64))),
                     else => |bits| return self.fail(inst.base.src, "Wasm TODO: emitConstant for float with {d} bits", .{bits}),
                 }
+            },
+            .Pointer => {
+                if (inst.val.castTag(.decl_ref)) |payload| {
+                    const decl = payload.data;
+
+                    // offset into the offset table within the 'data' section
+                    const ptr_width = self.target.cpu.arch.ptrBitWidth() / 8;
+                    try writer.writeByte(wasm.opcode(.i32_const));
+                    try leb.writeULEB128(writer, decl.link.wasm.offset_index * ptr_width);
+
+                    // memory instruction followed by their memarg immediate
+                    // memarg ::== x:u32, y:u32 => {align x, offset y}
+                    try writer.writeByte(wasm.opcode(.i32_load));
+                    try leb.writeULEB128(writer, @as(u32, 0));
+                    try leb.writeULEB128(writer, @as(u32, 0));
+                } else return self.fail(inst.base.src, "Wasm TODO: emitConstant for other const pointer tag {s}", .{inst.val.tag()});
             },
             .Void => {},
             else => |ty| return self.fail(inst.base.src, "Wasm TODO: emitConstant for zigTypeTag {s}", .{ty}),

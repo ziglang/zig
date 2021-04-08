@@ -138,7 +138,7 @@ pub const File = struct {
         coff: Coff.TextBlock,
         macho: MachO.TextBlock,
         c: C.DeclBlock,
-        wasm: void,
+        wasm: Wasm.DeclBlock,
         spirv: void,
     };
 
