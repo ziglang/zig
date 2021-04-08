@@ -1044,7 +1044,7 @@ pub const OpenError = error{
 } || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
-/// See also `openC`.
+/// See also `openZ`.
 pub fn open(file_path: []const u8, flags: u32, perm: mode_t) OpenError!fd_t {
     if (std.Target.current.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
@@ -1142,7 +1142,7 @@ pub fn openW(file_path_w: []const u16, flags: u32, perm: mode_t) OpenError!fd_t 
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
-/// See also `openatC`.
+/// See also `openatZ`.
 pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) OpenError!fd_t {
     if (builtin.os.tag == .wasi) {
         @compileError("use openatWasi instead");
@@ -1749,7 +1749,7 @@ pub const UnlinkError = error{
 } || UnexpectedError;
 
 /// Delete a name and possibly the file it refers to.
-/// See also `unlinkC`.
+/// See also `unlinkZ`.
 pub fn unlink(file_path: []const u8) UnlinkError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("unlink is not supported in WASI; use unlinkat instead");
