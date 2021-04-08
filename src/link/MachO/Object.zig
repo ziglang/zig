@@ -71,6 +71,7 @@ const Stab = struct {
     tag: Tag,
     symbol: u32,
     size: ?u64 = null,
+    source_sect_id: u16,
 
     const Tag = enum {
         function,
@@ -387,6 +388,8 @@ pub fn parseDebugInfo(self: *Object) !void {
     };
 
     for (self.symtab.items) |sym, index| {
+        if (sym.tag == .Undef) continue;
+
         const sym_name = self.getString(sym.inner.n_strx);
         const size = blk: for (debug_info.inner.func_list.items) |func| {
             if (func.pc_range) |range| {
@@ -402,6 +405,7 @@ pub fn parseDebugInfo(self: *Object) !void {
             .tag = tag,
             .size = size,
             .symbol = @intCast(u32, index),
+            .source_sect_id = sym.inner.n_sect - 1,
         });
     }
 }

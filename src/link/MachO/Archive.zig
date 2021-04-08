@@ -211,10 +211,16 @@ pub fn parseObject(self: Archive, offset: u32) !Object {
 
     log.warn("extracting object '{s}' from archive '{s}'", .{ object_name, self.name.? });
 
+    const name = name: {
+        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const path = try std.os.realpath(self.name.?, &buffer);
+        break :name try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ path, object_name });
+    };
+
     var object = Object.init(self.allocator);
     object.arch = self.arch.?;
     object.file = try fs.cwd().openFile(self.name.?, .{});
-    object.name = try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ self.name.?, object_name });
+    object.name = name;
     object.file_offset = @intCast(u32, try reader.context.getPos());
     try object.parse();
 
