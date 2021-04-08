@@ -2513,6 +2513,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
 
                 const block_expr = node_datas[decl_node].lhs;
                 _ = try AstGen.comptimeExpr(&gen_scope, &gen_scope.base, .none, block_expr);
+                _ = try gen_scope.addBreak(.break_inline, gen_scope.break_block, .void_value);
 
                 const code = try gen_scope.finish();
                 if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
