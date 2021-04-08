@@ -342,6 +342,10 @@ pub fn analyzeBody(
                 try sema.zirValidateStructInitPtr(block, inst);
                 continue;
             },
+            .@"export" => {
+                try sema.zirExport(block, inst);
+                continue;
+            },
 
             // Special case instructions to handle comptime control flow.
             .repeat_inline => {
@@ -1331,6 +1335,31 @@ fn analyzeBlockBody(
         };
     }
     return &merges.block_inst.base;
+}
+
+fn zirExport(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
+    const src = inst_data.src();
+
+    const target_fn = try sema.resolveInst(extra.lhs);
+    const target_fn_val = try sema.resolveConstValue(
+        block,
+        .{ .node_offset_builtin_call_arg0 = inst_data.src_node },
+        target_fn,
+    );
+
+    const export_name = try sema.resolveConstString(
+        block,
+        .{ .node_offset_builtin_call_arg1 = inst_data.src_node },
+        extra.rhs,
+    );
+
+    const actual_fn = target_fn_val.castTag(.function).?.data;
+    try sema.mod.analyzeExport(&block.base, src, export_name, actual_fn.owner_decl);
 }
 
 fn zirBreakpoint(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {

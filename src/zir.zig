@@ -328,6 +328,10 @@ pub const Inst = struct {
         error_union_type,
         /// `error.Foo` syntax. Uses the `str_tok` field of the Data union.
         error_value,
+        /// Exports a function with a specified name. This can be used at comptime
+        /// to export a function conditionally.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        @"export",
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
         /// to the named field. The field name is stored in string_bytes. Used by a.b syntax.
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
@@ -737,6 +741,7 @@ pub const Inst = struct {
                 .elem_val_node,
                 .ensure_result_used,
                 .ensure_result_non_error,
+                .@"export",
                 .floatcast,
                 .field_ptr,
                 .field_val,
@@ -1682,6 +1687,7 @@ const Writer = struct {
             .xor,
             .store_node,
             .error_union_type,
+            .@"export",
             .merge_error_sets,
             .bit_and,
             .bit_or,

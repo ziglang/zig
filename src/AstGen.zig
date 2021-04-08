@@ -1336,6 +1336,7 @@ fn blockExprStmts(
                         .dbg_stmt_node,
                         .ensure_result_used,
                         .ensure_result_non_error,
+                        .@"export",
                         .set_eval_branch_quota,
                         .compile_log,
                         .ensure_err_payload_void,
@@ -4146,6 +4147,18 @@ fn builtinCall(
             return rvalue(gz, scope, rl, result, node);
         },
 
+        .@"export" => {
+            const target_fn = try expr(gz, scope, .none, params[0]);
+            // FIXME: When structs work in stage2, actually implement this correctly!
+            //        Currently the name is always signifies Strong linkage.
+            const export_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
+            _ = try gz.addPlNode(.@"export", node, zir.Inst.Bin{
+                .lhs = target_fn,
+                .rhs = export_name,
+            });
+            return rvalue(gz, scope, rl, .void_value, node);
+        },
+
         .add_with_overflow,
         .align_cast,
         .align_of,
@@ -4175,7 +4188,6 @@ fn builtinCall(
         .error_name,
         .error_return_trace,
         .err_set_cast,
-        .@"export",
         .fence,
         .field_parent_ptr,
         .float_to_int,
