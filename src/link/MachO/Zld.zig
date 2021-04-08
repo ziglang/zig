@@ -933,6 +933,56 @@ fn allocateSegment(self: *Zld, index: u16, offset: u64) !void {
 }
 
 fn allocateSymbols(self: *Zld) !void {
+    for (self.objects.items) |*object, object_id| {
+        for (object.symtab.items) |*sym| {
+            switch (sym.tag) {
+                .Import => unreachable,
+                .Undef => continue,
+                else => {},
+            }
+
+            const sym_name = object.getString(sym.inner.n_strx);
+            const source_sect_id = sym.inner.n_sect - 1;
+
+            // TODO I am more and more convinced we should store the mapping as part of the Object struct.
+            const target_mapping = self.mappings.get(.{
+                .object_id = @intCast(u16, object_id),
+                .source_sect_id = source_sect_id,
+            }) orelse {
+                if (self.unhandled_sections.get(.{
+                    .object_id = @intCast(u16, object_id),
+                    .source_sect_id = source_sect_id,
+                }) != null) continue;
+
+                log.err("section not mapped for symbol '{s}': {}", .{ sym_name, sym });
+                return error.SectionNotMappedForSymbol;
+            };
+
+            const source_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
+            const source_sect = source_seg.sections.items[source_sect_id];
+            const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
+            const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
+            const target_addr = target_sect.addr + target_mapping.offset;
+            const n_value = sym.inner.n_value - source_sect.addr + target_addr;
+
+            log.warn("resolving local symbol '{s}' at 0x{x}", .{ sym_name, n_value });
+
+            // TODO there might be a more generic way of doing this.
+            var n_sect: u8 = 0;
+            for (self.load_commands.items) |cmd, cmd_id| {
+                if (cmd != .Segment) break;
+                if (cmd_id == target_mapping.target_seg_id) {
+                    n_sect += @intCast(u8, target_mapping.target_sect_id) + 1;
+                    break;
+                }
+                n_sect += @intCast(u8, cmd.Segment.sections.items.len);
+            }
+
+            sym.inner.n_value = n_value;
+            sym.inner.n_sect = n_sect;
+        }
+    }
+
     for (self.symtab.items()) |*entry| {
         if (entry.value.tag == .Import) continue;
 
@@ -940,49 +990,12 @@ fn allocateSymbols(self: *Zld) !void {
         const index = entry.value.index orelse unreachable;
 
         const object = self.objects.items[object_id];
-        const source_sym = object.symtab.items[index];
-        const source_sect_id = source_sym.inner.n_sect - 1;
+        const sym = object.symtab.items[index];
 
-        // TODO I am more and more convinced we should store the mapping as part of the Object struct.
-        const target_mapping = self.mappings.get(.{
-            .object_id = object_id,
-            .source_sect_id = source_sect_id,
-        }) orelse {
-            if (self.unhandled_sections.get(.{
-                .object_id = object_id,
-                .source_sect_id = source_sect_id,
-            }) != null) continue;
+        log.warn("resolving {} symbol '{s}' at 0x{x}", .{ entry.value.tag, entry.key, sym.inner.n_value });
 
-            log.err("section not mapped for symbol '{s}': {}", .{ entry.key, source_sym });
-            return error.SectionNotMappedForSymbol;
-        };
-
-        const source_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-        const source_sect = source_seg.sections.items[source_sect_id];
-        const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
-        const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
-        const target_addr = target_sect.addr + target_mapping.offset;
-        const n_value = source_sym.inner.n_value - source_sect.addr + target_addr;
-
-        log.warn("resolving '{s}' symbol at 0x{x}", .{ entry.key, n_value });
-
-        // TODO there might be a more generic way of doing this.
-        var n_sect: u8 = 0;
-        for (self.load_commands.items) |cmd, cmd_id| {
-            if (cmd != .Segment) break;
-            if (cmd_id == target_mapping.target_seg_id) {
-                n_sect += @intCast(u8, target_mapping.target_sect_id) + 1;
-                break;
-            }
-            n_sect += @intCast(u8, cmd.Segment.sections.items.len);
-        }
-
-        entry.value.inner.n_value = n_value;
-        entry.value.inner.n_sect = n_sect;
-
-        // TODO This will need to be redone for any CU locals that end up in the final symbol table.
-        // This could be part of writing debug info since this is the only valid reason (is it?) for
-        // including CU locals in the final MachO symbol table.
+        entry.value.inner.n_value = sym.inner.n_value;
+        entry.value.inner.n_sect = sym.inner.n_sect;
     }
 }
 
@@ -995,23 +1008,12 @@ fn allocateStubsAndGotEntries(self: *Zld) !void {
         const sym_name = object.getString(sym.inner.n_strx);
         assert(mem.eql(u8, sym_name, entry.key));
 
-        // TODO clean this up
         entry.value.target_addr = target_addr: {
-            if (sym.tag != .Local) {
+            if (sym.tag == .Undef) {
                 const glob = self.symtab.get(sym_name) orelse unreachable;
                 break :target_addr glob.inner.n_value;
             }
-
-            const target_mapping = self.mappings.get(.{
-                .object_id = entry.value.file,
-                .source_sect_id = sym.inner.n_sect - 1,
-            }) orelse unreachable;
-            const source_sect = object.sections.items[target_mapping.source_sect_id];
-            const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
-            const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
-            const target_sect_addr = target_sect.addr + target_mapping.offset;
-
-            break :target_addr target_sect_addr + sym.inner.n_value - source_sect.inner.addr;
+            break :target_addr sym.inner.n_value;
         };
 
         log.warn("resolving GOT entry '{s}' at 0x{x}", .{
@@ -1315,7 +1317,7 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
                     continue;
                 };
 
-                if (sym.tag == .Weak) continue; // If symbol is weak, nothing to do.
+                if (global.value.tag == .Weak) continue; // If symbol is weak, nothing to do.
                 if (global.value.tag == .Strong) { // If both symbols are strong, we have a collision.
                     log.err("symbol '{s}' defined multiple times", .{sym_name});
                     return error.MultipleSymbolDefinitions;
@@ -1363,9 +1365,10 @@ fn resolveSymbols(self: *Zld) !void {
 
     // Second pass, resolve symbols in static libraries.
     var next: usize = 0;
+    var hit: bool = undefined;
     while (true) {
         var archive = &self.archives.items[next];
-        var hit: bool = false;
+        hit = false;
 
         for (self.symtab.items()) |entry| {
             if (entry.value.tag != .Undef) continue;
@@ -1444,7 +1447,7 @@ fn resolveSymbols(self: *Zld) !void {
 
 fn resolveStubsAndGotEntries(self: *Zld) !void {
     for (self.objects.items) |object, object_id| {
-        log.warn("\nresolving stubs and got entries from {s}", .{object.name});
+        log.warn("resolving stubs and got entries from {s}", .{object.name});
 
         for (object.sections.items) |sect| {
             const relocs = sect.relocs orelse continue;
@@ -1574,7 +1577,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                                 const sym_name = object.getString(sym.inner.n_strx);
 
                                 // TODO we don't want to save offset to tlv_bootstrap
-                                if (mem.eql(u8, sym_name, "__tlv_boostrap")) break :tlv;
+                                if (mem.eql(u8, sym_name, "__tlv_bootstrap")) break :tlv;
 
                                 const base_addr = blk: {
                                     if (self.tlv_data_section_index) |index| {
@@ -1646,27 +1649,18 @@ fn relocTargetAddr(self: *Zld, object_id: u16, target: Relocation.Target) !u64 {
                 const sym_name = object.getString(sym.inner.n_strx);
 
                 switch (sym.tag) {
-                    .Stab => unreachable, // TODO is this even allowed to happen?
-                    .Local, .Weak, .Strong => {
-                        // Relocate using section offsets only.
-                        const target_mapping = self.mappings.get(.{
-                            .object_id = object_id,
-                            .source_sect_id = sym.inner.n_sect - 1,
-                        }) orelse unreachable;
-                        const source_sect = object.sections.items[target_mapping.source_sect_id];
-                        const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
-                        const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
-                        const target_sect_addr = target_sect.addr + target_mapping.offset;
-                        log.warn("    | symbol local to object", .{});
-                        break :blk target_sect_addr + sym.inner.n_value - source_sect.inner.addr;
+                    .Stab, .Local, .Weak, .Strong => {
+                        log.warn("    | local symbol '{s}'", .{sym_name});
+                        break :blk sym.inner.n_value;
                     },
                     else => {
                         if (self.stubs.get(sym_name)) |index| {
-                            log.warn("    | symbol stub {s}", .{sym_name});
+                            log.warn("    | symbol stub '{s}'", .{sym_name});
                             const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                             const stubs = segment.sections.items[self.stubs_section_index.?];
                             break :blk stubs.addr + index * stubs.reserved2;
                         } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
+                            log.warn("    | symbol '__tlv_bootstrap'", .{});
                             const segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
                             const tlv = segment.sections.items[self.tlv_section_index.?];
                             break :blk tlv.addr;
@@ -1675,6 +1669,7 @@ fn relocTargetAddr(self: *Zld, object_id: u16, target: Relocation.Target) !u64 {
                                 log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
                                 return error.FailedToResolveRelocationTarget;
                             };
+                            log.warn("    | global symbol '{s}'", .{sym_name});
                             break :blk global.inner.n_value;
                         }
                     },
@@ -2144,8 +2139,8 @@ fn flush(self: *Zld) !void {
         symtab.symoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
     }
 
-    // try self.writeDebugInfo();
     try self.populateStringTable();
+    try self.writeDebugInfo();
     try self.writeSymbolTable();
     try self.writeDynamicSymbolTable();
     try self.writeStringTable();
@@ -2556,20 +2551,10 @@ fn writeDebugInfo(self: *Zld) !void {
             });
             // Path to object file with debug info
             var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-            const full_path = blk: {
-                if (object.ar_name) |prefix| {
-                    const path = try std.os.realpath(prefix, &buffer);
-                    break :blk try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ path, object.name });
-                } else {
-                    const path = try std.os.realpath(object.name, &buffer);
-                    break :blk try mem.dupe(self.allocator, u8, path);
-                }
-            };
-            defer self.allocator.free(full_path);
-            const stat = try object.file.stat();
+            const stat = try object.file.?.stat();
             const mtime = @intCast(u64, @divFloor(stat.mtime, 1_000_000_000));
             try stabs.append(.{
-                .n_strx = try self.makeString(full_path),
+                .n_strx = try self.makeString(object.name.?),
                 .n_type = macho.N_OSO,
                 .n_sect = 0,
                 .n_desc = 1,
@@ -2578,19 +2563,12 @@ fn writeDebugInfo(self: *Zld) !void {
         }
         log.warn("analyzing debug info in '{s}'", .{object.name});
 
-        for (object.symtab.items) |source_sym| {
-            const symname = object.getString(source_sym.n_strx);
-            const source_addr = source_sym.n_value;
-            const target_syms = self.locals.get(symname) orelse continue;
-            const target_sym: Symbol = blk: {
-                for (target_syms.items) |ts| {
-                    if (ts.object_id == @intCast(u16, object_id)) break :blk ts;
-                } else continue;
-            };
-
+        for (object.symtab.items) |sym| {
+            const sym_name = object.getString(sym.inner.n_strx);
             const maybe_size = blk: for (debug_info.inner.func_list.items) |func| {
                 if (func.pc_range) |range| {
-                    if (source_addr >= range.start and source_addr < range.end) {
+                    // TODO source address needs to be preserved
+                    if (sym.inner.n_value >= range.start and sym.inner.n_value < range.end) {
                         break :blk range.end - range.start;
                     }
                 }
@@ -2600,16 +2578,16 @@ fn writeDebugInfo(self: *Zld) !void {
                 try stabs.append(.{
                     .n_strx = 0,
                     .n_type = macho.N_BNSYM,
-                    .n_sect = target_sym.inner.n_sect,
+                    .n_sect = sym.inner.n_sect,
                     .n_desc = 0,
-                    .n_value = target_sym.inner.n_value,
+                    .n_value = sym.inner.n_value,
                 });
                 try stabs.append(.{
-                    .n_strx = target_sym.inner.n_strx,
+                    .n_strx = sym.inner.n_strx,
                     .n_type = macho.N_FUN,
-                    .n_sect = target_sym.inner.n_sect,
+                    .n_sect = sym.inner.n_sect,
                     .n_desc = 0,
-                    .n_value = target_sym.inner.n_value,
+                    .n_value = sym.inner.n_value,
                 });
                 try stabs.append(.{
                     .n_strx = 0,
@@ -2621,18 +2599,18 @@ fn writeDebugInfo(self: *Zld) !void {
                 try stabs.append(.{
                     .n_strx = 0,
                     .n_type = macho.N_ENSYM,
-                    .n_sect = target_sym.inner.n_sect,
+                    .n_sect = sym.inner.n_sect,
                     .n_desc = 0,
                     .n_value = size,
                 });
             } else {
                 // TODO need a way to differentiate symbols: global, static, local, etc.
                 try stabs.append(.{
-                    .n_strx = target_sym.inner.n_strx,
+                    .n_strx = sym.inner.n_strx,
                     .n_type = macho.N_STSYM,
-                    .n_sect = target_sym.inner.n_sect,
+                    .n_sect = sym.inner.n_sect,
                     .n_desc = 0,
-                    .n_value = target_sym.inner.n_value,
+                    .n_value = sym.inner.n_value,
                 });
             }
         }
@@ -2668,6 +2646,18 @@ fn writeDebugInfo(self: *Zld) !void {
 }
 
 fn populateStringTable(self: *Zld) !void {
+    for (self.objects.items) |*object| {
+        for (object.symtab.items) |*sym| {
+            switch (sym.tag) {
+                .Stab, .Local => {},
+                else => continue,
+            }
+            const sym_name = object.getString(sym.inner.n_strx);
+            const n_strx = try self.makeString(sym_name);
+            sym.inner.n_strx = n_strx;
+        }
+    }
+
     for (self.symtab.items()) |*entry| {
         const n_strx = try self.makeString(entry.key);
         entry.value.inner.n_strx = n_strx;
@@ -2678,9 +2668,19 @@ fn writeSymbolTable(self: *Zld) !void {
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
 
-    // TODO figure out how to add locals
     var locals = std.ArrayList(macho.nlist_64).init(self.allocator);
     defer locals.deinit();
+
+    for (self.objects.items) |object| {
+        for (object.symtab.items) |sym| {
+            switch (sym.tag) {
+                .Stab, .Local => {},
+                else => continue,
+            }
+
+            try locals.append(sym.inner);
+        }
+    }
 
     var exports = std.ArrayList(macho.nlist_64).init(self.allocator);
     defer exports.deinit();

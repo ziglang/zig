@@ -207,12 +207,14 @@ pub fn parseObject(self: Archive, offset: u32) !Object {
     }
 
     const object_name = try parseName(self.allocator, object_header, reader);
+    defer self.allocator.free(object_name);
+
     log.warn("extracting object '{s}' from archive '{s}'", .{ object_name, self.name.? });
 
     var object = Object.init(self.allocator);
     object.arch = self.arch.?;
     object.file = try fs.cwd().openFile(self.name.?, .{});
-    object.name = object_name;
+    object.name = try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ self.name.?, object_name });
     object.file_offset = @intCast(u32, try reader.context.getPos());
     try object.parse();
 
