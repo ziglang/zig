@@ -65,8 +65,8 @@ emit_h_failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ErrorMsg) = .{},
 /// Keep track of one `@compileLog` callsite per owner Decl.
 compile_log_decls: std.AutoArrayHashMapUnmanaged(*Decl, SrcLoc) = .{},
 /// Using a map here for consistency with the other fields here.
-/// The ErrorMsg memory is owned by the `Scope`, using Module's general purpose allocator.
-failed_files: std.AutoArrayHashMapUnmanaged(*Scope, *ErrorMsg) = .{},
+/// The ErrorMsg memory is owned by the `Scope.File`, using Module's general purpose allocator.
+failed_files: std.AutoArrayHashMapUnmanaged(*Scope.File, *ErrorMsg) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Export`, using Module's general purpose allocator.
 failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
@@ -732,10 +732,12 @@ pub const Scope = struct {
 
         pub fn unload(file: *File, gpa: *Allocator) void {
             switch (file.status) {
-                .never_loaded,
                 .unloaded_parse_failure,
+                .never_loaded,
                 .unloaded_success,
-                => {},
+                => {
+                    file.status = .unloaded_success;
+                },
 
                 .loaded_success => {
                     file.tree.deinit(gpa);
@@ -3241,7 +3243,7 @@ pub fn getAstTree(mod: *Module, root_scope: *Scope.File) !*const ast.Tree {
                     .msg = msg.toOwnedSlice(),
                 };
 
-                mod.failed_files.putAssumeCapacityNoClobber(&root_scope.base, err_msg);
+                mod.failed_files.putAssumeCapacityNoClobber(root_scope, err_msg);
                 root_scope.status = .unloaded_parse_failure;
                 return error.AnalysisFail;
             }
@@ -4690,4 +4692,11 @@ pub fn parseStrLit(
             );
         },
     }
+}
+
+pub fn unloadFile(mod: *Module, file_scope: *Scope.File) void {
+    if (file_scope.status == .unloaded_parse_failure) {
+        mod.failed_files.swapRemove(file_scope).?.value.destroy(mod.gpa);
+    }
+    file_scope.unload(mod.gpa);
 }

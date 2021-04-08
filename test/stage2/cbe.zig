@@ -600,6 +600,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "");
 
         // Specifying alignment is a parse error.
+        // This also tests going from a successful build to a parse error.
         case.addError(
             \\const E1 = enum {
             \\    a,
@@ -611,6 +612,24 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &.{
             ":3:7: error: expected ',', found 'align'",
+        });
+
+        // Redundant non-exhaustive enum mark.
+        // This also tests going from a parse error to an AstGen error.
+        case.addError(
+            \\const E1 = enum {
+            \\    a,
+            \\    _,
+            \\    b,
+            \\    c,
+            \\    _,
+            \\};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":6:5: error: redundant non-exhaustive enum mark",
+            ":3:5: note: other mark here",
         });
     }
 
