@@ -3846,6 +3846,7 @@ fn analyzeArithmetic(
         .subwrap => .subwrap,
         .mul => .mul,
         .mulwrap => .mulwrap,
+        .div => .div,
         else => return sema.mod.fail(&block.base, src, "TODO implement arithmetic for operand '{s}''", .{@tagName(zir_tag)}),
     };
 
@@ -4161,7 +4162,7 @@ fn zirBoolBr(
     _ = try rhs_block.addBr(src, block_inst, rhs_result);
 
     const tzir_then_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, then_block.instructions.items) };
-    const tzir_else_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, rhs_block.instructions.items) };
+    const tzir_else_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, else_block.instructions.items) };
     _ = try child_block.addCondBr(src, lhs, tzir_then_body, tzir_else_body);
 
     block_inst.body = .{

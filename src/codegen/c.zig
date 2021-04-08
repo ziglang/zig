@@ -632,6 +632,9 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .mul => try genBinOp(o, inst.castTag(.sub).?, " * "),
             // TODO make this do wrapping multiplication for signed ints
             .mulwrap => try genBinOp(o, inst.castTag(.sub).?, " * "),
+            // TODO use a different strategy for div that communicates to the optimizer
+            // that wrapping is UB.
+            .div => try genBinOp(o, inst.castTag(.div).?, " / "),
 
             .constant => unreachable, // excluded from function bodies
             .alloc => try genAlloc(o, inst.castTag(.alloc).?),

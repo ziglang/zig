@@ -657,6 +657,10 @@ pub const Context = struct {
             .breakpoint => self.genBreakpoint(inst.castTag(.breakpoint).?),
             .br => self.genBr(inst.castTag(.br).?),
             .call => self.genCall(inst.castTag(.call).?),
+            .bit_or => self.genBinOp(inst.castTag(.bit_or).?, .@"or"),
+            .bit_and => self.genBinOp(inst.castTag(.bit_and).?, .@"and"),
+            .bool_or => self.genBinOp(inst.castTag(.bool_or).?, .@"or"),
+            .bool_and => self.genBinOp(inst.castTag(.bool_and).?, .@"and"),
             .cmp_eq => self.genCmp(inst.castTag(.cmp_eq).?, .eq),
             .cmp_gte => self.genCmp(inst.castTag(.cmp_gte).?, .gte),
             .cmp_gt => self.genCmp(inst.castTag(.cmp_gt).?, .gt),
@@ -669,6 +673,8 @@ pub const Context = struct {
             .load => self.genLoad(inst.castTag(.load).?),
             .loop => self.genLoop(inst.castTag(.loop).?),
             .mul => self.genBinOp(inst.castTag(.mul).?, .mul),
+            .div => self.genBinOp(inst.castTag(.div).?, .div),
+            .xor => self.genBinOp(inst.castTag(.xor).?, .xor),
             .not => self.genNot(inst.castTag(.not).?),
             .ret => self.genRet(inst.castTag(.ret).?),
             .retvoid => WValue.none,
@@ -764,6 +770,7 @@ pub const Context = struct {
         const opcode: wasm.Opcode = buildOpcode(.{
             .op = op,
             .valtype1 = try self.typeToValtype(inst.base.src, inst.base.ty),
+            .signedness = if (inst.base.ty.isSignedInt()) .signed else .unsigned,
         });
         try self.code.append(wasm.opcode(opcode));
         return .none;
