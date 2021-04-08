@@ -717,6 +717,52 @@ pub fn addCases(ctx: *TestContext) !void {
             ":4:5: note: unhandled enumeration value: 'b'",
             ":1:11: note: enum 'E' declared here",
         });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .a;
+            \\    switch (x) {
+            \\        .a => {},
+            \\        .b => {},
+            \\        .b => {},
+            \\        .c => {},
+            \\    }
+            \\}
+        , &.{
+            ":7:10: error: duplicate switch value",
+            ":6:10: note: previous value here",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .a;
+            \\    switch (x) {
+            \\        .a => {},
+            \\        .b => {},
+            \\        .c => {},
+            \\        else => {},
+            \\    }
+            \\}
+        , &.{
+            ":8:14: error: unreachable else prong; all cases already handled",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .a;
+            \\    switch (x) {
+            \\        .a => {},
+            \\        .b => {},
+            \\        _ => {},
+            \\    }
+            \\}
+        , &.{
+            ":4:5: error: '_' prong only allowed when switching on non-exhaustive enums",
+            ":7:11: note: '_' prong here",
+        });
     }
 
     ctx.c("empty start function", linux_x64,

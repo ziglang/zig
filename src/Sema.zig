@@ -1972,7 +1972,7 @@ fn zirIntToEnum(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerErr
         return mod.fail(&block.base, dest_ty_src, "expected enum, found {}", .{dest_ty});
     }
 
-    if (!dest_ty.isExhaustiveEnum()) {
+    if (dest_ty.isNonexhaustiveEnum()) {
         if (operand.value()) |int_val| {
             return mod.constInst(arena, src, .{
                 .ty = dest_ty,
@@ -2762,7 +2762,7 @@ fn analyzeSwitch(
     const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = src_node_offset };
 
     // Validate usage of '_' prongs.
-    if (special_prong == .under and !operand.ty.isExhaustiveEnum()) {
+    if (special_prong == .under and !operand.ty.isNonexhaustiveEnum()) {
         const msg = msg: {
             const msg = try mod.errMsg(
                 &block.base,

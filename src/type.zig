@@ -2119,9 +2119,9 @@ pub const Type = extern union {
         }
     }
 
-    pub fn isExhaustiveEnum(ty: Type) bool {
+    pub fn isNonexhaustiveEnum(ty: Type) bool {
         return switch (ty.tag()) {
-            .enum_full, .enum_simple => true,
+            .enum_nonexhaustive => true,
             else => false,
         };
     }
