@@ -70,10 +70,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                     ,
                     // release-safe
-                    \\error: TheSkyIsFalling
-                    \\source.zig:4:5: [address] in std.start.main (test)
-                    \\    return error.TheSkyIsFalling;
-                    \\    ^
+                    // https://github.com/ziglang/zig/issues/8421
                     \\
                     ,
                     // release-fast
@@ -100,13 +97,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                     ,
                     // release-safe
-                    \\error: TheSkyIsFalling
-                    \\source.zig:4:5: [address] in std.start.main (test)
-                    \\    return error.TheSkyIsFalling;
-                    \\    ^
-                    \\source.zig:8:5: [address] in std.start.main (test)
-                    \\    try foo();
-                    \\    ^
+                    // https://github.com/ziglang/zig/issues/8421
                     \\
                     ,
                     // release-fast
@@ -139,19 +130,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                     \\
                     ,
                     // release-safe
-                    \\error: TheSkyIsFalling
-                    \\source.zig:12:5: [address] in std.start.main (test)
-                    \\    return error.TheSkyIsFalling;
-                    \\    ^
-                    \\source.zig:8:5: [address] in std.start.main (test)
-                    \\    return make_error();
-                    \\    ^
-                    \\source.zig:4:5: [address] in std.start.main (test)
-                    \\    try bar();
-                    \\    ^
-                    \\source.zig:16:5: [address] in std.start.main (test)
-                    \\    try foo();
-                    \\    ^
+                    // https://github.com/ziglang/zig/issues/8421
                     \\
                     ,
                     // release-fast
