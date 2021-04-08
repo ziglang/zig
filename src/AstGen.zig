@@ -4149,12 +4149,14 @@ fn builtinCall(
         },
 
         .@"export" => {
-            const target_fn = try expr(gz, scope, .none, params[0]);
-            // FIXME: When structs work in stage2, actually implement this correctly!
-            //        Currently the name is always signifies Strong linkage.
+            // TODO: @export is supposed to be able to export things other than functions.
+            // Instead of `comptimeExpr` here we need `decl_ref`.
+            const fn_to_export = try comptimeExpr(gz, scope, .none, params[0]);
+            // TODO: the second parameter here is supposed to be
+            // `std.builtin.ExportOptions`, not a string.
             const export_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
             _ = try gz.addPlNode(.@"export", node, zir.Inst.Bin{
-                .lhs = target_fn,
+                .lhs = fn_to_export,
                 .rhs = export_name,
             });
             return rvalue(gz, scope, rl, .void_value, node);

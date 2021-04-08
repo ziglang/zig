@@ -35,11 +35,8 @@ comp: *Compilation,
 zig_cache_artifact_directory: Compilation.Directory,
 /// Pointer to externally managed resource. `null` if there is no zig file being compiled.
 root_pkg: *Package,
-/// This is populated when `@import("root")` is analysed.
-root_scope: ?*Scope.File,
-start_pkg: *Package,
 /// Module owns this resource.
-start_scope: *Scope.File,
+root_scope: *Scope.File,
 /// It's rare for a decl to be exported, so we save memory by having a sparse map of
 /// Decl pointers to details about them being exported.
 /// The Export memory is owned by the `export_owners` table; the slice itself is owned by this table.
@@ -2344,9 +2341,7 @@ pub fn deinit(mod: *Module) void {
     mod.export_owners.deinit(gpa);
 
     mod.symbol_exports.deinit(gpa);
-
-    mod.start_scope.destroy(gpa);
-    mod.start_pkg.destroy(gpa);
+    mod.root_scope.destroy(gpa);
 
     var it = mod.global_error_set.iterator();
     while (it.next()) |entry| {
@@ -2518,7 +2513,6 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
 
                 const block_expr = node_datas[decl_node].lhs;
                 _ = try AstGen.comptimeExpr(&gen_scope, &gen_scope.base, .none, block_expr);
-                _ = try gen_scope.addBreak(.break_inline, gen_scope.break_block, .void_value);
 
                 const code = try gen_scope.finish();
                 if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
@@ -2863,9 +2857,8 @@ fn astgenAndSemaFn(
 
         _ = try AstGen.expr(&gen_scope, params_scope, .none, body_node);
 
-        const inst_tags = astgen.instructions.items(.tag);
-        if (inst_tags.len == 0 or
-            !inst_tags[inst_tags.len - 1]
+        if (gen_scope.instructions.items.len == 0 or
+            !astgen.instructions.items(.tag)[gen_scope.instructions.items.len - 1]
             .isNoReturn())
         {
             // astgen uses result location semantics to coerce return operands.

@@ -328,8 +328,7 @@ pub const Inst = struct {
         error_union_type,
         /// `error.Foo` syntax. Uses the `str_tok` field of the Data union.
         error_value,
-        /// Exports a function with a specified name. This can be used at comptime
-        /// to export a function conditionally.
+        /// Implements the `@export` builtin function.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         @"export",
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
@@ -364,7 +363,7 @@ pub const Inst = struct {
         fn_type_cc,
         /// Same as `fn_type_cc` but the function is variadic.
         fn_type_cc_var_args,
-        /// Determines whether a container has a declaration matching name.
+        /// Implements the `@hasDecl` builtin.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         has_decl,
         /// `@import(operand)`.

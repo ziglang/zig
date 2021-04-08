@@ -510,11 +510,11 @@ pub const InitOptions = struct {
 fn addPackageTableToCacheHash(
     hash: *Cache.HashHelper,
     arena: *std.heap.ArenaAllocator,
-    package: *Package,
+    pkg_table: Package.Table,
     hash_type: union(enum) { path_bytes, files: *Cache.Manifest },
 ) (error{OutOfMemory} || std.os.GetCwdError)!void {
     const allocator = &arena.allocator;
-    const pkg_table = package.table;
+
     const packages = try allocator.alloc(Package.Table.Entry, pkg_table.count());
     {
         // Copy over the hashmap entries to our slice
@@ -547,8 +547,7 @@ fn addPackageTableToCacheHash(
             },
         }
         // Recurse to handle the package's dependencies
-        if (package != pkg.value)
-            try addPackageTableToCacheHash(hash, arena, pkg.value, hash_type);
+        try addPackageTableToCacheHash(hash, arena, pkg.value.table, hash_type);
     }
 }
 
@@ -886,7 +885,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             {
                 var local_arena = std.heap.ArenaAllocator.init(gpa);
                 defer local_arena.deinit();
-                try addPackageTableToCacheHash(&hash, &local_arena, root_pkg, .path_bytes);
+                try addPackageTableToCacheHash(&hash, &local_arena, root_pkg.table, .path_bytes);
             }
             hash.add(valgrind);
             hash.add(single_threaded);
@@ -907,46 +906,38 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                     artifact_sub_dir,
             };
 
-            const builtin_pkg = try Package.create(gpa, zig_cache_artifact_directory.path.?, "builtin2.zig");
-
-            const std_dir_path = try options.zig_lib_directory.join(gpa, &[_][]const u8{"std"});
-            defer gpa.free(std_dir_path);
-            const start_pkg = try Package.create(gpa, std_dir_path, "start2.zig");
-
-            try root_pkg.add(gpa, "builtin", builtin_pkg);
-            try root_pkg.add(gpa, "root", root_pkg);
-
-            try start_pkg.add(gpa, "builtin", builtin_pkg);
-            try start_pkg.add(gpa, "root", root_pkg);
-
             // TODO when we implement serialization and deserialization of incremental compilation metadata,
             // this is where we would load it. We have open a handle to the directory where
             // the output either already is, or will be.
             // However we currently do not have serialization of such metadata, so for now
             // we set up an empty Module that does the entire compilation fresh.
 
-            if (mem.endsWith(u8, root_pkg.root_src_path, ".zir")) return error.ZirFilesUnsupported;
-
-            const start_scope = ss: {
-                const start_scope = try gpa.create(Module.Scope.File);
-                const struct_ty = try Type.Tag.empty_struct.create(
-                    gpa,
-                    &start_scope.root_container,
-                );
-                start_scope.* = .{
-                    // TODO this is duped so it can be freed in Container.deinit
-                    .sub_file_path = try gpa.dupe(u8, start_pkg.root_src_path),
-                    .source = .{ .unloaded = {} },
-                    .tree = undefined,
-                    .status = .never_loaded,
-                    .pkg = start_pkg,
-                    .root_container = .{
-                        .file_scope = start_scope,
-                        .decls = .{},
-                        .ty = struct_ty,
-                    },
-                };
-                break :ss start_scope;
+            const root_scope = rs: {
+                if (mem.endsWith(u8, root_pkg.root_src_path, ".zig")) {
+                    const root_scope = try gpa.create(Module.Scope.File);
+                    const struct_ty = try Type.Tag.empty_struct.create(
+                        gpa,
+                        &root_scope.root_container,
+                    );
+                    root_scope.* = .{
+                        // TODO this is duped so it can be freed in Container.deinit
+                        .sub_file_path = try gpa.dupe(u8, root_pkg.root_src_path),
+                        .source = .{ .unloaded = {} },
+                        .tree = undefined,
+                        .status = .never_loaded,
+                        .pkg = root_pkg,
+                        .root_container = .{
+                            .file_scope = root_scope,
+                            .decls = .{},
+                            .ty = struct_ty,
+                        },
+                    };
+                    break :rs root_scope;
+                } else if (mem.endsWith(u8, root_pkg.root_src_path, ".zir")) {
+                    return error.ZirFilesUnsupported;
+                } else {
+                    unreachable;
+                }
             };
 
             const module = try arena.create(Module);
@@ -955,9 +946,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 .gpa = gpa,
                 .comp = comp,
                 .root_pkg = root_pkg,
-                .root_scope = null,
-                .start_pkg = start_pkg,
-                .start_scope = start_scope,
+                .root_scope = root_scope,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .emit_h = options.emit_h,
                 .error_name_list = try std.ArrayListUnmanaged([]const u8).initCapacity(gpa, 1),
@@ -1359,9 +1348,9 @@ pub fn update(self: *Compilation) !void {
             // TODO Detect which source files changed.
             // Until then we simulate a full cache miss. Source files could have been loaded
             // for any reason; to force a refresh we unload now.
-            module.unloadFile(module.start_scope);
+            module.unloadFile(module.root_scope);
             module.failed_root_src_file = null;
-            module.analyzeContainer(&module.start_scope.root_container) catch |err| switch (err) {
+            module.analyzeContainer(&module.root_scope.root_container) catch |err| switch (err) {
                 error.AnalysisFail => {
                     assert(self.totalErrorCount() != 0);
                 },
@@ -1422,7 +1411,7 @@ pub fn update(self: *Compilation) !void {
     // to report error messages. Otherwise we unload all source files to save memory.
     if (self.totalErrorCount() == 0 and !self.keep_source_files_loaded) {
         if (self.bin_file.options.module) |module| {
-            module.start_scope.unload(self.gpa);
+            module.root_scope.unload(self.gpa);
         }
     }
 }
@@ -2833,11 +2822,6 @@ fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) !void {
     const source = try comp.generateBuiltinZigSource(comp.gpa);
     defer comp.gpa.free(source);
     try mod.zig_cache_artifact_directory.handle.writeFile("builtin.zig", source);
-
-    // FIXME: Remove builtin2.zig when stage2 can correctly generate code for builtin.zig!
-    const source2 = try comp.generateBuiltin2ZigSource(comp.gpa);
-    defer comp.gpa.free(source2);
-    try mod.zig_cache_artifact_directory.handle.writeFile("builtin2.zig", source2);
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
@@ -2845,30 +2829,6 @@ pub fn dump_argv(argv: []const []const u8) void {
         std.debug.print("{s} ", .{arg});
     }
     std.debug.print("{s}\n", .{argv[argv.len - 1]});
-}
-
-fn generateBuiltin2ZigSource(comp: *Compilation, allocator: *Allocator) ![]u8 {
-    var buffer = std.ArrayList(u8).init(allocator);
-    defer buffer.deinit();
-
-    const target = comp.getTarget();
-
-    try buffer.writer().print(
-        \\pub const link_libc = {};
-        \\pub const arch = {};
-        \\pub const os = {};
-        \\pub const output_mode = {};
-        \\pub const object_format = {};
-        \\
-    , .{
-        comp.bin_file.options.link_libc,
-        @enumToInt(target.cpu.arch),
-        @enumToInt(target.os.tag),
-        @enumToInt(comp.bin_file.options.output_mode),
-        @enumToInt(comp.bin_file.options.object_format),
-    });
-
-    return buffer.toOwnedSlice();
 }
 
 pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8 {
@@ -3215,7 +3175,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     {
         var local_arena = std.heap.ArenaAllocator.init(comp.gpa);
         defer local_arena.deinit();
-        try addPackageTableToCacheHash(&man.hash, &local_arena, mod.root_pkg, .{ .files = &man });
+        try addPackageTableToCacheHash(&man.hash, &local_arena, mod.root_pkg.table, .{ .files = &man });
     }
     man.hash.add(comp.bin_file.options.valgrind);
     man.hash.add(comp.bin_file.options.single_threaded);

@@ -1345,21 +1345,18 @@ fn zirExport(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
     const src = inst_data.src();
+    const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
 
-    const target_fn = try sema.resolveInst(extra.lhs);
-    const target_fn_val = try sema.resolveConstValue(
-        block,
-        .{ .node_offset_builtin_call_arg0 = inst_data.src_node },
-        target_fn,
-    );
+    // TODO (see corresponding TODO in AstGen) this is supposed to be a `decl_ref`
+    // instruction, which could reference any decl, which is then supposed to get
+    // exported, regardless of whether or not it is a function.
+    const target_fn = try sema.resolveInstConst(block, lhs_src, extra.lhs);
+    // TODO (see corresponding TODO in AstGen) this is supposed to be
+    // `std.builtin.ExportOptions`, not a string.
+    const export_name = try sema.resolveConstString(block, rhs_src, extra.rhs);
 
-    const export_name = try sema.resolveConstString(
-        block,
-        .{ .node_offset_builtin_call_arg1 = inst_data.src_node },
-        extra.rhs,
-    );
-
-    const actual_fn = target_fn_val.castTag(.function).?.data;
+    const actual_fn = target_fn.val.castTag(.function).?.data;
     try sema.mod.analyzeExport(&block.base, src, export_name, actual_fn.owner_decl);
 }
 
@@ -3636,26 +3633,21 @@ fn zirHasDecl(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const container_type = try sema.resolveType(block, lhs_src, extra.lhs);
     const decl_name = try sema.resolveConstString(block, rhs_src, extra.rhs);
+    const mod = sema.mod;
+    const arena = sema.arena;
 
-    const maybe_scope = container_type.getContainerScope();
-    if (maybe_scope == null) {
-        return sema.mod.fail(
-            &block.base,
-            src,
-            "expected container (struct, enum, or union), found '{}'",
-            .{container_type},
-        );
+    const container_scope = container_type.getContainerScope() orelse return mod.fail(
+        &block.base,
+        lhs_src,
+        "expected struct, enum, union, or opaque, found '{}'",
+        .{container_type},
+    );
+    if (mod.lookupDeclName(&container_scope.base, decl_name)) |decl| {
+        // TODO if !decl.is_pub and inDifferentFiles() return false
+        return mod.constBool(arena, src, true);
+    } else {
+        return mod.constBool(arena, src, false);
     }
-
-    const found = blk: {
-        for (maybe_scope.?.decls.items()) |kv| {
-            if (mem.eql(u8, mem.spanZ(kv.key.name), decl_name))
-                break :blk true;
-        }
-        break :blk false;
-    };
-
-    return sema.mod.constBool(sema.arena, src, found);
 }
 
 fn zirImport(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -4699,7 +4691,7 @@ fn namedFieldPtr(
                         }
 
                         // TODO this will give false positives for structs inside the root file
-                        if (container_scope.file_scope == mod.root_scope.?) {
+                        if (container_scope.file_scope == mod.root_scope) {
                             return mod.fail(
                                 &block.base,
                                 src,
@@ -5338,9 +5330,6 @@ fn analyzeImport(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, target_strin
             .ty = struct_ty,
         },
     };
-    if (mem.eql(u8, target_string, "root")) {
-        sema.mod.root_scope = file_scope;
-    }
     sema.mod.analyzeContainer(&file_scope.root_container) catch |err| switch (err) {
         error.AnalysisFail => {
             assert(sema.mod.comp.totalErrorCount() != 0);
