@@ -65,8 +65,8 @@ emit_h_failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ErrorMsg) = .{},
 /// Keep track of one `@compileLog` callsite per owner Decl.
 compile_log_decls: std.AutoArrayHashMapUnmanaged(*Decl, SrcLoc) = .{},
 /// Using a map here for consistency with the other fields here.
-/// The ErrorMsg memory is owned by the `Scope`, using Module's general purpose allocator.
-failed_files: std.AutoArrayHashMapUnmanaged(*Scope, *ErrorMsg) = .{},
+/// The ErrorMsg memory is owned by the `Scope.File`, using Module's general purpose allocator.
+failed_files: std.AutoArrayHashMapUnmanaged(*Scope.File, *ErrorMsg) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Export`, using Module's general purpose allocator.
 failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
@@ -75,7 +75,7 @@ next_anon_name_index: usize = 0,
 
 /// Candidates for deletion. After a semantic analysis update completes, this list
 /// contains Decls that need to be deleted if they end up having no references to them.
-deletion_set: ArrayListUnmanaged(*Decl) = .{},
+deletion_set: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
 
 /// Error tags and their values, tag names are duped with mod.gpa.
 /// Corresponds with `error_name_list`.
@@ -192,7 +192,7 @@ pub const Decl = struct {
         /// to require re-analysis.
         outdated,
     },
-    /// This flag is set when this Decl is added to a check_for_deletion set, and cleared
+    /// This flag is set when this Decl is added to `Module.deletion_set`, and cleared
     /// when removed.
     deletion_flag: bool,
     /// Whether the corresponding AST decl has a `pub` keyword.
@@ -290,6 +290,18 @@ pub const Decl = struct {
         return decl.container.fullyQualifiedNameHash(mem.spanZ(decl.name));
     }
 
+    pub fn renderFullyQualifiedName(decl: Decl, writer: anytype) !void {
+        const unqualified_name = mem.spanZ(decl.name);
+        return decl.container.renderFullyQualifiedName(unqualified_name, writer);
+    }
+
+    pub fn getFullyQualifiedName(decl: Decl, gpa: *Allocator) ![]u8 {
+        var buffer = std.ArrayList(u8).init(gpa);
+        defer buffer.deinit();
+        try decl.renderFullyQualifiedName(buffer.writer());
+        return buffer.toOwnedSlice();
+    }
+
     pub fn typedValue(decl: *Decl) error{AnalysisFail}!TypedValue {
         const tvm = decl.typedValueManaged() orelse return error.AnalysisFail;
         return tvm.typed_value;
@@ -354,6 +366,13 @@ pub const ErrorSet = struct {
     /// The string bytes are stored in the owner Decl arena.
     /// They are in the same order they appear in the AST.
     names_ptr: [*]const []const u8,
+
+    pub fn srcLoc(self: ErrorSet) SrcLoc {
+        return .{
+            .container = .{ .decl = self.owner_decl },
+            .lazy = .{ .node_offset = self.node_offset },
+        };
+    }
 };
 
 /// Represents the data that a struct declaration provides.
@@ -375,14 +394,60 @@ pub const Struct = struct {
     };
 
     pub fn getFullyQualifiedName(s: *Struct, gpa: *Allocator) ![]u8 {
-        // TODO this should return e.g. "std.fs.Dir.OpenOptions"
-        return gpa.dupe(u8, mem.spanZ(s.owner_decl.name));
+        return s.owner_decl.getFullyQualifiedName(gpa);
     }
 
     pub fn srcLoc(s: Struct) SrcLoc {
         return .{
             .container = .{ .decl = s.owner_decl },
             .lazy = .{ .node_offset = s.node_offset },
+        };
+    }
+};
+
+/// Represents the data that an enum declaration provides, when the fields
+/// are auto-numbered, and there are no declarations. The integer tag type
+/// is inferred to be the smallest power of two unsigned int that fits
+/// the number of fields.
+pub const EnumSimple = struct {
+    owner_decl: *Decl,
+    /// Set of field names in declaration order.
+    fields: std.StringArrayHashMapUnmanaged(void),
+    /// Offset from `owner_decl`, points to the enum decl AST node.
+    node_offset: i32,
+
+    pub fn srcLoc(self: EnumSimple) SrcLoc {
+        return .{
+            .container = .{ .decl = self.owner_decl },
+            .lazy = .{ .node_offset = self.node_offset },
+        };
+    }
+};
+
+/// Represents the data that an enum declaration provides, when there is
+/// at least one tag value explicitly specified, or at least one declaration.
+pub const EnumFull = struct {
+    owner_decl: *Decl,
+    /// An integer type which is used for the numerical value of the enum.
+    /// Whether zig chooses this type or the user specifies it, it is stored here.
+    tag_ty: Type,
+    /// Set of field names in declaration order.
+    fields: std.StringArrayHashMapUnmanaged(void),
+    /// Maps integer tag value to field index.
+    /// Entries are in declaration order, same as `fields`.
+    /// If this hash map is empty, it means the enum tags are auto-numbered.
+    values: ValueMap,
+    /// Represents the declarations inside this struct.
+    container: Scope.Container,
+    /// Offset from `owner_decl`, points to the enum decl AST node.
+    node_offset: i32,
+
+    pub const ValueMap = std.ArrayHashMapUnmanaged(Value, void, Value.hash_u32, Value.eql, false);
+
+    pub fn srcLoc(self: EnumFull) SrcLoc {
+        return .{
+            .container = .{ .decl = self.owner_decl },
+            .lazy = .{ .node_offset = self.node_offset },
         };
     }
 };
@@ -634,6 +699,11 @@ pub const Scope = struct {
             // TODO container scope qualified names.
             return std.zig.hashSrc(name);
         }
+
+        pub fn renderFullyQualifiedName(cont: Container, name: []const u8, writer: anytype) !void {
+            // TODO this should render e.g. "std.fs.Dir.OpenOptions"
+            return writer.writeAll(name);
+        }
     };
 
     pub const File = struct {
@@ -662,10 +732,12 @@ pub const Scope = struct {
 
         pub fn unload(file: *File, gpa: *Allocator) void {
             switch (file.status) {
-                .never_loaded,
                 .unloaded_parse_failure,
+                .never_loaded,
                 .unloaded_success,
-                => {},
+                => {
+                    file.status = .unloaded_success;
+                },
 
                 .loaded_success => {
                     file.tree.deinit(gpa);
@@ -1030,7 +1102,6 @@ pub const Scope = struct {
                 .instructions = gz.astgen.instructions.toOwnedSlice(),
                 .string_bytes = gz.astgen.string_bytes.toOwnedSlice(gpa),
                 .extra = gz.astgen.extra.toOwnedSlice(gpa),
-                .decls = gz.astgen.decls.toOwnedSlice(gpa),
             };
         }
 
@@ -1242,6 +1313,16 @@ pub const Scope = struct {
             });
         }
 
+        pub fn addFloat(gz: *GenZir, number: f32, src_node: ast.Node.Index) !zir.Inst.Ref {
+            return gz.add(.{
+                .tag = .float,
+                .data = .{ .float = .{
+                    .src_node = gz.astgen.decl.nodeIndexToRelative(src_node),
+                    .number = number,
+                } },
+            });
+        }
+
         pub fn addUnNode(
             gz: *GenZir,
             tag: zir.Inst.Tag,
@@ -1448,13 +1529,6 @@ pub const Scope = struct {
             });
             gz.instructions.appendAssumeCapacity(new_index);
             return new_index;
-        }
-
-        pub fn addConst(gz: *GenZir, typed_value: *TypedValue) !zir.Inst.Ref {
-            return gz.add(.{
-                .tag = .@"const",
-                .data = .{ .@"const" = typed_value },
-            });
         }
 
         pub fn add(gz: *GenZir, inst: zir.Inst) !zir.Inst.Ref {
@@ -2321,7 +2395,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
                     // We don't perform a deletion here, because this Decl or another one
                     // may end up referencing it before the update is complete.
                     dep.deletion_flag = true;
-                    try mod.deletion_set.append(mod.gpa, dep);
+                    try mod.deletion_set.put(mod.gpa, dep, {});
                 }
             }
             decl.dependencies.clearRetainingCapacity();
@@ -3120,12 +3194,19 @@ fn astgenAndSemaVarDecl(
     return type_changed;
 }
 
-pub fn declareDeclDependency(mod: *Module, depender: *Decl, dependee: *Decl) !void {
-    try depender.dependencies.ensureCapacity(mod.gpa, depender.dependencies.items().len + 1);
-    try dependee.dependants.ensureCapacity(mod.gpa, dependee.dependants.items().len + 1);
+/// Returns the depender's index of the dependee.
+pub fn declareDeclDependency(mod: *Module, depender: *Decl, dependee: *Decl) !u32 {
+    try depender.dependencies.ensureCapacity(mod.gpa, depender.dependencies.count() + 1);
+    try dependee.dependants.ensureCapacity(mod.gpa, dependee.dependants.count() + 1);
 
-    depender.dependencies.putAssumeCapacity(dependee, {});
+    if (dependee.deletion_flag) {
+        dependee.deletion_flag = false;
+        mod.deletion_set.removeAssertDiscard(dependee);
+    }
+
     dependee.dependants.putAssumeCapacity(depender, {});
+    const gop = depender.dependencies.getOrPutAssumeCapacity(dependee);
+    return @intCast(u32, gop.index);
 }
 
 pub fn getAstTree(mod: *Module, root_scope: *Scope.File) !*const ast.Tree {
@@ -3150,17 +3231,19 @@ pub fn getAstTree(mod: *Module, root_scope: *Scope.File) !*const ast.Tree {
                 var msg = std.ArrayList(u8).init(mod.gpa);
                 defer msg.deinit();
 
+                const token_starts = tree.tokens.items(.start);
+
                 try tree.renderError(parse_err, msg.writer());
                 const err_msg = try mod.gpa.create(ErrorMsg);
                 err_msg.* = .{
                     .src_loc = .{
                         .container = .{ .file_scope = root_scope },
-                        .lazy = .{ .token_abs = parse_err.token },
+                        .lazy = .{ .byte_abs = token_starts[parse_err.token] },
                     },
                     .msg = msg.toOwnedSlice(),
                 };
 
-                mod.failed_files.putAssumeCapacityNoClobber(&root_scope.base, err_msg);
+                mod.failed_files.putAssumeCapacityNoClobber(root_scope, err_msg);
                 root_scope.status = .unloaded_parse_failure;
                 return error.AnalysisFail;
             }
@@ -3200,6 +3283,14 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         deleted_decls.putAssumeCapacityNoClobber(entry.key, {});
     }
 
+    // Keep track of decls that are invalidated from the update. Ultimately,
+    // the goal is to queue up `analyze_decl` tasks in the work queue for
+    // the outdated decls, but we cannot queue up the tasks until after
+    // we find out which ones have been deleted, otherwise there would be
+    // deleted Decl pointers in the work queue.
+    var outdated_decls = std.AutoArrayHashMap(*Decl, void).init(mod.gpa);
+    defer outdated_decls.deinit();
+
     for (decls) |decl_node, decl_i| switch (node_tags[decl_node]) {
         .fn_decl => {
             const fn_proto = node_datas[decl_node].lhs;
@@ -3210,6 +3301,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                     try mod.semaContainerFn(
                         container_scope,
                         &deleted_decls,
+                        &outdated_decls,
                         decl_node,
                         decl_i,
                         tree.*,
@@ -3220,6 +3312,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                 .fn_proto_multi => try mod.semaContainerFn(
                     container_scope,
                     &deleted_decls,
+                    &outdated_decls,
                     decl_node,
                     decl_i,
                     tree.*,
@@ -3231,6 +3324,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                     try mod.semaContainerFn(
                         container_scope,
                         &deleted_decls,
+                        &outdated_decls,
                         decl_node,
                         decl_i,
                         tree.*,
@@ -3241,6 +3335,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                 .fn_proto => try mod.semaContainerFn(
                     container_scope,
                     &deleted_decls,
+                    &outdated_decls,
                     decl_node,
                     decl_i,
                     tree.*,
@@ -3255,6 +3350,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             try mod.semaContainerFn(
                 container_scope,
                 &deleted_decls,
+                &outdated_decls,
                 decl_node,
                 decl_i,
                 tree.*,
@@ -3265,6 +3361,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .fn_proto_multi => try mod.semaContainerFn(
             container_scope,
             &deleted_decls,
+            &outdated_decls,
             decl_node,
             decl_i,
             tree.*,
@@ -3276,6 +3373,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             try mod.semaContainerFn(
                 container_scope,
                 &deleted_decls,
+                &outdated_decls,
                 decl_node,
                 decl_i,
                 tree.*,
@@ -3286,6 +3384,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .fn_proto => try mod.semaContainerFn(
             container_scope,
             &deleted_decls,
+            &outdated_decls,
             decl_node,
             decl_i,
             tree.*,
@@ -3296,6 +3395,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .global_var_decl => try mod.semaContainerVar(
             container_scope,
             &deleted_decls,
+            &outdated_decls,
             decl_node,
             decl_i,
             tree.*,
@@ -3304,6 +3404,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .local_var_decl => try mod.semaContainerVar(
             container_scope,
             &deleted_decls,
+            &outdated_decls,
             decl_node,
             decl_i,
             tree.*,
@@ -3312,6 +3413,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .simple_var_decl => try mod.semaContainerVar(
             container_scope,
             &deleted_decls,
+            &outdated_decls,
             decl_node,
             decl_i,
             tree.*,
@@ -3320,6 +3422,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .aligned_var_decl => try mod.semaContainerVar(
             container_scope,
             &deleted_decls,
+            &outdated_decls,
             decl_node,
             decl_i,
             tree.*,
@@ -3372,11 +3475,27 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         },
         else => unreachable,
     };
-    // Handle explicitly deleted decls from the source code. Not to be confused
-    // with when we delete decls because they are no longer referenced.
+    // Handle explicitly deleted decls from the source code. This is one of two
+    // places that Decl deletions happen. The other is in `Compilation`, after
+    // `performAllTheWork`, where we iterate over `Module.deletion_set` and
+    // delete Decls which are no longer referenced.
+    // If a Decl is explicitly deleted from source, and also no longer referenced,
+    // it may be both in this `deleted_decls` set, as well as in the
+    // `Module.deletion_set`. To avoid deleting it twice, we remove it from the
+    // deletion set at this time.
     for (deleted_decls.items()) |entry| {
-        log.debug("noticed '{s}' deleted from source", .{entry.key.name});
-        try mod.deleteDecl(entry.key);
+        const decl = entry.key;
+        log.debug("'{s}' deleted from source", .{decl.name});
+        if (decl.deletion_flag) {
+            log.debug("'{s}' redundantly in deletion set; removing", .{decl.name});
+            mod.deletion_set.removeAssertDiscard(decl);
+        }
+        try mod.deleteDecl(decl, &outdated_decls);
+    }
+    // Finally we can queue up re-analysis tasks after we have processed
+    // the deleted decls.
+    for (outdated_decls.items()) |entry| {
+        try mod.markOutdatedDecl(entry.key);
     }
 }
 
@@ -3384,6 +3503,7 @@ fn semaContainerFn(
     mod: *Module,
     container_scope: *Scope.Container,
     deleted_decls: *std.AutoArrayHashMap(*Decl, void),
+    outdated_decls: *std.AutoArrayHashMap(*Decl, void),
     decl_node: ast.Node.Index,
     decl_i: usize,
     tree: ast.Tree,
@@ -3415,7 +3535,7 @@ fn semaContainerFn(
             try mod.failed_decls.putNoClobber(mod.gpa, decl, msg);
         } else {
             if (!srcHashEql(decl.contents_hash, contents_hash)) {
-                try mod.markOutdatedDecl(decl);
+                try outdated_decls.put(decl, {});
                 decl.contents_hash = contents_hash;
             } else switch (mod.comp.bin_file.tag) {
                 .coff => {
@@ -3450,6 +3570,7 @@ fn semaContainerVar(
     mod: *Module,
     container_scope: *Scope.Container,
     deleted_decls: *std.AutoArrayHashMap(*Decl, void),
+    outdated_decls: *std.AutoArrayHashMap(*Decl, void),
     decl_node: ast.Node.Index,
     decl_i: usize,
     tree: ast.Tree,
@@ -3475,7 +3596,7 @@ fn semaContainerVar(
             errdefer err_msg.destroy(mod.gpa);
             try mod.failed_decls.putNoClobber(mod.gpa, decl, err_msg);
         } else if (!srcHashEql(decl.contents_hash, contents_hash)) {
-            try mod.markOutdatedDecl(decl);
+            try outdated_decls.put(decl, {});
             decl.contents_hash = contents_hash;
         }
     } else {
@@ -3505,17 +3626,27 @@ fn semaContainerField(
     log.err("TODO: analyze container field", .{});
 }
 
-pub fn deleteDecl(mod: *Module, decl: *Decl) !void {
+pub fn deleteDecl(
+    mod: *Module,
+    decl: *Decl,
+    outdated_decls: ?*std.AutoArrayHashMap(*Decl, void),
+) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    try mod.deletion_set.ensureCapacity(mod.gpa, mod.deletion_set.items.len + decl.dependencies.items().len);
+    log.debug("deleting decl '{s}'", .{decl.name});
+
+    if (outdated_decls) |map| {
+        _ = map.swapRemove(decl);
+        try map.ensureCapacity(map.count() + decl.dependants.count());
+    }
+    try mod.deletion_set.ensureCapacity(mod.gpa, mod.deletion_set.count() +
+        decl.dependencies.count());
 
     // Remove from the namespace it resides in. In the case of an anonymous Decl it will
     // not be present in the set, and this does nothing.
     decl.container.removeDecl(decl);
 
-    log.debug("deleting decl '{s}'", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
     mod.decl_table.removeAssertDiscard(name_hash);
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
@@ -3526,16 +3657,22 @@ pub fn deleteDecl(mod: *Module, decl: *Decl) !void {
             // We don't recursively perform a deletion here, because during the update,
             // another reference to it may turn up.
             dep.deletion_flag = true;
-            mod.deletion_set.appendAssumeCapacity(dep);
+            mod.deletion_set.putAssumeCapacity(dep, {});
         }
     }
-    // Anything that depends on this deleted decl certainly needs to be re-analyzed.
+    // Anything that depends on this deleted decl needs to be re-analyzed.
     for (decl.dependants.items()) |entry| {
         const dep = entry.key;
         dep.removeDependency(decl);
-        if (dep.analysis != .outdated) {
-            // TODO Move this failure possibility to the top of the function.
-            try mod.markOutdatedDecl(dep);
+        if (outdated_decls) |map| {
+            map.putAssumeCapacity(dep, {});
+        } else if (std.debug.runtime_safety) {
+            // If `outdated_decls` is `null`, it means we're being called from
+            // `Compilation` after `performAllTheWork` and we cannot queue up any
+            // more work. `dep` must necessarily be another Decl that is no longer
+            // being referenced, and will be in the `deletion_set`. Otherwise,
+            // something has gone wrong.
+            assert(mod.deletion_set.contains(dep));
         }
     }
     if (mod.failed_decls.swapRemove(decl)) |entry| {
@@ -4455,7 +4592,29 @@ pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex)
     var buf: ArrayListUnmanaged(u8) = .{};
     defer buf.deinit(mod.gpa);
     try parseStrLit(mod, scope, token, &buf, ident_name, 1);
-    return buf.toOwnedSlice(mod.gpa);
+    const duped = try scope.arena().dupe(u8, buf.items);
+    return duped;
+}
+
+/// `scope` is only used for error reporting.
+/// The string is stored in `arena` regardless of whether it uses @"" syntax.
+pub fn identifierTokenStringTreeArena(
+    mod: *Module,
+    scope: *Scope,
+    token: ast.TokenIndex,
+    tree: *const ast.Tree,
+    arena: *Allocator,
+) InnerError![]u8 {
+    const token_tags = tree.tokens.items(.tag);
+    assert(token_tags[token] == .identifier);
+    const ident_name = tree.tokenSlice(token);
+    if (!mem.startsWith(u8, ident_name, "@")) {
+        return arena.dupe(u8, ident_name);
+    }
+    var buf: ArrayListUnmanaged(u8) = .{};
+    defer buf.deinit(mod.gpa);
+    try parseStrLit(mod, scope, token, &buf, ident_name, 1);
+    return arena.dupe(u8, buf.items);
 }
 
 /// Given an identifier token, obtain the string for it (possibly parsing as a string
@@ -4544,4 +4703,11 @@ pub fn parseStrLit(
             );
         },
     }
+}
+
+pub fn unloadFile(mod: *Module, file_scope: *Scope.File) void {
+    if (file_scope.status == .unloaded_parse_failure) {
+        mod.failed_files.swapRemove(file_scope).?.value.destroy(mod.gpa);
+    }
+    file_scope.unload(mod.gpa);
 }

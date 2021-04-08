@@ -1346,9 +1346,9 @@ pub fn update(self: *Compilation) !void {
             module.generation += 1;
 
             // TODO Detect which source files changed.
-            // Until then we simulate a full cache miss. Source files could have been loaded for any reason;
-            // to force a refresh we unload now.
-            module.root_scope.unload(module.gpa);
+            // Until then we simulate a full cache miss. Source files could have been loaded
+            // for any reason; to force a refresh we unload now.
+            module.unloadFile(module.root_scope);
             module.failed_root_src_file = null;
             module.analyzeContainer(&module.root_scope.root_container) catch |err| switch (err) {
                 error.AnalysisFail => {
@@ -1362,7 +1362,7 @@ pub fn update(self: *Compilation) !void {
 
             // TODO only analyze imports if they are still referenced
             for (module.import_table.items()) |entry| {
-                entry.value.unload(module.gpa);
+                module.unloadFile(entry.value);
                 module.analyzeContainer(&entry.value.root_container) catch |err| switch (err) {
                     error.AnalysisFail => {
                         assert(self.totalErrorCount() != 0);
@@ -1377,14 +1377,17 @@ pub fn update(self: *Compilation) !void {
 
     if (!use_stage1) {
         if (self.bin_file.options.module) |module| {
-            // Process the deletion set.
-            while (module.deletion_set.popOrNull()) |decl| {
-                if (decl.dependants.items().len != 0) {
-                    decl.deletion_flag = false;
-                    continue;
-                }
-                try module.deleteDecl(decl);
+            // Process the deletion set. We use a while loop here because the
+            // deletion set may grow as we call `deleteDecl` within this loop,
+            // and more unreferenced Decls are revealed.
+            var entry_i: usize = 0;
+            while (entry_i < module.deletion_set.entries.items.len) : (entry_i += 1) {
+                const decl = module.deletion_set.entries.items[entry_i].key;
+                assert(decl.deletion_flag);
+                assert(decl.dependants.items().len == 0);
+                try module.deleteDecl(decl, null);
             }
+            module.deletion_set.shrinkRetainingCapacity(0);
         }
     }
 
@@ -1429,11 +1432,25 @@ pub fn totalErrorCount(self: *Compilation) usize {
     var total: usize = self.failed_c_objects.items().len;
 
     if (self.bin_file.options.module) |module| {
-        total += module.failed_decls.count() +
-            module.emit_h_failed_decls.count() +
-            module.failed_exports.items().len +
+        total += module.failed_exports.items().len +
             module.failed_files.items().len +
             @boolToInt(module.failed_root_src_file != null);
+        // Skip errors for Decls within files that failed parsing.
+        // When a parse error is introduced, we keep all the semantic analysis for
+        // the previous parse success, including compile errors, but we cannot
+        // emit them until the file succeeds parsing.
+        for (module.failed_decls.items()) |entry| {
+            if (entry.key.container.file_scope.status == .unloaded_parse_failure) {
+                continue;
+            }
+            total += 1;
+        }
+        for (module.emit_h_failed_decls.items()) |entry| {
+            if (entry.key.container.file_scope.status == .unloaded_parse_failure) {
+                continue;
+            }
+            total += 1;
+        }
     }
 
     // The "no entry point found" error only counts if there are no other errors.
@@ -1480,9 +1497,19 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
         for (module.failed_decls.items()) |entry| {
+            if (entry.key.container.file_scope.status == .unloaded_parse_failure) {
+                // Skip errors for Decls within files that had a parse failure.
+                // We'll try again once parsing succeeds.
+                continue;
+            }
             try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
         for (module.emit_h_failed_decls.items()) |entry| {
+            if (entry.key.container.file_scope.status == .unloaded_parse_failure) {
+                // Skip errors for Decls within files that had a parse failure.
+                // We'll try again once parsing succeeds.
+                continue;
+            }
             try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
         for (module.failed_exports.items()) |entry| {
