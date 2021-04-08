@@ -4582,17 +4582,7 @@ pub fn optimizeMode(mod: Module) std.builtin.Mode {
 /// Otherwise, returns a reference to the source code bytes directly.
 /// See also `appendIdentStr` and `parseStrLit`.
 pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
-    return mod.identifierTokenStringTreeArena(scope, token, scope.tree(), scope.arena());
-}
-
-/// `scope` is only used for error reporting.
-pub fn identifierTokenStringTreeArena(
-    mod: *Module,
-    scope: *Scope,
-    token: ast.TokenIndex,
-    tree: *const ast.Tree,
-    arena: *Allocator,
-) InnerError![]const u8 {
+    const tree = scope.tree();
     const token_tags = tree.tokens.items(.tag);
     assert(token_tags[token] == .identifier);
     const ident_name = tree.tokenSlice(token);
@@ -4602,8 +4592,29 @@ pub fn identifierTokenStringTreeArena(
     var buf: ArrayListUnmanaged(u8) = .{};
     defer buf.deinit(mod.gpa);
     try parseStrLit(mod, scope, token, &buf, ident_name, 1);
-    const duped = try arena.dupe(u8, buf.items);
+    const duped = try scope.arena().dupe(u8, buf.items);
     return duped;
+}
+
+/// `scope` is only used for error reporting.
+/// The string is stored in `arena` regardless of whether it uses @"" syntax.
+pub fn identifierTokenStringTreeArena(
+    mod: *Module,
+    scope: *Scope,
+    token: ast.TokenIndex,
+    tree: *const ast.Tree,
+    arena: *Allocator,
+) InnerError![]u8 {
+    const token_tags = tree.tokens.items(.tag);
+    assert(token_tags[token] == .identifier);
+    const ident_name = tree.tokenSlice(token);
+    if (!mem.startsWith(u8, ident_name, "@")) {
+        return arena.dupe(u8, ident_name);
+    }
+    var buf: ArrayListUnmanaged(u8) = .{};
+    defer buf.deinit(mod.gpa);
+    try parseStrLit(mod, scope, token, &buf, ident_name, 1);
+    return arena.dupe(u8, buf.items);
 }
 
 /// Given an identifier token, obtain the string for it (possibly parsing as a string

@@ -702,6 +702,21 @@ pub fn addCases(ctx: *TestContext) !void {
             ":3:15: error: enum 'E' has no tag with value 3",
             ":1:11: note: enum declared here",
         });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .a;
+            \\    switch (x) {
+            \\        .a => {},
+            \\        .c => {},
+            \\    }
+            \\}
+        , &.{
+            ":4:5: error: switch must handle all possibilities",
+            ":4:5: note: unhandled enumeration value: 'b'",
+            ":1:11: note: enum 'E' declared here",
+        });
     }
 
     ctx.c("empty start function", linux_x64,

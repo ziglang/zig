@@ -2789,6 +2789,8 @@ fn analyzeSwitch(
             var seen_fields = try gpa.alloc(?AstGen.SwitchProngSrc, operand.ty.enumFieldCount());
             defer gpa.free(seen_fields);
 
+            mem.set(?AstGen.SwitchProngSrc, seen_fields, null);
+
             var extra_index: usize = special.end;
             {
                 var scalar_i: u32 = 0;
@@ -2849,12 +2851,6 @@ fn analyzeSwitch(
                                 .{},
                             );
                             errdefer msg.destroy(sema.gpa);
-                            try mod.errNoteNonLazy(
-                                operand.ty.declSrcLoc(),
-                                msg,
-                                "enum '{}' declared here",
-                                .{operand.ty},
-                            );
                             for (seen_fields) |seen_src, i| {
                                 if (seen_src != null) continue;
 
@@ -2865,10 +2861,16 @@ fn analyzeSwitch(
                                     &block.base,
                                     src,
                                     msg,
-                                    "unhandled enumeration value: '{s}",
+                                    "unhandled enumeration value: '{s}'",
                                     .{field_name},
                                 );
                             }
+                            try mod.errNoteNonLazy(
+                                operand.ty.declSrcLoc(),
+                                msg,
+                                "enum '{}' declared here",
+                                .{operand.ty},
+                            );
                             break :msg msg;
                         };
                         return mod.failWithOwnedErrorMsg(&block.base, msg);
