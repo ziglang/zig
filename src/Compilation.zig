@@ -322,7 +322,7 @@ pub const AllErrors = struct {
                     }
                 },
                 .plain => |plain| {
-                    stderr.print("{s}: {s}\n", .{ kind, plain.msg });
+                    try stderr.print("{s}: {s}\n", .{ kind, plain.msg });
                 },
             }
         }
