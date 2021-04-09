@@ -2106,8 +2106,12 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
     defer errors.deinit(comp.gpa);
 
     if (errors.list.len != 0) {
+        const ttyconf: std.debug.TTY.Config = switch (comp.color) {
+            .auto, .on => std.debug.detectTTYConfig(),
+            .off => .no_color,
+        };
         for (errors.list) |full_err_msg| {
-            try full_err_msg.renderToStdErr(comp.bin_file.options.module);
+            full_err_msg.renderToStdErr(ttyconf);
         }
         const log_text = comp.getCompileLogOutput();
         if (log_text.len != 0) {

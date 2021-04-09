@@ -31,21 +31,38 @@ pub fn hashSrc(src: []const u8) SrcHash {
     return out;
 }
 
-pub fn findLineColumn(source: []const u8, byte_offset: usize) struct { line: usize, column: usize } {
+pub const Loc = struct {
+    line: usize,
+    column: usize,
+    /// Does not include the trailing newline.
+    source_line: []const u8,
+};
+
+pub fn findLineColumn(source: []const u8, byte_offset: usize) Loc {
     var line: usize = 0;
     var column: usize = 0;
-    for (source[0..byte_offset]) |byte| {
-        switch (byte) {
+    var line_start: usize = 0;
+    var i: usize = 0;
+    while (i < byte_offset) : (i += 1) {
+        switch (source[i]) {
             '\n' => {
                 line += 1;
                 column = 0;
+                line_start = i + 1;
             },
             else => {
                 column += 1;
             },
         }
     }
-    return .{ .line = line, .column = column };
+    while (i < source.len and source[i] != '\n') {
+        i += 1;
+    }
+    return .{
+        .line = line,
+        .column = column,
+        .source_line = source[line_start..i],
+    };
 }
 
 pub fn lineDelta(source: []const u8, start: usize, end: usize) isize {

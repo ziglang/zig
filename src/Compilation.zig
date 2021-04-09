@@ -6,7 +6,6 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.compilation);
 const Target = std.Target;
-const debug = std.debug;
 
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
@@ -267,103 +266,62 @@ pub const AllErrors = struct {
     list: []const Message,
 
     pub const Message = union(enum) {
-        const MessageType = enum {
-            pub fn render(self: @This(), stderr: anytype, ttyconf: std.debug.TTY.Config) !void {
-                switch (self) {
-                    .err => {
-                        ttyconf.setColor(stderr, .Red);
-                        try stderr.writeAll("error:");
-                    },
-                    .note => {
-                        ttyconf.setColor(stderr, .Green);
-                        try stderr.writeAll("note:");
-                    },
-                }
-                ttyconf.setColor(stderr, .Reset);
-            }
-            err,
-            note
-        };
-
         src: struct {
             msg: []const u8,
-            src_path: union(enum) {
-                path: []const u8,
-                scope: *Module.Scope.File,
-            },
+            src_path: []const u8,
             line: u32,
             column: u32,
             byte_offset: u32,
+            /// Does not include the trailing newline.
+            source_line: ?[]const u8,
             notes: []Message = &.{},
         },
         plain: struct {
             msg: []const u8,
         },
 
-        pub fn renderToStdErr(msg: Message, mod: ?*Module) !void {
-            return msg.renderToStdErrInner(.err, mod);
+        pub fn renderToStdErr(msg: Message, ttyconf: std.debug.TTY.Config) void {
+            const stderr_mutex = std.debug.getStderrMutex();
+            const held = std.debug.getStderrMutex().acquire();
+            defer held.release();
+            const stderr = std.io.getStdErr();
+            return msg.renderToStdErrInner(ttyconf, stderr, "error", .Red) catch return;
         }
 
-        fn renderToStdErrInner(msg: Message, kind: MessageType, mod: ?*Module) (std.fs.File.WriteError || @typeInfo(@typeInfo(@TypeOf(Module.Scope.File.getSource)).Fn.return_type.?).ErrorUnion.error_set)!void {
-            const ttyconf = debug.detectTTYConfig();
-            const stderr = std.io.getStdErr().writer();
+        fn renderToStdErrInner(
+            msg: Message,
+            ttyconf: std.debug.TTY.Config,
+            stderr_file: std.fs.File,
+            kind: []const u8,
+            color: std.debug.TTY.Color,
+        ) anyerror!void {
+            const stderr = stderr_file.writer();
             switch (msg) {
                 .src => |src| {
-                    switch (src.src_path) {
-                        .path => |p| {
-                            // TODO read the file and do pretty printing for c objects?
-                            try stderr.print("{s}:{d}:{d}: ", .{
-                                p,
-                                src.line + 1,
-                                src.column + 1,
-                            });
-                            try kind.render(stderr, ttyconf);
-                            try stderr.print(" {s}\n", .{
-                                src.msg,
-                            });
-                        },
-                        .scope => |s| {
-                            const module = mod.?;
-                            try stderr.print("{s}:{d}:{d}: ", .{
-                                s.sub_file_path,
-                                src.line + 1,
-                                src.column + 1,
-                            });
-                            try kind.render(stderr, ttyconf);
-                            try stderr.print(" {s}\n", .{
-                                src.msg,
-                            });
-                            const fsource = try s.getSource(module);
-                            const end_pos = blk: for (fsource[src.byte_offset..]) |c, i| {
-                                if (c == '\n')
-                                    break :blk src.byte_offset + i + 1;
-                                if (c == 0)
-                                    break :blk fsource.len - 1;
-                            } else unreachable;
-                            const start_pos = blk: {
-                                var i = src.byte_offset;
-                                var c: u8 = fsource[i];
-                                while (i > 0) : ({
-                                    i -= 1;
-                                    c = fsource[i];
-                                }) {
-                                    if (c == '\n') break :blk i + 1;
-                                }
-                                break :blk 0;
-                            };
-                            try stderr.writeAll(fsource[start_pos..end_pos]);
-                            try stderr.writeByteNTimes(' ', src.column);
-                            ttyconf.setColor(stderr, .Cyan);
-                            try stderr.writeAll("^\n");
-                            ttyconf.setColor(stderr, .Reset);
-                        },
+                    try stderr.print("{s}:{d}:{d}: ", .{
+                        src.src_path,
+                        src.line + 1,
+                        src.column + 1,
+                    });
+                    ttyconf.setColor(stderr, color);
+                    try stderr.writeAll(kind);
+                    ttyconf.setColor(stderr, .Bold);
+                    try stderr.print(" {s}\n", .{src.msg});
+                    ttyconf.setColor(stderr, .Reset);
+                    if (src.source_line) |line| {
+                        try stderr.writeAll(line);
+                        try stderr.writeByte('\n');
+                        try stderr.writeByteNTimes(' ', src.column);
+                        ttyconf.setColor(stderr, .Green);
+                        try stderr.writeAll("^\n");
+                        ttyconf.setColor(stderr, .Reset);
                     }
                     for (src.notes) |note| {
-                        try note.renderToStdErrInner(.note, mod);
+                        try note.renderToStdErrInner(ttyconf, stderr_file, "note", .Cyan);
                     }
                 },
                 .plain => |plain| {
-                    debug.print("{s}: {s}\n", .{ kind, plain.msg });
+                    std.debug.print("{s}: {s}\n", .{ kind, plain.msg });
                 },
             }
         }
@@ -385,30 +343,31 @@ pub const AllErrors = struct {
             const source = try module_note.src_loc.fileScope().getSource(module);
             const byte_offset = try module_note.src_loc.byteOffset();
             const loc = std.zig.findLineColumn(source, byte_offset);
-            const fscope = module_note.src_loc.fileScope();
+            const sub_file_path = module_note.src_loc.fileScope().sub_file_path;
             note.* = .{
                 .src = .{
-                    // TODO this might be freed, might need to dupe the source
-                    .src_path = .{ .scope = fscope },
+                    .src_path = try arena.allocator.dupe(u8, sub_file_path),
                     .msg = try arena.allocator.dupe(u8, module_note.msg),
                     .byte_offset = byte_offset,
                     .line = @intCast(u32, loc.line),
                     .column = @intCast(u32, loc.column),
+                    .source_line = try arena.allocator.dupe(u8, loc.source_line),
                 },
             };
         }
         const source = try module_err_msg.src_loc.fileScope().getSource(module);
         const byte_offset = try module_err_msg.src_loc.byteOffset();
         const loc = std.zig.findLineColumn(source, byte_offset);
-        const fscope = module_err_msg.src_loc.fileScope();
+        const sub_file_path = module_err_msg.src_loc.fileScope().sub_file_path;
         try errors.append(.{
             .src = .{
-                .src_path = .{ .scope = fscope },
+                .src_path = try arena.allocator.dupe(u8, sub_file_path),
                 .msg = try arena.allocator.dupe(u8, module_err_msg.msg),
                 .byte_offset = byte_offset,
                 .line = @intCast(u32, loc.line),
                 .column = @intCast(u32, loc.column),
                 .notes = notes,
+                .source_line = try arena.allocator.dupe(u8, loc.source_line),
             },
         });
     }
@@ -1549,13 +1508,14 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
         // C error reporting bubbling up.
         try errors.append(.{
             .src = .{
-                .src_path = .{ .path = try arena.allocator.dupe(u8, c_object.src.src_path) },
+                .src_path = try arena.allocator.dupe(u8, c_object.src.src_path),
                 .msg = try std.fmt.allocPrint(&arena.allocator, "unable to build C object: {s}", .{
                     err_msg.msg,
                 }),
                 .byte_offset = 0,
                 .line = err_msg.line,
                 .column = err_msg.column,
+                .source_line = null, // TODO
             },
         });
     }
