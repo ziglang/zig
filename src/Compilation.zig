@@ -939,11 +939,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             // However we currently do not have serialization of such metadata, so for now
             // we set up an empty Module that does the entire compilation fresh.
 
-            // TODO remove CLI support for .zir files and then we can remove this error
-            // handling and assertion.
-            if (mem.endsWith(u8, root_pkg.root_src_path, ".zir")) return error.ZirFilesUnsupported;
-            assert(mem.endsWith(u8, root_pkg.root_src_path, ".zig"));
-
             const root_scope = try gpa.create(Module.Scope.File);
             errdefer gpa.destroy(root_scope);
 
@@ -2487,7 +2482,7 @@ pub fn addCCArgs(
                 try argv.append("-fPIC");
             }
         },
-        .shared_library, .assembly, .ll, .bc, .unknown, .static_library, .object, .zig, .zir => {},
+        .shared_library, .assembly, .ll, .bc, .unknown, .static_library, .object, .zig => {},
     }
     if (out_dep_path) |p| {
         try argv.appendSlice(&[_][]const u8{ "-MD", "-MV", "-MF", p });
@@ -2561,7 +2556,6 @@ pub const FileExt = enum {
     object,
     static_library,
     zig,
-    zir,
     unknown,
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
@@ -2575,7 +2569,6 @@ pub const FileExt = enum {
             .object,
             .static_library,
             .zig,
-            .zir,
             .unknown,
             => false,
         };
@@ -2647,8 +2640,6 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .h;
     } else if (mem.endsWith(u8, filename, ".zig")) {
         return .zig;
-    } else if (mem.endsWith(u8, filename, ".zir")) {
-        return .zir;
     } else if (hasSharedLibraryExt(filename)) {
         return .shared_library;
     } else if (hasStaticLibraryExt(filename)) {
@@ -2669,7 +2660,6 @@ test "classifyFileExt" {
     std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2.3"));
     std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.so.1.2.3~"));
     std.testing.expectEqual(FileExt.zig, classifyFileExt("foo.zig"));
-    std.testing.expectEqual(FileExt.zir, classifyFileExt("foo.zir"));
 }
 
 fn haveFramePointer(comp: *const Compilation) bool {
