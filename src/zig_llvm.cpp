@@ -277,15 +277,8 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         });
     }
 
-    // Passes for either debug or release build
-    if (is_debug) {
-      // NOTE: Always inliner will go away (in debug build)
-      // when the self-hosted compiler becomes mature.
-      pass_builder.registerPipelineStartEPCallback(
-        [](ModulePassManager &module_pm, OptimizationLevel OL) {
-          module_pm.addPass(AlwaysInlinerPass());
-        });
-    } else {
+    // Passes specific for release build
+    if (!is_debug) {
       pass_builder.registerPipelineStartEPCallback(
         [](ModulePassManager &module_pm, OptimizationLevel OL) {
           module_pm.addPass(
@@ -312,10 +305,10 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
       opt_level = OptimizationLevel::O3;
 
     // Initialize the PassManager
-    if (lto) {
+    if (opt_level == OptimizationLevel::O0) {
+      module_pm = pass_builder.buildO0DefaultPipeline(opt_level, lto);
+    } else if (lto) {
       module_pm = pass_builder.buildLTOPreLinkDefaultPipeline(opt_level);
-      module_pm.addPass(CanonicalizeAliasesPass());
-      module_pm.addPass(NameAnonGlobalPass());
     } else {
       module_pm = pass_builder.buildPerModuleDefaultPipeline(opt_level);
     }
