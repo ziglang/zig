@@ -439,7 +439,7 @@ fn printWithVisibleNewlines(source: []const u8) void {
 
 fn printLine(line: []const u8) void {
     if (line.len != 0) switch (line[line.len - 1]) {
-        ' ', '\t' => print("{s}⏎\n", .{line}), // Carriage return symbol,
+        ' ', '\t' => return print("{s}⏎\n", .{line}), // Carriage return symbol,
         else => {},
     };
     print("{s}\n", .{line});
