@@ -3040,12 +3040,9 @@ fn astgenAndSemaVarDecl(
         };
         defer gen_scope.instructions.deinit(mod.gpa);
 
-        const init_result_loc: AstGen.ResultLoc = if (var_decl.ast.type_node != 0)
-            .{
-                .ty = try AstGen.expr(&gen_scope, &gen_scope.base, .{ .ty = .type_type }, var_decl.ast.type_node),
-            }
-        else
-            .none;
+        const init_result_loc: AstGen.ResultLoc = if (var_decl.ast.type_node != 0) .{
+            .ty = try AstGen.expr(&gen_scope, &gen_scope.base, .{ .ty = .type_type }, var_decl.ast.type_node),
+        } else .none;
 
         const init_inst = try AstGen.comptimeExpr(
             &gen_scope,
@@ -3604,6 +3601,7 @@ fn semaContainerVar(
                 mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
             }
         }
+        new_decl.is_pub = var_decl.visib_token != null;
     }
 }
 
