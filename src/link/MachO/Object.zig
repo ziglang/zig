@@ -334,16 +334,16 @@ pub fn parseSymtab(self: *Object) !void {
         const tag: Symbol.Tag = tag: {
             if (Symbol.isLocal(symbol)) {
                 if (Symbol.isStab(symbol))
-                    break :tag .Stab
+                    break :tag .stab
                 else
-                    break :tag .Local;
+                    break :tag .local;
             } else if (Symbol.isGlobal(symbol)) {
                 if (Symbol.isWeakDef(symbol))
-                    break :tag .Weak
+                    break :tag .weak
                 else
-                    break :tag .Strong;
+                    break :tag .strong;
             } else {
-                break :tag .Undef;
+                break :tag .undef;
             }
         };
         self.symtab.appendAssumeCapacity(.{
@@ -388,7 +388,7 @@ pub fn parseDebugInfo(self: *Object) !void {
     };
 
     for (self.symtab.items) |sym, index| {
-        if (sym.tag == .Undef) continue;
+        if (sym.tag == .undef) continue;
 
         const sym_name = self.getString(sym.inner.n_strx);
         const size = blk: for (debug_info.inner.func_list.items) |func| {

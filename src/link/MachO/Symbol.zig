@@ -4,12 +4,12 @@ const std = @import("std");
 const macho = std.macho;
 
 pub const Tag = enum {
-    Stab,
-    Local,
-    Weak,
-    Strong,
-    Import,
-    Undef,
+    stab,
+    local,
+    weak,
+    strong,
+    import,
+    undef,
 };
 
 tag: Tag,
