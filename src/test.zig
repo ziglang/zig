@@ -622,6 +622,7 @@ pub const TestContext = struct {
         var root_pkg: Package = .{
             .root_src_directory = .{ .path = tmp_dir_path, .handle = tmp.dir },
             .root_src_path = tmp_src_path,
+            .namespace_hash = Package.root_namespace_hash,
         };
 
         const bin_name = try std.zig.binNameAlloc(arena, .{
@@ -639,13 +640,10 @@ pub const TestContext = struct {
             .directory = emit_directory,
             .basename = bin_name,
         };
-        const emit_h: ?Compilation.EmitLoc = if (case.emit_h)
-            .{
-                .directory = emit_directory,
-                .basename = "test_case.h",
-            }
-        else
-            null;
+        const emit_h: ?Compilation.EmitLoc = if (case.emit_h) .{
+            .directory = emit_directory,
+            .basename = "test_case.h",
+        } else null;
         const comp = try Compilation.create(allocator, .{
             .local_cache_directory = zig_cache_directory,
             .global_cache_directory = global_cache_directory,

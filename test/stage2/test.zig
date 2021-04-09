@@ -1040,9 +1040,22 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     ctx.compileError("function redefinition", linux_x64,
+        \\// dummy comment
         \\fn entry() void {}
         \\fn entry() void {}
-    , &[_][]const u8{":2:4: error: redefinition of 'entry'"});
+    , &[_][]const u8{
+        ":3:4: error: redefinition of 'entry'",
+        ":2:1: note: previous definition here",
+    });
+
+    ctx.compileError("global variable redefinition", linux_x64,
+        \\// dummy comment
+        \\var foo = false;
+        \\var foo = true;
+    , &[_][]const u8{
+        ":3:5: error: redefinition of 'foo'",
+        ":2:1: note: previous definition here",
+    });
 
     ctx.compileError("compileError", linux_x64,
         \\export fn _start() noreturn {

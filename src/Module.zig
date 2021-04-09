@@ -150,9 +150,15 @@ pub const Decl = struct {
     /// The direct parent container of the Decl.
     /// Reference to externally owned memory.
     container: *Scope.Container,
-    /// The AST Node decl index or ZIR Inst index that contains this declaration.
+
+    /// An integer that can be checked against the corresponding incrementing
+    /// generation field of Module. This is used to determine whether `complete` status
+    /// represents pre- or post- re-analysis.
+    generation: u32,
+    /// The AST Node index or ZIR Inst index that contains this declaration.
     /// Must be recomputed when the corresponding source file is modified.
-    src_index: usize,
+    src_node: ast.Node.Index,
+
     /// The most recent value of the Decl after a successful semantic analysis.
     typed_value: union(enum) {
         never_succeeded: void,
@@ -197,11 +203,6 @@ pub const Decl = struct {
     deletion_flag: bool,
     /// Whether the corresponding AST decl has a `pub` keyword.
     is_pub: bool,
-
-    /// An integer that can be checked against the corresponding incrementing
-    /// generation field of Module. This is used to determine whether `complete` status
-    /// represents pre- or post- re-analysis.
-    generation: u32,
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
@@ -249,11 +250,11 @@ pub const Decl = struct {
     }
 
     pub fn relativeToNodeIndex(decl: Decl, offset: i32) ast.Node.Index {
-        return @bitCast(ast.Node.Index, offset + @bitCast(i32, decl.srcNode()));
+        return @bitCast(ast.Node.Index, offset + @bitCast(i32, decl.src_node));
     }
 
     pub fn nodeIndexToRelative(decl: Decl, node_index: ast.Node.Index) i32 {
-        return @bitCast(i32, node_index) - @bitCast(i32, decl.srcNode());
+        return @bitCast(i32, node_index) - @bitCast(i32, decl.src_node);
     }
 
     pub fn tokSrcLoc(decl: Decl, token_index: ast.TokenIndex) LazySrcLoc {
@@ -271,14 +272,9 @@ pub const Decl = struct {
         };
     }
 
-    pub fn srcNode(decl: Decl) u32 {
-        const tree = &decl.container.file_scope.tree;
-        return tree.rootDecls()[decl.src_index];
-    }
-
     pub fn srcToken(decl: Decl) u32 {
         const tree = &decl.container.file_scope.tree;
-        return tree.firstToken(decl.srcNode());
+        return tree.firstToken(decl.src_node);
     }
 
     pub fn srcByteOffset(decl: Decl) u32 {
@@ -2458,7 +2454,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
     const tree = try mod.getAstTree(decl.container.file_scope);
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
-    const decl_node = tree.rootDecls()[decl.src_index];
+    const decl_node = decl.src_node;
     switch (node_tags[decl_node]) {
         .fn_decl => {
             const fn_proto = node_datas[decl_node].lhs;
@@ -3292,7 +3288,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
     var outdated_decls = std.AutoArrayHashMap(*Decl, void).init(mod.gpa);
     defer outdated_decls.deinit();
 
-    for (decls) |decl_node, decl_i| switch (node_tags[decl_node]) {
+    for (decls) |decl_node| switch (node_tags[decl_node]) {
         .fn_decl => {
             const fn_proto = node_datas[decl_node].lhs;
             const body = node_datas[decl_node].rhs;
@@ -3304,7 +3300,6 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                         &deleted_decls,
                         &outdated_decls,
                         decl_node,
-                        decl_i,
                         tree.*,
                         body,
                         tree.fnProtoSimple(&params, fn_proto),
@@ -3315,7 +3310,6 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                     &deleted_decls,
                     &outdated_decls,
                     decl_node,
-                    decl_i,
                     tree.*,
                     body,
                     tree.fnProtoMulti(fn_proto),
@@ -3327,7 +3321,6 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                         &deleted_decls,
                         &outdated_decls,
                         decl_node,
-                        decl_i,
                         tree.*,
                         body,
                         tree.fnProtoOne(&params, fn_proto),
@@ -3338,7 +3331,6 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                     &deleted_decls,
                     &outdated_decls,
                     decl_node,
-                    decl_i,
                     tree.*,
                     body,
                     tree.fnProto(fn_proto),
@@ -3353,7 +3345,6 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                 &deleted_decls,
                 &outdated_decls,
                 decl_node,
-                decl_i,
                 tree.*,
                 0,
                 tree.fnProtoSimple(&params, decl_node),
@@ -3364,7 +3355,6 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             &deleted_decls,
             &outdated_decls,
             decl_node,
-            decl_i,
             tree.*,
             0,
             tree.fnProtoMulti(decl_node),
@@ -3376,7 +3366,6 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                 &deleted_decls,
                 &outdated_decls,
                 decl_node,
-                decl_i,
                 tree.*,
                 0,
                 tree.fnProtoOne(&params, decl_node),
@@ -3387,7 +3376,6 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             &deleted_decls,
             &outdated_decls,
             decl_node,
-            decl_i,
             tree.*,
             0,
             tree.fnProto(decl_node),
@@ -3398,7 +3386,6 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             &deleted_decls,
             &outdated_decls,
             decl_node,
-            decl_i,
             tree.*,
             tree.globalVarDecl(decl_node),
         ),
@@ -3407,7 +3394,6 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             &deleted_decls,
             &outdated_decls,
             decl_node,
-            decl_i,
             tree.*,
             tree.localVarDecl(decl_node),
         ),
@@ -3416,7 +3402,6 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             &deleted_decls,
             &outdated_decls,
             decl_node,
-            decl_i,
             tree.*,
             tree.simpleVarDecl(decl_node),
         ),
@@ -3425,7 +3410,6 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             &deleted_decls,
             &outdated_decls,
             decl_node,
-            decl_i,
             tree.*,
             tree.alignedVarDecl(decl_node),
         ),
@@ -3438,35 +3422,16 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             const name_hash = container_scope.fullyQualifiedNameHash(name);
             const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
 
-            const new_decl = try mod.createNewDecl(&container_scope.base, name, decl_i, name_hash, contents_hash);
+            const new_decl = try mod.createNewDecl(&container_scope.base, name, decl_node, name_hash, contents_hash);
             container_scope.decls.putAssumeCapacity(new_decl, {});
             mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
         },
 
-        .container_field_init => try mod.semaContainerField(
-            container_scope,
-            &deleted_decls,
-            decl_node,
-            decl_i,
-            tree.*,
-            tree.containerFieldInit(decl_node),
-        ),
-        .container_field_align => try mod.semaContainerField(
-            container_scope,
-            &deleted_decls,
-            decl_node,
-            decl_i,
-            tree.*,
-            tree.containerFieldAlign(decl_node),
-        ),
-        .container_field => try mod.semaContainerField(
-            container_scope,
-            &deleted_decls,
-            decl_node,
-            decl_i,
-            tree.*,
-            tree.containerField(decl_node),
-        ),
+        // Container fields are handled in AstGen.
+        .container_field_init,
+        .container_field_align,
+        .container_field,
+        => continue,
 
         .test_decl => {
             if (mod.comp.bin_file.options.is_test) {
@@ -3508,7 +3473,6 @@ fn semaContainerFn(
     deleted_decls: *std.AutoArrayHashMap(*Decl, void),
     outdated_decls: *std.AutoArrayHashMap(*Decl, void),
     decl_node: ast.Node.Index,
-    decl_i: usize,
     tree: ast.Tree,
     body_node: ast.Node.Index,
     fn_proto: ast.full.FnProto,
@@ -3517,25 +3481,30 @@ fn semaContainerFn(
     defer tracy.end();
 
     // We will create a Decl for it regardless of analysis status.
-    const name_tok = fn_proto.name_token orelse {
+    const name_token = fn_proto.name_token orelse {
         // This problem will go away with #1717.
         @panic("TODO missing function name");
     };
-    const name = tree.tokenSlice(name_tok); // TODO use identifierTokenString
+    const name = tree.tokenSlice(name_token); // TODO use identifierTokenString
     const name_hash = container_scope.fullyQualifiedNameHash(name);
     const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
     if (mod.decl_table.get(name_hash)) |decl| {
         // Update the AST Node index of the decl, even if its contents are unchanged, it may
         // have been re-ordered.
-        decl.src_index = decl_i;
+        const prev_src_node = decl.src_node;
+        decl.src_node = decl_node;
         if (deleted_decls.swapRemove(decl) == null) {
             decl.analysis = .sema_failure;
             const msg = try ErrorMsg.create(mod.gpa, .{
                 .container = .{ .file_scope = container_scope.file_scope },
-                .lazy = .{ .token_abs = name_tok },
+                .lazy = .{ .token_abs = name_token },
             }, "redefinition of '{s}'", .{decl.name});
             errdefer msg.destroy(mod.gpa);
-            try mod.errNoteNonLazy(decl.srcLoc(), msg, "previous definition here", .{});
+            const other_src_loc: SrcLoc = .{
+                .container = .{ .file_scope = decl.container.file_scope },
+                .lazy = .{ .node_abs = prev_src_node },
+            };
+            try mod.errNoteNonLazy(other_src_loc, msg, "previous definition here", .{});
             try mod.failed_decls.putNoClobber(mod.gpa, decl, msg);
         } else {
             if (!srcHashEql(decl.contents_hash, contents_hash)) {
@@ -3559,7 +3528,7 @@ fn semaContainerFn(
             }
         }
     } else {
-        const new_decl = try mod.createNewDecl(&container_scope.base, name, decl_i, name_hash, contents_hash);
+        const new_decl = try mod.createNewDecl(&container_scope.base, name, decl_node, name_hash, contents_hash);
         container_scope.decls.putAssumeCapacity(new_decl, {});
         if (fn_proto.extern_export_token) |maybe_export_token| {
             const token_tags = tree.tokens.items(.tag);
@@ -3576,7 +3545,6 @@ fn semaContainerVar(
     deleted_decls: *std.AutoArrayHashMap(*Decl, void),
     outdated_decls: *std.AutoArrayHashMap(*Decl, void),
     decl_node: ast.Node.Index,
-    decl_i: usize,
     tree: ast.Tree,
     var_decl: ast.full.VarDecl,
 ) !void {
@@ -3590,7 +3558,8 @@ fn semaContainerVar(
     if (mod.decl_table.get(name_hash)) |decl| {
         // Update the AST Node index of the decl, even if its contents are unchanged, it may
         // have been re-ordered.
-        decl.src_index = decl_i;
+        const prev_src_node = decl.src_node;
+        decl.src_node = decl_node;
         if (deleted_decls.swapRemove(decl) == null) {
             decl.analysis = .sema_failure;
             const msg = try ErrorMsg.create(mod.gpa, .{
@@ -3598,14 +3567,18 @@ fn semaContainerVar(
                 .lazy = .{ .token_abs = name_token },
             }, "redefinition of '{s}'", .{decl.name});
             errdefer msg.destroy(mod.gpa);
-            try mod.errNoteNonLazy(decl.srcLoc(), msg, "previous definition here", .{});
+            const other_src_loc: SrcLoc = .{
+                .container = .{ .file_scope = decl.container.file_scope },
+                .lazy = .{ .node_abs = prev_src_node },
+            };
+            try mod.errNoteNonLazy(other_src_loc, msg, "previous definition here", .{});
             try mod.failed_decls.putNoClobber(mod.gpa, decl, msg);
         } else if (!srcHashEql(decl.contents_hash, contents_hash)) {
             try outdated_decls.put(decl, {});
             decl.contents_hash = contents_hash;
         }
     } else {
-        const new_decl = try mod.createNewDecl(&container_scope.base, name, decl_i, name_hash, contents_hash);
+        const new_decl = try mod.createNewDecl(&container_scope.base, name, decl_node, name_hash, contents_hash);
         container_scope.decls.putAssumeCapacity(new_decl, {});
         if (var_decl.extern_export_token) |maybe_export_token| {
             const token_tags = tree.tokens.items(.tag);
@@ -3614,21 +3587,6 @@ fn semaContainerVar(
             }
         }
     }
-}
-
-fn semaContainerField(
-    mod: *Module,
-    container_scope: *Scope.Container,
-    deleted_decls: *std.AutoArrayHashMap(*Decl, void),
-    decl_node: ast.Node.Index,
-    decl_i: usize,
-    tree: ast.Tree,
-    field: ast.full.ContainerField,
-) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    log.err("TODO: analyze container field", .{});
 }
 
 pub fn deleteDecl(
@@ -3813,7 +3771,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
 fn allocateNewDecl(
     mod: *Module,
     scope: *Scope,
-    src_index: usize,
+    src_node: ast.Node.Index,
     contents_hash: std.zig.SrcHash,
 ) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
@@ -3829,7 +3787,7 @@ fn allocateNewDecl(
     new_decl.* = .{
         .name = "",
         .container = scope.namespace(),
-        .src_index = src_index,
+        .src_node = src_node,
         .typed_value = .{ .never_succeeded = {} },
         .analysis = .unreferenced,
         .deletion_flag = false,
@@ -3860,12 +3818,12 @@ fn createNewDecl(
     mod: *Module,
     scope: *Scope,
     decl_name: []const u8,
-    src_index: usize,
+    src_node: ast.Node.Index,
     name_hash: Scope.NameHash,
     contents_hash: std.zig.SrcHash,
 ) !*Decl {
     try mod.decl_table.ensureCapacity(mod.gpa, mod.decl_table.items().len + 1);
-    const new_decl = try mod.allocateNewDecl(scope, src_index, contents_hash);
+    const new_decl = try mod.allocateNewDecl(scope, src_node, contents_hash);
     errdefer mod.gpa.destroy(new_decl);
     new_decl.name = try mem.dupeZ(mod.gpa, u8, decl_name);
     mod.decl_table.putAssumeCapacityNoClobber(name_hash, new_decl);
@@ -4078,7 +4036,7 @@ pub fn createAnonymousDecl(
     defer mod.gpa.free(name);
     const name_hash = scope.namespace().fullyQualifiedNameHash(name);
     const src_hash: std.zig.SrcHash = undefined;
-    const new_decl = try mod.createNewDecl(scope, name, scope_decl.src_index, name_hash, src_hash);
+    const new_decl = try mod.createNewDecl(scope, name, scope_decl.src_node, name_hash, src_hash);
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
     decl_arena_state.* = decl_arena.state;
@@ -4114,7 +4072,7 @@ pub fn createContainerDecl(
     defer mod.gpa.free(name);
     const name_hash = scope.namespace().fullyQualifiedNameHash(name);
     const src_hash: std.zig.SrcHash = undefined;
-    const new_decl = try mod.createNewDecl(scope, name, scope_decl.src_index, name_hash, src_hash);
+    const new_decl = try mod.createNewDecl(scope, name, scope_decl.src_node, name_hash, src_hash);
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
     decl_arena_state.* = decl_arena.state;
