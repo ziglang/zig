@@ -1079,6 +1079,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (inst.base.isUnused())
                 return MCValue.dead;
             switch (arch) {
+                .x86_64 => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs),
                 .arm, .armeb => return try self.genArmMul(&inst.base, inst.lhs, inst.rhs),
                 else => return self.fail(inst.base.src, "TODO implement mul for {}", .{self.target.cpu.arch}),
             }
@@ -1574,6 +1575,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .sub, .subwrap => try self.genX8664BinMathCode(inst.src, inst.ty, dst_mcv, src_mcv, 5, 0x28),
                 .xor, .not => try self.genX8664BinMathCode(inst.src, inst.ty, dst_mcv, src_mcv, 6, 0x30),
 
+                .mul, .mulwrap => try self.genX8664Imul(inst.src, inst.ty, dst_mcv, src_mcv),
                 else => unreachable,
             }
 
@@ -1791,6 +1793,153 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .embedded_in_code, .memory => {
                     return self.fail(src, "TODO implement x86 ADD/SUB/CMP destination memory", .{});
+                },
+            }
+        }
+
+        /// Performs integer multiplication between dst_mcv and src_mcv, storing the result in dst_mcv.
+        fn genX8664Imul(
+            self: *Self,
+            src: LazySrcLoc,
+            dst_ty: Type,
+            dst_mcv: MCValue,
+            src_mcv: MCValue,
+        ) !void {
+            switch (dst_mcv) {
+                .none => unreachable,
+                .undef => unreachable,
+                .dead, .unreach, .immediate => unreachable,
+                .compare_flags_unsigned => unreachable,
+                .compare_flags_signed => unreachable,
+                .ptr_stack_offset => unreachable,
+                .ptr_embedded_in_code => unreachable,
+                .register => |dst_reg| {
+                    switch (src_mcv) {
+                        .none => unreachable,
+                        .undef => try self.genSetReg(src, dst_ty, dst_reg, .undef),
+                        .dead, .unreach => unreachable,
+                        .ptr_stack_offset => unreachable,
+                        .ptr_embedded_in_code => unreachable,
+                        .register => |src_reg| {
+                            // register, register
+                            //
+                            // Use the following imul opcode
+                            // 0F AF /r: IMUL r32/64, r/m32/64
+                            try self.encodeX8664Instruction(src, Instruction{
+                                .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
+                                .primary_opcode_2b = 0xaf,
+                                // TODO: Explicit optional wrap due to stage 1 miscompilation :(
+                                //       https://github.com/ziglang/zig/issues/6515
+                                .modrm = @as(
+                                    ?Instruction.ModrmEffectiveAddress,
+                                    Instruction.ModrmEffectiveAddress{ .reg = src_reg },
+                                ),
+                                .reg = dst_reg,
+                            });
+                        },
+                        .immediate => |imm| {
+                            // register, immediate:
+                            // depends on size of immediate.
+                            //
+                            // immediate fits in i8:
+                            // 6B /r ib: IMUL r32/64, r/m32/64, imm8
+                            //
+                            // immediate fits in i32:
+                            // 69 /r id: IMUL r32/64, r/m32/64, imm32
+                            //
+                            // immediate is huge:
+                            // split into 2 instructions
+                            // 1) copy the 64 bit immediate into a tmp register
+                            // 2) perform register,register mul
+                            // 0F AF /r: IMUL r32/64, r/m32/64
+                            if (math.minInt(i8) <= imm and imm <= math.maxInt(i8)) {
+                                try self.encodeX8664Instruction(src, Instruction{
+                                    .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
+                                    .primary_opcode_1b = 0x6B,
+                                    .reg = dst_reg,
+                                    // TODO: Explicit optional wrap due to stage 1 miscompilation :(
+                                    //       https://github.com/ziglang/zig/issues/6515
+                                    .modrm = @as(
+                                        ?Instruction.ModrmEffectiveAddress,
+                                        Instruction.ModrmEffectiveAddress{ .reg = dst_reg },
+                                    ),
+                                    .immediate_bytes = 1,
+                                    .immediate = imm,
+                                });
+                            } else if (math.minInt(i32) <= imm and imm <= math.maxInt(i32)) {
+                                try self.encodeX8664Instruction(src, Instruction{
+                                    .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
+                                    .primary_opcode_1b = 0x69,
+                                    .reg = dst_reg,
+                                    // TODO: Explicit optional wrap due to stage 1 miscompilation :(
+                                    //       https://github.com/ziglang/zig/issues/6515
+                                    .modrm = @as(
+                                        ?Instruction.ModrmEffectiveAddress,
+                                        Instruction.ModrmEffectiveAddress{ .reg = dst_reg },
+                                    ),
+                                    .immediate_bytes = 4,
+                                    .immediate = imm,
+                                });
+                            } else {
+                                const src_reg = try self.copyToTmpRegister(src, dst_ty, src_mcv);
+                                return self.genX8664Imul(src, dst_ty, dst_mcv, MCValue{ .register = src_reg });
+                            }
+                        },
+                        .embedded_in_code, .memory, .stack_offset => {
+                            return self.fail(src, "TODO implement x86 multiply source memory", .{});
+                        },
+                        .compare_flags_unsigned => {
+                            return self.fail(src, "TODO implement x86 multiply source compare flag (unsigned)", .{});
+                        },
+                        .compare_flags_signed => {
+                            return self.fail(src, "TODO implement x86 multiply source compare flag (signed)", .{});
+                        },
+                    }
+                },
+                .stack_offset => |off| {
+                    switch (src_mcv) {
+                        .none => unreachable,
+                        .undef => return self.genSetStack(src, dst_ty, off, .undef),
+                        .dead, .unreach => unreachable,
+                        .ptr_stack_offset => unreachable,
+                        .ptr_embedded_in_code => unreachable,
+                        .register => |src_reg| {
+                            // copy dst to a register
+                            const dst_reg = try self.copyToTmpRegister(src, dst_ty, dst_mcv);
+                            // multiply into dst_reg
+                            // register, register
+                            // Use the following imul opcode
+                            // 0F AF /r: IMUL r32/64, r/m32/64
+                            try self.encodeX8664Instruction(src, Instruction{
+                                .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
+                                .primary_opcode_2b = 0xaf,
+                                // TODO: Explicit optional wrap due to stage 1 miscompilation :(
+                                //       https://github.com/ziglang/zig/issues/6515
+                                .modrm = @as(
+                                    ?Instruction.ModrmEffectiveAddress,
+                                    Instruction.ModrmEffectiveAddress{ .reg = src_reg },
+                                ),
+                                .reg = dst_reg,
+                            });
+                            // copy dst_reg back out
+                            return self.genSetStack(src, dst_ty, off, MCValue{ .register = dst_reg });
+                        },
+                        .immediate => |imm| {
+                            return self.fail(src, "TODO implement x86 multiply source immediate", .{});
+                        },
+                        .embedded_in_code, .memory, .stack_offset => {
+                            return self.fail(src, "TODO implement x86 multiply source memory", .{});
+                        },
+                        .compare_flags_unsigned => {
+                            return self.fail(src, "TODO implement x86 multiply source compare flag (unsigned)", .{});
+                        },
+                        .compare_flags_signed => {
+                            return self.fail(src, "TODO implement x86 multiply source compare flag (signed)", .{});
+                        },
+                    }
+                },
+                .embedded_in_code, .memory => {
+                    return self.fail(src, "TODO implement x86 multiply destination memory", .{});
                 },
             }
         }

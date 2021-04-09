@@ -3885,6 +3885,13 @@ fn analyzeArithmetic(
                         try Module.floatSub(sema.arena, scalar_type, src, lhs_val, rhs_val);
                     break :blk val;
                 },
+                .mul => blk: {
+                    const val = if (is_int)
+                        try Module.intMul(sema.arena, lhs_val, rhs_val)
+                    else
+                        try Module.floatMul(sema.arena, scalar_type, src, lhs_val, rhs_val);
+                    break :blk val;
+                },
                 else => return sema.mod.fail(&block.base, src, "TODO Implement arithmetic operand '{s}'", .{@tagName(zir_tag)}),
             };
 
