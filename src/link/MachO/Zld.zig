@@ -2082,7 +2082,6 @@ fn flush(self: *Zld) !void {
     try self.populateStringTable();
     try self.writeDebugInfo();
     try self.writeSymbolTable();
-    try self.writeDynamicSymbolTable();
     try self.writeStringTable();
 
     {
@@ -2604,6 +2603,10 @@ fn writeSymbolTable(self: *Zld) !void {
     var undefs = std.ArrayList(macho.nlist_64).init(self.allocator);
     defer undefs.deinit();
 
+    var undefs_ids = std.StringHashMap(u32).init(self.allocator);
+    defer undefs_ids.deinit();
+
+    var undef_id: u32 = 0;
     for (self.symtab.items()) |entry| {
         switch (entry.value.tag) {
             .Weak, .Strong => {
@@ -2611,6 +2614,8 @@ fn writeSymbolTable(self: *Zld) !void {
             },
             .Import => {
                 try undefs.append(entry.value.inner);
+                try undefs_ids.putNoClobber(entry.key, undef_id);
+                undef_id += 1;
             },
             else => unreachable,
         }
@@ -2645,17 +2650,13 @@ fn writeSymbolTable(self: *Zld) !void {
     dysymtab.nextdefsym = @intCast(u32, nexports);
     dysymtab.iundefsym = dysymtab.nlocalsym + dysymtab.nextdefsym;
     dysymtab.nundefsym = @intCast(u32, nundefs);
-}
 
-fn writeDynamicSymbolTable(self: *Zld) !void {
-    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
     const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const stubs = &text_segment.sections.items[self.stubs_section_index.?];
     const data_const_segment = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
     const got = &data_const_segment.sections.items[self.got_section_index.?];
     const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
     const la_symbol_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
-    const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
 
     const nstubs = @intCast(u32, self.stubs.items().len);
     const ngot_entries = @intCast(u32, self.got_entries.items().len);
@@ -2679,15 +2680,15 @@ fn writeDynamicSymbolTable(self: *Zld) !void {
 
     stubs.reserved1 = 0;
     for (self.stubs.items()) |entry| {
-        const symtab_idx = @intCast(u32, dysymtab.iundefsym + entry.value);
-        try writer.writeIntLittle(u32, symtab_idx);
+        const id = undefs_ids.get(entry.key) orelse unreachable;
+        try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
     }
 
     got.reserved1 = nstubs;
     for (self.got_entries.items()) |entry| {
         if (entry.value.tag == .import) {
-            const symtab_idx = @intCast(u32, dysymtab.iundefsym + entry.value.index + nstubs);
-            try writer.writeIntLittle(u32, symtab_idx);
+            const id = undefs_ids.get(entry.key) orelse unreachable;
+            try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
         } else {
             try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL);
         }
@@ -2695,8 +2696,8 @@ fn writeDynamicSymbolTable(self: *Zld) !void {
 
     la_symbol_ptr.reserved1 = got.reserved1 + ngot_entries;
     for (self.stubs.items()) |entry| {
-        const symtab_idx = @intCast(u32, dysymtab.iundefsym + entry.value);
-        try writer.writeIntLittle(u32, symtab_idx);
+        const id = undefs_ids.get(entry.key) orelse unreachable;
+        try writer.writeIntLittle(u32, dysymtab.iundefsym + id);
     }
 
     try self.file.?.pwriteAll(buf, dysymtab.indirectsymoff);
@@ -2886,23 +2887,4 @@ fn getString(self: *const Zld, str_off: u32) []const u8 {
 pub fn parseName(name: *const [16]u8) []const u8 {
     const len = mem.indexOfScalar(u8, name, @as(u8, 0)) orelse name.len;
     return name[0..len];
-}
-
-fn printDebug(self: Zld) void {
-    log.warn("symtab", .{});
-    for (self.symtab.items()) |entry| {
-        log.warn("    | {s} => {any}", .{ entry.key, entry.value });
-    }
-
-    log.warn("\n", .{});
-    log.warn("GOT entries", .{});
-    for (self.got_entries.items()) |entry| {
-        log.warn("    | {s} => {any}", .{ entry.key, entry.value });
-    }
-
-    log.warn("\n", .{});
-    log.warn("stubs", .{});
-    for (self.stubs.items()) |entry| {
-        log.warn("    | {s} => {any}", .{ entry.key, entry.value });
-    }
 }
