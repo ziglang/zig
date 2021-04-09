@@ -85,7 +85,6 @@
       #main-wrapper {
         display: flex;
         flex-direction: column;
-        height: 100vh;
       }
 
       #contents-wrapper {
@@ -105,6 +104,11 @@
       @media screen and (min-width: 1025px) {
         #main-wrapper {
             flex-direction: row;
+        }
+        #toc {
+            height: 100vh;
+            position: sticky;
+            top: 0;
         }
         #contents-wrapper, #toc {
             overflow: auto;
