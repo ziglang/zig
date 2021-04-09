@@ -2149,13 +2149,12 @@ fn writeRebaseInfoTable(self: *Zld) !void {
         const sect = seg.sections.items[idx];
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
-        const index_offset = @intCast(u32, self.got_entries.items().len);
 
-        try pointers.ensureCapacity(pointers.items.len + self.got_entries.items().len);
         for (self.got_entries.items()) |entry| {
-            const index = index_offset + entry.value.index;
-            pointers.appendAssumeCapacity(.{
-                .offset = base_offset + index * @sizeOf(u64),
+            if (entry.value.tag == .import) continue;
+
+            try pointers.append(.{
+                .offset = base_offset + entry.value.index * @sizeOf(u64),
                 .segment_id = segment_id,
             });
         }
@@ -2242,15 +2241,16 @@ fn writeBindInfoTable(self: *Zld) !void {
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
 
-        try pointers.ensureCapacity(pointers.items.len + self.got_entries.items().len);
         for (self.got_entries.items()) |entry| {
+            if (entry.value.tag == .local) continue;
+
             const dylib_ordinal = dylib_ordinal: {
                 const sym = self.symtab.get(entry.key) orelse continue; // local indirection
                 if (sym.tag != .Import) continue; // local indirection
                 break :dylib_ordinal sym.file.? + 1;
             };
 
-            pointers.appendAssumeCapacity(.{
+            try pointers.append(.{
                 .offset = base_offset + entry.value.index * @sizeOf(u64),
                 .segment_id = segment_id,
                 .dylib_ordinal = dylib_ordinal,
