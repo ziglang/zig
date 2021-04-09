@@ -398,10 +398,6 @@ pub fn HashMapUnmanaged(
             return size * 100 < max_load_percentage * cap;
         }
 
-        pub fn init(allocator: *Allocator) Self {
-            return .{};
-        }
-
         pub fn deinit(self: *Self, allocator: *Allocator) void {
             self.deallocate(allocator);
             self.* = undefined;
