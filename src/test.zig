@@ -624,6 +624,7 @@ pub const TestContext = struct {
             .root_src_path = tmp_src_path,
             .namespace_hash = Package.root_namespace_hash,
         };
+        defer root_pkg.table.deinit(allocator);
 
         const bin_name = try std.zig.binNameAlloc(arena, .{
             .root_name = "test_case",

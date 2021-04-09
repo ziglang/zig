@@ -2292,6 +2292,20 @@ pub const InnerError = error{ OutOfMemory, AnalysisFail };
 pub fn deinit(mod: *Module) void {
     const gpa = mod.gpa;
 
+    // The callsite of `Compilation.create` owns the `root_pkg`, however
+    // Module owns the builtin and std packages that it adds.
+    if (mod.root_pkg.table.remove("builtin")) |entry| {
+        gpa.free(entry.key);
+        entry.value.destroy(gpa);
+    }
+    if (mod.root_pkg.table.remove("std")) |entry| {
+        gpa.free(entry.key);
+        entry.value.destroy(gpa);
+    }
+    if (mod.root_pkg.table.remove("root")) |entry| {
+        gpa.free(entry.key);
+    }
+
     mod.compile_log_text.deinit(gpa);
 
     mod.zig_cache_artifact_directory.handle.close();
