@@ -1687,7 +1687,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .register => |src_reg| {
                             // register, register use mr + 1 addressing mode: r/m16/32/64, r16/32/64
                             try self.encodeX8664Instruction(src, Instruction{
-                                .operand_size_64 = dst_reg.size() == 64,
+                                .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
                                 .primary_opcode_1b = mr + 1,
                                 // TODO: Explicit optional wrap due to stage 1 miscompilation :(
                                 //       https://github.com/ziglang/zig/issues/6515
@@ -1705,7 +1705,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const imm32 = @intCast(u31, imm); // This case must be handled before calling genX8664BinMathCode.
                             if (imm32 <= math.maxInt(u7)) {
                                 try self.encodeX8664Instruction(src, Instruction{
-                                    .operand_size_64 = dst_reg.size() == 64,
+                                    .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
                                     .primary_opcode_1b = 0x83,
                                     .opcode_extension = opx,
                                     // TODO: Explicit optional wrap due to stage 1 miscompilation :(
@@ -1719,7 +1719,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 });
                             } else {
                                 try self.encodeX8664Instruction(src, Instruction{
-                                    .operand_size_64 = dst_reg.size() == 64,
+                                    .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
                                     .primary_opcode_1b = 0x81,
                                     .opcode_extension = opx,
                                     // TODO: Explicit optional wrap due to stage 1 miscompilation :(
@@ -1743,7 +1743,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 return self.fail(src, "stack offset too large", .{});
                             }
                             try self.encodeX8664Instruction(src, Instruction{
-                                .operand_size_64 = dst_reg.size() == 64,
+                                .operand_size_64 = abi_size == 64,
                                 .primary_opcode_1b = mr + 0x3,
                                 .reg = dst_reg,
                                 // TODO: Explicit optional wrap due to stage 1 miscompilation :(
@@ -1802,7 +1802,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 return self.fail(src, "stack offset too large", .{});
             }
             try self.encodeX8664Instruction(src, Instruction{
-                .operand_size_64 = reg.size() == 64,
+                .operand_size_64 = abi_size == 64,
                 .primary_opcode_1b = opcode,
                 .reg = reg,
                 // TODO: Explicit optional wrap due to stage 1 miscompilation :(
@@ -3707,7 +3707,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         // This is a variant of 8B /r.
                         try self.encodeX8664Instruction(src, Instruction{
-                            .operand_size_64 = reg.size() == 64,
+                            .operand_size_64 = ty.abiSize(self.target.*) == 64,
 
                             .primary_opcode_1b = 0x8B,
 
@@ -3740,7 +3740,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // LEA reg, [<offset>]
                             // manually do this instruction to make sure the offset into the disp32 field won't change.
                             try self.code.ensureCapacity(self.code.items.len + 7);
-                            self.rex(.{ .w = reg.size() == 64, .r = reg.isExtended() });
+                            self.rex(.{ .w = ty.abiSize(self.target.*) == 64, .r = reg.isExtended() });
                             self.code.appendSliceAssumeCapacity(&[_]u8{
                                 0x8D,
                                 0x05 | (@as(u8, reg.id() & 0b111) << 3),
@@ -3749,7 +3749,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                             // MOV reg, [reg]
                             try self.encodeX8664Instruction(src, Instruction{
-                                .operand_size_64 = reg.size() == 64,
+                                .operand_size_64 = ty.abiSize(self.target.*) == 64,
 
                                 .primary_opcode_1b = 0x8B,
 
@@ -3771,7 +3771,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // 0b00RRR100, where RRR is the lower three bits of the register ID.
                             // The instruction is thus eight bytes; REX 0x8B 0b00RRR100 0x25 followed by a four-byte disp32.
                             try self.code.ensureCapacity(self.code.items.len + 8);
-                            self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended() });
+                            self.rex(.{ .w = ty.abiSize(self.target.*) == 64, .r = reg.isExtended() });
                             self.code.appendSliceAssumeCapacity(&[_]u8{
                                 0x8B,
                                 0x04 | (@as(u8, reg.id() & 0b111) << 3), // R
@@ -3809,7 +3809,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // Currently, we're only allowing 64-bit registers, so we need the `REX.W 8B /r` variant.
                                 // TODO: determine whether to allow other sized registers, and if so, handle them properly.
                                 try self.encodeX8664Instruction(src, Instruction{
-                                    .operand_size_64 = reg.size() == 64,
+                                    .operand_size_64 = ty.abiSize(self.target.*) == 64,
                                     .primary_opcode_1b = 0x8B,
                                     .reg = reg,
                                     // TODO: Explicit optional wrap due to stage 1 miscompilation :(
@@ -3823,14 +3823,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     .stack_offset => |unadjusted_off| {
-                        const size_bytes = @divExact(reg.size(), 8);
-                        const off = unadjusted_off + size_bytes;
+                        const abi_size = ty.abiSize(self.target.*);
+                        const off = unadjusted_off + abi_size;
                         if (off < std.math.minInt(i32) or off > std.math.maxInt(i32)) {
                             return self.fail(src, "stack offset too large", .{});
                         }
                         const ioff = -@intCast(i32, off);
                         try self.encodeX8664Instruction(src, Instruction{
-                            .operand_size_64 = reg.size() == 64,
+                            .operand_size_64 = ty.abiSize(self.target.*) == 64,
                             .primary_opcode_1b = 0x8B,
                             .reg = reg,
                             // TODO: Explicit optional wrap due to stage 1 miscompilation :(

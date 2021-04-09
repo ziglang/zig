@@ -740,7 +740,7 @@ pub fn addCases(ctx: *TestContext) !void {
         // Spilling registers to the stack.
         case.addCompareOutput(
             \\export fn _start() noreturn {
-            \\    assert(add(3, 4) == 791);
+            \\    assert(add(3, 4) == 1221);
             \\
             \\    exit();
             \\}
@@ -756,19 +756,21 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        const i = g + h; // 100
             \\        const j = i + d; // 110
             \\        const k = i + j; // 210
-            \\        const l = k + c; // 217
-            \\        const m = l + d; // 227
-            \\        const n = m + e; // 241
-            \\        const o = n + f; // 265
-            \\        const p = o + g; // 303
-            \\        const q = p + h; // 365
-            \\        const r = q + i; // 465
-            \\        const s = r + j; // 575
-            \\        const t = s + k; // 785
-            \\        break :blk t;
+            \\        const l = j + k; // 320
+            \\        const m = l + c; // 327
+            \\        const n = m + d; // 337
+            \\        const o = n + e; // 351
+            \\        const p = o + f; // 375
+            \\        const q = p + g; // 413
+            \\        const r = q + h; // 475
+            \\        const s = r + i; // 575
+            \\        const t = s + j; // 685
+            \\        const u = t + k; // 895
+            \\        const v = u + l; // 1215
+            \\        break :blk v;
             \\    };
-            \\    const y = x + a; // 788
-            \\    const z = y + a; // 791
+            \\    const y = x + a; // 1218
+            \\    const z = y + a; // 1221
             \\    return z;
             \\}
             \\
