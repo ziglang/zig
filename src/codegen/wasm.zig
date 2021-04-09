@@ -16,9 +16,12 @@ const Value = @import("../value.zig").Value;
 const Compilation = @import("../Compilation.zig");
 const AnyMCValue = @import("../codegen.zig").AnyMCValue;
 const LazySrcLoc = Module.LazySrcLoc;
+const link = @import("../link.zig");
+const TypedValue = @import("../TypedValue.zig");
 
 /// Wasm Value, created when generating an instruction
 const WValue = union(enum) {
+    /// May be referenced but is unused
     none: void,
     /// Index of the local variable
     local: u32,
@@ -163,25 +166,23 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
         .global_get => return .global_get,
         .global_set => return .global_set,
 
-        .load => if (args.width) |width|
-            switch (width) {
-                8 => switch (args.valtype1.?) {
-                    .i32 => if (args.signedness.? == .signed) return .i32_load8_s else return .i32_load8_u,
-                    .i64 => if (args.signedness.? == .signed) return .i64_load8_s else return .i64_load8_u,
-                    .f32, .f64 => unreachable,
-                },
-                16 => switch (args.valtype1.?) {
-                    .i32 => if (args.signedness.? == .signed) return .i32_load16_s else return .i32_load16_u,
-                    .i64 => if (args.signedness.? == .signed) return .i64_load16_s else return .i64_load16_u,
-                    .f32, .f64 => unreachable,
-                },
-                32 => switch (args.valtype1.?) {
-                    .i64 => if (args.signedness.? == .signed) return .i64_load32_s else return .i64_load32_u,
-                    .i32, .f32, .f64 => unreachable,
-                },
-                else => unreachable,
-            }
-        else switch (args.valtype1.?) {
+        .load => if (args.width) |width| switch (width) {
+            8 => switch (args.valtype1.?) {
+                .i32 => if (args.signedness.? == .signed) return .i32_load8_s else return .i32_load8_u,
+                .i64 => if (args.signedness.? == .signed) return .i64_load8_s else return .i64_load8_u,
+                .f32, .f64 => unreachable,
+            },
+            16 => switch (args.valtype1.?) {
+                .i32 => if (args.signedness.? == .signed) return .i32_load16_s else return .i32_load16_u,
+                .i64 => if (args.signedness.? == .signed) return .i64_load16_s else return .i64_load16_u,
+                .f32, .f64 => unreachable,
+            },
+            32 => switch (args.valtype1.?) {
+                .i64 => if (args.signedness.? == .signed) return .i64_load32_s else return .i64_load32_u,
+                .i32, .f32, .f64 => unreachable,
+            },
+            else => unreachable,
+        } else switch (args.valtype1.?) {
             .i32 => return .i32_load,
             .i64 => return .i64_load,
             .f32 => return .f32_load,
@@ -469,6 +470,13 @@ test "Wasm - buildOpcode" {
     testing.expectEqual(@as(wasm.Opcode, .f64_reinterpret_i64), f64_reinterpret_i64);
 }
 
+pub const Result = union(enum) {
+    /// The codegen bytes have been appended to `Context.code`
+    appended: void,
+    /// The data is managed externally and are part of the `Result`
+    externally_managed: []const u8,
+};
+
 /// Hashmap to store generated `WValue` for each `Inst`
 pub const ValueTable = std.AutoHashMapUnmanaged(*Inst, WValue);
 
@@ -504,6 +512,8 @@ pub const Context = struct {
     const InnerError = error{
         OutOfMemory,
         CodegenFail,
+        /// Can occur when dereferencing a pointer that points to a `Decl` of which the analysis has failed
+        AnalysisFail,
     };
 
     pub fn deinit(self: *Context) void {
@@ -533,11 +543,20 @@ pub const Context = struct {
 
     /// Using a given `Type`, returns the corresponding wasm Valtype
     fn typeToValtype(self: *Context, src: LazySrcLoc, ty: Type) InnerError!wasm.Valtype {
-        return switch (ty.tag()) {
-            .f32 => .f32,
-            .f64 => .f64,
-            .u32, .i32, .bool => .i32,
-            .u64, .i64 => .i64,
+        return switch (ty.zigTypeTag()) {
+            .Float => blk: {
+                const bits = ty.floatBits(self.target);
+                if (bits == 16 or bits == 32) break :blk wasm.Valtype.f32;
+                if (bits == 64) break :blk wasm.Valtype.f64;
+                return self.fail(src, "Float bit size not supported by wasm: '{d}'", .{bits});
+            },
+            .Int => blk: {
+                const info = ty.intInfo(self.target);
+                if (info.bits <= 32) break :blk wasm.Valtype.i32;
+                if (info.bits > 32 and info.bits <= 64) break :blk wasm.Valtype.i64;
+                return self.fail(src, "Integer bit size not supported by wasm: '{d}'", .{info.bits});
+            },
+            .Bool, .Pointer => wasm.Valtype.i32,
             else => self.fail(src, "TODO - Wasm valtype for type '{s}'", .{ty.tag()}),
         };
     }
@@ -604,48 +623,82 @@ pub const Context = struct {
     }
 
     /// Generates the wasm bytecode for the function declaration belonging to `Context`
-    pub fn gen(self: *Context) InnerError!void {
-        assert(self.code.items.len == 0);
-        try self.genFunctype();
+    pub fn gen(self: *Context, typed_value: TypedValue) InnerError!Result {
+        switch (typed_value.ty.zigTypeTag()) {
+            .Fn => {
+                try self.genFunctype();
 
-        // Write instructions
-        // TODO: check for and handle death of instructions
-        const tv = self.decl.typed_value.most_recent.typed_value;
-        const mod_fn = blk: {
-            if (tv.val.castTag(.function)) |func| break :blk func.data;
-            if (tv.val.castTag(.extern_fn)) |ext_fn| return; // don't need codegen for extern functions
-            return self.fail(.{ .node_offset = 0 }, "TODO: Wasm codegen for decl type '{s}'", .{tv.ty.tag()});
-        };
+                // Write instructions
+                // TODO: check for and handle death of instructions
+                const mod_fn = blk: {
+                    if (typed_value.val.castTag(.function)) |func| break :blk func.data;
+                    if (typed_value.val.castTag(.extern_fn)) |ext_fn| return Result.appended; // don't need code body for extern functions
+                    unreachable;
+                };
 
-        // Reserve space to write the size after generating the code as well as space for locals count
-        try self.code.resize(10);
+                // Reserve space to write the size after generating the code as well as space for locals count
+                try self.code.resize(10);
 
-        try self.genBody(mod_fn.body);
+                try self.genBody(mod_fn.body);
 
-        // finally, write our local types at the 'offset' position
-        {
-            leb.writeUnsignedFixed(5, self.code.items[5..10], @intCast(u32, self.locals.items.len));
+                // finally, write our local types at the 'offset' position
+                {
+                    leb.writeUnsignedFixed(5, self.code.items[5..10], @intCast(u32, self.locals.items.len));
 
-            // offset into 'code' section where we will put our locals types
-            var local_offset: usize = 10;
+                    // offset into 'code' section where we will put our locals types
+                    var local_offset: usize = 10;
 
-            // emit the actual locals amount
-            for (self.locals.items) |local| {
-                var buf: [6]u8 = undefined;
-                leb.writeUnsignedFixed(5, buf[0..5], @as(u32, 1));
-                buf[5] = local;
-                try self.code.insertSlice(local_offset, &buf);
-                local_offset += 6;
-            }
+                    // emit the actual locals amount
+                    for (self.locals.items) |local| {
+                        var buf: [6]u8 = undefined;
+                        leb.writeUnsignedFixed(5, buf[0..5], @as(u32, 1));
+                        buf[5] = local;
+                        try self.code.insertSlice(local_offset, &buf);
+                        local_offset += 6;
+                    }
+                }
+
+                const writer = self.code.writer();
+                try writer.writeByte(wasm.opcode(.end));
+
+                // Fill in the size of the generated code to the reserved space at the
+                // beginning of the buffer.
+                const size = self.code.items.len - 5 + self.decl.fn_link.wasm.idx_refs.items.len * 5;
+                leb.writeUnsignedFixed(5, self.code.items[0..5], @intCast(u32, size));
+
+                // codegen data has been appended to `code`
+                return Result.appended;
+            },
+            .Array => {
+                if (typed_value.val.castTag(.bytes)) |payload| {
+                    if (typed_value.ty.sentinel()) |sentinel| {
+                        try self.code.appendSlice(payload.data);
+
+                        switch (try self.gen(.{
+                            .ty = typed_value.ty.elemType(),
+                            .val = sentinel,
+                        })) {
+                            .appended => return Result.appended,
+                            .externally_managed => |data| {
+                                try self.code.appendSlice(data);
+                                return Result.appended;
+                            },
+                        }
+                    }
+                    return Result{ .externally_managed = payload.data };
+                } else return self.fail(.{ .node_offset = 0 }, "TODO implement gen for more kinds of arrays", .{});
+            },
+            .Int => {
+                const info = typed_value.ty.intInfo(self.target);
+                if (info.bits == 8 and info.signedness == .unsigned) {
+                    const int_byte = typed_value.val.toUnsignedInt();
+                    try self.code.append(@intCast(u8, int_byte));
+                    return Result.appended;
+                }
+                return self.fail(.{ .node_offset = 0 }, "TODO: Implement codegen for int type: '{}'", .{typed_value.ty});
+            },
+            else => |tag| return self.fail(.{ .node_offset = 0 }, "TODO: Implement zig type codegen for type: '{s}'", .{tag}),
         }
-
-        const writer = self.code.writer();
-        try writer.writeByte(wasm.opcode(.end));
-
-        // Fill in the size of the generated code to the reserved space at the
-        // beginning of the buffer.
-        const size = self.code.items.len - 5 + self.decl.fn_link.wasm.?.idx_refs.items.len * 5;
-        leb.writeUnsignedFixed(5, self.code.items[0..5], @intCast(u32, size));
     }
 
     fn genInst(self: *Context, inst: *Inst) InnerError!WValue {
@@ -721,7 +774,7 @@ pub const Context = struct {
 
         // The function index immediate argument will be filled in using this data
         // in link.Wasm.flush().
-        try self.decl.fn_link.wasm.?.idx_refs.append(self.gpa, .{
+        try self.decl.fn_link.wasm.idx_refs.append(self.gpa, .{
             .offset = @intCast(u32, self.code.items.len),
             .decl = target,
         });
@@ -811,6 +864,22 @@ pub const Context = struct {
                     64 => try writer.writeIntLittle(u64, @bitCast(u64, inst.val.toFloat(f64))),
                     else => |bits| return self.fail(inst.base.src, "Wasm TODO: emitConstant for float with {d} bits", .{bits}),
                 }
+            },
+            .Pointer => {
+                if (inst.val.castTag(.decl_ref)) |payload| {
+                    const decl = payload.data;
+
+                    // offset into the offset table within the 'data' section
+                    const ptr_width = self.target.cpu.arch.ptrBitWidth() / 8;
+                    try writer.writeByte(wasm.opcode(.i32_const));
+                    try leb.writeULEB128(writer, decl.link.wasm.offset_index * ptr_width);
+
+                    // memory instruction followed by their memarg immediate
+                    // memarg ::== x:u32, y:u32 => {align x, offset y}
+                    try writer.writeByte(wasm.opcode(.i32_load));
+                    try leb.writeULEB128(writer, @as(u32, 0));
+                    try leb.writeULEB128(writer, @as(u32, 0));
+                } else return self.fail(inst.base.src, "Wasm TODO: emitConstant for other const pointer tag {s}", .{inst.val.tag()});
             },
             .Void => {},
             else => |ty| return self.fail(inst.base.src, "Wasm TODO: emitConstant for zigTypeTag {s}", .{ty}),

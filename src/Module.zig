@@ -3029,9 +3029,12 @@ fn astgenAndSemaVarDecl(
         };
         defer gen_scope.instructions.deinit(mod.gpa);
 
-        const init_result_loc: AstGen.ResultLoc = if (var_decl.ast.type_node != 0) .{
-            .ty = try AstGen.expr(&gen_scope, &gen_scope.base, .{ .ty = .type_type }, var_decl.ast.type_node),
-        } else .none;
+        const init_result_loc: AstGen.ResultLoc = if (var_decl.ast.type_node != 0)
+            .{
+                .ty = try AstGen.expr(&gen_scope, &gen_scope.base, .{ .ty = .type_type }, var_decl.ast.type_node),
+            }
+        else
+            .none;
 
         const init_inst = try AstGen.comptimeExpr(
             &gen_scope,
@@ -3834,7 +3837,7 @@ fn allocateNewDecl(
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
             .macho => .{ .macho = link.File.MachO.TextBlock.empty },
             .c => .{ .c = link.File.C.DeclBlock.empty },
-            .wasm => .{ .wasm = {} },
+            .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
             .spirv => .{ .spirv = {} },
         },
         .fn_link = switch (mod.comp.bin_file.tag) {
@@ -3842,7 +3845,7 @@ fn allocateNewDecl(
             .elf => .{ .elf = link.File.Elf.SrcFn.empty },
             .macho => .{ .macho = link.File.MachO.SrcFn.empty },
             .c => .{ .c = link.File.C.FnBlock.empty },
-            .wasm => .{ .wasm = null },
+            .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
             .spirv => .{ .spirv = .{} },
         },
         .generation = 0,
