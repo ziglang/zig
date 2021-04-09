@@ -678,6 +678,7 @@ pub const Scope = struct {
         base: Scope = Scope{ .tag = base_tag },
 
         file_scope: *Scope.File,
+        parent_name_hash: NameHash,
 
         /// Direct children of the file.
         decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
@@ -696,8 +697,7 @@ pub const Scope = struct {
         }
 
         pub fn fullyQualifiedNameHash(cont: *Container, name: []const u8) NameHash {
-            // TODO container scope qualified names.
-            return std.zig.hashSrc(name);
+            return std.zig.hashName(cont.parent_name_hash, ".", name);
         }
 
         pub fn renderFullyQualifiedName(cont: Container, name: []const u8, writer: anytype) !void {
@@ -2513,6 +2513,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
 
                 const block_expr = node_datas[decl_node].lhs;
                 _ = try AstGen.comptimeExpr(&gen_scope, &gen_scope.base, .none, block_expr);
+                _ = try gen_scope.addBreak(.break_inline, 0, .void_value);
 
                 const code = try gen_scope.finish();
                 if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
@@ -3468,7 +3469,9 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         ),
 
         .test_decl => {
-            log.err("TODO: analyze test decl", .{});
+            if (mod.comp.bin_file.options.is_test) {
+                log.err("TODO: analyze test decl", .{});
+            }
         },
         .@"usingnamespace" => {
             log.err("TODO: analyze usingnamespace decl", .{});
@@ -3532,6 +3535,7 @@ fn semaContainerFn(
                 .lazy = .{ .token_abs = name_tok },
             }, "redefinition of '{s}'", .{decl.name});
             errdefer msg.destroy(mod.gpa);
+            try mod.errNoteNonLazy(decl.srcLoc(), msg, "previous definition here", .{});
             try mod.failed_decls.putNoClobber(mod.gpa, decl, msg);
         } else {
             if (!srcHashEql(decl.contents_hash, contents_hash)) {
@@ -3589,12 +3593,13 @@ fn semaContainerVar(
         decl.src_index = decl_i;
         if (deleted_decls.swapRemove(decl) == null) {
             decl.analysis = .sema_failure;
-            const err_msg = try ErrorMsg.create(mod.gpa, .{
+            const msg = try ErrorMsg.create(mod.gpa, .{
                 .container = .{ .file_scope = container_scope.file_scope },
                 .lazy = .{ .token_abs = name_token },
             }, "redefinition of '{s}'", .{decl.name});
-            errdefer err_msg.destroy(mod.gpa);
-            try mod.failed_decls.putNoClobber(mod.gpa, decl, err_msg);
+            errdefer msg.destroy(mod.gpa);
+            try mod.errNoteNonLazy(decl.srcLoc(), msg, "previous definition here", .{});
+            try mod.failed_decls.putNoClobber(mod.gpa, decl, msg);
         } else if (!srcHashEql(decl.contents_hash, contents_hash)) {
             try outdated_decls.put(decl, {});
             decl.contents_hash = contents_hash;

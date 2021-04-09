@@ -18,16 +18,19 @@ pub const CrossTarget = @import("zig/cross_target.zig").CrossTarget;
 
 pub const SrcHash = [16]u8;
 
-/// If the source is small enough, it is used directly as the hash.
-/// If it is long, blake3 hash is computed.
 pub fn hashSrc(src: []const u8) SrcHash {
     var out: SrcHash = undefined;
-    if (src.len <= @typeInfo(SrcHash).Array.len) {
-        std.mem.copy(u8, &out, src);
-        std.mem.set(u8, out[src.len..], 0);
-    } else {
-        std.crypto.hash.Blake3.hash(src, &out, .{});
-    }
+    std.crypto.hash.Blake3.hash(src, &out, .{});
+    return out;
+}
+
+pub fn hashName(parent_hash: SrcHash, sep: []const u8, name: []const u8) SrcHash {
+    var out: SrcHash = undefined;
+    var hasher = std.crypto.hash.Blake3.init(.{});
+    hasher.update(&parent_hash);
+    hasher.update(sep);
+    hasher.update(name);
+    hasher.final(&out);
     return out;
 }
 

@@ -599,15 +599,15 @@ fn buildOutputType(
     var test_exec_args = std.ArrayList(?[]const u8).init(gpa);
     defer test_exec_args.deinit();
 
-    const pkg_tree_root = try gpa.create(Package);
     // This package only exists to clean up the code parsing --pkg-begin and
     // --pkg-end flags. Use dummy values that are safe for the destroy call.
-    pkg_tree_root.* = .{
+    var pkg_tree_root: Package = .{
         .root_src_directory = .{ .path = null, .handle = fs.cwd() },
         .root_src_path = &[0]u8{},
+        .namespace_hash = Package.root_namespace_hash,
     };
-    defer pkg_tree_root.destroy(gpa);
-    var cur_pkg: *Package = pkg_tree_root;
+    defer freePkgTree(gpa, &pkg_tree_root, false);
+    var cur_pkg: *Package = &pkg_tree_root;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
@@ -658,8 +658,7 @@ fn buildOutputType(
                         ) catch |err| {
                             fatal("Failed to add package at path {s}: {s}", .{ pkg_path, @errorName(err) });
                         };
-                        new_cur_pkg.parent = cur_pkg;
-                        try cur_pkg.add(gpa, pkg_name, new_cur_pkg);
+                        try cur_pkg.addAndAdopt(gpa, pkg_name, new_cur_pkg);
                         cur_pkg = new_cur_pkg;
                     } else if (mem.eql(u8, arg, "--pkg-end")) {
                         cur_pkg = cur_pkg.parent orelse
@@ -1747,6 +1746,7 @@ fn buildOutputType(
     if (root_pkg) |pkg| {
         pkg.table = pkg_tree_root.table;
         pkg_tree_root.table = .{};
+        pkg.namespace_hash = pkg_tree_root.namespace_hash;
     }
 
     const self_exe_path = try fs.selfExePathAlloc(arena);
@@ -2151,6 +2151,18 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
     }
 }
 
+fn freePkgTree(gpa: *Allocator, pkg: *Package, free_parent: bool) void {
+    {
+        var it = pkg.table.iterator();
+        while (it.next()) |kv| {
+            freePkgTree(gpa, kv.value, true);
+        }
+    }
+    if (free_parent) {
+        pkg.destroy(gpa);
+    }
+}
+
 fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !void {
     if (!build_options.have_llvm)
         fatal("cannot translate-c: compiler built without LLVM extensions", .{});
@@ -2505,6 +2517,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                 .handle = try zig_lib_directory.handle.openDir(std_special, .{}),
             },
             .root_src_path = "build_runner.zig",
+            .namespace_hash = Package.root_namespace_hash,
         };
         defer root_pkg.root_src_directory.handle.close();
 
@@ -2550,8 +2563,9 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         var build_pkg: Package = .{
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,
+            .namespace_hash = undefined,
         };
-        try root_pkg.table.put(arena, "@build", &build_pkg);
+        try root_pkg.addAndAdopt(arena, "@build", &build_pkg);
 
         var global_cache_directory: Compilation.Directory = l: {
             const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);

@@ -598,6 +598,10 @@ fn zirStructDecl(
     const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
     const struct_val = try Value.Tag.ty.create(&new_decl_arena.allocator, struct_ty);
+    const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
+        .ty = Type.initTag(.type),
+        .val = struct_val,
+    });
     struct_obj.* = .{
         .owner_decl = sema.owner_decl,
         .fields = fields_map,
@@ -605,12 +609,9 @@ fn zirStructDecl(
         .container = .{
             .ty = struct_ty,
             .file_scope = block.getFileScope(),
+            .parent_name_hash = new_decl.fullyQualifiedNameHash(),
         },
     };
-    const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
-        .ty = Type.initTag(.type),
-        .val = struct_val,
-    });
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
@@ -5298,9 +5299,9 @@ fn analyzeImport(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, target_strin
         try std.fs.path.resolve(sema.gpa, &[_][]const u8{ cur_pkg_dir_path, target_string });
     errdefer sema.gpa.free(resolved_path);
 
-    if (sema.mod.import_table.get(resolved_path)) |some| {
+    if (sema.mod.import_table.get(resolved_path)) |cached_import| {
         sema.gpa.free(resolved_path);
-        return some;
+        return cached_import;
     }
 
     if (found_pkg == null) {
@@ -5318,6 +5319,11 @@ fn analyzeImport(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, target_strin
     const struct_ty = try Type.Tag.empty_struct.create(sema.gpa, &file_scope.root_container);
     errdefer sema.gpa.destroy(struct_ty.castTag(.empty_struct).?);
 
+    const container_name_hash: Scope.NameHash = if (found_pkg) |pkg|
+        pkg.namespace_hash
+    else
+        std.zig.hashName(cur_pkg.namespace_hash, "/", resolved_path);
+
     file_scope.* = .{
         .sub_file_path = resolved_path,
         .source = .{ .unloaded = {} },
@@ -5328,6 +5334,7 @@ fn analyzeImport(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, target_strin
             .file_scope = file_scope,
             .decls = .{},
             .ty = struct_ty,
+            .parent_name_hash = container_name_hash,
         },
     };
     sema.mod.analyzeContainer(&file_scope.root_container) catch |err| switch (err) {

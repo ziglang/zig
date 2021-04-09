@@ -906,38 +906,61 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                     artifact_sub_dir,
             };
 
-            // TODO when we implement serialization and deserialization of incremental compilation metadata,
-            // this is where we would load it. We have open a handle to the directory where
-            // the output either already is, or will be.
+            // If we rely on stage1, we must not redundantly add these packages.
+            const use_stage1 = build_options.is_stage1 and use_llvm;
+            if (!use_stage1) {
+                const builtin_pkg = try Package.createWithDir(
+                    gpa,
+                    zig_cache_artifact_directory,
+                    null,
+                    "builtin.zig",
+                );
+                errdefer builtin_pkg.destroy(gpa);
+
+                const std_pkg = try Package.createWithDir(
+                    gpa,
+                    options.zig_lib_directory,
+                    "std",
+                    "std.zig",
+                );
+                errdefer std_pkg.destroy(gpa);
+
+                try root_pkg.addAndAdopt(gpa, "builtin", builtin_pkg);
+                try root_pkg.add(gpa, "root", root_pkg);
+                try root_pkg.addAndAdopt(gpa, "std", std_pkg);
+
+                try std_pkg.add(gpa, "builtin", builtin_pkg);
+                try std_pkg.add(gpa, "root", root_pkg);
+            }
+
+            // TODO when we implement serialization and deserialization of incremental
+            // compilation metadata, this is where we would load it. We have open a handle
+            // to the directory where the output either already is, or will be.
             // However we currently do not have serialization of such metadata, so for now
             // we set up an empty Module that does the entire compilation fresh.
 
-            const root_scope = rs: {
-                if (mem.endsWith(u8, root_pkg.root_src_path, ".zig")) {
-                    const root_scope = try gpa.create(Module.Scope.File);
-                    const struct_ty = try Type.Tag.empty_struct.create(
-                        gpa,
-                        &root_scope.root_container,
-                    );
-                    root_scope.* = .{
-                        // TODO this is duped so it can be freed in Container.deinit
-                        .sub_file_path = try gpa.dupe(u8, root_pkg.root_src_path),
-                        .source = .{ .unloaded = {} },
-                        .tree = undefined,
-                        .status = .never_loaded,
-                        .pkg = root_pkg,
-                        .root_container = .{
-                            .file_scope = root_scope,
-                            .decls = .{},
-                            .ty = struct_ty,
-                        },
-                    };
-                    break :rs root_scope;
-                } else if (mem.endsWith(u8, root_pkg.root_src_path, ".zir")) {
-                    return error.ZirFilesUnsupported;
-                } else {
-                    unreachable;
-                }
+            // TODO remove CLI support for .zir files and then we can remove this error
+            // handling and assertion.
+            if (mem.endsWith(u8, root_pkg.root_src_path, ".zir")) return error.ZirFilesUnsupported;
+            assert(mem.endsWith(u8, root_pkg.root_src_path, ".zig"));
+
+            const root_scope = try gpa.create(Module.Scope.File);
+            errdefer gpa.destroy(root_scope);
+
+            const struct_ty = try Type.Tag.empty_struct.create(gpa, &root_scope.root_container);
+            root_scope.* = .{
+                // TODO this is duped so it can be freed in Container.deinit
+                .sub_file_path = try gpa.dupe(u8, root_pkg.root_src_path),
+                .source = .{ .unloaded = {} },
+                .tree = undefined,
+                .status = .never_loaded,
+                .pkg = root_pkg,
+                .root_container = .{
+                    .file_scope = root_scope,
+                    .decls = .{},
+                    .ty = struct_ty,
+                    .parent_name_hash = root_pkg.namespace_hash,
+                },
             };
 
             const module = try arena.create(Module);
@@ -1339,7 +1362,8 @@ pub fn update(self: *Compilation) !void {
         self.c_object_work_queue.writeItemAssumeCapacity(entry.key);
     }
 
-    const use_stage1 = build_options.omit_stage2 or build_options.is_stage1 and self.bin_file.options.use_llvm;
+    const use_stage1 = build_options.omit_stage2 or
+        (build_options.is_stage1 and self.bin_file.options.use_llvm);
     if (!use_stage1) {
         if (self.bin_file.options.module) |module| {
             module.compile_log_text.shrinkAndFree(module.gpa, 0);
@@ -2840,6 +2864,8 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
 
     const target = comp.getTarget();
     const generic_arch_name = target.cpu.arch.genericName();
+    const use_stage1 = build_options.omit_stage2 or
+        (build_options.is_stage1 and comp.bin_file.options.use_llvm);
 
     @setEvalBranchQuota(4000);
     try buffer.writer().print(
@@ -2852,6 +2878,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\/// Zig version. When writing code that supports multiple versions of Zig, prefer
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
         \\pub const zig_version = try @import("std").SemanticVersion.parse("{s}");
+        \\pub const zig_is_stage2 = {};
         \\
         \\pub const output_mode = OutputMode.{};
         \\pub const link_mode = LinkMode.{};
@@ -2865,6 +2892,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\
     , .{
         build_options.version,
+        !use_stage1,
         std.zig.fmtId(@tagName(comp.bin_file.options.output_mode)),
         std.zig.fmtId(@tagName(comp.bin_file.options.link_mode)),
         comp.bin_file.options.is_test,
@@ -3074,6 +3102,7 @@ fn buildOutputFromZig(
             .handle = special_dir,
         },
         .root_src_path = src_basename,
+        .namespace_hash = Package.root_namespace_hash,
     };
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();
