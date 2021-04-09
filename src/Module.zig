@@ -3550,6 +3550,7 @@ fn semaContainerFn(
                 mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
             }
         }
+        new_decl.is_pub = fn_proto.visib_token != null;
     }
 }
 

@@ -4687,7 +4687,8 @@ fn namedFieldPtr(
                 .Struct, .Opaque, .Union => {
                     if (child_type.getContainerScope()) |container_scope| {
                         if (mod.lookupDeclName(&container_scope.base, field_name)) |decl| {
-                            // TODO if !decl.is_pub and inDifferentFiles() "{} is private"
+                            if (!decl.is_pub and !(decl.container.file_scope == block.base.namespace().file_scope))
+                                return mod.fail(&block.base, src, "'{s}' is private", .{field_name});
                             return sema.analyzeDeclRef(block, src, decl);
                         }
 
@@ -4715,7 +4716,8 @@ fn namedFieldPtr(
                 .Enum => {
                     if (child_type.getContainerScope()) |container_scope| {
                         if (mod.lookupDeclName(&container_scope.base, field_name)) |decl| {
-                            // TODO if !decl.is_pub and inDifferentFiles() "{} is private"
+                            if (!decl.is_pub and !(decl.container.file_scope == block.base.namespace().file_scope))
+                                return mod.fail(&block.base, src, "'{s}' is private", .{field_name});
                             return sema.analyzeDeclRef(block, src, decl);
                         }
                     }
