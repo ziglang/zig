@@ -876,8 +876,8 @@ fn allocateSymbols(self: *Zld) !void {
     for (self.objects.items) |*object, object_id| {
         for (object.symtab.items) |*sym| {
             switch (sym.tag) {
-                .Import => unreachable,
-                .Undef => continue,
+                .import => unreachable,
+                .undef => continue,
                 else => {},
             }
 
@@ -924,7 +924,7 @@ fn allocateSymbols(self: *Zld) !void {
     }
 
     for (self.symtab.items()) |*entry| {
-        if (entry.value.tag == .Import) continue;
+        if (entry.value.tag == .import) continue;
 
         const object_id = entry.value.file orelse unreachable;
         const index = entry.value.index orelse unreachable;
@@ -949,7 +949,7 @@ fn allocateStubsAndGotEntries(self: *Zld) !void {
         assert(mem.eql(u8, sym_name, entry.key));
 
         entry.value.target_addr = target_addr: {
-            if (sym.tag == .Undef) {
+            if (sym.tag == .undef) {
                 const glob = self.symtab.get(sym_name) orelse unreachable;
                 break :target_addr glob.inner.n_value;
             }
@@ -1236,8 +1236,8 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
 
     for (object.symtab.items) |sym, sym_id| {
         switch (sym.tag) {
-            .Local, .Stab => continue, // If symbol is local to CU, we don't put it in the global symbol table.
-            .Weak, .Strong => {
+            .local, .stab => continue, // If symbol is local to CU, we don't put it in the global symbol table.
+            .weak, .strong => {
                 const sym_name = object.getString(sym.inner.n_strx);
                 const global = self.symtab.getEntry(sym_name) orelse {
                     // Put new global symbol into the symbol table.
@@ -1257,14 +1257,17 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
                     continue;
                 };
 
-                if (global.value.tag == .Weak) continue; // If symbol is weak, nothing to do.
-                if (global.value.tag == .Strong) { // If both symbols are strong, we have a collision.
-                    log.err("symbol '{s}' defined multiple times", .{sym_name});
-                    return error.MultipleSymbolDefinitions;
+                switch (global.value.tag) {
+                    .weak => continue, // If symbol is weak, nothing to do.
+                    .strong => {
+                        log.err("symbol '{s}' defined multiple times", .{sym_name});
+                        return error.MultipleSymbolDefinitions;
+                    },
+                    else => {},
                 }
 
                 global.value = .{
-                    .tag = .Strong,
+                    .tag = .strong,
                     .inner = .{
                         .n_strx = 0, // This will be populated later.
                         .n_value = 0, // This will be populated later,
@@ -1276,13 +1279,13 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
                     .index = @intCast(u32, sym_id),
                 };
             },
-            .Undef => {
+            .undef => {
                 const sym_name = object.getString(sym.inner.n_strx);
                 if (self.symtab.contains(sym_name)) continue; // Nothing to do if we already found a definition.
 
                 const name = try self.allocator.dupe(u8, sym_name);
                 try self.symtab.putNoClobber(self.allocator, name, .{
-                    .tag = .Undef,
+                    .tag = .undef,
                     .inner = .{
                         .n_strx = 0,
                         .n_value = 0,
@@ -1292,7 +1295,7 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
                     },
                 });
             },
-            .Import => unreachable, // We don't expect any imports just yet.
+            .import => unreachable, // We don't expect any imports just yet.
         }
     }
 }
@@ -1311,7 +1314,7 @@ fn resolveSymbols(self: *Zld) !void {
         hit = false;
 
         for (self.symtab.items()) |entry| {
-            if (entry.value.tag != .Undef) continue;
+            if (entry.value.tag != .undef) continue;
 
             const sym_name = entry.key;
 
@@ -1345,9 +1348,9 @@ fn resolveSymbols(self: *Zld) !void {
     // TODO Implement libSystem as a hard-coded library, or ship with
     // a libSystem.B.tbd definition file?
     for (self.symtab.items()) |*entry| {
-        if (entry.value.tag != .Undef) continue;
+        if (entry.value.tag != .undef) continue;
         entry.value = .{
-            .tag = .Import,
+            .tag = .import,
             .inner = .{
                 .n_strx = 0, // This will be populated once we write the string table.
                 .n_type = macho.N_UNDF | macho.N_EXT,
@@ -1362,7 +1365,7 @@ fn resolveSymbols(self: *Zld) !void {
     // If there are any undefs left, flag an error.
     var has_unresolved = false;
     for (self.symtab.items()) |entry| {
-        if (entry.value.tag != .Undef) continue;
+        if (entry.value.tag != .undef) continue;
         has_unresolved = true;
         log.err("undefined reference to symbol '{s}'", .{entry.key});
     }
@@ -1373,7 +1376,7 @@ fn resolveSymbols(self: *Zld) !void {
     // Finally put dyld_stub_binder as an Import
     var name = try self.allocator.dupe(u8, "dyld_stub_binder");
     try self.symtab.putNoClobber(self.allocator, name, .{
-        .tag = .Import,
+        .tag = .import,
         .inner = .{
             .n_strx = 0, // This will be populated once we write the string table.
             .n_type = macho.N_UNDF | macho.N_EXT,
@@ -1401,7 +1404,7 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
                         if (self.got_entries.contains(sym_name)) continue;
 
                         // TODO clean this up
-                        const is_import = self.symtab.get(sym_name).?.tag == .Import;
+                        const is_import = self.symtab.get(sym_name).?.tag == .import;
                         var name = try self.allocator.dupe(u8, sym_name);
                         const index = @intCast(u32, self.got_entries.items().len);
                         try self.got_entries.putNoClobber(self.allocator, name, .{
@@ -1418,11 +1421,11 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
                         const sym = object.symtab.items[reloc.target.symbol];
                         const sym_name = object.getString(sym.inner.n_strx);
 
-                        if (sym.tag != .Undef) continue;
+                        if (sym.tag != .undef) continue;
 
                         const in_globals = self.symtab.get(sym_name) orelse unreachable;
 
-                        if (in_globals.tag != .Import) continue;
+                        if (in_globals.tag != .import) continue;
                         if (self.stubs.contains(sym_name)) continue;
 
                         var name = try self.allocator.dupe(u8, sym_name);
@@ -1589,7 +1592,7 @@ fn relocTargetAddr(self: *Zld, object_id: u16, target: Relocation.Target) !u64 {
                 const sym_name = object.getString(sym.inner.n_strx);
 
                 switch (sym.tag) {
-                    .Stab, .Local, .Weak, .Strong => {
+                    .stab, .local, .weak, .strong => {
                         log.warn("    | local symbol '{s}'", .{sym_name});
                         break :blk sym.inner.n_value;
                     },
@@ -2245,7 +2248,7 @@ fn writeBindInfoTable(self: *Zld) !void {
 
             const dylib_ordinal = dylib_ordinal: {
                 const sym = self.symtab.get(entry.key) orelse continue; // local indirection
-                if (sym.tag != .Import) continue; // local indirection
+                if (sym.tag != .import) continue; // local indirection
                 break :dylib_ordinal sym.file.? + 1;
             };
 
@@ -2308,7 +2311,7 @@ fn writeLazyBindInfoTable(self: *Zld) !void {
         for (self.stubs.items()) |entry| {
             const dylib_ordinal = dylib_ordinal: {
                 const sym = self.symtab.get(entry.key) orelse unreachable;
-                assert(sym.tag == .Import);
+                assert(sym.tag == .import);
                 break :dylib_ordinal sym.file.? + 1;
             };
 
@@ -2562,7 +2565,7 @@ fn populateStringTable(self: *Zld) !void {
     for (self.objects.items) |*object| {
         for (object.symtab.items) |*sym| {
             switch (sym.tag) {
-                .Undef, .Import => continue,
+                .undef, .import => continue,
                 else => {},
             }
             const sym_name = object.getString(sym.inner.n_strx);
@@ -2572,7 +2575,7 @@ fn populateStringTable(self: *Zld) !void {
     }
 
     for (self.symtab.items()) |*entry| {
-        if (entry.value.tag != .Import) continue;
+        if (entry.value.tag != .import) continue;
 
         const n_strx = try self.makeString(entry.key);
         entry.value.inner.n_strx = n_strx;
@@ -2589,7 +2592,7 @@ fn writeSymbolTable(self: *Zld) !void {
     for (self.objects.items) |object| {
         for (object.symtab.items) |sym| {
             switch (sym.tag) {
-                .Stab, .Local => {},
+                .stab, .local => {},
                 else => continue,
             }
 
@@ -2609,10 +2612,10 @@ fn writeSymbolTable(self: *Zld) !void {
     var undef_id: u32 = 0;
     for (self.symtab.items()) |entry| {
         switch (entry.value.tag) {
-            .Weak, .Strong => {
+            .weak, .strong => {
                 try exports.append(entry.value.inner);
             },
-            .Import => {
+            .import => {
                 try undefs.append(entry.value.inner);
                 try undefs_ids.putNoClobber(entry.key, undef_id);
                 undef_id += 1;
