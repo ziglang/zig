@@ -21,6 +21,7 @@ pub usingnamespace switch (builtin.arch) {
     .riscv64 => @import("linux/riscv64.zig"),
     .sparcv9 => @import("linux/sparc64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
+    .powerpc => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
     else => struct {},
 };
