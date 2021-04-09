@@ -823,7 +823,31 @@ pub fn structInitExpr(
         .none, .none_or_ref => return mod.failNode(scope, node, "TODO implement structInitExpr none", .{}),
         .ref => unreachable, // struct literal not valid as l-value
         .ty => |ty_inst| {
-            return mod.failNode(scope, node, "TODO implement structInitExpr ty", .{});
+            const fields_list = try gpa.alloc(zir.Inst.StructInit.Item, struct_init.ast.fields.len);
+            defer gpa.free(fields_list);
+
+            for (struct_init.ast.fields) |field_init, i| {
+                const name_token = tree.firstToken(field_init) - 2;
+                const str_index = try gz.identAsString(name_token);
+
+                const field_ty_inst = try gz.addPlNode(.field_type, field_init, zir.Inst.FieldType{
+                    .container_type = ty_inst,
+                    .name_start = str_index,
+                });
+                fields_list[i] = .{
+                    .field_type = astgen.refToIndex(field_ty_inst).?,
+                    .init = try expr(gz, scope, .{ .ty = field_ty_inst }, field_init),
+                };
+            }
+            const init_inst = try gz.addPlNode(.struct_init, node, zir.Inst.StructInit{
+                .fields_len = @intCast(u32, fields_list.len),
+            });
+            try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
+                fields_list.len * @typeInfo(zir.Inst.StructInit.Item).Struct.fields.len);
+            for (fields_list) |field| {
+                _ = gz.astgen.addExtraAssumeCapacity(field);
+            }
+            return rvalue(gz, scope, rl, init_inst, node);
         },
         .ptr => |ptr_inst| {
             const field_ptr_list = try gpa.alloc(zir.Inst.Index, struct_init.ast.fields.len);
@@ -1321,6 +1345,8 @@ fn blockExprStmts(
                         .switch_capture_else,
                         .switch_capture_else_ref,
                         .struct_init_empty,
+                        .struct_init,
+                        .field_type,
                         .struct_decl,
                         .struct_decl_packed,
                         .struct_decl_extern,

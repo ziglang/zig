@@ -674,6 +674,13 @@ pub const Inst = struct {
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
+        /// Given a struct, union, enum, or opaque and a field name, returns the field type.
+        /// Uses the `pl_node` field. Payload is `FieldType`.
+        field_type,
+        /// Finalizes a typed struct initialization, performs validation, and returns the
+        /// struct value.
+        /// Uses the `pl_node` field. Payload is `StructInit`.
+        struct_init,
         /// Converts an integer into an enum value.
         /// Uses `pl_node` with payload `Bin`. `lhs` is enum type, `rhs` is operand.
         int_to_enum,
@@ -839,6 +846,8 @@ pub const Inst = struct {
                 .switch_block_ref_under_multi,
                 .validate_struct_init_ptr,
                 .struct_init_empty,
+                .struct_init,
+                .field_type,
                 .int_to_enum,
                 .enum_to_int,
                 => false,
@@ -1551,6 +1560,24 @@ pub const Inst = struct {
             return @bitCast(f128, int_bits);
         }
     };
+
+    /// Trailing is an item per field.
+    pub const StructInit = struct {
+        fields_len: u32,
+
+        pub const Item = struct {
+            /// The `field_type` ZIR instruction for this field init.
+            field_type: Index,
+            /// The field init expression to be used as the field value.
+            init: Ref,
+        };
+    };
+
+    pub const FieldType = struct {
+        container_type: Ref,
+        /// Offset into `string_bytes`, null terminated.
+        name_start: u32,
+    };
 };
 
 pub const SpecialProng = enum { none, @"else", under };
@@ -1665,6 +1692,8 @@ const Writer = struct {
             .union_decl,
             .enum_decl,
             .enum_decl_nonexhaustive,
+            .struct_init,
+            .field_type,
             => try self.writePlNode(stream, inst),
 
             .add,

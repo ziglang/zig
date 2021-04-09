@@ -264,6 +264,8 @@ pub fn analyzeBody(
             .typeof_peer => try sema.zirTypeofPeer(block, inst),
             .xor => try sema.zirBitwise(block, inst, .xor),
             .struct_init_empty => try sema.zirStructInitEmpty(block, inst),
+            .struct_init => try sema.zirStructInit(block, inst),
+            .field_type => try sema.zirFieldType(block, inst),
 
             .struct_decl => try sema.zirStructDecl(block, inst, .Auto),
             .struct_decl_packed => try sema.zirStructDecl(block, inst, .Packed),
@@ -4491,6 +4493,18 @@ fn zirStructInitEmpty(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) In
         .ty = struct_type,
         .val = Value.initTag(.empty_struct_value),
     });
+}
+
+fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirStructInit", .{});
+}
+
+fn zirFieldType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirFieldType", .{});
 }
 
 fn requireFunctionBlock(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void {
