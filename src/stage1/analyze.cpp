@@ -1971,10 +1971,10 @@ Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_
         case CallingConventionAAPCSVFP:
             if (!target_is_arm(g->zig_target))
                 allowed_platforms = "ARM";
+            break;
         case CallingConventionSysV:
             if (g->zig_target->arch != ZigLLVM_x86_64)
                 allowed_platforms = "x86_64";
-            break;
     }
     if (allowed_platforms != nullptr) {
         add_node_error(g, source_node, buf_sprintf(
