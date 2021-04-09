@@ -28,8 +28,6 @@ const BuiltinFn = @import("BuiltinFn.zig");
 instructions: std.MultiArrayList(zir.Inst) = .{},
 string_bytes: ArrayListUnmanaged(u8) = .{},
 extra: ArrayListUnmanaged(u32) = .{},
-decl_map: std.StringArrayHashMapUnmanaged(void) = .{},
-decls: ArrayListUnmanaged(*Decl) = .{},
 /// The end of special indexes. `zir.Inst.Ref` subtracts against this number to convert
 /// to `zir.Inst.Index`. The default here is correct if there are 0 parameters.
 ref_start_index: u32 = zir.Inst.Ref.typed_value_map.len,
@@ -110,8 +108,6 @@ pub fn deinit(astgen: *AstGen) void {
     astgen.instructions.deinit(gpa);
     astgen.extra.deinit(gpa);
     astgen.string_bytes.deinit(gpa);
-    astgen.decl_map.deinit(gpa);
-    astgen.decls.deinit(gpa);
 }
 
 pub const ResultLoc = union(enum) {
@@ -827,7 +823,31 @@ pub fn structInitExpr(
         .none, .none_or_ref => return mod.failNode(scope, node, "TODO implement structInitExpr none", .{}),
         .ref => unreachable, // struct literal not valid as l-value
         .ty => |ty_inst| {
-            return mod.failNode(scope, node, "TODO implement structInitExpr ty", .{});
+            const fields_list = try gpa.alloc(zir.Inst.StructInit.Item, struct_init.ast.fields.len);
+            defer gpa.free(fields_list);
+
+            for (struct_init.ast.fields) |field_init, i| {
+                const name_token = tree.firstToken(field_init) - 2;
+                const str_index = try gz.identAsString(name_token);
+
+                const field_ty_inst = try gz.addPlNode(.field_type, field_init, zir.Inst.FieldType{
+                    .container_type = ty_inst,
+                    .name_start = str_index,
+                });
+                fields_list[i] = .{
+                    .field_type = astgen.refToIndex(field_ty_inst).?,
+                    .init = try expr(gz, scope, .{ .ty = field_ty_inst }, field_init),
+                };
+            }
+            const init_inst = try gz.addPlNode(.struct_init, node, zir.Inst.StructInit{
+                .fields_len = @intCast(u32, fields_list.len),
+            });
+            try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
+                fields_list.len * @typeInfo(zir.Inst.StructInit.Item).Struct.fields.len);
+            for (fields_list) |field| {
+                _ = gz.astgen.addExtraAssumeCapacity(field);
+            }
+            return rvalue(gz, scope, rl, init_inst, node);
         },
         .ptr => |ptr_inst| {
             const field_ptr_list = try gpa.alloc(zir.Inst.Index, struct_init.ast.fields.len);
@@ -1183,13 +1203,6 @@ fn blockExprStmts(
                     // in the above while loop.
                     const zir_tags = gz.astgen.instructions.items(.tag);
                     switch (zir_tags[inst]) {
-                        .@"const" => {
-                            const tv = gz.astgen.instructions.items(.data)[inst].@"const";
-                            break :b switch (tv.ty.zigTypeTag()) {
-                                .NoReturn, .Void => true,
-                                else => false,
-                            };
-                        },
                         // For some instructions, swap in a slightly different ZIR tag
                         // so we can avoid a separate ensure_result_used instruction.
                         .call_none_chkused => unreachable,
@@ -1256,7 +1269,10 @@ fn blockExprStmts(
                         .fn_type_var_args,
                         .fn_type_cc,
                         .fn_type_cc_var_args,
+                        .has_decl,
                         .int,
+                        .float,
+                        .float128,
                         .intcast,
                         .int_type,
                         .is_non_null,
@@ -1329,12 +1345,18 @@ fn blockExprStmts(
                         .switch_capture_else,
                         .switch_capture_else_ref,
                         .struct_init_empty,
+                        .struct_init,
+                        .field_type,
                         .struct_decl,
                         .struct_decl_packed,
                         .struct_decl_extern,
                         .union_decl,
                         .enum_decl,
+                        .enum_decl_nonexhaustive,
                         .opaque_decl,
+                        .int_to_enum,
+                        .enum_to_int,
+                        .type_info,
                         => break :b false,
 
                         // ZIR instructions that are always either `noreturn` or `void`.
@@ -1342,6 +1364,7 @@ fn blockExprStmts(
                         .dbg_stmt_node,
                         .ensure_result_used,
                         .ensure_result_non_error,
+                        .@"export",
                         .set_eval_branch_quota,
                         .compile_log,
                         .ensure_err_payload_void,
@@ -1490,7 +1513,7 @@ fn varDecl(
                 init_scope.rl_ptr = try init_scope.addUnNode(.alloc, type_inst, node);
                 init_scope.rl_ty_inst = type_inst;
             } else {
-                const alloc = try init_scope.addUnNode(.alloc_inferred, undefined, node);
+                const alloc = try init_scope.addNode(.alloc_inferred, node);
                 resolve_inferred_alloc = alloc;
                 init_scope.rl_ptr = alloc;
             }
@@ -1565,7 +1588,7 @@ fn varDecl(
                 const alloc = try gz.addUnNode(.alloc_mut, type_inst, node);
                 break :a .{ .alloc = alloc, .result_loc = .{ .ptr = alloc } };
             } else a: {
-                const alloc = try gz.addUnNode(.alloc_inferred_mut, undefined, node);
+                const alloc = try gz.addNode(.alloc_inferred_mut, node);
                 resolve_inferred_alloc = alloc;
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };
@@ -1823,15 +1846,18 @@ fn containerDecl(
             defer bit_bag.deinit(gpa);
 
             var cur_bit_bag: u32 = 0;
-            var member_index: usize = 0;
-            while (true) {
-                const member_node = container_decl.ast.members[member_index];
+            var field_index: usize = 0;
+            for (container_decl.ast.members) |member_node| {
                 const member = switch (node_tags[member_node]) {
                     .container_field_init => tree.containerFieldInit(member_node),
                     .container_field_align => tree.containerFieldAlign(member_node),
                     .container_field => tree.containerField(member_node),
-                    else => unreachable,
+                    else => continue,
                 };
+                if (field_index % 16 == 0 and field_index != 0) {
+                    try bit_bag.append(gpa, cur_bit_bag);
+                    cur_bit_bag = 0;
+                }
                 if (member.comptime_token) |comptime_token| {
                     return mod.failTok(scope, comptime_token, "TODO implement comptime struct fields", .{});
                 }
@@ -1858,17 +1884,9 @@ fn containerDecl(
                     fields_data.appendAssumeCapacity(@enumToInt(default_inst));
                 }
 
-                member_index += 1;
-                if (member_index < container_decl.ast.members.len) {
-                    if (member_index % 16 == 0) {
-                        try bit_bag.append(gpa, cur_bit_bag);
-                        cur_bit_bag = 0;
-                    }
-                } else {
-                    break;
-                }
+                field_index += 1;
             }
-            const empty_slot_count = 16 - ((member_index - 1) % 16);
+            const empty_slot_count = 16 - (field_index % 16);
             cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
 
             const result = try gz.addPlNode(tag, node, zir.Inst.StructDecl{
@@ -1885,7 +1903,172 @@ fn containerDecl(
             return mod.failTok(scope, container_decl.ast.main_token, "TODO AstGen for union decl", .{});
         },
         .keyword_enum => {
-            return mod.failTok(scope, container_decl.ast.main_token, "TODO AstGen for enum decl", .{});
+            if (container_decl.layout_token) |t| {
+                return mod.failTok(scope, t, "enums do not support 'packed' or 'extern'; instead provide an explicit integer tag type", .{});
+            }
+            // Count total fields as well as how many have explicitly provided tag values.
+            const counts = blk: {
+                var values: usize = 0;
+                var total_fields: usize = 0;
+                var decls: usize = 0;
+                var nonexhaustive_node: ast.Node.Index = 0;
+                for (container_decl.ast.members) |member_node| {
+                    const member = switch (node_tags[member_node]) {
+                        .container_field_init => tree.containerFieldInit(member_node),
+                        .container_field_align => tree.containerFieldAlign(member_node),
+                        .container_field => tree.containerField(member_node),
+                        else => {
+                            decls += 1;
+                            continue;
+                        },
+                    };
+                    if (member.comptime_token) |comptime_token| {
+                        return mod.failTok(scope, comptime_token, "enum fields cannot be marked comptime", .{});
+                    }
+                    if (member.ast.type_expr != 0) {
+                        return mod.failNode(scope, member.ast.type_expr, "enum fields do not have types", .{});
+                    }
+                    // Alignment expressions in enums are caught by the parser.
+                    assert(member.ast.align_expr == 0);
+
+                    const name_token = member.ast.name_token;
+                    if (mem.eql(u8, tree.tokenSlice(name_token), "_")) {
+                        if (nonexhaustive_node != 0) {
+                            const msg = msg: {
+                                const msg = try mod.errMsg(
+                                    scope,
+                                    gz.nodeSrcLoc(member_node),
+                                    "redundant non-exhaustive enum mark",
+                                    .{},
+                                );
+                                errdefer msg.destroy(gpa);
+                                const other_src = gz.nodeSrcLoc(nonexhaustive_node);
+                                try mod.errNote(scope, other_src, msg, "other mark here", .{});
+                                break :msg msg;
+                            };
+                            return mod.failWithOwnedErrorMsg(scope, msg);
+                        }
+                        nonexhaustive_node = member_node;
+                        if (member.ast.value_expr != 0) {
+                            return mod.failNode(scope, member.ast.value_expr, "'_' is used to mark an enum as non-exhaustive and cannot be assigned a value", .{});
+                        }
+                        continue;
+                    }
+                    total_fields += 1;
+                    if (member.ast.value_expr != 0) {
+                        values += 1;
+                    }
+                }
+                break :blk .{
+                    .total_fields = total_fields,
+                    .values = values,
+                    .decls = decls,
+                    .nonexhaustive_node = nonexhaustive_node,
+                };
+            };
+            if (counts.total_fields == 0) {
+                // One can construct an enum with no tags, and it functions the same as `noreturn`. But
+                // this is only useful for generic code; when explicitly using `enum {}` syntax, there
+                // must be at least one tag.
+                return mod.failNode(scope, node, "enum declarations must have at least one tag", .{});
+            }
+            if (counts.nonexhaustive_node != 0 and arg_inst == .none) {
+                const msg = msg: {
+                    const msg = try mod.errMsg(
+                        scope,
+                        gz.nodeSrcLoc(node),
+                        "non-exhaustive enum missing integer tag type",
+                        .{},
+                    );
+                    errdefer msg.destroy(gpa);
+                    const other_src = gz.nodeSrcLoc(counts.nonexhaustive_node);
+                    try mod.errNote(scope, other_src, msg, "marked non-exhaustive here", .{});
+                    break :msg msg;
+                };
+                return mod.failWithOwnedErrorMsg(scope, msg);
+            }
+            if (counts.values == 0 and counts.decls == 0 and arg_inst == .none) {
+                // No explicitly provided tag values and no top level declarations! In this case,
+                // we can construct the enum type in AstGen and it will be correctly shared by all
+                // generic function instantiations and comptime function calls.
+                var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+                errdefer new_decl_arena.deinit();
+                const arena = &new_decl_arena.allocator;
+
+                var fields_map: std.StringArrayHashMapUnmanaged(void) = .{};
+                try fields_map.ensureCapacity(arena, counts.total_fields);
+                for (container_decl.ast.members) |member_node| {
+                    if (member_node == counts.nonexhaustive_node)
+                        continue;
+                    const member = switch (node_tags[member_node]) {
+                        .container_field_init => tree.containerFieldInit(member_node),
+                        .container_field_align => tree.containerFieldAlign(member_node),
+                        .container_field => tree.containerField(member_node),
+                        else => unreachable, // We checked earlier.
+                    };
+                    const name_token = member.ast.name_token;
+                    const tag_name = try mod.identifierTokenStringTreeArena(
+                        scope,
+                        name_token,
+                        tree,
+                        arena,
+                    );
+                    const gop = fields_map.getOrPutAssumeCapacity(tag_name);
+                    if (gop.found_existing) {
+                        const msg = msg: {
+                            const msg = try mod.errMsg(
+                                scope,
+                                gz.tokSrcLoc(name_token),
+                                "duplicate enum tag",
+                                .{},
+                            );
+                            errdefer msg.destroy(gpa);
+                            // Iterate to find the other tag. We don't eagerly store it in a hash
+                            // map because in the hot path there will be no compile error and we
+                            // don't need to waste time with a hash map.
+                            const bad_node = for (container_decl.ast.members) |other_member_node| {
+                                const other_member = switch (node_tags[other_member_node]) {
+                                    .container_field_init => tree.containerFieldInit(other_member_node),
+                                    .container_field_align => tree.containerFieldAlign(other_member_node),
+                                    .container_field => tree.containerField(other_member_node),
+                                    else => unreachable, // We checked earlier.
+                                };
+                                const other_tag_name = try mod.identifierTokenStringTreeArena(
+                                    scope,
+                                    other_member.ast.name_token,
+                                    tree,
+                                    arena,
+                                );
+                                if (mem.eql(u8, tag_name, other_tag_name))
+                                    break other_member_node;
+                            } else unreachable;
+                            const other_src = gz.nodeSrcLoc(bad_node);
+                            try mod.errNote(scope, other_src, msg, "other tag here", .{});
+                            break :msg msg;
+                        };
+                        return mod.failWithOwnedErrorMsg(scope, msg);
+                    }
+                }
+                const enum_simple = try arena.create(Module.EnumSimple);
+                enum_simple.* = .{
+                    .owner_decl = astgen.decl,
+                    .node_offset = astgen.decl.nodeIndexToRelative(node),
+                    .fields = fields_map,
+                };
+                const enum_ty = try Type.Tag.enum_simple.create(arena, enum_simple);
+                const enum_val = try Value.Tag.ty.create(arena, enum_ty);
+                const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
+                    .ty = Type.initTag(.type),
+                    .val = enum_val,
+                });
+                const decl_index = try mod.declareDeclDependency(astgen.decl, new_decl);
+                const result = try gz.addDecl(.decl_val, decl_index, node);
+                return rvalue(gz, scope, rl, result, node);
+            }
+            // In this case we must generate ZIR code for the tag values, similar to
+            // how structs are handled above. The new anonymous Decl will be created in
+            // Sema, not AstGen.
+            return mod.failNode(scope, node, "TODO AstGen for enum decl with decls or explicitly provided field values", .{});
         },
         .keyword_opaque => {
             const result = try gz.addNode(.opaque_decl, node);
@@ -1901,11 +2084,11 @@ fn errorSetDecl(
     rl: ResultLoc,
     node: ast.Node.Index,
 ) InnerError!zir.Inst.Ref {
-    const mod = gz.astgen.mod;
+    const astgen = gz.astgen;
+    const mod = astgen.mod;
     const tree = gz.tree();
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
-    const arena = gz.astgen.arena;
 
     // Count how many fields there are.
     const error_token = main_tokens[node];
@@ -1922,6 +2105,11 @@ fn errorSetDecl(
         } else unreachable; // TODO should not need else unreachable here
     };
 
+    const gpa = mod.gpa;
+    var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+    errdefer new_decl_arena.deinit();
+    const arena = &new_decl_arena.allocator;
+
     const fields = try arena.alloc([]const u8, count);
     {
         var tok_i = error_token + 2;
@@ -1930,7 +2118,7 @@ fn errorSetDecl(
             switch (token_tags[tok_i]) {
                 .doc_comment, .comma => {},
                 .identifier => {
-                    fields[field_i] = try mod.identifierTokenString(scope, tok_i);
+                    fields[field_i] = try mod.identifierTokenStringTreeArena(scope, tok_i, tree, arena);
                     field_i += 1;
                 },
                 .r_brace => break,
@@ -1940,18 +2128,19 @@ fn errorSetDecl(
     }
     const error_set = try arena.create(Module.ErrorSet);
     error_set.* = .{
-        .owner_decl = gz.astgen.decl,
-        .node_offset = gz.astgen.decl.nodeIndexToRelative(node),
+        .owner_decl = astgen.decl,
+        .node_offset = astgen.decl.nodeIndexToRelative(node),
         .names_ptr = fields.ptr,
         .names_len = @intCast(u32, fields.len),
     };
     const error_set_ty = try Type.Tag.error_set.create(arena, error_set);
-    const typed_value = try arena.create(TypedValue);
-    typed_value.* = .{
+    const error_set_val = try Value.Tag.ty.create(arena, error_set_ty);
+    const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
         .ty = Type.initTag(.type),
-        .val = try Value.Tag.ty.create(arena, error_set_ty),
-    };
-    const result = try gz.addConst(typed_value);
+        .val = error_set_val,
+    });
+    const decl_index = try mod.declareDeclDependency(astgen.decl, new_decl);
+    const result = try gz.addDecl(.decl_val, decl_index, node);
     return rvalue(gz, scope, rl, result, node);
 }
 
@@ -2187,7 +2376,7 @@ fn arrayAccess(
         ),
         else => return rvalue(gz, scope, rl, try gz.addBin(
             .elem_val,
-            try expr(gz, scope, .none, node_datas[node].lhs),
+            try expr(gz, scope, .none_or_ref, node_datas[node].lhs),
             try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
         ), node),
     }
@@ -3196,8 +3385,13 @@ fn switchExpr(
     switch (strat.tag) {
         .break_operand => {
             // Switch expressions return `true` for `nodeMayNeedMemoryLocation` thus
-            // this is always true.
-            assert(strat.elide_store_to_block_ptr_instructions);
+            // `elide_store_to_block_ptr_instructions` will either be true,
+            // or all prongs are noreturn.
+            if (!strat.elide_store_to_block_ptr_instructions) {
+                astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items);
+                astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items);
+                return astgen.indexToRef(switch_block);
+            }
 
             // There will necessarily be a store_to_block_ptr for
             // all prongs, except for prongs that ended with a noreturn instruction.
@@ -3426,7 +3620,8 @@ fn identifier(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const mod = gz.astgen.mod;
+    const astgen = gz.astgen;
+    const mod = astgen.mod;
     const tree = gz.tree();
     const main_tokens = tree.nodes.items(.main_token);
 
@@ -3459,7 +3654,7 @@ fn identifier(
             const result = try gz.add(.{
                 .tag = .int_type,
                 .data = .{ .int_type = .{
-                    .src_node = gz.astgen.decl.nodeIndexToRelative(ident),
+                    .src_node = astgen.decl.nodeIndexToRelative(ident),
                     .signedness = signedness,
                     .bit_count = bit_count,
                 } },
@@ -3497,13 +3692,13 @@ fn identifier(
         };
     }
 
-    const gop = try gz.astgen.decl_map.getOrPut(mod.gpa, ident_name);
-    if (!gop.found_existing) {
-        const decl = mod.lookupDeclName(scope, ident_name) orelse
-            return mod.failNode(scope, ident, "use of undeclared identifier '{s}'", .{ident_name});
-        try gz.astgen.decls.append(mod.gpa, decl);
-    }
-    const decl_index = @intCast(u32, gop.index);
+    const decl = mod.lookupDeclName(scope, ident_name) orelse {
+        // TODO insert a "dependency on the non-existence of a decl" here to make this
+        // compile error go away when the decl is introduced. This data should be in a global
+        // sparse map since it is only relevant when a compile error occurs.
+        return mod.failNode(scope, ident, "use of undeclared identifier '{s}'", .{ident_name});
+    };
+    const decl_index = try mod.declareDeclDependency(astgen.decl, decl);
     switch (rl) {
         .ref, .none_or_ref => return gz.addDecl(.decl_ref, decl_index, ident),
         else => return rvalue(gz, scope, rl, try gz.addDecl(.decl_val, decl_index, ident), ident),
@@ -3638,12 +3833,23 @@ fn floatLiteral(
     const float_number = std.fmt.parseFloat(f128, bytes) catch |e| switch (e) {
         error.InvalidCharacter => unreachable, // validated by tokenizer
     };
-    const typed_value = try arena.create(TypedValue);
-    typed_value.* = .{
-        .ty = Type.initTag(.comptime_float),
-        .val = try Value.Tag.float_128.create(arena, float_number),
-    };
-    const result = try gz.addConst(typed_value);
+    // If the value fits into a f32 without losing any precision, store it that way.
+    @setFloatMode(.Strict);
+    const smaller_float = @floatCast(f32, float_number);
+    const bigger_again: f128 = smaller_float;
+    if (bigger_again == float_number) {
+        const result = try gz.addFloat(smaller_float, node);
+        return rvalue(gz, scope, rl, result, node);
+    }
+    // We need to use 128 bits. Break the float into 4 u32 values so we can
+    // put it into the `extra` array.
+    const int_bits = @bitCast(u128, float_number);
+    const result = try gz.addPlNode(.float128, node, zir.Inst.Float128{
+        .piece0 = @truncate(u32, int_bits),
+        .piece1 = @truncate(u32, int_bits >> 32),
+        .piece2 = @truncate(u32, int_bits >> 64),
+        .piece3 = @truncate(u32, int_bits >> 96),
+    });
     return rvalue(gz, scope, rl, result, node);
 }
 
@@ -3894,11 +4100,11 @@ fn builtinCall(
             return rvalue(gz, scope, rl, result, node);
         },
         .breakpoint => {
-            const result = try gz.add(.{
+            _ = try gz.add(.{
                 .tag = .breakpoint,
                 .data = .{ .node = gz.astgen.decl.nodeIndexToRelative(node) },
             });
-            return rvalue(gz, scope, rl, result, node);
+            return rvalue(gz, scope, rl, .void_value, node);
         },
         .import => {
             const target = try expr(gz, scope, .none, params[0]);
@@ -3955,6 +4161,50 @@ fn builtinCall(
         .bit_cast => return bitCast(gz, scope, rl, node, params[0], params[1]),
         .TypeOf => return typeOf(gz, scope, rl, node, params),
 
+        .int_to_enum => {
+            const result = try gz.addPlNode(.int_to_enum, node, zir.Inst.Bin{
+                .lhs = try typeExpr(gz, scope, params[0]),
+                .rhs = try expr(gz, scope, .none, params[1]),
+            });
+            return rvalue(gz, scope, rl, result, node);
+        },
+
+        .enum_to_int => {
+            const operand = try expr(gz, scope, .none, params[0]);
+            const result = try gz.addUnNode(.enum_to_int, operand, node);
+            return rvalue(gz, scope, rl, result, node);
+        },
+
+        .@"export" => {
+            // TODO: @export is supposed to be able to export things other than functions.
+            // Instead of `comptimeExpr` here we need `decl_ref`.
+            const fn_to_export = try comptimeExpr(gz, scope, .none, params[0]);
+            // TODO: the second parameter here is supposed to be
+            // `std.builtin.ExportOptions`, not a string.
+            const export_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
+            _ = try gz.addPlNode(.@"export", node, zir.Inst.Bin{
+                .lhs = fn_to_export,
+                .rhs = export_name,
+            });
+            return rvalue(gz, scope, rl, .void_value, node);
+        },
+
+        .has_decl => {
+            const container_type = try typeExpr(gz, scope, params[0]);
+            const name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
+            const result = try gz.addPlNode(.has_decl, node, zir.Inst.Bin{
+                .lhs = container_type,
+                .rhs = name,
+            });
+            return rvalue(gz, scope, rl, result, node);
+        },
+
+        .type_info => {
+            const operand = try typeExpr(gz, scope, params[0]);
+            const result = try gz.addUnNode(.type_info, operand, node);
+            return rvalue(gz, scope, rl, result, node);
+        },
+
         .add_with_overflow,
         .align_cast,
         .align_of,
@@ -3981,17 +4231,13 @@ fn builtinCall(
         .div_floor,
         .div_trunc,
         .embed_file,
-        .enum_to_int,
         .error_name,
         .error_return_trace,
         .err_set_cast,
-        .@"export",
         .fence,
         .field_parent_ptr,
         .float_to_int,
-        .has_decl,
         .has_field,
-        .int_to_enum,
         .int_to_float,
         .int_to_ptr,
         .memcpy,
@@ -4035,7 +4281,6 @@ fn builtinCall(
         .This,
         .truncate,
         .Type,
-        .type_info,
         .type_name,
         .union_init,
         => return mod.failNode(scope, node, "TODO: implement builtin function {s}", .{

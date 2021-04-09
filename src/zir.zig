@@ -37,8 +37,6 @@ pub const Code = struct {
     string_bytes: []u8,
     /// The meaning of this data is determined by `Inst.Tag` value.
     extra: []u32,
-    /// Used for decl_val and decl_ref instructions.
-    decls: []*Module.Decl,
 
     /// Returns the requested data, as well as the new index which is at the start of the
     /// trailers for the object.
@@ -78,7 +76,6 @@ pub const Code = struct {
         code.instructions.deinit(gpa);
         gpa.free(code.string_bytes);
         gpa.free(code.extra);
-        gpa.free(code.decls);
         code.* = undefined;
     }
 
@@ -133,7 +130,7 @@ pub const Inst = struct {
         /// Same as `alloc` except mutable.
         alloc_mut,
         /// Same as `alloc` except the type is inferred.
-        /// The operand is unused.
+        /// Uses the `node` union field.
         alloc_inferred,
         /// Same as `alloc_inferred` except mutable.
         alloc_inferred_mut,
@@ -267,9 +264,6 @@ pub const Inst = struct {
         /// only the taken branch is analyzed. The then block and else block must
         /// terminate with an "inline" variant of a noreturn instruction.
         condbr_inline,
-        /// A comptime known value.
-        /// Uses the `const` union field.
-        @"const",
         /// A struct type definition. Contains references to ZIR instructions for
         /// the field types, defaults, and alignments.
         /// Uses the `pl_node` union field. Payload is `StructDecl`.
@@ -286,6 +280,8 @@ pub const Inst = struct {
         /// the field value expressions and optional type tag expression.
         /// Uses the `pl_node` union field. Payload is `EnumDecl`.
         enum_decl,
+        /// Same as `enum_decl`, except the enum is non-exhaustive.
+        enum_decl_nonexhaustive,
         /// An opaque type definition. Provides an AST node only.
         /// Uses the `node` union field.
         opaque_decl,
@@ -332,6 +328,9 @@ pub const Inst = struct {
         error_union_type,
         /// `error.Foo` syntax. Uses the `str_tok` field of the Data union.
         error_value,
+        /// Implements the `@export` builtin function.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        @"export",
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
         /// to the named field. The field name is stored in string_bytes. Used by a.b syntax.
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
@@ -364,11 +363,19 @@ pub const Inst = struct {
         fn_type_cc,
         /// Same as `fn_type_cc` but the function is variadic.
         fn_type_cc_var_args,
+        /// Implements the `@hasDecl` builtin.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        has_decl,
         /// `@import(operand)`.
         /// Uses the `un_node` field.
         import,
         /// Integer literal that fits in a u64. Uses the int union value.
         int,
+        /// A float literal that fits in a f32. Uses the float union value.
+        float,
+        /// A float literal that fits in a f128. Uses the `pl_node` union value.
+        /// Payload is `Float128`.
+        float128,
         /// Convert an integer value to another integer type, asserting that the destination type
         /// can hold the same mathematical value.
         /// Uses the `pl_node` field. AST is the `@intCast` syntax.
@@ -667,6 +674,21 @@ pub const Inst = struct {
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
+        /// Given a struct, union, enum, or opaque and a field name, returns the field type.
+        /// Uses the `pl_node` field. Payload is `FieldType`.
+        field_type,
+        /// Finalizes a typed struct initialization, performs validation, and returns the
+        /// struct value.
+        /// Uses the `pl_node` field. Payload is `StructInit`.
+        struct_init,
+        /// Converts an integer into an enum value.
+        /// Uses `pl_node` with payload `Bin`. `lhs` is enum type, `rhs` is operand.
+        int_to_enum,
+        /// Converts an enum value into an integer. Resulting type will be the tag type
+        /// of the enum. Uses `un_node`.
+        enum_to_int,
+        /// Implements the `@typeInfo` builtin. Uses `un_node`.
+        type_info,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -712,12 +734,12 @@ pub const Inst = struct {
                 .cmp_gt,
                 .cmp_neq,
                 .coerce_result_ptr,
-                .@"const",
                 .struct_decl,
                 .struct_decl_packed,
                 .struct_decl_extern,
                 .union_decl,
                 .enum_decl,
+                .enum_decl_nonexhaustive,
                 .opaque_decl,
                 .dbg_stmt_node,
                 .decl_ref,
@@ -730,6 +752,7 @@ pub const Inst = struct {
                 .elem_val_node,
                 .ensure_result_used,
                 .ensure_result_non_error,
+                .@"export",
                 .floatcast,
                 .field_ptr,
                 .field_val,
@@ -739,7 +762,10 @@ pub const Inst = struct {
                 .fn_type_var_args,
                 .fn_type_cc,
                 .fn_type_cc_var_args,
+                .has_decl,
                 .int,
+                .float,
+                .float128,
                 .intcast,
                 .int_type,
                 .is_non_null,
@@ -822,6 +848,11 @@ pub const Inst = struct {
                 .switch_block_ref_under_multi,
                 .validate_struct_init_ptr,
                 .struct_init_empty,
+                .struct_init,
+                .field_type,
+                .int_to_enum,
+                .enum_to_int,
+                .type_info,
                 => false,
 
                 .@"break",
@@ -1184,7 +1215,6 @@ pub const Inst = struct {
             }
         },
         bin: Bin,
-        @"const": *TypedValue,
         /// For strings which may contain null bytes.
         str: struct {
             /// Offset into `string_bytes`.
@@ -1226,6 +1256,16 @@ pub const Inst = struct {
         /// Offset from Decl AST node index.
         node: i32,
         int: u64,
+        float: struct {
+            /// Offset from Decl AST node index.
+            /// `Tag` determines which kind of AST node this points to.
+            src_node: i32,
+            number: f32,
+
+            pub fn src(self: @This()) LazySrcLoc {
+                return .{ .node_offset = self.src_node };
+            }
+        },
         array_type_sentinel: struct {
             len: Ref,
             /// index into extra, points to an `ArrayTypeSentinel`
@@ -1507,6 +1547,40 @@ pub const Inst = struct {
         tag_type: Ref,
         fields_len: u32,
     };
+
+    /// A f128 value, broken up into 4 u32 parts.
+    pub const Float128 = struct {
+        piece0: u32,
+        piece1: u32,
+        piece2: u32,
+        piece3: u32,
+
+        pub fn get(self: Float128) f128 {
+            const int_bits = @as(u128, self.piece0) |
+                (@as(u128, self.piece1) << 32) |
+                (@as(u128, self.piece2) << 64) |
+                (@as(u128, self.piece3) << 96);
+            return @bitCast(f128, int_bits);
+        }
+    };
+
+    /// Trailing is an item per field.
+    pub const StructInit = struct {
+        fields_len: u32,
+
+        pub const Item = struct {
+            /// The `field_type` ZIR instruction for this field init.
+            field_type: Index,
+            /// The field init expression to be used as the field value.
+            init: Ref,
+        };
+    };
+
+    pub const FieldType = struct {
+        container_type: Ref,
+        /// Offset into `string_bytes`, null terminated.
+        name_start: u32,
+    };
 };
 
 pub const SpecialProng = enum { none, @"else", under };
@@ -1536,12 +1610,11 @@ const Writer = struct {
             .intcast,
             .store,
             .store_to_block_ptr,
+            .store_to_inferred_ptr,
             => try self.writeBin(stream, inst),
 
             .alloc,
             .alloc_mut,
-            .alloc_inferred,
-            .alloc_inferred_mut,
             .indexable_ptr_len,
             .bit_not,
             .bool_not,
@@ -1581,6 +1654,8 @@ const Writer = struct {
             .typeof,
             .typeof_elem,
             .struct_init_empty,
+            .enum_to_int,
+            .type_info,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -1594,11 +1669,12 @@ const Writer = struct {
             => try self.writeBoolBr(stream, inst),
 
             .array_type_sentinel => try self.writeArrayTypeSentinel(stream, inst),
-            .@"const" => try self.writeConst(stream, inst),
             .param_type => try self.writeParamType(stream, inst),
             .ptr_type_simple => try self.writePtrTypeSimple(stream, inst),
             .ptr_type => try self.writePtrType(stream, inst),
             .int => try self.writeInt(stream, inst),
+            .float => try self.writeFloat(stream, inst),
+            .float128 => try self.writeFloat128(stream, inst),
             .str => try self.writeStr(stream, inst),
             .elided => try stream.writeAll(")"),
             .int_type => try self.writeIntType(stream, inst),
@@ -1619,6 +1695,9 @@ const Writer = struct {
             .slice_sentinel,
             .union_decl,
             .enum_decl,
+            .enum_decl_nonexhaustive,
+            .struct_init,
+            .field_type,
             => try self.writePlNode(stream, inst),
 
             .add,
@@ -1638,15 +1717,18 @@ const Writer = struct {
             .cmp_gt,
             .cmp_neq,
             .div,
+            .has_decl,
             .mod_rem,
             .shl,
             .shr,
             .xor,
             .store_node,
             .error_union_type,
+            .@"export",
             .merge_error_sets,
             .bit_and,
             .bit_or,
+            .int_to_enum,
             => try self.writePlNodeBin(stream, inst),
 
             .call,
@@ -1704,6 +1786,8 @@ const Writer = struct {
             .ret_type,
             .repeat,
             .repeat_inline,
+            .alloc_inferred,
+            .alloc_inferred_mut,
             => try self.writeNode(stream, inst),
 
             .error_value,
@@ -1729,7 +1813,6 @@ const Writer = struct {
 
             .bitcast,
             .bitcast_result_ptr,
-            .store_to_inferred_ptr,
             => try stream.writeAll("TODO)"),
         }
     }
@@ -1773,15 +1856,6 @@ const Writer = struct {
         try stream.writeAll("TODO)");
     }
 
-    fn writeConst(
-        self: *Writer,
-        stream: anytype,
-        inst: Inst.Index,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].@"const";
-        try stream.writeAll("TODO)");
-    }
-
     fn writeParamType(
         self: *Writer,
         stream: anytype,
@@ -1817,6 +1891,23 @@ const Writer = struct {
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].int;
         try stream.print("{d})", .{inst_data});
+    }
+
+    fn writeFloat(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].float;
+        const src = inst_data.src();
+        try stream.print("{d}) ", .{inst_data.number});
+        try self.writeSrc(stream, src);
+    }
+
+    fn writeFloat128(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.Float128, inst_data.payload_index).data;
+        const src = inst_data.src();
+        const number = extra.get();
+        // TODO improve std.format to be able to print f128 values
+        try stream.print("{d}) ", .{@floatCast(f64, number)});
+        try self.writeSrc(stream, src);
     }
 
     fn writeStr(
@@ -2136,7 +2227,8 @@ const Writer = struct {
 
     fn writePlNodeDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const decl = self.code.decls[inst_data.payload_index];
+        const owner_decl = self.scope.ownerDecl().?;
+        const decl = owner_decl.dependencies.entries.items[inst_data.payload_index].key;
         try stream.print("{s}) ", .{decl.name});
         try self.writeSrc(stream, inst_data.src());
     }

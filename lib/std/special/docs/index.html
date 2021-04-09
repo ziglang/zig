@@ -43,6 +43,8 @@
 
       /* layout */
       .canvas {
+        display: flex;
+        flex-direction: column;
         width: 100vw;
         height: 100vh;
         overflow: hidden;
@@ -53,12 +55,21 @@
         background-color: var(--bg-color);
       }
 
+      .banner {
+        background-color: darkred;
+        text-align: center;
+        color: white;
+        padding: 15px 5px;
+      }
+
+      .banner a {
+        color: bisque;
+        text-decoration: underline;
+      }
+
       .flex-main {
         display: flex;
-        width: 100%;
-        height: 100%;
-        justify-content: center;
-        
+        overflow-y: hidden;
         z-index: 100;
       }
 
@@ -515,7 +526,7 @@
     </style>
   </head>
   <body class="canvas">
-    <div style="background-color: darkred; width: 100vw; text-align: center; color: white; padding: 15px 5px;">These docs are experimental. <a style="color: bisque;text-decoration: underline;" href="https://kristoff.it/blog/zig-new-relationship-llvm/">Progress depends on the self-hosted compiler</a>, <a style="color: bisque;text-decoration: underline;" href="https://github.com/ziglang/zig/wiki/How-to-read-the-standard-library-source-code">consider reading the stlib source in the meantime</a>.</div>
+    <div class="banner">These docs are experimental. <a href="https://kristoff.it/blog/zig-new-relationship-llvm/">Progress depends on the self-hosted compiler</a>, <a href="https://github.com/ziglang/zig/wiki/How-to-read-the-standard-library-source-code">consider reading the stdlib source in the meantime</a>.</div>
     <div class="flex-main">
       <div class="flex-filler"></div>
       <div class="flex-left sidebar">

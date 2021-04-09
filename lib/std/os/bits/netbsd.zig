@@ -813,10 +813,6 @@ pub const sigset_t = extern struct {
     __bits: [_SIG_WORDS]u32,
 };
 
-pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
-pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
-
 pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** _SIG_WORDS };
 
 // XXX x86_64 specific
@@ -1219,3 +1215,25 @@ pub const rlimit = extern struct {
 pub const SHUT_RD = 0;
 pub const SHUT_WR = 1;
 pub const SHUT_RDWR = 2;
+
+pub const nfds_t = u32;
+
+pub const pollfd = extern struct {
+    fd: fd_t,
+    events: i16,
+    revents: i16,
+};
+
+/// Testable events (may be specified in events field).
+pub const POLLIN = 0x0001;
+pub const POLLPRI = 0x0002;
+pub const POLLOUT = 0x0004;
+pub const POLLRDNORM = 0x0040;
+pub const POLLWRNORM = POLLOUT;
+pub const POLLRDBAND = 0x0080;
+pub const POLLWRBAND = 0x0100;
+
+/// Non-testable events (may not be specified in events field).
+pub const POLLERR = 0x0008;
+pub const POLLHUP = 0x0010;
+pub const POLLNVAL = 0x0020;

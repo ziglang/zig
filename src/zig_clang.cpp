@@ -2046,6 +2046,11 @@ bool ZigClangType_isRecordType(const ZigClangType *self) {
     return casted->isRecordType();
 }
 
+bool ZigClangType_isVectorType(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    return casted->isVectorType();
+}
+
 bool ZigClangType_isIncompleteOrZeroLengthArrayType(const ZigClangQualType *self,
         const struct ZigClangASTContext *ctx)
 {
@@ -2738,6 +2743,16 @@ struct ZigClangQualType ZigClangBinaryOperator_getType(const struct ZigClangBina
     return bitcast(casted->getType());
 }
 
+const struct ZigClangExpr *ZigClangConvertVectorExpr_getSrcExpr(const struct ZigClangConvertVectorExpr *self) {
+    auto casted = reinterpret_cast<const clang::ConvertVectorExpr *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getSrcExpr());
+}
+
+struct ZigClangQualType ZigClangConvertVectorExpr_getTypeSourceInfo_getType(const struct ZigClangConvertVectorExpr *self) {
+    auto casted = reinterpret_cast<const clang::ConvertVectorExpr *>(self);
+    return bitcast(casted->getTypeSourceInfo()->getType());
+}
+
 struct ZigClangQualType ZigClangDecayedType_getDecayedType(const struct ZigClangDecayedType *self) {
     auto casted = reinterpret_cast<const clang::DecayedType *>(self);
     return bitcast(casted->getDecayedType());
@@ -2843,6 +2858,16 @@ struct ZigClangQualType ZigClangValueDecl_getType(const struct ZigClangValueDecl
     return bitcast(casted->getType());
 }
 
+struct ZigClangQualType ZigClangVectorType_getElementType(const struct ZigClangVectorType *self) {
+    auto casted = reinterpret_cast<const clang::VectorType *>(self);
+    return bitcast(casted->getElementType());
+}
+
+unsigned ZigClangVectorType_getNumElements(const struct ZigClangVectorType *self) {
+    auto casted = reinterpret_cast<const clang::VectorType *>(self);
+    return casted->getNumElements();
+}
+
 const struct ZigClangExpr *ZigClangWhileStmt_getCond(const struct ZigClangWhileStmt *self) {
     auto casted = reinterpret_cast<const clang::WhileStmt *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getCond());
@@ -2922,6 +2947,15 @@ struct ZigClangSourceLocation ZigClangUnaryExprOrTypeTraitExpr_getBeginLoc(
     return bitcast(casted->getBeginLoc());
 }
 
+unsigned ZigClangShuffleVectorExpr_getNumSubExprs(const ZigClangShuffleVectorExpr *self) {
+    auto casted = reinterpret_cast<const clang::ShuffleVectorExpr *>(self);
+    return casted->getNumSubExprs();
+}
+
+const struct ZigClangExpr *ZigClangShuffleVectorExpr_getExpr(const struct ZigClangShuffleVectorExpr *self, unsigned idx) {
+    auto casted = reinterpret_cast<const clang::ShuffleVectorExpr *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getExpr(idx));
+}
 
 enum ZigClangUnaryExprOrTypeTrait_Kind ZigClangUnaryExprOrTypeTraitExpr_getKind(
     const struct ZigClangUnaryExprOrTypeTraitExpr *self)

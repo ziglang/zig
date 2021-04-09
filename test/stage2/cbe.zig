@@ -280,6 +280,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
 
+        // If expression with breakpoint that does not get hit
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var x: i32 = 1;
+            \\    if (x != 1) @breakpoint();
+            \\    return 0;
+            \\}
+        , "");
+
         // Switch expression
         case.addCompareOutput(
             \\export fn main() c_int {
@@ -508,7 +517,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &.{
             ":3:21: error: mising struct field: x",
-            ":1:15: note: 'Point' declared here",
+            ":1:15: note: struct 'Point' declared here",
         });
         case.addError(
             \\const Point = struct { x: i32, y: i32 };
@@ -522,7 +531,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &.{
             ":6:10: error: no field named 'z' in struct 'Point'",
-            ":1:15: note: 'Point' declared here",
+            ":1:15: note: struct declared here",
         });
         case.addCompareOutput(
             \\const Point = struct { x: i32, y: i32 };
@@ -534,6 +543,255 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return p.y - p.x - p.x;
             \\}
         , "");
+    }
+
+    {
+        var case = ctx.exeFromCompiledC("enums", .{});
+
+        case.addError(
+            \\const E1 = packed enum { a, b, c };
+            \\const E2 = extern enum { a, b, c };
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+            \\export fn bar() void {
+            \\    const x = E2.a;
+            \\}
+        , &.{
+            ":1:12: error: enums do not support 'packed' or 'extern'; instead provide an explicit integer tag type",
+            ":2:12: error: enums do not support 'packed' or 'extern'; instead provide an explicit integer tag type",
+        });
+
+        // comptime and types are caught in AstGen.
+        case.addError(
+            \\const E1 = enum {
+            \\    a,
+            \\    comptime b,
+            \\    c,
+            \\};
+            \\const E2 = enum {
+            \\    a,
+            \\    b: i32,
+            \\    c,
+            \\};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+            \\export fn bar() void {
+            \\    const x = E2.a;
+            \\}
+        , &.{
+            ":3:5: error: enum fields cannot be marked comptime",
+            ":8:8: error: enum fields do not have types",
+        });
+
+        // @enumToInt, @intToEnum, enum literal coercion, field access syntax, comparison, switch
+        case.addCompareOutput(
+            \\const Number = enum { One, Two, Three };
+            \\
+            \\export fn main() c_int {
+            \\    var number1 = Number.One;
+            \\    var number2: Number = .Two;
+            \\    const number3 = @intToEnum(Number, 2);
+            \\    if (number1 == number2) return 1;
+            \\    if (number2 == number3) return 1;
+            \\    if (@enumToInt(number1) != 0) return 1;
+            \\    if (@enumToInt(number2) != 1) return 1;
+            \\    if (@enumToInt(number3) != 2) return 1;
+            \\    var x: Number = .Two;
+            \\    if (number2 != x) return 1;
+            \\    switch (x) {
+            \\        .One => return 1,
+            \\        .Two => return 0,
+            \\        number3 => return 2,
+            \\    }
+            \\}
+        , "");
+
+        // Specifying alignment is a parse error.
+        // This also tests going from a successful build to a parse error.
+        case.addError(
+            \\const E1 = enum {
+            \\    a,
+            \\    b align(4),
+            \\    c,
+            \\};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":3:7: error: expected ',', found 'align'",
+        });
+
+        // Redundant non-exhaustive enum mark.
+        // This also tests going from a parse error to an AstGen error.
+        case.addError(
+            \\const E1 = enum {
+            \\    a,
+            \\    _,
+            \\    b,
+            \\    c,
+            \\    _,
+            \\};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":6:5: error: redundant non-exhaustive enum mark",
+            ":3:5: note: other mark here",
+        });
+
+        case.addError(
+            \\const E1 = enum {
+            \\    a,
+            \\    b,
+            \\    c,
+            \\    _ = 10,
+            \\};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":5:9: error: '_' is used to mark an enum as non-exhaustive and cannot be assigned a value",
+        });
+
+        case.addError(
+            \\const E1 = enum {};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":1:12: error: enum declarations must have at least one tag",
+        });
+
+        case.addError(
+            \\const E1 = enum { a, b, _ };
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":1:12: error: non-exhaustive enum missing integer tag type",
+            ":1:25: note: marked non-exhaustive here",
+        });
+
+        case.addError(
+            \\const E1 = enum { a, b, c, b, d };
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":1:28: error: duplicate enum tag",
+            ":1:22: note: other tag here",
+        });
+
+        case.addError(
+            \\export fn foo() void {
+            \\    const a = true;
+            \\    const b = @enumToInt(a);
+            \\}
+        , &.{
+            ":3:26: error: expected enum or tagged union, found bool",
+        });
+
+        case.addError(
+            \\export fn foo() void {
+            \\    const a = 1;
+            \\    const b = @intToEnum(bool, a);
+            \\}
+        , &.{
+            ":3:26: error: expected enum, found bool",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    const b = @intToEnum(E, 3);
+            \\}
+        , &.{
+            ":3:15: error: enum 'E' has no tag with value 3",
+            ":1:11: note: enum declared here",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .a;
+            \\    switch (x) {
+            \\        .a => {},
+            \\        .c => {},
+            \\    }
+            \\}
+        , &.{
+            ":4:5: error: switch must handle all possibilities",
+            ":4:5: note: unhandled enumeration value: 'b'",
+            ":1:11: note: enum 'E' declared here",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .a;
+            \\    switch (x) {
+            \\        .a => {},
+            \\        .b => {},
+            \\        .b => {},
+            \\        .c => {},
+            \\    }
+            \\}
+        , &.{
+            ":7:10: error: duplicate switch value",
+            ":6:10: note: previous value here",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .a;
+            \\    switch (x) {
+            \\        .a => {},
+            \\        .b => {},
+            \\        .c => {},
+            \\        else => {},
+            \\    }
+            \\}
+        , &.{
+            ":8:14: error: unreachable else prong; all cases already handled",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .a;
+            \\    switch (x) {
+            \\        .a => {},
+            \\        .b => {},
+            \\        _ => {},
+            \\    }
+            \\}
+        , &.{
+            ":4:5: error: '_' prong only allowed when switching on non-exhaustive enums",
+            ":7:11: note: '_' prong here",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x = E.d;
+            \\}
+        , &.{
+            ":3:14: error: enum 'E' has no member named 'd'",
+            ":1:11: note: enum declared here",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .d;
+            \\}
+        , &.{
+            ":3:17: error: enum 'E' has no field named 'd'",
+            ":1:11: note: enum declared here",
+        });
     }
 
     ctx.c("empty start function", linux_x64,

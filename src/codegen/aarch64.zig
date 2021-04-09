@@ -200,7 +200,7 @@ test "FloatingPointRegister.toX" {
 
 /// Represents an instruction in the AArch64 instruction set
 pub const Instruction = union(enum) {
-    MoveWideImmediate: packed struct {
+    move_wide_immediate: packed struct {
         rd: u5,
         imm16: u16,
         hw: u2,
@@ -208,14 +208,14 @@ pub const Instruction = union(enum) {
         opc: u2,
         sf: u1,
     },
-    PCRelativeAddress: packed struct {
+    pc_relative_address: packed struct {
         rd: u5,
         immhi: u19,
         fixed: u5 = 0b10000,
         immlo: u2,
         op: u1,
     },
-    LoadStoreRegister: packed struct {
+    load_store_register: packed struct {
         rt: u5,
         rn: u5,
         offset: u12,
@@ -225,7 +225,7 @@ pub const Instruction = union(enum) {
         fixed: u3 = 0b111,
         size: u2,
     },
-    LoadStorePairOfRegisters: packed struct {
+    load_store_register_pair: packed struct {
         rt1: u5,
         rn: u5,
         rt2: u5,
@@ -235,20 +235,20 @@ pub const Instruction = union(enum) {
         fixed: u5 = 0b101_0_0,
         opc: u2,
     },
-    LoadLiteral: packed struct {
+    load_literal: packed struct {
         rt: u5,
         imm19: u19,
         fixed: u6 = 0b011_0_00,
         opc: u2,
     },
-    ExceptionGeneration: packed struct {
+    exception_generation: packed struct {
         ll: u2,
         op2: u3,
         imm16: u16,
         opc: u3,
         fixed: u8 = 0b1101_0100,
     },
-    UnconditionalBranchRegister: packed struct {
+    unconditional_branch_register: packed struct {
         op4: u5,
         rn: u5,
         op3: u6,
@@ -256,15 +256,15 @@ pub const Instruction = union(enum) {
         opc: u4,
         fixed: u7 = 0b1101_011,
     },
-    UnconditionalBranchImmediate: packed struct {
+    unconditional_branch_immediate: packed struct {
         imm26: u26,
         fixed: u5 = 0b00101,
         op: u1,
     },
-    NoOperation: packed struct {
+    no_operation: packed struct {
         fixed: u32 = 0b1101010100_0_00_011_0010_0000_000_11111,
     },
-    LogicalShiftedRegister: packed struct {
+    logical_shifted_register: packed struct {
         rd: u5,
         rn: u5,
         imm6: u6,
@@ -275,7 +275,7 @@ pub const Instruction = union(enum) {
         opc: u2,
         sf: u1,
     },
-    AddSubtractImmediate: packed struct {
+    add_subtract_immediate: packed struct {
         rd: u5,
         rn: u5,
         imm12: u12,
@@ -283,6 +283,20 @@ pub const Instruction = union(enum) {
         fixed: u6 = 0b100010,
         s: u1,
         op: u1,
+        sf: u1,
+    },
+    conditional_branch: struct {
+        cond: u4,
+        o0: u1,
+        imm19: u19,
+        o1: u1,
+        fixed: u7 = 0b0101010,
+    },
+    compare_and_branch: struct {
+        rt: u5,
+        imm19: u19,
+        op: u1,
+        fixed: u6 = 0b011010,
         sf: u1,
     },
 
@@ -303,19 +317,73 @@ pub const Instruction = union(enum) {
         };
     };
 
+    pub const Condition = enum(u4) {
+        /// Integer: Equal
+        /// Floating point: Equal
+        eq,
+        /// Integer: Not equal
+        /// Floating point: Not equal or unordered
+        ne,
+        /// Integer: Carry set
+        /// Floating point: Greater than, equal, or unordered
+        cs,
+        /// Integer: Carry clear
+        /// Floating point: Less than
+        cc,
+        /// Integer: Minus, negative
+        /// Floating point: Less than
+        mi,
+        /// Integer: Plus, positive or zero
+        /// Floating point: Greater than, equal, or unordered
+        pl,
+        /// Integer: Overflow
+        /// Floating point: Unordered
+        vs,
+        /// Integer: No overflow
+        /// Floating point: Ordered
+        vc,
+        /// Integer: Unsigned higher
+        /// Floating point: Greater than, or unordered
+        hi,
+        /// Integer: Unsigned lower or same
+        /// Floating point: Less than or equal
+        ls,
+        /// Integer: Signed greater than or equal
+        /// Floating point: Greater than or equal
+        ge,
+        /// Integer: Signed less than
+        /// Floating point: Less than, or unordered
+        lt,
+        /// Integer: Signed greater than
+        /// Floating point: Greater than
+        gt,
+        /// Integer: Signed less than or equal
+        /// Floating point: Less than, equal, or unordered
+        le,
+        /// Integer: Always
+        /// Floating point: Always
+        al,
+        /// Integer: Always
+        /// Floating point: Always
+        nv,
+    };
+
     pub fn toU32(self: Instruction) u32 {
         return switch (self) {
-            .MoveWideImmediate => |v| @bitCast(u32, v),
-            .PCRelativeAddress => |v| @bitCast(u32, v),
-            .LoadStoreRegister => |v| @bitCast(u32, v),
-            .LoadStorePairOfRegisters => |v| @bitCast(u32, v),
-            .LoadLiteral => |v| @bitCast(u32, v),
-            .ExceptionGeneration => |v| @bitCast(u32, v),
-            .UnconditionalBranchRegister => |v| @bitCast(u32, v),
-            .UnconditionalBranchImmediate => |v| @bitCast(u32, v),
-            .NoOperation => |v| @bitCast(u32, v),
-            .LogicalShiftedRegister => |v| @bitCast(u32, v),
-            .AddSubtractImmediate => |v| @bitCast(u32, v),
+            .move_wide_immediate => |v| @bitCast(u32, v),
+            .pc_relative_address => |v| @bitCast(u32, v),
+            .load_store_register => |v| @bitCast(u32, v),
+            .load_store_register_pair => |v| @bitCast(u32, v),
+            .load_literal => |v| @bitCast(u32, v),
+            .exception_generation => |v| @bitCast(u32, v),
+            .unconditional_branch_register => |v| @bitCast(u32, v),
+            .unconditional_branch_immediate => |v| @bitCast(u32, v),
+            .no_operation => |v| @bitCast(u32, v),
+            .logical_shifted_register => |v| @bitCast(u32, v),
+            .add_subtract_immediate => |v| @bitCast(u32, v),
+            // TODO once packed structs work, this can be refactored
+            .conditional_branch => |v| @as(u32, v.cond) | (@as(u32, v.o0) << 4) | (@as(u32, v.imm19) << 5) | (@as(u32, v.o1) << 24) | (@as(u32, v.fixed) << 25),
+            .compare_and_branch => |v| @as(u32, v.rt) | (@as(u32, v.imm19) << 5) | (@as(u32, v.op) << 24) | (@as(u32, v.fixed) << 25) | (@as(u32, v.sf) << 31),
         };
     }
 
@@ -329,7 +397,7 @@ pub const Instruction = union(enum) {
             32 => {
                 assert(shift % 16 == 0 and shift <= 16);
                 return Instruction{
-                    .MoveWideImmediate = .{
+                    .move_wide_immediate = .{
                         .rd = rd.id(),
                         .imm16 = imm16,
                         .hw = @intCast(u2, shift / 16),
@@ -341,7 +409,7 @@ pub const Instruction = union(enum) {
             64 => {
                 assert(shift % 16 == 0 and shift <= 48);
                 return Instruction{
-                    .MoveWideImmediate = .{
+                    .move_wide_immediate = .{
                         .rd = rd.id(),
                         .imm16 = imm16,
                         .hw = @intCast(u2, shift / 16),
@@ -358,7 +426,7 @@ pub const Instruction = union(enum) {
         assert(rd.size() == 64);
         const imm21_u = @bitCast(u21, imm21);
         return Instruction{
-            .PCRelativeAddress = .{
+            .pc_relative_address = .{
                 .rd = rd.id(),
                 .immlo = @truncate(u2, imm21_u),
                 .immhi = @truncate(u19, imm21_u >> 2),
@@ -522,7 +590,7 @@ pub const Instruction = union(enum) {
             .str, .strh, .strb => 0b00,
         };
         return Instruction{
-            .LoadStoreRegister = .{
+            .load_store_register = .{
                 .rt = rt.id(),
                 .rn = rn.id(),
                 .offset = off,
@@ -544,7 +612,7 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn loadStorePairOfRegisters(
+    fn loadStoreRegisterPair(
         rt1: Register,
         rt2: Register,
         rn: Register,
@@ -557,7 +625,7 @@ pub const Instruction = union(enum) {
                 assert(-256 <= offset and offset <= 252);
                 const imm7 = @truncate(u7, @bitCast(u9, offset >> 2));
                 return Instruction{
-                    .LoadStorePairOfRegisters = .{
+                    .load_store_register_pair = .{
                         .rt1 = rt1.id(),
                         .rn = rn.id(),
                         .rt2 = rt2.id(),
@@ -572,7 +640,7 @@ pub const Instruction = union(enum) {
                 assert(-512 <= offset and offset <= 504);
                 const imm7 = @truncate(u7, @bitCast(u9, offset >> 3));
                 return Instruction{
-                    .LoadStorePairOfRegisters = .{
+                    .load_store_register_pair = .{
                         .rt1 = rt1.id(),
                         .rn = rn.id(),
                         .rt2 = rt2.id(),
@@ -591,7 +659,7 @@ pub const Instruction = union(enum) {
         switch (rt.size()) {
             32 => {
                 return Instruction{
-                    .LoadLiteral = .{
+                    .load_literal = .{
                         .rt = rt.id(),
                         .imm19 = imm19,
                         .opc = 0b00,
@@ -600,7 +668,7 @@ pub const Instruction = union(enum) {
             },
             64 => {
                 return Instruction{
-                    .LoadLiteral = .{
+                    .load_literal = .{
                         .rt = rt.id(),
                         .imm19 = imm19,
                         .opc = 0b01,
@@ -618,7 +686,7 @@ pub const Instruction = union(enum) {
         imm16: u16,
     ) Instruction {
         return Instruction{
-            .ExceptionGeneration = .{
+            .exception_generation = .{
                 .ll = ll,
                 .op2 = op2,
                 .imm16 = imm16,
@@ -637,7 +705,7 @@ pub const Instruction = union(enum) {
         assert(rn.size() == 64);
 
         return Instruction{
-            .UnconditionalBranchRegister = .{
+            .unconditional_branch_register = .{
                 .op4 = op4,
                 .rn = rn.id(),
                 .op3 = op3,
@@ -652,7 +720,7 @@ pub const Instruction = union(enum) {
         offset: i28,
     ) Instruction {
         return Instruction{
-            .UnconditionalBranchImmediate = .{
+            .unconditional_branch_immediate = .{
                 .imm26 = @bitCast(u26, @intCast(i26, offset >> 2)),
                 .op = op,
             },
@@ -671,7 +739,7 @@ pub const Instruction = union(enum) {
             32 => {
                 assert(shift.amount < 32);
                 return Instruction{
-                    .LogicalShiftedRegister = .{
+                    .logical_shifted_register = .{
                         .rd = rd.id(),
                         .rn = rn.id(),
                         .imm6 = shift.amount,
@@ -685,7 +753,7 @@ pub const Instruction = union(enum) {
             },
             64 => {
                 return Instruction{
-                    .LogicalShiftedRegister = .{
+                    .logical_shifted_register = .{
                         .rd = rd.id(),
                         .rn = rn.id(),
                         .imm6 = shift.amount,
@@ -710,7 +778,7 @@ pub const Instruction = union(enum) {
         shift: bool,
     ) Instruction {
         return Instruction{
-            .AddSubtractImmediate = .{
+            .add_subtract_immediate = .{
                 .rd = rd.id(),
                 .rn = rn.id(),
                 .imm12 = imm12,
@@ -718,6 +786,43 @@ pub const Instruction = union(enum) {
                 .s = s,
                 .op = op,
                 .sf = switch (rd.size()) {
+                    32 => 0b0,
+                    64 => 0b1,
+                    else => unreachable, // unexpected register size
+                },
+            },
+        };
+    }
+
+    fn conditionalBranch(
+        o0: u1,
+        o1: u1,
+        cond: Condition,
+        offset: i21,
+    ) Instruction {
+        assert(offset & 0b11 == 0b00);
+        return Instruction{
+            .conditional_branch = .{
+                .cond = @enumToInt(cond),
+                .o0 = o0,
+                .imm19 = @bitCast(u19, @intCast(i19, offset >> 2)),
+                .o1 = o1,
+            },
+        };
+    }
+
+    fn compareAndBranch(
+        op: u1,
+        rt: Register,
+        offset: i21,
+    ) Instruction {
+        assert(offset & 0b11 == 0b00);
+        return Instruction{
+            .compare_and_branch = .{
+                .rt = rt.id(),
+                .imm19 = @bitCast(u19, @intCast(i19, offset >> 2)),
+                .op = op,
+                .sf = switch (rt.size()) {
                     32 => 0b0,
                     64 => 0b1,
                     else => unreachable, // unexpected register size
@@ -821,19 +926,19 @@ pub const Instruction = union(enum) {
     };
 
     pub fn ldp(rt1: Register, rt2: Register, rn: Register, offset: LoadStorePairOffset) Instruction {
-        return loadStorePairOfRegisters(rt1, rt2, rn, offset.offset, @enumToInt(offset.encoding), true);
+        return loadStoreRegisterPair(rt1, rt2, rn, offset.offset, @enumToInt(offset.encoding), true);
     }
 
     pub fn ldnp(rt1: Register, rt2: Register, rn: Register, offset: i9) Instruction {
-        return loadStorePairOfRegisters(rt1, rt2, rn, offset, 0, true);
+        return loadStoreRegisterPair(rt1, rt2, rn, offset, 0, true);
     }
 
     pub fn stp(rt1: Register, rt2: Register, rn: Register, offset: LoadStorePairOffset) Instruction {
-        return loadStorePairOfRegisters(rt1, rt2, rn, offset.offset, @enumToInt(offset.encoding), false);
+        return loadStoreRegisterPair(rt1, rt2, rn, offset.offset, @enumToInt(offset.encoding), false);
     }
 
     pub fn stnp(rt1: Register, rt2: Register, rn: Register, offset: i9) Instruction {
-        return loadStorePairOfRegisters(rt1, rt2, rn, offset, 0, false);
+        return loadStoreRegisterPair(rt1, rt2, rn, offset, 0, false);
     }
 
     // Exception generation
@@ -885,7 +990,7 @@ pub const Instruction = union(enum) {
     // Nop
 
     pub fn nop() Instruction {
-        return Instruction{ .NoOperation = .{} };
+        return Instruction{ .no_operation = .{} };
     }
 
     // Logical (shifted register)
@@ -938,6 +1043,22 @@ pub const Instruction = union(enum) {
 
     pub fn subs(rd: Register, rn: Register, imm: u12, shift: bool) Instruction {
         return addSubtractImmediate(0b1, 0b1, rd, rn, imm, shift);
+    }
+
+    // Conditional branch
+
+    pub fn bCond(cond: Condition, offset: i21) Instruction {
+        return conditionalBranch(0b0, 0b0, cond, offset);
+    }
+
+    // Compare and branch
+
+    pub fn cbz(rt: Register, offset: i21) Instruction {
+        return compareAndBranch(0b0, rt, offset);
+    }
+
+    pub fn cbnz(rt: Register, offset: i21) Instruction {
+        return compareAndBranch(0b1, rt, offset);
     }
 };
 
@@ -1091,6 +1212,14 @@ test "serialize instructions" {
         .{ // subs x0, x5, #11, lsl #12
             .inst = Instruction.subs(.x0, .x5, 11, true),
             .expected = 0b1_1_1_100010_1_0000_0000_1011_00101_00000,
+        },
+        .{ // b.hi #-4
+            .inst = Instruction.bCond(.hi, -4),
+            .expected = 0b0101010_0_1111111111111111111_0_1000,
+        },
+        .{ // cbz x10, #40
+            .inst = Instruction.cbz(.x10, 40),
+            .expected = 0b1_011010_0_0000000000000001010_01010,
         },
     };
 

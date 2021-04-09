@@ -172,7 +172,10 @@ pub const DeclGen = struct {
         val: Value,
     ) error{ OutOfMemory, AnalysisFail }!void {
         if (val.isUndef()) {
-            return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: properly handle undefined in all cases (with debug safety?)", .{});
+            // This should lower to 0xaa bytes in safe modes, and for unsafe modes should
+            // lower to leaving variables uninitialized (that might need to be implemented
+            // outside of this function).
+            return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement renderValue undef", .{});
         }
         switch (t.zigTypeTag()) {
             .Int => {
@@ -288,6 +291,31 @@ pub const DeclGen = struct {
                     try writer.writeAll(", .error = 0 }");
                 }
             },
+            .Enum => {
+                switch (val.tag()) {
+                    .enum_field_index => {
+                        const field_index = val.castTag(.enum_field_index).?.data;
+                        switch (t.tag()) {
+                            .enum_simple => return writer.print("{d}", .{field_index}),
+                            .enum_full, .enum_nonexhaustive => {
+                                const enum_full = t.cast(Type.Payload.EnumFull).?.data;
+                                if (enum_full.values.count() != 0) {
+                                    const tag_val = enum_full.values.entries.items[field_index].key;
+                                    return dg.renderValue(writer, enum_full.tag_ty, tag_val);
+                                } else {
+                                    return writer.print("{d}", .{field_index});
+                                }
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    else => {
+                        var int_tag_ty_buffer: Type.Payload.Bits = undefined;
+                        const int_tag_ty = t.intTagType(&int_tag_ty_buffer);
+                        return dg.renderValue(writer, int_tag_ty, val);
+                    },
+                }
+            },
             else => |e| return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement value {s}", .{
                 @tagName(e),
             }),
@@ -368,6 +396,9 @@ pub const DeclGen = struct {
                     else => unreachable,
                 }
             },
+
+            .Float => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type Float", .{}),
+
             .Pointer => {
                 if (t.isSlice()) {
                     return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement slices", .{});
@@ -472,10 +503,29 @@ pub const DeclGen = struct {
                 try w.writeAll(name);
                 dg.typedefs.putAssumeCapacityNoClobber(t, .{ .name = name, .rendered = rendered });
             },
-            .Null, .Undefined => unreachable, // must be const or comptime
-            else => |e| return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type {s}", .{
-                @tagName(e),
-            }),
+            .Enum => {
+                // For enums, we simply use the integer tag type.
+                var int_tag_ty_buffer: Type.Payload.Bits = undefined;
+                const int_tag_ty = t.intTagType(&int_tag_ty_buffer);
+
+                try dg.renderType(w, int_tag_ty);
+            },
+            .Union => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type Union", .{}),
+            .Fn => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type Fn", .{}),
+            .Opaque => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type Opaque", .{}),
+            .Frame => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type Frame", .{}),
+            .AnyFrame => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type AnyFrame", .{}),
+            .Vector => return dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement type Vector", .{}),
+
+            .Null,
+            .Undefined,
+            .EnumLiteral,
+            .ComptimeFloat,
+            .ComptimeInt,
+            .Type,
+            => unreachable, // must be const or comptime
+
+            .BoundFn => unreachable, // this type will be deleted from the language
         }
     }
 
@@ -582,6 +632,9 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .mul => try genBinOp(o, inst.castTag(.sub).?, " * "),
             // TODO make this do wrapping multiplication for signed ints
             .mulwrap => try genBinOp(o, inst.castTag(.sub).?, " * "),
+            // TODO use a different strategy for div that communicates to the optimizer
+            // that wrapping is UB.
+            .div => try genBinOp(o, inst.castTag(.div).?, " / "),
 
             .constant => unreachable, // excluded from function bodies
             .alloc => try genAlloc(o, inst.castTag(.alloc).?),
