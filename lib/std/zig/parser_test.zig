@@ -1812,6 +1812,8 @@ test "zig fmt: array literal veritical column alignment" {
         \\    4,5,600,7,
         \\           80,
         \\    9, 10, 11, 0, 13, 14, 15};
+        \\const a = [12]u8{
+        \\    31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
         \\
     ,
         \\const a = []u8{
@@ -1824,6 +1826,9 @@ test "zig fmt: array literal veritical column alignment" {
         \\    4,  5,  600, 7, 80,
         \\    9,  10, 11,  0, 13,
         \\    14, 15,
+        \\};
+        \\const a = [12]u8{
+        \\    31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
         \\};
         \\
     );
