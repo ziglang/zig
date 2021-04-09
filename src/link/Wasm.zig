@@ -47,9 +47,6 @@ offset_table_free_list: std.ArrayListUnmanaged(u32) = .{},
 /// This is ment for bookkeeping so we can safely cleanup all codegen memory
 /// when calling `deinit`
 symbols: std.ArrayListUnmanaged(*Module.Decl) = .{},
-/// Contains indexes into `symbols` that are no longer used and can be populated instead,
-/// removing the need to search for a symbol and remove it when it's dereferenced.
-symbols_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 pub const FnData = struct {
     /// Generated code for the type of the function
@@ -95,6 +92,19 @@ pub const DeclBlock = struct {
         .next = null,
         .data = undefined,
     };
+
+    /// Unplugs the `DeclBlock` from the chain
+    fn unplug(self: *DeclBlock) void {
+        if (self.prev) |prev| {
+            prev.next = self.next;
+        }
+
+        if (self.next) |next| {
+            next.prev = self.prev;
+        }
+        self.next = null;
+        self.prev = null;
+    }
 };
 
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
@@ -131,10 +141,6 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Wasm {
 }
 
 pub fn deinit(self: *Wasm) void {
-    while (self.symbols_free_list.popOrNull()) |idx| {
-        //dead decl's so remove them from symbol list before trying to clean them up
-        _ = self.symbols.swapRemove(idx);
-    }
     for (self.symbols.items) |decl| {
         decl.fn_link.wasm.functype.deinit(self.base.allocator);
         decl.fn_link.wasm.code.deinit(self.base.allocator);
@@ -146,7 +152,6 @@ pub fn deinit(self: *Wasm) void {
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
     self.symbols.deinit(self.base.allocator);
-    self.symbols_free_list.deinit(self.base.allocator);
 }
 
 pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
@@ -158,12 +163,8 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
     const block = &decl.link.wasm;
     block.init = true;
 
-    if (self.symbols_free_list.popOrNull()) |index| {
-        block.symbol_index = index;
-    } else {
-        block.symbol_index = @intCast(u32, self.symbols.items.len);
-        _ = self.symbols.addOneAssumeCapacity();
-    }
+    block.symbol_index = @intCast(u32, self.symbols.items.len);
+    self.symbols.appendAssumeCapacity(decl);
 
     if (self.offset_table_free_list.popOrNull()) |index| {
         block.offset_index = index;
@@ -241,12 +242,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 
     // If we're updating an existing decl, unplug it first
     // to avoid infinite loops due to earlier links
-    if (block.prev) |prev| {
-        prev.next = block.next;
-    }
-    if (block.next) |next| {
-        next.prev = block.prev;
-    }
+    block.unplug();
 
     if (self.last_block) |last| {
         if (last != block) {
@@ -278,16 +274,15 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
         self.last_block = block.prev;
     }
 
-    if (block.prev) |prev| {
-        prev.next = block.next;
-    }
-
-    if (block.next) |next| {
-        next.prev = block.prev;
-    }
+    block.unplug();
 
     self.offset_table_free_list.append(self.base.allocator, decl.link.wasm.offset_index) catch {};
-    self.symbols_free_list.append(self.base.allocator, decl.link.wasm.symbol_index) catch {};
+    _ = self.symbols.swapRemove(block.symbol_index);
+
+    // update symbol_index as we swap removed the last symbol into the removed's position
+    if (block.symbol_index < self.symbols.items.len)
+        self.symbols.items[block.symbol_index].link.wasm.symbol_index = block.symbol_index;
+
     block.init = false;
 
     decl.fn_link.wasm.functype.deinit(self.base.allocator);
