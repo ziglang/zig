@@ -285,7 +285,7 @@ pub const AllErrors = struct {
             const held = std.debug.getStderrMutex().acquire();
             defer held.release();
             const stderr = std.io.getStdErr();
-            return msg.renderToStdErrInner(ttyconf, stderr, "error", .Red) catch return;
+            return msg.renderToStdErrInner(ttyconf, stderr, "error:", .Red) catch return;
         }
 
         fn renderToStdErrInner(
@@ -298,6 +298,7 @@ pub const AllErrors = struct {
             const stderr = stderr_file.writer();
             switch (msg) {
                 .src => |src| {
+                    ttyconf.setColor(stderr, .Bold);
                     try stderr.print("{s}:{d}:{d}: ", .{
                         src.src_path,
                         src.line + 1,
@@ -317,11 +318,11 @@ pub const AllErrors = struct {
                         ttyconf.setColor(stderr, .Reset);
                     }
                     for (src.notes) |note| {
-                        try note.renderToStdErrInner(ttyconf, stderr_file, "note", .Cyan);
+                        try note.renderToStdErrInner(ttyconf, stderr_file, "note:", .Cyan);
                     }
                 },
                 .plain => |plain| {
-                    std.debug.print("{s}: {s}\n", .{ kind, plain.msg });
+                    try stderr.print("{s}: {s}\n", .{ kind, plain.msg });
                 },
             }
         }
