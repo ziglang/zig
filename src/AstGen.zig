@@ -2349,7 +2349,7 @@ fn arrayAccess(
         ),
         else => return rvalue(gz, scope, rl, try gz.addBin(
             .elem_val,
-            try expr(gz, scope, .none, node_datas[node].lhs),
+            try expr(gz, scope, .none_or_ref, node_datas[node].lhs),
             try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
         ), node),
     }

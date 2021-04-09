@@ -1430,9 +1430,6 @@ fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
 }
 
 fn zirDeclRef(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const decl = sema.owner_decl.dependencies.entries.items[inst_data.payload_index].key;
@@ -1440,9 +1437,6 @@ fn zirDeclRef(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
 }
 
 fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const decl = sema.owner_decl.dependencies.entries.items[inst_data.payload_index].key;
@@ -2571,7 +2565,10 @@ fn zirElemVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
 
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
     const array = try sema.resolveInst(bin_inst.lhs);
-    const array_ptr = try sema.analyzeRef(block, sema.src, array);
+    const array_ptr = if (array.ty.zigTypeTag() == .Pointer)
+        array
+    else
+        try sema.analyzeRef(block, sema.src, array);
     const elem_index = try sema.resolveInst(bin_inst.rhs);
     const result_ptr = try sema.elemPtr(block, sema.src, array_ptr, elem_index, sema.src);
     return sema.analyzeLoad(block, sema.src, result_ptr, sema.src);
@@ -2586,7 +2583,10 @@ fn zirElemValNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
     const elem_index_src: LazySrcLoc = .{ .node_offset_array_access_index = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
     const array = try sema.resolveInst(extra.lhs);
-    const array_ptr = try sema.analyzeRef(block, src, array);
+    const array_ptr = if (array.ty.zigTypeTag() == .Pointer)
+        array
+    else
+        try sema.analyzeRef(block, src, array);
     const elem_index = try sema.resolveInst(extra.rhs);
     const result_ptr = try sema.elemPtr(block, src, array_ptr, elem_index, elem_index_src);
     return sema.analyzeLoad(block, src, result_ptr, src);
@@ -4786,35 +4786,49 @@ fn elemPtr(
     elem_index: *Inst,
     elem_index_src: LazySrcLoc,
 ) InnerError!*Inst {
-    const elem_ty = switch (array_ptr.ty.zigTypeTag()) {
+    const array_ty = switch (array_ptr.ty.zigTypeTag()) {
         .Pointer => array_ptr.ty.elemType(),
         else => return sema.mod.fail(&block.base, array_ptr.src, "expected pointer, found '{}'", .{array_ptr.ty}),
     };
-    if (!elem_ty.isIndexable()) {
-        return sema.mod.fail(&block.base, src, "array access of non-array type '{}'", .{elem_ty});
+    if (!array_ty.isIndexable()) {
+        return sema.mod.fail(&block.base, src, "array access of non-array type '{}'", .{array_ty});
     }
-
-    if (elem_ty.isSinglePointer() and elem_ty.elemType().zigTypeTag() == .Array) {
+    if (array_ty.isSinglePointer() and array_ty.elemType().zigTypeTag() == .Array) {
         // we have to deref the ptr operand to get the actual array pointer
         const array_ptr_deref = try sema.analyzeLoad(block, src, array_ptr, array_ptr.src);
-        if (array_ptr_deref.value()) |array_ptr_val| {
-            if (elem_index.value()) |index_val| {
-                // Both array pointer and index are compile-time known.
-                const index_u64 = index_val.toUnsignedInt();
-                // @intCast here because it would have been impossible to construct a value that
-                // required a larger index.
-                const elem_ptr = try array_ptr_val.elemPtr(sema.arena, @intCast(usize, index_u64));
-                const pointee_type = elem_ty.elemType().elemType();
-
-                return sema.mod.constInst(sema.arena, src, .{
-                    .ty = try Type.Tag.single_const_pointer.create(sema.arena, pointee_type),
-                    .val = elem_ptr,
-                });
-            }
-        }
+        return sema.elemPtrArray(block, src, array_ptr_deref, elem_index, elem_index_src);
+    }
+    if (array_ty.zigTypeTag() == .Array) {
+        return sema.elemPtrArray(block, src, array_ptr, elem_index, elem_index_src);
     }
 
     return sema.mod.fail(&block.base, src, "TODO implement more analyze elemptr", .{});
+}
+
+fn elemPtrArray(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    array_ptr: *Inst,
+    elem_index: *Inst,
+    elem_index_src: LazySrcLoc,
+) InnerError!*Inst {
+    if (array_ptr.value()) |array_ptr_val| {
+        if (elem_index.value()) |index_val| {
+            // Both array pointer and index are compile-time known.
+            const index_u64 = index_val.toUnsignedInt();
+            // @intCast here because it would have been impossible to construct a value that
+            // required a larger index.
+            const elem_ptr = try array_ptr_val.elemPtr(sema.arena, @intCast(usize, index_u64));
+            const pointee_type = array_ptr.ty.elemType().elemType();
+
+            return sema.mod.constInst(sema.arena, src, .{
+                .ty = try Type.Tag.single_const_pointer.create(sema.arena, pointee_type),
+                .val = elem_ptr,
+            });
+        }
+    }
+    return sema.mod.fail(&block.base, src, "TODO implement more analyze elemptr for arrays", .{});
 }
 
 fn coerce(

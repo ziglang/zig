@@ -941,6 +941,32 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
 
+        // Array access to a global array.
+        case.addCompareOutput(
+            \\const hello = "hello".*;
+            \\export fn _start() noreturn {
+            \\    assert(hello[1] == 'e');
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+
         // 64bit set stack
         case.addCompareOutput(
             \\export fn _start() noreturn {
