@@ -199,6 +199,7 @@ pub fn analyzeBody(
             .fn_type_cc => try sema.zirFnTypeCc(block, inst, false),
             .fn_type_cc_var_args => try sema.zirFnTypeCc(block, inst, true),
             .fn_type_var_args => try sema.zirFnType(block, inst, true),
+            .has_decl => try sema.zirHasDecl(block, inst),
             .import => try sema.zirImport(block, inst),
             .indexable_ptr_len => try sema.zirIndexablePtrLen(block, inst),
             .int => try sema.zirInt(block, inst),
@@ -258,11 +259,14 @@ pub fn analyzeBody(
             .switch_capture_multi_ref => try sema.zirSwitchCapture(block, inst, true, true),
             .switch_capture_else => try sema.zirSwitchCaptureElse(block, inst, false),
             .switch_capture_else_ref => try sema.zirSwitchCaptureElse(block, inst, true),
+            .type_info => try sema.zirTypeInfo(block, inst),
             .typeof => try sema.zirTypeof(block, inst),
             .typeof_elem => try sema.zirTypeofElem(block, inst),
             .typeof_peer => try sema.zirTypeofPeer(block, inst),
             .xor => try sema.zirBitwise(block, inst, .xor),
             .struct_init_empty => try sema.zirStructInitEmpty(block, inst),
+            .struct_init => try sema.zirStructInit(block, inst),
+            .field_type => try sema.zirFieldType(block, inst),
 
             .struct_decl => try sema.zirStructDecl(block, inst, .Auto),
             .struct_decl_packed => try sema.zirStructDecl(block, inst, .Packed),
@@ -340,6 +344,10 @@ pub fn analyzeBody(
             },
             .validate_struct_init_ptr => {
                 try sema.zirValidateStructInitPtr(block, inst);
+                continue;
+            },
+            .@"export" => {
+                try sema.zirExport(block, inst);
                 continue;
             },
 
@@ -593,6 +601,10 @@ fn zirStructDecl(
     const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
     const struct_val = try Value.Tag.ty.create(&new_decl_arena.allocator, struct_ty);
+    const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
+        .ty = Type.initTag(.type),
+        .val = struct_val,
+    });
     struct_obj.* = .{
         .owner_decl = sema.owner_decl,
         .fields = fields_map,
@@ -600,12 +612,9 @@ fn zirStructDecl(
         .container = .{
             .ty = struct_ty,
             .file_scope = block.getFileScope(),
+            .parent_name_hash = new_decl.fullyQualifiedNameHash(),
         },
     };
-    const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
-        .ty = Type.initTag(.type),
-        .val = struct_val,
-    });
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
@@ -1333,6 +1342,28 @@ fn analyzeBlockBody(
     return &merges.block_inst.base;
 }
 
+fn zirExport(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
+    const src = inst_data.src();
+    const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+
+    // TODO (see corresponding TODO in AstGen) this is supposed to be a `decl_ref`
+    // instruction, which could reference any decl, which is then supposed to get
+    // exported, regardless of whether or not it is a function.
+    const target_fn = try sema.resolveInstConst(block, lhs_src, extra.lhs);
+    // TODO (see corresponding TODO in AstGen) this is supposed to be
+    // `std.builtin.ExportOptions`, not a string.
+    const export_name = try sema.resolveConstString(block, rhs_src, extra.rhs);
+
+    const actual_fn = target_fn.val.castTag(.function).?.data;
+    try sema.mod.analyzeExport(&block.base, src, export_name, actual_fn.owner_decl);
+}
+
 fn zirBreakpoint(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1402,9 +1433,6 @@ fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
 }
 
 fn zirDeclRef(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const decl = sema.owner_decl.dependencies.entries.items[inst_data.payload_index].key;
@@ -1412,9 +1440,6 @@ fn zirDeclRef(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
 }
 
 fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const decl = sema.owner_decl.dependencies.entries.items[inst_data.payload_index].key;
@@ -2543,7 +2568,10 @@ fn zirElemVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
 
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
     const array = try sema.resolveInst(bin_inst.lhs);
-    const array_ptr = try sema.analyzeRef(block, sema.src, array);
+    const array_ptr = if (array.ty.zigTypeTag() == .Pointer)
+        array
+    else
+        try sema.analyzeRef(block, sema.src, array);
     const elem_index = try sema.resolveInst(bin_inst.rhs);
     const result_ptr = try sema.elemPtr(block, sema.src, array_ptr, elem_index, sema.src);
     return sema.analyzeLoad(block, sema.src, result_ptr, sema.src);
@@ -2558,7 +2586,10 @@ fn zirElemValNode(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerE
     const elem_index_src: LazySrcLoc = .{ .node_offset_array_access_index = inst_data.src_node };
     const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
     const array = try sema.resolveInst(extra.lhs);
-    const array_ptr = try sema.analyzeRef(block, src, array);
+    const array_ptr = if (array.ty.zigTypeTag() == .Pointer)
+        array
+    else
+        try sema.analyzeRef(block, src, array);
     const elem_index = try sema.resolveInst(extra.rhs);
     const result_ptr = try sema.elemPtr(block, src, array_ptr, elem_index, elem_index_src);
     return sema.analyzeLoad(block, src, result_ptr, src);
@@ -3595,6 +3626,34 @@ fn validateSwitchNoRange(
     return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
 }
 
+fn zirHasDecl(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(zir.Inst.Bin, inst_data.payload_index).data;
+    const src = inst_data.src();
+    const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const container_type = try sema.resolveType(block, lhs_src, extra.lhs);
+    const decl_name = try sema.resolveConstString(block, rhs_src, extra.rhs);
+    const mod = sema.mod;
+    const arena = sema.arena;
+
+    const container_scope = container_type.getContainerScope() orelse return mod.fail(
+        &block.base,
+        lhs_src,
+        "expected struct, enum, union, or opaque, found '{}'",
+        .{container_type},
+    );
+    if (mod.lookupDeclName(&container_scope.base, decl_name)) |decl| {
+        // TODO if !decl.is_pub and inDifferentFiles() return false
+        return mod.constBool(arena, src, true);
+    } else {
+        return mod.constBool(arena, src, false);
+    }
+}
+
 fn zirImport(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
@@ -4021,6 +4080,12 @@ fn zirCmp(
     return block.addBinOp(src, bool_type, tag, casted_lhs, casted_rhs);
 }
 
+fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirTypeInfo", .{});
+}
+
 fn zirTypeof(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
@@ -4438,6 +4503,18 @@ fn zirStructInitEmpty(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) In
     });
 }
 
+fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirStructInit", .{});
+}
+
+fn zirFieldType(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirFieldType", .{});
+}
+
 fn requireFunctionBlock(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void {
     if (sema.func == null) {
         return sema.mod.fail(&block.base, src, "instruction illegal outside function body", .{});
@@ -4632,7 +4709,8 @@ fn namedFieldPtr(
                 .Struct, .Opaque, .Union => {
                     if (child_type.getContainerScope()) |container_scope| {
                         if (mod.lookupDeclName(&container_scope.base, field_name)) |decl| {
-                            // TODO if !decl.is_pub and inDifferentFiles() "{} is private"
+                            if (!decl.is_pub and !(decl.container.file_scope == block.base.namespace().file_scope))
+                                return mod.fail(&block.base, src, "'{s}' is private", .{field_name});
                             return sema.analyzeDeclRef(block, src, decl);
                         }
 
@@ -4660,7 +4738,8 @@ fn namedFieldPtr(
                 .Enum => {
                     if (child_type.getContainerScope()) |container_scope| {
                         if (mod.lookupDeclName(&container_scope.base, field_name)) |decl| {
-                            // TODO if !decl.is_pub and inDifferentFiles() "{} is private"
+                            if (!decl.is_pub and !(decl.container.file_scope == block.base.namespace().file_scope))
+                                return mod.fail(&block.base, src, "'{s}' is private", .{field_name});
                             return sema.analyzeDeclRef(block, src, decl);
                         }
                     }
@@ -4731,35 +4810,49 @@ fn elemPtr(
     elem_index: *Inst,
     elem_index_src: LazySrcLoc,
 ) InnerError!*Inst {
-    const elem_ty = switch (array_ptr.ty.zigTypeTag()) {
+    const array_ty = switch (array_ptr.ty.zigTypeTag()) {
         .Pointer => array_ptr.ty.elemType(),
         else => return sema.mod.fail(&block.base, array_ptr.src, "expected pointer, found '{}'", .{array_ptr.ty}),
     };
-    if (!elem_ty.isIndexable()) {
-        return sema.mod.fail(&block.base, src, "array access of non-array type '{}'", .{elem_ty});
+    if (!array_ty.isIndexable()) {
+        return sema.mod.fail(&block.base, src, "array access of non-array type '{}'", .{array_ty});
     }
-
-    if (elem_ty.isSinglePointer() and elem_ty.elemType().zigTypeTag() == .Array) {
+    if (array_ty.isSinglePointer() and array_ty.elemType().zigTypeTag() == .Array) {
         // we have to deref the ptr operand to get the actual array pointer
         const array_ptr_deref = try sema.analyzeLoad(block, src, array_ptr, array_ptr.src);
-        if (array_ptr_deref.value()) |array_ptr_val| {
-            if (elem_index.value()) |index_val| {
-                // Both array pointer and index are compile-time known.
-                const index_u64 = index_val.toUnsignedInt();
-                // @intCast here because it would have been impossible to construct a value that
-                // required a larger index.
-                const elem_ptr = try array_ptr_val.elemPtr(sema.arena, @intCast(usize, index_u64));
-                const pointee_type = elem_ty.elemType().elemType();
-
-                return sema.mod.constInst(sema.arena, src, .{
-                    .ty = try Type.Tag.single_const_pointer.create(sema.arena, pointee_type),
-                    .val = elem_ptr,
-                });
-            }
-        }
+        return sema.elemPtrArray(block, src, array_ptr_deref, elem_index, elem_index_src);
+    }
+    if (array_ty.zigTypeTag() == .Array) {
+        return sema.elemPtrArray(block, src, array_ptr, elem_index, elem_index_src);
     }
 
     return sema.mod.fail(&block.base, src, "TODO implement more analyze elemptr", .{});
+}
+
+fn elemPtrArray(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    array_ptr: *Inst,
+    elem_index: *Inst,
+    elem_index_src: LazySrcLoc,
+) InnerError!*Inst {
+    if (array_ptr.value()) |array_ptr_val| {
+        if (elem_index.value()) |index_val| {
+            // Both array pointer and index are compile-time known.
+            const index_u64 = index_val.toUnsignedInt();
+            // @intCast here because it would have been impossible to construct a value that
+            // required a larger index.
+            const elem_ptr = try array_ptr_val.elemPtr(sema.arena, @intCast(usize, index_u64));
+            const pointee_type = array_ptr.ty.elemType().elemType();
+
+            return sema.mod.constInst(sema.arena, src, .{
+                .ty = try Type.Tag.single_const_pointer.create(sema.arena, pointee_type),
+                .val = elem_ptr,
+            });
+        }
+    }
+    return sema.mod.fail(&block.base, src, "TODO implement more analyze elemptr for arrays", .{});
 }
 
 fn coerce(
@@ -5244,9 +5337,9 @@ fn analyzeImport(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, target_strin
         try std.fs.path.resolve(sema.gpa, &[_][]const u8{ cur_pkg_dir_path, target_string });
     errdefer sema.gpa.free(resolved_path);
 
-    if (sema.mod.import_table.get(resolved_path)) |some| {
+    if (sema.mod.import_table.get(resolved_path)) |cached_import| {
         sema.gpa.free(resolved_path);
-        return some;
+        return cached_import;
     }
 
     if (found_pkg == null) {
@@ -5264,6 +5357,11 @@ fn analyzeImport(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, target_strin
     const struct_ty = try Type.Tag.empty_struct.create(sema.gpa, &file_scope.root_container);
     errdefer sema.gpa.destroy(struct_ty.castTag(.empty_struct).?);
 
+    const container_name_hash: Scope.NameHash = if (found_pkg) |pkg|
+        pkg.namespace_hash
+    else
+        std.zig.hashName(cur_pkg.namespace_hash, "/", resolved_path);
+
     file_scope.* = .{
         .sub_file_path = resolved_path,
         .source = .{ .unloaded = {} },
@@ -5274,6 +5372,7 @@ fn analyzeImport(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, target_strin
             .file_scope = file_scope,
             .decls = .{},
             .ty = struct_ty,
+            .parent_name_hash = container_name_hash,
         },
     };
     sema.mod.analyzeContainer(&file_scope.root_container) catch |err| switch (err) {

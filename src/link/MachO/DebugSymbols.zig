@@ -909,10 +909,9 @@ pub fn updateDeclLineNumber(self: *DebugSymbols, module: *Module, decl: *const M
     const node_datas = tree.nodes.items(.data);
     const token_starts = tree.tokens.items(.start);
 
-    const file_ast_decls = tree.rootDecls();
     // TODO Look into improving the performance here by adding a token-index-to-line
     // lookup table. Currently this involves scanning over the source code for newlines.
-    const fn_decl = file_ast_decls[decl.src_index];
+    const fn_decl = decl.src_node;
     assert(node_tags[fn_decl] == .fn_decl);
     const block = node_datas[fn_decl].rhs;
     const lbrace = tree.firstToken(block);
@@ -959,10 +958,9 @@ pub fn initDeclDebugBuffers(
                 const node_datas = tree.nodes.items(.data);
                 const token_starts = tree.tokens.items(.start);
 
-                const file_ast_decls = tree.rootDecls();
                 // TODO Look into improving the performance here by adding a token-index-to-line
                 // lookup table. Currently this involves scanning over the source code for newlines.
-                const fn_decl = file_ast_decls[decl.src_index];
+                const fn_decl = decl.src_node;
                 assert(node_tags[fn_decl] == .fn_decl);
                 const block = node_datas[fn_decl].rhs;
                 const lbrace = tree.firstToken(block);

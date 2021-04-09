@@ -9137,6 +9137,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const position_independent_executable = %s;\n", bool_to_str(g->have_pie));
     buf_appendf(contents, "pub const strip_debug_info = %s;\n", bool_to_str(g->strip_debug_symbols));
     buf_appendf(contents, "pub const code_model = CodeModel.default;\n");
+    buf_appendf(contents, "pub const zig_is_stage2 = false;\n");
 
     {
         TargetSubsystem detected_subsystem = detect_subsystem(g);

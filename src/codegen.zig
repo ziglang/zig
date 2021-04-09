@@ -417,7 +417,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 const node_datas = tree.nodes.items(.data);
                 const token_starts = tree.tokens.items(.start);
 
-                const fn_decl = tree.rootDecls()[module_fn.owner_decl.src_index];
+                const fn_decl = module_fn.owner_decl.src_node;
                 assert(node_tags[fn_decl] == .fn_decl);
                 const block = node_datas[fn_decl].rhs;
                 const lbrace_src = token_starts[tree.firstToken(block)];

@@ -823,7 +823,31 @@ pub fn structInitExpr(
         .none, .none_or_ref => return mod.failNode(scope, node, "TODO implement structInitExpr none", .{}),
         .ref => unreachable, // struct literal not valid as l-value
         .ty => |ty_inst| {
-            return mod.failNode(scope, node, "TODO implement structInitExpr ty", .{});
+            const fields_list = try gpa.alloc(zir.Inst.StructInit.Item, struct_init.ast.fields.len);
+            defer gpa.free(fields_list);
+
+            for (struct_init.ast.fields) |field_init, i| {
+                const name_token = tree.firstToken(field_init) - 2;
+                const str_index = try gz.identAsString(name_token);
+
+                const field_ty_inst = try gz.addPlNode(.field_type, field_init, zir.Inst.FieldType{
+                    .container_type = ty_inst,
+                    .name_start = str_index,
+                });
+                fields_list[i] = .{
+                    .field_type = astgen.refToIndex(field_ty_inst).?,
+                    .init = try expr(gz, scope, .{ .ty = field_ty_inst }, field_init),
+                };
+            }
+            const init_inst = try gz.addPlNode(.struct_init, node, zir.Inst.StructInit{
+                .fields_len = @intCast(u32, fields_list.len),
+            });
+            try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
+                fields_list.len * @typeInfo(zir.Inst.StructInit.Item).Struct.fields.len);
+            for (fields_list) |field| {
+                _ = gz.astgen.addExtraAssumeCapacity(field);
+            }
+            return rvalue(gz, scope, rl, init_inst, node);
         },
         .ptr => |ptr_inst| {
             const field_ptr_list = try gpa.alloc(zir.Inst.Index, struct_init.ast.fields.len);
@@ -1245,6 +1269,7 @@ fn blockExprStmts(
                         .fn_type_var_args,
                         .fn_type_cc,
                         .fn_type_cc_var_args,
+                        .has_decl,
                         .int,
                         .float,
                         .float128,
@@ -1320,6 +1345,8 @@ fn blockExprStmts(
                         .switch_capture_else,
                         .switch_capture_else_ref,
                         .struct_init_empty,
+                        .struct_init,
+                        .field_type,
                         .struct_decl,
                         .struct_decl_packed,
                         .struct_decl_extern,
@@ -1329,6 +1356,7 @@ fn blockExprStmts(
                         .opaque_decl,
                         .int_to_enum,
                         .enum_to_int,
+                        .type_info,
                         => break :b false,
 
                         // ZIR instructions that are always either `noreturn` or `void`.
@@ -1336,6 +1364,7 @@ fn blockExprStmts(
                         .dbg_stmt_node,
                         .ensure_result_used,
                         .ensure_result_non_error,
+                        .@"export",
                         .set_eval_branch_quota,
                         .compile_log,
                         .ensure_err_payload_void,
@@ -2347,7 +2376,7 @@ fn arrayAccess(
         ),
         else => return rvalue(gz, scope, rl, try gz.addBin(
             .elem_val,
-            try expr(gz, scope, .none, node_datas[node].lhs),
+            try expr(gz, scope, .none_or_ref, node_datas[node].lhs),
             try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
         ), node),
     }
@@ -4146,6 +4175,36 @@ fn builtinCall(
             return rvalue(gz, scope, rl, result, node);
         },
 
+        .@"export" => {
+            // TODO: @export is supposed to be able to export things other than functions.
+            // Instead of `comptimeExpr` here we need `decl_ref`.
+            const fn_to_export = try comptimeExpr(gz, scope, .none, params[0]);
+            // TODO: the second parameter here is supposed to be
+            // `std.builtin.ExportOptions`, not a string.
+            const export_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
+            _ = try gz.addPlNode(.@"export", node, zir.Inst.Bin{
+                .lhs = fn_to_export,
+                .rhs = export_name,
+            });
+            return rvalue(gz, scope, rl, .void_value, node);
+        },
+
+        .has_decl => {
+            const container_type = try typeExpr(gz, scope, params[0]);
+            const name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
+            const result = try gz.addPlNode(.has_decl, node, zir.Inst.Bin{
+                .lhs = container_type,
+                .rhs = name,
+            });
+            return rvalue(gz, scope, rl, result, node);
+        },
+
+        .type_info => {
+            const operand = try typeExpr(gz, scope, params[0]);
+            const result = try gz.addUnNode(.type_info, operand, node);
+            return rvalue(gz, scope, rl, result, node);
+        },
+
         .add_with_overflow,
         .align_cast,
         .align_of,
@@ -4175,11 +4234,9 @@ fn builtinCall(
         .error_name,
         .error_return_trace,
         .err_set_cast,
-        .@"export",
         .fence,
         .field_parent_ptr,
         .float_to_int,
-        .has_decl,
         .has_field,
         .int_to_float,
         .int_to_ptr,
@@ -4224,7 +4281,6 @@ fn builtinCall(
         .This,
         .truncate,
         .Type,
-        .type_info,
         .type_name,
         .union_init,
         => return mod.failNode(scope, node, "TODO: implement builtin function {s}", .{

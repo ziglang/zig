@@ -328,6 +328,9 @@ pub const Inst = struct {
         error_union_type,
         /// `error.Foo` syntax. Uses the `str_tok` field of the Data union.
         error_value,
+        /// Implements the `@export` builtin function.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        @"export",
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
         /// to the named field. The field name is stored in string_bytes. Used by a.b syntax.
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
@@ -360,6 +363,9 @@ pub const Inst = struct {
         fn_type_cc,
         /// Same as `fn_type_cc` but the function is variadic.
         fn_type_cc_var_args,
+        /// Implements the `@hasDecl` builtin.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        has_decl,
         /// `@import(operand)`.
         /// Uses the `un_node` field.
         import,
@@ -668,12 +674,21 @@ pub const Inst = struct {
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
+        /// Given a struct, union, enum, or opaque and a field name, returns the field type.
+        /// Uses the `pl_node` field. Payload is `FieldType`.
+        field_type,
+        /// Finalizes a typed struct initialization, performs validation, and returns the
+        /// struct value.
+        /// Uses the `pl_node` field. Payload is `StructInit`.
+        struct_init,
         /// Converts an integer into an enum value.
         /// Uses `pl_node` with payload `Bin`. `lhs` is enum type, `rhs` is operand.
         int_to_enum,
         /// Converts an enum value into an integer. Resulting type will be the tag type
         /// of the enum. Uses `un_node`.
         enum_to_int,
+        /// Implements the `@typeInfo` builtin. Uses `un_node`.
+        type_info,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -737,6 +752,7 @@ pub const Inst = struct {
                 .elem_val_node,
                 .ensure_result_used,
                 .ensure_result_non_error,
+                .@"export",
                 .floatcast,
                 .field_ptr,
                 .field_val,
@@ -746,6 +762,7 @@ pub const Inst = struct {
                 .fn_type_var_args,
                 .fn_type_cc,
                 .fn_type_cc_var_args,
+                .has_decl,
                 .int,
                 .float,
                 .float128,
@@ -831,8 +848,11 @@ pub const Inst = struct {
                 .switch_block_ref_under_multi,
                 .validate_struct_init_ptr,
                 .struct_init_empty,
+                .struct_init,
+                .field_type,
                 .int_to_enum,
                 .enum_to_int,
+                .type_info,
                 => false,
 
                 .@"break",
@@ -1543,6 +1563,24 @@ pub const Inst = struct {
             return @bitCast(f128, int_bits);
         }
     };
+
+    /// Trailing is an item per field.
+    pub const StructInit = struct {
+        fields_len: u32,
+
+        pub const Item = struct {
+            /// The `field_type` ZIR instruction for this field init.
+            field_type: Index,
+            /// The field init expression to be used as the field value.
+            init: Ref,
+        };
+    };
+
+    pub const FieldType = struct {
+        container_type: Ref,
+        /// Offset into `string_bytes`, null terminated.
+        name_start: u32,
+    };
 };
 
 pub const SpecialProng = enum { none, @"else", under };
@@ -1617,6 +1655,7 @@ const Writer = struct {
             .typeof_elem,
             .struct_init_empty,
             .enum_to_int,
+            .type_info,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -1657,6 +1696,8 @@ const Writer = struct {
             .union_decl,
             .enum_decl,
             .enum_decl_nonexhaustive,
+            .struct_init,
+            .field_type,
             => try self.writePlNode(stream, inst),
 
             .add,
@@ -1676,12 +1717,14 @@ const Writer = struct {
             .cmp_gt,
             .cmp_neq,
             .div,
+            .has_decl,
             .mod_rem,
             .shl,
             .shr,
             .xor,
             .store_node,
             .error_union_type,
+            .@"export",
             .merge_error_sets,
             .bit_and,
             .bit_or,

@@ -7,7 +7,7 @@
 
 const root = @import("root");
 const std = @import("std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
 const tlcsprng = @import("crypto/tlcsprng.zig");
@@ -17,38 +17,100 @@ var argc_argv_ptr: [*]usize = undefined;
 const start_sym_name = if (builtin.arch.isMIPS()) "__start" else "_start";
 
 comptime {
-    if (builtin.output_mode == .Lib and builtin.link_mode == .Dynamic) {
-        if (builtin.os.tag == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
-            @export(_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
+    // The self-hosted compiler is not fully capable of handling all of this start.zig file.
+    // Until then, we have simplified logic here for self-hosted. TODO remove this once
+    // self-hosted is capable enough to handle all of the real start.zig logic.
+    if (builtin.zig_is_stage2) {
+        if (builtin.output_mode == .Exe) {
+            if (builtin.link_libc or builtin.object_format == .c) {
+                if (!@hasDecl(root, "main")) {
+                    @export(main2, "main");
+                }
+            } else {
+                if (!@hasDecl(root, "_start")) {
+                    @export(_start2, "_start");
+                }
+            }
         }
-    } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
-        if (builtin.link_libc and @hasDecl(root, "main")) {
-            if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
-                @export(main, .{ .name = "main", .linkage = .Weak });
+    } else {
+        if (builtin.output_mode == .Lib and builtin.link_mode == .Dynamic) {
+            if (builtin.os.tag == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
+                @export(_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
             }
-        } else if (builtin.os.tag == .windows) {
-            if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
-                !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
-            {
-                @export(WinStartup, .{ .name = "wWinMainCRTStartup" });
-            } else if (@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
-                !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
-            {
-                @compileError("WinMain not supported; declare wWinMain or main instead");
-            } else if (@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup") and
-                !@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup"))
-            {
-                @export(wWinMainCRTStartup, .{ .name = "wWinMainCRTStartup" });
+        } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
+            if (builtin.link_libc and @hasDecl(root, "main")) {
+                if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
+                    @export(main, .{ .name = "main", .linkage = .Weak });
+                }
+            } else if (builtin.os.tag == .windows) {
+                if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
+                    !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
+                {
+                    @export(WinStartup, .{ .name = "wWinMainCRTStartup" });
+                } else if (@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
+                    !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
+                {
+                    @compileError("WinMain not supported; declare wWinMain or main instead");
+                } else if (@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup") and
+                    !@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup"))
+                {
+                    @export(wWinMainCRTStartup, .{ .name = "wWinMainCRTStartup" });
+                }
+            } else if (builtin.os.tag == .uefi) {
+                if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
+            } else if (builtin.arch.isWasm() and builtin.os.tag == .freestanding) {
+                if (!@hasDecl(root, start_sym_name)) @export(wasm_freestanding_start, .{ .name = start_sym_name });
+            } else if (builtin.os.tag != .other and builtin.os.tag != .freestanding) {
+                if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
             }
-        } else if (builtin.os.tag == .uefi) {
-            if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
-        } else if (builtin.arch.isWasm() and builtin.os.tag == .freestanding) {
-            if (!@hasDecl(root, start_sym_name)) @export(wasm_freestanding_start, .{ .name = start_sym_name });
-        } else if (builtin.os.tag != .other and builtin.os.tag != .freestanding) {
-            if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
         }
     }
 }
+
+// Simplified start code for stage2 until it supports more language features ///
+
+fn main2() callconv(.C) c_int {
+    root.main();
+    return 0;
+}
+
+fn _start2() callconv(.Naked) noreturn {
+    root.main();
+    exit2(0);
+}
+
+fn exit2(code: u8) noreturn {
+    switch (builtin.arch) {
+        .x86_64 => {
+            asm volatile ("syscall"
+                :
+                : [number] "{rax}" (231),
+                  [arg1] "{rdi}" (code)
+                : "rcx", "r11", "memory"
+            );
+        },
+        .arm => {
+            asm volatile ("svc #0"
+                :
+                : [number] "{r7}" (1),
+                  [arg1] "{r0}" (code)
+                : "memory"
+            );
+        },
+        .aarch64 => {
+            asm volatile ("svc #0"
+                :
+                : [number] "{x8}" (93),
+                  [arg1] "{x0}" (code)
+                : "memory", "cc"
+            );
+        },
+        else => @compileError("TODO"),
+    }
+    unreachable;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 fn _DllMainCRTStartup(
     hinstDLL: std.os.windows.HINSTANCE,
