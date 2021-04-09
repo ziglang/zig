@@ -1653,7 +1653,8 @@ fn renderArrayInit(
     try renderToken(ais, tree, array_init.ast.lbrace, .newline);
 
     var expr_index: usize = 0;
-    while (rowSize(tree, array_init.ast.elements[expr_index..], rbrace)) |row_size| {
+    while (true) {
+        const row_size = rowSize(tree, array_init.ast.elements[expr_index..], rbrace);
         const row_exprs = array_init.ast.elements[expr_index..];
         // A place to store the width of each expression and its column's maximum
         const widths = try gpa.alloc(usize, row_exprs.len + row_size);
@@ -1686,7 +1687,7 @@ fn renderArrayInit(
                 const maybe_comma = expr_last_token + 1;
                 if (token_tags[maybe_comma] == .comma) {
                     if (hasSameLineComment(tree, maybe_comma))
-                        break :sec_end i - this_line_size.? + 1;
+                        break :sec_end i - this_line_size + 1;
                 }
             }
             break :sec_end row_exprs.len;
@@ -2500,9 +2501,8 @@ fn nodeCausesSliceOpSpace(tag: ast.Node.Tag) bool {
     };
 }
 
-// Returns the number of nodes in `expr` that are on the same line as `rtoken`,
-// or null if they all are on the same line.
-fn rowSize(tree: ast.Tree, exprs: []const ast.Node.Index, rtoken: ast.TokenIndex) ?usize {
+// Returns the number of nodes in `expr` that are on the same line as `rtoken`.
+fn rowSize(tree: ast.Tree, exprs: []const ast.Node.Index, rtoken: ast.TokenIndex) usize {
     const token_tags = tree.tokens.items(.tag);
 
     const first_token = tree.firstToken(exprs[0]);
@@ -2510,7 +2510,7 @@ fn rowSize(tree: ast.Tree, exprs: []const ast.Node.Index, rtoken: ast.TokenIndex
         const maybe_comma = rtoken - 1;
         if (token_tags[maybe_comma] == .comma)
             return 1;
-        return null; // no newlines
+        return exprs.len; // no newlines
     }
 
     var count: usize = 1;
