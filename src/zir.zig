@@ -687,6 +687,8 @@ pub const Inst = struct {
         /// Converts an enum value into an integer. Resulting type will be the tag type
         /// of the enum. Uses `un_node`.
         enum_to_int,
+        /// Implements the `@typeInfo` builtin. Uses `un_node`.
+        type_info,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -850,6 +852,7 @@ pub const Inst = struct {
                 .field_type,
                 .int_to_enum,
                 .enum_to_int,
+                .type_info,
                 => false,
 
                 .@"break",
@@ -1652,6 +1655,7 @@ const Writer = struct {
             .typeof_elem,
             .struct_init_empty,
             .enum_to_int,
+            .type_info,
             => try self.writeUnNode(stream, inst),
 
             .ref,

@@ -1356,6 +1356,7 @@ fn blockExprStmts(
                         .opaque_decl,
                         .int_to_enum,
                         .enum_to_int,
+                        .type_info,
                         => break :b false,
 
                         // ZIR instructions that are always either `noreturn` or `void`.
@@ -4198,6 +4199,12 @@ fn builtinCall(
             return rvalue(gz, scope, rl, result, node);
         },
 
+        .type_info => {
+            const operand = try typeExpr(gz, scope, params[0]);
+            const result = try gz.addUnNode(.type_info, operand, node);
+            return rvalue(gz, scope, rl, result, node);
+        },
+
         .add_with_overflow,
         .align_cast,
         .align_of,
@@ -4274,7 +4281,6 @@ fn builtinCall(
         .This,
         .truncate,
         .Type,
-        .type_info,
         .type_name,
         .union_init,
         => return mod.failNode(scope, node, "TODO: implement builtin function {s}", .{

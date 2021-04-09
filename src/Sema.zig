@@ -259,6 +259,7 @@ pub fn analyzeBody(
             .switch_capture_multi_ref => try sema.zirSwitchCapture(block, inst, true, true),
             .switch_capture_else => try sema.zirSwitchCaptureElse(block, inst, false),
             .switch_capture_else_ref => try sema.zirSwitchCaptureElse(block, inst, true),
+            .type_info => try sema.zirTypeInfo(block, inst),
             .typeof => try sema.zirTypeof(block, inst),
             .typeof_elem => try sema.zirTypeofElem(block, inst),
             .typeof_peer => try sema.zirTypeofPeer(block, inst),
@@ -4076,6 +4077,12 @@ fn zirCmp(
         .neq => .cmp_neq,
     };
     return block.addBinOp(src, bool_type, tag, casted_lhs, casted_rhs);
+}
+
+fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirTypeInfo", .{});
 }
 
 fn zirTypeof(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
