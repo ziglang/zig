@@ -1745,7 +1745,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             const result = self.args[arg_index];
             const mcv = switch (arch) {
-                // TODO support stack-only registers on all target architectures
+                // TODO support stack-only arguments on all target architectures
                 .arm, .armeb, .aarch64, .aarch64_32, .aarch64_be => switch (result) {
                     // Copy registers to the stack
                     .register => |reg| blk: {
