@@ -462,7 +462,7 @@ pub const TTY = struct {
         // TODO give this a payload of file handle
         windows_api,
 
-        fn setColor(conf: Config, out_stream: anytype, color: Color) void {
+        pub fn setColor(conf: Config, out_stream: anytype, color: Color) void {
             nosuspend switch (conf) {
                 .no_color => return,
                 .escape_codes => switch (color) {

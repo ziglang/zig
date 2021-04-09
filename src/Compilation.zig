@@ -272,28 +272,52 @@ pub const AllErrors = struct {
             line: u32,
             column: u32,
             byte_offset: u32,
+            /// Does not include the trailing newline.
+            source_line: ?[]const u8,
             notes: []Message = &.{},
         },
         plain: struct {
             msg: []const u8,
         },
 
-        pub fn renderToStdErr(msg: Message) void {
-            return msg.renderToStdErrInner("error");
+        pub fn renderToStdErr(msg: Message, ttyconf: std.debug.TTY.Config) void {
+            const stderr_mutex = std.debug.getStderrMutex();
+            const held = std.debug.getStderrMutex().acquire();
+            defer held.release();
+            const stderr = std.io.getStdErr();
+            return msg.renderToStdErrInner(ttyconf, stderr, "error", .Red) catch return;
         }
 
-        fn renderToStdErrInner(msg: Message, kind: []const u8) void {
+        fn renderToStdErrInner(
+            msg: Message,
+            ttyconf: std.debug.TTY.Config,
+            stderr_file: std.fs.File,
+            kind: []const u8,
+            color: std.debug.TTY.Color,
+        ) anyerror!void {
+            const stderr = stderr_file.writer();
             switch (msg) {
                 .src => |src| {
-                    std.debug.print("{s}:{d}:{d}: {s}: {s}\n", .{
+                    try stderr.print("{s}:{d}:{d}: ", .{
                         src.src_path,
                         src.line + 1,
                         src.column + 1,
-                        kind,
-                        src.msg,
                     });
+                    ttyconf.setColor(stderr, color);
+                    try stderr.writeAll(kind);
+                    ttyconf.setColor(stderr, .Bold);
+                    try stderr.print(" {s}\n", .{src.msg});
+                    ttyconf.setColor(stderr, .Reset);
+                    if (src.source_line) |line| {
+                        try stderr.writeAll(line);
+                        try stderr.writeByte('\n');
+                        try stderr.writeByteNTimes(' ', src.column);
+                        ttyconf.setColor(stderr, .Green);
+                        try stderr.writeAll("^\n");
+                        ttyconf.setColor(stderr, .Reset);
+                    }
                     for (src.notes) |note| {
-                        note.renderToStdErrInner("note");
+                        try note.renderToStdErrInner(ttyconf, stderr_file, "note", .Cyan);
                     }
                 },
                 .plain => |plain| {
@@ -327,6 +351,7 @@ pub const AllErrors = struct {
                     .byte_offset = byte_offset,
                     .line = @intCast(u32, loc.line),
                     .column = @intCast(u32, loc.column),
+                    .source_line = try arena.allocator.dupe(u8, loc.source_line),
                 },
             };
         }
@@ -342,6 +367,7 @@ pub const AllErrors = struct {
                 .line = @intCast(u32, loc.line),
                 .column = @intCast(u32, loc.column),
                 .notes = notes,
+                .source_line = try arena.allocator.dupe(u8, loc.source_line),
             },
         });
     }
@@ -1489,6 +1515,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                 .byte_offset = 0,
                 .line = err_msg.line,
                 .column = err_msg.column,
+                .source_line = null, // TODO
             },
         });
     }
