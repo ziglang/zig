@@ -505,7 +505,6 @@ fn buildOutputType(
     var emit_bin: EmitBin = .yes_default_path;
     var emit_asm: Emit = .no;
     var emit_llvm_ir: Emit = .no;
-    var emit_zir: Emit = .no;
     var emit_docs: Emit = .no;
     var emit_analysis: Emit = .no;
     var target_arch_os_abi: []const u8 = "native";
@@ -923,12 +922,6 @@ fn buildOutputType(
                         emit_bin = .{ .yes = arg["-femit-bin=".len..] };
                     } else if (mem.eql(u8, arg, "-fno-emit-bin")) {
                         emit_bin = .no;
-                    } else if (mem.eql(u8, arg, "-femit-zir")) {
-                        emit_zir = .yes_default_path;
-                    } else if (mem.startsWith(u8, arg, "-femit-zir=")) {
-                        emit_zir = .{ .yes = arg["-femit-zir=".len..] };
-                    } else if (mem.eql(u8, arg, "-fno-emit-zir")) {
-                        emit_zir = .no;
                     } else if (mem.eql(u8, arg, "-femit-h")) {
                         emit_h = .yes_default_path;
                     } else if (mem.startsWith(u8, arg, "-femit-h=")) {
@@ -1723,13 +1716,6 @@ fn buildOutputType(
 
     var emit_docs_resolved = try emit_docs.resolve("docs");
     defer emit_docs_resolved.deinit();
-
-    switch (emit_zir) {
-        .no => {},
-        .yes_default_path, .yes => {
-            fatal("The -femit-zir implementation has been intentionally deleted so that it can be rewritten as a proper backend.", .{});
-        },
-    }
 
     const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
         if (main_pkg_path) |p| {
