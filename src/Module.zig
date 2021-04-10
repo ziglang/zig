@@ -26,7 +26,6 @@ const trace = @import("tracy.zig").trace;
 const AstGen = @import("AstGen.zig");
 const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
-const Cache = @import("Cache.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -706,8 +705,6 @@ pub const Scope = struct {
         stat_inode: std.fs.File.INode,
         /// Whether this is populated depends on `status`.
         stat_mtime: i128,
-        /// Whether this is populated depends on `status`.
-        source_hash: Cache.BinDigest,
         /// Whether this is populated or not depends on `status`.
         tree: ast.Tree,
         /// Package that this file is a part of, managed externally.
@@ -731,13 +728,6 @@ pub const Scope = struct {
             if (file.source_loaded) {
                 file.source_loaded = false;
                 gpa.free(file.source);
-            }
-        }
-
-        pub fn updateTreeToNewSource(file: *File) void {
-            assert(file.source_loaded);
-            if (file.status == .loaded_success) {
-                file.tree.source = file.source;
             }
         }
 
@@ -781,13 +771,10 @@ pub const Scope = struct {
                 return error.FileTooBig;
 
             const source = try gpa.allocSentinel(u8, stat.size, 0);
+            errdefer gpa.free(source);
             const amt = try f.readAll(source);
             if (amt != stat.size)
                 return error.UnexpectedEndOfFile;
-
-            var hasher = Cache.hasher_init;
-            hasher.update(source);
-            hasher.final(&file.source_hash);
 
             file.stat_size = stat.size;
             file.stat_inode = stat.inode;
@@ -3316,7 +3303,6 @@ pub fn importFile(mod: *Module, cur_pkg: *Package, import_string: []const u8) !*
     new_file.* = .{
         .sub_file_path = resolved_path,
         .source = undefined,
-        .source_hash = undefined,
         .source_loaded = false,
         .stat_size = undefined,
         .stat_inode = undefined,
@@ -3343,12 +3329,13 @@ pub fn importFile(mod: *Module, cur_pkg: *Package, import_string: []const u8) !*
         .parent_name_hash = parent_name_hash,
         .ty = Type.initTag(.type),
     };
+
     const top_decl = try mod.createNewDecl(
         &tmp_namespace,
         resolved_path,
         0,
         parent_name_hash,
-        new_file.source_hash,
+        std.zig.hashSrc(tree.source),
     );
     defer {
         mod.decl_table.removeAssertDiscard(parent_name_hash);
@@ -3421,6 +3408,7 @@ pub fn importFile(mod: *Module, cur_pkg: *Package, import_string: []const u8) !*
     const struct_ty = try val.toType(&gen_scope_arena.allocator);
     const struct_decl = struct_ty.getOwnerDecl();
 
+    struct_decl.contents_hash = top_decl.contents_hash;
     new_file.namespace = struct_ty.getNamespace().?;
     new_file.namespace.parent = null;
     new_file.namespace.parent_name_hash = tmp_namespace.parent_name_hash;

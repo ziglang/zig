@@ -1390,22 +1390,14 @@ pub fn update(self: *Compilation) !void {
                     continue;
                 }
 
-                const prev_hash = file.source_hash;
-                file.unloadSource(module.gpa);
-                // TODO handle error here by populating a retryable compile error
-                try file.finishGettingSource(module.gpa, f, stat);
-                assert(file.source_loaded);
-                if (mem.eql(u8, &prev_hash, &file.source_hash)) {
-                    file.updateTreeToNewSource();
-                    log.debug("unmodified source hash of file: {s}", .{file.sub_file_path});
-                    continue;
-                }
-
-                log.debug("source contents changed: {s}", .{file.sub_file_path});
+                log.debug("metadata changed: {s}", .{file.sub_file_path});
                 if (file.status == .unloaded_parse_failure) {
                     module.failed_files.swapRemove(file).?.value.destroy(module.gpa);
                 }
-                file.unloadTree(module.gpa);
+
+                file.unload(module.gpa);
+                // TODO handle error here by populating a retryable compile error
+                try file.finishGettingSource(module.gpa, f, stat);
 
                 module.analyzeFile(file) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
