@@ -126,7 +126,7 @@ pub fn parse(self: *Archive) !void {
     }
 
     var embedded_name = try parseName(self.allocator, self.header.?, reader);
-    log.warn("parsing archive '{s}' at '{s}'", .{ embedded_name, self.name.? });
+    log.debug("parsing archive '{s}' at '{s}'", .{ embedded_name, self.name.? });
     defer self.allocator.free(embedded_name);
 
     try self.parseTableOfContents(reader);
@@ -208,13 +208,14 @@ pub fn parseObject(self: Archive, offset: u32) !Object {
 
     const object_name = try parseName(self.allocator, object_header, reader);
     defer self.allocator.free(object_name);
+    const object_basename = std.fs.path.basename(object_name);
 
-    log.warn("extracting object '{s}' from archive '{s}'", .{ object_name, self.name.? });
+    log.debug("extracting object '{s}' from archive '{s}'", .{ object_basename, self.name.? });
 
     const name = name: {
         var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const path = try std.os.realpath(self.name.?, &buffer);
-        break :name try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ path, object_name });
+        break :name try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ path, object_basename });
     };
 
     var object = Object.init(self.allocator);

@@ -29,12 +29,12 @@ pub const Relocation = struct {
     };
 
     pub fn resolve(base: *Relocation, args: ResolveArgs) !void {
-        log.warn("{s}", .{base.@"type"});
-        log.warn("    | offset 0x{x}", .{base.offset});
-        log.warn("    | source address 0x{x}", .{args.source_addr});
-        log.warn("    | target address 0x{x}", .{args.target_addr});
+        log.debug("{s}", .{base.@"type"});
+        log.debug("    | offset 0x{x}", .{base.offset});
+        log.debug("    | source address 0x{x}", .{args.source_addr});
+        log.debug("    | target address 0x{x}", .{args.target_addr});
         if (args.subtractor) |sub|
-            log.warn("    | subtractor address 0x{x}", .{sub});
+            log.debug("    | subtractor address 0x{x}", .{sub});
 
         return switch (base.@"type") {
             .branch => @fieldParentPtr(Branch, "base", base).resolve(args.source_addr, args.target_addr),
@@ -82,7 +82,7 @@ pub const Relocation = struct {
         pub fn resolve(branch: Branch, source_addr: u64, target_addr: u64) !void {
             const displacement = try math.cast(i28, @intCast(i64, target_addr) - @intCast(i64, source_addr));
 
-            log.warn("    | displacement 0x{x}", .{displacement});
+            log.debug("    | displacement 0x{x}", .{displacement});
 
             var inst = branch.inst;
             inst.UnconditionalBranchImmediate.imm26 = @truncate(u26, @bitCast(u28, displacement) >> 2);
@@ -109,8 +109,8 @@ pub const Relocation = struct {
             else
                 @intCast(i64, target_addr) + unsigned.addend;
 
-            log.warn("    | calculated addend 0x{x}", .{unsigned.addend});
-            log.warn("    | calculated unsigned value 0x{x}", .{result});
+            log.debug("    | calculated addend 0x{x}", .{unsigned.addend});
+            log.debug("    | calculated unsigned value 0x{x}", .{result});
 
             if (unsigned.is_64bit) {
                 mem.writeIntLittle(
@@ -142,8 +142,8 @@ pub const Relocation = struct {
             const target_page = @intCast(i32, ta >> 12);
             const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
 
-            log.warn("    | calculated addend 0x{x}", .{page.addend});
-            log.warn("    | moving by {} pages", .{pages});
+            log.debug("    | calculated addend 0x{x}", .{page.addend});
+            log.debug("    | moving by {} pages", .{pages});
 
             var inst = page.inst;
             inst.PCRelativeAddress.immhi = @truncate(u19, pages >> 2);
@@ -170,8 +170,8 @@ pub const Relocation = struct {
             const ta = if (page_off.addend) |a| target_addr + a else target_addr;
             const narrowed = @truncate(u12, ta);
 
-            log.warn("    | narrowed address within the page 0x{x}", .{narrowed});
-            log.warn("    | {s} opcode", .{page_off.op_kind});
+            log.debug("    | narrowed address within the page 0x{x}", .{narrowed});
+            log.debug("    | {s} opcode", .{page_off.op_kind});
 
             var inst = page_off.inst;
             if (page_off.op_kind == .arithmetic) {
@@ -209,7 +209,7 @@ pub const Relocation = struct {
             const target_page = @intCast(i32, target_addr >> 12);
             const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
 
-            log.warn("    | moving by {} pages", .{pages});
+            log.debug("    | moving by {} pages", .{pages});
 
             var inst = page.inst;
             inst.PCRelativeAddress.immhi = @truncate(u19, pages >> 2);
@@ -229,7 +229,7 @@ pub const Relocation = struct {
         pub fn resolve(page_off: GotPageOff, target_addr: u64) !void {
             const narrowed = @truncate(u12, target_addr);
 
-            log.warn("    | narrowed address within the page 0x{x}", .{narrowed});
+            log.debug("    | narrowed address within the page 0x{x}", .{narrowed});
 
             var inst = page_off.inst;
             const offset = try math.divExact(u12, narrowed, 8);
@@ -251,7 +251,7 @@ pub const Relocation = struct {
             const target_page = @intCast(i32, target_addr >> 12);
             const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
 
-            log.warn("    | moving by {} pages", .{pages});
+            log.debug("    | moving by {} pages", .{pages});
 
             var inst = page.inst;
             inst.PCRelativeAddress.immhi = @truncate(u19, pages >> 2);
@@ -273,7 +273,7 @@ pub const Relocation = struct {
         pub fn resolve(page_off: TlvpPageOff, target_addr: u64) !void {
             const narrowed = @truncate(u12, target_addr);
 
-            log.warn("    | narrowed address within the page 0x{x}", .{narrowed});
+            log.debug("    | narrowed address within the page 0x{x}", .{narrowed});
 
             var inst = page_off.inst;
             inst.AddSubtractImmediate.imm12 = narrowed;

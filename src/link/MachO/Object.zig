@@ -41,9 +41,10 @@ dwarf_debug_str_index: ?u16 = null,
 dwarf_debug_line_index: ?u16 = null,
 dwarf_debug_ranges_index: ?u16 = null,
 
-symtab: std.ArrayListUnmanaged(Symbol) = .{},
+symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 
+locals: std.StringArrayHashMapUnmanaged(Symbol) = .{},
 stabs: std.ArrayListUnmanaged(Stab) = .{},
 tu_path: ?[]const u8 = null,
 tu_mtime: ?u64 = null,
@@ -71,7 +72,6 @@ const Stab = struct {
     tag: Tag,
     symbol: u32,
     size: ?u64 = null,
-    source_sect_id: u16,
 
     const Tag = enum {
         function,
@@ -160,6 +160,11 @@ pub fn deinit(self: *Object) void {
         sect.deinit(self.allocator);
     }
     self.sections.deinit(self.allocator);
+
+    for (self.locals.items()) |*entry| {
+        entry.value.deinit(self.allocator);
+    }
+    self.locals.deinit(self.allocator);
 
     self.symtab.deinit(self.allocator);
     self.strtab.deinit(self.allocator);
@@ -271,7 +276,7 @@ pub fn readLoadCommands(self: *Object, reader: anytype) !void {
                 cmd.LinkeditData.dataoff += offset;
             },
             else => {
-                log.warn("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
+                log.debug("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
             },
         }
         self.load_commands.appendAssumeCapacity(cmd);
@@ -279,13 +284,13 @@ pub fn readLoadCommands(self: *Object, reader: anytype) !void {
 }
 
 pub fn parseSections(self: *Object) !void {
-    log.warn("parsing sections in {s}", .{self.name.?});
+    log.debug("parsing sections in {s}", .{self.name.?});
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
 
     try self.sections.ensureCapacity(self.allocator, seg.sections.items.len);
 
     for (seg.sections.items) |sect| {
-        log.warn("parsing section '{s},{s}'", .{ parseName(&sect.segname), parseName(&sect.sectname) });
+        log.debug("parsing section '{s},{s}'", .{ parseName(&sect.segname), parseName(&sect.sectname) });
         // Read sections' code
         var code = try self.allocator.alloc(u8, sect.size);
         _ = try self.file.?.preadAll(code, sect.offset);
@@ -321,42 +326,39 @@ pub fn parseSymtab(self: *Object) !void {
     defer self.allocator.free(symtab);
 
     _ = try self.file.?.preadAll(symtab, symtab_cmd.symoff);
-    try self.symtab.ensureCapacity(self.allocator, symtab_cmd.nsyms);
-
-    var stream = std.io.fixedBufferStream(symtab);
-    var reader = stream.reader();
-
-    while (true) {
-        const symbol = reader.readStruct(macho.nlist_64) catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => |e| return e,
-        };
-        const tag: Symbol.Tag = tag: {
-            if (Symbol.isLocal(symbol)) {
-                if (Symbol.isStab(symbol))
-                    break :tag .stab
-                else
-                    break :tag .local;
-            } else if (Symbol.isGlobal(symbol)) {
-                if (Symbol.isWeakDef(symbol))
-                    break :tag .weak
-                else
-                    break :tag .strong;
-            } else {
-                break :tag .undef;
-            }
-        };
-        self.symtab.appendAssumeCapacity(.{
-            .tag = tag,
-            .inner = symbol,
-        });
-    }
+    const slice = @alignCast(@alignOf(macho.nlist_64), mem.bytesAsSlice(macho.nlist_64, symtab));
+    try self.symtab.appendSlice(self.allocator, slice);
 
     var strtab = try self.allocator.alloc(u8, symtab_cmd.strsize);
     defer self.allocator.free(strtab);
 
     _ = try self.file.?.preadAll(strtab, symtab_cmd.stroff);
     try self.strtab.appendSlice(self.allocator, strtab);
+
+    for (self.symtab.items) |sym, sym_id| {
+        if (Symbol.isStab(sym) or Symbol.isUndef(sym)) continue;
+
+        const sym_name = self.getString(sym.n_strx);
+        const tag: Symbol.Tag = tag: {
+            if (Symbol.isLocal(sym)) {
+                if (self.arch.? == .aarch64 and mem.startsWith(u8, sym_name, "l")) continue;
+                break :tag .local;
+            }
+            if (Symbol.isWeakDef(sym)) {
+                break :tag .weak;
+            }
+            break :tag .strong;
+        };
+        const name = try self.allocator.dupe(u8, sym_name);
+
+        try self.locals.putNoClobber(self.allocator, name, .{
+            .tag = tag,
+            .name = name,
+            .address = 0,
+            .section = 0,
+            .index = @intCast(u32, sym_id),
+        });
+    }
 }
 
 pub fn parseDebugInfo(self: *Object) !void {
@@ -366,13 +368,13 @@ pub fn parseDebugInfo(self: *Object) !void {
     };
     defer debug_info.deinit(self.allocator);
 
-    log.warn("parsing debug info in '{s}'", .{self.name.?});
+    log.debug("parsing debug info in '{s}'", .{self.name.?});
 
     // We assume there is only one CU.
     const compile_unit = debug_info.inner.findCompileUnit(0x0) catch |err| switch (err) {
         error.MissingDebugInfo => {
             // TODO audit cases with missing debug info and audit our dwarf.zig module.
-            log.warn("invalid or missing debug info in {s}; skipping", .{self.name.?});
+            log.debug("invalid or missing debug info in {s}; skipping", .{self.name.?});
             return;
         },
         else => |e| return e,
@@ -387,30 +389,28 @@ pub fn parseDebugInfo(self: *Object) !void {
         break :mtime @intCast(u64, @divFloor(stat.mtime, 1_000_000_000));
     };
 
-    for (self.symtab.items) |sym, index| {
-        if (sym.tag == .undef) continue;
-
-        const sym_name = self.getString(sym.inner.n_strx);
+    for (self.locals.items()) |entry, index| {
+        const local = entry.value;
+        const source_sym = self.symtab.items[local.index.?];
         const size = blk: for (debug_info.inner.func_list.items) |func| {
             if (func.pc_range) |range| {
-                if (sym.inner.n_value >= range.start and sym.inner.n_value < range.end) {
+                if (source_sym.n_value >= range.start and source_sym.n_value < range.end) {
                     break :blk range.end - range.start;
                 }
             }
         } else null;
-
         const tag: Stab.Tag = tag: {
             if (size != null) break :tag .function;
-            switch (sym.tag) {
+            switch (local.tag) {
                 .weak, .strong => break :tag .global,
                 else => break :tag .static,
             }
         };
+
         try self.stabs.append(self.allocator, .{
             .tag = tag,
             .size = size,
             .symbol = @intCast(u32, index),
-            .source_sect_id = sym.inner.n_sect - 1,
         });
     }
 }

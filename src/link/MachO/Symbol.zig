@@ -3,8 +3,9 @@ const Symbol = @This();
 const std = @import("std");
 const macho = std.macho;
 
+const Allocator = std.mem.Allocator;
+
 pub const Tag = enum {
-    stab,
     local,
     weak,
     strong,
@@ -13,9 +14,9 @@ pub const Tag = enum {
 };
 
 tag: Tag,
-
-/// MachO representation of this symbol.
-inner: macho.nlist_64,
+name: []u8,
+address: u64,
+section: u8,
 
 /// Index of file where to locate this symbol.
 /// Depending on context, this is either an object file, or a dylib.
@@ -23,6 +24,10 @@ file: ?u16 = null,
 
 /// Index of this symbol within the file's symbol table.
 index: ?u32 = null,
+
+pub fn deinit(self: *Symbol, allocator: *Allocator) void {
+    allocator.free(self.name);
+}
 
 pub fn isStab(sym: macho.nlist_64) bool {
     return (macho.N_STAB & sym.n_type) != 0;
@@ -50,9 +55,9 @@ pub fn isWeakDef(sym: macho.nlist_64) bool {
     return sym.n_desc == macho.N_WEAK_DEF;
 }
 
-/// Symbol is local if it is either a stab or it is defined and not an extern.
+/// Symbol is local if it is defined and not an extern.
 pub fn isLocal(sym: macho.nlist_64) bool {
-    return isStab(sym) or (isSect(sym) and !isExt(sym));
+    return isSect(sym) and !isExt(sym);
 }
 
 /// Symbol is global if it is defined and an extern.
