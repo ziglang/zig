@@ -903,10 +903,10 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 self.base.allocator.free(result.stderr);
             }
             if (result.stdout.len != 0) {
-                log.warn("unexpected LD stdout: {s}", .{result.stdout});
+                log.debug("unexpected LD stdout: {s}", .{result.stdout});
             }
             if (result.stderr.len != 0) {
-                log.warn("unexpected LD stderr: {s}", .{result.stderr});
+                log.debug("unexpected LD stderr: {s}", .{result.stderr});
             }
             if (result.term != .Exited or result.term.Exited != 0) {
                 // TODO parse this output and surface with the Compilation API rather than
@@ -971,7 +971,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 }
 
                 if (stderr.len != 0) {
-                    log.warn("unexpected LLD stderr:\n{s}", .{stderr});
+                    log.debug("unexpected LLD stderr:\n{s}", .{stderr});
                 }
             }
         }
@@ -981,11 +981,11 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest file: {s}", .{@errorName(err)});
+            log.debug("failed to save linking hash digest file: {s}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
+            log.debug("failed to write cache manifest when linking: {s}", .{@errorName(err)});
         };
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.

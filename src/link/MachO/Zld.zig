@@ -75,6 +75,7 @@ bss_section_index: ?u16 = null,
 
 symtab: std.StringArrayHashMapUnmanaged(Symbol) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
+strtab_dir: std.StringHashMapUnmanaged(u32) = .{},
 
 threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
 local_rebases: std.ArrayListUnmanaged(Pointer) = .{},
@@ -94,7 +95,6 @@ const GotEntry = struct {
     index: u32,
     target_addr: u64,
     file: u16,
-    local_index: u32,
 };
 
 const MappingKey = struct {
@@ -153,10 +153,18 @@ pub fn deinit(self: *Zld) void {
     self.unhandled_sections.deinit(self.allocator);
 
     for (self.symtab.items()) |*entry| {
-        self.allocator.free(entry.key);
+        entry.value.deinit(self.allocator);
     }
     self.symtab.deinit(self.allocator);
     self.strtab.deinit(self.allocator);
+
+    {
+        var it = self.strtab_dir.iterator();
+        while (it.next()) |entry| {
+            self.allocator.free(entry.key);
+        }
+    }
+    self.strtab_dir.deinit(self.allocator);
 }
 
 pub fn closeFiles(self: Zld) void {
@@ -274,7 +282,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
             continue;
         }
 
-        log.warn("unexpected input file of unknown type '{s}'", .{file_name});
+        log.debug("unexpected input file of unknown type '{s}'", .{file_name});
     }
 
     // Based on our classification, proceed with parsing.
@@ -326,7 +334,7 @@ fn mapAndUpdateSections(
         .target_sect_id = target_sect_id,
         .offset = @intCast(u32, offset),
     });
-    log.warn("{s}: {s},{s} mapped to {s},{s} from 0x{x} to 0x{x}", .{
+    log.debug("{s}: {s},{s} mapped to {s},{s} from 0x{x} to 0x{x}", .{
         object.name,
         parseName(&source_sect.segname),
         parseName(&source_sect.sectname),
@@ -536,7 +544,7 @@ fn updateMetadata(self: *Zld) !void {
                     });
                 },
                 else => {
-                    log.warn("unhandled section type 0x{x} for '{s}/{s}'", .{ flags, segname, sectname });
+                    log.debug("unhandled section type 0x{x} for '{s}/{s}'", .{ flags, segname, sectname });
                 },
             }
         }
@@ -560,7 +568,7 @@ fn updateMetadata(self: *Zld) !void {
 
             const segname = parseName(&source_sect.segname);
             const sectname = parseName(&source_sect.sectname);
-            log.warn("section '{s}/{s}' will be unmapped", .{ segname, sectname });
+            log.debug("section '{s}/{s}' will be unmapped", .{ segname, sectname });
             try self.unhandled_sections.putNoClobber(self.allocator, .{
                 .object_id = object_id,
                 .source_sect_id = source_sect_id,
@@ -874,15 +882,9 @@ fn allocateSegment(self: *Zld, index: u16, offset: u64) !void {
 
 fn allocateSymbols(self: *Zld) !void {
     for (self.objects.items) |*object, object_id| {
-        for (object.symtab.items) |*sym| {
-            switch (sym.tag) {
-                .import => unreachable,
-                .undef => continue,
-                else => {},
-            }
-
-            const sym_name = object.getString(sym.inner.n_strx);
-            const source_sect_id = sym.inner.n_sect - 1;
+        for (object.locals.items()) |*entry| {
+            const source_sym = object.symtab.items[entry.value.index.?];
+            const source_sect_id = source_sym.n_sect - 1;
 
             // TODO I am more and more convinced we should store the mapping as part of the Object struct.
             const target_mapping = self.mappings.get(.{
@@ -894,7 +896,7 @@ fn allocateSymbols(self: *Zld) !void {
                     .source_sect_id = source_sect_id,
                 }) != null) continue;
 
-                log.err("section not mapped for symbol '{s}': {}", .{ sym_name, sym });
+                log.err("section not mapped for symbol '{s}'", .{entry.value.name});
                 return error.SectionNotMappedForSymbol;
             };
 
@@ -903,9 +905,9 @@ fn allocateSymbols(self: *Zld) !void {
             const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
             const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
             const target_addr = target_sect.addr + target_mapping.offset;
-            const n_value = sym.inner.n_value - source_sect.addr + target_addr;
+            const n_value = source_sym.n_value - source_sect.addr + target_addr;
 
-            log.warn("resolving local symbol '{s}' at 0x{x}", .{ sym_name, n_value });
+            log.debug("resolving local symbol '{s}' at 0x{x}", .{ entry.value.name, n_value });
 
             // TODO there might be a more generic way of doing this.
             var n_sect: u8 = 0;
@@ -918,8 +920,8 @@ fn allocateSymbols(self: *Zld) !void {
                 n_sect += @intCast(u8, cmd.Segment.sections.items.len);
             }
 
-            sym.inner.n_value = n_value;
-            sym.inner.n_sect = n_sect;
+            entry.value.address = n_value;
+            entry.value.section = n_sect;
         }
     }
 
@@ -927,15 +929,13 @@ fn allocateSymbols(self: *Zld) !void {
         if (entry.value.tag == .import) continue;
 
         const object_id = entry.value.file orelse unreachable;
-        const index = entry.value.index orelse unreachable;
-
         const object = self.objects.items[object_id];
-        const sym = object.symtab.items[index];
+        const local = object.locals.get(entry.key) orelse unreachable;
 
-        log.warn("resolving {} symbol '{s}' at 0x{x}", .{ entry.value.tag, entry.key, sym.inner.n_value });
+        log.debug("resolving {} symbol '{s}' at 0x{x}", .{ entry.value.tag, entry.key, local.address });
 
-        entry.value.inner.n_value = sym.inner.n_value;
-        entry.value.inner.n_sect = sym.inner.n_sect;
+        entry.value.address = local.address;
+        entry.value.section = local.section;
     }
 }
 
@@ -944,19 +944,15 @@ fn allocateStubsAndGotEntries(self: *Zld) !void {
         if (entry.value.tag == .import) continue;
 
         const object = self.objects.items[entry.value.file];
-        const sym = object.symtab.items[entry.value.local_index];
-        const sym_name = object.getString(sym.inner.n_strx);
-        assert(mem.eql(u8, sym_name, entry.key));
-
         entry.value.target_addr = target_addr: {
-            if (sym.tag == .undef) {
-                const glob = self.symtab.get(sym_name) orelse unreachable;
-                break :target_addr glob.inner.n_value;
+            if (object.locals.get(entry.key)) |local| {
+                break :target_addr local.address;
             }
-            break :target_addr sym.inner.n_value;
+            const global = self.symtab.get(entry.key) orelse unreachable;
+            break :target_addr global.address;
         };
 
-        log.warn("resolving GOT entry '{s}' at 0x{x}", .{
+        log.debug("resolving GOT entry '{s}' at 0x{x}", .{
             entry.key,
             entry.value.target_addr,
         });
@@ -1114,7 +1110,7 @@ fn writeLazySymbolPointer(self: *Zld, index: u32) !void {
     var buf: [@sizeOf(u64)]u8 = undefined;
     mem.writeIntLittle(u64, &buf, end);
     const off = la_symbol_ptr.offset + index * @sizeOf(u64);
-    log.warn("writing lazy symbol pointer entry 0x{x} at 0x{x}", .{ end, off });
+    log.debug("writing lazy symbol pointer entry 0x{x} at 0x{x}", .{ end, off });
     try self.file.?.pwriteAll(&buf, off);
 }
 
@@ -1127,7 +1123,7 @@ fn writeStub(self: *Zld, index: u32) !void {
     const stub_off = stubs.offset + index * stubs.reserved2;
     const stub_addr = stubs.addr + index * stubs.reserved2;
     const la_ptr_addr = la_symbol_ptr.addr + index * @sizeOf(u64);
-    log.warn("writing stub at 0x{x}", .{stub_off});
+    log.debug("writing stub at 0x{x}", .{stub_off});
     var code = try self.allocator.alloc(u8, stubs.reserved2);
     defer self.allocator.free(code);
     switch (self.arch.?) {
@@ -1232,71 +1228,52 @@ fn writeStubInStubHelper(self: *Zld, index: u32) !void {
 
 fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
     const object = self.objects.items[object_id];
-    log.warn("resolving symbols in '{s}'", .{object.name});
+    log.debug("resolving symbols in '{s}'", .{object.name});
 
     for (object.symtab.items) |sym, sym_id| {
-        switch (sym.tag) {
-            .local, .stab => continue, // If symbol is local to CU, we don't put it in the global symbol table.
-            .weak, .strong => {
-                const sym_name = object.getString(sym.inner.n_strx);
-                const global = self.symtab.getEntry(sym_name) orelse {
-                    // Put new global symbol into the symbol table.
-                    const name = try self.allocator.dupe(u8, sym_name);
-                    try self.symtab.putNoClobber(self.allocator, name, .{
-                        .tag = sym.tag,
-                        .inner = .{
-                            .n_strx = 0, // This will be populated later.
-                            .n_value = 0, // This will be populated later,
-                            .n_type = macho.N_SECT | macho.N_EXT,
-                            .n_desc = 0,
-                            .n_sect = 0, // This will be populated later.
-                        },
-                        .file = object_id,
-                        .index = @intCast(u32, sym_id),
-                    });
-                    continue;
-                };
-
-                switch (global.value.tag) {
-                    .weak => continue, // If symbol is weak, nothing to do.
-                    .strong => {
-                        log.err("symbol '{s}' defined multiple times", .{sym_name});
-                        return error.MultipleSymbolDefinitions;
-                    },
-                    else => {},
-                }
-
-                global.value = .{
-                    .tag = .strong,
-                    .inner = .{
-                        .n_strx = 0, // This will be populated later.
-                        .n_value = 0, // This will be populated later,
-                        .n_type = macho.N_SECT | macho.N_EXT,
-                        .n_desc = 0,
-                        .n_sect = 0, // This will be populated later.
-                    },
-                    .file = object_id,
-                    .index = @intCast(u32, sym_id),
-                };
-            },
-            .undef => {
-                const sym_name = object.getString(sym.inner.n_strx);
-                if (self.symtab.contains(sym_name)) continue; // Nothing to do if we already found a definition.
-
+        if (Symbol.isLocal(sym)) {
+            // If symbol is local to CU, we don't put it in the global symbol table.
+            continue;
+        } else if (Symbol.isGlobal(sym)) {
+            const sym_name = object.getString(sym.n_strx);
+            const global = self.symtab.getEntry(sym_name) orelse {
+                // Put new global symbol into the symbol table.
                 const name = try self.allocator.dupe(u8, sym_name);
                 try self.symtab.putNoClobber(self.allocator, name, .{
-                    .tag = .undef,
-                    .inner = .{
-                        .n_strx = 0,
-                        .n_value = 0,
-                        .n_type = 0,
-                        .n_desc = 0,
-                        .n_sect = 0,
-                    },
+                    .tag = if (Symbol.isWeakDef(sym)) .weak else .strong,
+                    .name = name,
+                    .address = 0,
+                    .section = 0,
+                    .file = object_id,
+                    .index = @intCast(u32, sym_id),
                 });
-            },
-            .import => unreachable, // We don't expect any imports just yet.
-        }
+                continue;
+            };
+
+            switch (global.value.tag) {
+                .weak => continue, // If symbol is weak, nothing to do.
+                .strong => {
+                    log.err("symbol '{s}' defined multiple times", .{sym_name});
+                    return error.MultipleSymbolDefinitions;
+                },
+                else => {},
+            }
+
+            global.value.tag = .strong;
+            global.value.file = object_id;
+            global.value.index = @intCast(u32, sym_id);
+        } else if (Symbol.isUndef(sym)) {
+            const sym_name = object.getString(sym.n_strx);
+            if (self.symtab.contains(sym_name)) continue; // Nothing to do if we already found a definition.
+
+            const name = try self.allocator.dupe(u8, sym_name);
+            try self.symtab.putNoClobber(self.allocator, name, .{
+                .tag = .undef,
+                .name = name,
+                .address = 0,
+                .section = 0,
+            });
+        } else unreachable;
     }
 }
 
@@ -1316,7 +1293,7 @@ fn resolveSymbols(self: *Zld) !void {
         for (self.symtab.items()) |entry| {
             if (entry.value.tag != .undef) continue;
 
-            const sym_name = entry.key;
+            const sym_name = entry.value.name;
 
             // Check if the entry exists in a static archive.
             const offsets = archive.toc.get(sym_name) orelse {
@@ -1349,25 +1326,18 @@ fn resolveSymbols(self: *Zld) !void {
     // a libSystem.B.tbd definition file?
     for (self.symtab.items()) |*entry| {
         if (entry.value.tag != .undef) continue;
-        entry.value = .{
-            .tag = .import,
-            .inner = .{
-                .n_strx = 0, // This will be populated once we write the string table.
-                .n_type = macho.N_UNDF | macho.N_EXT,
-                .n_sect = 0,
-                .n_desc = macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | macho.N_SYMBOL_RESOLVER,
-                .n_value = 0,
-            },
-            .file = 0,
-        };
+
+        entry.value.tag = .import;
+        entry.value.file = 0;
     }
 
     // If there are any undefs left, flag an error.
     var has_unresolved = false;
     for (self.symtab.items()) |entry| {
         if (entry.value.tag != .undef) continue;
+
         has_unresolved = true;
-        log.err("undefined reference to symbol '{s}'", .{entry.key});
+        log.err("undefined reference to symbol '{s}'", .{entry.value.name});
     }
     if (has_unresolved) {
         return error.UndefinedSymbolReference;
@@ -1377,20 +1347,16 @@ fn resolveSymbols(self: *Zld) !void {
     var name = try self.allocator.dupe(u8, "dyld_stub_binder");
     try self.symtab.putNoClobber(self.allocator, name, .{
         .tag = .import,
-        .inner = .{
-            .n_strx = 0, // This will be populated once we write the string table.
-            .n_type = macho.N_UNDF | macho.N_EXT,
-            .n_sect = 0,
-            .n_desc = macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | macho.N_SYMBOL_RESOLVER,
-            .n_value = 0,
-        },
+        .name = name,
+        .address = 0,
+        .section = 0,
         .file = 0,
     });
 }
 
 fn resolveStubsAndGotEntries(self: *Zld) !void {
     for (self.objects.items) |object, object_id| {
-        log.warn("resolving stubs and got entries from {s}", .{object.name});
+        log.debug("resolving stubs and got entries from {s}", .{object.name});
 
         for (object.sections.items) |sect| {
             const relocs = sect.relocs orelse continue;
@@ -1399,7 +1365,7 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
                     .unsigned => continue,
                     .got_page, .got_page_off => {
                         const sym = object.symtab.items[reloc.target.symbol];
-                        const sym_name = object.getString(sym.inner.n_strx);
+                        const sym_name = object.getString(sym.n_strx);
 
                         if (self.got_entries.contains(sym_name)) continue;
 
@@ -1412,16 +1378,15 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
                             .index = index,
                             .target_addr = 0,
                             .file = if (is_import) 0 else @intCast(u16, object_id),
-                            .local_index = if (is_import) 0 else reloc.target.symbol,
                         });
 
-                        log.warn("    | found GOT entry {s}: {}", .{ sym_name, self.got_entries.get(sym_name) });
+                        log.debug("    | found GOT entry {s}: {}", .{ sym_name, self.got_entries.get(sym_name) });
                     },
                     else => {
                         const sym = object.symtab.items[reloc.target.symbol];
-                        const sym_name = object.getString(sym.inner.n_strx);
+                        const sym_name = object.getString(sym.n_strx);
 
-                        if (sym.tag != .undef) continue;
+                        if (!Symbol.isUndef(sym)) continue;
 
                         const in_globals = self.symtab.get(sym_name) orelse unreachable;
 
@@ -1432,7 +1397,7 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
                         const index = @intCast(u32, self.stubs.items().len);
                         try self.stubs.putNoClobber(self.allocator, name, index);
 
-                        log.warn("    | found stub {s}: {}", .{ sym_name, self.stubs.get(sym_name) });
+                        log.debug("    | found stub {s}: {}", .{ sym_name, self.stubs.get(sym_name) });
                     },
                 }
             }
@@ -1447,15 +1412,14 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
         .index = index,
         .target_addr = 0,
         .file = 0,
-        .local_index = 0,
     });
 
-    log.warn("    | found GOT entry dyld_stub_binder: {}", .{self.got_entries.get("dyld_stub_binder")});
+    log.debug("    | found GOT entry dyld_stub_binder: {}", .{self.got_entries.get("dyld_stub_binder")});
 }
 
 fn resolveRelocsAndWriteSections(self: *Zld) !void {
     for (self.objects.items) |object, object_id| {
-        log.warn("relocating object {s}", .{object.name});
+        log.debug("relocating object {s}", .{object.name});
 
         for (object.sections.items) |sect, source_sect_id| {
             const segname = parseName(&sect.inner.segname);
@@ -1466,7 +1430,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                 .object_id = @intCast(u16, object_id),
                 .source_sect_id = @intCast(u16, source_sect_id),
             }) orelse {
-                log.warn("no mapping for {s},{s}; skipping", .{ segname, sectname });
+                log.debug("no mapping for {s},{s}; skipping", .{ segname, sectname });
                 continue;
             };
             const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
@@ -1517,7 +1481,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                             // Calculate the offset to the initializer.
                             if (target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES) tlv: {
                                 const sym = object.symtab.items[rel.target.symbol];
-                                const sym_name = object.getString(sym.inner.n_strx);
+                                const sym_name = object.getString(sym.n_strx);
 
                                 // TODO we don't want to save offset to tlv_bootstrap
                                 if (mem.eql(u8, sym_name, "__tlv_bootstrap")) break :tlv;
@@ -1540,7 +1504,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                             const dc_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
                             const got = dc_seg.sections.items[self.got_section_index.?];
                             const sym = object.symtab.items[rel.target.symbol];
-                            const sym_name = object.getString(sym.inner.n_strx);
+                            const sym_name = object.getString(sym.n_strx);
                             const entry = self.got_entries.get(sym_name) orelse unreachable;
                             args.target_addr = got.addr + entry.index * @sizeOf(u64);
                         },
@@ -1553,7 +1517,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                 }
             }
 
-            log.warn("writing contents of '{s},{s}' section from '{s}' from 0x{x} to 0x{x}", .{
+            log.debug("writing contents of '{s},{s}' section from '{s}' from 0x{x} to 0x{x}", .{
                 segname,
                 sectname,
                 object.name,
@@ -1565,7 +1529,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                 target_sect.flags == macho.S_THREAD_LOCAL_ZEROFILL or
                 target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES)
             {
-                log.warn("zeroing out '{s},{s}' from 0x{x} to 0x{x}", .{
+                log.debug("zeroing out '{s},{s}' from 0x{x} to 0x{x}", .{
                     parseName(&target_sect.segname),
                     parseName(&target_sect.sectname),
                     target_sect_off,
@@ -1589,33 +1553,46 @@ fn relocTargetAddr(self: *Zld, object_id: u16, target: Relocation.Target) !u64 {
         switch (target) {
             .symbol => |sym_id| {
                 const sym = object.symtab.items[sym_id];
-                const sym_name = object.getString(sym.inner.n_strx);
+                const sym_name = object.getString(sym.n_strx);
 
-                switch (sym.tag) {
-                    .stab, .local, .weak, .strong => {
-                        log.warn("    | local symbol '{s}'", .{sym_name});
-                        break :blk sym.inner.n_value;
-                    },
-                    else => {
-                        if (self.stubs.get(sym_name)) |index| {
-                            log.warn("    | symbol stub '{s}'", .{sym_name});
-                            const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-                            const stubs = segment.sections.items[self.stubs_section_index.?];
-                            break :blk stubs.addr + index * stubs.reserved2;
-                        } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
-                            log.warn("    | symbol '__tlv_bootstrap'", .{});
-                            const segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-                            const tlv = segment.sections.items[self.tlv_section_index.?];
-                            break :blk tlv.addr;
-                        } else {
-                            const global = self.symtab.get(sym_name) orelse {
-                                log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
-                                return error.FailedToResolveRelocationTarget;
-                            };
-                            log.warn("    | global symbol '{s}'", .{sym_name});
-                            break :blk global.inner.n_value;
-                        }
-                    },
+                if (Symbol.isSect(sym)) {
+                    log.debug("    | local symbol '{s}'", .{sym_name});
+                    if (object.locals.get(sym_name)) |local| {
+                        break :blk local.address;
+                    }
+                    // For temp locals, i.e., symbols prefixed with l... we relocate
+                    // based on section addressing.
+                    const source_sect_id = sym.n_sect - 1;
+                    const target_mapping = self.mappings.get(.{
+                        .object_id = object_id,
+                        .source_sect_id = source_sect_id,
+                    }) orelse unreachable;
+
+                    const source_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
+                    const source_sect = source_seg.sections.items[source_sect_id];
+                    const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
+                    const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
+                    const target_addr = target_sect.addr + target_mapping.offset;
+                    break :blk sym.n_value - source_sect.addr + target_addr;
+                } else {
+                    if (self.stubs.get(sym_name)) |index| {
+                        log.debug("    | symbol stub '{s}'", .{sym_name});
+                        const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+                        const stubs = segment.sections.items[self.stubs_section_index.?];
+                        break :blk stubs.addr + index * stubs.reserved2;
+                    } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
+                        log.debug("    | symbol '__tlv_bootstrap'", .{});
+                        const segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+                        const tlv = segment.sections.items[self.tlv_section_index.?];
+                        break :blk tlv.addr;
+                    } else {
+                        const global = self.symtab.get(sym_name) orelse {
+                            log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
+                            return error.FailedToResolveRelocationTarget;
+                        };
+                        log.debug("    | global symbol '{s}'", .{sym_name});
+                        break :blk global.address;
+                    }
                 }
             },
             .section => |sect_id| {
@@ -2082,7 +2059,6 @@ fn flush(self: *Zld) !void {
         symtab.symoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
     }
 
-    try self.populateStringTable();
     try self.writeDebugInfo();
     try self.writeSymbolTable();
     try self.writeStringTable();
@@ -2123,7 +2099,7 @@ fn writeGotEntries(self: *Zld) !void {
         try writer.writeIntLittle(u64, entry.value.target_addr);
     }
 
-    log.warn("writing GOT pointers at 0x{x} to 0x{x}", .{ sect.offset, sect.offset + buffer.len });
+    log.debug("writing GOT pointers at 0x{x} to 0x{x}", .{ sect.offset, sect.offset + buffer.len });
 
     try self.file.?.pwriteAll(buffer, sect.offset);
 }
@@ -2135,7 +2111,7 @@ fn setEntryPoint(self: *Zld) !void {
     const text = seg.sections.items[self.text_section_index.?];
     const entry_sym = self.symtab.get("_main") orelse return error.MissingMainEntrypoint;
     const ec = &self.load_commands.items[self.main_cmd_index.?].Main;
-    ec.entryoff = @intCast(u32, entry_sym.inner.n_value - seg.inner.vmaddr);
+    ec.entryoff = @intCast(u32, entry_sym.address - seg.inner.vmaddr);
 }
 
 fn writeRebaseInfoTable(self: *Zld) !void {
@@ -2228,7 +2204,7 @@ fn writeRebaseInfoTable(self: *Zld) !void {
     dyld_info.rebase_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @sizeOf(u64)));
     seg.inner.filesize += dyld_info.rebase_size;
 
-    log.warn("writing rebase info from 0x{x} to 0x{x}", .{ dyld_info.rebase_off, dyld_info.rebase_off + dyld_info.rebase_size });
+    log.debug("writing rebase info from 0x{x} to 0x{x}", .{ dyld_info.rebase_off, dyld_info.rebase_off + dyld_info.rebase_size });
 
     try self.file.?.pwriteAll(buffer, dyld_info.rebase_off);
 }
@@ -2291,7 +2267,7 @@ fn writeBindInfoTable(self: *Zld) !void {
     dyld_info.bind_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64)));
     seg.inner.filesize += dyld_info.bind_size;
 
-    log.warn("writing binding info from 0x{x} to 0x{x}", .{ dyld_info.bind_off, dyld_info.bind_off + dyld_info.bind_size });
+    log.debug("writing binding info from 0x{x} to 0x{x}", .{ dyld_info.bind_off, dyld_info.bind_off + dyld_info.bind_size });
 
     try self.file.?.pwriteAll(buffer, dyld_info.bind_off);
 }
@@ -2337,7 +2313,7 @@ fn writeLazyBindInfoTable(self: *Zld) !void {
     dyld_info.lazy_bind_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64)));
     seg.inner.filesize += dyld_info.lazy_bind_size;
 
-    log.warn("writing lazy binding info from 0x{x} to 0x{x}", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + dyld_info.lazy_bind_size });
+    log.debug("writing lazy binding info from 0x{x} to 0x{x}", .{ dyld_info.lazy_bind_off, dyld_info.lazy_bind_off + dyld_info.lazy_bind_size });
 
     try self.file.?.pwriteAll(buffer, dyld_info.lazy_bind_off);
     try self.populateLazyBindOffsetsInStubHelper(buffer);
@@ -2416,11 +2392,11 @@ fn writeExportInfo(self: *Zld) !void {
 
     // TODO export items for dylibs
     const sym = self.symtab.get("_main") orelse return error.MissingMainEntrypoint;
-    assert(sym.inner.n_value >= text_segment.inner.vmaddr);
+    assert(sym.address >= text_segment.inner.vmaddr);
 
     try trie.put(.{
         .name = "_main",
-        .vmaddr_offset = sym.inner.n_value - text_segment.inner.vmaddr,
+        .vmaddr_offset = sym.address - text_segment.inner.vmaddr,
         .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
     });
 
@@ -2439,7 +2415,7 @@ fn writeExportInfo(self: *Zld) !void {
     dyld_info.export_size = @intCast(u32, mem.alignForwardGeneric(u64, buffer.len, @alignOf(u64)));
     seg.inner.filesize += dyld_info.export_size;
 
-    log.warn("writing export info from 0x{x} to 0x{x}", .{ dyld_info.export_off, dyld_info.export_off + dyld_info.export_size });
+    log.debug("writing export info from 0x{x} to 0x{x}", .{ dyld_info.export_off, dyld_info.export_off + dyld_info.export_size });
 
     try self.file.?.pwriteAll(buffer, dyld_info.export_off);
 }
@@ -2478,31 +2454,24 @@ fn writeDebugInfo(self: *Zld) !void {
         });
 
         for (object.stabs.items) |stab| {
-            const sym = object.symtab.items[stab.symbol];
-
-            // TODO We should clean this up.
-            if (self.unhandled_sections.contains(.{
-                .object_id = @intCast(u16, object_id),
-                .source_sect_id = stab.source_sect_id,
-            })) {
-                continue;
-            }
+            const entry = object.locals.items()[stab.symbol];
+            const sym = entry.value;
 
             switch (stab.tag) {
                 .function => {
                     try stabs.append(.{
                         .n_strx = 0,
                         .n_type = macho.N_BNSYM,
-                        .n_sect = sym.inner.n_sect,
+                        .n_sect = sym.section,
                         .n_desc = 0,
-                        .n_value = sym.inner.n_value,
+                        .n_value = sym.address,
                     });
                     try stabs.append(.{
-                        .n_strx = sym.inner.n_strx,
+                        .n_strx = try self.makeString(sym.name),
                         .n_type = macho.N_FUN,
-                        .n_sect = sym.inner.n_sect,
+                        .n_sect = sym.section,
                         .n_desc = 0,
-                        .n_value = sym.inner.n_value,
+                        .n_value = sym.address,
                     });
                     try stabs.append(.{
                         .n_strx = 0,
@@ -2514,14 +2483,14 @@ fn writeDebugInfo(self: *Zld) !void {
                     try stabs.append(.{
                         .n_strx = 0,
                         .n_type = macho.N_ENSYM,
-                        .n_sect = sym.inner.n_sect,
+                        .n_sect = sym.section,
                         .n_desc = 0,
                         .n_value = stab.size.?,
                     });
                 },
                 .global => {
                     try stabs.append(.{
-                        .n_strx = sym.inner.n_strx,
+                        .n_strx = try self.makeString(sym.name),
                         .n_type = macho.N_GSYM,
                         .n_sect = 0,
                         .n_desc = 0,
@@ -2530,11 +2499,11 @@ fn writeDebugInfo(self: *Zld) !void {
                 },
                 .static => {
                     try stabs.append(.{
-                        .n_strx = sym.inner.n_strx,
+                        .n_strx = try self.makeString(sym.name),
                         .n_type = macho.N_STSYM,
-                        .n_sect = sym.inner.n_sect,
+                        .n_sect = sym.section,
                         .n_desc = 0,
-                        .n_value = sym.inner.n_value,
+                        .n_value = sym.address,
                     });
                 },
             }
@@ -2560,7 +2529,7 @@ fn writeDebugInfo(self: *Zld) !void {
 
     const stabs_off = symtab.symoff;
     const stabs_size = symtab.nsyms * @sizeOf(macho.nlist_64);
-    log.warn("writing symbol stabs from 0x{x} to 0x{x}", .{ stabs_off, stabs_size + stabs_off });
+    log.debug("writing symbol stabs from 0x{x} to 0x{x}", .{ stabs_off, stabs_size + stabs_off });
     try self.file.?.pwriteAll(mem.sliceAsBytes(stabs.items), stabs_off);
 
     linkedit.inner.filesize += stabs_size;
@@ -2599,13 +2568,17 @@ fn writeSymbolTable(self: *Zld) !void {
     defer locals.deinit();
 
     for (self.objects.items) |object| {
-        for (object.symtab.items) |sym| {
-            switch (sym.tag) {
-                .stab, .local => {},
-                else => continue,
-            }
+        for (object.locals.items()) |entry| {
+            const sym = entry.value;
+            if (sym.tag != .local) continue;
 
-            try locals.append(sym.inner);
+            try locals.append(.{
+                .n_strx = try self.makeString(sym.name),
+                .n_type = macho.N_SECT,
+                .n_sect = sym.section,
+                .n_desc = 0,
+                .n_value = sym.address,
+            });
         }
     }
 
@@ -2620,13 +2593,26 @@ fn writeSymbolTable(self: *Zld) !void {
 
     var undef_id: u32 = 0;
     for (self.symtab.items()) |entry| {
-        switch (entry.value.tag) {
+        const sym = entry.value;
+        switch (sym.tag) {
             .weak, .strong => {
-                try exports.append(entry.value.inner);
+                try exports.append(.{
+                    .n_strx = try self.makeString(sym.name),
+                    .n_type = macho.N_SECT | macho.N_EXT,
+                    .n_sect = sym.section,
+                    .n_desc = 0,
+                    .n_value = sym.address,
+                });
             },
             .import => {
-                try undefs.append(entry.value.inner);
-                try undefs_ids.putNoClobber(entry.key, undef_id);
+                try undefs.append(.{
+                    .n_strx = try self.makeString(sym.name),
+                    .n_type = macho.N_UNDF | macho.N_EXT,
+                    .n_sect = 0,
+                    .n_desc = macho.N_SYMBOL_RESOLVER | macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY,
+                    .n_value = 0,
+                });
+                try undefs_ids.putNoClobber(sym.name, undef_id);
                 undef_id += 1;
             },
             else => unreachable,
@@ -2639,17 +2625,17 @@ fn writeSymbolTable(self: *Zld) !void {
 
     const locals_off = symtab.symoff + symtab.nsyms * @sizeOf(macho.nlist_64);
     const locals_size = nlocals * @sizeOf(macho.nlist_64);
-    log.warn("writing local symbols from 0x{x} to 0x{x}", .{ locals_off, locals_size + locals_off });
+    log.debug("writing local symbols from 0x{x} to 0x{x}", .{ locals_off, locals_size + locals_off });
     try self.file.?.pwriteAll(mem.sliceAsBytes(locals.items), locals_off);
 
     const exports_off = locals_off + locals_size;
     const exports_size = nexports * @sizeOf(macho.nlist_64);
-    log.warn("writing exported symbols from 0x{x} to 0x{x}", .{ exports_off, exports_size + exports_off });
+    log.debug("writing exported symbols from 0x{x} to 0x{x}", .{ exports_off, exports_size + exports_off });
     try self.file.?.pwriteAll(mem.sliceAsBytes(exports.items), exports_off);
 
     const undefs_off = exports_off + exports_size;
     const undefs_size = nundefs * @sizeOf(macho.nlist_64);
-    log.warn("writing undefined symbols from 0x{x} to 0x{x}", .{ undefs_off, undefs_size + undefs_off });
+    log.debug("writing undefined symbols from 0x{x} to 0x{x}", .{ undefs_off, undefs_size + undefs_off });
     try self.file.?.pwriteAll(mem.sliceAsBytes(undefs.items), undefs_off);
 
     symtab.nsyms += @intCast(u32, nlocals + nexports + nundefs);
@@ -2679,7 +2665,7 @@ fn writeSymbolTable(self: *Zld) !void {
     const needed_size = dysymtab.nindirectsyms * @sizeOf(u32);
     seg.inner.filesize += needed_size;
 
-    log.warn("writing indirect symbol table from 0x{x} to 0x{x}", .{
+    log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{
         dysymtab.indirectsymoff,
         dysymtab.indirectsymoff + needed_size,
     });
@@ -2722,7 +2708,7 @@ fn writeStringTable(self: *Zld) !void {
     symtab.strsize = @intCast(u32, mem.alignForwardGeneric(u64, self.strtab.items.len, @alignOf(u64)));
     seg.inner.filesize += symtab.strsize;
 
-    log.warn("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
+    log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
     try self.file.?.pwriteAll(self.strtab.items, symtab.stroff);
 
@@ -2768,7 +2754,7 @@ fn writeDataInCode(self: *Zld) !void {
     dice_cmd.datasize = datasize;
     seg.inner.filesize += datasize;
 
-    log.warn("writing data-in-code from 0x{x} to 0x{x}", .{ fileoff, fileoff + datasize });
+    log.debug("writing data-in-code from 0x{x} to 0x{x}", .{ fileoff, fileoff + datasize });
 
     try self.file.?.pwriteAll(buf.items, fileoff);
 }
@@ -2789,7 +2775,7 @@ fn writeCodeSignaturePadding(self: *Zld) !void {
     seg.inner.filesize += needed_size;
     seg.inner.vmsize = mem.alignForwardGeneric(u64, seg.inner.filesize, self.page_size.?);
 
-    log.warn("writing code signature padding from 0x{x} to 0x{x}", .{ fileoff, fileoff + needed_size });
+    log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ fileoff, fileoff + needed_size });
 
     // Pad out the space. We need to do this to calculate valid hashes for everything in the file
     // except for code signature data.
@@ -2815,7 +2801,7 @@ fn writeCodeSignature(self: *Zld) !void {
     var stream = std.io.fixedBufferStream(buffer);
     try code_sig.write(stream.writer());
 
-    log.warn("writing code signature from 0x{x} to 0x{x}", .{ code_sig_cmd.dataoff, code_sig_cmd.dataoff + buffer.len });
+    log.debug("writing code signature from 0x{x} to 0x{x}", .{ code_sig_cmd.dataoff, code_sig_cmd.dataoff + buffer.len });
     try self.file.?.pwriteAll(buffer, code_sig_cmd.dataoff);
 }
 
@@ -2833,7 +2819,7 @@ fn writeLoadCommands(self: *Zld) !void {
     }
 
     const off = @sizeOf(macho.mach_header_64);
-    log.warn("writing {} load commands from 0x{x} to 0x{x}", .{ self.load_commands.items.len, off, off + sizeofcmds });
+    log.debug("writing {} load commands from 0x{x} to 0x{x}", .{ self.load_commands.items.len, off, off + sizeofcmds });
     try self.file.?.pwriteAll(buffer, off);
 }
 
@@ -2871,7 +2857,7 @@ fn writeHeader(self: *Zld) !void {
     for (self.load_commands.items) |cmd| {
         header.sizeofcmds += cmd.cmdsize();
     }
-    log.warn("writing Mach-O header {}", .{header});
+    log.debug("writing Mach-O header {}", .{header});
     try self.file.?.pwriteAll(mem.asBytes(&header), 0);
 }
 
@@ -2883,11 +2869,17 @@ pub fn makeStaticString(bytes: []const u8) [16]u8 {
 }
 
 fn makeString(self: *Zld, bytes: []const u8) !u32 {
+    if (self.strtab_dir.get(bytes)) |offset| {
+        log.debug("reusing '{s}' from string table at offset 0x{x}", .{ bytes, offset });
+        return offset;
+    }
+
     try self.strtab.ensureCapacity(self.allocator, self.strtab.items.len + bytes.len + 1);
     const offset = @intCast(u32, self.strtab.items.len);
-    log.warn("writing new string '{s}' into string table at offset 0x{x}", .{ bytes, offset });
+    log.debug("writing new string '{s}' into string table at offset 0x{x}", .{ bytes, offset });
     self.strtab.appendSliceAssumeCapacity(bytes);
     self.strtab.appendAssumeCapacity(0);
+    try self.strtab_dir.putNoClobber(self.allocator, try self.allocator.dupe(u8, bytes), offset);
     return offset;
 }
 
