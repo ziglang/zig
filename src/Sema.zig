@@ -3864,10 +3864,15 @@ fn analyzeArithmetic(
             // incase rhs is 0, simply return lhs without doing any calculations
             // TODO Once division is implemented we should throw an error when dividing by 0.
             if (rhs_val.compareWithZero(.eq)) {
-                return sema.mod.constInst(sema.arena, src, .{
-                    .ty = scalar_type,
-                    .val = lhs_val,
-                });
+                switch (zir_tag) {
+                    .add, .addwrap, .sub, .subwrap => {
+                        return sema.mod.constInst(sema.arena, src, .{
+                            .ty = scalar_type,
+                            .val = lhs_val,
+                        });
+                    },
+                    else => {},
+                }
             }
 
             const value = switch (zir_tag) {
