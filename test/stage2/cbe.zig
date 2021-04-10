@@ -824,6 +824,55 @@ pub fn addCases(ctx: *TestContext) !void {
         , "");
     }
 
+    {
+        // TODO: move these cases into the programs themselves once stage 2 has array literals
+        // TODO: add u64 tests, ran into issues with the literal generated for std.math.maxInt(u64)
+        var case = ctx.exeFromCompiledC("Wrapping operations", .{});
+        const programs = comptime blk: {
+            const cases = .{
+                // Addition
+                .{ u3, "+%", 1, 1, 2 },
+                .{ u3, "+%", 7, 1, 0 },
+                .{ i3, "+%", 1, 1, 2 },
+                .{ i3, "+%", 3, 2, -3 },
+                .{ i3, "+%", -3, -2, 3 },
+                .{ c_int, "+%", 1, 1, 2 },
+                .{ c_int, "+%", std.math.maxInt(c_int), 2, std.math.minInt(c_int) + 1 },
+                .{ c_int, "+%", std.math.minInt(c_int) + 1, -2, std.math.maxInt(c_int) },
+
+                // Subtraction
+                .{ u3, "-%", 2, 1, 1 },
+                .{ u3, "-%", 0, 1, 7 },
+                .{ i3, "-%", 2, 1, 1 },
+                .{ i3, "-%", 3, -2, -3 },
+                .{ i3, "-%", -3, 2, 3 },
+                .{ c_int, "-%", 2, 1, 1 },
+                .{ c_int, "-%", std.math.maxInt(c_int), -2, std.math.minInt(c_int) + 1 },
+                .{ c_int, "-%", std.math.minInt(c_int) + 1, 2, std.math.maxInt(c_int) },
+            };
+
+            var ret: [cases.len][:0]const u8 = undefined;
+            for (cases) |c, i| ret[i] = std.fmt.comptimePrint(
+                \\export fn main() i32 {{
+                \\    var lhs: {0} = {2};
+                \\    var rhs: {0} = {3};
+                \\    var expected: {0} = {4};
+                \\
+                \\    if (expected != lhs {1s} rhs) {{
+                \\        return 1;
+                \\    }} else {{
+                \\        return 0;
+                \\    }}
+                \\}}
+                \\
+            , c);
+
+            break :blk ret;
+        };
+
+        inline for (programs) |prog| case.addCompareOutput(prog, "");
+    }
+
     ctx.h("simple header", linux_x64,
         \\export fn start() void{}
     ,

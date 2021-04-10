@@ -846,18 +846,15 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             // TODO use a different strategy for add that communicates to the optimizer
             // that wrapping is UB.
             .add => try genBinOp(o, inst.castTag(.add).?, " + "),
-            // TODO make this do wrapping arithmetic for signed ints
-            .addwrap => try genBinOp(o, inst.castTag(.add).?, " + "),
+            .addwrap => try genWrapOp(o, .add, inst.castTag(.addwrap).?),
             // TODO use a different strategy for sub that communicates to the optimizer
             // that wrapping is UB.
             .sub => try genBinOp(o, inst.castTag(.sub).?, " - "),
-            // TODO make this do wrapping arithmetic for signed ints
-            .subwrap => try genBinOp(o, inst.castTag(.sub).?, " - "),
+            .subwrap => try genWrapOp(o, .sub, inst.castTag(.subwrap).?),
             // TODO use a different strategy for mul that communicates to the optimizer
             // that wrapping is UB.
             .mul => try genBinOp(o, inst.castTag(.sub).?, " * "),
-            // TODO make this do wrapping multiplication for signed ints
-            .mulwrap => try genBinOp(o, inst.castTag(.sub).?, " * "),
+            .mulwrap => try genWrapOp(o, .mul, inst.castTag(.mulwrap).?),
             // TODO use a different strategy for div that communicates to the optimizer
             // that wrapping is UB.
             .div => try genBinOp(o, inst.castTag(.div).?, " / "),
@@ -1040,6 +1037,131 @@ fn genStore(o: *Object, inst: *Inst.BinOp) !CValue {
         },
     }
     return CValue.none;
+}
+
+const WrappingOp = enum {
+    add,
+    sub,
+    mul,
+};
+
+fn genWrapOp(o: *Object, op: WrappingOp, inst: *Inst.BinOp) !CValue {
+    if (inst.base.isUnused())
+        return CValue.none;
+
+    const is_signed = inst.base.ty.isSignedInt();
+
+    // if it's an unsigned int with non-arbitrary bit size then we can just add
+    if (!is_signed and inst.base.ty.tag() != .int_unsigned) {
+        return try genBinOp(o, inst, switch (op) {
+            .add => " + ",
+            .sub => " - ",
+            .mul => " * ",
+        });
+    }
+
+    var min_buf: [80]u8 = undefined;
+    const min = if (!is_signed)
+        "0"
+    else switch (inst.base.ty.tag()) {
+        .c_short => "SHRT_MIN",
+        .c_int => "INT_MIN",
+        .c_long => "LONG_MIN",
+        .c_longlong => "LLONG_MIN",
+        .isize => "INTPTR_MIN",
+        else => blk: {
+            // should be able to use undefined here since all the target specifics are handled
+            const bits = inst.base.ty.intInfo(@as(std.Target, undefined)).bits;
+            assert(bits <= 64); // TODO: large integers
+            const val = -1 * std.math.pow(i64, 2, @intCast(i64, bits - 1));
+            break :blk std.fmt.bufPrint(&min_buf, "{}", .{val}) catch |e|
+            // doesn't fit in some upwards error set, but should never happen
+                return if (e == error.NoSpaceLeft) unreachable else e;
+        },
+    };
+
+    var max_buf: [80]u8 = undefined;
+    const max = switch (inst.base.ty.tag()) {
+        .c_short => "SHRT_MAX",
+        .c_ushort => "USHRT_MAX",
+        .c_int => "INT_MAX",
+        .c_uint => "UINT_MAX",
+        .c_long => "LONG_MAX",
+        .c_ulong => "ULONG_MAX",
+        .c_longlong => "LLONG_MAX",
+        .c_ulonglong => "ULLONG_MAX",
+        .isize => "INTPTR_MAX",
+        .usize => "UINTPTR_MAX",
+        else => blk: {
+            // should be able to use undefined here since all the target specifics are handled
+            const bits = inst.base.ty.intInfo(@as(std.Target, undefined)).bits;
+            assert(bits <= 64); // TODO: large integers
+            const val = std.math.pow(u64, 2, if (is_signed) (bits - 1) else bits) - 1;
+            break :blk std.fmt.bufPrint(&max_buf, "{}", .{val}) catch |e|
+            // doesn't fit in some upwards error set, but should never happen
+                return if (e == error.NoSpaceLeft) unreachable else e;
+        },
+    };
+
+    const lhs = try o.resolveInst(inst.lhs);
+    const rhs = try o.resolveInst(inst.rhs);
+    const w = o.writer();
+
+    const ret = try o.allocLocal(inst.base.ty, .Mut);
+    try w.writeAll(" = zig_");
+    try w.writeAll(switch (op) {
+        .add => "addw_",
+        .sub => "subw_",
+        .mul => return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement wrapping multiplication operator", .{}),
+    });
+
+    switch (inst.base.ty.tag()) {
+        .u8 => try w.writeAll("u8"),
+        .i8 => try w.writeAll("i8"),
+        .u16 => try w.writeAll("u16"),
+        .i16 => try w.writeAll("i16"),
+        .u32 => try w.writeAll("u32"),
+        .i32 => try w.writeAll("i32"),
+        .u64 => try w.writeAll("u64"),
+        .i64 => try w.writeAll("i64"),
+        .isize => try w.writeAll("isize"),
+        .c_short => try w.writeAll("short"),
+        .c_int => try w.writeAll("int"),
+        .c_long => try w.writeAll("long"),
+        .c_longlong => try w.writeAll("longlong"),
+        .int_signed, .int_unsigned => {
+            if (is_signed) {
+                try w.writeByte('i');
+            } else {
+                try w.writeByte('u');
+            }
+
+            const info_bits = inst.base.ty.intInfo(@as(std.Target, undefined)).bits;
+            inline for (.{ 8, 16, 32, 64 }) |nbits| {
+                if (info_bits <= nbits) {
+                    try w.print("{d}", .{nbits});
+                    break;
+                }
+            } else {
+                return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement integer types larger than 64 bits", .{});
+            }
+        },
+        else => unreachable,
+    }
+
+    try w.writeByte('(');
+    try o.writeCValue(w, lhs);
+    try w.writeAll(", ");
+    try o.writeCValue(w, rhs);
+
+    if (is_signed) {
+        try w.print(", {s}", .{min});
+    }
+
+    try w.print(", {s});", .{max});
+    try o.indent_writer.insertNewline();
+
+    return ret;
 }
 
 fn genBinOp(o: *Object, inst: *Inst.BinOp, operator: []const u8) !CValue {
