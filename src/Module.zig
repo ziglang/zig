@@ -26,6 +26,7 @@ const trace = @import("tracy.zig").trace;
 const AstGen = @import("AstGen.zig");
 const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
+const Cache = @import("Cache.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -35,8 +36,6 @@ comp: *Compilation,
 zig_cache_artifact_directory: Compilation.Directory,
 /// Pointer to externally managed resource. `null` if there is no zig file being compiled.
 root_pkg: *Package,
-/// Module owns this resource.
-root_scope: *Scope.File,
 /// It's rare for a decl to be exported, so we save memory by having a sparse map of
 /// Decl pointers to details about them being exported.
 /// The Export memory is owned by the `export_owners` table; the slice itself is owned by this table.
@@ -52,6 +51,12 @@ symbol_exports: std.StringArrayHashMapUnmanaged(*Export) = .{},
 export_owners: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
 /// Maps fully qualified namespaced names to the Decl struct for them.
 decl_table: std.ArrayHashMapUnmanaged(Scope.NameHash, *Decl, Scope.name_hash_hash, Scope.name_hash_eql, false) = .{},
+/// The set of all the files in the Module. We keep track of this in order to iterate
+/// over it and check which source files have been modified on the file system when
+/// an update is requested, as well as to cache `@import` results.
+/// Keys are fully resolved file paths. This table owns the keys and values.
+import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
+
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
 /// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
@@ -84,9 +89,6 @@ global_error_set: std.StringHashMapUnmanaged(ErrorInt) = .{},
 /// ErrorInt -> []const u8 for fast lookups for @intToError at comptime
 /// Corresponds with `global_error_set`.
 error_name_list: ArrayListUnmanaged([]const u8) = .{},
-
-/// Keys are fully qualified paths
-import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 
 /// Incrementing integer used to compare against the corresponding Decl
 /// field to determine whether a Decl's status applies to an ongoing update, or a
@@ -147,15 +149,16 @@ pub const Decl = struct {
     /// This is necessary for mapping them to an address in the output file.
     /// Memory owned by this decl, using Module's allocator.
     name: [*:0]const u8,
-    /// The direct parent container of the Decl.
+    /// The direct parent namespace of the Decl.
     /// Reference to externally owned memory.
-    container: *Scope.Container,
+    /// This is `null` for the Decl that represents a `File`.
+    namespace: *Scope.Namespace,
 
     /// An integer that can be checked against the corresponding incrementing
     /// generation field of Module. This is used to determine whether `complete` status
     /// represents pre- or post- re-analysis.
     generation: u32,
-    /// The AST Node index or ZIR Inst index that contains this declaration.
+    /// The AST node index of this declaration.
     /// Must be recomputed when the corresponding source file is modified.
     src_node: ast.Node.Index,
 
@@ -273,22 +276,22 @@ pub const Decl = struct {
     }
 
     pub fn srcToken(decl: Decl) u32 {
-        const tree = &decl.container.file_scope.tree;
+        const tree = &decl.namespace.file_scope.tree;
         return tree.firstToken(decl.src_node);
     }
 
     pub fn srcByteOffset(decl: Decl) u32 {
-        const tree = &decl.container.file_scope.tree;
+        const tree = &decl.namespace.file_scope.tree;
         return tree.tokens.items(.start)[decl.srcToken()];
     }
 
     pub fn fullyQualifiedNameHash(decl: Decl) Scope.NameHash {
-        return decl.container.fullyQualifiedNameHash(mem.spanZ(decl.name));
+        return decl.namespace.fullyQualifiedNameHash(mem.spanZ(decl.name));
     }
 
     pub fn renderFullyQualifiedName(decl: Decl, writer: anytype) !void {
         const unqualified_name = mem.spanZ(decl.name);
-        return decl.container.renderFullyQualifiedName(unqualified_name, writer);
+        return decl.namespace.renderFullyQualifiedName(unqualified_name, writer);
     }
 
     pub fn getFullyQualifiedName(decl: Decl, gpa: *Allocator) ![]u8 {
@@ -330,7 +333,7 @@ pub const Decl = struct {
     }
 
     pub fn getFileScope(decl: Decl) *Scope.File {
-        return decl.container.file_scope;
+        return decl.namespace.file_scope;
     }
 
     pub fn getEmitH(decl: *Decl, module: *Module) *EmitH {
@@ -377,7 +380,7 @@ pub const Struct = struct {
     /// Set of field names in declaration order.
     fields: std.StringArrayHashMapUnmanaged(Field),
     /// Represents the declarations inside this struct.
-    container: Scope.Container,
+    namespace: Scope.Namespace,
 
     /// Offset from `owner_decl`, points to the struct AST node.
     node_offset: i32,
@@ -434,7 +437,7 @@ pub const EnumFull = struct {
     /// If this hash map is empty, it means the enum tags are auto-numbered.
     values: ValueMap,
     /// Represents the declarations inside this struct.
-    container: Scope.Container,
+    namespace: Scope.Namespace,
     /// Offset from `owner_decl`, points to the enum decl AST node.
     node_offset: i32,
 
@@ -521,7 +524,7 @@ pub const Scope = struct {
             .local_val => return scope.cast(LocalVal).?.gen_zir.astgen.arena,
             .local_ptr => return scope.cast(LocalPtr).?.gen_zir.astgen.arena,
             .file => unreachable,
-            .container => unreachable,
+            .namespace => unreachable,
             .decl_ref => unreachable,
         }
     }
@@ -533,7 +536,7 @@ pub const Scope = struct {
             .local_val => scope.cast(LocalVal).?.gen_zir.astgen.decl,
             .local_ptr => scope.cast(LocalPtr).?.gen_zir.astgen.decl,
             .file => null,
-            .container => null,
+            .namespace => null,
             .decl_ref => scope.cast(DeclRef).?.decl,
         };
     }
@@ -545,36 +548,21 @@ pub const Scope = struct {
             .local_val => scope.cast(LocalVal).?.gen_zir.astgen.decl,
             .local_ptr => scope.cast(LocalPtr).?.gen_zir.astgen.decl,
             .file => null,
-            .container => null,
+            .namespace => null,
             .decl_ref => scope.cast(DeclRef).?.decl,
         };
     }
 
-    /// Asserts the scope has a parent which is a Container and returns it.
-    pub fn namespace(scope: *Scope) *Container {
+    /// Asserts the scope has a parent which is a Namespace and returns it.
+    pub fn namespace(scope: *Scope) *Namespace {
         switch (scope.tag) {
-            .block => return scope.cast(Block).?.sema.owner_decl.container,
-            .gen_zir => return scope.cast(GenZir).?.astgen.decl.container,
-            .local_val => return scope.cast(LocalVal).?.gen_zir.astgen.decl.container,
-            .local_ptr => return scope.cast(LocalPtr).?.gen_zir.astgen.decl.container,
-            .file => return &scope.cast(File).?.root_container,
-            .container => return scope.cast(Container).?,
-            .decl_ref => return scope.cast(DeclRef).?.decl.container,
-        }
-    }
-
-    /// Must generate unique bytes with no collisions with other decls.
-    /// The point of hashing here is only to limit the number of bytes of
-    /// the unique identifier to a fixed size (16 bytes).
-    pub fn fullyQualifiedNameHash(scope: *Scope, name: []const u8) NameHash {
-        switch (scope.tag) {
-            .block => unreachable,
-            .gen_zir => unreachable,
-            .local_val => unreachable,
-            .local_ptr => unreachable,
-            .file => unreachable,
-            .container => return scope.cast(Container).?.fullyQualifiedNameHash(name),
-            .decl_ref => unreachable,
+            .block => return scope.cast(Block).?.sema.owner_decl.namespace,
+            .gen_zir => return scope.cast(GenZir).?.astgen.decl.namespace,
+            .local_val => return scope.cast(LocalVal).?.gen_zir.astgen.decl.namespace,
+            .local_ptr => return scope.cast(LocalPtr).?.gen_zir.astgen.decl.namespace,
+            .file => return scope.cast(File).?.namespace,
+            .namespace => return scope.cast(Namespace).?,
+            .decl_ref => return scope.cast(DeclRef).?.decl.namespace,
         }
     }
 
@@ -582,12 +570,12 @@ pub const Scope = struct {
     pub fn tree(scope: *Scope) *const ast.Tree {
         switch (scope.tag) {
             .file => return &scope.cast(File).?.tree,
-            .block => return &scope.cast(Block).?.src_decl.container.file_scope.tree,
+            .block => return &scope.cast(Block).?.src_decl.namespace.file_scope.tree,
             .gen_zir => return scope.cast(GenZir).?.tree(),
-            .local_val => return &scope.cast(LocalVal).?.gen_zir.astgen.decl.container.file_scope.tree,
-            .local_ptr => return &scope.cast(LocalPtr).?.gen_zir.astgen.decl.container.file_scope.tree,
-            .container => return &scope.cast(Container).?.file_scope.tree,
-            .decl_ref => return &scope.cast(DeclRef).?.decl.container.file_scope.tree,
+            .local_val => return &scope.cast(LocalVal).?.gen_zir.astgen.decl.namespace.file_scope.tree,
+            .local_ptr => return &scope.cast(LocalPtr).?.gen_zir.astgen.decl.namespace.file_scope.tree,
+            .namespace => return &scope.cast(Namespace).?.file_scope.tree,
+            .decl_ref => return &scope.cast(DeclRef).?.decl.namespace.file_scope.tree,
         }
     }
 
@@ -599,16 +587,16 @@ pub const Scope = struct {
             .local_val => return scope.cast(LocalVal).?.gen_zir,
             .local_ptr => return scope.cast(LocalPtr).?.gen_zir,
             .file => unreachable,
-            .container => unreachable,
+            .namespace => unreachable,
             .decl_ref => unreachable,
         };
     }
 
-    /// Asserts the scope has a parent which is a Container or File and
+    /// Asserts the scope has a parent which is a Namespace or File and
     /// returns the sub_file_path field.
     pub fn subFilePath(base: *Scope) []const u8 {
         switch (base.tag) {
-            .container => return @fieldParentPtr(Container, "base", base).file_scope.sub_file_path,
+            .namespace => return @fieldParentPtr(Namespace, "base", base).file_scope.sub_file_path,
             .file => return @fieldParentPtr(File, "base", base).sub_file_path,
             .block => unreachable,
             .gen_zir => unreachable,
@@ -618,30 +606,18 @@ pub const Scope = struct {
         }
     }
 
-    pub fn getSource(base: *Scope, module: *Module) ![:0]const u8 {
-        switch (base.tag) {
-            .container => return @fieldParentPtr(Container, "base", base).file_scope.getSource(module),
-            .file => return @fieldParentPtr(File, "base", base).getSource(module),
-            .gen_zir => unreachable,
-            .local_val => unreachable,
-            .local_ptr => unreachable,
-            .block => unreachable,
-            .decl_ref => unreachable,
-        }
-    }
-
     /// When called from inside a Block Scope, chases the src_decl, not the owner_decl.
     pub fn getFileScope(base: *Scope) *Scope.File {
         var cur = base;
         while (true) {
             cur = switch (cur.tag) {
-                .container => return @fieldParentPtr(Container, "base", cur).file_scope,
+                .namespace => return @fieldParentPtr(Namespace, "base", cur).file_scope,
                 .file => return @fieldParentPtr(File, "base", cur),
                 .gen_zir => @fieldParentPtr(GenZir, "base", cur).parent,
                 .local_val => @fieldParentPtr(LocalVal, "base", cur).parent,
                 .local_ptr => @fieldParentPtr(LocalPtr, "base", cur).parent,
-                .block => return @fieldParentPtr(Block, "base", cur).src_decl.container.file_scope,
-                .decl_ref => return @fieldParentPtr(DeclRef, "base", cur).decl.container.file_scope,
+                .block => return @fieldParentPtr(Block, "base", cur).src_decl.namespace.file_scope,
+                .decl_ref => return @fieldParentPtr(DeclRef, "base", cur).decl.namespace.file_scope,
             };
         }
     }
@@ -657,8 +633,8 @@ pub const Scope = struct {
     pub const Tag = enum {
         /// .zig source code.
         file,
-        /// struct, enum or union, every .file contains one of these.
-        container,
+        /// Namespace owned by structs, enums, unions, and opaques for decls.
+        namespace,
         block,
         gen_zir,
         local_val,
@@ -669,36 +645,43 @@ pub const Scope = struct {
         decl_ref,
     };
 
-    pub const Container = struct {
-        pub const base_tag: Tag = .container;
+    /// The container that structs, enums, unions, and opaques have.
+    pub const Namespace = struct {
+        pub const base_tag: Tag = .namespace;
         base: Scope = Scope{ .tag = base_tag },
 
+        parent: ?*Namespace,
         file_scope: *Scope.File,
         parent_name_hash: NameHash,
-
-        /// Direct children of the file.
-        decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
+        /// Will be a struct, enum, union, or opaque.
         ty: Type,
+        /// Direct children of the namespace. Used during an update to detect
+        /// which decls have been added/removed from source.
+        decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
 
-        pub fn deinit(cont: *Container, gpa: *Allocator) void {
-            cont.decls.deinit(gpa);
-            // TODO either Container of File should have an arena for sub_file_path and ty
-            gpa.destroy(cont.ty.castTag(.empty_struct).?);
-            gpa.free(cont.file_scope.sub_file_path);
-            cont.* = undefined;
+        pub fn deinit(ns: *Namespace, gpa: *Allocator) void {
+            ns.decls.deinit(gpa);
+            ns.* = undefined;
         }
 
-        pub fn removeDecl(cont: *Container, child: *Decl) void {
-            _ = cont.decls.swapRemove(child);
+        pub fn removeDecl(ns: *Namespace, child: *Decl) void {
+            _ = ns.decls.swapRemove(child);
         }
 
-        pub fn fullyQualifiedNameHash(cont: *Container, name: []const u8) NameHash {
-            return std.zig.hashName(cont.parent_name_hash, ".", name);
+        /// Must generate unique bytes with no collisions with other decls.
+        /// The point of hashing here is only to limit the number of bytes of
+        /// the unique identifier to a fixed size (16 bytes).
+        pub fn fullyQualifiedNameHash(ns: Namespace, name: []const u8) NameHash {
+            return std.zig.hashName(ns.parent_name_hash, ".", name);
         }
 
-        pub fn renderFullyQualifiedName(cont: Container, name: []const u8, writer: anytype) !void {
+        pub fn renderFullyQualifiedName(ns: Namespace, name: []const u8, writer: anytype) !void {
             // TODO this should render e.g. "std.fs.Dir.OpenOptions"
             return writer.writeAll(name);
+        }
+
+        pub fn getDecl(ns: Namespace) *Decl {
+            return ns.ty.getOwnerDecl();
         }
     };
 
@@ -711,46 +694,54 @@ pub const Scope = struct {
             unloaded_parse_failure,
             loaded_success,
         },
-
+        source_loaded: bool,
         /// Relative to the owning package's root_src_dir.
-        /// Reference to external memory, not owned by File.
+        /// Memory is stored in gpa, owned by File.
         sub_file_path: []const u8,
-        source: union(enum) {
-            unloaded: void,
-            bytes: [:0]const u8,
-        },
+        /// Whether this is populated depends on `source_loaded`.
+        source: [:0]const u8,
+        /// Whether this is populated depends on `status`.
+        stat_size: u64,
+        /// Whether this is populated depends on `status`.
+        stat_inode: std.fs.File.INode,
+        /// Whether this is populated depends on `status`.
+        stat_mtime: i128,
+        /// Whether this is populated depends on `status`.
+        source_hash: Cache.BinDigest,
         /// Whether this is populated or not depends on `status`.
         tree: ast.Tree,
         /// Package that this file is a part of, managed externally.
         pkg: *Package,
-
-        root_container: Container,
+        /// The namespace of the struct that represents this file.
+        namespace: *Namespace,
 
         pub fn unload(file: *File, gpa: *Allocator) void {
-            switch (file.status) {
-                .unloaded_parse_failure,
-                .never_loaded,
-                .unloaded_success,
-                => {
-                    file.status = .unloaded_success;
-                },
+            file.unloadTree(gpa);
+            file.unloadSource(gpa);
+        }
 
-                .loaded_success => {
-                    file.tree.deinit(gpa);
-                    file.status = .unloaded_success;
-                },
+        pub fn unloadTree(file: *File, gpa: *Allocator) void {
+            if (file.status == .loaded_success) {
+                file.tree.deinit(gpa);
             }
-            switch (file.source) {
-                .bytes => |bytes| {
-                    gpa.free(bytes);
-                    file.source = .{ .unloaded = {} };
-                },
-                .unloaded => {},
+            file.status = .unloaded_success;
+        }
+
+        pub fn unloadSource(file: *File, gpa: *Allocator) void {
+            if (file.source_loaded) {
+                file.source_loaded = false;
+                gpa.free(file.source);
+            }
+        }
+
+        pub fn updateTreeToNewSource(file: *File) void {
+            assert(file.source_loaded);
+            if (file.status == .loaded_success) {
+                file.tree.source = file.source;
             }
         }
 
         pub fn deinit(file: *File, gpa: *Allocator) void {
-            file.root_container.deinit(gpa);
             file.unload(gpa);
             file.* = undefined;
         }
@@ -765,22 +756,44 @@ pub const Scope = struct {
             std.debug.print("{s}:{d}:{d}\n", .{ file.sub_file_path, loc.line + 1, loc.column + 1 });
         }
 
-        pub fn getSource(file: *File, module: *Module) ![:0]const u8 {
-            switch (file.source) {
-                .unloaded => {
-                    const source = try file.pkg.root_src_directory.handle.readFileAllocOptions(
-                        module.gpa,
-                        file.sub_file_path,
-                        std.math.maxInt(u32),
-                        null,
-                        1,
-                        0,
-                    );
-                    file.source = .{ .bytes = source };
-                    return source;
-                },
-                .bytes => |bytes| return bytes,
-            }
+        pub fn getSource(file: *File, gpa: *Allocator) ![:0]const u8 {
+            if (file.source_loaded) return file.source;
+
+            // Keep track of inode, file size, mtime, hash so we can detect which files
+            // have been modified when an incremental update is requested.
+            var f = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{});
+            defer f.close();
+
+            const stat = try f.stat();
+
+            try file.finishGettingSource(gpa, f, stat);
+            assert(file.source_loaded);
+            return file.source;
+        }
+
+        pub fn finishGettingSource(
+            file: *File,
+            gpa: *Allocator,
+            f: std.fs.File,
+            stat: std.fs.File.Stat,
+        ) !void {
+            if (stat.size > std.math.maxInt(u32))
+                return error.FileTooBig;
+
+            const source = try gpa.allocSentinel(u8, stat.size, 0);
+            const amt = try f.readAll(source);
+            if (amt != stat.size)
+                return error.UnexpectedEndOfFile;
+
+            var hasher = Cache.hasher_init;
+            hasher.update(source);
+            hasher.final(&file.source_hash);
+
+            file.stat_size = stat.size;
+            file.stat_inode = stat.inode;
+            file.stat_mtime = stat.mtime;
+            file.source = source;
+            file.source_loaded = true;
         }
     };
 
@@ -859,7 +872,7 @@ pub const Scope = struct {
         }
 
         pub fn getFileScope(block: *Block) *Scope.File {
-            return block.src_decl.container.file_scope;
+            return block.src_decl.namespace.file_scope;
         }
 
         pub fn addNoOp(
@@ -1110,7 +1123,7 @@ pub const Scope = struct {
         }
 
         pub fn tree(gz: *const GenZir) *const ast.Tree {
-            return &gz.astgen.decl.container.file_scope.tree;
+            return &gz.astgen.decl.namespace.file_scope.tree;
         }
 
         pub fn setBreakResultLoc(gz: *GenZir, parent_rl: AstGen.ResultLoc) void {
@@ -1678,7 +1691,7 @@ pub const SrcLoc = struct {
             .node_offset_switch_range,
             .node_offset_fn_type_cc,
             .node_offset_fn_type_ret_ty,
-            => src_loc.container.decl.container.file_scope,
+            => src_loc.container.decl.namespace.file_scope,
         };
     }
 
@@ -1706,14 +1719,14 @@ pub const SrcLoc = struct {
             .token_offset => |tok_off| {
                 const decl = src_loc.container.decl;
                 const tok_index = decl.srcToken() + tok_off;
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset, .node_offset_bin_op => |node_off| {
                 const decl = src_loc.container.decl;
                 const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const main_tokens = tree.nodes.items(.main_token);
                 const tok_index = main_tokens[node];
                 const token_starts = tree.tokens.items(.start);
@@ -1722,7 +1735,7 @@ pub const SrcLoc = struct {
             .node_offset_back2tok => |node_off| {
                 const decl = src_loc.container.decl;
                 const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const tok_index = tree.firstToken(node) - 2;
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
@@ -1730,7 +1743,7 @@ pub const SrcLoc = struct {
             .node_offset_var_decl_ty => |node_off| {
                 const decl = src_loc.container.decl;
                 const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_tags = tree.nodes.items(.tag);
                 const full = switch (node_tags[node]) {
                     .global_var_decl => tree.globalVarDecl(node),
@@ -1750,7 +1763,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_builtin_call_arg0 => |node_off| {
                 const decl = src_loc.container.decl;
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = decl.relativeToNodeIndex(node_off);
@@ -1766,7 +1779,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_builtin_call_arg1 => |node_off| {
                 const decl = src_loc.container.decl;
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = decl.relativeToNodeIndex(node_off);
@@ -1782,7 +1795,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_array_access_index => |node_off| {
                 const decl = src_loc.container.decl;
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = decl.relativeToNodeIndex(node_off);
@@ -1793,7 +1806,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_slice_sentinel => |node_off| {
                 const decl = src_loc.container.decl;
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = decl.relativeToNodeIndex(node_off);
@@ -1810,7 +1823,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_call_func => |node_off| {
                 const decl = src_loc.container.decl;
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = decl.relativeToNodeIndex(node_off);
@@ -1837,7 +1850,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_field_name => |node_off| {
                 const decl = src_loc.container.decl;
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = decl.relativeToNodeIndex(node_off);
@@ -1850,7 +1863,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_deref_ptr => |node_off| {
                 const decl = src_loc.container.decl;
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = decl.relativeToNodeIndex(node_off);
@@ -1860,7 +1873,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_asm_source => |node_off| {
                 const decl = src_loc.container.decl;
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = decl.relativeToNodeIndex(node_off);
@@ -1876,7 +1889,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_asm_ret_ty => |node_off| {
                 const decl = src_loc.container.decl;
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = decl.relativeToNodeIndex(node_off);
@@ -1894,7 +1907,7 @@ pub const SrcLoc = struct {
             .node_offset_for_cond, .node_offset_if_cond => |node_off| {
                 const decl = src_loc.container.decl;
                 const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_tags = tree.nodes.items(.tag);
                 const src_node = switch (node_tags[node]) {
                     .if_simple => tree.ifSimple(node).ast.cond_expr,
@@ -1914,7 +1927,7 @@ pub const SrcLoc = struct {
             .node_offset_bin_lhs => |node_off| {
                 const decl = src_loc.container.decl;
                 const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const src_node = node_datas[node].lhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -1925,7 +1938,7 @@ pub const SrcLoc = struct {
             .node_offset_bin_rhs => |node_off| {
                 const decl = src_loc.container.decl;
                 const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const src_node = node_datas[node].rhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -1937,7 +1950,7 @@ pub const SrcLoc = struct {
             .node_offset_switch_operand => |node_off| {
                 const decl = src_loc.container.decl;
                 const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const src_node = node_datas[node].lhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -1949,7 +1962,7 @@ pub const SrcLoc = struct {
             .node_offset_switch_special_prong => |node_off| {
                 const decl = src_loc.container.decl;
                 const switch_node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
@@ -1976,7 +1989,7 @@ pub const SrcLoc = struct {
             .node_offset_switch_range => |node_off| {
                 const decl = src_loc.container.decl;
                 const switch_node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2006,7 +2019,7 @@ pub const SrcLoc = struct {
 
             .node_offset_fn_type_cc => |node_off| {
                 const decl = src_loc.container.decl;
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = decl.relativeToNodeIndex(node_off);
@@ -2026,7 +2039,7 @@ pub const SrcLoc = struct {
 
             .node_offset_fn_type_ret_ty => |node_off| {
                 const decl = src_loc.container.decl;
-                const tree = decl.container.file_scope.base.tree();
+                const tree = decl.namespace.file_scope.base.tree();
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = decl.relativeToNodeIndex(node_off);
@@ -2351,7 +2364,6 @@ pub fn deinit(mod: *Module) void {
     mod.export_owners.deinit(gpa);
 
     mod.symbol_exports.deinit(gpa);
-    mod.root_scope.destroy(gpa);
 
     var it = mod.global_error_set.iterator();
     while (it.next()) |entry| {
@@ -2362,6 +2374,7 @@ pub fn deinit(mod: *Module) void {
     mod.error_name_list.deinit(gpa);
 
     for (mod.import_table.items()) |entry| {
+        gpa.free(entry.key);
         entry.value.destroy(gpa);
     }
     mod.import_table.deinit(gpa);
@@ -2465,7 +2478,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const tree = try mod.getAstTree(decl.container.file_scope);
+    const tree = try mod.getAstTree(decl.namespace.file_scope);
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
     const decl_node = decl.src_node;
@@ -2516,7 +2529,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
 
                 var gen_scope: Scope.GenZir = .{
                     .force_comptime = true,
-                    .parent = &decl.container.base,
+                    .parent = &decl.namespace.base,
                     .astgen = &astgen,
                 };
                 defer gen_scope.instructions.deinit(mod.gpa);
@@ -2590,7 +2603,7 @@ fn astgenAndSemaFn(
 
     var fn_type_scope: Scope.GenZir = .{
         .force_comptime = true,
-        .parent = &decl.container.base,
+        .parent = &decl.namespace.base,
         .astgen = &fn_type_astgen,
     };
     defer fn_type_scope.instructions.deinit(mod.gpa);
@@ -2829,7 +2842,7 @@ fn astgenAndSemaFn(
 
         var gen_scope: Scope.GenZir = .{
             .force_comptime = false,
-            .parent = &decl.container.base,
+            .parent = &decl.namespace.base,
             .astgen = &astgen,
         };
         defer gen_scope.instructions.deinit(mod.gpa);
@@ -3035,7 +3048,7 @@ fn astgenAndSemaVarDecl(
 
         var gen_scope: Scope.GenZir = .{
             .force_comptime = true,
-            .parent = &decl.container.base,
+            .parent = &decl.namespace.base,
             .astgen = &astgen,
         };
         defer gen_scope.instructions.deinit(mod.gpa);
@@ -3104,7 +3117,7 @@ fn astgenAndSemaVarDecl(
 
         var type_scope: Scope.GenZir = .{
             .force_comptime = true,
-            .parent = &decl.container.base,
+            .parent = &decl.namespace.base,
             .astgen = &astgen,
         };
         defer type_scope.instructions.deinit(mod.gpa);
@@ -3220,46 +3233,48 @@ pub fn declareDeclDependency(mod: *Module, depender: *Decl, dependee: *Decl) !u3
     return @intCast(u32, gop.index);
 }
 
-pub fn getAstTree(mod: *Module, root_scope: *Scope.File) !*const ast.Tree {
+pub fn getAstTree(mod: *Module, file: *Scope.File) !*const ast.Tree {
     const tracy = trace(@src());
     defer tracy.end();
 
-    switch (root_scope.status) {
+    switch (file.status) {
         .never_loaded, .unloaded_success => {
-            try mod.failed_files.ensureCapacity(mod.gpa, mod.failed_files.items().len + 1);
+            const gpa = mod.gpa;
 
-            const source = try root_scope.getSource(mod);
+            try mod.failed_files.ensureCapacity(gpa, mod.failed_files.items().len + 1);
+
+            const source = try file.getSource(gpa);
 
             var keep_tree = false;
-            root_scope.tree = try std.zig.parse(mod.gpa, source);
-            defer if (!keep_tree) root_scope.tree.deinit(mod.gpa);
+            file.tree = try std.zig.parse(gpa, source);
+            defer if (!keep_tree) file.tree.deinit(gpa);
 
-            const tree = &root_scope.tree;
+            const tree = &file.tree;
 
             if (tree.errors.len != 0) {
                 const parse_err = tree.errors[0];
 
-                var msg = std.ArrayList(u8).init(mod.gpa);
+                var msg = std.ArrayList(u8).init(gpa);
                 defer msg.deinit();
 
                 const token_starts = tree.tokens.items(.start);
 
                 try tree.renderError(parse_err, msg.writer());
-                const err_msg = try mod.gpa.create(ErrorMsg);
+                const err_msg = try gpa.create(ErrorMsg);
                 err_msg.* = .{
                     .src_loc = .{
-                        .container = .{ .file_scope = root_scope },
+                        .container = .{ .file_scope = file },
                         .lazy = .{ .byte_abs = token_starts[parse_err.token] },
                     },
                     .msg = msg.toOwnedSlice(),
                 };
 
-                mod.failed_files.putAssumeCapacityNoClobber(root_scope, err_msg);
-                root_scope.status = .unloaded_parse_failure;
+                mod.failed_files.putAssumeCapacityNoClobber(file, err_msg);
+                file.status = .unloaded_parse_failure;
                 return error.AnalysisFail;
             }
 
-            root_scope.status = .loaded_success;
+            file.status = .loaded_success;
             keep_tree = true;
 
             return tree;
@@ -3267,30 +3282,186 @@ pub fn getAstTree(mod: *Module, root_scope: *Scope.File) !*const ast.Tree {
 
         .unloaded_parse_failure => return error.AnalysisFail,
 
-        .loaded_success => return &root_scope.tree,
+        .loaded_success => return &file.tree,
     }
 }
 
-pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
+pub fn importFile(mod: *Module, cur_pkg: *Package, import_string: []const u8) !*Scope.File {
+    const gpa = mod.gpa;
+
+    const cur_pkg_dir_path = cur_pkg.root_src_directory.path orelse ".";
+    const found_pkg = cur_pkg.table.get(import_string);
+
+    const resolved_path = if (found_pkg) |pkg|
+        try std.fs.path.resolve(gpa, &[_][]const u8{ pkg.root_src_directory.path orelse ".", pkg.root_src_path })
+    else
+        try std.fs.path.resolve(gpa, &[_][]const u8{ cur_pkg_dir_path, import_string });
+    var keep_resolved_path = false;
+    defer if (!keep_resolved_path) gpa.free(resolved_path);
+
+    const gop = try mod.import_table.getOrPut(gpa, resolved_path);
+    if (gop.found_existing) return gop.entry.value;
+
+    if (found_pkg == null) {
+        const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
+        defer gpa.free(resolved_root_path);
+
+        if (!mem.startsWith(u8, resolved_path, resolved_root_path)) {
+            return error.ImportOutsidePkgPath;
+        }
+    }
+
+    const new_file = try gpa.create(Scope.File);
+    gop.entry.value = new_file;
+    new_file.* = .{
+        .sub_file_path = resolved_path,
+        .source = undefined,
+        .source_hash = undefined,
+        .source_loaded = false,
+        .stat_size = undefined,
+        .stat_inode = undefined,
+        .stat_mtime = undefined,
+        .tree = undefined,
+        .status = .never_loaded,
+        .pkg = found_pkg orelse cur_pkg,
+        .namespace = undefined,
+    };
+    keep_resolved_path = true;
+
+    const tree = try mod.getAstTree(new_file);
+
+    const parent_name_hash: Scope.NameHash = if (found_pkg) |pkg|
+        pkg.namespace_hash
+    else
+        std.zig.hashName(cur_pkg.namespace_hash, "/", resolved_path);
+
+    // We need a Decl to pass to AstGen and collect dependencies. But ultimately we
+    // want to pass them on to the Decl for the struct that represents the file.
+    var tmp_namespace: Scope.Namespace = .{
+        .parent = null,
+        .file_scope = new_file,
+        .parent_name_hash = parent_name_hash,
+        .ty = Type.initTag(.type),
+    };
+    const top_decl = try mod.createNewDecl(
+        &tmp_namespace,
+        resolved_path,
+        0,
+        parent_name_hash,
+        new_file.source_hash,
+    );
+    defer {
+        mod.decl_table.removeAssertDiscard(parent_name_hash);
+        top_decl.destroy(mod);
+    }
+
+    var gen_scope_arena = std.heap.ArenaAllocator.init(gpa);
+    defer gen_scope_arena.deinit();
+
+    var astgen = try AstGen.init(mod, top_decl, &gen_scope_arena.allocator);
+    defer astgen.deinit();
+
+    var gen_scope: Scope.GenZir = .{
+        .force_comptime = true,
+        .parent = &new_file.base,
+        .astgen = &astgen,
+    };
+    defer gen_scope.instructions.deinit(gpa);
+
+    const container_decl: ast.full.ContainerDecl = .{
+        .layout_token = null,
+        .ast = .{
+            .main_token = undefined,
+            .enum_token = null,
+            .members = tree.rootDecls(),
+            .arg = 0,
+        },
+    };
+
+    const struct_decl_ref = try AstGen.structDeclInner(
+        &gen_scope,
+        &gen_scope.base,
+        0,
+        container_decl,
+        .struct_decl,
+    );
+    _ = try gen_scope.addBreak(.break_inline, 0, struct_decl_ref);
+
+    var code = try gen_scope.finish();
+    defer code.deinit(gpa);
+    if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
+        code.dump(gpa, "import", &gen_scope.base, 0) catch {};
+    }
+
+    var sema: Sema = .{
+        .mod = mod,
+        .gpa = gpa,
+        .arena = &gen_scope_arena.allocator,
+        .code = code,
+        .inst_map = try gen_scope_arena.allocator.alloc(*ir.Inst, code.instructions.len),
+        .owner_decl = top_decl,
+        .func = null,
+        .owner_func = null,
+        .param_inst_list = &.{},
+    };
+    var block_scope: Scope.Block = .{
+        .parent = null,
+        .sema = &sema,
+        .src_decl = top_decl,
+        .instructions = .{},
+        .inlining = null,
+        .is_comptime = true,
+    };
+    defer block_scope.instructions.deinit(gpa);
+
+    const init_inst_zir_ref = try sema.rootAsRef(&block_scope);
+    const analyzed_struct_inst = try sema.resolveInst(init_inst_zir_ref);
+    assert(analyzed_struct_inst.ty.zigTypeTag() == .Type);
+    const val = analyzed_struct_inst.value().?;
+    const struct_ty = try val.toType(&gen_scope_arena.allocator);
+    const struct_decl = struct_ty.getOwnerDecl();
+
+    new_file.namespace = struct_ty.getNamespace().?;
+    new_file.namespace.parent = null;
+    new_file.namespace.parent_name_hash = tmp_namespace.parent_name_hash;
+
+    // Transfer the dependencies to `owner_decl`.
+    assert(top_decl.dependants.count() == 0);
+    for (top_decl.dependencies.items()) |entry| {
+        const dep = entry.key;
+        dep.removeDependant(top_decl);
+        if (dep == struct_decl) continue;
+        _ = try mod.declareDeclDependency(struct_decl, dep);
+    }
+
+    try mod.analyzeFile(new_file);
+    return new_file;
+}
+
+pub fn analyzeFile(mod: *Module, file: *Scope.File) !void {
+    return mod.analyzeNamespace(file.namespace);
+}
+
+pub fn analyzeNamespace(mod: *Module, namespace: *Scope.Namespace) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     // We may be analyzing it for the first time, or this may be
     // an incremental update. This code handles both cases.
-    const tree = try mod.getAstTree(container_scope.file_scope);
+    const tree = try mod.getAstTree(namespace.file_scope);
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
     const decls = tree.rootDecls();
 
     try mod.comp.work_queue.ensureUnusedCapacity(decls.len);
-    try container_scope.decls.ensureCapacity(mod.gpa, decls.len);
+    try namespace.decls.ensureCapacity(mod.gpa, decls.len);
 
-    // Keep track of the decls that we expect to see in this file so that
+    // Keep track of the decls that we expect to see in this namespace so that
     // we know which ones have been deleted.
     var deleted_decls = std.AutoArrayHashMap(*Decl, void).init(mod.gpa);
     defer deleted_decls.deinit();
-    try deleted_decls.ensureCapacity(container_scope.decls.items().len);
-    for (container_scope.decls.items()) |entry| {
+    try deleted_decls.ensureCapacity(namespace.decls.items().len);
+    for (namespace.decls.items()) |entry| {
         deleted_decls.putAssumeCapacityNoClobber(entry.key, {});
     }
 
@@ -3310,7 +3481,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                 .fn_proto_simple => {
                     var params: [1]ast.Node.Index = undefined;
                     try mod.semaContainerFn(
-                        container_scope,
+                        namespace,
                         &deleted_decls,
                         &outdated_decls,
                         decl_node,
@@ -3320,7 +3491,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                     );
                 },
                 .fn_proto_multi => try mod.semaContainerFn(
-                    container_scope,
+                    namespace,
                     &deleted_decls,
                     &outdated_decls,
                     decl_node,
@@ -3331,7 +3502,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                 .fn_proto_one => {
                     var params: [1]ast.Node.Index = undefined;
                     try mod.semaContainerFn(
-                        container_scope,
+                        namespace,
                         &deleted_decls,
                         &outdated_decls,
                         decl_node,
@@ -3341,7 +3512,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
                     );
                 },
                 .fn_proto => try mod.semaContainerFn(
-                    container_scope,
+                    namespace,
                     &deleted_decls,
                     &outdated_decls,
                     decl_node,
@@ -3355,7 +3526,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .fn_proto_simple => {
             var params: [1]ast.Node.Index = undefined;
             try mod.semaContainerFn(
-                container_scope,
+                namespace,
                 &deleted_decls,
                 &outdated_decls,
                 decl_node,
@@ -3365,7 +3536,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             );
         },
         .fn_proto_multi => try mod.semaContainerFn(
-            container_scope,
+            namespace,
             &deleted_decls,
             &outdated_decls,
             decl_node,
@@ -3376,7 +3547,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         .fn_proto_one => {
             var params: [1]ast.Node.Index = undefined;
             try mod.semaContainerFn(
-                container_scope,
+                namespace,
                 &deleted_decls,
                 &outdated_decls,
                 decl_node,
@@ -3386,7 +3557,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             );
         },
         .fn_proto => try mod.semaContainerFn(
-            container_scope,
+            namespace,
             &deleted_decls,
             &outdated_decls,
             decl_node,
@@ -3396,7 +3567,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
         ),
 
         .global_var_decl => try mod.semaContainerVar(
-            container_scope,
+            namespace,
             &deleted_decls,
             &outdated_decls,
             decl_node,
@@ -3404,7 +3575,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             tree.globalVarDecl(decl_node),
         ),
         .local_var_decl => try mod.semaContainerVar(
-            container_scope,
+            namespace,
             &deleted_decls,
             &outdated_decls,
             decl_node,
@@ -3412,7 +3583,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             tree.localVarDecl(decl_node),
         ),
         .simple_var_decl => try mod.semaContainerVar(
-            container_scope,
+            namespace,
             &deleted_decls,
             &outdated_decls,
             decl_node,
@@ -3420,7 +3591,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             tree.simpleVarDecl(decl_node),
         ),
         .aligned_var_decl => try mod.semaContainerVar(
-            container_scope,
+            namespace,
             &deleted_decls,
             &outdated_decls,
             decl_node,
@@ -3433,11 +3604,11 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
             const name = try std.fmt.allocPrint(mod.gpa, "__comptime_{d}", .{name_index});
             defer mod.gpa.free(name);
 
-            const name_hash = container_scope.fullyQualifiedNameHash(name);
+            const name_hash = namespace.fullyQualifiedNameHash(name);
             const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
 
-            const new_decl = try mod.createNewDecl(&container_scope.base, name, decl_node, name_hash, contents_hash);
-            container_scope.decls.putAssumeCapacity(new_decl, {});
+            const new_decl = try mod.createNewDecl(namespace, name, decl_node, name_hash, contents_hash);
+            namespace.decls.putAssumeCapacity(new_decl, {});
             mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
         },
 
@@ -3483,7 +3654,7 @@ pub fn analyzeContainer(mod: *Module, container_scope: *Scope.Container) !void {
 
 fn semaContainerFn(
     mod: *Module,
-    container_scope: *Scope.Container,
+    namespace: *Scope.Namespace,
     deleted_decls: *std.AutoArrayHashMap(*Decl, void),
     outdated_decls: *std.AutoArrayHashMap(*Decl, void),
     decl_node: ast.Node.Index,
@@ -3500,25 +3671,25 @@ fn semaContainerFn(
         @panic("TODO missing function name");
     };
     const name = tree.tokenSlice(name_token); // TODO use identifierTokenString
-    const name_hash = container_scope.fullyQualifiedNameHash(name);
+    const name_hash = namespace.fullyQualifiedNameHash(name);
     const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
     if (mod.decl_table.get(name_hash)) |decl| {
-        // Update the AST Node index of the decl, even if its contents are unchanged, it may
+        // Update the AST node of the decl; even if its contents are unchanged, it may
         // have been re-ordered.
         const prev_src_node = decl.src_node;
         decl.src_node = decl_node;
         if (deleted_decls.swapRemove(decl) == null) {
             decl.analysis = .sema_failure;
             const msg = try ErrorMsg.create(mod.gpa, .{
-                .container = .{ .file_scope = container_scope.file_scope },
+                .container = .{ .file_scope = namespace.file_scope },
                 .lazy = .{ .token_abs = name_token },
-            }, "redefinition of '{s}'", .{decl.name});
+            }, "redeclaration of '{s}'", .{decl.name});
             errdefer msg.destroy(mod.gpa);
             const other_src_loc: SrcLoc = .{
-                .container = .{ .file_scope = decl.container.file_scope },
+                .container = .{ .file_scope = decl.namespace.file_scope },
                 .lazy = .{ .node_abs = prev_src_node },
             };
-            try mod.errNoteNonLazy(other_src_loc, msg, "previous definition here", .{});
+            try mod.errNoteNonLazy(other_src_loc, msg, "previously declared here", .{});
             try mod.failed_decls.putNoClobber(mod.gpa, decl, msg);
         } else {
             if (!srcHashEql(decl.contents_hash, contents_hash)) {
@@ -3542,8 +3713,8 @@ fn semaContainerFn(
             }
         }
     } else {
-        const new_decl = try mod.createNewDecl(&container_scope.base, name, decl_node, name_hash, contents_hash);
-        container_scope.decls.putAssumeCapacity(new_decl, {});
+        const new_decl = try mod.createNewDecl(namespace, name, decl_node, name_hash, contents_hash);
+        namespace.decls.putAssumeCapacity(new_decl, {});
         if (fn_proto.extern_export_token) |maybe_export_token| {
             const token_tags = tree.tokens.items(.tag);
             if (token_tags[maybe_export_token] == .keyword_export) {
@@ -3556,7 +3727,7 @@ fn semaContainerFn(
 
 fn semaContainerVar(
     mod: *Module,
-    container_scope: *Scope.Container,
+    namespace: *Scope.Namespace,
     deleted_decls: *std.AutoArrayHashMap(*Decl, void),
     outdated_decls: *std.AutoArrayHashMap(*Decl, void),
     decl_node: ast.Node.Index,
@@ -3568,7 +3739,7 @@ fn semaContainerVar(
 
     const name_token = var_decl.ast.mut_token + 1;
     const name = tree.tokenSlice(name_token); // TODO identifierTokenString
-    const name_hash = container_scope.fullyQualifiedNameHash(name);
+    const name_hash = namespace.fullyQualifiedNameHash(name);
     const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
     if (mod.decl_table.get(name_hash)) |decl| {
         // Update the AST Node index of the decl, even if its contents are unchanged, it may
@@ -3578,23 +3749,23 @@ fn semaContainerVar(
         if (deleted_decls.swapRemove(decl) == null) {
             decl.analysis = .sema_failure;
             const msg = try ErrorMsg.create(mod.gpa, .{
-                .container = .{ .file_scope = container_scope.file_scope },
+                .container = .{ .file_scope = namespace.file_scope },
                 .lazy = .{ .token_abs = name_token },
-            }, "redefinition of '{s}'", .{decl.name});
+            }, "redeclaration of '{s}'", .{decl.name});
             errdefer msg.destroy(mod.gpa);
             const other_src_loc: SrcLoc = .{
-                .container = .{ .file_scope = decl.container.file_scope },
+                .container = .{ .file_scope = decl.namespace.file_scope },
                 .lazy = .{ .node_abs = prev_src_node },
             };
-            try mod.errNoteNonLazy(other_src_loc, msg, "previous definition here", .{});
+            try mod.errNoteNonLazy(other_src_loc, msg, "previously declared here", .{});
             try mod.failed_decls.putNoClobber(mod.gpa, decl, msg);
         } else if (!srcHashEql(decl.contents_hash, contents_hash)) {
             try outdated_decls.put(decl, {});
             decl.contents_hash = contents_hash;
         }
     } else {
-        const new_decl = try mod.createNewDecl(&container_scope.base, name, decl_node, name_hash, contents_hash);
-        container_scope.decls.putAssumeCapacity(new_decl, {});
+        const new_decl = try mod.createNewDecl(namespace, name, decl_node, name_hash, contents_hash);
+        namespace.decls.putAssumeCapacity(new_decl, {});
         if (var_decl.extern_export_token) |maybe_export_token| {
             const token_tags = tree.tokens.items(.tag);
             if (token_tags[maybe_export_token] == .keyword_export) {
@@ -3624,7 +3795,7 @@ pub fn deleteDecl(
 
     // Remove from the namespace it resides in. In the case of an anonymous Decl it will
     // not be present in the set, and this does nothing.
-    decl.container.removeDecl(decl);
+    decl.namespace.removeDecl(decl);
 
     const name_hash = decl.fullyQualifiedNameHash();
     mod.decl_table.removeAssertDiscard(name_hash);
@@ -3786,7 +3957,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
 
 fn allocateNewDecl(
     mod: *Module,
-    scope: *Scope,
+    namespace: *Scope.Namespace,
     src_node: ast.Node.Index,
     contents_hash: std.zig.SrcHash,
 ) !*Decl {
@@ -3802,7 +3973,7 @@ fn allocateNewDecl(
 
     new_decl.* = .{
         .name = "",
-        .container = scope.namespace(),
+        .namespace = namespace,
         .src_node = src_node,
         .typed_value = .{ .never_succeeded = {} },
         .analysis = .unreferenced,
@@ -3832,14 +4003,14 @@ fn allocateNewDecl(
 
 fn createNewDecl(
     mod: *Module,
-    scope: *Scope,
+    namespace: *Scope.Namespace,
     decl_name: []const u8,
     src_node: ast.Node.Index,
     name_hash: Scope.NameHash,
     contents_hash: std.zig.SrcHash,
 ) !*Decl {
     try mod.decl_table.ensureCapacity(mod.gpa, mod.decl_table.items().len + 1);
-    const new_decl = try mod.allocateNewDecl(scope, src_node, contents_hash);
+    const new_decl = try mod.allocateNewDecl(namespace, src_node, contents_hash);
     errdefer mod.gpa.destroy(new_decl);
     new_decl.name = try mem.dupeZ(mod.gpa, u8, decl_name);
     mod.decl_table.putAssumeCapacityNoClobber(name_hash, new_decl);
@@ -3930,7 +4101,7 @@ pub fn analyzeExport(
         );
         errdefer msg.destroy(mod.gpa);
         try mod.errNote(
-            &other_export.owner_decl.container.base,
+            &other_export.owner_decl.namespace.base,
             other_export.src,
             msg,
             "other symbol here",
@@ -4050,9 +4221,10 @@ pub fn createAnonymousDecl(
     const scope_decl = scope.ownerDecl().?;
     const name = try std.fmt.allocPrint(mod.gpa, "{s}__anon_{d}", .{ scope_decl.name, name_index });
     defer mod.gpa.free(name);
-    const name_hash = scope.namespace().fullyQualifiedNameHash(name);
+    const namespace = scope_decl.namespace;
+    const name_hash = namespace.fullyQualifiedNameHash(name);
     const src_hash: std.zig.SrcHash = undefined;
-    const new_decl = try mod.createNewDecl(scope, name, scope_decl.src_node, name_hash, src_hash);
+    const new_decl = try mod.createNewDecl(namespace, name, scope_decl.src_node, name_hash, src_hash);
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
     decl_arena_state.* = decl_arena.state;
@@ -4076,55 +4248,30 @@ pub fn createAnonymousDecl(
     return new_decl;
 }
 
-pub fn createContainerDecl(
-    mod: *Module,
-    scope: *Scope,
-    base_token: std.zig.ast.TokenIndex,
-    decl_arena: *std.heap.ArenaAllocator,
-    typed_value: TypedValue,
-) !*Decl {
-    const scope_decl = scope.ownerDecl().?;
-    const name = try mod.getAnonTypeName(scope, base_token);
-    defer mod.gpa.free(name);
-    const name_hash = scope.namespace().fullyQualifiedNameHash(name);
-    const src_hash: std.zig.SrcHash = undefined;
-    const new_decl = try mod.createNewDecl(scope, name, scope_decl.src_node, name_hash, src_hash);
-    const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
-
-    decl_arena_state.* = decl_arena.state;
-    new_decl.typed_value = .{
-        .most_recent = .{
-            .typed_value = typed_value,
-            .arena = decl_arena_state,
-        },
-    };
-    new_decl.analysis = .complete;
-    new_decl.generation = mod.generation;
-
-    return new_decl;
-}
-
-fn getAnonTypeName(mod: *Module, scope: *Scope, base_token: std.zig.ast.TokenIndex) ![]u8 {
-    // TODO add namespaces, generic function signatrues
-    const tree = scope.tree();
-    const token_tags = tree.tokens.items(.tag);
-    const base_name = switch (token_tags[base_token]) {
-        .keyword_struct => "struct",
-        .keyword_enum => "enum",
-        .keyword_union => "union",
-        .keyword_opaque => "opaque",
-        else => unreachable,
-    };
-    const loc = tree.tokenLocation(0, base_token);
-    return std.fmt.allocPrint(mod.gpa, "{s}:{d}:{d}", .{ base_name, loc.line, loc.column });
-}
-
 fn getNextAnonNameIndex(mod: *Module) usize {
     return @atomicRmw(usize, &mod.next_anon_name_index, .Add, 1, .Monotonic);
 }
 
-pub fn lookupDeclName(mod: *Module, scope: *Scope, ident_name: []const u8) ?*Decl {
-    const namespace = scope.namespace();
+/// This looks up a bare identifier in the given scope. This will walk up the tree of namespaces
+/// in scope and check each one for the identifier.
+pub fn lookupIdentifier(mod: *Module, scope: *Scope, ident_name: []const u8) ?*Decl {
+    var namespace = scope.namespace();
+    while (true) {
+        if (mod.lookupInNamespace(namespace, ident_name)) |decl| {
+            return decl;
+        }
+        namespace = namespace.parent orelse break;
+    }
+    return null;
+}
+
+/// This looks up a member of a specific namespace. It is affected by `usingnamespace` but
+/// only for ones in the specified namespace.
+pub fn lookupInNamespace(
+    mod: *Module,
+    namespace: *Scope.Namespace,
+    ident_name: []const u8,
+) ?*Decl {
     const name_hash = namespace.fullyQualifiedNameHash(ident_name);
     return mod.decl_table.get(name_hash);
 }
@@ -4271,7 +4418,7 @@ pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) In
             mod.failed_decls.putAssumeCapacityNoClobber(gen_zir.astgen.decl, err_msg);
         },
         .file => unreachable,
-        .container => unreachable,
+        .namespace => unreachable,
         .decl_ref => {
             const decl_ref = scope.cast(Scope.DeclRef).?;
             decl_ref.decl.analysis = .sema_failure;
@@ -4682,11 +4829,4 @@ pub fn parseStrLit(
             );
         },
     }
-}
-
-pub fn unloadFile(mod: *Module, file_scope: *Scope.File) void {
-    if (file_scope.status == .unloaded_parse_failure) {
-        mod.failed_files.swapRemove(file_scope).?.value.destroy(mod.gpa);
-    }
-    file_scope.unload(mod.gpa);
 }

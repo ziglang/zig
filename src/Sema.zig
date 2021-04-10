@@ -609,10 +609,11 @@ fn zirStructDecl(
         .owner_decl = sema.owner_decl,
         .fields = fields_map,
         .node_offset = inst_data.src_node,
-        .container = .{
+        .namespace = .{
+            .parent = sema.owner_decl.namespace,
+            .parent_name_hash = new_decl.fullyQualifiedNameHash(),
             .ty = struct_ty,
             .file_scope = block.getFileScope(),
-            .parent_name_hash = new_decl.fullyQualifiedNameHash(),
         },
     };
     return sema.analyzeDeclVal(block, src, new_decl);
@@ -3640,42 +3641,43 @@ fn zirHasDecl(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     const mod = sema.mod;
     const arena = sema.arena;
 
-    const container_scope = container_type.getContainerScope() orelse return mod.fail(
+    const namespace = container_type.getNamespace() orelse return mod.fail(
         &block.base,
         lhs_src,
         "expected struct, enum, union, or opaque, found '{}'",
         .{container_type},
     );
-    if (mod.lookupDeclName(&container_scope.base, decl_name)) |decl| {
-        // TODO if !decl.is_pub and inDifferentFiles() return false
-        return mod.constBool(arena, src, true);
-    } else {
-        return mod.constBool(arena, src, false);
+    if (mod.lookupInNamespace(namespace, decl_name)) |decl| {
+        if (decl.is_pub or decl.namespace.file_scope == block.base.namespace().file_scope) {
+            return mod.constBool(arena, src, true);
+        }
     }
+    return mod.constBool(arena, src, false);
 }
 
 fn zirImport(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand = try sema.resolveConstString(block, operand_src, inst_data.operand);
 
-    const file_scope = sema.analyzeImport(block, src, operand) catch |err| switch (err) {
+    const file = mod.importFile(block.getFileScope().pkg, operand) catch |err| switch (err) {
         error.ImportOutsidePkgPath => {
-            return sema.mod.fail(&block.base, src, "import of file outside package path: '{s}'", .{operand});
+            return mod.fail(&block.base, src, "import of file outside package path: '{s}'", .{operand});
         },
         error.FileNotFound => {
-            return sema.mod.fail(&block.base, src, "unable to find '{s}'", .{operand});
+            return mod.fail(&block.base, src, "unable to find '{s}'", .{operand});
         },
         else => {
             // TODO: make sure this gets retried and not cached
-            return sema.mod.fail(&block.base, src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
+            return mod.fail(&block.base, src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
-    return sema.mod.constType(sema.arena, src, file_scope.root_container.ty);
+    return mod.constType(sema.arena, src, file.namespace.ty);
 }
 
 fn zirShl(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
@@ -4707,21 +4709,9 @@ fn namedFieldPtr(
                     });
                 },
                 .Struct, .Opaque, .Union => {
-                    if (child_type.getContainerScope()) |container_scope| {
-                        if (mod.lookupDeclName(&container_scope.base, field_name)) |decl| {
-                            if (!decl.is_pub and !(decl.container.file_scope == block.base.namespace().file_scope))
-                                return mod.fail(&block.base, src, "'{s}' is private", .{field_name});
-                            return sema.analyzeDeclRef(block, src, decl);
-                        }
-
-                        // TODO this will give false positives for structs inside the root file
-                        if (container_scope.file_scope == mod.root_scope) {
-                            return mod.fail(
-                                &block.base,
-                                src,
-                                "root source file has no member named '{s}'",
-                                .{field_name},
-                            );
+                    if (child_type.getNamespace()) |namespace| {
+                        if (try sema.analyzeNamespaceLookup(block, src, namespace, field_name)) |inst| {
+                            return inst;
                         }
                     }
                     // TODO add note: declared here
@@ -4736,11 +4726,9 @@ fn namedFieldPtr(
                     });
                 },
                 .Enum => {
-                    if (child_type.getContainerScope()) |container_scope| {
-                        if (mod.lookupDeclName(&container_scope.base, field_name)) |decl| {
-                            if (!decl.is_pub and !(decl.container.file_scope == block.base.namespace().file_scope))
-                                return mod.fail(&block.base, src, "'{s}' is private", .{field_name});
-                            return sema.analyzeDeclRef(block, src, decl);
+                    if (child_type.getNamespace()) |namespace| {
+                        if (try sema.analyzeNamespaceLookup(block, src, namespace, field_name)) |inst| {
+                            return inst;
                         }
                     }
                     const field_index = child_type.enumFieldIndex(field_name) orelse {
@@ -4776,6 +4764,32 @@ fn namedFieldPtr(
         else => {},
     }
     return mod.fail(&block.base, src, "type '{}' does not support field access", .{elem_ty});
+}
+
+fn analyzeNamespaceLookup(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    namespace: *Scope.Namespace,
+    decl_name: []const u8,
+) InnerError!?*Inst {
+    const mod = sema.mod;
+    const gpa = sema.gpa;
+    if (mod.lookupInNamespace(namespace, decl_name)) |decl| {
+        if (!decl.is_pub and decl.namespace.file_scope != block.getFileScope()) {
+            const msg = msg: {
+                const msg = try mod.errMsg(&block.base, src, "'{s}' is not marked 'pub'", .{
+                    decl_name,
+                });
+                errdefer msg.destroy(gpa);
+                try mod.errNoteNonLazy(decl.srcLoc(), msg, "declared here", .{});
+                break :msg msg;
+            };
+            return mod.failWithOwnedErrorMsg(&block.base, msg);
+        }
+        return try sema.analyzeDeclRef(block, src, decl);
+    }
+    return null;
 }
 
 fn analyzeStructFieldPtr(
@@ -5324,65 +5338,6 @@ fn analyzeSlice(
     );
 
     return sema.mod.fail(&block.base, src, "TODO implement analysis of slice", .{});
-}
-
-fn analyzeImport(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, target_string: []const u8) !*Scope.File {
-    const cur_pkg = block.getFileScope().pkg;
-    const cur_pkg_dir_path = cur_pkg.root_src_directory.path orelse ".";
-    const found_pkg = cur_pkg.table.get(target_string);
-
-    const resolved_path = if (found_pkg) |pkg|
-        try std.fs.path.resolve(sema.gpa, &[_][]const u8{ pkg.root_src_directory.path orelse ".", pkg.root_src_path })
-    else
-        try std.fs.path.resolve(sema.gpa, &[_][]const u8{ cur_pkg_dir_path, target_string });
-    errdefer sema.gpa.free(resolved_path);
-
-    if (sema.mod.import_table.get(resolved_path)) |cached_import| {
-        sema.gpa.free(resolved_path);
-        return cached_import;
-    }
-
-    if (found_pkg == null) {
-        const resolved_root_path = try std.fs.path.resolve(sema.gpa, &[_][]const u8{cur_pkg_dir_path});
-        defer sema.gpa.free(resolved_root_path);
-
-        if (!mem.startsWith(u8, resolved_path, resolved_root_path)) {
-            return error.ImportOutsidePkgPath;
-        }
-    }
-
-    // TODO Scope.Container arena for ty and sub_file_path
-    const file_scope = try sema.gpa.create(Scope.File);
-    errdefer sema.gpa.destroy(file_scope);
-    const struct_ty = try Type.Tag.empty_struct.create(sema.gpa, &file_scope.root_container);
-    errdefer sema.gpa.destroy(struct_ty.castTag(.empty_struct).?);
-
-    const container_name_hash: Scope.NameHash = if (found_pkg) |pkg|
-        pkg.namespace_hash
-    else
-        std.zig.hashName(cur_pkg.namespace_hash, "/", resolved_path);
-
-    file_scope.* = .{
-        .sub_file_path = resolved_path,
-        .source = .{ .unloaded = {} },
-        .tree = undefined,
-        .status = .never_loaded,
-        .pkg = found_pkg orelse cur_pkg,
-        .root_container = .{
-            .file_scope = file_scope,
-            .decls = .{},
-            .ty = struct_ty,
-            .parent_name_hash = container_name_hash,
-        },
-    };
-    sema.mod.analyzeContainer(&file_scope.root_container) catch |err| switch (err) {
-        error.AnalysisFail => {
-            assert(sema.mod.comp.totalErrorCount() != 0);
-        },
-        else => |e| return e,
-    };
-    try sema.mod.import_table.put(sema.gpa, file_scope.sub_file_path, file_scope);
-    return file_scope;
 }
 
 /// Asserts that lhs and rhs types are both numeric.

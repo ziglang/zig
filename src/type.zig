@@ -2052,11 +2052,11 @@ pub const Type = extern union {
             (self.isSinglePointer() and self.elemType().zigTypeTag() == .Array);
     }
 
-    /// Returns null if the type has no container.
-    pub fn getContainerScope(self: Type) ?*Module.Scope.Container {
+    /// Returns null if the type has no namespace.
+    pub fn getNamespace(self: Type) ?*Module.Scope.Namespace {
         return switch (self.tag()) {
-            .@"struct" => &self.castTag(.@"struct").?.data.container,
-            .enum_full => &self.castTag(.enum_full).?.data.container,
+            .@"struct" => &self.castTag(.@"struct").?.data.namespace,
+            .enum_full => &self.castTag(.enum_full).?.data.namespace,
             .empty_struct => self.castTag(.empty_struct).?.data,
             .@"opaque" => &self.castTag(.@"opaque").?.data,
 
@@ -2222,6 +2222,29 @@ pub const Type = extern union {
                 const error_set = ty.castTag(.error_set).?.data;
                 return error_set.srcLoc();
             },
+            else => unreachable,
+        }
+    }
+
+    pub fn getOwnerDecl(ty: Type) *Module.Decl {
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Payload.EnumFull).?.data;
+                return enum_full.owner_decl;
+            },
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                return enum_simple.owner_decl;
+            },
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return struct_obj.owner_decl;
+            },
+            .error_set => {
+                const error_set = ty.castTag(.error_set).?.data;
+                return error_set.owner_decl;
+            },
+            .@"opaque" => @panic("TODO"),
             else => unreachable,
         }
     }
@@ -2564,12 +2587,12 @@ pub const Type = extern union {
         /// Most commonly used for files.
         pub const ContainerScope = struct {
             base: Payload,
-            data: *Module.Scope.Container,
+            data: *Module.Scope.Namespace,
         };
 
         pub const Opaque = struct {
             base: Payload = .{ .tag = .@"opaque" },
-            data: Module.Scope.Container,
+            data: Module.Scope.Namespace,
         };
 
         pub const Struct = struct {

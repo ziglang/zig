@@ -1048,7 +1048,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
         try case.files.append(.{
-            .src =
+            .src = 
             \\pub fn print() void {
             \\    asm volatile ("syscall"
             \\        :
@@ -1082,10 +1082,14 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    unreachable;
             \\}
         ,
-            &.{":2:25: error: 'print' is private"},
+            &.{
+                ":2:25: error: 'print' is not marked 'pub'",
+                "print.zig:2:1: note: declared here",
+            },
         );
         try case.files.append(.{
-            .src =
+            .src = 
+            \\// dummy comment to make print be on line 2
             \\fn print() void {
             \\    asm volatile ("syscall"
             \\        :
@@ -1102,22 +1106,22 @@ pub fn addCases(ctx: *TestContext) !void {
         });
     }
 
-    ctx.compileError("function redefinition", linux_x64,
+    ctx.compileError("function redeclaration", linux_x64,
         \\// dummy comment
         \\fn entry() void {}
         \\fn entry() void {}
     , &[_][]const u8{
-        ":3:4: error: redefinition of 'entry'",
-        ":2:1: note: previous definition here",
+        ":3:4: error: redeclaration of 'entry'",
+        ":2:1: note: previously declared here",
     });
 
-    ctx.compileError("global variable redefinition", linux_x64,
+    ctx.compileError("global variable redeclaration", linux_x64,
         \\// dummy comment
         \\var foo = false;
         \\var foo = true;
     , &[_][]const u8{
-        ":3:5: error: redefinition of 'foo'",
-        ":2:1: note: previous definition here",
+        ":3:5: error: redeclaration of 'foo'",
+        ":2:1: note: previously declared here",
     });
 
     ctx.compileError("compileError", linux_x64,

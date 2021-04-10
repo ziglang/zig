@@ -1420,6 +1420,7 @@ fn varDecl(
         return mod.failNode(scope, var_decl.ast.align_node, "TODO implement alignment on locals", .{});
     }
     const astgen = gz.astgen;
+    const gpa = mod.gpa;
     const tree = gz.tree();
     const token_tags = tree.tokens.items(.tag);
 
@@ -1438,7 +1439,7 @@ fn varDecl(
                         const msg = try mod.errMsg(scope, name_src, "redefinition of '{s}'", .{
                             ident_name,
                         });
-                        errdefer msg.destroy(mod.gpa);
+                        errdefer msg.destroy(gpa);
                         try mod.errNote(scope, local_val.src, msg, "previous definition is here", .{});
                         break :msg msg;
                     };
@@ -1453,7 +1454,7 @@ fn varDecl(
                         const msg = try mod.errMsg(scope, name_src, "redefinition of '{s}'", .{
                             ident_name,
                         });
-                        errdefer msg.destroy(mod.gpa);
+                        errdefer msg.destroy(gpa);
                         try mod.errNote(scope, local_ptr.src, msg, "previous definition is here", .{});
                         break :msg msg;
                     };
@@ -1467,9 +1468,19 @@ fn varDecl(
     }
 
     // Namespace vars shadowing detection
-    if (mod.lookupDeclName(scope, ident_name)) |_| {
-        // TODO add note for other definition
-        return mod.fail(scope, name_src, "redefinition of '{s}'", .{ident_name});
+    if (mod.lookupIdentifier(scope, ident_name)) |decl| {
+        const msg = msg: {
+            const msg = try mod.errMsg(
+                scope,
+                name_src,
+                "redeclaration of '{s}'",
+                .{ident_name},
+            );
+            errdefer msg.destroy(gpa);
+            try mod.errNoteNonLazy(decl.srcLoc(), msg, "previously declared here", .{});
+            break :msg msg;
+        };
+        return mod.failWithOwnedErrorMsg(scope, msg);
     }
     if (var_decl.ast.init_node == 0) {
         return mod.fail(scope, name_src, "variables must be initialized", .{});
@@ -1503,7 +1514,7 @@ fn varDecl(
                 .force_comptime = gz.force_comptime,
                 .astgen = astgen,
             };
-            defer init_scope.instructions.deinit(mod.gpa);
+            defer init_scope.instructions.deinit(gpa);
 
             var resolve_inferred_alloc: zir.Inst.Ref = .none;
             var opt_type_inst: zir.Inst.Ref = .none;
@@ -1529,7 +1540,7 @@ fn varDecl(
                 // Move the init_scope instructions into the parent scope, eliding
                 // the alloc instruction and the store_to_block_ptr instruction.
                 const expected_len = parent_zir.items.len + init_scope.instructions.items.len - 2;
-                try parent_zir.ensureCapacity(mod.gpa, expected_len);
+                try parent_zir.ensureCapacity(gpa, expected_len);
                 for (init_scope.instructions.items) |src_inst| {
                     if (astgen.indexToRef(src_inst) == init_scope.rl_ptr) continue;
                     if (zir_tags[src_inst] == .store_to_block_ptr) {
@@ -1554,7 +1565,7 @@ fn varDecl(
             // Move the init_scope instructions into the parent scope, swapping
             // store_to_block_ptr for store_to_inferred_ptr.
             const expected_len = parent_zir.items.len + init_scope.instructions.items.len;
-            try parent_zir.ensureCapacity(mod.gpa, expected_len);
+            try parent_zir.ensureCapacity(gpa, expected_len);
             for (init_scope.instructions.items) |src_inst| {
                 if (zir_tags[src_inst] == .store_to_block_ptr) {
                     if (zir_datas[src_inst].bin.lhs == init_scope.rl_ptr) {
@@ -1798,6 +1809,91 @@ fn arrayTypeSentinel(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.I
     return rvalue(gz, scope, rl, result, node);
 }
 
+pub fn structDeclInner(
+    gz: *GenZir,
+    scope: *Scope,
+    node: ast.Node.Index,
+    container_decl: ast.full.ContainerDecl,
+    tag: zir.Inst.Tag,
+) InnerError!zir.Inst.Ref {
+    if (container_decl.ast.members.len == 0) {
+        return gz.addPlNode(tag, node, zir.Inst.StructDecl{ .fields_len = 0 });
+    }
+
+    const astgen = gz.astgen;
+    const mod = astgen.mod;
+    const gpa = mod.gpa;
+    const tree = gz.tree();
+    const node_tags = tree.nodes.items(.tag);
+
+    var fields_data = ArrayListUnmanaged(u32){};
+    defer fields_data.deinit(gpa);
+
+    // field_name and field_type are both mandatory
+    try fields_data.ensureCapacity(gpa, container_decl.ast.members.len * 2);
+
+    // We only need this if there are greater than 16 fields.
+    var bit_bag = ArrayListUnmanaged(u32){};
+    defer bit_bag.deinit(gpa);
+
+    var cur_bit_bag: u32 = 0;
+    var field_index: usize = 0;
+    for (container_decl.ast.members) |member_node| {
+        const member = switch (node_tags[member_node]) {
+            .container_field_init => tree.containerFieldInit(member_node),
+            .container_field_align => tree.containerFieldAlign(member_node),
+            .container_field => tree.containerField(member_node),
+            else => continue,
+        };
+        if (field_index % 16 == 0 and field_index != 0) {
+            try bit_bag.append(gpa, cur_bit_bag);
+            cur_bit_bag = 0;
+        }
+        if (member.comptime_token) |comptime_token| {
+            return mod.failTok(scope, comptime_token, "TODO implement comptime struct fields", .{});
+        }
+        try fields_data.ensureCapacity(gpa, fields_data.items.len + 4);
+
+        const field_name = try gz.identAsString(member.ast.name_token);
+        fields_data.appendAssumeCapacity(field_name);
+
+        const field_type = try typeExpr(gz, scope, member.ast.type_expr);
+        fields_data.appendAssumeCapacity(@enumToInt(field_type));
+
+        const have_align = member.ast.align_expr != 0;
+        const have_value = member.ast.value_expr != 0;
+        cur_bit_bag = (cur_bit_bag >> 2) |
+            (@as(u32, @boolToInt(have_align)) << 30) |
+            (@as(u32, @boolToInt(have_value)) << 31);
+
+        if (have_align) {
+            const align_inst = try comptimeExpr(gz, scope, .{ .ty = .u32_type }, member.ast.align_expr);
+            fields_data.appendAssumeCapacity(@enumToInt(align_inst));
+        }
+        if (have_value) {
+            const default_inst = try comptimeExpr(gz, scope, .{ .ty = field_type }, member.ast.value_expr);
+            fields_data.appendAssumeCapacity(@enumToInt(default_inst));
+        }
+
+        field_index += 1;
+    }
+    if (field_index == 0) {
+        return gz.addPlNode(tag, node, zir.Inst.StructDecl{ .fields_len = 0 });
+    }
+    const empty_slot_count = 16 - (field_index % 16);
+    cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
+
+    const result = try gz.addPlNode(tag, node, zir.Inst.StructDecl{
+        .fields_len = @intCast(u32, container_decl.ast.members.len),
+    });
+    try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
+        bit_bag.items.len + 1 + fields_data.items.len);
+    astgen.extra.appendSliceAssumeCapacity(bit_bag.items); // Likely empty.
+    astgen.extra.appendAssumeCapacity(cur_bit_bag);
+    astgen.extra.appendSliceAssumeCapacity(fields_data.items);
+    return result;
+}
+
 fn containerDecl(
     gz: *GenZir,
     scope: *Scope,
@@ -1827,76 +1923,10 @@ fn containerDecl(
                 .keyword_extern => zir.Inst.Tag.struct_decl_extern,
                 else => unreachable,
             } else zir.Inst.Tag.struct_decl;
-            if (container_decl.ast.members.len == 0) {
-                const result = try gz.addPlNode(tag, node, zir.Inst.StructDecl{
-                    .fields_len = 0,
-                });
-                return rvalue(gz, scope, rl, result, node);
-            }
 
             assert(arg_inst == .none);
-            var fields_data = ArrayListUnmanaged(u32){};
-            defer fields_data.deinit(gpa);
 
-            // field_name and field_type are both mandatory
-            try fields_data.ensureCapacity(gpa, container_decl.ast.members.len * 2);
-
-            // We only need this if there are greater than 16 fields.
-            var bit_bag = ArrayListUnmanaged(u32){};
-            defer bit_bag.deinit(gpa);
-
-            var cur_bit_bag: u32 = 0;
-            var field_index: usize = 0;
-            for (container_decl.ast.members) |member_node| {
-                const member = switch (node_tags[member_node]) {
-                    .container_field_init => tree.containerFieldInit(member_node),
-                    .container_field_align => tree.containerFieldAlign(member_node),
-                    .container_field => tree.containerField(member_node),
-                    else => continue,
-                };
-                if (field_index % 16 == 0 and field_index != 0) {
-                    try bit_bag.append(gpa, cur_bit_bag);
-                    cur_bit_bag = 0;
-                }
-                if (member.comptime_token) |comptime_token| {
-                    return mod.failTok(scope, comptime_token, "TODO implement comptime struct fields", .{});
-                }
-                try fields_data.ensureCapacity(gpa, fields_data.items.len + 4);
-
-                const field_name = try gz.identAsString(member.ast.name_token);
-                fields_data.appendAssumeCapacity(field_name);
-
-                const field_type = try typeExpr(gz, scope, member.ast.type_expr);
-                fields_data.appendAssumeCapacity(@enumToInt(field_type));
-
-                const have_align = member.ast.align_expr != 0;
-                const have_value = member.ast.value_expr != 0;
-                cur_bit_bag = (cur_bit_bag >> 2) |
-                    (@as(u32, @boolToInt(have_align)) << 30) |
-                    (@as(u32, @boolToInt(have_value)) << 31);
-
-                if (have_align) {
-                    const align_inst = try comptimeExpr(gz, scope, .{ .ty = .u32_type }, member.ast.align_expr);
-                    fields_data.appendAssumeCapacity(@enumToInt(align_inst));
-                }
-                if (have_value) {
-                    const default_inst = try comptimeExpr(gz, scope, .{ .ty = field_type }, member.ast.value_expr);
-                    fields_data.appendAssumeCapacity(@enumToInt(default_inst));
-                }
-
-                field_index += 1;
-            }
-            const empty_slot_count = 16 - (field_index % 16);
-            cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
-
-            const result = try gz.addPlNode(tag, node, zir.Inst.StructDecl{
-                .fields_len = @intCast(u32, container_decl.ast.members.len),
-            });
-            try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
-                bit_bag.items.len + 1 + fields_data.items.len);
-            astgen.extra.appendSliceAssumeCapacity(bit_bag.items); // Likely empty.
-            astgen.extra.appendAssumeCapacity(cur_bit_bag);
-            astgen.extra.appendSliceAssumeCapacity(fields_data.items);
+            const result = try structDeclInner(gz, scope, node, container_decl, tag);
             return rvalue(gz, scope, rl, result, node);
         },
         .keyword_union => {
@@ -2930,7 +2960,7 @@ pub const SwitchProngSrc = union(enum) {
     ) LazySrcLoc {
         @setCold(true);
         const switch_node = decl.relativeToNodeIndex(switch_node_offset);
-        const tree = decl.container.file_scope.base.tree();
+        const tree = decl.namespace.file_scope.base.tree();
         const main_tokens = tree.nodes.items(.main_token);
         const node_datas = tree.nodes.items(.data);
         const node_tags = tree.nodes.items(.tag);
@@ -3692,7 +3722,7 @@ fn identifier(
         };
     }
 
-    const decl = mod.lookupDeclName(scope, ident_name) orelse {
+    const decl = mod.lookupIdentifier(scope, ident_name) orelse {
         // TODO insert a "dependency on the non-existence of a decl" here to make this
         // compile error go away when the decl is introduced. This data should be in a global
         // sparse map since it is only relevant when a compile error occurs.
