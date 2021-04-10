@@ -39,6 +39,21 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\fn unused() void {}
         , "yo!" ++ std.cstr.line_sep);
+
+        // Comptime return type and calling convention expected.
+        case.addError(
+            \\var x: i32 = 1234;
+            \\export fn main() x {
+            \\    return 0;
+            \\}
+            \\export fn foo() callconv(y) c_int {
+            \\    return 0;
+            \\}
+            \\var y: i32 = 1234;
+        , &.{
+            ":2:18: error: unable to resolve comptime value",
+            ":5:26: error: unable to resolve comptime value",
+        });
     }
 
     {
@@ -52,6 +67,42 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return 0;
             \\}
         , "Hello, world!" ++ std.cstr.line_sep);
+    }
+
+    {
+        var case = ctx.exeFromCompiledC("@intToError", .{});
+
+        case.addCompareOutput(
+            \\pub export fn main() c_int {
+            \\    // comptime checks
+            \\    const a = error.A;
+            \\    const b = error.B;
+            \\    const c = @intToError(2);
+            \\    const d = @intToError(1);
+            \\    if (!(c == b)) unreachable;
+            \\    if (!(a == d)) unreachable;
+            \\    // runtime checks
+            \\    var x = error.A;
+            \\    var y = error.B;
+            \\    var z = @intToError(2);
+            \\    var f = @intToError(1);
+            \\    if (!(y == z)) unreachable;
+            \\    if (!(x == f)) unreachable;
+            \\    return 0;
+            \\}
+        , "");
+        case.addError(
+            \\pub export fn main() c_int {
+            \\    const c = @intToError(0);
+            \\    return 0;
+            \\}
+        , &.{":2:27: error: integer value 0 represents no error"});
+        case.addError(
+            \\pub export fn main() c_int {
+            \\    const c = @intToError(3);
+            \\    return 0;
+            \\}
+        , &.{":2:27: error: integer value 3 represents no error"});
     }
 
     {
@@ -229,6 +280,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
 
+        // If expression with breakpoint that does not get hit
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var x: i32 = 1;
+            \\    if (x != 1) @breakpoint();
+            \\    return 0;
+            \\}
+        , "");
+
         // Switch expression
         case.addCompareOutput(
             \\export fn main() c_int {
@@ -243,6 +303,134 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return a - 4;
             \\}
         , "");
+
+        // Switch expression missing else case.
+        case.addError(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    const a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        3 => 3,
+            \\        4 => 4,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , &.{":3:22: error: switch must handle all possibilities"});
+
+        // Switch expression, has an unreachable prong.
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    const a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        99...300, 12 => 3,
+            \\        0 => 4,
+            \\        13 => unreachable,
+            \\        else => 5,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , "");
+
+        // Switch expression, has an unreachable prong and prongs write
+        // to result locations.
+        case.addCompareOutput(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    var a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        99...300, 12 => 3,
+            \\        0 => 4,
+            \\        13 => unreachable,
+            \\        else => 5,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , "");
+
+        // Integer switch expression has duplicate case value.
+        case.addError(
+            \\export fn main() c_int {
+            \\    var cond: c_int = 0;
+            \\    const a: c_int = switch (cond) {
+            \\        1 => 1,
+            \\        2 => 2,
+            \\        96, 11...13, 97 => 3,
+            \\        0 => 4,
+            \\        90, 12 => 100,
+            \\        else => 5,
+            \\    };
+            \\    return a - 4;
+            \\}
+        , &.{
+            ":8:13: error: duplicate switch value",
+            ":6:15: note: previous value here",
+        });
+
+        // Boolean switch expression has duplicate case value.
+        case.addError(
+            \\export fn main() c_int {
+            \\    var a: bool = false;
+            \\    const b: c_int = switch (a) {
+            \\        false => 1,
+            \\        true => 2,
+            \\        false => 3,
+            \\    };
+            \\}
+        , &.{
+            ":6:9: error: duplicate switch value",
+        });
+
+        // Sparse (no range capable) switch expression has duplicate case value.
+        case.addError(
+            \\export fn main() c_int {
+            \\    const A: type = i32;
+            \\    const b: c_int = switch (A) {
+            \\        i32 => 1,
+            \\        bool => 2,
+            \\        f64, i32 => 3,
+            \\        else => 4,
+            \\    };
+            \\}
+        , &.{
+            ":6:14: error: duplicate switch value",
+            ":4:9: note: previous value here",
+        });
+
+        // Ranges not allowed for some kinds of switches.
+        case.addError(
+            \\export fn main() c_int {
+            \\    const A: type = i32;
+            \\    const b: c_int = switch (A) {
+            \\        i32 => 1,
+            \\        bool => 2,
+            \\        f16...f64 => 3,
+            \\        else => 4,
+            \\    };
+            \\}
+        , &.{
+            ":3:30: error: ranges not allowed when switching on type 'type'",
+            ":6:12: note: range here",
+        });
+
+        // Switch expression has unreachable else prong.
+        case.addError(
+            \\export fn main() c_int {
+            \\    var a: u2 = 0;
+            \\    const b: i32 = switch (a) {
+            \\        0 => 10,
+            \\        1 => 20,
+            \\        2 => 30,
+            \\        3 => 40,
+            \\        else => 50,
+            \\    };
+            \\}
+        , &.{
+            ":8:14: error: unreachable else prong; all cases already handled",
+        });
     }
     //{
     //    var case = ctx.exeFromCompiledC("optionals", .{});
@@ -271,6 +459,7 @@ pub fn addCases(ctx: *TestContext) !void {
     //        \\}
     //    , "");
     //}
+
     {
         var case = ctx.exeFromCompiledC("errors", .{});
         case.addCompareOutput(
@@ -301,6 +490,310 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
+
+    {
+        var case = ctx.exeFromCompiledC("structs", .{});
+        case.addError(
+            \\const Point = struct { x: i32, y: i32 };
+            \\export fn main() c_int {
+            \\    var p: Point = .{
+            \\        .y = 24,
+            \\        .x = 12,
+            \\        .y = 24,
+            \\    };
+            \\    return p.y - p.x - p.x;
+            \\}
+        , &.{
+            ":6:10: error: duplicate field",
+            ":4:10: note: other field here",
+        });
+        case.addError(
+            \\const Point = struct { x: i32, y: i32 };
+            \\export fn main() c_int {
+            \\    var p: Point = .{
+            \\        .y = 24,
+            \\    };
+            \\    return p.y - p.x - p.x;
+            \\}
+        , &.{
+            ":3:21: error: mising struct field: x",
+            ":1:15: note: struct 'Point' declared here",
+        });
+        case.addError(
+            \\const Point = struct { x: i32, y: i32 };
+            \\export fn main() c_int {
+            \\    var p: Point = .{
+            \\        .x = 12,
+            \\        .y = 24,
+            \\        .z = 48,
+            \\    };
+            \\    return p.y - p.x - p.x;
+            \\}
+        , &.{
+            ":6:10: error: no field named 'z' in struct 'Point'",
+            ":1:15: note: struct declared here",
+        });
+        case.addCompareOutput(
+            \\const Point = struct { x: i32, y: i32 };
+            \\export fn main() c_int {
+            \\    var p: Point = .{
+            \\        .x = 12,
+            \\        .y = 24,
+            \\    };
+            \\    return p.y - p.x - p.x;
+            \\}
+        , "");
+    }
+
+    {
+        var case = ctx.exeFromCompiledC("enums", .{});
+
+        case.addError(
+            \\const E1 = packed enum { a, b, c };
+            \\const E2 = extern enum { a, b, c };
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+            \\export fn bar() void {
+            \\    const x = E2.a;
+            \\}
+        , &.{
+            ":1:12: error: enums do not support 'packed' or 'extern'; instead provide an explicit integer tag type",
+            ":2:12: error: enums do not support 'packed' or 'extern'; instead provide an explicit integer tag type",
+        });
+
+        // comptime and types are caught in AstGen.
+        case.addError(
+            \\const E1 = enum {
+            \\    a,
+            \\    comptime b,
+            \\    c,
+            \\};
+            \\const E2 = enum {
+            \\    a,
+            \\    b: i32,
+            \\    c,
+            \\};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+            \\export fn bar() void {
+            \\    const x = E2.a;
+            \\}
+        , &.{
+            ":3:5: error: enum fields cannot be marked comptime",
+            ":8:8: error: enum fields do not have types",
+        });
+
+        // @enumToInt, @intToEnum, enum literal coercion, field access syntax, comparison, switch
+        case.addCompareOutput(
+            \\const Number = enum { One, Two, Three };
+            \\
+            \\export fn main() c_int {
+            \\    var number1 = Number.One;
+            \\    var number2: Number = .Two;
+            \\    const number3 = @intToEnum(Number, 2);
+            \\    if (number1 == number2) return 1;
+            \\    if (number2 == number3) return 1;
+            \\    if (@enumToInt(number1) != 0) return 1;
+            \\    if (@enumToInt(number2) != 1) return 1;
+            \\    if (@enumToInt(number3) != 2) return 1;
+            \\    var x: Number = .Two;
+            \\    if (number2 != x) return 1;
+            \\    switch (x) {
+            \\        .One => return 1,
+            \\        .Two => return 0,
+            \\        number3 => return 2,
+            \\    }
+            \\}
+        , "");
+
+        // Specifying alignment is a parse error.
+        // This also tests going from a successful build to a parse error.
+        case.addError(
+            \\const E1 = enum {
+            \\    a,
+            \\    b align(4),
+            \\    c,
+            \\};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":3:7: error: expected ',', found 'align'",
+        });
+
+        // Redundant non-exhaustive enum mark.
+        // This also tests going from a parse error to an AstGen error.
+        case.addError(
+            \\const E1 = enum {
+            \\    a,
+            \\    _,
+            \\    b,
+            \\    c,
+            \\    _,
+            \\};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":6:5: error: redundant non-exhaustive enum mark",
+            ":3:5: note: other mark here",
+        });
+
+        case.addError(
+            \\const E1 = enum {
+            \\    a,
+            \\    b,
+            \\    c,
+            \\    _ = 10,
+            \\};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":5:9: error: '_' is used to mark an enum as non-exhaustive and cannot be assigned a value",
+        });
+
+        case.addError(
+            \\const E1 = enum {};
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":1:12: error: enum declarations must have at least one tag",
+        });
+
+        case.addError(
+            \\const E1 = enum { a, b, _ };
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":1:12: error: non-exhaustive enum missing integer tag type",
+            ":1:25: note: marked non-exhaustive here",
+        });
+
+        case.addError(
+            \\const E1 = enum { a, b, c, b, d };
+            \\export fn foo() void {
+            \\    const x = E1.a;
+            \\}
+        , &.{
+            ":1:28: error: duplicate enum tag",
+            ":1:22: note: other tag here",
+        });
+
+        case.addError(
+            \\export fn foo() void {
+            \\    const a = true;
+            \\    const b = @enumToInt(a);
+            \\}
+        , &.{
+            ":3:26: error: expected enum or tagged union, found bool",
+        });
+
+        case.addError(
+            \\export fn foo() void {
+            \\    const a = 1;
+            \\    const b = @intToEnum(bool, a);
+            \\}
+        , &.{
+            ":3:26: error: expected enum, found bool",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    const b = @intToEnum(E, 3);
+            \\}
+        , &.{
+            ":3:15: error: enum 'E' has no tag with value 3",
+            ":1:11: note: enum declared here",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .a;
+            \\    switch (x) {
+            \\        .a => {},
+            \\        .c => {},
+            \\    }
+            \\}
+        , &.{
+            ":4:5: error: switch must handle all possibilities",
+            ":4:5: note: unhandled enumeration value: 'b'",
+            ":1:11: note: enum 'E' declared here",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .a;
+            \\    switch (x) {
+            \\        .a => {},
+            \\        .b => {},
+            \\        .b => {},
+            \\        .c => {},
+            \\    }
+            \\}
+        , &.{
+            ":7:10: error: duplicate switch value",
+            ":6:10: note: previous value here",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .a;
+            \\    switch (x) {
+            \\        .a => {},
+            \\        .b => {},
+            \\        .c => {},
+            \\        else => {},
+            \\    }
+            \\}
+        , &.{
+            ":8:14: error: unreachable else prong; all cases already handled",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .a;
+            \\    switch (x) {
+            \\        .a => {},
+            \\        .b => {},
+            \\        _ => {},
+            \\    }
+            \\}
+        , &.{
+            ":4:5: error: '_' prong only allowed when switching on non-exhaustive enums",
+            ":7:11: note: '_' prong here",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x = E.d;
+            \\}
+        , &.{
+            ":3:14: error: enum 'E' has no member named 'd'",
+            ":1:11: note: enum declared here",
+        });
+
+        case.addError(
+            \\const E = enum { a, b, c };
+            \\export fn foo() void {
+            \\    var x: E = .d;
+            \\}
+        , &.{
+            ":3:17: error: enum 'E' has no field named 'd'",
+            ":1:11: note: enum declared here",
+        });
+    }
+
     ctx.c("empty start function", linux_x64,
         \\export fn _start() noreturn {
         \\    unreachable;
@@ -309,8 +802,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\ZIG_EXTERN_C zig_noreturn void _start(void);
         \\
         \\zig_noreturn void _start(void) {
-        \\    zig_breakpoint();
-        \\    zig_unreachable();
+        \\ zig_breakpoint();
+        \\ zig_unreachable();
         \\}
         \\
     );

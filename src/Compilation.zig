@@ -259,7 +259,7 @@ pub const CObject = struct {
 /// To support incremental compilation, errors are stored in various places
 /// so that they can be created and destroyed appropriately. This structure
 /// is used to collect all the errors from the various places into one
-/// convenient place for API users to consume. It is allocated into 1 heap
+/// convenient place for API users to consume. It is allocated into 1 arena
 /// and freed all at once.
 pub const AllErrors = struct {
     arena: std.heap.ArenaAllocator.State,
@@ -267,37 +267,62 @@ pub const AllErrors = struct {
 
     pub const Message = union(enum) {
         src: struct {
-            src_path: []const u8,
-            line: usize,
-            column: usize,
-            byte_offset: usize,
             msg: []const u8,
+            src_path: []const u8,
+            line: u32,
+            column: u32,
+            byte_offset: u32,
+            /// Does not include the trailing newline.
+            source_line: ?[]const u8,
             notes: []Message = &.{},
         },
         plain: struct {
             msg: []const u8,
         },
 
-        pub fn renderToStdErr(msg: Message) void {
-            return msg.renderToStdErrInner("error");
+        pub fn renderToStdErr(msg: Message, ttyconf: std.debug.TTY.Config) void {
+            const stderr_mutex = std.debug.getStderrMutex();
+            const held = std.debug.getStderrMutex().acquire();
+            defer held.release();
+            const stderr = std.io.getStdErr();
+            return msg.renderToStdErrInner(ttyconf, stderr, "error:", .Red) catch return;
         }
 
-        fn renderToStdErrInner(msg: Message, kind: []const u8) void {
+        fn renderToStdErrInner(
+            msg: Message,
+            ttyconf: std.debug.TTY.Config,
+            stderr_file: std.fs.File,
+            kind: []const u8,
+            color: std.debug.TTY.Color,
+        ) anyerror!void {
+            const stderr = stderr_file.writer();
             switch (msg) {
                 .src => |src| {
-                    std.debug.print("{s}:{d}:{d}: {s}: {s}\n", .{
+                    ttyconf.setColor(stderr, .Bold);
+                    try stderr.print("{s}:{d}:{d}: ", .{
                         src.src_path,
                         src.line + 1,
                         src.column + 1,
-                        kind,
-                        src.msg,
                     });
+                    ttyconf.setColor(stderr, color);
+                    try stderr.writeAll(kind);
+                    ttyconf.setColor(stderr, .Bold);
+                    try stderr.print(" {s}\n", .{src.msg});
+                    ttyconf.setColor(stderr, .Reset);
+                    if (src.source_line) |line| {
+                        try stderr.writeAll(line);
+                        try stderr.writeByte('\n');
+                        try stderr.writeByteNTimes(' ', src.column);
+                        ttyconf.setColor(stderr, .Green);
+                        try stderr.writeAll("^\n");
+                        ttyconf.setColor(stderr, .Reset);
+                    }
                     for (src.notes) |note| {
-                        note.renderToStdErrInner("note");
+                        try note.renderToStdErrInner(ttyconf, stderr_file, "note:", .Cyan);
                     }
                 },
                 .plain => |plain| {
-                    std.debug.print("{s}: {s}\n", .{ kind, plain.msg });
+                    try stderr.print("{s}: {s}\n", .{ kind, plain.msg });
                 },
             }
         }
@@ -316,30 +341,34 @@ pub const AllErrors = struct {
         const notes = try arena.allocator.alloc(Message, module_err_msg.notes.len);
         for (notes) |*note, i| {
             const module_note = module_err_msg.notes[i];
-            const source = try module_note.src_loc.file_scope.getSource(module);
-            const loc = std.zig.findLineColumn(source, module_note.src_loc.byte_offset);
-            const sub_file_path = module_note.src_loc.file_scope.sub_file_path;
+            const source = try module_note.src_loc.fileScope().getSource(module);
+            const byte_offset = try module_note.src_loc.byteOffset();
+            const loc = std.zig.findLineColumn(source, byte_offset);
+            const sub_file_path = module_note.src_loc.fileScope().sub_file_path;
             note.* = .{
                 .src = .{
                     .src_path = try arena.allocator.dupe(u8, sub_file_path),
                     .msg = try arena.allocator.dupe(u8, module_note.msg),
-                    .byte_offset = module_note.src_loc.byte_offset,
-                    .line = loc.line,
-                    .column = loc.column,
+                    .byte_offset = byte_offset,
+                    .line = @intCast(u32, loc.line),
+                    .column = @intCast(u32, loc.column),
+                    .source_line = try arena.allocator.dupe(u8, loc.source_line),
                 },
             };
         }
-        const source = try module_err_msg.src_loc.file_scope.getSource(module);
-        const loc = std.zig.findLineColumn(source, module_err_msg.src_loc.byte_offset);
-        const sub_file_path = module_err_msg.src_loc.file_scope.sub_file_path;
+        const source = try module_err_msg.src_loc.fileScope().getSource(module);
+        const byte_offset = try module_err_msg.src_loc.byteOffset();
+        const loc = std.zig.findLineColumn(source, byte_offset);
+        const sub_file_path = module_err_msg.src_loc.fileScope().sub_file_path;
         try errors.append(.{
             .src = .{
                 .src_path = try arena.allocator.dupe(u8, sub_file_path),
                 .msg = try arena.allocator.dupe(u8, module_err_msg.msg),
-                .byte_offset = module_err_msg.src_loc.byte_offset,
-                .line = loc.line,
-                .column = loc.column,
+                .byte_offset = byte_offset,
+                .line = @intCast(u32, loc.line),
+                .column = @intCast(u32, loc.column),
                 .notes = notes,
+                .source_line = try arena.allocator.dupe(u8, loc.source_line),
             },
         });
     }
@@ -904,41 +933,60 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                     artifact_sub_dir,
             };
 
-            // TODO when we implement serialization and deserialization of incremental compilation metadata,
-            // this is where we would load it. We have open a handle to the directory where
-            // the output either already is, or will be.
+            // If we rely on stage1, we must not redundantly add these packages.
+            const use_stage1 = build_options.is_stage1 and use_llvm;
+            if (!use_stage1) {
+                const builtin_pkg = try Package.createWithDir(
+                    gpa,
+                    zig_cache_artifact_directory,
+                    null,
+                    "builtin.zig",
+                );
+                errdefer builtin_pkg.destroy(gpa);
+
+                const std_pkg = try Package.createWithDir(
+                    gpa,
+                    options.zig_lib_directory,
+                    "std",
+                    "std.zig",
+                );
+                errdefer std_pkg.destroy(gpa);
+
+                try root_pkg.addAndAdopt(gpa, "builtin", builtin_pkg);
+                try root_pkg.add(gpa, "root", root_pkg);
+                try root_pkg.addAndAdopt(gpa, "std", std_pkg);
+
+                try std_pkg.add(gpa, "builtin", builtin_pkg);
+                try std_pkg.add(gpa, "root", root_pkg);
+            }
+
+            // TODO when we implement serialization and deserialization of incremental
+            // compilation metadata, this is where we would load it. We have open a handle
+            // to the directory where the output either already is, or will be.
             // However we currently do not have serialization of such metadata, so for now
             // we set up an empty Module that does the entire compilation fresh.
 
-            const root_scope = rs: {
-                if (mem.endsWith(u8, root_pkg.root_src_path, ".zig")) {
-                    const root_scope = try gpa.create(Module.Scope.File);
-                    const struct_ty = try Type.Tag.empty_struct.create(
-                        gpa,
-                        &root_scope.root_container,
-                    );
-                    root_scope.* = .{
-                        // TODO this is duped so it can be freed in Container.deinit
-                        .sub_file_path = try gpa.dupe(u8, root_pkg.root_src_path),
-                        .source = .{ .unloaded = {} },
-                        .tree = undefined,
-                        .status = .never_loaded,
-                        .pkg = root_pkg,
-                        .root_container = .{
-                            .file_scope = root_scope,
-                            .decls = .{},
-                            .ty = struct_ty,
-                        },
-                    };
-                    break :rs root_scope;
-                } else if (mem.endsWith(u8, root_pkg.root_src_path, ".zir")) {
-                    return error.ZirFilesUnsupported;
-                } else {
-                    unreachable;
-                }
+            const root_scope = try gpa.create(Module.Scope.File);
+            errdefer gpa.destroy(root_scope);
+
+            const struct_ty = try Type.Tag.empty_struct.create(gpa, &root_scope.root_container);
+            root_scope.* = .{
+                // TODO this is duped so it can be freed in Container.deinit
+                .sub_file_path = try gpa.dupe(u8, root_pkg.root_src_path),
+                .source = .{ .unloaded = {} },
+                .tree = undefined,
+                .status = .never_loaded,
+                .pkg = root_pkg,
+                .root_container = .{
+                    .file_scope = root_scope,
+                    .decls = .{},
+                    .ty = struct_ty,
+                    .parent_name_hash = root_pkg.namespace_hash,
+                },
             };
 
             const module = try arena.create(Module);
+            errdefer module.deinit();
             module.* = .{
                 .gpa = gpa,
                 .comp = comp,
@@ -946,7 +994,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 .root_scope = root_scope,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .emit_h = options.emit_h,
+                .error_name_list = try std.ArrayListUnmanaged([]const u8).initCapacity(gpa, 1),
             };
+            module.error_name_list.appendAssumeCapacity("(no error)");
             break :blk module;
         } else blk: {
             if (options.emit_h != null) return error.NoZigModuleForCHeader;
@@ -1334,16 +1384,17 @@ pub fn update(self: *Compilation) !void {
         self.c_object_work_queue.writeItemAssumeCapacity(entry.key);
     }
 
-    const use_stage1 = build_options.omit_stage2 or build_options.is_stage1 and self.bin_file.options.use_llvm;
+    const use_stage1 = build_options.omit_stage2 or
+        (build_options.is_stage1 and self.bin_file.options.use_llvm);
     if (!use_stage1) {
         if (self.bin_file.options.module) |module| {
             module.compile_log_text.shrinkAndFree(module.gpa, 0);
             module.generation += 1;
 
             // TODO Detect which source files changed.
-            // Until then we simulate a full cache miss. Source files could have been loaded for any reason;
-            // to force a refresh we unload now.
-            module.root_scope.unload(module.gpa);
+            // Until then we simulate a full cache miss. Source files could have been loaded
+            // for any reason; to force a refresh we unload now.
+            module.unloadFile(module.root_scope);
             module.failed_root_src_file = null;
             module.analyzeContainer(&module.root_scope.root_container) catch |err| switch (err) {
                 error.AnalysisFail => {
@@ -1357,7 +1408,7 @@ pub fn update(self: *Compilation) !void {
 
             // TODO only analyze imports if they are still referenced
             for (module.import_table.items()) |entry| {
-                entry.value.unload(module.gpa);
+                module.unloadFile(entry.value);
                 module.analyzeContainer(&entry.value.root_container) catch |err| switch (err) {
                     error.AnalysisFail => {
                         assert(self.totalErrorCount() != 0);
@@ -1372,14 +1423,17 @@ pub fn update(self: *Compilation) !void {
 
     if (!use_stage1) {
         if (self.bin_file.options.module) |module| {
-            // Process the deletion set.
-            while (module.deletion_set.popOrNull()) |decl| {
-                if (decl.dependants.items().len != 0) {
-                    decl.deletion_flag = false;
-                    continue;
-                }
-                try module.deleteDecl(decl);
+            // Process the deletion set. We use a while loop here because the
+            // deletion set may grow as we call `deleteDecl` within this loop,
+            // and more unreferenced Decls are revealed.
+            var entry_i: usize = 0;
+            while (entry_i < module.deletion_set.entries.items.len) : (entry_i += 1) {
+                const decl = module.deletion_set.entries.items[entry_i].key;
+                assert(decl.deletion_flag);
+                assert(decl.dependants.items().len == 0);
+                try module.deleteDecl(decl, null);
             }
+            module.deletion_set.shrinkRetainingCapacity(0);
         }
     }
 
@@ -1424,11 +1478,25 @@ pub fn totalErrorCount(self: *Compilation) usize {
     var total: usize = self.failed_c_objects.items().len;
 
     if (self.bin_file.options.module) |module| {
-        total += module.failed_decls.count() +
-            module.emit_h_failed_decls.count() +
-            module.failed_exports.items().len +
+        total += module.failed_exports.items().len +
             module.failed_files.items().len +
             @boolToInt(module.failed_root_src_file != null);
+        // Skip errors for Decls within files that failed parsing.
+        // When a parse error is introduced, we keep all the semantic analysis for
+        // the previous parse success, including compile errors, but we cannot
+        // emit them until the file succeeds parsing.
+        for (module.failed_decls.items()) |entry| {
+            if (entry.key.container.file_scope.status == .unloaded_parse_failure) {
+                continue;
+            }
+            total += 1;
+        }
+        for (module.emit_h_failed_decls.items()) |entry| {
+            if (entry.key.container.file_scope.status == .unloaded_parse_failure) {
+                continue;
+            }
+            total += 1;
+        }
     }
 
     // The "no entry point found" error only counts if there are no other errors.
@@ -1467,6 +1535,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                 .byte_offset = 0,
                 .line = err_msg.line,
                 .column = err_msg.column,
+                .source_line = null, // TODO
             },
         });
     }
@@ -1475,9 +1544,19 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
         for (module.failed_decls.items()) |entry| {
+            if (entry.key.container.file_scope.status == .unloaded_parse_failure) {
+                // Skip errors for Decls within files that had a parse failure.
+                // We'll try again once parsing succeeds.
+                continue;
+            }
             try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
         for (module.emit_h_failed_decls.items()) |entry| {
+            if (entry.key.container.file_scope.status == .unloaded_parse_failure) {
+                // Skip errors for Decls within files that had a parse failure.
+                // We'll try again once parsing succeeds.
+                continue;
+            }
             try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
         for (module.failed_exports.items()) |entry| {
@@ -2431,7 +2510,7 @@ pub fn addCCArgs(
                 try argv.append("-fPIC");
             }
         },
-        .shared_library, .assembly, .ll, .bc, .unknown, .static_library, .object, .zig, .zir => {},
+        .shared_library, .assembly, .ll, .bc, .unknown, .static_library, .object, .zig => {},
     }
     if (out_dep_path) |p| {
         try argv.appendSlice(&[_][]const u8{ "-MD", "-MV", "-MF", p });
@@ -2505,7 +2584,6 @@ pub const FileExt = enum {
     object,
     static_library,
     zig,
-    zir,
     unknown,
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
@@ -2519,7 +2597,6 @@ pub const FileExt = enum {
             .object,
             .static_library,
             .zig,
-            .zir,
             .unknown,
             => false,
         };
@@ -2591,8 +2668,6 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .h;
     } else if (mem.endsWith(u8, filename, ".zig")) {
         return .zig;
-    } else if (mem.endsWith(u8, filename, ".zir")) {
-        return .zir;
     } else if (hasSharedLibraryExt(filename)) {
         return .shared_library;
     } else if (hasStaticLibraryExt(filename)) {
@@ -2613,7 +2688,6 @@ test "classifyFileExt" {
     std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2.3"));
     std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.so.1.2.3~"));
     std.testing.expectEqual(FileExt.zig, classifyFileExt("foo.zig"));
-    std.testing.expectEqual(FileExt.zir, classifyFileExt("foo.zir"));
 }
 
 fn haveFramePointer(comp: *const Compilation) bool {
@@ -2808,6 +2882,8 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
 
     const target = comp.getTarget();
     const generic_arch_name = target.cpu.arch.genericName();
+    const use_stage1 = build_options.omit_stage2 or
+        (build_options.is_stage1 and comp.bin_file.options.use_llvm);
 
     @setEvalBranchQuota(4000);
     try buffer.writer().print(
@@ -2820,6 +2896,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\/// Zig version. When writing code that supports multiple versions of Zig, prefer
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
         \\pub const zig_version = try @import("std").SemanticVersion.parse("{s}");
+        \\pub const zig_is_stage2 = {};
         \\
         \\pub const output_mode = OutputMode.{};
         \\pub const link_mode = LinkMode.{};
@@ -2833,6 +2910,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\
     , .{
         build_options.version,
+        !use_stage1,
         std.zig.fmtId(@tagName(comp.bin_file.options.output_mode)),
         std.zig.fmtId(@tagName(comp.bin_file.options.link_mode)),
         comp.bin_file.options.is_test,
@@ -3042,6 +3120,7 @@ fn buildOutputFromZig(
             .handle = special_dir,
         },
         .root_src_path = src_basename,
+        .namespace_hash = Package.root_namespace_hash,
     };
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();

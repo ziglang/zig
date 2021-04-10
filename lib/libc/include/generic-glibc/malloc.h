@@ -1,5 +1,5 @@
 /* Prototypes and definition for malloc implementation.
-   Copyright (C) 1996-2020 Free Software Foundation, Inc.
+   Copyright (C) 1996-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -97,8 +97,28 @@ struct mallinfo
   int keepcost; /* top-most, releasable (via malloc_trim) space */
 };
 
+/* SVID2/XPG mallinfo2 structure which can handle allocations
+   bigger than 4GB.  */
+
+struct mallinfo2
+{
+  size_t arena;    /* non-mmapped space allocated from system */
+  size_t ordblks;  /* number of free chunks */
+  size_t smblks;   /* number of fastbin blocks */
+  size_t hblks;    /* number of mmapped regions */
+  size_t hblkhd;   /* space in mmapped regions */
+  size_t usmblks;  /* always 0, preserved for backwards compatibility */
+  size_t fsmblks;  /* space available in freed fastbin blocks */
+  size_t uordblks; /* total allocated space */
+  size_t fordblks; /* total free space */
+  size_t keepcost; /* top-most, releasable (via malloc_trim) space */
+};
+
 /* Returns a copy of the updated current mallinfo. */
-extern struct mallinfo mallinfo (void) __THROW;
+extern struct mallinfo mallinfo (void) __THROW __MALLOC_DEPRECATED;
+
+/* Returns a copy of the updated current mallinfo. */
+extern struct mallinfo2 mallinfo2 (void) __THROW;
 
 /* SVID2/XPG mallopt options */
 #ifndef M_MXFAST

@@ -208,3 +208,35 @@ test "isaac64 sequence" {
         std.testing.expect(s == r.next());
     }
 }
+
+test "isaac64 fill" {
+    var r = Isaac64.init(0);
+
+    // from reference implementation
+    const seq = [_]u64{
+        0xf67dfba498e4937c,
+        0x84a5066a9204f380,
+        0xfee34bd5f5514dbb,
+        0x4d1664739b8f80d6,
+        0x8607459ab52a14aa,
+        0x0e78bc5a98529e49,
+        0xfe5332822ad13777,
+        0x556c27525e33d01a,
+        0x08643ca615f3149f,
+        0xd0771faf3cb04714,
+        0x30e86f68a37b008d,
+        0x3074ebc0488a3adf,
+        0x270645ea7a2790bc,
+        0x5601a0a8d3763c6a,
+        0x2f83071f53f325dd,
+        0xb9090f3d42d2d2ea,
+    };
+
+    for (seq) |s| {
+        var buf0: [8]u8 = undefined;
+        var buf1: [7]u8 = undefined;
+        std.mem.writeIntLittle(u64, &buf0, s);
+        Isaac64.fill(&r.random, &buf1);
+        std.testing.expect(std.mem.eql(u8, buf0[0..7], buf1[0..]));
+    }
+}

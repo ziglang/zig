@@ -59,10 +59,7 @@ pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!Tree {
     parser.nodes.appendAssumeCapacity(.{
         .tag = .root,
         .main_token = 0,
-        .data = .{
-            .lhs = undefined,
-            .rhs = undefined,
-        },
+        .data = undefined,
     });
     const root_members = try parser.parseContainerMembers();
     const root_decls = try root_members.toSpan(&parser);
@@ -137,6 +134,16 @@ const Parser = struct {
         const result = @intCast(Node.Index, p.nodes.len);
         try p.nodes.append(p.gpa, elem);
         return result;
+    }
+
+    fn setNode(p: *Parser, i: usize, elem: ast.NodeList.Elem) Node.Index {
+        p.nodes.set(i, elem);
+        return @intCast(Node.Index, i);
+    }
+
+    fn reserveNode(p: *Parser) !usize {
+        try p.nodes.resize(p.gpa, p.nodes.len + 1);
+        return p.nodes.len - 1;
     }
 
     fn addExtra(p: *Parser, extra: anytype) Allocator.Error!Node.Index {
@@ -554,9 +561,10 @@ const Parser = struct {
                     return fn_proto;
                 },
                 .l_brace => {
+                    const fn_decl_index = try p.reserveNode();
                     const body_block = try p.parseBlock();
                     assert(body_block != 0);
-                    return p.addNode(.{
+                    return p.setNode(fn_decl_index, .{
                         .tag = .fn_decl,
                         .main_token = p.nodes.items(.main_token)[fn_proto],
                         .data = .{
@@ -634,6 +642,10 @@ const Parser = struct {
     /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? CallConv? EXCLAMATIONMARK? (Keyword_anytype / TypeExpr)
     fn parseFnProto(p: *Parser) !Node.Index {
         const fn_token = p.eatToken(.keyword_fn) orelse return null_node;
+
+        // We want the fn proto node to be before its children in the array.
+        const fn_proto_index = try p.reserveNode();
+
         _ = p.eatToken(.identifier);
         const params = try p.parseParamDeclList();
         defer params.deinit(p.gpa);
@@ -651,7 +663,7 @@ const Parser = struct {
 
         if (align_expr == 0 and section_expr == 0 and callconv_expr == 0) {
             switch (params) {
-                .zero_or_one => |param| return p.addNode(.{
+                .zero_or_one => |param| return p.setNode(fn_proto_index, .{
                     .tag = .fn_proto_simple,
                     .main_token = fn_token,
                     .data = .{
@@ -661,7 +673,7 @@ const Parser = struct {
                 }),
                 .multi => |list| {
                     const span = try p.listToSpan(list);
-                    return p.addNode(.{
+                    return p.setNode(fn_proto_index, .{
                         .tag = .fn_proto_multi,
                         .main_token = fn_token,
                         .data = .{
@@ -676,7 +688,7 @@ const Parser = struct {
             }
         }
         switch (params) {
-            .zero_or_one => |param| return p.addNode(.{
+            .zero_or_one => |param| return p.setNode(fn_proto_index, .{
                 .tag = .fn_proto_one,
                 .main_token = fn_token,
                 .data = .{
@@ -691,7 +703,7 @@ const Parser = struct {
             }),
             .multi => |list| {
                 const span = try p.listToSpan(list);
-                return p.addNode(.{
+                return p.setNode(fn_proto_index, .{
                     .tag = .fn_proto,
                     .main_token = fn_token,
                     .data = .{

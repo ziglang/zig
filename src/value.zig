@@ -30,6 +30,8 @@ pub const Value = extern union {
         i32_type,
         u64_type,
         i64_type,
+        u128_type,
+        i128_type,
         usize_type,
         isize_type,
         c_short_type,
@@ -62,18 +64,19 @@ pub const Value = extern union {
         single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
         enum_literal_type,
-        anyframe_type,
 
         undef,
         zero,
         one,
         void_value,
         unreachable_value,
-        empty_struct_value,
-        empty_array,
         null_value,
         bool_true,
-        bool_false, // See last_no_payload_tag below.
+        bool_false,
+
+        abi_align_default,
+        empty_struct_value,
+        empty_array, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
         ty,
@@ -100,14 +103,15 @@ pub const Value = extern union {
         float_64,
         float_128,
         enum_literal,
-        error_set,
+        /// A specific enum tag, indicated by the field index (declaration order).
+        enum_field_index,
         @"error",
         error_union,
         /// This is a special value that tracks a set of types that have been stored
         /// to an inferred allocation. It does not support any of the normal value queries.
         inferred_alloc,
 
-        pub const last_no_payload_tag = Tag.bool_false;
+        pub const last_no_payload_tag = Tag.empty_array;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
@@ -120,6 +124,8 @@ pub const Value = extern union {
                 .i32_type,
                 .u64_type,
                 .i64_type,
+                .u128_type,
+                .i128_type,
                 .usize_type,
                 .isize_type,
                 .c_short_type,
@@ -152,7 +158,6 @@ pub const Value = extern union {
                 .single_const_pointer_to_comptime_int_type,
                 .const_slice_u8_type,
                 .enum_literal_type,
-                .anyframe_type,
                 .undef,
                 .zero,
                 .one,
@@ -163,6 +168,7 @@ pub const Value = extern union {
                 .null_value,
                 .bool_true,
                 .bool_false,
+                .abi_align_default,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .int_big_positive,
@@ -182,6 +188,8 @@ pub const Value = extern union {
                 .enum_literal,
                 => Payload.Bytes,
 
+                .enum_field_index => Payload.U32,
+
                 .ty => Payload.Ty,
                 .int_type => Payload.IntType,
                 .int_u64 => Payload.U64,
@@ -193,7 +201,6 @@ pub const Value = extern union {
                 .float_32 => Payload.Float_32,
                 .float_64 => Payload.Float_64,
                 .float_128 => Payload.Float_128,
-                .error_set => Payload.ErrorSet,
                 .@"error" => Payload.Error,
                 .inferred_alloc => Payload.InferredAlloc,
             };
@@ -275,6 +282,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -307,7 +316,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .undef,
             .zero,
             .one,
@@ -318,6 +326,7 @@ pub const Value = extern union {
             .bool_true,
             .bool_false,
             .empty_struct_value,
+            .abi_align_default,
             => unreachable,
 
             .ty => {
@@ -389,6 +398,7 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .enum_field_index => return self.copyPayloadShallow(allocator, Payload.U32),
             .@"error" => return self.copyPayloadShallow(allocator, Payload.Error),
             .error_union => {
                 const payload = self.castTag(.error_union).?;
@@ -400,7 +410,6 @@ pub const Value = extern union {
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
 
-            .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .inferred_alloc => unreachable,
         }
     }
@@ -412,6 +421,8 @@ pub const Value = extern union {
         return Value{ .ptr_otherwise = &new_payload.base };
     }
 
+    /// TODO this should become a debug dump() function. In order to print values in a meaningful way
+    /// we also need access to the type.
     pub fn format(
         self: Value,
         comptime fmt: []const u8,
@@ -429,6 +440,8 @@ pub const Value = extern union {
             .i32_type => return out_stream.writeAll("i32"),
             .u64_type => return out_stream.writeAll("u64"),
             .i64_type => return out_stream.writeAll("i64"),
+            .u128_type => return out_stream.writeAll("u128"),
+            .i128_type => return out_stream.writeAll("i128"),
             .isize_type => return out_stream.writeAll("isize"),
             .usize_type => return out_stream.writeAll("usize"),
             .c_short_type => return out_stream.writeAll("c_short"),
@@ -461,9 +474,8 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
             .enum_literal_type => return out_stream.writeAll("@Type(.EnumLiteral)"),
-            .anyframe_type => return out_stream.writeAll("anyframe"),
+            .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
-            // TODO this should print `NAME{}`
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
             .null_value => return out_stream.writeAll("null"),
             .undef => return out_stream.writeAll("undefined"),
@@ -501,6 +513,7 @@ pub const Value = extern union {
             },
             .empty_array => return out_stream.writeAll(".{}"),
             .enum_literal => return out_stream.print(".{}", .{std.zig.fmtId(self.castTag(.enum_literal).?.data)}),
+            .enum_field_index => return out_stream.print("(enum field {d})", .{self.castTag(.enum_field_index).?.data}),
             .bytes => return out_stream.print("\"{}\"", .{std.zig.fmtEscapes(self.castTag(.bytes).?.data)}),
             .repeated => {
                 try out_stream.writeAll("(repeated) ");
@@ -510,15 +523,6 @@ pub const Value = extern union {
             .float_32 => return out_stream.print("{}", .{val.castTag(.float_32).?.data}),
             .float_64 => return out_stream.print("{}", .{val.castTag(.float_64).?.data}),
             .float_128 => return out_stream.print("{}", .{val.castTag(.float_128).?.data}),
-            .error_set => {
-                const error_set = val.castTag(.error_set).?.data;
-                try out_stream.writeAll("error{");
-                var it = error_set.fields.iterator();
-                while (it.next()) |entry| {
-                    try out_stream.print("{},", .{entry.value});
-                }
-                return out_stream.writeAll("}");
-            },
             .@"error" => return out_stream.print("error.{s}", .{val.castTag(.@"error").?.data.name}),
             // TODO to print this it should be error{ Set, Items }!T(val), but we need the type for that
             .error_union => return out_stream.print("error_union_val({})", .{val.castTag(.error_union).?.data}),
@@ -557,6 +561,8 @@ pub const Value = extern union {
             .i32_type => Type.initTag(.i32),
             .u64_type => Type.initTag(.u64),
             .i64_type => Type.initTag(.i64),
+            .u128_type => Type.initTag(.u128),
+            .i128_type => Type.initTag(.i128),
             .usize_type => Type.initTag(.usize),
             .isize_type => Type.initTag(.isize),
             .c_short_type => Type.initTag(.c_short),
@@ -589,7 +595,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
             .enum_literal_type => Type.initTag(.enum_literal),
-            .anyframe_type => Type.initTag(.@"anyframe"),
 
             .int_type => {
                 const payload = self.castTag(.int_type).?.data;
@@ -601,10 +606,6 @@ pub const Value = extern union {
                     .data = payload.bits,
                 };
                 return Type.initPayload(&new.base);
-            },
-            .error_set => {
-                const payload = self.castTag(.error_set).?.data;
-                return Type.Tag.error_set.create(allocator, payload.decl);
             },
 
             .undef,
@@ -633,10 +634,12 @@ pub const Value = extern union {
             .float_64,
             .float_128,
             .enum_literal,
+            .enum_field_index,
             .@"error",
             .error_union,
             .empty_struct_value,
             .inferred_alloc,
+            .abi_align_default,
             => unreachable,
         };
     }
@@ -644,75 +647,6 @@ pub const Value = extern union {
     /// Asserts the value is an integer.
     pub fn toBigInt(self: Value, space: *BigIntSpace) BigIntConst {
         switch (self.tag()) {
-            .ty,
-            .int_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .anyframe_type,
-            .null_value,
-            .function,
-            .extern_fn,
-            .variable,
-            .ref_val,
-            .decl_ref,
-            .elem_ptr,
-            .bytes,
-            .repeated,
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_128,
-            .void_value,
-            .unreachable_value,
-            .empty_array,
-            .enum_literal,
-            .error_set,
-            .error_union,
-            .@"error",
-            .empty_struct_value,
-            .inferred_alloc,
-            => unreachable,
-
-            .undef => unreachable,
-
             .zero,
             .bool_false,
             => return BigIntMutable.init(&space.limbs, 0).toConst(),
@@ -725,81 +659,15 @@ pub const Value = extern union {
             .int_i64 => return BigIntMutable.init(&space.limbs, self.castTag(.int_i64).?.data).toConst(),
             .int_big_positive => return self.castTag(.int_big_positive).?.asBigInt(),
             .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt(),
+
+            .undef => unreachable,
+            else => unreachable,
         }
     }
 
     /// Asserts the value is an integer and it fits in a u64
     pub fn toUnsignedInt(self: Value) u64 {
         switch (self.tag()) {
-            .ty,
-            .int_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .anyframe_type,
-            .null_value,
-            .function,
-            .extern_fn,
-            .variable,
-            .ref_val,
-            .decl_ref,
-            .elem_ptr,
-            .bytes,
-            .repeated,
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_128,
-            .void_value,
-            .unreachable_value,
-            .empty_array,
-            .enum_literal,
-            .error_set,
-            .@"error",
-            .error_union,
-            .empty_struct_value,
-            .inferred_alloc,
-            => unreachable,
-
-            .undef => unreachable,
-
             .zero,
             .bool_false,
             => return 0,
@@ -812,81 +680,15 @@ pub const Value = extern union {
             .int_i64 => return @intCast(u64, self.castTag(.int_i64).?.data),
             .int_big_positive => return self.castTag(.int_big_positive).?.asBigInt().to(u64) catch unreachable,
             .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt().to(u64) catch unreachable,
+
+            .undef => unreachable,
+            else => unreachable,
         }
     }
 
     /// Asserts the value is an integer and it fits in a i64
     pub fn toSignedInt(self: Value) i64 {
         switch (self.tag()) {
-            .ty,
-            .int_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .anyframe_type,
-            .null_value,
-            .function,
-            .extern_fn,
-            .variable,
-            .ref_val,
-            .decl_ref,
-            .elem_ptr,
-            .bytes,
-            .repeated,
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_128,
-            .void_value,
-            .unreachable_value,
-            .empty_array,
-            .enum_literal,
-            .error_set,
-            .@"error",
-            .error_union,
-            .empty_struct_value,
-            .inferred_alloc,
-            => unreachable,
-
-            .undef => unreachable,
-
             .zero,
             .bool_false,
             => return 0,
@@ -899,6 +701,9 @@ pub const Value = extern union {
             .int_i64 => return self.castTag(.int_i64).?.data,
             .int_big_positive => return self.castTag(.int_big_positive).?.asBigInt().to(i64) catch unreachable,
             .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt().to(i64) catch unreachable,
+
+            .undef => unreachable,
+            else => unreachable,
         }
     }
 
@@ -932,74 +737,6 @@ pub const Value = extern union {
     /// Returns the number of bits the value requires to represent stored in twos complement form.
     pub fn intBitCountTwosComp(self: Value) usize {
         switch (self.tag()) {
-            .ty,
-            .int_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .anyframe_type,
-            .null_value,
-            .function,
-            .extern_fn,
-            .variable,
-            .ref_val,
-            .decl_ref,
-            .elem_ptr,
-            .bytes,
-            .undef,
-            .repeated,
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_128,
-            .void_value,
-            .unreachable_value,
-            .empty_array,
-            .enum_literal,
-            .error_set,
-            .@"error",
-            .error_union,
-            .empty_struct_value,
-            .inferred_alloc,
-            => unreachable,
-
             .zero,
             .bool_false,
             => return 0,
@@ -1018,79 +755,14 @@ pub const Value = extern union {
             },
             .int_big_positive => return self.castTag(.int_big_positive).?.asBigInt().bitCountTwosComp(),
             .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt().bitCountTwosComp(),
+
+            else => unreachable,
         }
     }
 
     /// Asserts the value is an integer, and the destination type is ComptimeInt or Int.
     pub fn intFitsInType(self: Value, ty: Type, target: Target) bool {
         switch (self.tag()) {
-            .ty,
-            .int_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .anyframe_type,
-            .null_value,
-            .function,
-            .extern_fn,
-            .variable,
-            .ref_val,
-            .decl_ref,
-            .elem_ptr,
-            .bytes,
-            .repeated,
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_128,
-            .void_value,
-            .unreachable_value,
-            .empty_array,
-            .enum_literal,
-            .error_set,
-            .@"error",
-            .error_union,
-            .empty_struct_value,
-            .inferred_alloc,
-            => unreachable,
-
             .zero,
             .undef,
             .bool_false,
@@ -1145,6 +817,8 @@ pub const Value = extern union {
                 .ComptimeInt => return true,
                 else => unreachable,
             },
+
+            else => unreachable,
         }
     }
 
@@ -1181,76 +855,6 @@ pub const Value = extern union {
     /// Asserts the value is a float
     pub fn floatHasFraction(self: Value) bool {
         return switch (self.tag()) {
-            .ty,
-            .int_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .anyframe_type,
-            .bool_true,
-            .bool_false,
-            .null_value,
-            .function,
-            .extern_fn,
-            .variable,
-            .ref_val,
-            .decl_ref,
-            .elem_ptr,
-            .bytes,
-            .repeated,
-            .undef,
-            .int_u64,
-            .int_i64,
-            .int_big_positive,
-            .int_big_negative,
-            .empty_array,
-            .void_value,
-            .unreachable_value,
-            .enum_literal,
-            .error_set,
-            .@"error",
-            .error_union,
-            .empty_struct_value,
-            .inferred_alloc,
-            => unreachable,
-
             .zero,
             .one,
             => false,
@@ -1260,75 +864,13 @@ pub const Value = extern union {
             .float_64 => @rem(self.castTag(.float_64).?.data, 1) != 0,
             // .float_128 => @rem(self.castTag(.float_128).?.data, 1) != 0,
             .float_128 => @panic("TODO lld: error: undefined symbol: fmodl"),
+
+            else => unreachable,
         };
     }
 
     pub fn orderAgainstZero(lhs: Value) std.math.Order {
         return switch (lhs.tag()) {
-            .ty,
-            .int_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .anyframe_type,
-            .null_value,
-            .function,
-            .extern_fn,
-            .variable,
-            .ref_val,
-            .decl_ref,
-            .elem_ptr,
-            .bytes,
-            .repeated,
-            .undef,
-            .void_value,
-            .unreachable_value,
-            .empty_array,
-            .enum_literal,
-            .error_set,
-            .@"error",
-            .error_union,
-            .empty_struct_value,
-            .inferred_alloc,
-            => unreachable,
-
             .zero,
             .bool_false,
             => .eq,
@@ -1346,6 +888,8 @@ pub const Value = extern union {
             .float_32 => std.math.order(lhs.castTag(.float_32).?.data, 0),
             .float_64 => std.math.order(lhs.castTag(.float_64).?.data, 0),
             .float_128 => std.math.order(lhs.castTag(.float_128).?.data, 0),
+
+            else => unreachable,
         };
     }
 
@@ -1395,10 +939,12 @@ pub const Value = extern union {
     }
 
     pub fn eql(a: Value, b: Value) bool {
-        if (a.tag() == b.tag()) {
-            if (a.tag() == .void_value or a.tag() == .null_value) {
+        const a_tag = a.tag();
+        const b_tag = b.tag();
+        if (a_tag == b_tag) {
+            if (a_tag == .void_value or a_tag == .null_value) {
                 return true;
-            } else if (a.tag() == .enum_literal) {
+            } else if (a_tag == .enum_literal) {
                 const a_name = a.castTag(.enum_literal).?.data;
                 const b_name = b.castTag(.enum_literal).?.data;
                 return std.mem.eql(u8, a_name, b_name);
@@ -1415,6 +961,10 @@ pub const Value = extern union {
         return compare(a, .eq, b);
     }
 
+    pub fn hash_u32(self: Value) u32 {
+        return @truncate(u32, self.hash());
+    }
+
     pub fn hash(self: Value) u64 {
         var hasher = std.hash.Wyhash.init(0);
 
@@ -1427,6 +977,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -1459,17 +1011,12 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
             .ty,
+            .abi_align_default,
             => {
-                // Directly return Type.hash, toType can only fail for .int_type and .error_set.
+                // Directly return Type.hash, toType can only fail for .int_type.
                 var allocator = std.heap.FixedBufferAllocator.init(&[_]u8{});
                 return (self.toType(&allocator.allocator) catch unreachable).hash();
-            },
-            .error_set => {
-                // Payload.decl should be same for all instances of the type.
-                const payload = self.castTag(.error_set).?.data;
-                std.hash.autoHash(&hasher, payload.decl);
             },
             .int_type => {
                 const payload = self.castTag(.int_type).?.data;
@@ -1495,10 +1042,17 @@ pub const Value = extern union {
             .zero, .bool_false => std.hash.autoHash(&hasher, @as(u64, 0)),
             .one, .bool_true => std.hash.autoHash(&hasher, @as(u64, 1)),
 
-            .float_16, .float_32, .float_64, .float_128 => {},
+            .float_16, .float_32, .float_64, .float_128 => {
+                @panic("TODO implement Value.hash for floats");
+            },
+
             .enum_literal => {
                 const payload = self.castTag(.enum_literal).?;
                 hasher.update(payload.data);
+            },
+            .enum_field_index => {
+                const payload = self.castTag(.enum_field_index).?;
+                std.hash.autoHash(&hasher, payload.data);
             },
             .bytes => {
                 const payload = self.castTag(.bytes).?;
@@ -1575,79 +1129,6 @@ pub const Value = extern union {
     /// Returns error.AnalysisFail if the pointer points to a Decl that failed semantic analysis.
     pub fn pointerDeref(self: Value, allocator: *Allocator) error{ AnalysisFail, OutOfMemory }!Value {
         return switch (self.tag()) {
-            .ty,
-            .int_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .anyframe_type,
-            .zero,
-            .one,
-            .bool_true,
-            .bool_false,
-            .null_value,
-            .function,
-            .extern_fn,
-            .variable,
-            .int_u64,
-            .int_i64,
-            .int_big_positive,
-            .int_big_negative,
-            .bytes,
-            .undef,
-            .repeated,
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_128,
-            .void_value,
-            .unreachable_value,
-            .empty_array,
-            .enum_literal,
-            .error_set,
-            .@"error",
-            .error_union,
-            .empty_struct_value,
-            .inferred_alloc,
-            => unreachable,
-
             .ref_val => self.castTag(.ref_val).?.data,
             .decl_ref => self.castTag(.decl_ref).?.data.value(),
             .elem_ptr => {
@@ -1655,6 +1136,8 @@ pub const Value = extern union {
                 const array_val = try elem_ptr.array_ptr.pointerDeref(allocator);
                 return array_val.elemValue(allocator, elem_ptr.index);
             },
+
+            else => unreachable,
         };
     }
 
@@ -1662,85 +1145,14 @@ pub const Value = extern union {
     /// or an unknown-length pointer, and returns the element value at the index.
     pub fn elemValue(self: Value, allocator: *Allocator, index: usize) error{OutOfMemory}!Value {
         switch (self.tag()) {
-            .ty,
-            .int_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .anyframe_type,
-            .zero,
-            .one,
-            .bool_true,
-            .bool_false,
-            .null_value,
-            .function,
-            .extern_fn,
-            .variable,
-            .int_u64,
-            .int_i64,
-            .int_big_positive,
-            .int_big_negative,
-            .undef,
-            .elem_ptr,
-            .ref_val,
-            .decl_ref,
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_128,
-            .void_value,
-            .unreachable_value,
-            .enum_literal,
-            .error_set,
-            .@"error",
-            .error_union,
-            .empty_struct_value,
-            .inferred_alloc,
-            => unreachable,
-
             .empty_array => unreachable, // out of bounds array index
 
             .bytes => return Tag.int_u64.create(allocator, self.castTag(.bytes).?.data[index]),
 
             // No matter the index; all the elements are the same!
             .repeated => return self.castTag(.repeated).?.data,
+
+            else => unreachable,
         }
     }
 
@@ -1766,159 +1178,18 @@ pub const Value = extern union {
     /// Valid for all types. Asserts the value is not undefined and not unreachable.
     pub fn isNull(self: Value) bool {
         return switch (self.tag()) {
-            .ty,
-            .int_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .anyframe_type,
-            .zero,
-            .one,
-            .empty_array,
-            .bool_true,
-            .bool_false,
-            .function,
-            .extern_fn,
-            .variable,
-            .int_u64,
-            .int_i64,
-            .int_big_positive,
-            .int_big_negative,
-            .ref_val,
-            .decl_ref,
-            .elem_ptr,
-            .bytes,
-            .repeated,
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_128,
-            .void_value,
-            .enum_literal,
-            .error_set,
-            .@"error",
-            .error_union,
-            .empty_struct_value,
-            => false,
-
             .undef => unreachable,
             .unreachable_value => unreachable,
             .inferred_alloc => unreachable,
             .null_value => true,
+
+            else => false,
         };
     }
 
     /// Valid for all types. Asserts the value is not undefined and not unreachable.
     pub fn getError(self: Value) ?[]const u8 {
         return switch (self.tag()) {
-            .ty,
-            .int_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .usize_type,
-            .isize_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f128_type,
-            .c_void_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
-            .fn_noreturn_no_args_type,
-            .fn_void_no_args_type,
-            .fn_naked_noreturn_no_args_type,
-            .fn_ccc_void_no_args_type,
-            .single_const_pointer_to_comptime_int_type,
-            .const_slice_u8_type,
-            .enum_literal_type,
-            .anyframe_type,
-            .zero,
-            .one,
-            .null_value,
-            .empty_array,
-            .bool_true,
-            .bool_false,
-            .function,
-            .extern_fn,
-            .variable,
-            .int_u64,
-            .int_i64,
-            .int_big_positive,
-            .int_big_negative,
-            .ref_val,
-            .decl_ref,
-            .elem_ptr,
-            .bytes,
-            .repeated,
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_128,
-            .void_value,
-            .enum_literal,
-            .error_set,
-            .empty_struct_value,
-            => null,
-
             .error_union => {
                 const data = self.castTag(.error_union).?.data;
                 return if (data.tag() == .@"error")
@@ -1930,6 +1201,8 @@ pub const Value = extern union {
             .undef => unreachable,
             .unreachable_value => unreachable,
             .inferred_alloc => unreachable,
+
+            else => null,
         };
     }
     /// Valid for all types. Asserts the value is not undefined.
@@ -1960,6 +1233,8 @@ pub const Value = extern union {
             .i32_type,
             .u64_type,
             .i64_type,
+            .u128_type,
+            .i128_type,
             .usize_type,
             .isize_type,
             .c_short_type,
@@ -1992,8 +1267,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
-            .anyframe_type,
-            .error_set,
             => true,
 
             .zero,
@@ -2019,10 +1292,12 @@ pub const Value = extern union {
             .float_128,
             .void_value,
             .enum_literal,
+            .enum_field_index,
             .@"error",
             .error_union,
             .empty_struct_value,
             .null_value,
+            .abi_align_default,
             => false,
 
             .undef => unreachable,
@@ -2034,6 +1309,11 @@ pub const Value = extern union {
     /// This type is not copyable since it may contain pointers to its inner data.
     pub const Payload = struct {
         tag: Tag,
+
+        pub const U32 = struct {
+            base: Payload,
+            data: u32,
+        };
 
         pub const U64 = struct {
             base: Payload,
@@ -2135,18 +1415,6 @@ pub const Value = extern union {
 
             base: Payload = .{ .tag = base_tag },
             data: f128,
-        };
-
-        /// TODO move to type.zig
-        pub const ErrorSet = struct {
-            pub const base_tag = Tag.error_set;
-
-            base: Payload = .{ .tag = base_tag },
-            data: struct {
-                /// TODO revisit this when we have the concept of the error tag type
-                fields: std.StringHashMapUnmanaged(void),
-                decl: *Module.Decl,
-            },
         };
 
         pub const Error = struct {

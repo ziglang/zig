@@ -717,9 +717,9 @@ fn renderArrayType(
     ais.pushIndentNextLine();
     try renderToken(ais, tree, array_type.ast.lbracket, inner_space); // lbracket
     try renderExpression(gpa, ais, tree, array_type.ast.elem_count, inner_space);
-    if (array_type.ast.sentinel) |sentinel| {
-        try renderToken(ais, tree, tree.firstToken(sentinel) - 1, inner_space); // colon
-        try renderExpression(gpa, ais, tree, sentinel, inner_space);
+    if (array_type.ast.sentinel != 0) {
+        try renderToken(ais, tree, tree.firstToken(array_type.ast.sentinel) - 1, inner_space); // colon
+        try renderExpression(gpa, ais, tree, array_type.ast.sentinel, inner_space);
     }
     ais.popIndent();
     try renderToken(ais, tree, rbracket, .none); // rbracket
@@ -1632,9 +1632,10 @@ fn renderArrayInit(
         }
     }
 
-    const contains_newlines = !tree.tokensOnSameLine(array_init.ast.lbrace, rbrace);
+    const contains_comment = hasComment(tree, array_init.ast.lbrace, rbrace);
+    const contains_multiline_string = hasMultilineString(tree, array_init.ast.lbrace, rbrace);
 
-    if (!trailing_comma and !contains_newlines) {
+    if (!trailing_comma and !contains_comment and !contains_multiline_string) {
         // Render all on one line, no trailing comma.
         if (array_init.ast.elements.len == 1) {
             // If there is only one element, we don't use spaces
@@ -1653,7 +1654,8 @@ fn renderArrayInit(
     try renderToken(ais, tree, array_init.ast.lbrace, .newline);
 
     var expr_index: usize = 0;
-    while (rowSize(tree, array_init.ast.elements[expr_index..], rbrace)) |row_size| {
+    while (true) {
+        const row_size = rowSize(tree, array_init.ast.elements[expr_index..], rbrace);
         const row_exprs = array_init.ast.elements[expr_index..];
         // A place to store the width of each expression and its column's maximum
         const widths = try gpa.alloc(usize, row_exprs.len + row_size);
@@ -1686,7 +1688,7 @@ fn renderArrayInit(
                 const maybe_comma = expr_last_token + 1;
                 if (token_tags[maybe_comma] == .comma) {
                     if (hasSameLineComment(tree, maybe_comma))
-                        break :sec_end i - this_line_size.? + 1;
+                        break :sec_end i - this_line_size + 1;
                 }
             }
             break :sec_end row_exprs.len;
@@ -2238,17 +2240,36 @@ fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Sp
     }
 }
 
-/// Returns true if there exists a comment between the start of token
-/// `start_token` and the start of token `end_token`. This is used to determine
-/// if e.g. a fn_proto should be wrapped and have a trailing comma inserted
-/// even if there is none in the source.
+/// Returns true if there exists a comment between any of the tokens from
+/// `start_token` to `end_token`. This is used to determine if e.g. a
+/// fn_proto should be wrapped and have a trailing comma inserted even if
+/// there is none in the source.
 fn hasComment(tree: ast.Tree, start_token: ast.TokenIndex, end_token: ast.TokenIndex) bool {
     const token_starts = tree.tokens.items(.start);
 
-    const start = token_starts[start_token];
-    const end = token_starts[end_token];
+    var i = start_token;
+    while (i < end_token) : (i += 1) {
+        const start = token_starts[i] + tree.tokenSlice(i).len;
+        const end = token_starts[i + 1];
+        if (mem.indexOf(u8, tree.source[start..end], "//") != null) return true;
+    }
 
-    return mem.indexOf(u8, tree.source[start..end], "//") != null;
+    return false;
+}
+
+/// Returns true if there exists a multiline string literal between the start
+/// of token `start_token` and the start of token `end_token`.
+fn hasMultilineString(tree: ast.Tree, start_token: ast.TokenIndex, end_token: ast.TokenIndex) bool {
+    const token_tags = tree.tokens.items(.tag);
+
+    for (token_tags[start_token..end_token]) |tag| {
+        switch (tag) {
+            .multiline_string_literal_line => return true,
+            else => continue,
+        }
+    }
+
+    return false;
 }
 
 /// Assumes that start is the first byte past the previous token and
@@ -2500,9 +2521,8 @@ fn nodeCausesSliceOpSpace(tag: ast.Node.Tag) bool {
     };
 }
 
-// Returns the number of nodes in `expr` that are on the same line as `rtoken`,
-// or null if they all are on the same line.
-fn rowSize(tree: ast.Tree, exprs: []const ast.Node.Index, rtoken: ast.TokenIndex) ?usize {
+// Returns the number of nodes in `expr` that are on the same line as `rtoken`.
+fn rowSize(tree: ast.Tree, exprs: []const ast.Node.Index, rtoken: ast.TokenIndex) usize {
     const token_tags = tree.tokens.items(.tag);
 
     const first_token = tree.firstToken(exprs[0]);
@@ -2510,7 +2530,7 @@ fn rowSize(tree: ast.Tree, exprs: []const ast.Node.Index, rtoken: ast.TokenIndex
         const maybe_comma = rtoken - 1;
         if (token_tags[maybe_comma] == .comma)
             return 1;
-        return null; // no newlines
+        return exprs.len; // no newlines
     }
 
     var count: usize = 1;

@@ -1,5 +1,5 @@
 /* Definitions for POSIX memory map interface.  Linux/AArch64 version.
-   Copyright (C) 2020 Free Software Foundation, Inc.
+   Copyright (C) 2020-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -24,6 +24,7 @@
    arch/arm64/include/uapi/asm/mman.h.  */
 
 #define PROT_BTI	0x10
+#define PROT_MTE	0x20
 
 #include <bits/mman-map-flags-generic.h>
 

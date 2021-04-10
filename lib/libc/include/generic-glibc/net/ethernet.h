@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -56,7 +56,6 @@ struct ether_header
 #define	ETHERTYPE_IPV6		0x86dd		/* IP protocol version 6 */
 #define ETHERTYPE_LOOPBACK	0x9000		/* used to test interfaces */
 
-
 #define	ETHER_ADDR_LEN	ETH_ALEN                 /* size of ethernet addr */
 #define	ETHER_TYPE_LEN	2                        /* bytes in type field */
 #define	ETHER_CRC_LEN	4                        /* bytes in CRC field */
@@ -64,7 +63,7 @@ struct ether_header
 #define	ETHER_MIN_LEN	(ETH_ZLEN + ETHER_CRC_LEN) /* min packet length */
 #define	ETHER_MAX_LEN	(ETH_FRAME_LEN + ETHER_CRC_LEN) /* max packet length */
 
-/* make sure ethenet length is valid */
+/* make sure ethernet length is valid */
 #define	ETHER_IS_VALID_LEN(foo)	\
 	((foo) >= ETHER_MIN_LEN && (foo) <= ETHER_MAX_LEN)
 

@@ -6,10 +6,16 @@
 
 #include <bits/wordsize.h>
 
-#if defined __LP64__ && defined __riscv_float_abi_soft
+#if __WORDSIZE == 32 && defined __riscv_float_abi_soft
+# include <gnu/lib-names-ilp32.h>
+#endif
+#if __WORDSIZE == 32 && defined __riscv_float_abi_double
+# include <gnu/lib-names-ilp32d.h>
+#endif
+#if __WORDSIZE == 64 && defined __riscv_float_abi_soft
 # include <gnu/lib-names-lp64.h>
 #endif
-#if defined __LP64__ && defined __riscv_float_abi_double
+#if __WORDSIZE == 64 && defined __riscv_float_abi_double
 # include <gnu/lib-names-lp64d.h>
 #endif
 

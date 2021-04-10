@@ -6,6 +6,8 @@
 const std = @import("std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const warn = std.debug.warn;
+const Order = std.math.Order;
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
@@ -19,15 +21,17 @@ pub fn PriorityQueue(comptime T: type) type {
         items: []T,
         len: usize,
         allocator: *Allocator,
-        compareFn: fn (a: T, b: T) bool,
+        compareFn: fn (a: T, b: T) Order,
 
-        /// Initialize and return a priority queue. Provide
-        /// `compareFn` that returns `true` when its first argument
-        /// should get popped before its second argument. For example,
-        /// to make `pop` return the minimum value, provide
+        /// Initialize and return a priority queue. Provide `compareFn`
+        /// that returns `Order.lt` when its first argument should
+        /// get popped before its second argument, `Order.eq` if the
+        /// arguments are of equal priority, or `Order.gt` if the second
+        /// argument should be popped first. For example, to make `pop`
+        /// return the smallest number, provide
         ///
-        /// `fn lessThan(a: T, b: T) bool { return a < b; }`
-        pub fn init(allocator: *Allocator, compareFn: fn (a: T, b: T) bool) Self {
+        /// `fn lessThan(a: T, b: T) Order { return std.math.order(a, b); }`
+        pub fn init(allocator: *Allocator, compareFn: fn (a: T, b: T) Order) Self {
             return Self{
                 .items = &[_]T{},
                 .len = 0,
@@ -60,7 +64,7 @@ pub fn PriorityQueue(comptime T: type) type {
                 const child = self.items[child_index];
                 const parent = self.items[parent_index];
 
-                if (!self.compareFn(child, parent)) break;
+                if (self.compareFn(child, parent) != .lt) break;
 
                 self.items[parent_index] = child;
                 self.items[child_index] = parent;
@@ -132,14 +136,14 @@ pub fn PriorityQueue(comptime T: type) type {
                 var smallest = self.items[index];
 
                 if (left) |e| {
-                    if (self.compareFn(e, smallest)) {
+                    if (self.compareFn(e, smallest) == .lt) {
                         smallest_index = left_index;
                         smallest = e;
                     }
                 }
 
                 if (right) |e| {
-                    if (self.compareFn(e, smallest)) {
+                    if (self.compareFn(e, smallest) == .lt) {
                         smallest_index = right_index;
                         smallest = e;
                     }
@@ -158,13 +162,16 @@ pub fn PriorityQueue(comptime T: type) type {
         /// PriorityQueue takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit`.
-        pub fn fromOwnedSlice(allocator: *Allocator, compareFn: fn (a: T, b: T) bool, items: []T) Self {
+        pub fn fromOwnedSlice(allocator: *Allocator, compareFn: fn (a: T, b: T) Order, items: []T) Self {
             var queue = Self{
                 .items = items,
                 .len = items.len,
                 .allocator = allocator,
                 .compareFn = compareFn,
             };
+
+            if (queue.len <= 1) return queue;
+
             const half = (queue.len >> 1) - 1;
             var i: usize = 0;
             while (i <= half) : (i += 1) {
@@ -183,25 +190,40 @@ pub fn PriorityQueue(comptime T: type) type {
             self.items = try self.allocator.realloc(self.items, better_capacity);
         }
 
-        pub fn resize(self: *Self, new_len: usize) !void {
-            try self.ensureCapacity(new_len);
+        /// Reduce allocated capacity to `new_len`.
+        pub fn shrinkAndFree(self: *Self, new_len: usize) void {
+            assert(new_len <= self.items.len);
+
+            // Cannot shrink to smaller than the current queue size without invalidating the heap property
+            assert(new_len >= self.len);
+
+            self.items = self.allocator.realloc(self.items[0..], new_len) catch |e| switch (e) {
+                error.OutOfMemory => { // no problem, capacity is still correct then.
+                    self.items.len = new_len;
+                    return;
+                },
+            };
             self.len = new_len;
         }
 
-        pub fn shrink(self: *Self, new_len: usize) void {
-            // TODO take advantage of the new realloc semantics
-            assert(new_len <= self.len);
+        /// Reduce length to `new_len`.
+        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
+            assert(new_len <= self.items.len);
+
+            // Cannot shrink to smaller than the current queue size without invalidating the heap property
+            assert(new_len >= self.len);
+
             self.len = new_len;
         }
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
-            var update_index: usize = std.mem.indexOfScalar(T, self.items, elem) orelse return error.ElementNotFound;
+            var update_index: usize = std.mem.indexOfScalar(T, self.items[0..self.len], elem) orelse return error.ElementNotFound;
             const old_elem: T = self.items[update_index];
             self.items[update_index] = new_elem;
-            if (self.compareFn(new_elem, old_elem)) {
-                siftUp(self, update_index);
-            } else {
-                siftDown(self, update_index);
+            switch (self.compareFn(new_elem, old_elem)) {
+                .lt => siftUp(self, update_index),
+                .gt => siftDown(self, update_index),
+                .eq => {}, // Nothing to do as the items have equal priority
             }
         }
 
@@ -248,12 +270,12 @@ pub fn PriorityQueue(comptime T: type) type {
     };
 }
 
-fn lessThan(a: u32, b: u32) bool {
-    return a < b;
+fn lessThan(a: u32, b: u32) Order {
+    return std.math.order(a, b);
 }
 
-fn greaterThan(a: u32, b: u32) bool {
-    return a > b;
+fn greaterThan(a: u32, b: u32) Order {
+    return lessThan(a, b).invert();
 }
 
 const PQ = PriorityQueue(u32);
@@ -349,6 +371,26 @@ test "std.PriorityQueue: addSlice" {
     for (sorted_items) |e| {
         expectEqual(e, queue.remove());
     }
+}
+
+test "std.PriorityQueue: fromOwnedSlice trivial case 0" {
+    const items = [0]u32{};
+    const queue_items = try testing.allocator.dupe(u32, &items);
+    var queue = PQ.fromOwnedSlice(testing.allocator, lessThan, queue_items[0..]);
+    defer queue.deinit();
+    expectEqual(@as(usize, 0), queue.len);
+    expect(queue.removeOrNull() == null);
+}
+
+test "std.PriorityQueue: fromOwnedSlice trivial case 1" {
+    const items = [1]u32{1};
+    const queue_items = try testing.allocator.dupe(u32, &items);
+    var queue = PQ.fromOwnedSlice(testing.allocator, lessThan, queue_items[0..]);
+    defer queue.deinit();
+
+    expectEqual(@as(usize, 1), queue.len);
+    expectEqual(items[0], queue.remove());
+    expect(queue.removeOrNull() == null);
 }
 
 test "std.PriorityQueue: fromOwnedSlice" {
@@ -451,6 +493,33 @@ test "std.PriorityQueue: iterator while empty" {
     var it = queue.iterator();
 
     expectEqual(it.next(), null);
+}
+
+test "std.PriorityQueue: shrinkRetainingCapacity and shrinkAndFree" {
+    var queue = PQ.init(testing.allocator, lessThan);
+    defer queue.deinit();
+
+    try queue.ensureCapacity(4);
+    expect(queue.capacity() >= 4);
+
+    try queue.add(1);
+    try queue.add(2);
+    try queue.add(3);
+    expect(queue.capacity() >= 4);
+    expectEqual(@as(usize, 3), queue.len);
+
+    queue.shrinkRetainingCapacity(3);
+    expect(queue.capacity() >= 4);
+    expectEqual(@as(usize, 3), queue.len);
+
+    queue.shrinkAndFree(3);
+    expectEqual(@as(usize, 3), queue.capacity());
+    expectEqual(@as(usize, 3), queue.len);
+
+    expectEqual(@as(u32, 1), queue.remove());
+    expectEqual(@as(u32, 2), queue.remove());
+    expectEqual(@as(u32, 3), queue.remove());
+    expect(queue.removeOrNull() == null);
 }
 
 test "std.PriorityQueue: update min heap" {

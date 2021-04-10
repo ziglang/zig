@@ -378,4 +378,45 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
+
+    {
+        var case = ctx.exe("save function return values in callee preserved register", linux_arm);
+        // Here, it is necessary to save the result of bar() into a
+        // callee preserved register, otherwise it will be overwritten
+        // by the first parameter to baz.
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    assert(foo() == 43);
+            \\    exit();
+            \\}
+            \\
+            \\fn foo() u32 {
+            \\    return bar() + baz(42);
+            \\}
+            \\
+            \\fn bar() u32 {
+            \\    return 1;
+            \\}
+            \\
+            \\fn baz(x: u32) u32 {
+            \\    return x;
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (1),
+            \\          [arg1] "{r0}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }

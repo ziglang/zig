@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2021 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -25,7 +25,7 @@
 
 /* The GNU libc does not support any K&R compilers or the traditional mode
    of ISO C compilers anymore.  Check for some of the combinations not
-   anymore supported.  */
+   supported anymore.  */
 #if defined __GNUC__ && !defined __STDC__
 # error "You need a ISO C conforming compiler to use the glibc headers"
 #endif
@@ -47,7 +47,7 @@
 # endif
 
 /* GCC can always grok prototypes.  For C++ programs we add throw()
-   to help it optimize the function calls.  But this works only with
+   to help it optimize the function calls.  But this only works with
    gcc 2.8.x and egcs.  For gcc 3.2 and up we even mark C functions
    as non-throwing using a function attribute since programs can use
    the -fexceptions options for C code as well.  */
@@ -58,10 +58,14 @@
 #  define __NTHNL(fct)  __attribute__ ((__nothrow__)) fct
 # else
 #  if defined __cplusplus && __GNUC_PREREQ (2,8)
-#   define __THROW	throw ()
-#   define __THROWNL	throw ()
-#   define __NTH(fct)	__LEAF_ATTR fct throw ()
-#   define __NTHNL(fct) fct throw ()
+#   if __cplusplus >= 201103L
+#    define __THROW	noexcept (true)
+#   else
+#    define __THROW	throw ()
+#   endif
+#   define __THROWNL	__THROW
+#   define __NTH(fct)	__LEAF_ATTR fct __THROW
+#   define __NTHNL(fct) fct __THROW
 #  else
 #   define __THROW
 #   define __THROWNL
@@ -123,14 +127,20 @@
 #define __bos(ptr) __builtin_object_size (ptr, __USE_FORTIFY_LEVEL > 1)
 #define __bos0(ptr) __builtin_object_size (ptr, 0)
 
+/* Use __builtin_dynamic_object_size at _FORTIFY_SOURCE=3 when available.  */
+#if __USE_FORTIFY_LEVEL == 3 && __glibc_clang_prereq (9, 0)
+# define __glibc_objsize0(__o) __builtin_dynamic_object_size (__o, 0)
+# define __glibc_objsize(__o) __builtin_dynamic_object_size (__o, 1)
+#else
+# define __glibc_objsize0(__o) __bos0 (__o)
+# define __glibc_objsize(__o) __bos (__o)
+#endif
+
 #if __GNUC_PREREQ (4,3)
-# define __warndecl(name, msg) \
-  extern void name (void) __attribute__((__warning__ (msg)))
 # define __warnattr(msg) __attribute__((__warning__ (msg)))
 # define __errordecl(name, msg) \
   extern void name (void) __attribute__((__error__ (msg)))
 #else
-# define __warndecl(name, msg) extern void name (void)
 # define __warnattr(msg)
 # define __errordecl(name, msg) extern void name (void)
 #endif
@@ -557,6 +567,14 @@ _Static_assert (0, "IEEE 128-bits long double requires redirection on this platf
 #define __attr_access(x) __attribute__ ((__access__ x))
 #else
 #  define __attr_access(x)
+#endif
+
+/* Specify that a function such as setjmp or vfork may return
+   twice.  */
+#if __GNUC_PREREQ (4, 1)
+# define __attribute_returns_twice__ __attribute__ ((__returns_twice__))
+#else
+# define __attribute_returns_twice__ /* Ignore.  */
 #endif
 
 #endif	 /* sys/cdefs.h */

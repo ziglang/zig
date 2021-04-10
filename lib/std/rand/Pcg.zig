@@ -75,7 +75,7 @@ fn fill(r: *Random, buf: []u8) void {
         var n = self.next();
         while (i < buf.len) : (i += 1) {
             buf[i] = @truncate(u8, n);
-            n >>= 4;
+            n >>= 8;
         }
     }
 }
@@ -97,5 +97,29 @@ test "pcg sequence" {
 
     for (seq) |s| {
         std.testing.expect(s == r.next());
+    }
+}
+
+test "pcg fill" {
+    var r = Pcg.init(0);
+    const s0: u64 = 0x9394bf54ce5d79de;
+    const s1: u64 = 0x84e9c579ef59bbf7;
+    r.seedTwo(s0, s1);
+
+    const seq = [_]u32{
+        2881561918,
+        3063928540,
+        1199791034,
+        2487695858,
+        1479648952,
+        3247963454,
+    };
+
+    for (seq) |s| {
+        var buf0: [4]u8 = undefined;
+        var buf1: [3]u8 = undefined;
+        std.mem.writeIntLittle(u32, &buf0, s);
+        Pcg.fill(&r.random, &buf1);
+        std.testing.expect(std.mem.eql(u8, buf0[0..3], buf1[0..]));
     }
 }

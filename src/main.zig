@@ -505,7 +505,6 @@ fn buildOutputType(
     var emit_bin: EmitBin = .yes_default_path;
     var emit_asm: Emit = .no;
     var emit_llvm_ir: Emit = .no;
-    var emit_zir: Emit = .no;
     var emit_docs: Emit = .no;
     var emit_analysis: Emit = .no;
     var target_arch_os_abi: []const u8 = "native";
@@ -599,15 +598,15 @@ fn buildOutputType(
     var test_exec_args = std.ArrayList(?[]const u8).init(gpa);
     defer test_exec_args.deinit();
 
-    const pkg_tree_root = try gpa.create(Package);
     // This package only exists to clean up the code parsing --pkg-begin and
     // --pkg-end flags. Use dummy values that are safe for the destroy call.
-    pkg_tree_root.* = .{
+    var pkg_tree_root: Package = .{
         .root_src_directory = .{ .path = null, .handle = fs.cwd() },
         .root_src_path = &[0]u8{},
+        .namespace_hash = Package.root_namespace_hash,
     };
-    defer pkg_tree_root.destroy(gpa);
-    var cur_pkg: *Package = pkg_tree_root;
+    defer freePkgTree(gpa, &pkg_tree_root, false);
+    var cur_pkg: *Package = &pkg_tree_root;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
@@ -658,8 +657,7 @@ fn buildOutputType(
                         ) catch |err| {
                             fatal("Failed to add package at path {s}: {s}", .{ pkg_path, @errorName(err) });
                         };
-                        new_cur_pkg.parent = cur_pkg;
-                        try cur_pkg.add(gpa, pkg_name, new_cur_pkg);
+                        try cur_pkg.addAndAdopt(gpa, pkg_name, new_cur_pkg);
                         cur_pkg = new_cur_pkg;
                     } else if (mem.eql(u8, arg, "--pkg-end")) {
                         cur_pkg = cur_pkg.parent orelse
@@ -924,12 +922,6 @@ fn buildOutputType(
                         emit_bin = .{ .yes = arg["-femit-bin=".len..] };
                     } else if (mem.eql(u8, arg, "-fno-emit-bin")) {
                         emit_bin = .no;
-                    } else if (mem.eql(u8, arg, "-femit-zir")) {
-                        emit_zir = .yes_default_path;
-                    } else if (mem.startsWith(u8, arg, "-femit-zir=")) {
-                        emit_zir = .{ .yes = arg["-femit-zir=".len..] };
-                    } else if (mem.eql(u8, arg, "-fno-emit-zir")) {
-                        emit_zir = .no;
                     } else if (mem.eql(u8, arg, "-femit-h")) {
                         emit_h = .yes_default_path;
                     } else if (mem.startsWith(u8, arg, "-femit-h=")) {
@@ -1026,7 +1018,7 @@ fn buildOutputType(
                             .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
                         });
                     },
-                    .zig, .zir => {
+                    .zig => {
                         if (root_src_file) |other| {
                             fatal("found another zig file '{s}' after root source file '{s}'", .{ arg, other });
                         } else {
@@ -1087,7 +1079,7 @@ fn buildOutputType(
                             .unknown, .shared_library, .object, .static_library => {
                                 try link_objects.append(it.only_arg);
                             },
-                            .zig, .zir => {
+                            .zig => {
                                 if (root_src_file) |other| {
                                     fatal("found another zig file '{s}' after root source file '{s}'", .{ it.only_arg, other });
                                 } else {
@@ -1487,7 +1479,7 @@ fn buildOutputType(
                 for (diags.arch.?.allCpuModels()) |cpu| {
                     help_text.writer().print(" {s}\n", .{cpu.name}) catch break :help;
                 }
-                std.log.info("Available CPUs for architecture '{s}': {s}", .{
+                std.log.info("Available CPUs for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
                 });
             }
@@ -1499,7 +1491,7 @@ fn buildOutputType(
                 for (diags.arch.?.allFeaturesList()) |feature| {
                     help_text.writer().print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
                 }
-                std.log.info("Available CPU features for architecture '{s}': {s}", .{
+                std.log.info("Available CPU features for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
                 });
             }
@@ -1725,13 +1717,6 @@ fn buildOutputType(
     var emit_docs_resolved = try emit_docs.resolve("docs");
     defer emit_docs_resolved.deinit();
 
-    switch (emit_zir) {
-        .no => {},
-        .yes_default_path, .yes => {
-            fatal("The -femit-zir implementation has been intentionally deleted so that it can be rewritten as a proper backend.", .{});
-        },
-    }
-
     const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
         if (main_pkg_path) |p| {
             const rel_src_path = try fs.path.relative(gpa, p, src_path);
@@ -1747,18 +1732,16 @@ fn buildOutputType(
     if (root_pkg) |pkg| {
         pkg.table = pkg_tree_root.table;
         pkg_tree_root.table = .{};
+        pkg.namespace_hash = pkg_tree_root.namespace_hash;
     }
 
     const self_exe_path = try fs.selfExePathAlloc(arena);
-    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir|
-        .{
-            .path = lib_dir,
-            .handle = try fs.cwd().openDir(lib_dir, .{}),
-        }
-    else
-        introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-            fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
-        };
+    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
+        .path = lib_dir,
+        .handle = try fs.cwd().openDir(lib_dir, .{}),
+    } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+        fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
+    };
     defer zig_lib_directory.handle.close();
 
     var thread_pool: ThreadPool = undefined;
@@ -1817,6 +1800,11 @@ fn buildOutputType(
         const argv = [_][*:0]const u8{ "zig (LLVM option parsing)", "--x86-asm-syntax=intel" };
         @import("codegen/llvm/bindings.zig").ParseCommandLineOptions(argv.len, &argv);
     }
+
+    const clang_passthrough_mode = switch (arg_mode) {
+        .cc, .cpp, .translate_c => true,
+        else => false,
+    };
 
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 
@@ -1889,7 +1877,7 @@ fn buildOutputType(
         .function_sections = function_sections,
         .self_exe_path = self_exe_path,
         .thread_pool = &thread_pool,
-        .clang_passthrough_mode = arg_mode != .build,
+        .clang_passthrough_mode = clang_passthrough_mode,
         .clang_preprocessor_mode = clang_preprocessor_mode,
         .version = optional_version,
         .libc_installation = if (libc_installation) |*lci| lci else null,
@@ -2104,8 +2092,12 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
     defer errors.deinit(comp.gpa);
 
     if (errors.list.len != 0) {
+        const ttyconf: std.debug.TTY.Config = switch (comp.color) {
+            .auto, .on => std.debug.detectTTYConfig(),
+            .off => .no_color,
+        };
         for (errors.list) |full_err_msg| {
-            full_err_msg.renderToStdErr();
+            full_err_msg.renderToStdErr(ttyconf);
         }
         const log_text = comp.getCompileLogOutput();
         if (log_text.len != 0) {
@@ -2115,12 +2107,49 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
     } else switch (hook) {
         .none => {},
         .print => |bin_path| try io.getStdOut().writer().print("{s}\n", .{bin_path}),
-        .update => |full_path| _ = try comp.bin_file.options.emit.?.directory.handle.updateFile(
-            comp.bin_file.options.emit.?.sub_path,
-            fs.cwd(),
-            full_path,
-            .{},
-        ),
+        .update => |full_path| {
+            const bin_sub_path = comp.bin_file.options.emit.?.sub_path;
+            const cwd = fs.cwd();
+            const cache_dir = comp.bin_file.options.emit.?.directory.handle;
+            _ = try cache_dir.updateFile(bin_sub_path, cwd, full_path, .{});
+
+            // If a .pdb file is part of the expected output, we must also copy
+            // it into place here.
+            const coff_or_pe = switch (comp.bin_file.options.object_format) {
+                .coff, .pe => true,
+                else => false,
+            };
+            const have_pdb = coff_or_pe and !comp.bin_file.options.strip;
+            if (have_pdb) {
+                // Replace `.out` or `.exe` with `.pdb` on both the source and destination
+                const src_bin_ext = fs.path.extension(bin_sub_path);
+                const dst_bin_ext = fs.path.extension(full_path);
+
+                const src_pdb_path = try std.fmt.allocPrint(gpa, "{s}.pdb", .{
+                    bin_sub_path[0 .. bin_sub_path.len - src_bin_ext.len],
+                });
+                defer gpa.free(src_pdb_path);
+
+                const dst_pdb_path = try std.fmt.allocPrint(gpa, "{s}.pdb", .{
+                    full_path[0 .. full_path.len - dst_bin_ext.len],
+                });
+                defer gpa.free(dst_pdb_path);
+
+                _ = try cache_dir.updateFile(src_pdb_path, cwd, dst_pdb_path, .{});
+            }
+        },
+    }
+}
+
+fn freePkgTree(gpa: *Allocator, pkg: *Package, free_parent: bool) void {
+    {
+        var it = pkg.table.iterator();
+        while (it.next()) |kv| {
+            freePkgTree(gpa, kv.value, true);
+        }
+    }
+    if (free_parent) {
+        pkg.destroy(gpa);
     }
 }
 
@@ -2461,15 +2490,12 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             }
         }
 
-        var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir|
-            .{
-                .path = lib_dir,
-                .handle = try fs.cwd().openDir(lib_dir, .{}),
-            }
-        else
-            introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-                fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
-            };
+        var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
+            .path = lib_dir,
+            .handle = try fs.cwd().openDir(lib_dir, .{}),
+        } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+            fatal("unable to find zig installation directory: {s}", .{@errorName(err)});
+        };
         defer zig_lib_directory.handle.close();
 
         const std_special = "std" ++ fs.path.sep_str ++ "special";
@@ -2481,6 +2507,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                 .handle = try zig_lib_directory.handle.openDir(std_special, .{}),
             },
             .root_src_path = "build_runner.zig",
+            .namespace_hash = Package.root_namespace_hash,
         };
         defer root_pkg.root_src_directory.handle.close();
 
@@ -2526,8 +2553,9 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         var build_pkg: Package = .{
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,
+            .namespace_hash = undefined,
         };
-        try root_pkg.table.put(arena, "@build", &build_pkg);
+        try root_pkg.addAndAdopt(arena, "@build", &build_pkg);
 
         var global_cache_directory: Compilation.Directory = l: {
             const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
@@ -3281,8 +3309,7 @@ pub const ClangArgIterator = struct {
                 self.zig_equivalent = clang_arg.zig_equivalent;
                 break :find_clang_arg;
             },
-        }
-        else {
+        } else {
             fatal("Unknown Clang option: '{s}'", .{arg});
         }
     }

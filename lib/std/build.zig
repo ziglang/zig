@@ -1939,6 +1939,15 @@ pub const LibExeObjStep = struct {
                 out.print("pub const {}: []const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
                 return;
             },
+            ?[:0]const u8 => {
+                out.print("pub const {}: ?[:0]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
+                if (value) |payload| {
+                    out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)}) catch unreachable;
+                } else {
+                    out.writeAll("null;\n") catch unreachable;
+                }
+                return;
+            },
             ?[]const u8 => {
                 out.print("pub const {}: ?[]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
                 if (value) |payload| {

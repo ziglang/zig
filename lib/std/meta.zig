@@ -970,12 +970,15 @@ fn castPtr(comptime DestType: type, target: anytype) DestType {
 
     if (source.is_const and !dest.is_const or source.is_volatile and !dest.is_volatile)
         return @intToPtr(DestType, @ptrToInt(target))
+    else if (@typeInfo(dest.child) == .Opaque)
+        // dest.alignment would error out
+        return @ptrCast(DestType, target)
     else
         return @ptrCast(DestType, @alignCast(dest.alignment, target));
 }
 
 fn ptrInfo(comptime PtrType: type) TypeInfo.Pointer {
-    return switch(@typeInfo(PtrType)){
+    return switch (@typeInfo(PtrType)) {
         .Optional => |opt_info| @typeInfo(opt_info.child).Pointer,
         .Pointer => |ptr_info| ptr_info,
         else => unreachable,
@@ -1010,6 +1013,8 @@ test "std.meta.cast" {
 
     testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*const u8, 2)));
     testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*volatile u8, 2)));
+
+    testing.expectEqual(@intToPtr(?*c_void, 2), cast(?*c_void, @intToPtr(*u8, 2)));
 }
 
 /// Given a value returns its size as C's sizeof operator would.
@@ -1296,4 +1301,36 @@ pub fn globalOption(comptime name: []const u8, comptime T: type) ?T {
     if (!@hasDecl(root, name))
         return null;
     return @as(T, @field(root, name));
+}
+
+/// This function is for translate-c and is not intended for general use.
+/// Convert from clang __builtin_shufflevector index to Zig @shuffle index
+/// clang requires __builtin_shufflevector index arguments to be integer constants.
+/// negative values for `this_index` indicate "don't care" so we arbitrarily choose 0
+/// clang enforces that `this_index` is less than the total number of vector elements
+/// See https://ziglang.org/documentation/master/#shuffle
+/// See https://clang.llvm.org/docs/LanguageExtensions.html#langext-builtin-shufflevector
+pub fn shuffleVectorIndex(comptime this_index: c_int, comptime source_vector_len: usize) i32 {
+    if (this_index <= 0) return 0;
+
+    const positive_index = @intCast(usize, this_index);
+    if (positive_index < source_vector_len) return @intCast(i32, this_index);
+    const b_index = positive_index - source_vector_len;
+    return ~@intCast(i32, b_index);
+}
+
+test "shuffleVectorIndex" {
+    const vector_len: usize = 4;
+
+    testing.expect(shuffleVectorIndex(-1, vector_len) == 0);
+
+    testing.expect(shuffleVectorIndex(0, vector_len) == 0);
+    testing.expect(shuffleVectorIndex(1, vector_len) == 1);
+    testing.expect(shuffleVectorIndex(2, vector_len) == 2);
+    testing.expect(shuffleVectorIndex(3, vector_len) == 3);
+
+    testing.expect(shuffleVectorIndex(4, vector_len) == -1);
+    testing.expect(shuffleVectorIndex(5, vector_len) == -2);
+    testing.expect(shuffleVectorIndex(6, vector_len) == -3);
+    testing.expect(shuffleVectorIndex(7, vector_len) == -4);
 }
