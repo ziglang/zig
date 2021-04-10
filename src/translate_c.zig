@@ -4146,7 +4146,7 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
     }
 
     const big: math.big.int.Const = .{ .limbs = limbs, .positive = true };
-    const str = big.toStringAlloc(c.arena, 10, false) catch |err| switch (err) {
+    const str = big.toStringAlloc(c.arena, 10, .lower) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
     const res = try Tag.integer_literal.create(c.arena, str);
@@ -5083,7 +5083,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                         num += c - 'A' + 10;
                     },
                     else => {
-                        i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+                        i += std.fmt.formatIntBuf(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
                         num = 0;
                         if (c == '\\')
                             state = .Escape
@@ -5109,7 +5109,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                     };
                     num += c - '0';
                 } else {
-                    i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+                    i += std.fmt.formatIntBuf(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
                     num = 0;
                     count = 0;
                     if (c == '\\')
@@ -5123,7 +5123,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
         }
     }
     if (state == .Hex or state == .Octal)
-        i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+        i += std.fmt.formatIntBuf(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
     return bytes[0..i];
 }
 

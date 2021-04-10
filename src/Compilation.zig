@@ -4019,7 +4019,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     });
     var digest_plus_flags: [digest.len + 2]u8 = undefined;
     digest_plus_flags[0..digest.len].* = digest;
-    assert(std.fmt.formatIntBuf(digest_plus_flags[digest.len..], stage1_flags_byte, 16, false, .{
+    assert(std.fmt.formatIntBuf(digest_plus_flags[digest.len..], stage1_flags_byte, 16, .lower, .{
         .width = 2,
         .fill = '0',
     }) == 2);
