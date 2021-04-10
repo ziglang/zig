@@ -2519,7 +2519,16 @@ fn writeDebugInfo(self: *Zld) !void {
                         .n_value = stab.size.?,
                     });
                 },
-                else => {
+                .global => {
+                    try stabs.append(.{
+                        .n_strx = sym.inner.n_strx,
+                        .n_type = macho.N_GSYM,
+                        .n_sect = 0,
+                        .n_desc = 0,
+                        .n_value = 0,
+                    });
+                },
+                .static => {
                     try stabs.append(.{
                         .n_strx = sym.inner.n_strx,
                         .n_type = macho.N_STSYM,

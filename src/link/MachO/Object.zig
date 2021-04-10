@@ -399,8 +399,13 @@ pub fn parseDebugInfo(self: *Object) !void {
             }
         } else null;
 
-        // TODO How do we work out static, global, local?
-        const tag: Stab.Tag = if (size == null) .global else .function;
+        const tag: Stab.Tag = tag: {
+            if (size != null) break :tag .function;
+            switch (sym.tag) {
+                .weak, .strong => break :tag .global,
+                else => break :tag .static,
+            }
+        };
         try self.stabs.append(self.allocator, .{
             .tag = tag,
             .size = size,
