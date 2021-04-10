@@ -12,6 +12,7 @@ NATIVE_TARBALL="zig-linux-$(uname -m)-$VERSION.tar.xz"
 AARCH64_LINUX_JSON_URL="https://ziglang.org/builds/aarch64-linux-$VERSION.json"
 X86_64_LINUX_JSON_URL="https://ziglang.org/builds/x86_64-linux-$VERSION.json"
 X86_64_WINDOWS_JSON_URL="https://ziglang.org/builds/x86_64-windows-$VERSION.json"
+AARCH64_MACOS_JSON_URL="https://ziglang.org/builds/aarch64-macos-$VERSION.json"
 X86_64_MACOS_JSON_URL="https://ziglang.org/builds/x86_64-macos-$VERSION.json"
 X86_64_FREEBSD_JSON_URL="https://ziglang.org/builds/x86_64-freebsd-$VERSION.json"
 
@@ -20,6 +21,7 @@ X86_64_FREEBSD_JSON_URL="https://ziglang.org/builds/x86_64-freebsd-$VERSION.json
 curl --fail -I "$AARCH64_LINUX_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$X86_64_LINUX_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$X86_64_WINDOWS_JSON_URL" >/dev/null || exit 0
+curl --fail -I "$AARCH64_MACOS_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$X86_64_MACOS_JSON_URL" >/dev/null || exit 0
 curl --fail -I "$X86_64_FREEBSD_JSON_URL" >/dev/null || exit 0
 
@@ -56,6 +58,11 @@ X86_64_WINDOWS_JSON=$(curl --fail "$X86_64_WINDOWS_JSON_URL" || exit 1)
 export X86_64_WINDOWS_TARBALL="$(echo "$X86_64_WINDOWS_JSON" | jq .tarball -r)"
 export X86_64_WINDOWS_BYTESIZE="$(echo "$X86_64_WINDOWS_JSON" | jq .size -r)"
 export X86_64_WINDOWS_SHASUM="$(echo "$X86_64_WINDOWS_JSON" | jq .shasum -r)"
+
+AARCH64_MACOS_JSON=$(curl --fail "$AARCH64_MACOS_JSON_URL" || exit 1)
+export AARCH64_MACOS_TARBALL="$(echo "$AARCH64_MACOS_JSON" | jq .tarball -r)"
+export AARCH64_MACOS_BYTESIZE="$(echo "$AARCH64_MACOS_JSON" | jq .size -r)"
+export AARCH64_MACOS_SHASUM="$(echo "$AARCH64_MACOS_JSON" | jq .shasum -r)"
 
 X86_64_MACOS_JSON=$(curl --fail "$X86_64_MACOS_JSON_URL" || exit 1)
 export X86_64_MACOS_TARBALL="$(echo "$X86_64_MACOS_JSON" | jq .tarball -r)"

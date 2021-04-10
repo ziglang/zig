@@ -24,7 +24,7 @@ jobs:
       secureFile: s3cfg
   - script: ci/azure/macos_arm64_script
     name: main
-    displayName: 'Build and cross-compile'
+    displayName: 'Build'
 - job: BuildLinux
   pool:
     vmImage: 'ubuntu-18.04'
