@@ -4677,6 +4677,43 @@ test "zig fmt: insert trailing comma if there are comments between switch values
     );
 }
 
+test "zig fmt: insert trailing comma if comments in array init" {
+    try testTransform(
+        \\var a = .{
+        \\    "foo", //
+        \\    "bar"
+        \\};
+        \\var a = .{
+        \\    "foo",
+        \\    "bar" //
+        \\};
+        \\var a = .{
+        \\    "foo",
+        \\    "//"
+        \\};
+        \\var a = .{
+        \\    "foo",
+        \\    "//" //
+        \\};
+        \\
+    ,
+        \\var a = .{
+        \\    "foo", //
+        \\    "bar",
+        \\};
+        \\var a = .{
+        \\    "foo",
+        \\    "bar", //
+        \\};
+        \\var a = .{ "foo", "//" };
+        \\var a = .{
+        \\    "foo",
+        \\    "//", //
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: make single-line if no trailing comma" {
     try testTransform(
         \\test "function call no trailing comma" {

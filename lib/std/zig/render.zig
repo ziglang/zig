@@ -2240,17 +2240,21 @@ fn renderToken(ais: *Ais, tree: ast.Tree, token_index: ast.TokenIndex, space: Sp
     }
 }
 
-/// Returns true if there exists a comment between the start of token
-/// `start_token` and the start of token `end_token`. This is used to determine
-/// if e.g. a fn_proto should be wrapped and have a trailing comma inserted
-/// even if there is none in the source.
+/// Returns true if there exists a comment between any of the tokens from
+/// `start_token` to `end_token`. This is used to determine if e.g. a
+/// fn_proto should be wrapped and have a trailing comma inserted even if
+/// there is none in the source.
 fn hasComment(tree: ast.Tree, start_token: ast.TokenIndex, end_token: ast.TokenIndex) bool {
     const token_starts = tree.tokens.items(.start);
 
-    const start = token_starts[start_token];
-    const end = token_starts[end_token];
+    var i = start_token;
+    while (i < end_token) : (i += 1) {
+        const start = token_starts[i] + tree.tokenSlice(i).len;
+        const end = token_starts[i + 1];
+        if (mem.indexOf(u8, tree.source[start..end], "//") != null) return true;
+    }
 
-    return mem.indexOf(u8, tree.source[start..end], "//") != null;
+    return false;
 }
 
 /// Returns true if there exists a multiline string literal between the start
