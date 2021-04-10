@@ -558,42 +558,87 @@ pub const StackTracesContext = struct {
 
     const Expect = [@typeInfo(Mode).Enum.fields.len][]const u8;
 
-    pub fn addCase(
+    pub fn addCase(self: *StackTracesContext, config: anytype) void {
+        if (@hasField(@TypeOf(config), "exclude")) {
+            if (config.exclude.exclude()) return;
+        }
+        if (@hasField(@TypeOf(config), "exclude_arch")) {
+            const exclude_arch: []const builtin.Cpu.Arch = &config.exclude_arch;
+            for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
+        }
+        if (@hasField(@TypeOf(config), "exclude_os")) {
+            const exclude_os: []const builtin.Os.Tag = &config.exclude_os;
+            for (exclude_os) |os| if (os == builtin.os.tag) return;
+        }
+        for (self.modes) |mode| {
+            switch (mode) {
+                .Debug => {
+                    if (@hasField(@TypeOf(config), "Debug")) {
+                        self.addExpect(config.name, config.source, mode, config.Debug);
+                    }
+                },
+                .ReleaseSafe => {
+                    if (@hasField(@TypeOf(config), "ReleaseSafe")) {
+                        self.addExpect(config.name, config.source, mode, config.ReleaseSafe);
+                    }
+                },
+                .ReleaseFast => {
+                    if (@hasField(@TypeOf(config), "ReleaseFast")) {
+                        self.addExpect(config.name, config.source, mode, config.ReleaseFast);
+                    }
+                },
+                .ReleaseSmall => {
+                    if (@hasField(@TypeOf(config), "ReleaseSmall")) {
+                        self.addExpect(config.name, config.source, mode, config.ReleaseSmall);
+                    }
+                },
+            }
+        }
+    }
+
+    fn addExpect(
         self: *StackTracesContext,
         name: []const u8,
         source: []const u8,
-        expect: Expect,
+        mode: Mode,
+        mode_config: anytype,
     ) void {
-        const b = self.b;
-
-        for (self.modes) |mode| {
-            const expect_for_mode = expect[@enumToInt(mode)];
-            if (expect_for_mode.len == 0) continue;
-
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "{s} {s} ({s})", .{
-                "stack-trace",
-                name,
-                @tagName(mode),
-            }) catch unreachable;
-            if (self.test_filter) |filter| {
-                if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
-            }
-
-            const src_basename = "source.zig";
-            const write_src = b.addWriteFile(src_basename, source);
-            const exe = b.addExecutableFromWriteFileStep("test", write_src, src_basename);
-            exe.setBuildMode(mode);
-
-            const run_and_compare = RunAndCompareStep.create(
-                self,
-                exe,
-                annotated_case_name,
-                mode,
-                expect_for_mode,
-            );
-
-            self.step.dependOn(&run_and_compare.step);
+        if (@hasField(@TypeOf(mode_config), "exclude")) {
+            if (mode_config.exclude.exclude()) return;
         }
+        if (@hasField(@TypeOf(mode_config), "exclude_arch")) {
+            const exclude_arch: []const builtin.Cpu.Arch = &mode_config.exclude_arch;
+            for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
+        }
+        if (@hasField(@TypeOf(mode_config), "exclude_os")) {
+            const exclude_os: []const builtin.Os.Tag = &mode_config.exclude_os;
+            for (exclude_os) |os| if (os == builtin.os.tag) return;
+        }
+
+        const annotated_case_name = fmt.allocPrint(self.b.allocator, "{s} {s} ({s})", .{
+            "stack-trace",
+            name,
+            @tagName(mode),
+        }) catch unreachable;
+        if (self.test_filter) |filter| {
+            if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
+        }
+
+        const b = self.b;
+        const src_basename = "source.zig";
+        const write_src = b.addWriteFile(src_basename, source);
+        const exe = b.addExecutableFromWriteFileStep("test", write_src, src_basename);
+        exe.setBuildMode(mode);
+
+        const run_and_compare = RunAndCompareStep.create(
+            self,
+            exe,
+            annotated_case_name,
+            mode,
+            mode_config.expect,
+        );
+
+        self.step.dependOn(&run_and_compare.step);
     }
 
     const RunAndCompareStep = struct {
@@ -695,6 +740,7 @@ pub const StackTracesContext = struct {
             // process result
             // - keep only basename of source file path
             // - replace address with symbolic string
+            // - replace function name with symbolic string when mode != .Debug
             // - skip empty lines
             const got: []const u8 = got_result: {
                 var buf = ArrayList(u8).init(b.allocator);
@@ -703,26 +749,45 @@ pub const StackTracesContext = struct {
                 var it = mem.split(stderr, "\n");
                 process_lines: while (it.next()) |line| {
                     if (line.len == 0) continue;
-                    const delims = [_][]const u8{ ":", ":", ":", " in " };
-                    var marks = [_]usize{0} ** 4;
                     // offset search past `[drive]:` on windows
                     var pos: usize = if (std.Target.current.os.tag == .windows) 2 else 0;
+                    // locate delims/anchor
+                    const delims = [_][]const u8{ ":", ":", ":", " in ", "(", ")" };
+                    var marks = [_]usize{0} ** delims.len;
                     for (delims) |delim, i| {
                         marks[i] = mem.indexOfPos(u8, line, pos, delim) orelse {
+                            // unexpected pattern: emit raw line and cont
                             try buf.appendSlice(line);
                             try buf.appendSlice("\n");
                             continue :process_lines;
                         };
                         pos = marks[i] + delim.len;
                     }
+                    // locate source basename
                     pos = mem.lastIndexOfScalar(u8, line[0..marks[0]], fs.path.sep) orelse {
+                        // unexpected pattern: emit raw line and cont
                         try buf.appendSlice(line);
                         try buf.appendSlice("\n");
                         continue :process_lines;
                     };
+                    // end processing if source basename changes
+                    if (!mem.eql(u8, "source.zig", line[pos + 1 .. marks[0]])) break;
+                    // emit substituted line
                     try buf.appendSlice(line[pos + 1 .. marks[2] + delims[2].len]);
                     try buf.appendSlice(" [address]");
-                    try buf.appendSlice(line[marks[3]..]);
+                    if (self.mode == .Debug) {
+                        if (mem.lastIndexOfScalar(u8, line[marks[4]..marks[5]], '.')) |idot| {
+                            // On certain platforms (windows) or possibly depending on how we choose to link main
+                            // the object file extension may be present so we simply strip any extension.
+                            try buf.appendSlice(line[marks[3] .. marks[4] + idot]);
+                            try buf.appendSlice(line[marks[5]..]);
+                        } else {
+                            try buf.appendSlice(line[marks[3]..]);
+                        }
+                    } else {
+                        try buf.appendSlice(line[marks[3] .. marks[3] + delims[3].len]);
+                        try buf.appendSlice("[function]");
+                    }
                     try buf.appendSlice("\n");
                 }
                 break :got_result buf.toOwnedSlice();
