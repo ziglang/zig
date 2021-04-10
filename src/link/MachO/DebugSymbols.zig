@@ -904,7 +904,7 @@ pub fn updateDeclLineNumber(self: *DebugSymbols, module: *Module, decl: *const M
     const tracy = trace(@src());
     defer tracy.end();
 
-    const tree = decl.container.file_scope.tree;
+    const tree = decl.namespace.file_scope.tree;
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
     const token_starts = tree.tokens.items(.start);
@@ -953,7 +953,7 @@ pub fn initDeclDebugBuffers(
             try dbg_line_buffer.ensureCapacity(26);
 
             const line_off: u28 = blk: {
-                const tree = decl.container.file_scope.tree;
+                const tree = decl.namespace.file_scope.tree;
                 const node_tags = tree.nodes.items(.tag);
                 const node_datas = tree.nodes.items(.data);
                 const token_starts = tree.tokens.items(.start);

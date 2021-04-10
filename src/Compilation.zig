@@ -341,7 +341,7 @@ pub const AllErrors = struct {
         const notes = try arena.allocator.alloc(Message, module_err_msg.notes.len);
         for (notes) |*note, i| {
             const module_note = module_err_msg.notes[i];
-            const source = try module_note.src_loc.fileScope().getSource(module);
+            const source = try module_note.src_loc.fileScope().getSource(module.gpa);
             const byte_offset = try module_note.src_loc.byteOffset();
             const loc = std.zig.findLineColumn(source, byte_offset);
             const sub_file_path = module_note.src_loc.fileScope().sub_file_path;
@@ -356,7 +356,7 @@ pub const AllErrors = struct {
                 },
             };
         }
-        const source = try module_err_msg.src_loc.fileScope().getSource(module);
+        const source = try module_err_msg.src_loc.fileScope().getSource(module.gpa);
         const byte_offset = try module_err_msg.src_loc.byteOffset();
         const loc = std.zig.findLineColumn(source, byte_offset);
         const sub_file_path = module_err_msg.src_loc.fileScope().sub_file_path;
@@ -966,37 +966,18 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             // However we currently do not have serialization of such metadata, so for now
             // we set up an empty Module that does the entire compilation fresh.
 
-            const root_scope = try gpa.create(Module.Scope.File);
-            errdefer gpa.destroy(root_scope);
-
-            const struct_ty = try Type.Tag.empty_struct.create(gpa, &root_scope.root_container);
-            root_scope.* = .{
-                // TODO this is duped so it can be freed in Container.deinit
-                .sub_file_path = try gpa.dupe(u8, root_pkg.root_src_path),
-                .source = .{ .unloaded = {} },
-                .tree = undefined,
-                .status = .never_loaded,
-                .pkg = root_pkg,
-                .root_container = .{
-                    .file_scope = root_scope,
-                    .decls = .{},
-                    .ty = struct_ty,
-                    .parent_name_hash = root_pkg.namespace_hash,
-                },
-            };
-
             const module = try arena.create(Module);
             errdefer module.deinit();
             module.* = .{
                 .gpa = gpa,
                 .comp = comp,
                 .root_pkg = root_pkg,
-                .root_scope = root_scope,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .emit_h = options.emit_h,
                 .error_name_list = try std.ArrayListUnmanaged([]const u8).initCapacity(gpa, 1),
             };
             module.error_name_list.appendAssumeCapacity("(no error)");
+
             break :blk module;
         } else blk: {
             if (options.emit_h != null) return error.NoZigModuleForCHeader;
@@ -1391,31 +1372,50 @@ pub fn update(self: *Compilation) !void {
             module.compile_log_text.shrinkAndFree(module.gpa, 0);
             module.generation += 1;
 
-            // TODO Detect which source files changed.
-            // Until then we simulate a full cache miss. Source files could have been loaded
-            // for any reason; to force a refresh we unload now.
-            module.unloadFile(module.root_scope);
-            module.failed_root_src_file = null;
-            module.analyzeContainer(&module.root_scope.root_container) catch |err| switch (err) {
-                error.AnalysisFail => {
-                    assert(self.totalErrorCount() != 0);
-                },
-                error.OutOfMemory => return error.OutOfMemory,
-                else => |e| {
-                    module.failed_root_src_file = e;
-                },
-            };
-
-            // TODO only analyze imports if they are still referenced
+            // Detect which source files changed.
             for (module.import_table.items()) |entry| {
-                module.unloadFile(entry.value);
-                module.analyzeContainer(&entry.value.root_container) catch |err| switch (err) {
-                    error.AnalysisFail => {
-                        assert(self.totalErrorCount() != 0);
-                    },
+                const file = entry.value;
+                var f = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{});
+                defer f.close();
+
+                // TODO handle error here by populating a retryable compile error
+                const stat = try f.stat();
+                const unchanged_metadata =
+                    stat.size == file.stat_size and
+                    stat.mtime == file.stat_mtime and
+                    stat.inode == file.stat_inode;
+
+                if (unchanged_metadata) {
+                    log.debug("unmodified metadata of file: {s}", .{file.sub_file_path});
+                    continue;
+                }
+
+                const prev_hash = file.source_hash;
+                file.unloadSource(module.gpa);
+                // TODO handle error here by populating a retryable compile error
+                try file.finishGettingSource(module.gpa, f, stat);
+                assert(file.source_loaded);
+                if (mem.eql(u8, &prev_hash, &file.source_hash)) {
+                    file.updateTreeToNewSource();
+                    log.debug("unmodified source hash of file: {s}", .{file.sub_file_path});
+                    continue;
+                }
+
+                log.debug("source contents changed: {s}", .{file.sub_file_path});
+                if (file.status == .unloaded_parse_failure) {
+                    module.failed_files.swapRemove(file).?.value.destroy(module.gpa);
+                }
+                file.unloadTree(module.gpa);
+
+                module.analyzeFile(file) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.AnalysisFail => continue,
                     else => |e| return e,
                 };
             }
+
+            // Simulate `_ = @import("std");` which in turn imports start.zig.
+            _ = try module.importFile(module.root_pkg, "std");
         }
     }
 
@@ -1457,7 +1457,9 @@ pub fn update(self: *Compilation) !void {
     // to report error messages. Otherwise we unload all source files to save memory.
     if (self.totalErrorCount() == 0 and !self.keep_source_files_loaded) {
         if (self.bin_file.options.module) |module| {
-            module.root_scope.unload(self.gpa);
+            for (module.import_table.items()) |entry| {
+                entry.value.unload(self.gpa);
+            }
         }
     }
 }
@@ -1486,13 +1488,13 @@ pub fn totalErrorCount(self: *Compilation) usize {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (module.failed_decls.items()) |entry| {
-            if (entry.key.container.file_scope.status == .unloaded_parse_failure) {
+            if (entry.key.namespace.file_scope.status == .unloaded_parse_failure) {
                 continue;
             }
             total += 1;
         }
         for (module.emit_h_failed_decls.items()) |entry| {
-            if (entry.key.container.file_scope.status == .unloaded_parse_failure) {
+            if (entry.key.namespace.file_scope.status == .unloaded_parse_failure) {
                 continue;
             }
             total += 1;
@@ -1544,7 +1546,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
         for (module.failed_decls.items()) |entry| {
-            if (entry.key.container.file_scope.status == .unloaded_parse_failure) {
+            if (entry.key.namespace.file_scope.status == .unloaded_parse_failure) {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
                 continue;
@@ -1552,7 +1554,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
         for (module.emit_h_failed_decls.items()) |entry| {
-            if (entry.key.container.file_scope.status == .unloaded_parse_failure) {
+            if (entry.key.namespace.file_scope.status == .unloaded_parse_failure) {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
                 continue;

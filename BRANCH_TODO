@@ -1,0 +1,96 @@
+ * get rid of failed_root_src_file
+
+
+    const container_name_hash: Scope.NameHash = if (found_pkg) |pkg|
+        pkg.namespace_hash
+    else
+        std.zig.hashName(cur_pkg.namespace_hash, "/", resolved_path);
+
+    file_scope.* = .{
+        .root_container = .{
+            .parent = null,
+            .file_scope = file_scope,
+            .decls = .{},
+            .ty = struct_ty,
+            .parent_name_hash = container_name_hash,
+        },
+    };
+    mod.analyzeContainer(&file_scope.root_container) catch |err| switch (err) {
+        error.AnalysisFail => {
+            assert(mod.comp.totalErrorCount() != 0);
+        },
+        else => |e| return e,
+    };
+    return file_scope;
+
+
+
+            // Until then we simulate a full cache miss. Source files could have been loaded
+            // for any reason; to force a refresh we unload now.
+            module.unloadFile(module.root_scope);
+            module.failed_root_src_file = null;
+            module.analyzeNamespace(&module.root_scope.root_container) catch |err| switch (err) {
+                error.AnalysisFail => {
+                    assert(self.totalErrorCount() != 0);
+                },
+                error.OutOfMemory => return error.OutOfMemory,
+                else => |e| {
+                    module.failed_root_src_file = e;
+                },
+            };
+
+            // TODO only analyze imports if they are still referenced
+            for (module.import_table.items()) |entry| {
+                module.unloadFile(entry.value);
+                module.analyzeNamespace(&entry.value.root_container) catch |err| switch (err) {
+                    error.AnalysisFail => {
+                        assert(self.totalErrorCount() != 0);
+                    },
+                    else => |e| return e,
+                };
+            }
+
+
+pub fn createContainerDecl(
+    mod: *Module,
+    scope: *Scope,
+    base_token: std.zig.ast.TokenIndex,
+    decl_arena: *std.heap.ArenaAllocator,
+    typed_value: TypedValue,
+) !*Decl {
+    const scope_decl = scope.ownerDecl().?;
+    const name = try mod.getAnonTypeName(scope, base_token);
+    defer mod.gpa.free(name);
+    const name_hash = scope.namespace().fullyQualifiedNameHash(name);
+    const src_hash: std.zig.SrcHash = undefined;
+    const new_decl = try mod.createNewDecl(scope, name, scope_decl.src_node, name_hash, src_hash);
+    const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
+
+    decl_arena_state.* = decl_arena.state;
+    new_decl.typed_value = .{
+        .most_recent = .{
+            .typed_value = typed_value,
+            .arena = decl_arena_state,
+        },
+    };
+    new_decl.analysis = .complete;
+    new_decl.generation = mod.generation;
+
+    return new_decl;
+}
+
+fn getAnonTypeName(mod: *Module, scope: *Scope, base_token: std.zig.ast.TokenIndex) ![]u8 {
+    // TODO add namespaces, generic function signatrues
+    const tree = scope.tree();
+    const token_tags = tree.tokens.items(.tag);
+    const base_name = switch (token_tags[base_token]) {
+        .keyword_struct => "struct",
+        .keyword_enum => "enum",
+        .keyword_union => "union",
+        .keyword_opaque => "opaque",
+        else => unreachable,
+    };
+    const loc = tree.tokenLocation(0, base_token);
+    return std.fmt.allocPrint(mod.gpa, "{s}:{d}:{d}", .{ base_name, loc.line, loc.column });
+}
+

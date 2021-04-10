@@ -2223,7 +2223,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         try dbg_line_buffer.ensureCapacity(26);
 
         const line_off: u28 = blk: {
-            const tree = decl.container.file_scope.tree;
+            const tree = decl.namespace.file_scope.tree;
             const node_tags = tree.nodes.items(.tag);
             const node_datas = tree.nodes.items(.data);
             const token_starts = tree.tokens.items(.start);
@@ -2749,7 +2749,7 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
 
     if (self.llvm_object) |_| return;
 
-    const tree = decl.container.file_scope.tree;
+    const tree = decl.namespace.file_scope.tree;
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
     const token_starts = tree.tokens.items(.start);

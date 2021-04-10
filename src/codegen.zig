@@ -411,8 +411,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             try branch_stack.append(.{});
 
             const src_data: struct { lbrace_src: usize, rbrace_src: usize, source: []const u8 } = blk: {
-                const container_scope = module_fn.owner_decl.container;
-                const tree = container_scope.file_scope.tree;
+                const namespace = module_fn.owner_decl.namespace;
+                const tree = namespace.file_scope.tree;
                 const node_tags = tree.nodes.items(.tag);
                 const node_datas = tree.nodes.items(.data);
                 const token_starts = tree.tokens.items(.start);
