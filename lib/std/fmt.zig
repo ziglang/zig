@@ -370,15 +370,15 @@ pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @T
         .Pointer => |info| {
             try writer.writeAll(@typeName(info.child) ++ "@");
             if (info.size == .Slice)
-                try formatInt(@ptrToInt(value.ptr), 16, false, FormatOptions{}, writer)
+                try formatInt(@ptrToInt(value.ptr), 16, .lower, FormatOptions{}, writer)
             else
-                try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, writer);
+                try formatInt(@ptrToInt(value), 16, .lower, FormatOptions{}, writer);
             return;
         },
         .Optional => |info| {
             if (@typeInfo(info.child) == .Pointer) {
                 try writer.writeAll(@typeName(info.child) ++ "@");
-                try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, writer);
+                try formatInt(@ptrToInt(value), 16, .lower, FormatOptions{}, writer);
                 return;
             }
         },
@@ -651,7 +651,7 @@ pub fn formatIntValue(
     writer: anytype,
 ) !void {
     comptime var radix = 10;
-    comptime var uppercase = false;
+    comptime var case: Case = .lower;
 
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
         const Int = math.IntFittingRange(value, value);
@@ -660,7 +660,7 @@ pub fn formatIntValue(
 
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
         radix = 10;
-        uppercase = false;
+        case = .lower;
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
         if (@typeInfo(@TypeOf(int_value)).Int.bits <= 8) {
             return formatAsciiChar(@as(u8, int_value), options, writer);
@@ -675,21 +675,21 @@ pub fn formatIntValue(
         }
     } else if (comptime std.mem.eql(u8, fmt, "b")) {
         radix = 2;
-        uppercase = false;
+        case = .lower;
     } else if (comptime std.mem.eql(u8, fmt, "x")) {
         radix = 16;
-        uppercase = false;
+        case = .lower;
     } else if (comptime std.mem.eql(u8, fmt, "X")) {
         radix = 16;
-        uppercase = true;
+        case = .upper;
     } else if (comptime std.mem.eql(u8, fmt, "o")) {
         radix = 8;
-        uppercase = false;
+        case = .lower;
     } else {
         @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
     }
 
-    return formatInt(int_value, radix, uppercase, options, writer);
+    return formatInt(int_value, radix, case, options, writer);
 }
 
 fn formatFloatValue(
@@ -724,8 +724,10 @@ fn formatFloatValue(
     return formatBuf(buf_stream.getWritten(), options, writer);
 }
 
-fn formatSliceHexImpl(comptime uppercase: bool) type {
-    const charset = "0123456789" ++ if (uppercase) "ABCDEF" else "abcdef";
+pub const Case = enum { lower, upper };
+
+fn formatSliceHexImpl(comptime case: Case) type {
+    const charset = "0123456789" ++ if (case == .upper) "ABCDEF" else "abcdef";
 
     return struct {
         pub fn f(
@@ -745,8 +747,8 @@ fn formatSliceHexImpl(comptime uppercase: bool) type {
     };
 }
 
-const formatSliceHexLower = formatSliceHexImpl(false).f;
-const formatSliceHexUpper = formatSliceHexImpl(true).f;
+const formatSliceHexLower = formatSliceHexImpl(.lower).f;
+const formatSliceHexUpper = formatSliceHexImpl(.upper).f;
 
 /// Return a Formatter for a []const u8 where every byte is formatted as a pair
 /// of lowercase hexadecimal digits.
@@ -754,14 +756,14 @@ pub fn fmtSliceHexLower(bytes: []const u8) std.fmt.Formatter(formatSliceHexLower
     return .{ .data = bytes };
 }
 
-/// Return a Formatter for a []const u8 where every byte is formatted as a pair
+/// Return a Formatter for a []const u8 where every byte is formatted as pair
 /// of uppercase hexadecimal digits.
 pub fn fmtSliceHexUpper(bytes: []const u8) std.fmt.Formatter(formatSliceHexUpper) {
     return .{ .data = bytes };
 }
 
-fn formatSliceEscapeImpl(comptime uppercase: bool) type {
-    const charset = "0123456789" ++ if (uppercase) "ABCDEF" else "abcdef";
+fn formatSliceEscapeImpl(comptime case: Case) type {
+    const charset = "0123456789" ++ if (case == .upper) "ABCDEF" else "abcdef";
 
     return struct {
         pub fn f(
@@ -788,8 +790,8 @@ fn formatSliceEscapeImpl(comptime uppercase: bool) type {
     };
 }
 
-const formatSliceEscapeLower = formatSliceEscapeImpl(false).f;
-const formatSliceEscapeUpper = formatSliceEscapeImpl(true).f;
+const formatSliceEscapeLower = formatSliceEscapeImpl(.lower).f;
+const formatSliceEscapeUpper = formatSliceEscapeImpl(.upper).f;
 
 /// Return a Formatter for a []const u8 where every non-printable ASCII
 /// character is escaped as \xNN, where NN is the character in lowercase
@@ -1034,13 +1036,13 @@ pub fn formatFloatScientific(
         if (exp > -10 and exp < 10) {
             try writer.writeAll("0");
         }
-        try formatInt(exp, 10, false, FormatOptions{ .width = 0 }, writer);
+        try formatInt(exp, 10, .lower, FormatOptions{ .width = 0 }, writer);
     } else {
         try writer.writeAll("-");
         if (exp > -10 and exp < 10) {
             try writer.writeAll("0");
         }
-        try formatInt(-exp, 10, false, FormatOptions{ .width = 0 }, writer);
+        try formatInt(-exp, 10, .lower, FormatOptions{ .width = 0 }, writer);
     }
 }
 
@@ -1133,7 +1135,7 @@ pub fn formatFloatHexadecimal(
 
     // +1 for the decimal part.
     var buf: [1 + mantissa_digits]u8 = undefined;
-    const N = formatIntBuf(&buf, mantissa, 16, false, .{ .fill = '0', .width = 1 + mantissa_digits });
+    const N = formatIntBuf(&buf, mantissa, 16, .lower, .{ .fill = '0', .width = 1 + mantissa_digits });
 
     try writer.writeAll("0x");
     try writer.writeByte(buf[0]);
@@ -1150,7 +1152,7 @@ pub fn formatFloatHexadecimal(
             try writer.writeByteNTimes('0', precision - trimmed.len);
     };
     try writer.writeAll("p");
-    try formatInt(exponent - exponent_bias, 10, false, .{}, writer);
+    try formatInt(exponent - exponent_bias, 10, .lower, .{}, writer);
 }
 
 /// Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
@@ -1299,7 +1301,7 @@ pub fn formatFloatDecimal(
 pub fn formatInt(
     value: anytype,
     base: u8,
-    uppercase: bool,
+    case: Case,
     options: FormatOptions,
     writer: anytype,
 ) !void {
@@ -1326,7 +1328,7 @@ pub fn formatInt(
     while (true) {
         const digit = a % base;
         index -= 1;
-        buf[index] = digitToChar(@intCast(u8, digit), uppercase);
+        buf[index] = digitToChar(@intCast(u8, digit), case);
         a /= base;
         if (a == 0) break;
     }
@@ -1348,9 +1350,9 @@ pub fn formatInt(
     return formatBuf(buf[index..], options, writer);
 }
 
-pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, uppercase: bool, options: FormatOptions) usize {
+pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options: FormatOptions) usize {
     var fbs = std.io.fixedBufferStream(out_buf);
-    formatInt(value, base, uppercase, options, fbs.writer()) catch unreachable;
+    formatInt(value, base, case, options, fbs.writer()) catch unreachable;
     return fbs.pos;
 }
 
@@ -1365,7 +1367,7 @@ fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.FormatOpti
     }) |unit| {
         if (ns_remaining >= unit.ns) {
             const units = ns_remaining / unit.ns;
-            try formatInt(units, 10, false, .{}, writer);
+            try formatInt(units, 10, .lower, .{}, writer);
             try writer.writeByte(unit.sep);
             ns_remaining -= units * unit.ns;
             if (ns_remaining == 0) return;
@@ -1379,12 +1381,12 @@ fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.FormatOpti
     }) |unit| {
         const kunits = ns_remaining * 1000 / unit.ns;
         if (kunits >= 1000) {
-            try formatInt(kunits / 1000, 10, false, .{}, writer);
+            try formatInt(kunits / 1000, 10, .lower, .{}, writer);
             const frac = kunits % 1000;
             if (frac > 0) {
                 // Write up to 3 decimal places
                 var buf = [_]u8{ '.', 0, 0, 0 };
-                _ = formatIntBuf(buf[1..], frac, 10, false, .{ .fill = '0', .width = 3 });
+                _ = formatIntBuf(buf[1..], frac, 10, .lower, .{ .fill = '0', .width = 3 });
                 var end: usize = 4;
                 while (end > 1) : (end -= 1) {
                     if (buf[end - 1] != '0') break;
@@ -1396,7 +1398,7 @@ fn formatDuration(ns: u64, comptime fmt: []const u8, options: std.fmt.FormatOpti
         }
     }
 
-    try formatInt(ns_remaining, 10, false, .{}, writer);
+    try formatInt(ns_remaining, 10, .lower, .{}, writer);
     try writer.writeAll("ns");
     return;
 }
@@ -1673,10 +1675,10 @@ pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
     return value;
 }
 
-pub fn digitToChar(digit: u8, uppercase: bool) u8 {
+pub fn digitToChar(digit: u8, case: Case) u8 {
     return switch (digit) {
         0...9 => digit + '0',
-        10...35 => digit + ((if (uppercase) @as(u8, 'A') else @as(u8, 'a')) - 10),
+        10...35 => digit + ((if (case == .upper) @as(u8, 'A') else @as(u8, 'a')) - 10),
         else => unreachable,
     };
 }
@@ -1728,25 +1730,25 @@ test "bufPrintInt" {
     var buffer: [100]u8 = undefined;
     const buf = buffer[0..];
 
-    try std.testing.expectEqualSlices(u8, "-1", bufPrintIntToSlice(buf, @as(i1, -1), 10, false, FormatOptions{}));
+    try std.testing.expectEqualSlices(u8, "-1", bufPrintIntToSlice(buf, @as(i1, -1), 10, .lower, FormatOptions{}));
 
-    try std.testing.expectEqualSlices(u8, "-101111000110000101001110", bufPrintIntToSlice(buf, @as(i32, -12345678), 2, false, FormatOptions{}));
-    try std.testing.expectEqualSlices(u8, "-12345678", bufPrintIntToSlice(buf, @as(i32, -12345678), 10, false, FormatOptions{}));
-    try std.testing.expectEqualSlices(u8, "-bc614e", bufPrintIntToSlice(buf, @as(i32, -12345678), 16, false, FormatOptions{}));
-    try std.testing.expectEqualSlices(u8, "-BC614E", bufPrintIntToSlice(buf, @as(i32, -12345678), 16, true, FormatOptions{}));
+    try std.testing.expectEqualSlices(u8, "-101111000110000101001110", bufPrintIntToSlice(buf, @as(i32, -12345678), 2, .lower, FormatOptions{}));
+    try std.testing.expectEqualSlices(u8, "-12345678", bufPrintIntToSlice(buf, @as(i32, -12345678), 10, .lower, FormatOptions{}));
+    try std.testing.expectEqualSlices(u8, "-bc614e", bufPrintIntToSlice(buf, @as(i32, -12345678), 16, .lower, FormatOptions{}));
+    try std.testing.expectEqualSlices(u8, "-BC614E", bufPrintIntToSlice(buf, @as(i32, -12345678), 16, .upper, FormatOptions{}));
 
-    try std.testing.expectEqualSlices(u8, "12345678", bufPrintIntToSlice(buf, @as(u32, 12345678), 10, true, FormatOptions{}));
+    try std.testing.expectEqualSlices(u8, "12345678", bufPrintIntToSlice(buf, @as(u32, 12345678), 10, .upper, FormatOptions{}));
 
-    try std.testing.expectEqualSlices(u8, "   666", bufPrintIntToSlice(buf, @as(u32, 666), 10, false, FormatOptions{ .width = 6 }));
-    try std.testing.expectEqualSlices(u8, "  1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 6 }));
-    try std.testing.expectEqualSlices(u8, "1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 1 }));
+    try std.testing.expectEqualSlices(u8, "   666", bufPrintIntToSlice(buf, @as(u32, 666), 10, .lower, FormatOptions{ .width = 6 }));
+    try std.testing.expectEqualSlices(u8, "  1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, .lower, FormatOptions{ .width = 6 }));
+    try std.testing.expectEqualSlices(u8, "1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, .lower, FormatOptions{ .width = 1 }));
 
-    try std.testing.expectEqualSlices(u8, "+42", bufPrintIntToSlice(buf, @as(i32, 42), 10, false, FormatOptions{ .width = 3 }));
-    try std.testing.expectEqualSlices(u8, "-42", bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }));
+    try std.testing.expectEqualSlices(u8, "+42", bufPrintIntToSlice(buf, @as(i32, 42), 10, .lower, FormatOptions{ .width = 3 }));
+    try std.testing.expectEqualSlices(u8, "-42", bufPrintIntToSlice(buf, @as(i32, -42), 10, .lower, FormatOptions{ .width = 3 }));
 }
 
-pub fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, uppercase: bool, options: FormatOptions) []u8 {
-    return buf[0..formatIntBuf(buf, value, base, uppercase, options)];
+pub fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, case: Case, options: FormatOptions) []u8 {
+    return buf[0..formatIntBuf(buf, value, base, case, options)];
 }
 
 pub fn comptimePrint(comptime fmt: []const u8, args: anytype) *const [count(fmt, args):0]u8 {

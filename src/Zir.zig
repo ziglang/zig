@@ -3231,7 +3231,7 @@ const Writer = struct {
             .limbs = limbs,
             .positive = true,
         };
-        const as_string = try big_int.toStringAlloc(self.gpa, 10, false);
+        const as_string = try big_int.toStringAlloc(self.gpa, 10, .lower);
         defer self.gpa.free(as_string);
         try stream.print("{s})", .{as_string});
     }

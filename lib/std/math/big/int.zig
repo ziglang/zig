@@ -1140,20 +1140,20 @@ pub const Const = struct {
         out_stream: anytype,
     ) !void {
         comptime var radix = 10;
-        comptime var uppercase = false;
+        comptime var case: std.fmt.Case = .lower;
 
         if (fmt.len == 0 or comptime mem.eql(u8, fmt, "d")) {
             radix = 10;
-            uppercase = false;
+            case = .lower;
         } else if (comptime mem.eql(u8, fmt, "b")) {
             radix = 2;
-            uppercase = false;
+            case = .lower;
         } else if (comptime mem.eql(u8, fmt, "x")) {
             radix = 16;
-            uppercase = false;
+            case = .lower;
         } else if (comptime mem.eql(u8, fmt, "X")) {
             radix = 16;
-            uppercase = true;
+            case = .upper;
         } else {
             @compileError("Unknown format string: '" ++ fmt ++ "'");
         }
@@ -1171,7 +1171,7 @@ pub const Const = struct {
             .positive = false,
         };
         var buf: [biggest.sizeInBaseUpperBound(radix)]u8 = undefined;
-        const len = self.toString(&buf, radix, uppercase, &limbs);
+        const len = self.toString(&buf, radix, case, &limbs);
         return out_stream.writeAll(buf[0..len]);
     }
 
@@ -1179,7 +1179,7 @@ pub const Const = struct {
     /// Caller owns returned memory.
     /// Asserts that `base` is in the range [2, 16].
     /// See also `toString`, a lower level function than this.
-    pub fn toStringAlloc(self: Const, allocator: *Allocator, base: u8, uppercase: bool) Allocator.Error![]u8 {
+    pub fn toStringAlloc(self: Const, allocator: *Allocator, base: u8, case: std.fmt.Case) Allocator.Error![]u8 {
         assert(base >= 2);
         assert(base <= 16);
 
@@ -1192,7 +1192,7 @@ pub const Const = struct {
         const limbs = try allocator.alloc(Limb, calcToStringLimbsBufferLen(self.limbs.len, base));
         defer allocator.free(limbs);
 
-        return allocator.shrink(string, self.toString(string, base, uppercase, limbs));
+        return allocator.shrink(string, self.toString(string, base, case, limbs));
     }
 
     /// Converts self to a string in the requested base.
@@ -1204,7 +1204,7 @@ pub const Const = struct {
     /// length of at least `calcToStringLimbsBufferLen`.
     /// In the case of power-of-two base, `limbs_buffer` is ignored.
     /// See also `toStringAlloc`, a higher level function than this.
-    pub fn toString(self: Const, string: []u8, base: u8, uppercase: bool, limbs_buffer: []Limb) usize {
+    pub fn toString(self: Const, string: []u8, base: u8, case: std.fmt.Case, limbs_buffer: []Limb) usize {
         assert(base >= 2);
         assert(base <= 16);
 
@@ -1223,7 +1223,7 @@ pub const Const = struct {
                 var shift: usize = 0;
                 while (shift < limb_bits) : (shift += base_shift) {
                     const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & @as(Limb, base - 1));
-                    const ch = std.fmt.digitToChar(r, uppercase);
+                    const ch = std.fmt.digitToChar(r, case);
                     string[digits_len] = ch;
                     digits_len += 1;
                     // If we hit the end, it must be all zeroes from here.
@@ -1269,7 +1269,7 @@ pub const Const = struct {
                 var r_word = r.limbs[0];
                 var i: usize = 0;
                 while (i < digits_per_limb) : (i += 1) {
-                    const ch = std.fmt.digitToChar(@intCast(u8, r_word % base), uppercase);
+                    const ch = std.fmt.digitToChar(@intCast(u8, r_word % base), case);
                     r_word /= base;
                     string[digits_len] = ch;
                     digits_len += 1;
@@ -1281,7 +1281,7 @@ pub const Const = struct {
 
                 var r_word = q.limbs[0];
                 while (r_word != 0) {
-                    const ch = std.fmt.digitToChar(@intCast(u8, r_word % base), uppercase);
+                    const ch = std.fmt.digitToChar(@intCast(u8, r_word % base), case);
                     r_word /= base;
                     string[digits_len] = ch;
                     digits_len += 1;
@@ -1615,9 +1615,9 @@ pub const Managed = struct {
 
     /// Converts self to a string in the requested base. Memory is allocated from the provided
     /// allocator and not the one present in self.
-    pub fn toString(self: Managed, allocator: *Allocator, base: u8, uppercase: bool) ![]u8 {
+    pub fn toString(self: Managed, allocator: *Allocator, base: u8, case: std.fmt.Case) ![]u8 {
         if (base < 2 or base > 16) return error.InvalidBase;
-        return self.toConst().toStringAlloc(self.allocator, base, uppercase);
+        return self.toConst().toStringAlloc(self.allocator, base, case);
     }
 
     /// To allow `std.fmt.format` to work with `Managed`.

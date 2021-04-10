@@ -68,7 +68,7 @@ pub fn formatEscapes(
         // Use hex escapes for rest any unprintable characters.
         else => {
             try writer.writeAll("\\x");
-            try std.fmt.formatInt(byte, 16, false, .{ .width = 2, .fill = '0' }, writer);
+            try std.fmt.formatInt(byte, 16, .lower, .{ .width = 2, .fill = '0' }, writer);
         },
     };
 }
