@@ -1632,9 +1632,10 @@ fn renderArrayInit(
         }
     }
 
-    const contains_newlines = !tree.tokensOnSameLine(array_init.ast.lbrace, rbrace);
+    const contains_comment = hasComment(tree, array_init.ast.lbrace, rbrace);
+    const contains_multiline_string = hasMultilineString(tree, array_init.ast.lbrace, rbrace);
 
-    if (!trailing_comma and !contains_newlines) {
+    if (!trailing_comma and !contains_comment and !contains_multiline_string) {
         // Render all on one line, no trailing comma.
         if (array_init.ast.elements.len == 1) {
             // If there is only one element, we don't use spaces
@@ -2250,6 +2251,21 @@ fn hasComment(tree: ast.Tree, start_token: ast.TokenIndex, end_token: ast.TokenI
     const end = token_starts[end_token];
 
     return mem.indexOf(u8, tree.source[start..end], "//") != null;
+}
+
+/// Returns true if there exists a multiline string literal between the start
+/// of token `start_token` and the start of token `end_token`.
+fn hasMultilineString(tree: ast.Tree, start_token: ast.TokenIndex, end_token: ast.TokenIndex) bool {
+    const token_tags = tree.tokens.items(.tag);
+
+    for (token_tags[start_token..end_token]) |tag| {
+        switch (tag) {
+            .multiline_string_literal_line => return true,
+            else => continue,
+        }
+    }
+
+    return false;
 }
 
 /// Assumes that start is the first byte past the previous token and

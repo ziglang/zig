@@ -1801,19 +1801,21 @@ test "zig fmt: array literal with hint" {
     );
 }
 
-test "zig fmt: array literal veritical column alignment" {
+test "zig fmt: array literal vertical column alignment" {
     try testTransform(
         \\const a = []u8{
         \\    1000, 200,
         \\    30, 4,
-        \\    50000, 60
+        \\    50000, 60,
         \\};
         \\const a = []u8{0,   1, 2, 3, 40,
         \\    4,5,600,7,
         \\           80,
-        \\    9, 10, 11, 0, 13, 14, 15};
+        \\    9, 10, 11, 0, 13, 14, 15,};
         \\const a = [12]u8{
         \\    31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+        \\const a = [12]u8{
+        \\    31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, };
         \\
     ,
         \\const a = []u8{
@@ -1827,8 +1829,20 @@ test "zig fmt: array literal veritical column alignment" {
         \\    9,  10, 11,  0, 13,
         \\    14, 15,
         \\};
+        \\const a = [12]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
         \\const a = [12]u8{
-        \\    31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        \\    31,
+        \\    28,
+        \\    31,
+        \\    30,
+        \\    31,
+        \\    30,
+        \\    31,
+        \\    31,
+        \\    30,
+        \\    31,
+        \\    30,
+        \\    31,
         \\};
         \\
     );
@@ -2031,10 +2045,7 @@ test "zig fmt: add trailing comma to array literal" {
         \\    return []u16{
         \\        'm', 's', 'y', 's', '-', // hi
         \\    };
-        \\    return []u16{
-        \\        'm', 's', 'y', 's',
-        \\        '-',
-        \\    };
+        \\    return []u16{ 'm', 's', 'y', 's', '-' };
         \\    return []u16{ 'm', 's', 'y', 's', '-' };
         \\}
         \\
@@ -4662,6 +4673,53 @@ test "zig fmt: insert trailing comma if there are comments between switch values
         \\    // comment
         \\    => i,
         \\};
+        \\
+    );
+}
+
+test "zig fmt: make single-line if no trailing comma" {
+    try testTransform(
+        \\test "function call no trailing comma" {
+        \\    foo(
+        \\        1,
+        \\        2
+        \\    );
+        \\}
+        \\
+    ,
+        \\test "function call no trailing comma" {
+        \\    foo(1, 2);
+        \\}
+        \\
+    );
+
+    try testTransform(
+        \\test "struct no trailing comma" {
+        \\    const a = .{
+        \\        .foo = 1,
+        \\        .bar = 2
+        \\    };
+        \\}
+        \\
+    ,
+        \\test "struct no trailing comma" {
+        \\    const a = .{ .foo = 1, .bar = 2 };
+        \\}
+        \\
+    );
+
+    try testTransform(
+        \\test "array no trailing comma" {
+        \\    var stream = multiOutStream(.{
+        \\        fbs1.outStream(),
+        \\        fbs2.outStream()
+        \\    });
+        \\}
+        \\
+    ,
+        \\test "array no trailing comma" {
+        \\    var stream = multiOutStream(.{ fbs1.outStream(), fbs2.outStream() });
+        \\}
         \\
     );
 }
