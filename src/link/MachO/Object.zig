@@ -310,6 +310,7 @@ pub fn parseSections(self: *Object) !void {
 
             break :relocs try reloc.parse(
                 self.allocator,
+                self.arch.?,
                 section.code,
                 mem.bytesAsSlice(macho.relocation_info, raw_relocs),
             );
