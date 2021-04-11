@@ -3860,24 +3860,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .memory => |x| {
                         if (self.bin_file.options.pie) {
                             // RIP-relative displacement to the entry in the GOT table.
-                            // TODO we should come up with our own, backend independent relocation types
-                            // which each backend (Elf, MachO, etc.) would then translate into an actual
-                            // fixup when linking.
-                            if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
-                                    .target_addr = x,
-                                    .offset = self.code.items.len + 3,
-                                    .size = 4,
-                                });
-                            } else {
-                                return self.fail(src, "TODO implement genSetReg for PIE GOT indirection on this platform", .{});
-                            }
-
                             const abi_size = ty.abiSize(self.target.*);
                             const encoder = try X8664Encoder.init(self.code, 7);
+
                             // LEA reg, [<offset>]
-                            // TODO: Check if this breaks on macho if abi_size != 64 and reg is not extended
-                            //       this causes rex byte to be omitted, which might mean the offset (+3) above is wrong.
+
+                            // We encode the instruction FIRST because prefixes may or may not appear.
+                            // After we encode the instruction, we will know that the displacement bytes
+                            // for [<offset>] will be at self.code.items.len - 4.
                             encoder.rex(.{
                                 .w = abi_size == 64,
                                 .r = reg.isExtended(),
@@ -3885,6 +3875,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             encoder.opcode_1byte(0x8D);
                             encoder.modRm_RIPDisp32(reg.low_id());
                             encoder.disp32(0);
+
+                            // TODO we should come up with our own, backend independent relocation types
+                            // which each backend (Elf, MachO, etc.) would then translate into an actual
+                            // fixup when linking.
+                            if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
+                                    .target_addr = x,
+                                    .offset = self.code.items.len - 4,
+                                    .size = 4,
+                                });
+                            } else {
+                                return self.fail(src, "TODO implement genSetReg for PIE GOT indirection on this platform", .{});
+                            }
 
                             // MOV reg, [reg]
                             encoder.rex(.{
