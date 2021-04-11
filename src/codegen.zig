@@ -1505,8 +1505,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// ADD, SUB, XOR, OR, AND
         fn genX8664BinMath(self: *Self, inst: *ir.Inst, op_lhs: *ir.Inst, op_rhs: *ir.Inst) !MCValue {
             // We'll handle these ops in two steps.
-            // 1) Prepare an output register, and put one of the arguments in it
+            // 1) Prepare an output location (register or memory)
+            //    This location will be the location of the operand that dies (if one exists)
+            //    or just a temporary register (if one doesn't exist)
             // 2) Perform the op with the other argument
+            // 3) Sometimes, the output location is memory but the op doesn't support it.
+            //    In this case, copy that location to a register, then perform the op to that register instead.
+            //
+            // TODO: make this algorithm less bad
 
             try self.code.ensureCapacity(self.code.items.len + 8);
 
