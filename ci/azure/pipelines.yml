@@ -66,6 +66,7 @@ jobs:
 - job: OnMasterSuccess
   dependsOn:
   - BuildMacOS
+  - BuildMacOS_arm64
   - BuildLinux
   - BuildWindows
   condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))
