@@ -20,6 +20,8 @@ const build_options = @import("build_options");
 const LazySrcLoc = Module.LazySrcLoc;
 const RegisterManager = @import("register_manager.zig").RegisterManager;
 
+const X8664Encoder = @import("codegen/x86_64.zig").Encoder;
+
 /// The codegen-related data that is stored in `ir.Inst.Block` instructions.
 pub const BlockData = struct {
     relocs: std.ArrayListUnmanaged(Reloc) = undefined,
@@ -1617,9 +1619,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         ///
         /// opcode  | operand shape
         /// --------+----------------------
-        /// 80 /opx | r/m8,        imm8
-        /// 81 /opx | r/m16/32/64, imm16/32
-        /// 83 /opx | r/m16/32/64, imm8
+        /// 80 /opx | *r/m8*,        imm8
+        /// 81 /opx | *r/m16/32/64*, imm16/32
+        /// 83 /opx | *r/m16/32/64*, imm8
         ///
         /// "mr"-style instructions use the low bits of opcode to indicate shape of instruction:
         ///
@@ -1634,12 +1636,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         ///
         /// opcode | operand shape
         /// -------+-------------------------
-        /// mr + 0 | r/m8,        r8
-        /// mr + 1 | r/m16/32/64, r16/32/64
-        /// mr + 2 | r8,          r/m8
-        /// mr + 3 | r16/32/64,   r/m16/32/64
-        /// mr + 4 | AL,          imm8
-        /// mr + 5 | rAX,         imm16/32
+        /// mr + 0 | *r/m8*,        r8
+        /// mr + 1 | *r/m16/32/64*, r16/32/64
+        /// mr + 2 | *r8*,          r/m8
+        /// mr + 3 | *r16/32/64*,   r/m16/32/64
+        /// mr + 4 | *AL*,          imm8
+        /// mr + 5 | *rAX*,         imm16/32
         ///
         /// TODO: rotates and shifts share the same structure, so we can potentially implement them
         ///       at a later date with very similar code.
@@ -1656,12 +1658,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         ///
         /// opcode  | operand shape
         /// --------+------------------
-        /// c0 /opx | r/m8,        imm8
-        /// c1 /opx | r/m16/32/64, imm8
-        /// d0 /opx | r/m8,        1
-        /// d1 /opx | r/m16/32/64, 1
-        /// d2 /opx | r/m8,        CL    (for context, CL is register 1)
-        /// d3 /opx | r/m16/32/64, CL    (for context, CL is register 1)
+        /// c0 /opx | *r/m8*,        imm8
+        /// c1 /opx | *r/m16/32/64*, imm8
+        /// d0 /opx | *r/m8*,        1
+        /// d1 /opx | *r/m16/32/64*, 1
+        /// d2 /opx | *r/m8*,        CL    (for context, CL is register 1)
+        /// d3 /opx | *r/m16/32/64*, CL    (for context, CL is register 1)
         fn genX8664BinMathCode(
             self: *Self,
             src: LazySrcLoc,
@@ -1687,77 +1689,84 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .ptr_stack_offset => unreachable,
                         .ptr_embedded_in_code => unreachable,
                         .register => |src_reg| {
-                            // register, register use mr + 1 addressing mode: r/m16/32/64, r16/32/64
-                            try self.encodeX8664Instruction(src, Instruction{
-                                .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
-                                .primary_opcode_1b = mr + 1,
-                                // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                                //       https://github.com/ziglang/zig/issues/6515
-                                .modrm = @as(
-                                    ?Instruction.ModrmEffectiveAddress,
-                                    Instruction.ModrmEffectiveAddress{ .reg = dst_reg },
-                                ),
-                                .reg = src_reg,
+                            // for register, register use mr + 1
+                            // addressing mode: *r/m16/32/64*, r16/32/64
+                            const operand_size = dst_ty.abiSize(self.target.*);
+                            const encoder = try X8664Encoder.init(self.code, 3);
+                            encoder.rex(.{
+                                .w = operand_size == 64,
+                                .r = src_reg.isExtended(),
+                                .b = dst_reg.isExtended(),
                             });
+                            encoder.opcode_1byte(mr + 1);
+                            encoder.modRm_direct(
+                                src_reg.low_id(),
+                                dst_reg.low_id(),
+                            );
                         },
                         .immediate => |imm| {
                             // register, immediate use opx = 81 or 83 addressing modes:
                             // opx = 81: r/m16/32/64, imm16/32
                             // opx = 83: r/m16/32/64, imm8
-                            const imm32 = @intCast(u31, imm); // This case must be handled before calling genX8664BinMathCode.
-                            if (imm32 <= math.maxInt(u7)) {
-                                try self.encodeX8664Instruction(src, Instruction{
-                                    .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
-                                    .primary_opcode_1b = 0x83,
-                                    .opcode_extension = opx,
-                                    // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                                    //       https://github.com/ziglang/zig/issues/6515
-                                    .modrm = @as(
-                                        ?Instruction.ModrmEffectiveAddress,
-                                        Instruction.ModrmEffectiveAddress{ .reg = dst_reg },
-                                    ),
-                                    .immediate_bytes = 1,
-                                    .immediate = imm32,
+                            const imm32 = @intCast(i32, imm); // This case must be handled before calling genX8664BinMathCode.
+                            if (imm32 <= math.maxInt(i8)) {
+                                const operand_size = dst_ty.abiSize(self.target.*);
+                                const encoder = try X8664Encoder.init(self.code, 4);
+                                encoder.rex(.{
+                                    .w = operand_size == 64,
+                                    .b = dst_reg.isExtended(),
                                 });
+                                encoder.opcode_1byte(0x83);
+                                encoder.modRm_direct(
+                                    opx,
+                                    dst_reg.low_id(),
+                                );
+                                encoder.imm8(@intCast(i8, imm32));
                             } else {
-                                try self.encodeX8664Instruction(src, Instruction{
-                                    .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
-                                    .primary_opcode_1b = 0x81,
-                                    .opcode_extension = opx,
-                                    // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                                    //       https://github.com/ziglang/zig/issues/6515
-                                    .modrm = @as(
-                                        ?Instruction.ModrmEffectiveAddress,
-                                        Instruction.ModrmEffectiveAddress{ .reg = dst_reg },
-                                    ),
-                                    .immediate_bytes = 4,
-                                    .immediate = imm32,
+                                const operand_size = dst_ty.abiSize(self.target.*);
+                                const encoder = try X8664Encoder.init(self.code, 7);
+                                encoder.rex(.{
+                                    .w = operand_size == 64,
+                                    .b = dst_reg.isExtended(),
                                 });
+                                encoder.opcode_1byte(0x81);
+                                encoder.modRm_direct(
+                                    opx,
+                                    dst_reg.low_id(),
+                                );
+                                encoder.imm32(@intCast(i32, imm32));
                             }
                         },
                         .embedded_in_code, .memory => {
                             return self.fail(src, "TODO implement x86 ADD/SUB/CMP source memory", .{});
                         },
                         .stack_offset => |off| {
+                            // register, indirect use mr + 3
+                            // addressing mode: *r16/32/64*, r/m16/32/64
                             const abi_size = dst_ty.abiSize(self.target.*);
                             const adj_off = off + abi_size;
                             if (off > math.maxInt(i32)) {
                                 return self.fail(src, "stack offset too large", .{});
                             }
-                            try self.encodeX8664Instruction(src, Instruction{
-                                .operand_size_64 = abi_size == 64,
-                                .primary_opcode_1b = mr + 0x3,
-                                .reg = dst_reg,
-                                // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                                //       https://github.com/ziglang/zig/issues/6515
-                                .modrm = @as(
-                                    ?Instruction.ModrmEffectiveAddress,
-                                    Instruction.ModrmEffectiveAddress{ .mem_disp = .{
-                                        .reg = Register.ebp,
-                                        .disp = -@intCast(i32, adj_off),
-                                    } },
-                                ),
+                            const encoder = try X8664Encoder.init(self.code, 7);
+                            encoder.rex(.{
+                                .w = abi_size == 64,
+                                .r = dst_reg.isExtended(),
                             });
+                            encoder.opcode_1byte(mr + 3);
+                            if (adj_off <= std.math.maxInt(i8)) {
+                                encoder.modRm_indirectDisp8(
+                                    dst_reg.low_id(),
+                                    Register.ebp.low_id(),
+                                );
+                                encoder.disp8(-@intCast(i8, adj_off));
+                            } else {
+                                encoder.modRm_indirectDisp32(
+                                    dst_reg.low_id(),
+                                    Register.ebp.low_id(),
+                                );
+                                encoder.disp32(-@intCast(i32, adj_off));
+                            }
                         },
                         .compare_flags_unsigned => {
                             return self.fail(src, "TODO implement x86 ADD/SUB/CMP source compare flag (unsigned)", .{});
@@ -1825,17 +1834,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             //
                             // Use the following imul opcode
                             // 0F AF /r: IMUL r32/64, r/m32/64
-                            try self.encodeX8664Instruction(src, Instruction{
-                                .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
-                                .primary_opcode_2b = 0xaf,
-                                // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                                //       https://github.com/ziglang/zig/issues/6515
-                                .modrm = @as(
-                                    ?Instruction.ModrmEffectiveAddress,
-                                    Instruction.ModrmEffectiveAddress{ .reg = src_reg },
-                                ),
-                                .reg = dst_reg,
+                            const abi_size = dst_ty.abiSize(self.target.*);
+                            const encoder = try X8664Encoder.init(self.code, 4);
+                            encoder.rex(.{
+                                .w = abi_size == 64,
+                                .r = dst_reg.isExtended(),
+                                .b = src_reg.isExtended(),
                             });
+                            encoder.opcode_2byte(0x0f, 0xaf);
+                            encoder.modRm_direct(
+                                dst_reg.low_id(),
+                                src_reg.low_id(),
+                            );
                         },
                         .immediate => |imm| {
                             // register, immediate:
@@ -1853,33 +1863,33 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // 2) perform register,register mul
                             // 0F AF /r: IMUL r32/64, r/m32/64
                             if (math.minInt(i8) <= imm and imm <= math.maxInt(i8)) {
-                                try self.encodeX8664Instruction(src, Instruction{
-                                    .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
-                                    .primary_opcode_1b = 0x6B,
-                                    .reg = dst_reg,
-                                    // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                                    //       https://github.com/ziglang/zig/issues/6515
-                                    .modrm = @as(
-                                        ?Instruction.ModrmEffectiveAddress,
-                                        Instruction.ModrmEffectiveAddress{ .reg = dst_reg },
-                                    ),
-                                    .immediate_bytes = 1,
-                                    .immediate = imm,
+                                const abi_size = dst_ty.abiSize(self.target.*);
+                                const encoder = try X8664Encoder.init(self.code, 4);
+                                encoder.rex(.{
+                                    .w = abi_size == 64,
+                                    .r = dst_reg.isExtended(),
+                                    .b = dst_reg.isExtended(),
                                 });
+                                encoder.opcode_1byte(0x6B);
+                                encoder.modRm_direct(
+                                    dst_reg.low_id(),
+                                    dst_reg.low_id(),
+                                );
+                                encoder.imm8(@intCast(i8, imm));
                             } else if (math.minInt(i32) <= imm and imm <= math.maxInt(i32)) {
-                                try self.encodeX8664Instruction(src, Instruction{
-                                    .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
-                                    .primary_opcode_1b = 0x69,
-                                    .reg = dst_reg,
-                                    // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                                    //       https://github.com/ziglang/zig/issues/6515
-                                    .modrm = @as(
-                                        ?Instruction.ModrmEffectiveAddress,
-                                        Instruction.ModrmEffectiveAddress{ .reg = dst_reg },
-                                    ),
-                                    .immediate_bytes = 4,
-                                    .immediate = imm,
+                                const abi_size = dst_ty.abiSize(self.target.*);
+                                const encoder = try X8664Encoder.init(self.code, 7);
+                                encoder.rex(.{
+                                    .w = abi_size == 64,
+                                    .r = dst_reg.isExtended(),
+                                    .b = dst_reg.isExtended(),
                                 });
+                                encoder.opcode_1byte(0x69);
+                                encoder.modRm_direct(
+                                    dst_reg.low_id(),
+                                    dst_reg.low_id(),
+                                );
+                                encoder.imm32(@intCast(i32, imm));
                             } else {
                                 const src_reg = try self.copyToTmpRegister(src, dst_ty, src_mcv);
                                 return self.genX8664Imul(src, dst_ty, dst_mcv, MCValue{ .register = src_reg });
@@ -1910,17 +1920,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // register, register
                             // Use the following imul opcode
                             // 0F AF /r: IMUL r32/64, r/m32/64
-                            try self.encodeX8664Instruction(src, Instruction{
-                                .operand_size_64 = dst_ty.abiSize(self.target.*) == 64,
-                                .primary_opcode_2b = 0xaf,
-                                // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                                //       https://github.com/ziglang/zig/issues/6515
-                                .modrm = @as(
-                                    ?Instruction.ModrmEffectiveAddress,
-                                    Instruction.ModrmEffectiveAddress{ .reg = src_reg },
-                                ),
-                                .reg = dst_reg,
+                            const abi_size = dst_ty.abiSize(self.target.*);
+                            const encoder = try X8664Encoder.init(self.code, 4);
+                            encoder.rex(.{
+                                .w = abi_size == 64,
+                                .r = dst_reg.isExtended(),
+                                .b = src_reg.isExtended(),
                             });
+                            encoder.opcode_2byte(0x0f, 0xaf);
+                            encoder.modRm_direct(
+                                dst_reg.low_id(),
+                                src_reg.low_id(),
+                            );
                             // copy dst_reg back out
                             return self.genSetStack(src, dst_ty, off, MCValue{ .register = dst_reg });
                         },
@@ -1950,20 +1961,29 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (off > math.maxInt(i32)) {
                 return self.fail(src, "stack offset too large", .{});
             }
-            try self.encodeX8664Instruction(src, Instruction{
-                .operand_size_64 = abi_size == 64,
-                .primary_opcode_1b = opcode,
-                .reg = reg,
-                // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                //       https://github.com/ziglang/zig/issues/6515
-                .modrm = @as(
-                    ?Instruction.ModrmEffectiveAddress,
-                    Instruction.ModrmEffectiveAddress{ .mem_disp = .{
-                        .reg = Register.ebp,
-                        .disp = -@intCast(i32, adj_off),
-                    } },
-                ),
+
+            const i_adj_off = -@intCast(i32, adj_off);
+            const encoder = try X8664Encoder.init(self.code, 7);
+            encoder.rex(.{
+                .w = abi_size == 64,
+                .r = reg.isExtended(),
             });
+            encoder.opcode_1byte(opcode);
+            if (i_adj_off < std.math.maxInt(i8)) {
+                // example: 48 89 55 7f           mov    QWORD PTR [rbp+0x7f],rdx
+                encoder.modRm_indirectDisp8(
+                    reg.low_id(),
+                    Register.ebp.low_id(),
+                );
+                encoder.disp8(@intCast(i8, i_adj_off));
+            } else {
+                // example: 48 89 95 80 00 00 00  mov    QWORD PTR [rbp+0x80],rdx
+                encoder.modRm_indirectDisp32(
+                    reg.low_id(),
+                    Register.ebp.low_id(),
+                );
+                encoder.disp32(i_adj_off);
+            }
         }
 
         fn genArgDbgInfo(self: *Self, inst: *ir.Inst.Arg, mcv: MCValue) !void {
@@ -2630,25 +2650,20 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         },
                         .register => |reg| blk: {
                             // test reg, 1
-                            try self.encodeX8664Instruction(inst.base.src, Instruction{
+                            // TODO detect al, ax, eax
+                            const encoder = try X8664Encoder.init(self.code, 4);
+                            encoder.rex(.{
                                 // TODO audit this codegen: we force w = true here to make
                                 // the value affect the big register
-                                .operand_size_64 = true,
-
-                                .primary_opcode_1b = 0xf6, // f6/0 is TEST r/m8, imm8
-                                .opcode_extension = 0,
-
-                                // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                                //       https://github.com/ziglang/zig/issues/6515
-                                // TODO detect al, ax, eax, there's another opcode 0xa8 for that
-                                .modrm = @as(
-                                    ?Instruction.ModrmEffectiveAddress,
-                                    Instruction.ModrmEffectiveAddress{ .reg = reg },
-                                ),
-
-                                .immediate_bytes = 1,
-                                .immediate = 1,
+                                .w = true,
+                                .b = reg.isExtended(),
                             });
+                            encoder.opcode_1byte(0xf6);
+                            encoder.modRm_direct(
+                                0,
+                                reg.low_id(),
+                            );
+                            encoder.disp8(1);
                             break :blk 0x84;
                         },
                         else => return self.fail(inst.base.src, "TODO implement condbr {s} when condition is {s}", .{ self.target.cpu.arch, @tagName(cond) }),
@@ -3167,39 +3182,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
                 },
                 else => return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{}),
-            }
-        }
-
-        /// Encodes a REX prefix as specified, and appends it to the instruction
-        /// stream. This only modifies the instruction stream if at least one bit
-        /// is set true, which has a few implications:
-        ///
-        /// * The length of the instruction buffer will be modified *if* the
-        /// resulting REX is meaningful, but will remain the same if it is not.
-        /// * Deliberately inserting a "meaningless REX" requires explicit usage of
-        /// 0x40, and cannot be done via this function.
-        /// W => 64 bit mode
-        /// R => extension to the MODRM.reg field
-        /// X => extension to the SIB.index field
-        /// B => extension to the MODRM.rm field or the SIB.base field
-        fn rex(self: *Self, arg: struct { b: bool = false, w: bool = false, x: bool = false, r: bool = false }) void {
-            comptime assert(arch == .x86_64);
-            //  From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB.
-            var value: u8 = 0x40;
-            if (arg.b) {
-                value |= 0x1;
-            }
-            if (arg.x) {
-                value |= 0x2;
-            }
-            if (arg.r) {
-                value |= 0x4;
-            }
-            if (arg.w) {
-                value |= 0x8;
-            }
-            if (value != 0x40) {
-                self.code.appendAssumeCapacity(value);
             }
         }
 
@@ -3750,27 +3732,25 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     .compare_flags_unsigned => |op| {
-                        try self.encodeX8664Instruction(src, Instruction{
-                            // TODO audit this codegen: we force w = true here to make
-                            // the value affect the big register
-                            .operand_size_64 = true,
-
-                            .primary_opcode_2b = switch (op) {
-                                .gte => 0x93,
-                                .gt => 0x97,
-                                .neq => 0x95,
-                                .lt => 0x92,
-                                .lte => 0x96,
-                                .eq => 0x94,
-                            },
-
-                            // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                            //       https://github.com/ziglang/zig/issues/6515
-                            .modrm = @as(
-                                ?Instruction.ModrmEffectiveAddress,
-                                Instruction.ModrmEffectiveAddress{ .reg = reg },
-                            ),
+                        const encoder = try X8664Encoder.init(self.code, 7);
+                        // TODO audit this codegen: we force w = true here to make
+                        // the value affect the big register
+                        encoder.rex(.{
+                            .w = true,
+                            .b = reg.isExtended(),
                         });
+                        encoder.opcode_2byte(0x0f, switch (op) {
+                            .gte => 0x93,
+                            .gt => 0x97,
+                            .neq => 0x95,
+                            .lt => 0x92,
+                            .lte => 0x96,
+                            .eq => 0x94,
+                        });
+                        encoder.modRm_direct(
+                            0,
+                            reg.low_id(),
+                        );
                     },
                     .compare_flags_signed => |op| {
                         return self.fail(src, "TODO set register with compare flags value (signed)", .{});
@@ -3780,34 +3760,43 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // register is the fastest way to zero a register.
                         if (x == 0) {
                             // The encoding for `xor r32, r32` is `0x31 /r`.
+                            const encoder = try X8664Encoder.init(self.code, 3);
+
+                            // If we're accessing e.g. r8d, we need to use a REX prefix before the actual operation. Since
+                            // this is a 32-bit operation, the W flag is set to zero. X is also zero, as we're not using a SIB.
+                            // Both R and B are set, as we're extending, in effect, the register bits *and* the operand.
+                            encoder.rex(.{
+                                .r = reg.isExtended(),
+                                .b = reg.isExtended(),
+                            });
+                            encoder.opcode_1byte(0x31);
                             // Section 3.1.1.1 of the Intel x64 Manual states that "/r indicates that the
                             // ModR/M byte of the instruction contains a register operand and an r/m operand."
-                            try self.encodeX8664Instruction(src, Instruction{
-                                .primary_opcode_1b = 0x31,
+                            encoder.modRm_direct(
+                                reg.low_id(),
+                                reg.low_id(),
+                            );
 
-                                // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                                //       https://github.com/ziglang/zig/issues/6515
-                                .reg = @as(?Register, reg),
-                                .modrm = @as(
-                                    ?Instruction.ModrmEffectiveAddress,
-                                    Instruction.ModrmEffectiveAddress{ .reg = reg },
-                                ),
-                            });
                             return;
                         }
-                        if (x <= math.maxInt(u32)) {
+                        if (x <= math.maxInt(i32)) {
                             // Next best case: if we set the lower four bytes, the upper four will be zeroed.
                             //
                             // The encoding for `mov IMM32 -> REG` is (0xB8 + R) IMM.
-                            try self.encodeX8664Instruction(src, Instruction{
-                                // B8 + R
-                                .primary_opcode_1b = 0xB8,
-                                .opcode_reg = @as(?Register, reg),
 
-                                // IMM32
-                                .immediate_bytes = 4,
-                                .immediate = x,
+                            const encoder = try X8664Encoder.init(self.code, 6);
+                            // Just as with XORing, we need a REX prefix. This time though, we only
+                            // need the B bit set, as we're extending the opcode's register field,
+                            // and there is no Mod R/M byte.
+                            encoder.rex(.{
+                                .b = reg.isExtended(),
                             });
+                            encoder.opcode_withReg(0xB8, reg.low_id());
+
+                            // no ModR/M byte
+
+                            // IMM
+                            encoder.imm32(@intCast(i32, x));
                             return;
                         }
                         // Worst case: we need to load the 64-bit register with the IMM. GNU's assemblers calls
@@ -3817,37 +3806,40 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // This encoding is, in fact, the *same* as the one used for 32-bit loads. The only
                         // difference is that we set REX.W before the instruction, which extends the load to
                         // 64-bit and uses the full bit-width of the register.
-                        try self.encodeX8664Instruction(src, Instruction{
-                            .operand_size_64 = true,
-                            // B8 + R
-                            .primary_opcode_1b = 0xB8,
-                            .opcode_reg = @as(?Register, reg),
-
-                            // IMM64
-                            .immediate_bytes = 8,
-                            .immediate = x,
-                        });
+                        {
+                            const encoder = try X8664Encoder.init(self.code, 10);
+                            encoder.rex(.{
+                                .w = true,
+                                .b = reg.isExtended(),
+                            });
+                            encoder.opcode_withReg(0xB8, reg.low_id());
+                            encoder.imm64(x);
+                        }
                     },
                     .embedded_in_code => |code_offset| {
+                        // We need the offset from RIP in a signed i32 twos complement.
+                        // The instruction is 7 bytes long and RIP points to the next instruction.
+
                         // 64-bit LEA is encoded as REX.W 8D /r.
-                        const rip = self.code.items.len;
+                        const rip = self.code.items.len + 7;
                         const big_offset = @intCast(i64, code_offset) - @intCast(i64, rip);
                         const offset = @intCast(i32, big_offset);
-                        try self.encodeX8664Instruction(src, Instruction{
-                            .operand_size_64 = true,
+                        const encoder = try X8664Encoder.init(self.code, 7);
 
-                            // LEA
-                            .primary_opcode_1b = 0x8D,
-
-                            .reg = reg,
-
-                            // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                            //       https://github.com/ziglang/zig/issues/6515
-                            .modrm = @as(
-                                ?Instruction.ModrmEffectiveAddress,
-                                Instruction.ModrmEffectiveAddress{ .disp32 = @bitCast(i32, offset) },
-                            ),
+                        // byte 1, always exists because w = true
+                        encoder.rex(.{
+                            .w = true,
+                            .r = reg.isExtended(),
                         });
+                        // byte 2
+                        encoder.opcode_1byte(0x8D);
+                        // byte 3
+                        encoder.modRm_RIPDisp32(reg.low_id());
+                        // byte 4-7
+                        encoder.disp32(offset);
+
+                        // Double check that we haven't done any math errors
+                        assert(rip == self.code.items.len);
                     },
                     .register => |src_reg| {
                         // If the registers are the same, nothing to do.
@@ -3855,20 +3847,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return;
 
                         // This is a variant of 8B /r.
-                        try self.encodeX8664Instruction(src, Instruction{
-                            .operand_size_64 = ty.abiSize(self.target.*) == 64,
-
-                            .primary_opcode_1b = 0x8B,
-
-                            .reg = reg,
-
-                            // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                            //       https://github.com/ziglang/zig/issues/6515
-                            .modrm = @as(
-                                ?Instruction.ModrmEffectiveAddress,
-                                Instruction.ModrmEffectiveAddress{ .reg = src_reg },
-                            ),
+                        const abi_size = ty.abiSize(self.target.*);
+                        const encoder = try X8664Encoder.init(self.code, 3);
+                        encoder.rex(.{
+                            .w = abi_size == 64,
+                            .r = reg.isExtended(),
+                            .b = src_reg.isExtended(),
                         });
+                        encoder.opcode_1byte(0x8B);
+                        encoder.modRm_direct(reg.low_id(), src_reg.low_id());
                     },
                     .memory => |x| {
                         if (self.bin_file.options.pie) {
@@ -3886,32 +3873,28 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 return self.fail(src, "TODO implement genSetReg for PIE GOT indirection on this platform", .{});
                             }
 
+                            const abi_size = ty.abiSize(self.target.*);
+                            const encoder = try X8664Encoder.init(self.code, 7);
                             // LEA reg, [<offset>]
-                            // manually do this instruction to make sure the offset into the disp32 field won't change.
-                            try self.code.ensureCapacity(self.code.items.len + 7);
-                            self.rex(.{ .w = ty.abiSize(self.target.*) == 64, .r = reg.isExtended() });
-                            self.code.appendSliceAssumeCapacity(&[_]u8{
-                                0x8D,
-                                0x05 | (@as(u8, reg.id() & 0b111) << 3),
+                            // TODO: Check if this breaks on macho if abi_size != 64 and reg is not extended
+                            //       this causes rex byte to be omitted, which might mean the offset (+3) above is wrong.
+                            encoder.rex(.{
+                                .w = abi_size == 64,
+                                .r = reg.isExtended(),
                             });
-                            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), 0);
+                            encoder.opcode_1byte(0x8D);
+                            encoder.modRm_RIPDisp32(reg.low_id());
+                            encoder.disp32(0);
 
                             // MOV reg, [reg]
-                            try self.encodeX8664Instruction(src, Instruction{
-                                .operand_size_64 = ty.abiSize(self.target.*) == 64,
-
-                                .primary_opcode_1b = 0x8B,
-
-                                .reg = reg,
-
-                                // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                                //       https://github.com/ziglang/zig/issues/6515
-                                .modrm = @as(
-                                    ?Instruction.ModrmEffectiveAddress,
-                                    Instruction.ModrmEffectiveAddress{ .mem = reg },
-                                ),
+                            encoder.rex(.{
+                                .w = abi_size == 64,
+                                .r = reg.isExtended(),
+                                .b = reg.isExtended(),
                             });
-                        } else if (x <= math.maxInt(u32)) {
+                            encoder.opcode_1byte(0x8B);
+                            encoder.modRm_indirectDisp0(reg.low_id(), reg.low_id());
+                        } else if (x <= math.maxInt(i32)) {
                             // Moving from memory to a register is a variant of `8B /r`.
                             // Since we're using 64-bit moves, we require a REX.
                             // This variant also requires a SIB, as it would otherwise be RIP-relative.
@@ -3919,14 +3902,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // The SIB must be 0x25, to indicate a disp32 with no scaled index.
                             // 0b00RRR100, where RRR is the lower three bits of the register ID.
                             // The instruction is thus eight bytes; REX 0x8B 0b00RRR100 0x25 followed by a four-byte disp32.
-                            try self.code.ensureCapacity(self.code.items.len + 8);
-                            self.rex(.{ .w = ty.abiSize(self.target.*) == 64, .r = reg.isExtended() });
-                            self.code.appendSliceAssumeCapacity(&[_]u8{
-                                0x8B,
-                                0x04 | (@as(u8, reg.id() & 0b111) << 3), // R
-                                0x25,
+                            const abi_size = ty.abiSize(self.target.*);
+                            const encoder = try X8664Encoder.init(self.code, 8);
+                            encoder.rex(.{
+                                .w = abi_size == 64,
+                                .r = reg.isExtended(),
                             });
-                            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), @intCast(u32, x));
+                            encoder.opcode_1byte(0x8B);
+                            // effective address = [SIB]
+                            encoder.modRm_SIBDisp0(reg.low_id());
+                            // SIB = disp32
+                            encoder.sib_disp32();
+                            encoder.disp32(@intCast(i32, x));
                         } else {
                             // If this is RAX, we can use a direct load; otherwise, we need to load the address, then indirectly load
                             // the value.
@@ -3935,12 +3922,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // moffs64* is a 64-bit offset "relative to segment base", which really just means the
                                 // absolute address for all practical purposes.
 
-                                try self.encodeX8664Instruction(src, Instruction{
-                                    .operand_size_64 = true,
-                                    .primary_opcode_1b = 0xa1,
-                                    .immediate_bytes = 8,
-                                    .immediate = x,
+                                const encoder = try X8664Encoder.init(self.code, 10);
+                                encoder.rex(.{
+                                    .w = true,
                                 });
+                                encoder.opcode_1byte(0xA1);
+                                encoder.writeIntLittle(u64, x);
                             } else {
                                 // This requires two instructions; a move imm as used above, followed by an indirect load using the register
                                 // as the address and the register as the destination.
@@ -3957,17 +3944,17 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // Now, the register contains the address of the value to load into it
                                 // Currently, we're only allowing 64-bit registers, so we need the `REX.W 8B /r` variant.
                                 // TODO: determine whether to allow other sized registers, and if so, handle them properly.
-                                try self.encodeX8664Instruction(src, Instruction{
-                                    .operand_size_64 = ty.abiSize(self.target.*) == 64,
-                                    .primary_opcode_1b = 0x8B,
-                                    .reg = reg,
-                                    // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                                    //       https://github.com/ziglang/zig/issues/6515
-                                    .modrm = @as(
-                                        ?Instruction.ModrmEffectiveAddress,
-                                        Instruction.ModrmEffectiveAddress{ .mem = reg },
-                                    ),
+
+                                // mov reg, [reg]
+                                const abi_size = ty.abiSize(self.target.*);
+                                const encoder = try X8664Encoder.init(self.code, 3);
+                                encoder.rex(.{
+                                    .w = abi_size == 64,
+                                    .r = reg.isExtended(),
+                                    .b = reg.isExtended(),
                                 });
+                                encoder.opcode_1byte(0x8B);
+                                encoder.modRm_indirectDisp0(reg.low_id(), reg.low_id());
                             }
                         }
                     },
@@ -3978,20 +3965,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return self.fail(src, "stack offset too large", .{});
                         }
                         const ioff = -@intCast(i32, off);
-                        try self.encodeX8664Instruction(src, Instruction{
-                            .operand_size_64 = ty.abiSize(self.target.*) == 64,
-                            .primary_opcode_1b = 0x8B,
-                            .reg = reg,
-                            // TODO: Explicit optional wrap due to stage 1 miscompilation :(
-                            //       https://github.com/ziglang/zig/issues/6515
-                            .modrm = @as(
-                                ?Instruction.ModrmEffectiveAddress,
-                                Instruction.ModrmEffectiveAddress{ .mem_disp = .{
-                                    .reg = Register.ebp,
-                                    .disp = ioff,
-                                } },
-                            ),
+                        const encoder = try X8664Encoder.init(self.code, 3);
+                        encoder.rex(.{
+                            .w = abi_size == 64,
+                            .r = reg.isExtended(),
                         });
+                        encoder.opcode_1byte(0x8B);
+                        if (std.math.minInt(i8) <= ioff and ioff <= std.math.maxInt(i8)) {
+                            // Example: 48 8b 4d 7f           mov    rcx,QWORD PTR [rbp+0x7f]
+                            encoder.modRm_indirectDisp8(reg.low_id(), Register.ebp.low_id());
+                            encoder.disp8(@intCast(i8, ioff));
+                        } else {
+                            // Example: 48 8b 8d 80 00 00 00  mov    rcx,QWORD PTR [rbp+0x80]
+                            encoder.modRm_indirectDisp32(reg.low_id(), Register.ebp.low_id());
+                            encoder.disp32(ioff);
+                        }
                     },
                 },
                 else => return self.fail(src, "TODO implement getSetReg for {}", .{self.target.cpu.arch}),
