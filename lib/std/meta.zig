@@ -1337,7 +1337,7 @@ test "shuffleVectorIndex" {
 
 /// Returns whether `error_union` contains an error.
 pub fn isError(error_union: anytype) bool {
-    return if(error_union) |_| false else |_| true;
+    return if (error_union) |_| false else |_| true;
 }
 
 test "isError" {

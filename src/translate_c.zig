@@ -2358,7 +2358,6 @@ fn transInitListExprVector(
     expr: *const clang.InitListExpr,
     ty: *const clang.Type,
 ) TransError!Node {
-
     const qt = getExprQualType(c, @ptrCast(*const clang.Expr, expr));
     const vector_type = try transQualType(c, scope, qt, loc);
     const init_count = expr.getNumInits();
