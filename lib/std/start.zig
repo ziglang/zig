@@ -197,6 +197,19 @@ fn _start() callconv(.Naked) noreturn {
                 : [argc] "={sp}" (-> [*]usize)
             );
         },
+        .powerpc => {
+            // Setup the initial stack frame and clear the back chain pointer.
+            argc_argv_ptr = asm volatile (
+                \\ mr 4, 1
+                \\ li 0, 0
+                \\ stwu 1,-16(1)
+                \\ stw 0, 0(1)
+                \\ mtlr 0
+                : [argc] "={r4}" (-> [*]usize)
+                :
+                : "r0"
+            );
+        },
         .powerpc64le => {
             // Setup the initial stack frame and clear the back chain pointer.
             // TODO: Support powerpc64 (big endian) on ELFv2.
