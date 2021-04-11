@@ -115,8 +115,8 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   BYTESIZE=$(wc -c < $TARBALL)
 
   JSONFILE="tarball.json"
-  echo "{" >$JSONFILE
-  echo "\"tarball\": \"$TARBALL\"," >>$JSONFILE
+  touch $JSONFILE
+  echo "{\"tarball\": \"$TARBALL\"," >>$JSONFILE
   echo "\"shasum\": \"$SHASUM\"," >>$JSONFILE
   echo "\"size\": \"$BYTESIZE\"}" >>$JSONFILE
 
