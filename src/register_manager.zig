@@ -36,7 +36,7 @@ pub fn RegisterManager(
         }
 
         fn isTracked(reg: Register) bool {
-            return std.mem.indexOfScalar(Register, callee_preserved_regs, reg) != null;
+            return reg.allocIndex() != null;
         }
 
         fn markRegUsed(self: *Self, reg: Register) void {
@@ -55,6 +55,7 @@ pub fn RegisterManager(
             self.free_registers |= @as(FreeRegInt, 1) << shift;
         }
 
+        /// Returns true when this register is not tracked
         pub fn isRegFree(self: Self, reg: Register) bool {
             if (FreeRegInt == u0) return true;
             const index = reg.allocIndex() orelse return true;
@@ -63,7 +64,8 @@ pub fn RegisterManager(
         }
 
         /// Returns whether this register was allocated in the course
-        /// of this function
+        /// of this function.
+        /// Returns false when this register is not tracked
         pub fn isRegAllocated(self: Self, reg: Register) bool {
             if (FreeRegInt == u0) return false;
             const index = reg.allocIndex() orelse return false;
@@ -71,57 +73,89 @@ pub fn RegisterManager(
             return self.allocated_registers & @as(FreeRegInt, 1) << shift != 0;
         }
 
+        /// Before calling, must ensureCapacity + count on self.registers.
+        /// Returns `null` if all registers are allocated.
+        pub fn tryAllocRegs(self: *Self, comptime count: comptime_int, insts: [count]*ir.Inst) ?[count]Register {
+            if (self.tryAllocRegsWithoutTracking(count)) |regs| {
+                for (regs) |reg, i| {
+                    self.markRegUsed(reg);
+                    self.registers.putAssumeCapacityNoClobber(reg, insts[i]);
+                }
+
+                return regs;
+            } else {
+                return null;
+            }
+        }
+
         /// Before calling, must ensureCapacity + 1 on self.registers.
         /// Returns `null` if all registers are allocated.
         pub fn tryAllocReg(self: *Self, inst: *ir.Inst) ?Register {
-            const free_index = @ctz(FreeRegInt, self.free_registers);
-            if (free_index >= callee_preserved_regs.len) {
-                return null;
-            }
+            return if (tryAllocRegs(self, 1, .{inst})) |regs| regs[0] else null;
+        }
 
-            // This is necessary because the return type of @ctz is 1
-            // bit longer than ShiftInt if callee_preserved_regs.len
-            // is a power of two. This int cast is always safe because
-            // free_index < callee_preserved_regs.len
-            const shift = @intCast(ShiftInt, free_index);
-            const mask = @as(FreeRegInt, 1) << shift;
-            self.free_registers &= ~mask;
-            self.allocated_registers |= mask;
+        /// Before calling, must ensureCapacity + count on self.registers.
+        pub fn allocRegs(self: *Self, comptime count: comptime_int, insts: [count]*ir.Inst) ![count]Register {
+            comptime assert(count > 0 and count <= callee_preserved_regs.len);
 
-            const reg = callee_preserved_regs[free_index];
-            self.registers.putAssumeCapacityNoClobber(reg, inst);
-            log.debug("alloc {} => {*}", .{ reg, inst });
-            return reg;
+            return self.tryAllocRegs(count, insts) orelse blk: {
+                // We'll take over the first count registers. Spill
+                // the instructions that were previously there to a
+                // stack allocations.
+                var regs: [count]Register = undefined;
+                std.mem.copy(Register, &regs, callee_preserved_regs[0..count]);
+
+                for (regs) |reg, i| {
+                    if (self.isRegFree(reg)) {
+                        self.markRegUsed(reg);
+                        self.registers.putAssumeCapacityNoClobber(reg, insts[i]);
+                    } else {
+                        const regs_entry = self.registers.getEntry(reg).?;
+                        const spilled_inst = regs_entry.value;
+                        regs_entry.value = insts[i];
+                        try self.getFunction().spillInstruction(spilled_inst.src, reg, spilled_inst);
+                    }
+                }
+
+                break :blk regs;
+            };
         }
 
         /// Before calling, must ensureCapacity + 1 on self.registers.
         pub fn allocReg(self: *Self, inst: *ir.Inst) !Register {
-            return self.tryAllocReg(inst) orelse b: {
-                // We'll take over the first register. Move the instruction that was previously
-                // there to a stack allocation.
-                const reg = callee_preserved_regs[0];
-                const regs_entry = self.registers.getEntry(reg).?;
-                const spilled_inst = regs_entry.value;
-                regs_entry.value = inst;
-                try self.getFunction().spillInstruction(spilled_inst.src, reg, spilled_inst);
+            return (try allocRegs(self, 1, .{inst}))[0];
+        }
 
-                break :b reg;
-            };
+        /// Does not track the registers.
+        /// Returns `null` if not enough registers are free.
+        pub fn tryAllocRegsWithoutTracking(self: *Self, comptime count: comptime_int) ?[count]Register {
+            comptime if (callee_preserved_regs.len == 0) return null;
+            comptime assert(count > 0 and count <= callee_preserved_regs.len);
+
+            const free_registers = @popCount(FreeRegInt, self.free_registers);
+            if (free_registers < count) return null;
+
+            var regs: [count]Register = undefined;
+            var i: usize = 0;
+            for (callee_preserved_regs) |reg| {
+                if (i >= count) break;
+                if (self.isRegFree(reg)) {
+                    regs[i] = reg;
+                    i += 1;
+                }
+            }
+            return regs;
         }
 
         /// Does not track the register.
         /// Returns `null` if all registers are allocated.
-        pub fn findUnusedReg(self: *Self) ?Register {
-            const free_index = @ctz(FreeRegInt, self.free_registers);
-            if (free_index >= callee_preserved_regs.len) {
-                return null;
-            }
-            return callee_preserved_regs[free_index];
+        pub fn tryAllocRegWithoutTracking(self: *Self) ?Register {
+            return if (tryAllocRegsWithoutTracking(self, 1)) |regs| regs[0] else null;
         }
 
         /// Does not track the register.
         pub fn allocRegWithoutTracking(self: *Self) !Register {
-            return self.findUnusedReg() orelse b: {
+            return self.tryAllocRegWithoutTracking() orelse b: {
                 // We'll take over the first register. Move the instruction that was previously
                 // there to a stack allocation.
                 const reg = callee_preserved_regs[0];
@@ -190,7 +224,10 @@ pub fn RegisterManager(
 }
 
 const MockRegister = enum(u2) {
-    r0, r1, r2, r3,
+    r0,
+    r1,
+    r2,
+    r3,
 
     pub fn allocIndex(self: MockRegister) ?u2 {
         inline for (mock_callee_preserved_regs) |cpreg, i| {
@@ -213,7 +250,7 @@ const MockFunction = struct {
         self.register_manager.deinit(self.allocator);
         self.spilled.deinit(self.allocator);
     }
-    
+
     pub fn spillInstruction(self: *Self, src: LazySrcLoc, reg: MockRegister, inst: *ir.Inst) !void {
         try self.spilled.append(self.allocator, reg);
     }
