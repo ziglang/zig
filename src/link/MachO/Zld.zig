@@ -10,12 +10,12 @@ const macho = std.macho;
 const math = std.math;
 const log = std.log.scoped(.zld);
 const aarch64 = @import("../../codegen/aarch64.zig");
+const reloc = @import("reloc.zig");
 
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const CodeSignature = @import("CodeSignature.zig");
 const Object = @import("Object.zig");
-const Relocation = @import("reloc.zig").Relocation;
 const Symbol = @import("Symbol.zig");
 const Trie = @import("Trie.zig");
 
@@ -1360,11 +1360,11 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
 
         for (object.sections.items) |sect| {
             const relocs = sect.relocs orelse continue;
-            for (relocs) |reloc| {
-                switch (reloc.@"type") {
+            for (relocs) |rel| {
+                switch (rel.@"type") {
                     .unsigned => continue,
-                    .got_page, .got_page_off => {
-                        const sym = object.symtab.items[reloc.target.symbol];
+                    .got_page, .got_page_off, .got_load, .got => {
+                        const sym = object.symtab.items[rel.target.symbol];
                         const sym_name = object.getString(sym.n_strx);
 
                         if (self.got_entries.contains(sym_name)) continue;
@@ -1383,7 +1383,9 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
                         log.debug("    | found GOT entry {s}: {}", .{ sym_name, self.got_entries.get(sym_name) });
                     },
                     else => {
-                        const sym = object.symtab.items[reloc.target.symbol];
+                        if (rel.target != .symbol) continue;
+
+                        const sym = object.symtab.items[rel.target.symbol];
                         const sym_name = object.getString(sym.n_strx);
 
                         if (!Symbol.isUndef(sym)) continue;
@@ -1442,19 +1444,22 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                 for (relocs) |rel| {
                     const source_addr = target_sect_addr + rel.offset;
 
-                    var args: Relocation.ResolveArgs = .{
+                    var args: reloc.Relocation.ResolveArgs = .{
                         .source_addr = source_addr,
                         .target_addr = undefined,
-                        .subtractor = null,
                     };
 
                     switch (rel.@"type") {
                         .unsigned => {
                             args.target_addr = try self.relocTargetAddr(@intCast(u16, object_id), rel.target);
 
-                            const unsigned = rel.cast(Relocation.Unsigned) orelse unreachable;
+                            const unsigned = rel.cast(reloc.Unsigned) orelse unreachable;
                             if (unsigned.subtractor) |subtractor| {
                                 args.subtractor = try self.relocTargetAddr(@intCast(u16, object_id), subtractor);
+                            }
+                            if (rel.target == .section) {
+                                const source_sect = object.sections.items[rel.target.section];
+                                args.source_sect_addr = source_sect.inner.addr;
                             }
 
                             rebases: {
@@ -1500,7 +1505,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                                 try self.threadlocal_offsets.append(self.allocator, args.target_addr - base_addr);
                             }
                         },
-                        .got_page, .got_page_off => {
+                        .got_page, .got_page_off, .got_load, .got => {
                             const dc_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
                             const got = dc_seg.sections.items[self.got_section_index.?];
                             const sym = object.symtab.items[rel.target.symbol];
@@ -1508,7 +1513,11 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                             const entry = self.got_entries.get(sym_name) orelse unreachable;
                             args.target_addr = got.addr + entry.index * @sizeOf(u64);
                         },
-                        else => {
+                        else => |tt| {
+                            if (tt == .signed and rel.target == .section) {
+                                const source_sect = object.sections.items[rel.target.section];
+                                args.source_sect_addr = source_sect.inner.addr;
+                            }
                             args.target_addr = try self.relocTargetAddr(@intCast(u16, object_id), rel.target);
                         },
                     }
@@ -1547,7 +1556,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
     }
 }
 
-fn relocTargetAddr(self: *Zld, object_id: u16, target: Relocation.Target) !u64 {
+fn relocTargetAddr(self: *Zld, object_id: u16, target: reloc.Relocation.Target) !u64 {
     const object = self.objects.items[object_id];
     const target_addr = blk: {
         switch (target) {
