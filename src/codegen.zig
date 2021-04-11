@@ -2422,13 +2422,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         log.debug("got_addr = 0x{x}", .{got_addr});
                         switch (arch) {
                             .x86_64 => {
-                                try self.genSetReg(inst.base.src, Type.initTag(.u32), .rax, .{ .memory = got_addr });
+                                try self.genSetReg(inst.base.src, Type.initTag(.u64), .rax, .{ .memory = got_addr });
                                 // callq *%rax
                                 try self.code.ensureCapacity(self.code.items.len + 2);
                                 self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
                             },
                             .aarch64 => {
-                                try self.genSetReg(inst.base.src, Type.initTag(.u32), .x30, .{ .memory = got_addr });
+                                try self.genSetReg(inst.base.src, Type.initTag(.u64), .x30, .{ .memory = got_addr });
                                 // blr x30
                                 writeInt(u32, try self.code.addManyAsArray(4), Instruction.blr(.x30).toU32());
                             },
@@ -3862,7 +3862,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (self.bin_file.options.pie) {
                             // RIP-relative displacement to the entry in the GOT table.
                             const abi_size = ty.abiSize(self.target.*);
-                            const encoder = try X8664Encoder.init(self.code, 7);
+                            const encoder = try X8664Encoder.init(self.code, 10);
 
                             // LEA reg, [<offset>]
 
@@ -3870,7 +3870,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // After we encode the instruction, we will know that the displacement bytes
                             // for [<offset>] will be at self.code.items.len - 4.
                             encoder.rex(.{
-                                .w = abi_size == 8,
+                                .w = true, // force 64 bit because loading an address (to the GOT)
                                 .r = reg.isExtended(),
                             });
                             encoder.opcode_1byte(0x8D);
