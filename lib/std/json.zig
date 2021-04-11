@@ -1234,7 +1234,7 @@ test "json.validate" {
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
-const StringHashMap = std.StringHashMap;
+const StringArrayHashMap = std.StringArrayHashMap;
 
 pub const ValueTree = struct {
     arena: ArenaAllocator,
@@ -1245,7 +1245,7 @@ pub const ValueTree = struct {
     }
 };
 
-pub const ObjectMap = StringHashMap(Value);
+pub const ObjectMap = StringArrayHashMap(Value);
 pub const Array = ArrayList(Value);
 
 /// Represents a JSON value

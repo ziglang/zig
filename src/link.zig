@@ -138,7 +138,7 @@ pub const File = struct {
         coff: Coff.TextBlock,
         macho: MachO.TextBlock,
         c: C.DeclBlock,
-        wasm: void,
+        wasm: Wasm.DeclBlock,
         spirv: void,
     };
 
@@ -147,7 +147,7 @@ pub const File = struct {
         coff: Coff.SrcFn,
         macho: MachO.SrcFn,
         c: C.FnBlock,
-        wasm: ?Wasm.FnData,
+        wasm: Wasm.FnData,
         spirv: SpirV.FnData,
     };
 
@@ -328,7 +328,8 @@ pub const File = struct {
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
             .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
             .c => return @fieldParentPtr(C, "base", base).allocateDeclIndexes(decl),
-            .wasm, .spirv => {},
+            .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl),
+            .spirv => {},
         }
     }
 

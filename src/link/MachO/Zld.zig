@@ -1668,7 +1668,7 @@ fn doRelocs(self: *Zld) !void {
                                 var parsed = mem.bytesAsValue(
                                     meta.TagPayload(
                                         aarch64.Instruction,
-                                        aarch64.Instruction.UnconditionalBranchImmediate,
+                                        aarch64.Instruction.unconditional_branch_immediate,
                                     ),
                                     inst,
                                 );
@@ -1688,7 +1688,7 @@ fn doRelocs(self: *Zld) !void {
                                 var parsed = mem.bytesAsValue(
                                     meta.TagPayload(
                                         aarch64.Instruction,
-                                        aarch64.Instruction.PCRelativeAddress,
+                                        aarch64.Instruction.pc_relative_address,
                                     ),
                                     inst,
                                 );
@@ -1706,7 +1706,7 @@ fn doRelocs(self: *Zld) !void {
                                     var parsed = mem.bytesAsValue(
                                         meta.TagPayload(
                                             aarch64.Instruction,
-                                            aarch64.Instruction.AddSubtractImmediate,
+                                            aarch64.Instruction.add_subtract_immediate,
                                         ),
                                         inst,
                                     );
@@ -1719,7 +1719,7 @@ fn doRelocs(self: *Zld) !void {
                                     var parsed = mem.bytesAsValue(
                                         meta.TagPayload(
                                             aarch64.Instruction,
-                                            aarch64.Instruction.LoadStoreRegister,
+                                            aarch64.Instruction.load_store_register,
                                         ),
                                         inst,
                                     );
@@ -1774,7 +1774,7 @@ fn doRelocs(self: *Zld) !void {
                                         const curr = mem.bytesAsValue(
                                             meta.TagPayload(
                                                 aarch64.Instruction,
-                                                aarch64.Instruction.AddSubtractImmediate,
+                                                aarch64.Instruction.add_subtract_immediate,
                                             ),
                                             inst,
                                         );
@@ -1783,7 +1783,7 @@ fn doRelocs(self: *Zld) !void {
                                         const curr = mem.bytesAsValue(
                                             meta.TagPayload(
                                                 aarch64.Instruction,
-                                                aarch64.Instruction.LoadStoreRegister,
+                                                aarch64.Instruction.load_store_register,
                                             ),
                                             inst,
                                         );

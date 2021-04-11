@@ -18,14 +18,14 @@ pub extern "c" fn _lwp_self() lwpid_t;
 
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
-pub extern "c" fn __fstat50(fd: fd_t, buf: *Stat) c_int;
-pub extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;
+pub extern "c" fn __fstat50(fd: fd_t, buf: *libc_stat) c_int;
+pub extern "c" fn __stat50(path: [*:0]const u8, buf: *libc_stat) c_int;
 pub extern "c" fn __clock_gettime50(clk_id: c_int, tp: *timespec) c_int;
 pub extern "c" fn __clock_getres50(clk_id: c_int, tp: *timespec) c_int;
 pub extern "c" fn __getdents30(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
 pub extern "c" fn __sigaltstack14(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn __nanosleep50(rqtp: *const timespec, rmtp: ?*timespec) c_int;
-pub extern "c" fn __sigaction14(sig: c_int, noalias act: *const Sigaction, noalias oact: ?*Sigaction) c_int;
+pub extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
 pub extern "c" fn __sigprocmask14(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
 pub extern "c" fn __socket30(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
 pub extern "c" fn __gettimeofday50(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
@@ -34,7 +34,6 @@ pub extern "c" fn __getrusage50(who: c_int, usage: *rusage) c_int;
 pub extern "c" fn __libc_thr_yield() c_int;
 
 pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
-pub extern "c" fn malloc_usable_size(?*const c_void) usize;
 
 pub const pthread_mutex_t = extern struct {
     ptm_magic: u32 = 0x33330003,
@@ -93,3 +92,5 @@ pub const pthread_attr_t = extern struct {
     pta_flags: i32,
     pta_private: ?*c_void,
 };
+
+pub const sem_t = ?*opaque {};

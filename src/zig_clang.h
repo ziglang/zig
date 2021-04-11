@@ -1071,6 +1071,7 @@ ZIG_EXTERN_C bool ZigClangType_isBooleanType(const struct ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isVoidType(const struct ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isArrayType(const struct ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isRecordType(const struct ZigClangType *self);
+ZIG_EXTERN_C bool ZigClangType_isVectorType(const struct ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isIncompleteOrZeroLengthArrayType(const ZigClangQualType *self, const struct ZigClangASTContext *ctx);
 ZIG_EXTERN_C bool ZigClangType_isConstantArrayType(const ZigClangType *self);
 ZIG_EXTERN_C const char *ZigClangType_getTypeClassName(const struct ZigClangType *self);
@@ -1206,6 +1207,9 @@ ZIG_EXTERN_C const struct ZigClangExpr *ZigClangBinaryOperator_getLHS(const stru
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangBinaryOperator_getRHS(const struct ZigClangBinaryOperator *);
 ZIG_EXTERN_C struct ZigClangQualType ZigClangBinaryOperator_getType(const struct ZigClangBinaryOperator *);
 
+ZIG_EXTERN_C const struct ZigClangExpr *ZigClangConvertVectorExpr_getSrcExpr(const struct ZigClangConvertVectorExpr *);
+ZIG_EXTERN_C struct ZigClangQualType ZigClangConvertVectorExpr_getTypeSourceInfo_getType(const struct ZigClangConvertVectorExpr *);
+
 ZIG_EXTERN_C struct ZigClangQualType ZigClangDecayedType_getDecayedType(const struct ZigClangDecayedType *);
 
 ZIG_EXTERN_C const struct ZigClangCompoundStmt *ZigClangStmtExpr_getSubStmt(const struct ZigClangStmtExpr *);
@@ -1235,6 +1239,9 @@ ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangUnaryOperator_getBeginLoc(con
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangValueDecl_getType(const struct ZigClangValueDecl *);
 
+ZIG_EXTERN_C struct ZigClangQualType ZigClangVectorType_getElementType(const struct ZigClangVectorType *);
+ZIG_EXTERN_C unsigned ZigClangVectorType_getNumElements(const struct ZigClangVectorType *);
+
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangWhileStmt_getCond(const struct ZigClangWhileStmt *);
 ZIG_EXTERN_C const struct ZigClangStmt *ZigClangWhileStmt_getBody(const struct ZigClangWhileStmt *);
 
@@ -1258,6 +1265,9 @@ ZIG_EXTERN_C const struct ZigClangExpr *ZigClangArraySubscriptExpr_getIdx(const 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangUnaryExprOrTypeTraitExpr_getTypeOfArgument(const struct ZigClangUnaryExprOrTypeTraitExpr *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangUnaryExprOrTypeTraitExpr_getBeginLoc(const struct ZigClangUnaryExprOrTypeTraitExpr *);
 ZIG_EXTERN_C enum ZigClangUnaryExprOrTypeTrait_Kind ZigClangUnaryExprOrTypeTraitExpr_getKind(const struct ZigClangUnaryExprOrTypeTraitExpr *);
+
+ZIG_EXTERN_C unsigned ZigClangShuffleVectorExpr_getNumSubExprs(const struct ZigClangShuffleVectorExpr *);
+ZIG_EXTERN_C const struct ZigClangExpr *ZigClangShuffleVectorExpr_getExpr(const struct ZigClangShuffleVectorExpr *, unsigned);
 
 ZIG_EXTERN_C const struct ZigClangStmt *ZigClangDoStmt_getBody(const struct ZigClangDoStmt *);
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangDoStmt_getCond(const struct ZigClangDoStmt *);

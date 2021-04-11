@@ -19,6 +19,11 @@
       "shasum": "{{X86_64_MACOS_SHASUM}}",
       "size": "{{X86_64_MACOS_BYTESIZE}}"
     },
+    "aarch64-macos": {
+      "tarball": "https://ziglang.org/builds/{{AARCH64_MACOS_TARBALL}}",
+      "shasum": "{{AARCH64_MACOS_SHASUM}}",
+      "size": "{{AARCH64_MACOS_BYTESIZE}}"
+    },
     "x86_64-windows": {
       "tarball": "https://ziglang.org/builds/{{X86_64_WINDOWS_TARBALL}}",
       "shasum": "{{X86_64_WINDOWS_SHASUM}}",

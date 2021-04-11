@@ -5,7 +5,6 @@
 // and substantial portions of the software.
 const std = @import("../std.zig");
 const io = std.io;
-const testing = std.testing;
 
 /// Provides `io.Reader`, `io.Writer`, and `io.SeekableStream` for in-memory buffers as
 /// well as files.
@@ -19,7 +18,7 @@ pub const StreamSource = union(enum) {
     pub const ReadError = std.fs.File.ReadError;
     pub const WriteError = std.fs.File.WriteError;
     pub const SeekError = std.fs.File.SeekError;
-    pub const GetSeekPosError = std.fs.File.GetPosError;
+    pub const GetSeekPosError = std.fs.File.GetSeekPosError;
 
     pub const Reader = io.Reader(*StreamSource, ReadError, read);
     pub const Writer = io.Writer(*StreamSource, WriteError, write);

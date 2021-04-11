@@ -941,6 +941,32 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
 
+        // Array access to a global array.
+        case.addCompareOutput(
+            \\const hello = "hello".*;
+            \\export fn _start() noreturn {
+            \\    assert(hello[1] == 'e');
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+
         // 64bit set stack
         case.addCompareOutput(
             \\export fn _start() noreturn {
@@ -1022,8 +1048,45 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
         try case.files.append(.{
-            .src = 
+            .src =
             \\pub fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (@as(usize, 1)),
+            \\          [arg1] "{rdi}" (@as(usize, 1)),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{rdx}" (@as(usize, 14))
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            ,
+            .path = "print.zig",
+        });
+    }
+    {
+        var case = ctx.exe("import private", linux_x64);
+        case.addError(
+            \\export fn _start() noreturn {
+            \\    @import("print.zig").print();
+            \\    exit();
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (@as(usize, 0))
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            &.{":2:25: error: 'print' is private"},
+        );
+        try case.files.append(.{
+            .src =
+            \\fn print() void {
             \\    asm volatile ("syscall"
             \\        :
             \\        : [number] "{rax}" (@as(usize, 1)),
@@ -1040,9 +1103,22 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     ctx.compileError("function redefinition", linux_x64,
+        \\// dummy comment
         \\fn entry() void {}
         \\fn entry() void {}
-    , &[_][]const u8{":2:4: error: redefinition of 'entry'"});
+    , &[_][]const u8{
+        ":3:4: error: redefinition of 'entry'",
+        ":2:1: note: previous definition here",
+    });
+
+    ctx.compileError("global variable redefinition", linux_x64,
+        \\// dummy comment
+        \\var foo = false;
+        \\var foo = true;
+    , &[_][]const u8{
+        ":3:5: error: redefinition of 'foo'",
+        ":2:1: note: previous definition here",
+    });
 
     ctx.compileError("compileError", linux_x64,
         \\export fn _start() noreturn {

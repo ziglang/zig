@@ -1023,6 +1023,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe);
 
     for (toc.nodes) |node| {
+        defer root_node.completeOne();
         switch (node) {
             .Content => |data| {
                 try out.writeAll(data);
@@ -1062,8 +1063,6 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                 try tokenizeAndPrint(tokenizer, out, content_tok);
             },
             .Code => |code| {
-                root_node.completeOne();
-
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
                 const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
                 if (!code.is_inline) {

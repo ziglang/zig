@@ -24,7 +24,7 @@ jobs:
       secureFile: s3cfg
   - script: ci/azure/macos_arm64_script
     name: main
-    displayName: 'Build and cross-compile'
+    displayName: 'Build'
 - job: BuildLinux
   pool:
     vmImage: 'ubuntu-18.04'
@@ -66,6 +66,7 @@ jobs:
 - job: OnMasterSuccess
   dependsOn:
   - BuildMacOS
+  - BuildMacOS_arm64
   - BuildLinux
   - BuildWindows
   condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))

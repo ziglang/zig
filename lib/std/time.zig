@@ -271,7 +271,9 @@ test "timestamp" {
     sleep(ns_per_ms);
     const time_1 = milliTimestamp();
     const interval = time_1 - time_0;
-    testing.expect(interval > 0 and interval < margin);
+    testing.expect(interval > 0);
+    // Tests should not depend on timings: skip test if outside margin.
+    if (!(interval < margin)) return error.SkipZigTest;
 }
 
 test "Timer" {
@@ -280,7 +282,9 @@ test "Timer" {
     var timer = try Timer.start();
     sleep(10 * ns_per_ms);
     const time_0 = timer.read();
-    testing.expect(time_0 > 0 and time_0 < margin);
+    testing.expect(time_0 > 0);
+    // Tests should not depend on timings: skip test if outside margin.
+    if (!(time_0 < margin)) return error.SkipZigTest;
 
     const time_1 = timer.lap();
     testing.expect(time_1 >= time_0);
