@@ -2424,6 +2424,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             .x86_64 => {
                                 try self.genSetReg(inst.base.src, Type.initTag(.u32), .rax, .{ .memory = got_addr });
                                 // callq *%rax
+                                try self.code.ensureCapacity(self.code.items.len + 2);
                                 self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
                             },
                             .aarch64 => {
