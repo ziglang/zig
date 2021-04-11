@@ -29,8 +29,7 @@ fn ok(s: []const u8) !void {
 fn err(s: []const u8) void {
     testing.expect(!json.validate(s));
 
-    testNonStreaming(s) catch return;
-    testing.expect(false);
+    testing.expect(std.meta.isError(testNonStreaming(s)));
 }
 
 fn utf8Error(s: []const u8) void {
@@ -48,8 +47,7 @@ fn any(s: []const u8) void {
 fn anyStreamingErrNonStreaming(s: []const u8) void {
     _ = json.validate(s);
 
-    testNonStreaming(s) catch return;
-    testing.expect(false);
+    testing.expect(std.meta.isError(testNonStreaming(s)));
 }
 
 fn roundTrip(s: []const u8) !void {
