@@ -1691,10 +1691,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .register => |src_reg| {
                             // for register, register use mr + 1
                             // addressing mode: *r/m16/32/64*, r16/32/64
-                            const operand_size = dst_ty.abiSize(self.target.*);
+                            const abi_size = dst_ty.abiSize(self.target.*);
                             const encoder = try X8664Encoder.init(self.code, 3);
                             encoder.rex(.{
-                                .w = operand_size == 64,
+                                .w = abi_size == 8,
                                 .r = src_reg.isExtended(),
                                 .b = dst_reg.isExtended(),
                             });
@@ -1710,10 +1710,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // opx = 83: r/m16/32/64, imm8
                             const imm32 = @intCast(i32, imm); // This case must be handled before calling genX8664BinMathCode.
                             if (imm32 <= math.maxInt(i8)) {
-                                const operand_size = dst_ty.abiSize(self.target.*);
+                                const abi_size = dst_ty.abiSize(self.target.*);
                                 const encoder = try X8664Encoder.init(self.code, 4);
                                 encoder.rex(.{
-                                    .w = operand_size == 64,
+                                    .w = abi_size == 8,
                                     .b = dst_reg.isExtended(),
                                 });
                                 encoder.opcode_1byte(0x83);
@@ -1723,10 +1723,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 );
                                 encoder.imm8(@intCast(i8, imm32));
                             } else {
-                                const operand_size = dst_ty.abiSize(self.target.*);
+                                const abi_size = dst_ty.abiSize(self.target.*);
                                 const encoder = try X8664Encoder.init(self.code, 7);
                                 encoder.rex(.{
-                                    .w = operand_size == 64,
+                                    .w = abi_size == 8,
                                     .b = dst_reg.isExtended(),
                                 });
                                 encoder.opcode_1byte(0x81);
@@ -1750,7 +1750,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             }
                             const encoder = try X8664Encoder.init(self.code, 7);
                             encoder.rex(.{
-                                .w = abi_size == 64,
+                                .w = abi_size == 8,
                                 .r = dst_reg.isExtended(),
                             });
                             encoder.opcode_1byte(mr + 3);
@@ -1837,7 +1837,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const abi_size = dst_ty.abiSize(self.target.*);
                             const encoder = try X8664Encoder.init(self.code, 4);
                             encoder.rex(.{
-                                .w = abi_size == 64,
+                                .w = abi_size == 8,
                                 .r = dst_reg.isExtended(),
                                 .b = src_reg.isExtended(),
                             });
@@ -1866,7 +1866,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 const abi_size = dst_ty.abiSize(self.target.*);
                                 const encoder = try X8664Encoder.init(self.code, 4);
                                 encoder.rex(.{
-                                    .w = abi_size == 64,
+                                    .w = abi_size == 8,
                                     .r = dst_reg.isExtended(),
                                     .b = dst_reg.isExtended(),
                                 });
@@ -1880,7 +1880,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 const abi_size = dst_ty.abiSize(self.target.*);
                                 const encoder = try X8664Encoder.init(self.code, 7);
                                 encoder.rex(.{
-                                    .w = abi_size == 64,
+                                    .w = abi_size == 8,
                                     .r = dst_reg.isExtended(),
                                     .b = dst_reg.isExtended(),
                                 });
@@ -1923,7 +1923,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const abi_size = dst_ty.abiSize(self.target.*);
                             const encoder = try X8664Encoder.init(self.code, 4);
                             encoder.rex(.{
-                                .w = abi_size == 64,
+                                .w = abi_size == 8,
                                 .r = dst_reg.isExtended(),
                                 .b = src_reg.isExtended(),
                             });
@@ -1965,7 +1965,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const i_adj_off = -@intCast(i32, adj_off);
             const encoder = try X8664Encoder.init(self.code, 7);
             encoder.rex(.{
-                .w = abi_size == 64,
+                .w = abi_size == 8,
                 .r = reg.isExtended(),
             });
             encoder.opcode_1byte(opcode);
@@ -3850,7 +3850,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const abi_size = ty.abiSize(self.target.*);
                         const encoder = try X8664Encoder.init(self.code, 3);
                         encoder.rex(.{
-                            .w = abi_size == 64,
+                            .w = abi_size == 8,
                             .r = reg.isExtended(),
                             .b = src_reg.isExtended(),
                         });
@@ -3869,7 +3869,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // After we encode the instruction, we will know that the displacement bytes
                             // for [<offset>] will be at self.code.items.len - 4.
                             encoder.rex(.{
-                                .w = abi_size == 64,
+                                .w = abi_size == 8,
                                 .r = reg.isExtended(),
                             });
                             encoder.opcode_1byte(0x8D);
@@ -3891,7 +3891,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                             // MOV reg, [reg]
                             encoder.rex(.{
-                                .w = abi_size == 64,
+                                .w = abi_size == 8,
                                 .r = reg.isExtended(),
                                 .b = reg.isExtended(),
                             });
@@ -3908,7 +3908,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const abi_size = ty.abiSize(self.target.*);
                             const encoder = try X8664Encoder.init(self.code, 8);
                             encoder.rex(.{
-                                .w = abi_size == 64,
+                                .w = abi_size == 8,
                                 .r = reg.isExtended(),
                             });
                             encoder.opcode_1byte(0x8B);
@@ -3952,7 +3952,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 const abi_size = ty.abiSize(self.target.*);
                                 const encoder = try X8664Encoder.init(self.code, 3);
                                 encoder.rex(.{
-                                    .w = abi_size == 64,
+                                    .w = abi_size == 8,
                                     .r = reg.isExtended(),
                                     .b = reg.isExtended(),
                                 });
@@ -3970,7 +3970,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const ioff = -@intCast(i32, off);
                         const encoder = try X8664Encoder.init(self.code, 3);
                         encoder.rex(.{
-                            .w = abi_size == 64,
+                            .w = abi_size == 8,
                             .r = reg.isExtended(),
                         });
                         encoder.opcode_1byte(0x8B);
