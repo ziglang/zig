@@ -9495,9 +9495,9 @@ static void gen_root_source(CodeGen *g) {
     TldVar *builtin_tld_var = (TldVar*)builtin_tld;
     ZigValue *builtin_val = builtin_tld_var->var->const_value;
     assert(builtin_val->type->id == ZigTypeIdMetaType);
-    ZigType *builtin_type = builtin_val->data.x_type;
+    g->std_builtin_import = builtin_val->data.x_type;
 
-    Tld *panic_tld = find_decl(g, &get_container_scope(builtin_type)->base,
+    Tld *panic_tld = find_decl(g, &get_container_scope(g->std_builtin_import)->base,
             buf_create_from_str("panic"));
     assert(panic_tld != nullptr);
     resolve_top_level_decl(g, panic_tld, nullptr, false);

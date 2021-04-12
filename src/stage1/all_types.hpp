@@ -2077,6 +2077,7 @@ struct CodeGen {
     ZigType *compile_var_import;
     ZigType *root_import;
     ZigType *start_import;
+    ZigType *std_builtin_import;
 
     struct {
         ZigType *entry_bool;
