@@ -3,7 +3,7 @@
 set -x
 set -e
 
-brew install s3cmd ninja gnu-tar
+brew update && brew install s3cmd ninja gnu-tar
 
 ZIGDIR="$(pwd)"
 ARCH="aarch64"
