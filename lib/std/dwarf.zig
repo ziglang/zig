@@ -208,7 +208,7 @@ const LineNumberProgram = struct {
     }
 
     pub fn checkLineMatch(self: *LineNumberProgram) !?debug.LineInfo {
-        if (self.target_address >= self.prev_address and self.target_address < self.address) {
+        if (self.prev_address > 0 and self.target_address >= self.prev_address and self.target_address < self.address) {
             const file_entry = if (self.prev_file == 0) {
                 return error.MissingDebugInfo;
             } else if (self.prev_file - 1 >= self.file_entries.items.len) {
