@@ -675,6 +675,9 @@ pub const WriteError = error{
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
     WouldBlock,
+
+    /// Connection reset by peer.
+    ConnectionResetByPeer,
 } || UnexpectedError;
 
 /// Write to a file descriptor.
@@ -752,6 +755,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             ENOSPC => return error.NoSpaceLeft,
             EPERM => return error.AccessDenied,
             EPIPE => return error.BrokenPipe,
+            ECONNRESET => return error.ConnectionResetByPeer,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -820,6 +824,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
             ENOSPC => return error.NoSpaceLeft,
             EPERM => return error.AccessDenied,
             EPIPE => return error.BrokenPipe,
+            ECONNRESET => return error.ConnectionResetByPeer,
             else => |err| return unexpectedErrno(err),
         }
     }
