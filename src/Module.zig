@@ -657,6 +657,7 @@ pub const Scope = struct {
         /// Direct children of the namespace. Used during an update to detect
         /// which decls have been added/removed from source.
         decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
+        usingnamespace_set: std.AutoHashMapUnmanaged(*Namespace, bool) = .{},
 
         pub fn deinit(ns: *Namespace, gpa: *Allocator) void {
             ns.decls.deinit(gpa);
@@ -2540,6 +2541,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
                 .code = code,
                 .inst_map = try analysis_arena.allocator.alloc(*ir.Inst, code.instructions.len),
                 .owner_decl = decl,
+                .namespace = decl.namespace,
                 .func = null,
                 .owner_func = null,
                 .param_inst_list = &.{},
@@ -2560,7 +2562,73 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
             decl.generation = mod.generation;
             return true;
         },
-        .@"usingnamespace" => @panic("TODO usingnamespace decl"),
+        .@"usingnamespace" => {
+            decl.analysis = .in_progress;
+
+            const type_expr = node_datas[decl_node].lhs;
+            const is_pub = blk: {
+                const main_tokens = tree.nodes.items(.main_token);
+                const token_tags = tree.tokens.items(.tag);
+                const main_token = main_tokens[decl_node];
+                break :blk (main_token > 0 and token_tags[main_token - 1] == .keyword_pub);
+            };
+
+            // A usingnamespace decl does not store any value so we can
+            // deinit this arena after analysis is done.
+            var analysis_arena = std.heap.ArenaAllocator.init(mod.gpa);
+            defer analysis_arena.deinit();
+
+            var code: zir.Code = blk: {
+                var astgen = try AstGen.init(mod, decl, &analysis_arena.allocator);
+                defer astgen.deinit();
+
+                var gen_scope: Scope.GenZir = .{
+                    .force_comptime = true,
+                    .parent = &decl.namespace.base,
+                    .astgen = &astgen,
+                };
+                defer gen_scope.instructions.deinit(mod.gpa);
+
+                const ns_type = try AstGen.typeExpr(&gen_scope, &gen_scope.base, type_expr);
+                _ = try gen_scope.addBreak(.break_inline, 0, ns_type);
+
+                const code = try gen_scope.finish();
+                if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
+                    code.dump(mod.gpa, "usingnamespace_type", &gen_scope.base, 0) catch {};
+                }
+                break :blk code;
+            };
+            defer code.deinit(mod.gpa);
+
+            var sema: Sema = .{
+                .mod = mod,
+                .gpa = mod.gpa,
+                .arena = &analysis_arena.allocator,
+                .code = code,
+                .inst_map = try analysis_arena.allocator.alloc(*ir.Inst, code.instructions.len),
+                .owner_decl = decl,
+                .namespace = decl.namespace,
+                .func = null,
+                .owner_func = null,
+                .param_inst_list = &.{},
+            };
+            var block_scope: Scope.Block = .{
+                .parent = null,
+                .sema = &sema,
+                .src_decl = decl,
+                .instructions = .{},
+                .inlining = null,
+                .is_comptime = true,
+            };
+            defer block_scope.instructions.deinit(mod.gpa);
+
+            const ty = try sema.rootAsType(&block_scope);
+            try decl.namespace.usingnamespace_set.put(mod.gpa, ty.getNamespace().?, is_pub);
+
+            decl.analysis = .complete;
+            decl.generation = mod.generation;
+            return true;
+        },
         else => unreachable,
     }
 }
@@ -2765,6 +2833,7 @@ fn astgenAndSemaFn(
         .code = fn_type_code,
         .inst_map = try fn_type_scope_arena.allocator.alloc(*ir.Inst, fn_type_code.instructions.len),
         .owner_decl = decl,
+        .namespace = decl.namespace,
         .func = null,
         .owner_func = null,
         .param_inst_list = &.{},
@@ -3064,6 +3133,7 @@ fn astgenAndSemaVarDecl(
             .code = code,
             .inst_map = try gen_scope_arena.allocator.alloc(*ir.Inst, code.instructions.len),
             .owner_decl = decl,
+            .namespace = decl.namespace,
             .func = null,
             .owner_func = null,
             .param_inst_list = &.{},
@@ -3125,6 +3195,7 @@ fn astgenAndSemaVarDecl(
             .code = code,
             .inst_map = try type_scope_arena.allocator.alloc(*ir.Inst, code.instructions.len),
             .owner_decl = decl,
+            .namespace = decl.namespace,
             .func = null,
             .owner_func = null,
             .param_inst_list = &.{},
@@ -3387,6 +3458,7 @@ pub fn importFile(mod: *Module, cur_pkg: *Package, import_string: []const u8) !*
         .code = code,
         .inst_map = try gen_scope_arena.allocator.alloc(*ir.Inst, code.instructions.len),
         .owner_decl = top_decl,
+        .namespace = top_decl.namespace,
         .func = null,
         .owner_func = null,
         .param_inst_list = &.{},
@@ -3411,7 +3483,7 @@ pub fn importFile(mod: *Module, cur_pkg: *Package, import_string: []const u8) !*
     struct_decl.contents_hash = top_decl.contents_hash;
     new_file.namespace = struct_ty.getNamespace().?;
     new_file.namespace.parent = null;
-    new_file.namespace.parent_name_hash = tmp_namespace.parent_name_hash;
+    //new_file.namespace.parent_name_hash = tmp_namespace.parent_name_hash;
 
     // Transfer the dependencies to `owner_decl`.
     assert(top_decl.dependants.count() == 0);
@@ -3422,24 +3494,31 @@ pub fn importFile(mod: *Module, cur_pkg: *Package, import_string: []const u8) !*
         _ = try mod.declareDeclDependency(struct_decl, dep);
     }
 
-    try mod.analyzeFile(new_file);
     return new_file;
 }
 
 pub fn analyzeFile(mod: *Module, file: *Scope.File) !void {
-    return mod.analyzeNamespace(file.namespace);
+    // We call `getAstTree` here so that `analyzeFile` has the error set that includes
+    // file system operations, but `analyzeNamespace` does not.
+    const tree = try mod.getAstTree(file.namespace.file_scope);
+    const decls = tree.rootDecls();
+    return mod.analyzeNamespace(file.namespace, decls);
 }
 
-pub fn analyzeNamespace(mod: *Module, namespace: *Scope.Namespace) !void {
+pub fn analyzeNamespace(
+    mod: *Module,
+    namespace: *Scope.Namespace,
+    decls: []const ast.Node.Index,
+) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     // We may be analyzing it for the first time, or this may be
     // an incremental update. This code handles both cases.
-    const tree = try mod.getAstTree(namespace.file_scope);
+    assert(namespace.file_scope.status == .loaded_success); // Caller must ensure tree loaded.
+    const tree: *const ast.Tree = &namespace.file_scope.tree;
     const node_tags = tree.nodes.items(.tag);
     const node_datas = tree.nodes.items(.data);
-    const decls = tree.rootDecls();
 
     try mod.comp.work_queue.ensureUnusedCapacity(decls.len);
     try namespace.decls.ensureCapacity(mod.gpa, decls.len);
@@ -3612,7 +3691,20 @@ pub fn analyzeNamespace(mod: *Module, namespace: *Scope.Namespace) !void {
             }
         },
         .@"usingnamespace" => {
-            log.err("TODO: analyze usingnamespace decl", .{});
+            const name_index = mod.getNextAnonNameIndex();
+            const name = try std.fmt.allocPrint(mod.gpa, "__usingnamespace_{d}", .{name_index});
+            defer mod.gpa.free(name);
+
+            const name_hash = namespace.fullyQualifiedNameHash(name);
+            const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
+
+            const new_decl = try mod.createNewDecl(namespace, name, decl_node, name_hash, contents_hash);
+            namespace.decls.putAssumeCapacity(new_decl, {});
+
+            mod.ensureDeclAnalyzed(new_decl) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => continue,
+            };
         },
         else => unreachable,
     };
@@ -3900,6 +3992,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
         .code = func.zir,
         .inst_map = try mod.gpa.alloc(*ir.Inst, func.zir.instructions.len),
         .owner_decl = decl,
+        .namespace = decl.namespace,
         .func = func,
         .owner_func = func,
         .param_inst_list = param_inst_list,
@@ -4001,6 +4094,10 @@ fn createNewDecl(
     const new_decl = try mod.allocateNewDecl(namespace, src_node, contents_hash);
     errdefer mod.gpa.destroy(new_decl);
     new_decl.name = try mem.dupeZ(mod.gpa, u8, decl_name);
+    log.debug("insert Decl {s} with hash {}", .{
+        new_decl.name,
+        std.fmt.fmtSliceHexLower(&name_hash),
+    });
     mod.decl_table.putAssumeCapacityNoClobber(name_hash, new_decl);
     return new_decl;
 }
@@ -4245,7 +4342,7 @@ fn getNextAnonNameIndex(mod: *Module) usize {
 pub fn lookupIdentifier(mod: *Module, scope: *Scope, ident_name: []const u8) ?*Decl {
     var namespace = scope.namespace();
     while (true) {
-        if (mod.lookupInNamespace(namespace, ident_name)) |decl| {
+        if (mod.lookupInNamespace(namespace, ident_name, false)) |decl| {
             return decl;
         }
         namespace = namespace.parent orelse break;
@@ -4259,9 +4356,32 @@ pub fn lookupInNamespace(
     mod: *Module,
     namespace: *Scope.Namespace,
     ident_name: []const u8,
+    only_pub_usingnamespaces: bool,
 ) ?*Decl {
     const name_hash = namespace.fullyQualifiedNameHash(ident_name);
-    return mod.decl_table.get(name_hash);
+    log.debug("lookup Decl {s} with hash {}", .{
+        ident_name,
+        std.fmt.fmtSliceHexLower(&name_hash),
+    });
+    // TODO handle decl collision with usingnamespace
+    // TODO the decl doing the looking up needs to create a decl dependency
+    // on each usingnamespace decl here.
+    if (mod.decl_table.get(name_hash)) |decl| {
+        return decl;
+    }
+    {
+        var it = namespace.usingnamespace_set.iterator();
+        while (it.next()) |entry| {
+            const other_ns = entry.key;
+            const other_is_pub = entry.value;
+            if (only_pub_usingnamespaces and !other_is_pub) continue;
+            // TODO handle cycles
+            if (mod.lookupInNamespace(other_ns, ident_name, true)) |decl| {
+                return decl;
+            }
+        }
+    }
+    return null;
 }
 
 pub fn makeIntType(arena: *Allocator, signedness: std.builtin.Signedness, bits: u16) !Type {

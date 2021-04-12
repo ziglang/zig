@@ -294,6 +294,12 @@ pub const Inst = struct {
         /// Equivalent to a decl_ref followed by load.
         /// Uses the `pl_node` union field. `payload_index` is into `decls`.
         decl_val,
+        /// Same as `decl_ref` except instead of indexing into decls, uses
+        /// a name to identify the Decl. Uses the `str_tok` union field.
+        decl_ref_named,
+        /// Same as `decl_val` except instead of indexing into decls, uses
+        /// a name to identify the Decl. Uses the `str_tok` union field.
+        decl_val_named,
         /// Load the value from a pointer. Assumes `x.*` syntax.
         /// Uses `un_node` field. AST node is the `x.*` syntax.
         load,
@@ -744,6 +750,8 @@ pub const Inst = struct {
                 .dbg_stmt_node,
                 .decl_ref,
                 .decl_val,
+                .decl_ref_named,
+                .decl_val_named,
                 .load,
                 .div,
                 .elem_ptr,
@@ -1507,17 +1515,19 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. has_bits: u32 // for every 16 fields
+    /// 0. inst: Index // for every body_len
+    /// 1. has_bits: u32 // for every 16 fields
     ///    - sets of 2 bits:
     ///      0b0X: whether corresponding field has an align expression
     ///      0bX0: whether corresponding field has a default expression
-    /// 1. fields: { // for every fields_len
+    /// 2. fields: { // for every fields_len
     ///        field_name: u32,
     ///        field_type: Ref,
     ///        align: Ref, // if corresponding bit is set
     ///        default_value: Ref, // if corresponding bit is set
     ///    }
     pub const StructDecl = struct {
+        body_len: u32,
         fields_len: u32,
     };
 
@@ -1792,6 +1802,8 @@ const Writer = struct {
 
             .error_value,
             .enum_literal,
+            .decl_ref_named,
+            .decl_val_named,
             => try self.writeStrTok(stream, inst),
 
             .fn_type => try self.writeFnType(stream, inst, false),
@@ -1872,7 +1884,16 @@ const Writer = struct {
         inst: Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].ptr_type_simple;
-        try stream.writeAll("TODO)");
+        const str_allowzero = if (inst_data.is_allowzero) "allowzero, " else "";
+        const str_const = if (!inst_data.is_mutable) "const, " else "";
+        const str_volatile = if (inst_data.is_volatile) "volatile, " else "";
+        try self.writeInstRef(stream, inst_data.elem_type);
+        try stream.print(", {s}{s}{s}{s})", .{
+            str_allowzero,
+            str_const,
+            str_volatile,
+            @tagName(inst_data.size),
+        });
     }
 
     fn writePtrType(
@@ -1991,14 +2012,27 @@ const Writer = struct {
     fn writeStructDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.StructDecl, inst_data.payload_index);
+        const body = self.code.extra[extra.end..][0..extra.data.body_len];
         const fields_len = extra.data.fields_len;
-        const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
+
+        if (fields_len == 0) {
+            assert(body.len == 0);
+            try stream.writeAll("{}, {}) ");
+            try self.writeSrc(stream, inst_data.src());
+            return;
+        }
 
         try stream.writeAll("{\n");
         self.indent += 2;
+        try self.writeBody(stream, body);
 
-        var field_index: usize = extra.end + bit_bags_count;
-        var bit_bag_index: usize = extra.end;
+        try stream.writeByteNTimes(' ', self.indent - 2);
+        try stream.writeAll("}, {\n");
+
+        const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
+        const body_end = extra.end + body.len;
+        var field_index: usize = body_end + bit_bags_count;
+        var bit_bag_index: usize = body_end;
         var cur_bit_bag: u32 = undefined;
         var field_i: u32 = 0;
         while (field_i < fields_len) : (field_i += 1) {

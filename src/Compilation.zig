@@ -531,7 +531,7 @@ pub const InitOptions = struct {
     /// is externally modified - essentially anything other than zig-cache - then
     /// this flag would be set to disable this machinery to avoid false positives.
     disable_lld_caching: bool = false,
-    object_format: ?std.builtin.ObjectFormat = null,
+    object_format: ?std.Target.ObjectFormat = null,
     optimize_mode: std.builtin.Mode = .Debug,
     keep_source_files_loaded: bool = false,
     clang_argv: []const []const u8 = &[0][]const u8{},
@@ -1041,6 +1041,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
                 try std_pkg.add(gpa, "builtin", builtin_pkg);
                 try std_pkg.add(gpa, "root", root_pkg);
+                try std_pkg.add(gpa, "std", std_pkg);
+
+                try builtin_pkg.add(gpa, "std", std_pkg);
+                try builtin_pkg.add(gpa, "builtin", builtin_pkg);
             }
 
             // TODO when we implement serialization and deserialization of incremental
@@ -2993,7 +2997,8 @@ fn wantBuildLibCFromSource(comp: Compilation) bool {
         .Exe => true,
     };
     return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
-        comp.bin_file.options.libc_installation == null;
+        comp.bin_file.options.libc_installation == null and
+        comp.bin_file.options.object_format != .c;
 }
 
 fn wantBuildGLibCFromSource(comp: Compilation) bool {
@@ -3017,6 +3022,7 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
     };
     return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
         comp.bin_file.options.libc_installation == null and
+        comp.bin_file.options.object_format != .c and
         target_util.libcNeedsLibUnwind(comp.getTarget());
 }
 
@@ -3068,26 +3074,21 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
 
     @setEvalBranchQuota(4000);
     try buffer.writer().print(
-        \\usingnamespace @import("std").builtin;
-        \\/// Deprecated
-        \\pub const arch = Target.current.cpu.arch;
-        \\/// Deprecated
-        \\pub const endian = Target.current.cpu.arch.endian();
-        \\
+        \\const std = @import("std");
         \\/// Zig version. When writing code that supports multiple versions of Zig, prefer
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
-        \\pub const zig_version = try @import("std").SemanticVersion.parse("{s}");
+        \\pub const zig_version = try std.SemanticVersion.parse("{s}");
         \\pub const zig_is_stage2 = {};
         \\
-        \\pub const output_mode = OutputMode.{};
-        \\pub const link_mode = LinkMode.{};
+        \\pub const output_mode = std.builtin.OutputMode.{};
+        \\pub const link_mode = std.builtin.LinkMode.{};
         \\pub const is_test = {};
         \\pub const single_threaded = {};
-        \\pub const abi = Abi.{};
-        \\pub const cpu: Cpu = Cpu{{
+        \\pub const abi = std.Target.Abi.{};
+        \\pub const cpu: std.Target.Cpu = .{{
         \\    .arch = .{},
-        \\    .model = &Target.{}.cpu.{},
-        \\    .features = Target.{}.featureSet(&[_]Target.{}.Feature{{
+        \\    .model = &std.Target.{}.cpu.{},
+        \\    .features = std.Target.{}.featureSet(&[_]std.Target.{}.Feature{{
         \\
     , .{
         build_options.version,
@@ -3115,7 +3116,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
     try buffer.writer().print(
         \\    }}),
         \\}};
-        \\pub const os = Os{{
+        \\pub const os = std.Target.Os{{
         \\    .tag = .{},
         \\    .version_range = .{{
     ,
@@ -3202,8 +3203,13 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
         (comp.bin_file.options.skip_linker_dependencies and comp.bin_file.options.parent_compilation_link_libc);
 
     try buffer.writer().print(
-        \\pub const object_format = ObjectFormat.{};
-        \\pub const mode = Mode.{};
+        \\pub const target = std.Target{{
+        \\    .cpu = cpu,
+        \\    .os = os,
+        \\    .abi = abi,
+        \\}};
+        \\pub const object_format = std.Target.ObjectFormat.{};
+        \\pub const mode = std.builtin.Mode.{};
         \\pub const link_libc = {};
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
@@ -3211,7 +3217,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
-        \\pub const code_model = CodeModel.{};
+        \\pub const code_model = std.builtin.CodeModel.{};
         \\
     , .{
         std.zig.fmtId(@tagName(comp.bin_file.options.object_format)),

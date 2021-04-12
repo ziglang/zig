@@ -930,7 +930,11 @@ pub const Value = extern union {
 
     /// Asserts the value is comparable.
     pub fn compare(lhs: Value, op: std.math.CompareOperator, rhs: Value) bool {
-        return order(lhs, rhs).compare(op);
+        return switch (op) {
+            .eq => lhs.eql(rhs),
+            .neq => !lhs.eql(rhs),
+            else => order(lhs, rhs).compare(op),
+        };
     }
 
     /// Asserts the value is comparable.
@@ -942,12 +946,19 @@ pub const Value = extern union {
         const a_tag = a.tag();
         const b_tag = b.tag();
         if (a_tag == b_tag) {
-            if (a_tag == .void_value or a_tag == .null_value) {
-                return true;
-            } else if (a_tag == .enum_literal) {
-                const a_name = a.castTag(.enum_literal).?.data;
-                const b_name = b.castTag(.enum_literal).?.data;
-                return std.mem.eql(u8, a_name, b_name);
+            switch (a_tag) {
+                .void_value, .null_value => return true,
+                .enum_literal => {
+                    const a_name = a.castTag(.enum_literal).?.data;
+                    const b_name = b.castTag(.enum_literal).?.data;
+                    return std.mem.eql(u8, a_name, b_name);
+                },
+                .enum_field_index => {
+                    const a_field_index = a.castTag(.enum_field_index).?.data;
+                    const b_field_index = b.castTag(.enum_field_index).?.data;
+                    return a_field_index == b_field_index;
+                },
+                else => {},
             }
         }
         if (a.isType() and b.isType()) {
@@ -958,7 +969,7 @@ pub const Value = extern union {
             const b_type = b.toType(&fib.allocator) catch unreachable;
             return a_type.eql(b_type);
         }
-        return compare(a, .eq, b);
+        return order(a, b).compare(.eq);
     }
 
     pub fn hash_u32(self: Value) u32 {

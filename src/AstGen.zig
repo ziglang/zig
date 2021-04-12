@@ -1254,6 +1254,8 @@ fn blockExprStmts(
                         .coerce_result_ptr,
                         .decl_ref,
                         .decl_val,
+                        .decl_ref_named,
+                        .decl_val_named,
                         .load,
                         .div,
                         .elem_ptr,
@@ -1817,7 +1819,7 @@ pub fn structDeclInner(
     tag: zir.Inst.Tag,
 ) InnerError!zir.Inst.Ref {
     if (container_decl.ast.members.len == 0) {
-        return gz.addPlNode(tag, node, zir.Inst.StructDecl{ .fields_len = 0 });
+        return gz.addPlNode(tag, node, zir.Inst.StructDecl{ .fields_len = 0, .body_len = 0 });
     }
 
     const astgen = gz.astgen;
@@ -1826,11 +1828,20 @@ pub fn structDeclInner(
     const tree = gz.tree();
     const node_tags = tree.nodes.items(.tag);
 
+    // The struct_decl instruction introduces a scope in which the decls of the struct
+    // are in scope, so that field types, alignments, and default value expressions
+    // can refer to decls within the struct itself.
+    var block_scope: GenZir = .{
+        .parent = scope,
+        .astgen = astgen,
+        .force_comptime = true,
+    };
+    defer block_scope.instructions.deinit(gpa);
+
+    // We don't know which members are fields until we iterate, so cannot do
+    // an accurate ensureCapacity yet.
     var fields_data = ArrayListUnmanaged(u32){};
     defer fields_data.deinit(gpa);
-
-    // field_name and field_type are both mandatory
-    try fields_data.ensureCapacity(gpa, container_decl.ast.members.len * 2);
 
     // We only need this if there are greater than 16 fields.
     var bit_bag = ArrayListUnmanaged(u32){};
@@ -1857,7 +1868,7 @@ pub fn structDeclInner(
         const field_name = try gz.identAsString(member.ast.name_token);
         fields_data.appendAssumeCapacity(field_name);
 
-        const field_type = try typeExpr(gz, scope, member.ast.type_expr);
+        const field_type = try typeExpr(&block_scope, &block_scope.base, member.ast.type_expr);
         fields_data.appendAssumeCapacity(@enumToInt(field_type));
 
         const have_align = member.ast.align_expr != 0;
@@ -1867,31 +1878,40 @@ pub fn structDeclInner(
             (@as(u32, @boolToInt(have_value)) << 31);
 
         if (have_align) {
-            const align_inst = try comptimeExpr(gz, scope, .{ .ty = .u32_type }, member.ast.align_expr);
+            const align_inst = try expr(&block_scope, &block_scope.base, .{ .ty = .u32_type }, member.ast.align_expr);
             fields_data.appendAssumeCapacity(@enumToInt(align_inst));
         }
         if (have_value) {
-            const default_inst = try comptimeExpr(gz, scope, .{ .ty = field_type }, member.ast.value_expr);
+            const default_inst = try expr(&block_scope, &block_scope.base, .{ .ty = field_type }, member.ast.value_expr);
             fields_data.appendAssumeCapacity(@enumToInt(default_inst));
         }
 
         field_index += 1;
     }
     if (field_index == 0) {
-        return gz.addPlNode(tag, node, zir.Inst.StructDecl{ .fields_len = 0 });
+        return gz.addPlNode(tag, node, zir.Inst.StructDecl{ .fields_len = 0, .body_len = 0 });
     }
     const empty_slot_count = 16 - (field_index % 16);
     cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
 
-    const result = try gz.addPlNode(tag, node, zir.Inst.StructDecl{
-        .fields_len = @intCast(u32, container_decl.ast.members.len),
-    });
+    const decl_inst = try gz.addBlock(tag, node);
+    try gz.instructions.append(gpa, decl_inst);
+    _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
+
     try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
-        bit_bag.items.len + 1 + fields_data.items.len);
+        @typeInfo(zir.Inst.StructDecl).Struct.fields.len +
+        bit_bag.items.len + 1 + fields_data.items.len +
+        block_scope.instructions.items.len);
+    const zir_datas = astgen.instructions.items(.data);
+    zir_datas[decl_inst].pl_node.payload_index = astgen.addExtraAssumeCapacity(zir.Inst.StructDecl{
+        .body_len = @intCast(u32, block_scope.instructions.items.len),
+        .fields_len = @intCast(u32, field_index),
+    });
+    astgen.extra.appendSliceAssumeCapacity(block_scope.instructions.items);
     astgen.extra.appendSliceAssumeCapacity(bit_bag.items); // Likely empty.
     astgen.extra.appendAssumeCapacity(cur_bit_bag);
     astgen.extra.appendSliceAssumeCapacity(fields_data.items);
-    return result;
+    return astgen.indexToRef(decl_inst);
 }
 
 fn containerDecl(
@@ -3722,16 +3742,16 @@ fn identifier(
         };
     }
 
-    const decl = mod.lookupIdentifier(scope, ident_name) orelse {
-        // TODO insert a "dependency on the non-existence of a decl" here to make this
-        // compile error go away when the decl is introduced. This data should be in a global
-        // sparse map since it is only relevant when a compile error occurs.
-        return mod.failNode(scope, ident, "use of undeclared identifier '{s}'", .{ident_name});
-    };
-    const decl_index = try mod.declareDeclDependency(astgen.decl, decl);
+    // We can't look up Decls until Sema because the same ZIR code is supposed to be
+    // used for multiple generic instantiations, and this may refer to a different Decl
+    // depending on the scope, determined by the generic instantiation.
+    const str_index = try gz.identAsString(ident_token);
     switch (rl) {
-        .ref, .none_or_ref => return gz.addDecl(.decl_ref, decl_index, ident),
-        else => return rvalue(gz, scope, rl, try gz.addDecl(.decl_val, decl_index, ident), ident),
+        .ref, .none_or_ref => return gz.addStrTok(.decl_ref_named, str_index, ident_token),
+        else => {
+            const result = try gz.addStrTok(.decl_val_named, str_index, ident_token);
+            return rvalue(gz, scope, rl, result, ident);
+        },
     }
 }
 
