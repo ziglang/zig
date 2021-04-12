@@ -45,6 +45,7 @@ pub const Builder = struct {
     verbose_llvm_ir: bool,
     verbose_cimport: bool,
     verbose_llvm_cpu_features: bool,
+    hide_build_command_on_error: bool,
     color: enum { auto, on, off } = .auto,
     invalid_user_input: bool,
     zig_exe: []const u8,
@@ -157,6 +158,7 @@ pub const Builder = struct {
             .verbose_llvm_ir = false,
             .verbose_cimport = false,
             .verbose_llvm_cpu_features = false,
+            .hide_build_command_on_error = false,
             .invalid_user_input = false,
             .allocator = allocator,
             .user_input_options = UserInputOptionsMap.init(allocator),
@@ -1162,8 +1164,13 @@ pub const Builder = struct {
             },
             error.ExitCodeFailure => {
                 if (src_step) |s| warn("{s}...", .{s.name});
-                warn("The following command exited with error code {d}:\n", .{code});
-                printCmd(null, argv);
+                if (self.hide_build_command_on_error) {
+                    warn("The step exited with error code {d}\n", .{code});
+                } else {
+                    warn("The following command exited with error code {d}:\n", .{code});
+                    printCmd(null, argv);
+                }
+
                 std.os.exit(@truncate(u8, code));
             },
             error.ProcessTerminated => {
