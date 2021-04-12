@@ -17,6 +17,8 @@ inst_map: []*Inst,
 /// and `src_decl` of `Scope.Block` is the `Decl` of the callee.
 /// This `Decl` owns the arena memory of this `Sema`.
 owner_decl: *Decl,
+/// How to look up decl names.
+namespace: *Scope.Namespace,
 /// For an inline or comptime function call, this will be the root parent function
 /// which contains the callsite. Corresponds to `owner_decl`.
 owner_func: ?*Module.Fn,
@@ -169,7 +171,9 @@ pub fn analyzeBody(
             .cmp_neq => try sema.zirCmp(block, inst, .neq),
             .coerce_result_ptr => try sema.zirCoerceResultPtr(block, inst),
             .decl_ref => try sema.zirDeclRef(block, inst),
+            .decl_ref_named => try sema.zirDeclRefNamed(block, inst),
             .decl_val => try sema.zirDeclVal(block, inst),
+            .decl_val_named => try sema.zirDeclValNamed(block, inst),
             .load => try sema.zirLoad(block, inst),
             .div => try sema.zirArithmetic(block, inst),
             .elem_ptr => try sema.zirElemPtr(block, inst),
@@ -535,68 +539,10 @@ fn zirStructDecl(
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(zir.Inst.StructDecl, inst_data.payload_index);
+    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
     const fields_len = extra.data.fields_len;
-    const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-    errdefer new_decl_arena.deinit();
-
-    var fields_map: std.StringArrayHashMapUnmanaged(Module.Struct.Field) = .{};
-    try fields_map.ensureCapacity(&new_decl_arena.allocator, fields_len);
-
-    {
-        var field_index: usize = extra.end + bit_bags_count;
-        var bit_bag_index: usize = extra.end;
-        var cur_bit_bag: u32 = undefined;
-        var field_i: u32 = 0;
-        while (field_i < fields_len) : (field_i += 1) {
-            if (field_i % 16 == 0) {
-                cur_bit_bag = sema.code.extra[bit_bag_index];
-                bit_bag_index += 1;
-            }
-            const has_align = @truncate(u1, cur_bit_bag) != 0;
-            cur_bit_bag >>= 1;
-            const has_default = @truncate(u1, cur_bit_bag) != 0;
-            cur_bit_bag >>= 1;
-
-            const field_name_zir = sema.code.nullTerminatedString(sema.code.extra[field_index]);
-            field_index += 1;
-            const field_type_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[field_index]);
-            field_index += 1;
-
-            // This string needs to outlive the ZIR code.
-            const field_name = try new_decl_arena.allocator.dupe(u8, field_name_zir);
-            // TODO: if we need to report an error here, use a source location
-            // that points to this type expression rather than the struct.
-            // But only resolve the source location if we need to emit a compile error.
-            const field_ty = try sema.resolveType(block, src, field_type_ref);
-
-            const gop = fields_map.getOrPutAssumeCapacity(field_name);
-            assert(!gop.found_existing);
-            gop.entry.value = .{
-                .ty = field_ty,
-                .abi_align = Value.initTag(.abi_align_default),
-                .default_val = Value.initTag(.unreachable_value),
-            };
-
-            if (has_align) {
-                const align_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[field_index]);
-                field_index += 1;
-                // TODO: if we need to report an error here, use a source location
-                // that points to this alignment expression rather than the struct.
-                // But only resolve the source location if we need to emit a compile error.
-                gop.entry.value.abi_align = (try sema.resolveInstConst(block, src, align_ref)).val;
-            }
-            if (has_default) {
-                const default_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[field_index]);
-                field_index += 1;
-                // TODO: if we need to report an error here, use a source location
-                // that points to this default value expression rather than the struct.
-                // But only resolve the source location if we need to emit a compile error.
-                gop.entry.value.default_val = (try sema.resolveInstConst(block, src, default_ref)).val;
-            }
-        }
-    }
 
     const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
@@ -607,7 +553,7 @@ fn zirStructDecl(
     });
     struct_obj.* = .{
         .owner_decl = sema.owner_decl,
-        .fields = fields_map,
+        .fields = .{},
         .node_offset = inst_data.src_node,
         .namespace = .{
             .parent = sema.owner_decl.namespace,
@@ -616,6 +562,128 @@ fn zirStructDecl(
             .file_scope = block.getFileScope(),
         },
     };
+
+    {
+        const ast = std.zig.ast;
+        const node = sema.owner_decl.relativeToNodeIndex(inst_data.src_node);
+        const tree: *const ast.Tree = &struct_obj.namespace.file_scope.tree;
+        const node_tags = tree.nodes.items(.tag);
+        var buf: [2]ast.Node.Index = undefined;
+        const members: []const ast.Node.Index = switch (node_tags[node]) {
+            .container_decl,
+            .container_decl_trailing,
+            => tree.containerDecl(node).ast.members,
+
+            .container_decl_two,
+            .container_decl_two_trailing,
+            => tree.containerDeclTwo(&buf, node).ast.members,
+
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            => tree.containerDeclArg(node).ast.members,
+
+            .root => tree.rootDecls(),
+            else => unreachable,
+        };
+        try sema.mod.analyzeNamespace(&struct_obj.namespace, members);
+    }
+
+    if (fields_len == 0) {
+        assert(body.len == 0);
+        return sema.analyzeDeclVal(block, src, new_decl);
+    }
+
+    try struct_obj.fields.ensureCapacity(&new_decl_arena.allocator, fields_len);
+
+    {
+        // We create a block for the field type instructions because they
+        // may need to reference Decls from inside the struct namespace.
+        // Within the field type, default value, and alignment expressions, the "owner decl"
+        // should be the struct itself. Thus we need a new Sema.
+        var struct_sema: Sema = .{
+            .mod = sema.mod,
+            .gpa = sema.mod.gpa,
+            .arena = &new_decl_arena.allocator,
+            .code = sema.code,
+            .inst_map = sema.inst_map,
+            .owner_decl = new_decl,
+            .namespace = &struct_obj.namespace,
+            .owner_func = null,
+            .func = null,
+            .param_inst_list = &.{},
+            .branch_quota = sema.branch_quota,
+            .branch_count = sema.branch_count,
+        };
+
+        var struct_block: Scope.Block = .{
+            .parent = null,
+            .sema = &struct_sema,
+            .src_decl = new_decl,
+            .instructions = .{},
+            .inlining = null,
+            .is_comptime = true,
+        };
+        defer assert(struct_block.instructions.items.len == 0); // should all be comptime instructions
+
+        _ = try struct_sema.analyzeBody(&struct_block, body);
+
+        sema.branch_count = struct_sema.branch_count;
+        sema.branch_quota = struct_sema.branch_quota;
+    }
+    const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
+    const body_end = extra.end + body.len;
+    var field_index: usize = body_end + bit_bags_count;
+    var bit_bag_index: usize = body_end;
+    var cur_bit_bag: u32 = undefined;
+    var field_i: u32 = 0;
+    while (field_i < fields_len) : (field_i += 1) {
+        if (field_i % 16 == 0) {
+            cur_bit_bag = sema.code.extra[bit_bag_index];
+            bit_bag_index += 1;
+        }
+        const has_align = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const has_default = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+
+        const field_name_zir = sema.code.nullTerminatedString(sema.code.extra[field_index]);
+        field_index += 1;
+        const field_type_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[field_index]);
+        field_index += 1;
+
+        // This string needs to outlive the ZIR code.
+        const field_name = try new_decl_arena.allocator.dupe(u8, field_name_zir);
+        // TODO: if we need to report an error here, use a source location
+        // that points to this type expression rather than the struct.
+        // But only resolve the source location if we need to emit a compile error.
+        const field_ty = try sema.resolveType(block, src, field_type_ref);
+
+        const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
+        assert(!gop.found_existing);
+        gop.entry.value = .{
+            .ty = field_ty,
+            .abi_align = Value.initTag(.abi_align_default),
+            .default_val = Value.initTag(.unreachable_value),
+        };
+
+        if (has_align) {
+            const align_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[field_index]);
+            field_index += 1;
+            // TODO: if we need to report an error here, use a source location
+            // that points to this alignment expression rather than the struct.
+            // But only resolve the source location if we need to emit a compile error.
+            gop.entry.value.abi_align = (try sema.resolveInstConst(block, src, align_ref)).val;
+        }
+        if (has_default) {
+            const default_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[field_index]);
+            field_index += 1;
+            // TODO: if we need to report an error here, use a source location
+            // that points to this default value expression rather than the struct.
+            // But only resolve the source location if we need to emit a compile error.
+            gop.entry.value.default_val = (try sema.resolveInstConst(block, src, default_ref)).val;
+        }
+    }
+
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
@@ -1447,6 +1515,34 @@ fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
     return sema.analyzeDeclVal(block, src, decl);
 }
 
+fn zirDeclRefNamed(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
+    const src = inst_data.src();
+    const decl_name = inst_data.get(sema.code);
+    const decl = try sema.lookupIdentifier(block, src, decl_name);
+    return sema.analyzeDeclRef(block, src, decl);
+}
+
+fn zirDeclValNamed(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
+    const src = inst_data.src();
+    const decl_name = inst_data.get(sema.code);
+    const decl = try sema.lookupIdentifier(block, src, decl_name);
+    return sema.analyzeDeclVal(block, src, decl);
+}
+
+fn lookupIdentifier(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, name: []const u8) !*Decl {
+    const mod = sema.mod;
+    const decl = mod.lookupIdentifier(&sema.namespace.base, name) orelse {
+        // TODO insert a "dependency on the non-existence of a decl" here to make this
+        // compile error go away when the decl is introduced. This data should be in a global
+        // sparse map since it is only relevant when a compile error occurs.
+        return mod.fail(&block.base, src, "use of undeclared identifier '{s}'", .{name});
+    };
+    _ = try mod.declareDeclDependency(sema.owner_decl, decl);
+    return decl;
+}
+
 fn zirCallNone(
     sema: *Sema,
     block: *Scope.Block,
@@ -1587,6 +1683,7 @@ fn analyzeCall(
             .code = module_fn.zir,
             .inst_map = try sema.gpa.alloc(*ir.Inst, module_fn.zir.instructions.len),
             .owner_decl = sema.owner_decl,
+            .namespace = sema.owner_decl.namespace,
             .owner_func = sema.owner_func,
             .func = module_fn,
             .param_inst_list = casted_args,
@@ -3647,7 +3744,7 @@ fn zirHasDecl(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError
         "expected struct, enum, union, or opaque, found '{}'",
         .{container_type},
     );
-    if (mod.lookupInNamespace(namespace, decl_name)) |decl| {
+    if (mod.lookupInNamespace(namespace, decl_name, true)) |decl| {
         if (decl.is_pub or decl.namespace.file_scope == block.base.namespace().file_scope) {
             return mod.constBool(arena, src, true);
         }
@@ -3673,7 +3770,8 @@ fn zirImport(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!
             return mod.fail(&block.base, src, "unable to find '{s}'", .{operand});
         },
         else => {
-            // TODO: make sure this gets retried and not cached
+            // TODO: these errors are file system errors; make sure an update() will
+            // retry this and not cache the file system error, which may be transient.
             return mod.fail(&block.base, src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
@@ -4069,8 +4167,21 @@ fn zirCmp(
 
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
-    try sema.requireRuntimeBlock(block, src); // TODO try to do it at comptime
-    const bool_type = Type.initTag(.bool); // TODO handle vectors
+
+    if (casted_lhs.value()) |lhs_val| {
+        if (casted_rhs.value()) |rhs_val| {
+            if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                return sema.mod.constInst(sema.arena, src, .{
+                    .ty = resolved_type,
+                    .val = Value.initTag(.undef),
+                });
+            }
+            const result = lhs_val.compare(op, rhs_val);
+            return sema.mod.constBool(sema.arena, src, result);
+        }
+    }
+
+    try sema.requireRuntimeBlock(block, src);
     const tag: Inst.Tag = switch (op) {
         .lt => .cmp_lt,
         .lte => .cmp_lte,
@@ -4079,6 +4190,7 @@ fn zirCmp(
         .gt => .cmp_gt,
         .neq => .cmp_neq,
     };
+    const bool_type = Type.initTag(.bool); // TODO handle vectors
     return block.addBinOp(src, bool_type, tag, casted_lhs, casted_rhs);
 }
 
@@ -4525,7 +4637,7 @@ fn requireFunctionBlock(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void
 
 fn requireRuntimeBlock(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void {
     if (block.is_comptime) {
-        return sema.mod.fail(&block.base, src, "unable to resolve comptime value", .{});
+        return sema.failWithNeededComptime(block, src);
     }
     try sema.requireFunctionBlock(block, src);
 }
@@ -4775,7 +4887,7 @@ fn analyzeNamespaceLookup(
 ) InnerError!?*Inst {
     const mod = sema.mod;
     const gpa = sema.gpa;
-    if (mod.lookupInNamespace(namespace, decl_name)) |decl| {
+    if (mod.lookupInNamespace(namespace, decl_name, true)) |decl| {
         if (!decl.is_pub and decl.namespace.file_scope != block.getFileScope()) {
             const msg = msg: {
                 const msg = try mod.errMsg(&block.base, src, "'{s}' is not marked 'pub'", .{
@@ -5636,6 +5748,14 @@ fn resolvePeerTypes(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, instructi
         }
 
         if (chosen.ty.isInt() and candidate.ty.zigTypeTag() == .ComptimeInt) {
+            continue;
+        }
+
+        if (chosen.ty.zigTypeTag() == .Enum and candidate.ty.zigTypeTag() == .EnumLiteral) {
+            continue;
+        }
+        if (chosen.ty.zigTypeTag() == .EnumLiteral and candidate.ty.zigTypeTag() == .Enum) {
+            chosen = candidate;
             continue;
         }
 

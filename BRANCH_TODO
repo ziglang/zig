@@ -1,4 +1,8 @@
  * get rid of failed_root_src_file
+ * handle decl collision with usingnamespace
+ * the decl doing the looking up needs to create a decl dependency
+   on each usingnamespace decl
+ * handle usingnamespace cycles
 
 
     const container_name_hash: Scope.NameHash = if (found_pkg) |pkg|
@@ -93,4 +97,5 @@ fn getAnonTypeName(mod: *Module, scope: *Scope, base_token: std.zig.ast.TokenInd
     const loc = tree.tokenLocation(0, base_token);
     return std.fmt.allocPrint(mod.gpa, "{s}:{d}:{d}", .{ base_name, loc.line, loc.column });
 }
+
 

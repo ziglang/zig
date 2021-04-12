@@ -8185,14 +8185,18 @@ bool err_ptr_eql(const ErrorTableEntry *a, const ErrorTableEntry *b) {
 }
 
 ZigValue *get_builtin_value(CodeGen *codegen, const char *name) {
-    ScopeDecls *builtin_scope = get_container_scope(codegen->compile_var_import);
-    Tld *tld = find_container_decl(codegen, builtin_scope, buf_create_from_str(name));
+    Buf *buf_name = buf_create_from_str(name);
+
+    ScopeDecls *builtin_scope = get_container_scope(codegen->std_builtin_import);
+    Tld *tld = find_container_decl(codegen, builtin_scope, buf_name);
     assert(tld != nullptr);
     resolve_top_level_decl(codegen, tld, nullptr, false);
     assert(tld->id == TldIdVar && tld->resolution == TldResolutionOk);
     TldVar *tld_var = (TldVar *)tld;
     ZigValue *var_value = tld_var->var->const_value;
     assert(var_value != nullptr);
+
+    buf_destroy(buf_name);
     return var_value;
 }
 

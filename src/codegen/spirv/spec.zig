@@ -21,7 +21,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 // FROM,OUT OF OR IN CONNECTION WITH THE MATERIALS OR THE USE OR OTHER DEALINGS
 // IN THE MATERIALS.
-const Version = @import("builtin").Version;
+const Version = @import("std").builtin.Version;
 pub const version = Version{ .major = 1, .minor = 5, .patch = 4 };
 pub const magic_number: u32 = 0x07230203;
 pub const Opcode = extern enum(u16) {
