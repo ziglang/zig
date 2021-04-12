@@ -296,6 +296,33 @@ comptime {
         @export(@import("compiler_rt/sparc.zig")._Qp_qtod, .{ .name = "_Qp_qtod", .linkage = linkage });
     }
 
+    if (builtin.arch == .powerpc or builtin.arch.isPPC64()) {
+        @export(@import("compiler_rt/addXf3.zig").__addtf3, .{ .name = "__addkf3", .linkage = linkage });
+        @export(@import("compiler_rt/addXf3.zig").__subtf3, .{ .name = "__subkf3", .linkage = linkage });
+        @export(@import("compiler_rt/mulXf3.zig").__multf3, .{ .name = "__mulkf3", .linkage = linkage });
+        @export(@import("compiler_rt/divtf3.zig").__divtf3, .{ .name = "__divkf3", .linkage = linkage });
+        @export(@import("compiler_rt/extendXfYf2.zig").__extendsftf2, .{ .name = "__extendsfkf2", .linkage = linkage });
+        @export(@import("compiler_rt/extendXfYf2.zig").__extenddftf2, .{ .name = "__extenddfkf2", .linkage = linkage });
+        @export(@import("compiler_rt/truncXfYf2.zig").__trunctfsf2, .{ .name = "__trunckfsf2", .linkage = linkage });
+        @export(@import("compiler_rt/truncXfYf2.zig").__trunctfdf2, .{ .name = "__trunckfdf2", .linkage = linkage });
+        @export(@import("compiler_rt/fixtfdi.zig").__fixtfdi, .{ .name = "__fixkfdi", .linkage = linkage });
+        @export(@import("compiler_rt/fixtfsi.zig").__fixtfsi, .{ .name = "__fixkfsi", .linkage = linkage });
+        @export(@import("compiler_rt/fixunstfsi.zig").__fixunstfsi, .{ .name = "__fixunskfsi", .linkage = linkage });
+        @export(@import("compiler_rt/fixunstfdi.zig").__fixunstfdi, .{ .name = "__fixunskfdi", .linkage = linkage });
+        @export(@import("compiler_rt/floatsiXf.zig").__floatsitf, .{ .name = "__floatsikf", .linkage = linkage });
+        @export(@import("compiler_rt/floatditf.zig").__floatditf, .{ .name = "__floatdikf", .linkage = linkage });
+        @export(@import("compiler_rt/floatunditf.zig").__floatunditf, .{ .name = "__floatundikf", .linkage = linkage });
+        @export(@import("compiler_rt/floatunsitf.zig").__floatunsitf, .{ .name = "__floatunsikf", .linkage = linkage });
+
+        @export(@import("compiler_rt/compareXf2.zig").__letf2, .{ .name = "__eqkf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__letf2, .{ .name = "__nekf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__getf2, .{ .name = "__gekf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__letf2, .{ .name = "__ltkf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__letf2, .{ .name = "__lekf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__getf2, .{ .name = "__gtkf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__unordtf2, .{ .name = "__unordkf2", .linkage = linkage });
+    }
+
     if (builtin.os.tag == .windows) {
         // Default stack-probe functions emitted by LLVM
         if (is_mingw) {

@@ -939,7 +939,7 @@ export fn sqrt(x: f64) f64 {
 
     r = sign;
     while (r != 0) {
-        t = s1 +% r;
+        t1 = s1 +% r;
         t = s0;
         if (t < ix0 or (t == ix0 and t1 <= ix1)) {
             s1 = t1 +% r;

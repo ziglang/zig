@@ -69,7 +69,7 @@ const tls_tcb_size = switch (builtin.arch) {
 
 // Controls if the TP points to the end of the TCB instead of its beginning
 const tls_tp_points_past_tcb = switch (builtin.arch) {
-    .riscv32, .riscv64, .mips, .mipsel, .powerpc64, .powerpc64le => true,
+    .riscv32, .riscv64, .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => true,
     else => false,
 };
 
@@ -165,7 +165,14 @@ pub fn setThreadPointer(addr: usize) void {
             const rc = std.os.linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
         },
-        .powerpc, .powerpc64, .powerpc64le => {
+        .powerpc => {
+            asm volatile (
+                \\ mr 2, %[addr]
+                :
+                : [addr] "r" (addr)
+            );
+        },
+        .powerpc64, .powerpc64le => {
             asm volatile (
                 \\ mr 13, %[addr]
                 :
