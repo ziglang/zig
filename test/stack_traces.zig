@@ -20,6 +20,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
+            .exclude = struct {
+                pub fn exclude() bool {
+                    return if (std.builtin.object_format == .elf) true else false;
+                }
+            },
             .exclude_os = .{
                 .windows, // segfault
             },
@@ -69,6 +74,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
+            .exclude = struct {
+                pub fn exclude() bool {
+                    return if (std.builtin.object_format == .elf) true else false;
+                }
+            },
             .exclude_os = .{
                 .windows, // segfault
             },
@@ -135,6 +145,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
+            .exclude = struct {
+                pub fn exclude() bool {
+                    return if (std.builtin.object_format == .elf) true else false;
+                }
+            },
             .exclude_os = .{
                 .windows, // segfault
             },
