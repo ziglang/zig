@@ -386,8 +386,6 @@ pub const HashOptions = struct {
 /// IMPORTANT: by design, bcrypt silently truncates passwords to 72 bytes.
 /// If this is an issue for your application, hash the password first using a function such as SHA-512,
 /// and then use the resulting hash as the password parameter for bcrypt.
-///
-/// You have to free result after use.
 pub fn strHash(
     allocator: *mem.Allocator,
     password: []const u8,

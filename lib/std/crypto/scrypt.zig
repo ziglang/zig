@@ -417,8 +417,6 @@ pub const HashOptions = struct {
 
 /// Compute a hash of a password using the scrypt key derivation function.
 /// The function returns a string that includes all the parameters required for verification.
-///
-/// You have to free result after use.
 pub fn strHash(
     allocator: *mem.Allocator,
     password: []const u8,
