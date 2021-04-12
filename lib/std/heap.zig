@@ -16,6 +16,9 @@ const maxInt = std.math.maxInt;
 
 pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
 pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
+pub const ScopedLoggingAllocator = @import("heap/logging_allocator.zig").ScopedLoggingAllocator;
+pub const LogToWriterAllocator = @import("heap/log_to_writer_allocator.zig").LogToWriterAllocator;
+pub const logToWriterAllocator = @import("heap/log_to_writer_allocator.zig").logToWriterAllocator;
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
 pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
 
@@ -1162,4 +1165,5 @@ pub fn testAllocatorAlignedShrink(base_allocator: *mem.Allocator) !void {
 
 test "heap" {
     _ = @import("heap/logging_allocator.zig");
+    _ = @import("heap/log_to_writer_allocator.zig");
 }
