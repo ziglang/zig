@@ -24,7 +24,7 @@ pub const Branch = struct {
         log.debug("    | displacement 0x{x}", .{displacement});
 
         var inst = branch.inst;
-        inst.UnconditionalBranchImmediate.imm26 = @truncate(u26, @bitCast(u28, displacement) >> 2);
+        inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement) >> 2);
         mem.writeIntLittle(u32, branch.base.code[0..4], inst.toU32());
     }
 };
@@ -47,8 +47,8 @@ pub const Page = struct {
         log.debug("    | moving by {} pages", .{pages});
 
         var inst = page.inst;
-        inst.PCRelativeAddress.immhi = @truncate(u19, pages >> 2);
-        inst.PCRelativeAddress.immlo = @truncate(u2, pages);
+        inst.pc_relative_address.immhi = @truncate(u19, pages >> 2);
+        inst.pc_relative_address.immlo = @truncate(u2, pages);
 
         mem.writeIntLittle(u32, page.base.code[0..4], inst.toU32());
     }
@@ -76,22 +76,22 @@ pub const PageOff = struct {
 
         var inst = page_off.inst;
         if (page_off.op_kind == .arithmetic) {
-            inst.AddSubtractImmediate.imm12 = narrowed;
+            inst.add_subtract_immediate.imm12 = narrowed;
         } else {
             const offset: u12 = blk: {
-                if (inst.LoadStoreRegister.size == 0) {
-                    if (inst.LoadStoreRegister.v == 1) {
+                if (inst.load_store_register.size == 0) {
+                    if (inst.load_store_register.v == 1) {
                         // 128-bit SIMD is scaled by 16.
                         break :blk try math.divExact(u12, narrowed, 16);
                     }
                     // Otherwise, 8-bit SIMD or ldrb.
                     break :blk narrowed;
                 } else {
-                    const denom: u4 = try math.powi(u4, 2, inst.LoadStoreRegister.size);
+                    const denom: u4 = try math.powi(u4, 2, inst.load_store_register.size);
                     break :blk try math.divExact(u12, narrowed, denom);
                 }
             };
-            inst.LoadStoreRegister.offset = offset;
+            inst.load_store_register.offset = offset;
         }
 
         mem.writeIntLittle(u32, page_off.base.code[0..4], inst.toU32());
@@ -113,8 +113,8 @@ pub const GotPage = struct {
         log.debug("    | moving by {} pages", .{pages});
 
         var inst = page.inst;
-        inst.PCRelativeAddress.immhi = @truncate(u19, pages >> 2);
-        inst.PCRelativeAddress.immlo = @truncate(u2, pages);
+        inst.pc_relative_address.immhi = @truncate(u19, pages >> 2);
+        inst.pc_relative_address.immlo = @truncate(u2, pages);
 
         mem.writeIntLittle(u32, page.base.code[0..4], inst.toU32());
     }
@@ -134,7 +134,7 @@ pub const GotPageOff = struct {
 
         var inst = page_off.inst;
         const offset = try math.divExact(u12, narrowed, 8);
-        inst.LoadStoreRegister.offset = offset;
+        inst.load_store_register.offset = offset;
 
         mem.writeIntLittle(u32, page_off.base.code[0..4], inst.toU32());
     }
@@ -155,8 +155,8 @@ pub const TlvpPage = struct {
         log.debug("    | moving by {} pages", .{pages});
 
         var inst = page.inst;
-        inst.PCRelativeAddress.immhi = @truncate(u19, pages >> 2);
-        inst.PCRelativeAddress.immlo = @truncate(u2, pages);
+        inst.pc_relative_address.immhi = @truncate(u19, pages >> 2);
+        inst.pc_relative_address.immlo = @truncate(u2, pages);
 
         mem.writeIntLittle(u32, page.base.code[0..4], inst.toU32());
     }
@@ -177,7 +177,7 @@ pub const TlvpPageOff = struct {
         log.debug("    | narrowed address within the page 0x{x}", .{narrowed});
 
         var inst = page_off.inst;
-        inst.AddSubtractImmediate.imm12 = narrowed;
+        inst.add_subtract_immediate.imm12 = narrowed;
 
         mem.writeIntLittle(u32, page_off.base.code[0..4], inst.toU32());
     }
@@ -260,10 +260,10 @@ pub const Parser = struct {
 
         const offset = @intCast(u32, rel.r_address);
         const inst = parser.code[offset..][0..4];
-        const parsed_inst = aarch64.Instruction{ .UnconditionalBranchImmediate = mem.bytesToValue(
+        const parsed_inst = aarch64.Instruction{ .unconditional_branch_immediate = mem.bytesToValue(
             meta.TagPayload(
                 aarch64.Instruction,
-                aarch64.Instruction.UnconditionalBranchImmediate,
+                aarch64.Instruction.unconditional_branch_immediate,
             ),
             inst,
         ) };
@@ -296,9 +296,9 @@ pub const Parser = struct {
 
         const offset = @intCast(u32, rel.r_address);
         const inst = parser.code[offset..][0..4];
-        const parsed_inst = aarch64.Instruction{ .PCRelativeAddress = mem.bytesToValue(meta.TagPayload(
+        const parsed_inst = aarch64.Instruction{ .pc_relative_address = mem.bytesToValue(meta.TagPayload(
             aarch64.Instruction,
-            aarch64.Instruction.PCRelativeAddress,
+            aarch64.Instruction.pc_relative_address,
         ), inst) };
 
         const ptr: *Relocation = ptr: {
@@ -387,15 +387,15 @@ pub const Parser = struct {
         var parsed_inst: aarch64.Instruction = undefined;
         if (isArithmeticOp(inst)) {
             op_kind = .arithmetic;
-            parsed_inst = .{ .AddSubtractImmediate = mem.bytesToValue(meta.TagPayload(
+            parsed_inst = .{ .add_subtract_immediate = mem.bytesToValue(meta.TagPayload(
                 aarch64.Instruction,
-                aarch64.Instruction.AddSubtractImmediate,
+                aarch64.Instruction.add_subtract_immediate,
             ), inst) };
         } else {
             op_kind = .load_store;
-            parsed_inst = .{ .LoadStoreRegister = mem.bytesToValue(meta.TagPayload(
+            parsed_inst = .{ .load_store_register = mem.bytesToValue(meta.TagPayload(
                 aarch64.Instruction,
-                aarch64.Instruction.LoadStoreRegister,
+                aarch64.Instruction.load_store_register,
             ), inst) };
         }
         const target = Relocation.Target.from_reloc(rel);
@@ -431,7 +431,7 @@ pub const Parser = struct {
 
         const parsed_inst = mem.bytesToValue(meta.TagPayload(
             aarch64.Instruction,
-            aarch64.Instruction.LoadStoreRegister,
+            aarch64.Instruction.load_store_register,
         ), inst);
         assert(parsed_inst.size == 3);
 
@@ -448,7 +448,7 @@ pub const Parser = struct {
                 .target = target,
             },
             .inst = .{
-                .LoadStoreRegister = parsed_inst,
+                .load_store_register = parsed_inst,
             },
         };
 
@@ -474,7 +474,7 @@ pub const Parser = struct {
             if (isArithmeticOp(inst)) {
                 const parsed_inst = mem.bytesAsValue(meta.TagPayload(
                     aarch64.Instruction,
-                    aarch64.Instruction.AddSubtractImmediate,
+                    aarch64.Instruction.add_subtract_immediate,
                 ), inst);
                 break :parsed .{
                     .rd = parsed_inst.rd,
@@ -484,7 +484,7 @@ pub const Parser = struct {
             } else {
                 const parsed_inst = mem.bytesAsValue(meta.TagPayload(
                     aarch64.Instruction,
-                    aarch64.Instruction.LoadStoreRegister,
+                    aarch64.Instruction.load_store_register,
                 ), inst);
                 break :parsed .{
                     .rd = parsed_inst.rt,
@@ -507,7 +507,7 @@ pub const Parser = struct {
                 .target = target,
             },
             .inst = .{
-                .AddSubtractImmediate = .{
+                .add_subtract_immediate = .{
                     .rd = parsed.rd,
                     .rn = parsed.rn,
                     .imm12 = 0, // This will be filled when target addresses are known.
