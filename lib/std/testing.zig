@@ -309,7 +309,7 @@ pub const TmpDir = struct {
 };
 
 fn getCwdOrWasiPreopen() std.fs.Dir {
-    if (@import("builtin").os.tag == .wasi) {
+    if (std.builtin.os.tag == .wasi) {
         var preopens = std.fs.wasi.PreopenList.init(allocator);
         defer preopens.deinit();
         preopens.populate() catch

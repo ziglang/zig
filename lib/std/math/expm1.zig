@@ -11,7 +11,6 @@
 
 // TODO: Updated recently.
 
-const builtin = @import("builtin");
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;

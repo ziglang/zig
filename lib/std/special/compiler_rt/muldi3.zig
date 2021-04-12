@@ -3,14 +3,16 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const builtin = @import("builtin");
+const std = @import("std");
+const is_test = std.builtin.is_test;
+const native_endian = std.Target.current.cpu.arch.endian();
 
 // Ported from
 // https://github.com/llvm/llvm-project/blob/llvmorg-9.0.0/compiler-rt/lib/builtins/muldi3.c
 
 const dwords = extern union {
     all: i64,
-    s: switch (builtin.endian) {
+    s: switch (native_endian) {
         .Little => extern struct {
             low: u32,
             high: u32,
@@ -23,7 +25,7 @@ const dwords = extern union {
 };
 
 fn __muldsi3(a: u32, b: u32) i64 {
-    @setRuntimeSafety(builtin.is_test);
+    @setRuntimeSafety(is_test);
 
     const bits_in_word_2 = @sizeOf(i32) * 8 / 2;
     const lower_mask = (~@as(u32, 0)) >> bits_in_word_2;
@@ -45,7 +47,7 @@ fn __muldsi3(a: u32, b: u32) i64 {
 }
 
 pub fn __muldi3(a: i64, b: i64) callconv(.C) i64 {
-    @setRuntimeSafety(builtin.is_test);
+    @setRuntimeSafety(is_test);
 
     const x = dwords{ .all = a };
     const y = dwords{ .all = b };

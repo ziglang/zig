@@ -14,7 +14,7 @@ const trait = meta.trait;
 const autoHash = std.hash.autoHash;
 const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const hash_map = @This();
 
 pub fn AutoArrayHashMap(comptime K: type, comptime V: type) type {

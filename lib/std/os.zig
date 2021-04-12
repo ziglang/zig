@@ -21,7 +21,7 @@
 
 const root = @import("root");
 const std = @import("std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;

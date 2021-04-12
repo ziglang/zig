@@ -5,7 +5,7 @@
 // and substantial portions of the software.
 usingnamespace @import("bits.zig");
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 const windows = @import("../windows.zig");
 const unexpectedError = windows.unexpectedError;

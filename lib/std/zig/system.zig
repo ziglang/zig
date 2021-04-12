@@ -14,6 +14,7 @@ const process = std.process;
 const Target = std.Target;
 const CrossTarget = std.zig.CrossTarget;
 const macos = @import("system/macos.zig");
+const native_endian = std.Target.current.cpu.arch.endian();
 pub const windows = @import("system/windows.zig");
 
 pub const getSDKPath = macos.getSDKPath;
@@ -603,7 +604,7 @@ pub const NativeTargetInfo = struct {
             elf.ELFDATA2MSB => .Big,
             else => return error.InvalidElfEndian,
         };
-        const need_bswap = elf_endian != std.builtin.endian;
+        const need_bswap = elf_endian != native_endian;
         if (hdr32.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
 
         const is_64 = switch (hdr32.e_ident[elf.EI_CLASS]) {

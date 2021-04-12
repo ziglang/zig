@@ -11,10 +11,12 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
 const tlcsprng = @import("crypto/tlcsprng.zig");
+const native_arch = std.Target.current.cpu.arch;
+const native_os = std.Target.current.os.tag;
 
 var argc_argv_ptr: [*]usize = undefined;
 
-const start_sym_name = if (builtin.arch.isMIPS()) "__start" else "_start";
+const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 
 comptime {
     // The self-hosted compiler is not fully capable of handling all of this start.zig file.
@@ -23,9 +25,7 @@ comptime {
     if (builtin.zig_is_stage2) {
         if (builtin.output_mode == .Exe) {
             if (builtin.link_libc or builtin.object_format == .c) {
-                if (!@hasDecl(root, "main")) {
-                    @export(main2, "main");
-                }
+                @export(main2, "main");
             } else {
                 if (!@hasDecl(root, "_start")) {
                     @export(_start2, "_start");
@@ -34,7 +34,7 @@ comptime {
         }
     } else {
         if (builtin.output_mode == .Lib and builtin.link_mode == .Dynamic) {
-            if (builtin.os.tag == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
+            if (native_os == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
                 @export(_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
             }
         } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
@@ -42,7 +42,7 @@ comptime {
                 if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
                     @export(main, .{ .name = "main", .linkage = .Weak });
                 }
-            } else if (builtin.os.tag == .windows) {
+            } else if (native_os == .windows) {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
                 {
@@ -56,11 +56,11 @@ comptime {
                 {
                     @export(wWinMainCRTStartup, .{ .name = "wWinMainCRTStartup" });
                 }
-            } else if (builtin.os.tag == .uefi) {
+            } else if (native_os == .uefi) {
                 if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
-            } else if (builtin.arch.isWasm() and builtin.os.tag == .freestanding) {
+            } else if (native_arch.isWasm() and native_os == .freestanding) {
                 if (!@hasDecl(root, start_sym_name)) @export(wasm_freestanding_start, .{ .name = start_sym_name });
-            } else if (builtin.os.tag != .other and builtin.os.tag != .freestanding) {
+            } else if (native_os != .other and native_os != .freestanding) {
                 if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
             }
         }
@@ -80,7 +80,7 @@ fn _start2() callconv(.Naked) noreturn {
 }
 
 fn exit2(code: u8) noreturn {
-    switch (builtin.arch) {
+    switch (native_arch) {
         .x86_64 => {
             asm volatile ("syscall"
                 :
@@ -157,13 +157,13 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
 }
 
 fn _start() callconv(.Naked) noreturn {
-    if (builtin.os.tag == .wasi) {
+    if (native_os == .wasi) {
         // This is marked inline because for some reason LLVM in release mode fails to inline it,
         // and we want fewer call frames in stack traces.
         std.os.wasi.proc_exit(@call(.{ .modifier = .always_inline }, callMain, .{}));
     }
 
-    switch (builtin.arch) {
+    switch (native_arch) {
         .x86_64 => {
             argc_argv_ptr = asm volatile (
                 \\ xor %%rbp, %%rbp
@@ -273,7 +273,7 @@ fn posixCallMainAndExit() noreturn {
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, envp_optional)[0..envp_count];
 
-    if (builtin.os.tag == .linux) {
+    if (native_os == .linux) {
         // Find the beginning of the auxiliary vector
         const auxv = @ptrCast([*]std.elf.Auxv, @alignCast(@alignOf(usize), envp.ptr + envp_count + 1));
         std.os.linux.elf_aux_maybe = auxv;

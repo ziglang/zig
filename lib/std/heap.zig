@@ -10,7 +10,7 @@ const assert = debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const os = std.os;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const c = std.c;
 const maxInt = std.math.maxInt;
 
