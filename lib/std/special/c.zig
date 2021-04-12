@@ -85,7 +85,7 @@ test "strncpy" {
     var s1: [9:0]u8 = undefined;
 
     s1[0] = 0;
-    _ = strncpy(&s1, "foobarbaz", 9);
+    _ = strncpy(&s1, "foobarbaz", @sizeOf(@TypeOf(s1)));
     std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
 }
 
@@ -993,17 +993,24 @@ export fn sqrt(x: f64) f64 {
 }
 
 test "sqrt" {
-    const epsilon = 0.000001;
+    const V = [_]f64{
+        0.0,
+        4.089288054930154,
+        7.538757127071935,
+        8.97780793672623,
+        5.304443821913729,
+        5.682408965311888,
+        0.5846878579110049,
+        3.650338664297043,
+        0.3178091951800732,
+        7.1505232436382835,
+        3.6589165881946464,
+    };
 
-    std.testing.expect(sqrt(0.0) == 0.0);
-    std.testing.expect(std.math.approxEqAbs(f64, sqrt(2.0), 1.414214, epsilon));
-    std.testing.expect(std.math.approxEqAbs(f64, sqrt(3.6), 1.897367, epsilon));
-    std.testing.expect(sqrt(4.0) == 2.0);
-    std.testing.expect(std.math.approxEqAbs(f64, sqrt(7.539840), 2.745877, epsilon));
-    std.testing.expect(std.math.approxEqAbs(f64, sqrt(19.230934), 4.385309, epsilon));
-    std.testing.expect(sqrt(64.0) == 8.0);
-    std.testing.expect(std.math.approxEqAbs(f64, sqrt(64.1), 8.006248, epsilon));
-    std.testing.expect(std.math.approxEqAbs(f64, sqrt(8942.230469), 94.563367, epsilon));
+    // Note that @sqrt will either generate the sqrt opcode (if supported by the
+    // target ISA) or a call to `sqrtf` otherwise.
+    for (V) |val|
+        std.testing.expectEqual(@sqrt(val), sqrt(val));
 }
 
 test "sqrt special" {
@@ -1091,17 +1098,24 @@ export fn sqrtf(x: f32) f32 {
 }
 
 test "sqrtf" {
-    const epsilon = 0.000001;
+    const V = [_]f32{
+        0.0,
+        4.089288054930154,
+        7.538757127071935,
+        8.97780793672623,
+        5.304443821913729,
+        5.682408965311888,
+        0.5846878579110049,
+        3.650338664297043,
+        0.3178091951800732,
+        7.1505232436382835,
+        3.6589165881946464,
+    };
 
-    std.testing.expect(sqrtf(0.0) == 0.0);
-    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(2.0), 1.414214, epsilon));
-    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(3.6), 1.897367, epsilon));
-    std.testing.expect(sqrtf(4.0) == 2.0);
-    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(7.539840), 2.745877, epsilon));
-    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(19.230934), 4.385309, epsilon));
-    std.testing.expect(sqrtf(64.0) == 8.0);
-    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(64.1), 8.006248, epsilon));
-    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(8942.230469), 94.563370, epsilon));
+    // Note that @sqrt will either generate the sqrt opcode (if supported by the
+    // target ISA) or a call to `sqrtf` otherwise.
+    for (V) |val|
+        std.testing.expectEqual(@sqrt(val), sqrtf(val));
 }
 
 test "sqrtf special" {
