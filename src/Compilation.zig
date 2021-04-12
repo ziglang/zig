@@ -161,6 +161,13 @@ pub const CSourceFile = struct {
     extra_flags: []const []const u8 = &[0][]const u8{},
 };
 
+pub const CompileStats = struct {
+    total_decls: usize,
+    decls_modified: usize,
+    decls_added: usize,
+    decls_removed: usize,
+};
+
 const Job = union(enum) {
     /// Write the machine code for a Decl to the output file.
     codegen_decl: *Module.Decl,
@@ -1464,7 +1471,7 @@ pub fn getTarget(self: Compilation) Target {
 }
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
-pub fn update(self: *Compilation) !void {
+pub fn update(self: *Compilation, comptime get_stats: bool) !if (get_stats) CompileStats else void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1484,6 +1491,9 @@ pub fn update(self: *Compilation) !void {
         if (self.bin_file.options.module) |module| {
             module.compile_log_text.shrinkAndFree(module.gpa, 0);
             module.generation += 1;
+            // reset added and removed decls so that we can get accurate stats
+            module.num_decls_added = 0;
+            module.num_decls_removed = 0;
 
             // TODO Detect which source files changed.
             // Until then we simulate a full cache miss. Source files could have been loaded
@@ -1513,7 +1523,7 @@ pub fn update(self: *Compilation) !void {
         }
     }
 
-    try self.performAllTheWork();
+    const stats = try self.performAllTheWork(get_stats);
 
     if (!use_stage1) {
         if (self.bin_file.options.module) |module| {
@@ -1534,7 +1544,7 @@ pub fn update(self: *Compilation) !void {
     if (self.totalErrorCount() != 0) {
         // Skip flushing.
         self.link_error_flags = .{};
-        return;
+        return stats;
     }
 
     // This is needed before reading the error flags.
@@ -1554,6 +1564,7 @@ pub fn update(self: *Compilation) !void {
             module.root_scope.unload(self.gpa);
         }
     }
+    return stats;
 }
 
 /// Having the file open for writing is problematic as far as executing the
@@ -1713,7 +1724,9 @@ pub fn getCompileLogOutput(self: *Compilation) []const u8 {
     return module.compile_log_text.items;
 }
 
-pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemory }!void {
+/// If get_stats is true, self.bin_file.options.module != null (meant to be called in the repl to get stats)
+pub fn performAllTheWork(self: *Compilation, comptime get_stats: bool) error{ TimerUnsupported, OutOfMemory }!if (get_stats) CompileStats else void {
+    var decls_modified: usize = 0;
     // If the terminal is dumb, we dont want to show the user all the
     // output.
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
@@ -1847,6 +1860,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             },
         },
         .analyze_decl => |decl| {
+            decls_modified += 1;
             if (build_options.omit_stage2)
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = self.bin_file.options.module.?;
@@ -2036,6 +2050,17 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
     };
+    if (get_stats) {
+        const mod = self.bin_file.options.module.?;
+        const total_decls = mod.decl_table.count();
+        const deleted_decls = mod.deletion_set.count();
+        return CompileStats{
+            .total_decls = total_decls - mod.deletion_set.count(),
+            .decls_modified = decls_modified,
+            .decls_added = mod.num_decls_added,
+            .decls_removed = mod.num_decls_removed,
+        };
+    }
 }
 
 pub fn obtainCObjectCacheManifest(comp: *const Compilation) Cache.Manifest {
@@ -3258,7 +3283,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
 }
 
 pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
-    try sub_compilation.update();
+    try sub_compilation.update(false);
 
     // Look for compilation errors in this sub_compilation
     // TODO instead of logging these errors, handle them in the callsites
@@ -3368,7 +3393,7 @@ fn buildOutputFromZig(
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.update();
+    try sub_compilation.update(false);
     // Look for compilation errors in this sub_compilation.
     var keep_errors = false;
     var errors = try sub_compilation.getAllErrorsAlloc();

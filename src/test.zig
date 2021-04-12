@@ -670,7 +670,7 @@ pub const TestContext = struct {
             var module_node = update_node.start("parse/analysis/codegen", 0);
             module_node.activate();
             try comp.makeBinFileWritable();
-            try comp.update();
+            try comp.update(false);
             module_node.end();
 
             if (update.case != .Error) {

@@ -377,9 +377,9 @@ const usage_build_generic =
 
 const repl_help =
     \\Commands:
-    \\  update   Detect changes to source files and update output files.
-    \\    help   Print this text
-    \\    exit   Quit this repl
+    \\  update, u  Detect changes to source files and update output files.
+    \\    help, h  Print this text
+    \\    exit, e  Quit this repl
     \\
 ;
 
@@ -1933,7 +1933,7 @@ fn buildOutputType(
         }
     };
 
-    updateModule(gpa, comp, hook) catch |err| switch (err) {
+    updateModule(gpa, comp, hook, false) catch |err| switch (err) {
         error.SemanticAnalyzeFail => if (!watch) process.exit(1),
         else => |e| return e,
     };
@@ -2054,6 +2054,7 @@ fn buildOutputType(
     const stdin = std.io.getStdIn().reader();
     const stderr = std.io.getStdErr().writer();
     var repl_buf: [1024]u8 = undefined;
+    var repl_action: ReplAction = .nothing;
 
     while (watch) {
         try stderr.print("(zig) ", .{});
@@ -2064,26 +2065,50 @@ fn buildOutputType(
         }) |line| {
             const actual_line = mem.trimRight(u8, line, "\r\n ");
 
-            if (mem.eql(u8, actual_line, "update")) {
-                if (output_mode == .Exe) {
-                    try comp.makeBinFileWritable();
-                }
-                updateModule(gpa, comp, hook) catch |err| switch (err) {
-                    error.SemanticAnalyzeFail => continue,
-                    else => |e| return e,
-                };
-            } else if (mem.eql(u8, actual_line, "exit")) {
-                break;
-            } else if (mem.eql(u8, actual_line, "help")) {
-                try stderr.writeAll(repl_help);
-            } else {
+            if (mem.eql(u8, actual_line, "update") or mem.eql(u8, actual_line, "u")) {
+                repl_action = .update;
+            } else if (mem.eql(u8, actual_line, "exit") or mem.eql(u8, actual_line, "e")) {
+                repl_action = .exit;
+            } else if (mem.eql(u8, actual_line, "help") or mem.eql(u8, actual_line, "h")) {
+                repl_action = .help;
+            } else if (std.mem.eql(u8, actual_line, "")) {} else {
                 try stderr.print("unknown command: {s}\n", .{actual_line});
+                continue;
+            }
+            switch (repl_action) {
+                .update => {
+                    if (output_mode == .Exe) {
+                        try comp.makeBinFileWritable();
+                    }
+                    const stats: Compilation.CompileStats = updateModule(gpa, comp, hook, true) catch |err| switch (err) {
+                        error.SemanticAnalyzeFail => continue,
+                        else => |e| return e,
+                    };
+                    try stderr.print("update completed: {d}/{d} decls modified; {d} added, {d} removed\n", .{
+                        stats.decls_modified,
+                        stats.total_decls,
+                        stats.decls_added,
+                        stats.decls_removed,
+                    });
+                },
+                .help => try stderr.writeAll(repl_help),
+                .exit => break,
+                .nothing => {},
             }
         } else {
+            try stderr.writeByte('\n');
             break;
         }
     }
 }
+
+const ReplAction = enum {
+    update,
+    exit,
+    help,
+    /// what the repl starts at
+    nothing,
+};
 
 const AfterUpdateHook = union(enum) {
     none,
@@ -2091,8 +2116,8 @@ const AfterUpdateHook = union(enum) {
     update: []const u8,
 };
 
-fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !void {
-    try comp.update();
+fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook, comptime get_stats: bool) !if (get_stats) Compilation.CompileStats else void {
+    const stats = try comp.update(get_stats);
 
     var errors = try comp.getAllErrorsAlloc();
     defer errors.deinit(comp.gpa);
@@ -2145,6 +2170,7 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
             }
         },
     }
+    return stats;
 }
 
 fn freePkgTree(gpa: *Allocator, pkg: *Package, free_parent: bool) void {
@@ -2629,7 +2655,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         };
         defer comp.destroy();
 
-        updateModule(gpa, comp, .none) catch |err| switch (err) {
+        updateModule(gpa, comp, .none, false) catch |err| switch (err) {
             error.SemanticAnalyzeFail => process.exit(1),
             else => |e| return e,
         };

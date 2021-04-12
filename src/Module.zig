@@ -96,6 +96,10 @@ generation: u32 = 0,
 /// When populated it means there was an error opening/reading the root source file.
 failed_root_src_file: ?anyerror = null,
 
+/// Used for getting stats about the Compilation that happened
+num_decls_removed: usize = 0,
+num_decls_added: usize = 0,
+
 stage1_flags: packed struct {
     have_winmain: bool = false,
     have_wwinmain: bool = false,
@@ -3614,6 +3618,7 @@ pub fn deleteDecl(
     defer tracy.end();
 
     log.debug("deleting decl '{s}'", .{decl.name});
+    mod.num_decls_removed += 1;
 
     if (outdated_decls) |map| {
         _ = map.swapRemove(decl);
@@ -3843,6 +3848,7 @@ fn createNewDecl(
     errdefer mod.gpa.destroy(new_decl);
     new_decl.name = try mem.dupeZ(mod.gpa, u8, decl_name);
     mod.decl_table.putAssumeCapacityNoClobber(name_hash, new_decl);
+    mod.num_decls_added += 1;
     return new_decl;
 }
 
