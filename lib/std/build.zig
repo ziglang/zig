@@ -1407,7 +1407,7 @@ pub const LibExeObjStep = struct {
 
     red_zone: ?bool = null,
 
-    subsystem: ?builtin.SubSystem = null,
+    subsystem: ?std.Target.SubSystem = null,
 
     /// Overrides the default stack size
     stack_size: ?u64 = null,
@@ -1959,7 +1959,7 @@ pub const LibExeObjStep = struct {
             },
             std.builtin.Version => {
                 out.print(
-                    \\pub const {}: @import("builtin").Version = .{{
+                    \\pub const {}: @import("std").builtin.Version = .{{
                     \\    .major = {d},
                     \\    .minor = {d},
                     \\    .patch = {d},

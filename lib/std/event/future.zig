@@ -6,7 +6,7 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const Lock = std.event.Lock;
 
 /// This is a value that starts out unavailable, until resolve() is called

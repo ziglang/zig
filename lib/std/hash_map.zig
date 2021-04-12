@@ -4,7 +4,6 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std.zig");
-const builtin = @import("builtin");
 const assert = debug.assert;
 const autoHash = std.hash.autoHash;
 const debug = std.debug;

@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const testing = std.testing;
 
 const default_seed: u32 = 0xc70f6907;

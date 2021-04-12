@@ -9,7 +9,6 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/coshf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/cosh.c
 
-const builtin = @import("builtin");
 const std = @import("../std.zig");
 const math = std.math;
 const expo2 = @import("expo2.zig").expo2;

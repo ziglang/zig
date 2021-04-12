@@ -9,7 +9,6 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/floorf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/floor.c
 
-const builtin = @import("builtin");
 const expect = std.testing.expect;
 const std = @import("../std.zig");
 const math = std.math;

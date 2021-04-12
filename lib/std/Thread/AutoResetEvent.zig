@@ -32,7 +32,7 @@
 state: usize = UNSET,
 
 const std = @import("../std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const testing = std.testing;
 const assert = std.debug.assert;
 const StaticResetEvent = std.Thread.StaticResetEvent;

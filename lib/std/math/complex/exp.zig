@@ -9,7 +9,6 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/complex/cexpf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/complex/cexp.c
 
-const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
