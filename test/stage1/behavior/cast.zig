@@ -17,14 +17,15 @@ test "integer literal to pointer cast" {
 }
 
 test "pointer reinterpret const float to int" {
-    // https://github.com/ziglang/zig/issues/3345
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
+    // The hex representation is 0x3fe3333333333303.
     const float: f64 = 5.99999999999994648725e-01;
     const float_ptr = &float;
     const int_ptr = @ptrCast(*const i32, float_ptr);
     const int_val = int_ptr.*;
-    expect(int_val == 858993411);
+    if (std.builtin.endian == .Little)
+        expect(int_val == 0x33333303)
+    else
+        expect(int_val == 0x3fe33333);
 }
 
 test "implicitly cast indirect pointer to maybe-indirect pointer" {

@@ -1681,22 +1681,34 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             switch (mcv) {
                 .register => |reg| {
-                    // Copy arg to stack for better debugging
-                    const ty = inst.base.ty;
-                    const abi_size = math.cast(u32, ty.abiSize(self.target.*)) catch {
-                        return self.fail(inst.base.src, "type '{}' too big to fit into stack frame", .{ty});
-                    };
-                    const abi_align = ty.abiAlignment(self.target.*);
-                    const stack_offset = try self.allocMem(&inst.base, abi_size, abi_align);
-                    try self.genSetStack(inst.base.src, ty, stack_offset, MCValue{ .register = reg });
-                    const adjusted_stack_offset = math.negateCast(stack_offset + abi_size) catch {
-                        return self.fail(inst.base.src, "Stack offset too large for arguments", .{});
-                    };
-
+                    switch (self.debug_output) {
+                        .dwarf => |dbg_out| {
+                            try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 3);
+                            dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
+                            dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT_location, DW.FORM_exprloc
+                                1, // ULEB128 dwarf expression length
+                                reg.dwarfLocOp(),
+                            });
+                            try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 5 + name_with_null.len);
+                            try self.addDbgInfoTypeReloc(inst.base.ty); // DW.AT_type,  DW.FORM_ref4
+                            dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT_name, DW.FORM_string
+                        },
+                        .none => {},
+                    }
+                },
+                .stack_offset => |offset| {
                     switch (self.debug_output) {
                         .dwarf => |dbg_out| {
                             switch (arch) {
                                 .arm, .armeb => {
+                                    const ty = inst.base.ty;
+                                    const abi_size = math.cast(u32, ty.abiSize(self.target.*)) catch {
+                                        return self.fail(inst.base.src, "type '{}' too big to fit into stack frame", .{ty});
+                                    };
+                                    const adjusted_stack_offset = math.negateCast(offset + abi_size) catch {
+                                        return self.fail(inst.base.src, "Stack offset too large for arguments", .{});
+                                    };
+
                                     try dbg_out.dbg_info.append(link.File.Elf.abbrev_parameter);
 
                                     // Get length of the LEB128 stack offset
@@ -1708,19 +1720,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     try leb128.writeULEB128(dbg_out.dbg_info.writer(), counting_writer.bytes_written + 1);
                                     try dbg_out.dbg_info.append(DW.OP_breg11);
                                     try leb128.writeILEB128(dbg_out.dbg_info.writer(), adjusted_stack_offset);
+
+                                    try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 5 + name_with_null.len);
+                                    try self.addDbgInfoTypeReloc(inst.base.ty); // DW.AT_type,  DW.FORM_ref4
+                                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT_name, DW.FORM_string
                                 },
-                                else => {
-                                    try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 3);
-                                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
-                                    dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT_location, DW.FORM_exprloc
-                                        1, // ULEB128 dwarf expression length
-                                        reg.dwarfLocOp(),
-                                    });
-                                },
+                                else => {},
                             }
-                            try dbg_out.dbg_info.ensureCapacity(dbg_out.dbg_info.items.len + 5 + name_with_null.len);
-                            try self.addDbgInfoTypeReloc(inst.base.ty); // DW.AT_type,  DW.FORM_ref4
-                            dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT_name, DW.FORM_string
                         },
                         .none => {},
                     }
@@ -1738,19 +1744,39 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
 
             const result = self.args[arg_index];
-            try self.genArgDbgInfo(inst, result);
+            const mcv = switch (arch) {
+                // TODO support stack-only arguments on all target architectures
+                .arm, .armeb, .aarch64, .aarch64_32, .aarch64_be => switch (result) {
+                    // Copy registers to the stack
+                    .register => |reg| blk: {
+                        const ty = inst.base.ty;
+                        const abi_size = math.cast(u32, ty.abiSize(self.target.*)) catch {
+                            return self.fail(inst.base.src, "type '{}' too big to fit into stack frame", .{ty});
+                        };
+                        const abi_align = ty.abiAlignment(self.target.*);
+                        const stack_offset = try self.allocMem(&inst.base, abi_size, abi_align);
+                        try self.genSetStack(inst.base.src, ty, stack_offset, MCValue{ .register = reg });
+
+                        break :blk MCValue{ .stack_offset = stack_offset };
+                    },
+                    else => result,
+                },
+                else => result,
+            };
+            try self.genArgDbgInfo(inst, mcv);
 
             if (inst.base.isUnused())
                 return MCValue.dead;
 
-            switch (result) {
+            switch (mcv) {
                 .register => |reg| {
                     try self.register_manager.registers.ensureCapacity(self.gpa, self.register_manager.registers.count() + 1);
                     self.register_manager.getRegAssumeFree(toCanonicalReg(reg), &inst.base);
                 },
                 else => {},
             }
-            return result;
+
+            return mcv;
         }
 
         fn genBreakpoint(self: *Self, src: LazySrcLoc) !MCValue {
@@ -2257,7 +2283,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     const rhs = try self.resolveInst(inst.rhs);
 
                     const src_mcv = rhs;
-                    const dst_mcv = if (lhs != .register) try self.copyToNewRegister(&inst.base, lhs) else lhs;
+                    const dst_mcv = if (lhs != .register) try self.copyToNewRegister(inst.lhs, lhs) else lhs;
 
                     try self.genArmBinOpCode(inst.base.src, dst_mcv.register, dst_mcv, src_mcv, .cmp_eq);
                     const info = inst.lhs.ty.intInfo(self.target.*);

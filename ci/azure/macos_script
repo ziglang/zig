@@ -3,7 +3,7 @@
 set -x
 set -e
 
-brew install s3cmd
+brew update && brew install s3cmd
 
 ZIGDIR="$(pwd)"
 ARCH="x86_64"

@@ -419,4 +419,43 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
+
+    {
+        var case = ctx.exe("recursive fibonacci", linux_arm);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    assert(fib(0) == 0);
+            \\    assert(fib(1) == 1);
+            \\    assert(fib(2) == 1);
+            \\    assert(fib(3) == 2);
+            \\    assert(fib(10) == 55);
+            \\    assert(fib(20) == 6765);
+            \\    exit();
+            \\}
+            \\
+            \\fn fib(n: u32) u32 {
+            \\    if (n < 2) {
+            \\        return n;
+            \\    } else {
+            \\        return fib(n - 2) + fib(n - 1);
+            \\    }
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (1),
+            \\          [arg1] "{r0}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }
