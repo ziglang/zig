@@ -542,7 +542,7 @@ fn zirStructDecl(
     const body = sema.code.extra[extra.end..][0..extra.data.body_len];
     const fields_len = extra.data.fields_len;
 
-    var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+    var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
 
     const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
@@ -602,7 +602,7 @@ fn zirStructDecl(
         // should be the struct itself. Thus we need a new Sema.
         var struct_sema: Sema = .{
             .mod = sema.mod,
-            .gpa = sema.mod.gpa,
+            .gpa = gpa,
             .arena = &new_decl_arena.allocator,
             .code = sema.code,
             .inst_map = sema.inst_map,
@@ -632,7 +632,7 @@ fn zirStructDecl(
     }
     const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
     const body_end = extra.end + body.len;
-    var field_index: usize = body_end + bit_bags_count;
+    var extra_index: usize = body_end + bit_bags_count;
     var bit_bag_index: usize = body_end;
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
@@ -646,10 +646,10 @@ fn zirStructDecl(
         const has_default = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
 
-        const field_name_zir = sema.code.nullTerminatedString(sema.code.extra[field_index]);
-        field_index += 1;
-        const field_type_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[field_index]);
-        field_index += 1;
+        const field_name_zir = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
+        extra_index += 1;
+        const field_type_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
 
         // This string needs to outlive the ZIR code.
         const field_name = try new_decl_arena.allocator.dupe(u8, field_name_zir);
@@ -667,16 +667,16 @@ fn zirStructDecl(
         };
 
         if (has_align) {
-            const align_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[field_index]);
-            field_index += 1;
+            const align_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+            extra_index += 1;
             // TODO: if we need to report an error here, use a source location
             // that points to this alignment expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
             gop.entry.value.abi_align = (try sema.resolveInstConst(block, src, align_ref)).val;
         }
         if (has_default) {
-            const default_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[field_index]);
-            field_index += 1;
+            const default_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+            extra_index += 1;
             // TODO: if we need to report an error here, use a source location
             // that points to this default value expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
@@ -696,11 +696,164 @@ fn zirEnumDecl(
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    const extra = sema.code.extraData(zir.Inst.Block, inst_data.payload_index);
+    const extra = sema.code.extraData(zir.Inst.EnumDecl, inst_data.payload_index);
+    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
+    const fields_len = extra.data.fields_len;
 
-    return sema.mod.fail(&block.base, sema.src, "TODO implement zirEnumDecl", .{});
+    var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+
+    const tag_ty = blk: {
+        if (extra.data.tag_type != .none) {
+            // TODO better source location
+            // TODO (needs AstGen fix too) move this eval to the block so it gets allocated
+            // in the new decl arena.
+            break :blk try sema.resolveType(block, src, extra.data.tag_type);
+        }
+        const bits = std.math.log2_int_ceil(usize, fields_len);
+        break :blk try Type.Tag.int_unsigned.create(&new_decl_arena.allocator, bits);
+    };
+
+    const enum_obj = try new_decl_arena.allocator.create(Module.EnumFull);
+    const enum_ty_payload = try gpa.create(Type.Payload.EnumFull);
+    enum_ty_payload.* = .{
+        .base = .{ .tag = if (nonexhaustive) .enum_nonexhaustive else .enum_full },
+        .data = enum_obj,
+    };
+    const enum_ty = Type.initPayload(&enum_ty_payload.base);
+    const enum_val = try Value.Tag.ty.create(&new_decl_arena.allocator, enum_ty);
+    const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
+        .ty = Type.initTag(.type),
+        .val = enum_val,
+    });
+    enum_obj.* = .{
+        .owner_decl = sema.owner_decl,
+        .tag_ty = tag_ty,
+        .fields = .{},
+        .values = .{},
+        .node_offset = inst_data.src_node,
+        .namespace = .{
+            .parent = sema.owner_decl.namespace,
+            .parent_name_hash = new_decl.fullyQualifiedNameHash(),
+            .ty = enum_ty,
+            .file_scope = block.getFileScope(),
+        },
+    };
+
+    {
+        const ast = std.zig.ast;
+        const node = sema.owner_decl.relativeToNodeIndex(inst_data.src_node);
+        const tree: *const ast.Tree = &enum_obj.namespace.file_scope.tree;
+        const node_tags = tree.nodes.items(.tag);
+        var buf: [2]ast.Node.Index = undefined;
+        const members: []const ast.Node.Index = switch (node_tags[node]) {
+            .container_decl,
+            .container_decl_trailing,
+            => tree.containerDecl(node).ast.members,
+
+            .container_decl_two,
+            .container_decl_two_trailing,
+            => tree.containerDeclTwo(&buf, node).ast.members,
+
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            => tree.containerDeclArg(node).ast.members,
+
+            .root => tree.rootDecls(),
+            else => unreachable,
+        };
+        try sema.mod.analyzeNamespace(&enum_obj.namespace, members);
+    }
+
+    if (fields_len == 0) {
+        assert(body.len == 0);
+        return sema.analyzeDeclVal(block, src, new_decl);
+    }
+
+    const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
+    const body_end = extra.end + body.len;
+
+    try enum_obj.fields.ensureCapacity(&new_decl_arena.allocator, fields_len);
+    const any_values = for (sema.code.extra[body_end..][0..bit_bags_count]) |bag| {
+        if (bag != 0) break true;
+    } else false;
+    if (any_values) {
+        try enum_obj.values.ensureCapacity(&new_decl_arena.allocator, fields_len);
+    }
+
+    {
+        // We create a block for the field type instructions because they
+        // may need to reference Decls from inside the enum namespace.
+        // Within the field type, default value, and alignment expressions, the "owner decl"
+        // should be the enum itself. Thus we need a new Sema.
+        var enum_sema: Sema = .{
+            .mod = sema.mod,
+            .gpa = gpa,
+            .arena = &new_decl_arena.allocator,
+            .code = sema.code,
+            .inst_map = sema.inst_map,
+            .owner_decl = new_decl,
+            .namespace = &enum_obj.namespace,
+            .owner_func = null,
+            .func = null,
+            .param_inst_list = &.{},
+            .branch_quota = sema.branch_quota,
+            .branch_count = sema.branch_count,
+        };
+
+        var enum_block: Scope.Block = .{
+            .parent = null,
+            .sema = &enum_sema,
+            .src_decl = new_decl,
+            .instructions = .{},
+            .inlining = null,
+            .is_comptime = true,
+        };
+        defer assert(enum_block.instructions.items.len == 0); // should all be comptime instructions
+
+        _ = try enum_sema.analyzeBody(&enum_block, body);
+
+        sema.branch_count = enum_sema.branch_count;
+        sema.branch_quota = enum_sema.branch_quota;
+    }
+    var extra_index: usize = body_end + bit_bags_count;
+    var bit_bag_index: usize = body_end;
+    var cur_bit_bag: u32 = undefined;
+    var field_i: u32 = 0;
+    while (field_i < fields_len) : (field_i += 1) {
+        if (field_i % 32 == 0) {
+            cur_bit_bag = sema.code.extra[bit_bag_index];
+            bit_bag_index += 1;
+        }
+        const has_tag_value = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+
+        const field_name_zir = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
+        extra_index += 1;
+
+        // This string needs to outlive the ZIR code.
+        const field_name = try new_decl_arena.allocator.dupe(u8, field_name_zir);
+
+        const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
+        assert(!gop.found_existing);
+
+        if (has_tag_value) {
+            const tag_val_ref = @intToEnum(zir.Inst.Ref, sema.code.extra[extra_index]);
+            extra_index += 1;
+            // TODO: if we need to report an error here, use a source location
+            // that points to this default value expression rather than the struct.
+            // But only resolve the source location if we need to emit a compile error.
+            const tag_val = (try sema.resolveInstConst(block, src, tag_val_ref)).val;
+            enum_obj.values.putAssumeCapacityNoClobber(tag_val, {});
+        } else if (any_values) {
+            const tag_val = try Value.Tag.int_u64.create(&new_decl_arena.allocator, field_i);
+            enum_obj.values.putAssumeCapacityNoClobber(tag_val, {});
+        }
+    }
+
+    return sema.analyzeDeclVal(block, src, new_decl);
 }
 
 fn zirUnionDecl(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {

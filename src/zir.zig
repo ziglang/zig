@@ -1532,13 +1532,17 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. has_bits: u32 // for every 32 fields
+    /// 0. inst: Index // for every body_len
+    /// 1. has_bits: u32 // for every 32 fields
     ///    - the bit is whether corresponding field has an value expression
-    /// 1. field_name: u32 // for every field: null terminated string index
-    /// 2. value: Ref // for every field for which corresponding bit is set
+    /// 2. fields: { // for every fields_len
+    ///        field_name: u32,
+    ///        value: Ref, // if corresponding bit is set
+    ///    }
     pub const EnumDecl = struct {
         /// Can be `Ref.none`.
         tag_type: Ref,
+        body_len: u32,
         fields_len: u32,
     };
 
@@ -1704,8 +1708,6 @@ const Writer = struct {
             .slice_end,
             .slice_sentinel,
             .union_decl,
-            .enum_decl,
-            .enum_decl_nonexhaustive,
             .struct_init,
             .field_type,
             => try self.writePlNode(stream, inst),
@@ -1760,6 +1762,10 @@ const Writer = struct {
             .struct_decl_packed,
             .struct_decl_extern,
             => try self.writeStructDecl(stream, inst),
+
+            .enum_decl,
+            .enum_decl_nonexhaustive,
+            => try self.writeEnumDecl(stream, inst),
 
             .switch_block => try self.writePlNodeSwitchBr(stream, inst, .none),
             .switch_block_else => try self.writePlNodeSwitchBr(stream, inst, .@"else"),
@@ -2031,7 +2037,7 @@ const Writer = struct {
 
         const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
         const body_end = extra.end + body.len;
-        var field_index: usize = body_end + bit_bags_count;
+        var extra_index: usize = body_end + bit_bags_count;
         var bit_bag_index: usize = body_end;
         var cur_bit_bag: u32 = undefined;
         var field_i: u32 = 0;
@@ -2045,29 +2051,91 @@ const Writer = struct {
             const has_default = @truncate(u1, cur_bit_bag) != 0;
             cur_bit_bag >>= 1;
 
-            const field_name = self.code.nullTerminatedString(self.code.extra[field_index]);
-            field_index += 1;
-            const field_type = @intToEnum(Inst.Ref, self.code.extra[field_index]);
-            field_index += 1;
+            const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
+            extra_index += 1;
+            const field_type = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+            extra_index += 1;
 
             try stream.writeByteNTimes(' ', self.indent);
             try stream.print("{}: ", .{std.zig.fmtId(field_name)});
             try self.writeInstRef(stream, field_type);
 
             if (has_align) {
-                const align_ref = @intToEnum(Inst.Ref, self.code.extra[field_index]);
-                field_index += 1;
+                const align_ref = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
 
                 try stream.writeAll(" align(");
                 try self.writeInstRef(stream, align_ref);
                 try stream.writeAll(")");
             }
             if (has_default) {
-                const default_ref = @intToEnum(Inst.Ref, self.code.extra[field_index]);
-                field_index += 1;
+                const default_ref = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
 
                 try stream.writeAll(" = ");
                 try self.writeInstRef(stream, default_ref);
+            }
+            try stream.writeAll(",\n");
+        }
+
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
+        try stream.writeAll("}) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeEnumDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.EnumDecl, inst_data.payload_index);
+        const body = self.code.extra[extra.end..][0..extra.data.body_len];
+        const fields_len = extra.data.fields_len;
+        const tag_ty_ref = extra.data.tag_type;
+
+        if (tag_ty_ref != .none) {
+            try self.writeInstRef(stream, tag_ty_ref);
+            try stream.writeAll(", ");
+        }
+
+        if (fields_len == 0) {
+            assert(body.len == 0);
+            try stream.writeAll("{}, {}) ");
+            try self.writeSrc(stream, inst_data.src());
+            return;
+        }
+
+        try stream.writeAll("{\n");
+        self.indent += 2;
+        try self.writeBody(stream, body);
+
+        try stream.writeByteNTimes(' ', self.indent - 2);
+        try stream.writeAll("}, {\n");
+
+        const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
+        const body_end = extra.end + body.len;
+        var extra_index: usize = body_end + bit_bags_count;
+        var bit_bag_index: usize = body_end;
+        var cur_bit_bag: u32 = undefined;
+        var field_i: u32 = 0;
+        while (field_i < fields_len) : (field_i += 1) {
+            if (field_i % 32 == 0) {
+                cur_bit_bag = self.code.extra[bit_bag_index];
+                bit_bag_index += 1;
+            }
+            const has_tag_value = @truncate(u1, cur_bit_bag) != 0;
+            cur_bit_bag >>= 1;
+
+            const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
+            extra_index += 1;
+
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.print("{}", .{std.zig.fmtId(field_name)});
+
+            if (has_tag_value) {
+                const tag_value_ref = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
+
+                try stream.writeAll(" = ");
+                try self.writeInstRef(stream, tag_value_ref);
             }
             try stream.writeAll(",\n");
         }
