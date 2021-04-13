@@ -2763,9 +2763,24 @@ test "overaligned pointer to packed struct" {
       cause the test suite to fail, notifying the bug fixer to update these docs.
       </p>
       <p>
-      It's also
-      <a href="https://github.com/ziglang/zig/issues/1512">planned to be able to set alignment of struct fields</a>.
+      It's also possible to set alignment of struct fields:
       </p>
+      {#code_begin|test#}
+const std = @import("std");
+const expectEqual = std.testing.expectEqual;
+
+test "aligned struct fields" {
+    const S = struct {
+        a: u32 align(2),
+        b: u32 align(64),
+    };
+    var foo = S{ .a = 1, .b = 2 };
+
+    expectEqual(64, @alignOf(S));
+    expectEqual(*align(2) u32, @TypeOf(&foo.a));
+    expectEqual(*align(64) u32, @TypeOf(&foo.b));
+}
+      {#code_end#}
       <p>
       Using packed structs with {#link|volatile#} is problematic, and may be a compile error in the future.
       For details on this subscribe to
