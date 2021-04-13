@@ -697,6 +697,8 @@ pub const Inst = struct {
         type_info,
         /// Implements the `@sizeOf` builtin. Uses `un_node`.
         size_of,
+        /// Implements the `@bitSizeOf` builtin. Uses `un_node`.
+        bit_size_of,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -864,6 +866,7 @@ pub const Inst = struct {
                 .enum_to_int,
                 .type_info,
                 .size_of,
+                .bit_size_of,
                 => false,
 
                 .@"break",
@@ -1674,6 +1677,7 @@ const Writer = struct {
             .enum_to_int,
             .type_info,
             .size_of,
+            .bit_size_of,
             => try self.writeUnNode(stream, inst),
 
             .ref,

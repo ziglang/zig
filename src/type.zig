@@ -1377,6 +1377,151 @@ pub const Type = extern union {
         };
     }
 
+    /// Asserts the type has the bit size already resolved.
+    pub fn bitSize(self: Type, target: Target) u64 {
+        return switch (self.tag()) {
+            .fn_noreturn_no_args => unreachable, // represents machine code; not a pointer
+            .fn_void_no_args => unreachable, // represents machine code; not a pointer
+            .fn_naked_noreturn_no_args => unreachable, // represents machine code; not a pointer
+            .fn_ccc_void_no_args => unreachable, // represents machine code; not a pointer
+            .function => unreachable, // represents machine code; not a pointer
+            .c_void => unreachable,
+            .void => unreachable,
+            .type => unreachable,
+            .comptime_int => unreachable,
+            .comptime_float => unreachable,
+            .noreturn => unreachable,
+            .@"null" => unreachable,
+            .@"undefined" => unreachable,
+            .enum_literal => unreachable,
+            .single_const_pointer_to_comptime_int => unreachable,
+            .empty_struct => unreachable,
+            .empty_struct_literal => unreachable,
+            .inferred_alloc_const => unreachable,
+            .inferred_alloc_mut => unreachable,
+            .@"opaque" => unreachable,
+            .var_args_param => unreachable,
+
+            .@"struct" => {
+                @panic("TODO bitSize struct");
+            },
+            .enum_simple, .enum_full, .enum_nonexhaustive => {
+                var buffer: Payload.Bits = undefined;
+                const int_tag_ty = self.intTagType(&buffer);
+                return int_tag_ty.bitSize(target);
+            },
+
+            .u8, .i8 => 8,
+
+            .bool => 1,
+
+            .array_u8 => 8 * self.castTag(.array_u8).?.data,
+            .array_u8_sentinel_0 => 8 * (self.castTag(.array_u8_sentinel_0).?.data + 1),
+            .array => {
+                const payload = self.castTag(.array).?.data;
+                const elem_size = std.math.max(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
+                if (elem_size == 0 or payload.len == 0)
+                    return 0;
+                return (payload.len - 1) * 8 * elem_size + payload.elem_type.bitSize(target);
+            },
+            .array_sentinel => {
+                const payload = self.castTag(.array_sentinel).?.data;
+                const elem_size = std.math.max(
+                    payload.elem_type.abiAlignment(target),
+                    payload.elem_type.abiSize(target),
+                );
+                return payload.len * 8 * elem_size + payload.elem_type.bitSize(target);
+            },
+            .i16, .u16, .f16 => 16,
+            .i32, .u32, .f32 => 32,
+            .i64, .u64, .f64 => 64,
+            .u128, .i128, .f128 => 128,
+
+            .isize, .usize => target.cpu.arch.ptrBitWidth(),
+
+            .const_slice,
+            .mut_slice,
+            => {
+                if (self.elemType().hasCodeGenBits()) {
+                    return target.cpu.arch.ptrBitWidth() * 2;
+                } else {
+                    return target.cpu.arch.ptrBitWidth();
+                }
+            },
+            .const_slice_u8 => target.cpu.arch.ptrBitWidth() * 2,
+
+            .optional_single_const_pointer,
+            .optional_single_mut_pointer,
+            => {
+                if (self.elemType().hasCodeGenBits()) {
+                    return target.cpu.arch.ptrBitWidth();
+                } else {
+                    return 1;
+                }
+            },
+
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .pointer,
+            => {
+                if (self.elemType().hasCodeGenBits()) {
+                    return target.cpu.arch.ptrBitWidth();
+                } else {
+                    return 0;
+                }
+            },
+
+            .c_short => return CType.short.sizeInBits(target),
+            .c_ushort => return CType.ushort.sizeInBits(target),
+            .c_int => return CType.int.sizeInBits(target),
+            .c_uint => return CType.uint.sizeInBits(target),
+            .c_long => return CType.long.sizeInBits(target),
+            .c_ulong => return CType.ulong.sizeInBits(target),
+            .c_longlong => return CType.longlong.sizeInBits(target),
+            .c_ulonglong => return CType.ulonglong.sizeInBits(target),
+            .c_longdouble => 128,
+
+            .error_set,
+            .error_set_single,
+            .anyerror_void_error_union,
+            .anyerror,
+            => return 16, // TODO revisit this when we have the concept of the error tag type
+
+            .int_signed, .int_unsigned => self.cast(Payload.Bits).?.data,
+
+            .optional => {
+                var buf: Payload.ElemType = undefined;
+                const child_type = self.optionalChild(&buf);
+                if (!child_type.hasCodeGenBits()) return 8;
+
+                if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr())
+                    return target.cpu.arch.ptrBitWidth();
+
+                // Optional types are represented as a struct with the child type as the first
+                // field and a boolean as the second. Since the child type's abi alignment is
+                // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
+                // to the child type's ABI alignment.
+                return child_type.bitSize(target) + 1;
+            },
+
+            .error_union => {
+                const payload = self.castTag(.error_union).?.data;
+                if (!payload.error_set.hasCodeGenBits() and !payload.payload.hasCodeGenBits()) {
+                    return 0;
+                } else if (!payload.error_set.hasCodeGenBits()) {
+                    return payload.payload.bitSize(target);
+                } else if (!payload.payload.hasCodeGenBits()) {
+                    return payload.error_set.bitSize(target);
+                }
+                @panic("TODO abiSize error union");
+            },
+        };
+    }
+
     /// Asserts the type is an enum.
     pub fn intTagType(self: Type, buffer: *Payload.Bits) Type {
         switch (self.tag()) {
