@@ -31,7 +31,7 @@ pub const Signed = struct {
 
     pub fn resolve(signed: Signed, args: Relocation.ResolveArgs) !void {
         const target_addr = target_addr: {
-            if (signed.base.target == .section)  {
+            if (signed.base.target == .section) {
                 const source_target = @intCast(i64, signed.base.offset) + signed.addend + 4 + signed.correction;
                 const source_disp = source_target - @intCast(i64, args.source_sect_addr.?);
                 break :target_addr @intCast(i64, args.target_addr) + source_disp;
@@ -50,7 +50,6 @@ pub const Signed = struct {
 
 pub const GotLoad = struct {
     base: Relocation,
-    op: *u8,
 
     pub const base_type: Relocation.Type = .got_load;
 
@@ -224,7 +223,6 @@ pub const Parser = struct {
                 .offset = offset,
                 .target = target,
             },
-            .op = &parser.code[offset - 2],
         };
 
         log.debug("    | emitting {}", .{got_load});
