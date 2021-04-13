@@ -265,6 +265,7 @@ pub fn analyzeBody(
             .switch_capture_else_ref => try sema.zirSwitchCaptureElse(block, inst, true),
             .type_info => try sema.zirTypeInfo(block, inst),
             .size_of => try sema.zirSizeOf(block, inst),
+            .bit_size_of => try sema.zirBitSizeOf(block, inst),
             .typeof => try sema.zirTypeof(block, inst),
             .typeof_elem => try sema.zirTypeofElem(block, inst),
             .typeof_peer => try sema.zirTypeofPeer(block, inst),
@@ -4363,6 +4364,16 @@ fn zirSizeOf(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!
     const target = sema.mod.getTarget();
     const abi_size = operand_ty.abiSize(target);
     return sema.mod.constIntUnsigned(sema.arena, src, Type.initTag(.comptime_int), abi_size);
+}
+
+fn zirBitSizeOf(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_ty = try sema.resolveType(block, operand_src, inst_data.operand);
+    const target = sema.mod.getTarget();
+    const bit_size = operand_ty.bitSize(target);
+    return sema.mod.constIntUnsigned(sema.arena, src, Type.initTag(.comptime_int), bit_size);
 }
 
 fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: zir.Inst.Index) InnerError!*Inst {
