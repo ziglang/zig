@@ -1932,7 +1932,7 @@ fn containerDecl(
     // ZIR for all the field types, alignments, and default value expressions.
 
     const arg_inst: zir.Inst.Ref = if (container_decl.ast.arg != 0)
-        try comptimeExpr(gz, scope, .none, container_decl.ast.arg)
+        try comptimeExpr(gz, scope, .{ .ty = .type_type }, container_decl.ast.arg)
     else
         .none;
 
@@ -2006,6 +2006,9 @@ fn containerDecl(
                     }
                     total_fields += 1;
                     if (member.ast.value_expr != 0) {
+                        if (arg_inst == .none) {
+                            return mod.failNode(scope, member.ast.value_expr, "value assigned to enum tag with inferred tag type", .{});
+                        }
                         values += 1;
                     }
                 }
@@ -2118,7 +2121,91 @@ fn containerDecl(
             // In this case we must generate ZIR code for the tag values, similar to
             // how structs are handled above. The new anonymous Decl will be created in
             // Sema, not AstGen.
-            return mod.failNode(scope, node, "TODO AstGen for enum decl with decls or explicitly provided field values", .{});
+            const tag: zir.Inst.Tag = if (counts.nonexhaustive_node == 0)
+                .enum_decl
+            else
+                .enum_decl_nonexhaustive;
+            if (counts.total_fields == 0) {
+                return gz.addPlNode(tag, node, zir.Inst.EnumDecl{
+                    .tag_type = arg_inst,
+                    .fields_len = 0,
+                    .body_len = 0,
+                });
+            }
+
+            // The enum_decl instruction introduces a scope in which the decls of the enum
+            // are in scope, so that tag values can refer to decls within the enum itself.
+            var block_scope: GenZir = .{
+                .parent = scope,
+                .astgen = astgen,
+                .force_comptime = true,
+            };
+            defer block_scope.instructions.deinit(gpa);
+
+            var fields_data = ArrayListUnmanaged(u32){};
+            defer fields_data.deinit(gpa);
+
+            try fields_data.ensureCapacity(gpa, counts.total_fields + counts.values);
+
+            // We only need this if there are greater than 32 fields.
+            var bit_bag = ArrayListUnmanaged(u32){};
+            defer bit_bag.deinit(gpa);
+
+            var cur_bit_bag: u32 = 0;
+            var field_index: usize = 0;
+            for (container_decl.ast.members) |member_node| {
+                if (member_node == counts.nonexhaustive_node)
+                    continue;
+                const member = switch (node_tags[member_node]) {
+                    .container_field_init => tree.containerFieldInit(member_node),
+                    .container_field_align => tree.containerFieldAlign(member_node),
+                    .container_field => tree.containerField(member_node),
+                    else => continue,
+                };
+                if (field_index % 32 == 0 and field_index != 0) {
+                    try bit_bag.append(gpa, cur_bit_bag);
+                    cur_bit_bag = 0;
+                }
+                assert(member.comptime_token == null);
+                assert(member.ast.type_expr == 0);
+                assert(member.ast.align_expr == 0);
+
+                const field_name = try gz.identAsString(member.ast.name_token);
+                fields_data.appendAssumeCapacity(field_name);
+
+                const have_value = member.ast.value_expr != 0;
+                cur_bit_bag = (cur_bit_bag >> 1) |
+                    (@as(u32, @boolToInt(have_value)) << 31);
+
+                if (have_value) {
+                    const tag_value_inst = try expr(&block_scope, &block_scope.base, .{ .ty = arg_inst }, member.ast.value_expr);
+                    fields_data.appendAssumeCapacity(@enumToInt(tag_value_inst));
+                }
+
+                field_index += 1;
+            }
+            const empty_slot_count = 32 - (field_index % 32);
+            cur_bit_bag >>= @intCast(u5, empty_slot_count);
+
+            const decl_inst = try gz.addBlock(tag, node);
+            try gz.instructions.append(gpa, decl_inst);
+            _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
+
+            try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
+                @typeInfo(zir.Inst.EnumDecl).Struct.fields.len +
+                bit_bag.items.len + 1 + fields_data.items.len +
+                block_scope.instructions.items.len);
+            const zir_datas = astgen.instructions.items(.data);
+            zir_datas[decl_inst].pl_node.payload_index = astgen.addExtraAssumeCapacity(zir.Inst.EnumDecl{
+                .tag_type = arg_inst,
+                .body_len = @intCast(u32, block_scope.instructions.items.len),
+                .fields_len = @intCast(u32, field_index),
+            });
+            astgen.extra.appendSliceAssumeCapacity(block_scope.instructions.items);
+            astgen.extra.appendSliceAssumeCapacity(bit_bag.items); // Likely empty.
+            astgen.extra.appendAssumeCapacity(cur_bit_bag);
+            astgen.extra.appendSliceAssumeCapacity(fields_data.items);
+            return rvalue(gz, scope, rl, astgen.indexToRef(decl_inst), node);
         },
         .keyword_opaque => {
             const result = try gz.addNode(.opaque_decl, node);
