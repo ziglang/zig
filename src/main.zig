@@ -12,7 +12,6 @@ const warn = std.log.warn;
 const Compilation = @import("Compilation.zig");
 const link = @import("link.zig");
 const Package = @import("Package.zig");
-const zir = @import("zir.zig");
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;

@@ -2,7 +2,6 @@ const std = @import("std");
 const link = @import("link.zig");
 const Compilation = @import("Compilation.zig");
 const Allocator = std.mem.Allocator;
-const zir = @import("zir.zig");
 const Package = @import("Package.zig");
 const introspect = @import("introspect.zig");
 const build_options = @import("build_options");
