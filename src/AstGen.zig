@@ -1359,6 +1359,7 @@ fn blockExprStmts(
                         .int_to_enum,
                         .enum_to_int,
                         .type_info,
+                        .size_of,
                         => break :b false,
 
                         // ZIR instructions that are always either `noreturn` or `void`.
@@ -4342,6 +4343,12 @@ fn builtinCall(
             return rvalue(gz, scope, rl, result, node);
         },
 
+        .size_of => {
+            const operand = try typeExpr(gz, scope, params[0]);
+            const result = try gz.addUnNode(.size_of, operand, node);
+            return rvalue(gz, scope, rl, result, node);
+        },
+
         .add_with_overflow,
         .align_cast,
         .align_of,
@@ -4396,7 +4403,6 @@ fn builtinCall(
         .shl_with_overflow,
         .shr_exact,
         .shuffle,
-        .size_of,
         .splat,
         .reduce,
         .src,

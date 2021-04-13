@@ -695,6 +695,8 @@ pub const Inst = struct {
         enum_to_int,
         /// Implements the `@typeInfo` builtin. Uses `un_node`.
         type_info,
+        /// Implements the `@sizeOf` builtin. Uses `un_node`.
+        size_of,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -861,6 +863,7 @@ pub const Inst = struct {
                 .int_to_enum,
                 .enum_to_int,
                 .type_info,
+                .size_of,
                 => false,
 
                 .@"break",
@@ -1670,6 +1673,7 @@ const Writer = struct {
             .struct_init_empty,
             .enum_to_int,
             .type_info,
+            .size_of,
             => try self.writeUnNode(stream, inst),
 
             .ref,
