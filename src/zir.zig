@@ -1,5 +1,14 @@
 //! Zig Intermediate Representation. Astgen.zig converts AST nodes to these
 //! untyped IR instructions. Next, Sema.zig processes these into TZIR.
+//! The minimum amount of information needed to represent a list of ZIR instructions.
+//! Once this structure is completed, it can be used to generate TZIR, followed by
+//! machine code, without any memory access into the AST tree token list, node list,
+//! or source bytes. Exceptions include:
+//!  * Compile errors, which may need to reach into these data structures to
+//!    create a useful report.
+//!  * In the future, possibly inline assembly, which needs to get parsed and
+//!    handled by the codegen backend, and errors reported there. However for now,
+//!    inline assembly is not an exception.
 
 const std = @import("std");
 const mem = std.mem;
@@ -9,6 +18,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const ast = std.zig.ast;
 
+const Zir = @This();
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const TypedValue = @import("TypedValue.zig");
@@ -16,96 +26,85 @@ const ir = @import("ir.zig");
 const Module = @import("Module.zig");
 const LazySrcLoc = Module.LazySrcLoc;
 
-/// The minimum amount of information needed to represent a list of ZIR instructions.
-/// Once this structure is completed, it can be used to generate TZIR, followed by
-/// machine code, without any memory access into the AST tree token list, node list,
-/// or source bytes. Exceptions include:
-///  * Compile errors, which may need to reach into these data structures to
-///    create a useful report.
-///  * In the future, possibly inline assembly, which needs to get parsed and
-///    handled by the codegen backend, and errors reported there. However for now,
-///    inline assembly is not an exception.
-pub const Code = struct {
-    /// There is always implicitly a `block` instruction at index 0.
-    /// This is so that `break_inline` can break from the root block.
-    instructions: std.MultiArrayList(Inst).Slice,
-    /// In order to store references to strings in fewer bytes, we copy all
-    /// string bytes into here. String bytes can be null. It is up to whomever
-    /// is referencing the data here whether they want to store both index and length,
-    /// thus allowing null bytes, or store only index, and use null-termination. The
-    /// `string_bytes` array is agnostic to either usage.
-    string_bytes: []u8,
-    /// The meaning of this data is determined by `Inst.Tag` value.
-    extra: []u32,
+/// There is always implicitly a `block` instruction at index 0.
+/// This is so that `break_inline` can break from the root block.
+instructions: std.MultiArrayList(Inst).Slice,
+/// In order to store references to strings in fewer bytes, we copy all
+/// string bytes into here. String bytes can be null. It is up to whomever
+/// is referencing the data here whether they want to store both index and length,
+/// thus allowing null bytes, or store only index, and use null-termination. The
+/// `string_bytes` array is agnostic to either usage.
+string_bytes: []u8,
+/// The meaning of this data is determined by `Inst.Tag` value.
+extra: []u32,
 
-    /// Returns the requested data, as well as the new index which is at the start of the
-    /// trailers for the object.
-    pub fn extraData(code: Code, comptime T: type, index: usize) struct { data: T, end: usize } {
-        const fields = std.meta.fields(T);
-        var i: usize = index;
-        var result: T = undefined;
-        inline for (fields) |field| {
-            @field(result, field.name) = switch (field.field_type) {
-                u32 => code.extra[i],
-                Inst.Ref => @intToEnum(Inst.Ref, code.extra[i]),
-                else => unreachable,
-            };
-            i += 1;
-        }
-        return .{
-            .data = result,
-            .end = i,
+/// Returns the requested data, as well as the new index which is at the start of the
+/// trailers for the object.
+pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, end: usize } {
+    const fields = std.meta.fields(T);
+    var i: usize = index;
+    var result: T = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.field_type) {
+            u32 => code.extra[i],
+            Inst.Ref => @intToEnum(Inst.Ref, code.extra[i]),
+            else => unreachable,
         };
+        i += 1;
     }
+    return .{
+        .data = result,
+        .end = i,
+    };
+}
 
-    /// Given an index into `string_bytes` returns the null-terminated string found there.
-    pub fn nullTerminatedString(code: Code, index: usize) [:0]const u8 {
-        var end: usize = index;
-        while (code.string_bytes[end] != 0) {
-            end += 1;
-        }
-        return code.string_bytes[index..end :0];
+/// Given an index into `string_bytes` returns the null-terminated string found there.
+pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
+    var end: usize = index;
+    while (code.string_bytes[end] != 0) {
+        end += 1;
     }
+    return code.string_bytes[index..end :0];
+}
 
-    pub fn refSlice(code: Code, start: usize, len: usize) []Inst.Ref {
-        const raw_slice = code.extra[start..][0..len];
-        return @bitCast([]Inst.Ref, raw_slice);
-    }
+pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
+    const raw_slice = code.extra[start..][0..len];
+    return @bitCast([]Inst.Ref, raw_slice);
+}
 
-    pub fn deinit(code: *Code, gpa: *Allocator) void {
-        code.instructions.deinit(gpa);
-        gpa.free(code.string_bytes);
-        gpa.free(code.extra);
-        code.* = undefined;
-    }
+pub fn deinit(code: *Zir, gpa: *Allocator) void {
+    code.instructions.deinit(gpa);
+    gpa.free(code.string_bytes);
+    gpa.free(code.extra);
+    code.* = undefined;
+}
 
-    /// For debugging purposes, like dumpFn but for unanalyzed zir blocks
-    pub fn dump(
-        code: Code,
-        gpa: *Allocator,
-        kind: []const u8,
-        scope: *Module.Scope,
-        param_count: usize,
-    ) !void {
-        var arena = std.heap.ArenaAllocator.init(gpa);
-        defer arena.deinit();
+/// For debugging purposes, like dumpFn but for unanalyzed zir blocks
+pub fn dump(
+    code: Zir,
+    gpa: *Allocator,
+    kind: []const u8,
+    scope: *Module.Scope,
+    param_count: usize,
+) !void {
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
 
-        var writer: Writer = .{
-            .gpa = gpa,
-            .arena = &arena.allocator,
-            .scope = scope,
-            .code = code,
-            .indent = 0,
-            .param_count = param_count,
-        };
+    var writer: Writer = .{
+        .gpa = gpa,
+        .arena = &arena.allocator,
+        .scope = scope,
+        .code = code,
+        .indent = 0,
+        .param_count = param_count,
+    };
 
-        const decl_name = scope.srcDecl().?.name;
-        const stderr = std.io.getStdErr().writer();
-        try stderr.print("ZIR {s} {s} %0 ", .{ kind, decl_name });
-        try writer.writeInstToStream(stderr, 0);
-        try stderr.print(" // end ZIR {s} {s}\n\n", .{ kind, decl_name });
-    }
-};
+    const decl_name = scope.srcDecl().?.name;
+    const stderr = std.io.getStdErr().writer();
+    try stderr.print("ZIR {s} {s} %0 ", .{ kind, decl_name });
+    try writer.writeInstToStream(stderr, 0);
+    try stderr.print(" // end ZIR {s} {s}\n\n", .{ kind, decl_name });
+}
 
 /// These are untyped instructions generated from an Abstract Syntax Tree.
 /// The data here is immutable because it is possible to have multiple
@@ -885,7 +884,7 @@ pub const Inst = struct {
         }
     };
 
-    /// The position of a ZIR instruction within the `Code` instructions array.
+    /// The position of a ZIR instruction within the `Zir` instructions array.
     pub const Index = u32;
 
     /// A reference to a TypedValue, parameter of the current function,
@@ -1236,7 +1235,7 @@ pub const Inst = struct {
             /// Number of bytes in the string.
             len: u32,
 
-            pub fn get(self: @This(), code: Code) []const u8 {
+            pub fn get(self: @This(), code: Zir) []const u8 {
                 return code.string_bytes[self.start..][0..self.len];
             }
         },
@@ -1257,7 +1256,7 @@ pub const Inst = struct {
             /// Offset from Decl AST token index.
             src_tok: u32,
 
-            pub fn get(self: @This(), code: Code) [:0]const u8 {
+            pub fn get(self: @This(), code: Zir) [:0]const u8 {
                 return code.nullTerminatedString(self.start);
             }
 
@@ -1609,7 +1608,7 @@ const Writer = struct {
     gpa: *Allocator,
     arena: *Allocator,
     scope: *Module.Scope,
-    code: Code,
+    code: Zir,
     indent: usize,
     param_count: usize,
 

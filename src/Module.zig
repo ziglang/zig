@@ -21,7 +21,7 @@ const TypedValue = @import("TypedValue.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
 const ir = @import("ir.zig");
-const zir = @import("zir.zig");
+const Zir = @import("zir.zig"); // TODO rename this to Zir
 const trace = @import("tracy.zig").trace;
 const AstGen = @import("AstGen.zig");
 const Sema = @import("Sema.zig");
@@ -464,7 +464,7 @@ pub const Fn = struct {
     /// The first N elements of `extra` are indexes into `string_bytes` to
     /// a null-terminated string.
     /// This memory is managed with gpa, must be freed when the function is freed.
-    zir: zir.Code,
+    zir: Zir,
     /// undefined unless analysis state is `success`.
     body: ir.Body,
     state: Analysis,
@@ -808,7 +808,7 @@ pub const Scope = struct {
         /// This `Block` maps a block ZIR instruction to the corresponding
         /// TZIR instruction for break instruction analysis.
         pub const Label = struct {
-            zir_block: zir.Inst.Index,
+            zir_block: Zir.Inst.Index,
             merges: Merges,
         };
 
@@ -834,7 +834,7 @@ pub const Scope = struct {
 
         /// For debugging purposes.
         pub fn dump(block: *Block, mod: Module) void {
-            zir.dumpBlock(mod, block);
+            Zir.dumpBlock(mod, block);
         }
 
         pub fn makeSubBlock(parent: *Block) Block {
@@ -1045,7 +1045,7 @@ pub const Scope = struct {
     };
 
     /// This is a temporary structure; references to it are valid only
-    /// while constructing a `zir.Code`.
+    /// while constructing a `Zir`.
     pub const GenZir = struct {
         pub const base_tag: Tag = .gen_zir;
         base: Scope = Scope{ .tag = base_tag },
@@ -1056,16 +1056,16 @@ pub const Scope = struct {
         astgen: *AstGen,
         /// Keeps track of the list of instructions in this scope only. Indexes
         /// to instructions in `astgen`.
-        instructions: ArrayListUnmanaged(zir.Inst.Index) = .{},
+        instructions: ArrayListUnmanaged(Zir.Inst.Index) = .{},
         label: ?Label = null,
-        break_block: zir.Inst.Index = 0,
-        continue_block: zir.Inst.Index = 0,
+        break_block: Zir.Inst.Index = 0,
+        continue_block: Zir.Inst.Index = 0,
         /// Only valid when setBreakResultLoc is called.
         break_result_loc: AstGen.ResultLoc = undefined,
         /// When a block has a pointer result location, here it is.
-        rl_ptr: zir.Inst.Ref = .none,
+        rl_ptr: Zir.Inst.Ref = .none,
         /// When a block has a type result location, here it is.
-        rl_ty_inst: zir.Inst.Ref = .none,
+        rl_ty_inst: Zir.Inst.Ref = .none,
         /// Keeps track of how many branches of a block did not actually
         /// consume the result location. astgen uses this to figure out
         /// whether to rely on break instructions or writing to the result
@@ -1077,25 +1077,25 @@ pub const Scope = struct {
         break_count: usize = 0,
         /// Tracks `break :foo bar` instructions so they can possibly be elided later if
         /// the labeled block ends up not needing a result location pointer.
-        labeled_breaks: ArrayListUnmanaged(zir.Inst.Index) = .{},
+        labeled_breaks: ArrayListUnmanaged(Zir.Inst.Index) = .{},
         /// Tracks `store_to_block_ptr` instructions that correspond to break instructions
         /// so they can possibly be elided later if the labeled block ends up not needing
         /// a result location pointer.
-        labeled_store_to_block_ptr_list: ArrayListUnmanaged(zir.Inst.Index) = .{},
+        labeled_store_to_block_ptr_list: ArrayListUnmanaged(Zir.Inst.Index) = .{},
 
         pub const Label = struct {
             token: ast.TokenIndex,
-            block_inst: zir.Inst.Index,
+            block_inst: Zir.Inst.Index,
             used: bool = false,
         };
 
         /// Only valid to call on the top of the `GenZir` stack. Completes the
-        /// `AstGen` into a `zir.Code`. Leaves the `AstGen` in an
+        /// `AstGen` into a `Zir`. Leaves the `AstGen` in an
         /// initialized, but empty, state.
-        pub fn finish(gz: *GenZir) !zir.Code {
+        pub fn finish(gz: *GenZir) !Zir {
             const gpa = gz.astgen.mod.gpa;
             try gz.setBlockBody(0);
-            return zir.Code{
+            return Zir{
                 .instructions = gz.astgen.instructions.toOwnedSlice(),
                 .string_bytes = gz.astgen.string_bytes.toOwnedSlice(gpa),
                 .extra = gz.astgen.extra.toOwnedSlice(gpa),
@@ -1148,24 +1148,24 @@ pub const Scope = struct {
             }
         }
 
-        pub fn setBoolBrBody(gz: GenZir, inst: zir.Inst.Index) !void {
+        pub fn setBoolBrBody(gz: GenZir, inst: Zir.Inst.Index) !void {
             const gpa = gz.astgen.mod.gpa;
             try gz.astgen.extra.ensureCapacity(gpa, gz.astgen.extra.items.len +
-                @typeInfo(zir.Inst.Block).Struct.fields.len + gz.instructions.items.len);
+                @typeInfo(Zir.Inst.Block).Struct.fields.len + gz.instructions.items.len);
             const zir_datas = gz.astgen.instructions.items(.data);
             zir_datas[inst].bool_br.payload_index = gz.astgen.addExtraAssumeCapacity(
-                zir.Inst.Block{ .body_len = @intCast(u32, gz.instructions.items.len) },
+                Zir.Inst.Block{ .body_len = @intCast(u32, gz.instructions.items.len) },
             );
             gz.astgen.extra.appendSliceAssumeCapacity(gz.instructions.items);
         }
 
-        pub fn setBlockBody(gz: GenZir, inst: zir.Inst.Index) !void {
+        pub fn setBlockBody(gz: GenZir, inst: Zir.Inst.Index) !void {
             const gpa = gz.astgen.mod.gpa;
             try gz.astgen.extra.ensureCapacity(gpa, gz.astgen.extra.items.len +
-                @typeInfo(zir.Inst.Block).Struct.fields.len + gz.instructions.items.len);
+                @typeInfo(Zir.Inst.Block).Struct.fields.len + gz.instructions.items.len);
             const zir_datas = gz.astgen.instructions.items(.data);
             zir_datas[inst].pl_node.payload_index = gz.astgen.addExtraAssumeCapacity(
-                zir.Inst.Block{ .body_len = @intCast(u32, gz.instructions.items.len) },
+                Zir.Inst.Block{ .body_len = @intCast(u32, gz.instructions.items.len) },
             );
             gz.astgen.extra.appendSliceAssumeCapacity(gz.instructions.items);
         }
@@ -1180,12 +1180,12 @@ pub const Scope = struct {
             return str_index;
         }
 
-        pub fn addFnTypeCc(gz: *GenZir, tag: zir.Inst.Tag, args: struct {
+        pub fn addFnTypeCc(gz: *GenZir, tag: Zir.Inst.Tag, args: struct {
             src_node: ast.Node.Index,
-            param_types: []const zir.Inst.Ref,
-            ret_ty: zir.Inst.Ref,
-            cc: zir.Inst.Ref,
-        }) !zir.Inst.Ref {
+            param_types: []const Zir.Inst.Ref,
+            ret_ty: Zir.Inst.Ref,
+            cc: Zir.Inst.Ref,
+        }) !Zir.Inst.Ref {
             assert(args.src_node != 0);
             assert(args.ret_ty != .none);
             assert(args.cc != .none);
@@ -1193,16 +1193,16 @@ pub const Scope = struct {
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.astgen.instructions.ensureCapacity(gpa, gz.astgen.instructions.len + 1);
             try gz.astgen.extra.ensureCapacity(gpa, gz.astgen.extra.items.len +
-                @typeInfo(zir.Inst.FnTypeCc).Struct.fields.len + args.param_types.len);
+                @typeInfo(Zir.Inst.FnTypeCc).Struct.fields.len + args.param_types.len);
 
-            const payload_index = gz.astgen.addExtraAssumeCapacity(zir.Inst.FnTypeCc{
+            const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.FnTypeCc{
                 .return_type = args.ret_ty,
                 .cc = args.cc,
                 .param_types_len = @intCast(u32, args.param_types.len),
             });
             gz.astgen.appendRefsAssumeCapacity(args.param_types);
 
-            const new_index = @intCast(zir.Inst.Index, gz.astgen.instructions.len);
+            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
             gz.astgen.instructions.appendAssumeCapacity(.{
                 .tag = tag,
                 .data = .{ .pl_node = .{
@@ -1214,26 +1214,26 @@ pub const Scope = struct {
             return gz.astgen.indexToRef(new_index);
         }
 
-        pub fn addFnType(gz: *GenZir, tag: zir.Inst.Tag, args: struct {
+        pub fn addFnType(gz: *GenZir, tag: Zir.Inst.Tag, args: struct {
             src_node: ast.Node.Index,
-            ret_ty: zir.Inst.Ref,
-            param_types: []const zir.Inst.Ref,
-        }) !zir.Inst.Ref {
+            ret_ty: Zir.Inst.Ref,
+            param_types: []const Zir.Inst.Ref,
+        }) !Zir.Inst.Ref {
             assert(args.src_node != 0);
             assert(args.ret_ty != .none);
             const gpa = gz.astgen.mod.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.astgen.instructions.ensureCapacity(gpa, gz.astgen.instructions.len + 1);
             try gz.astgen.extra.ensureCapacity(gpa, gz.astgen.extra.items.len +
-                @typeInfo(zir.Inst.FnType).Struct.fields.len + args.param_types.len);
+                @typeInfo(Zir.Inst.FnType).Struct.fields.len + args.param_types.len);
 
-            const payload_index = gz.astgen.addExtraAssumeCapacity(zir.Inst.FnType{
+            const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.FnType{
                 .return_type = args.ret_ty,
                 .param_types_len = @intCast(u32, args.param_types.len),
             });
             gz.astgen.appendRefsAssumeCapacity(args.param_types);
 
-            const new_index = @intCast(zir.Inst.Index, gz.astgen.instructions.len);
+            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
             gz.astgen.instructions.appendAssumeCapacity(.{
                 .tag = tag,
                 .data = .{ .pl_node = .{
@@ -1247,27 +1247,27 @@ pub const Scope = struct {
 
         pub fn addCall(
             gz: *GenZir,
-            tag: zir.Inst.Tag,
-            callee: zir.Inst.Ref,
-            args: []const zir.Inst.Ref,
+            tag: Zir.Inst.Tag,
+            callee: Zir.Inst.Ref,
+            args: []const Zir.Inst.Ref,
             /// Absolute node index. This function does the conversion to offset from Decl.
             src_node: ast.Node.Index,
-        ) !zir.Inst.Ref {
+        ) !Zir.Inst.Ref {
             assert(callee != .none);
             assert(src_node != 0);
             const gpa = gz.astgen.mod.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.astgen.instructions.ensureCapacity(gpa, gz.astgen.instructions.len + 1);
             try gz.astgen.extra.ensureCapacity(gpa, gz.astgen.extra.items.len +
-                @typeInfo(zir.Inst.Call).Struct.fields.len + args.len);
+                @typeInfo(Zir.Inst.Call).Struct.fields.len + args.len);
 
-            const payload_index = gz.astgen.addExtraAssumeCapacity(zir.Inst.Call{
+            const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Call{
                 .callee = callee,
                 .args_len = @intCast(u32, args.len),
             });
             gz.astgen.appendRefsAssumeCapacity(args);
 
-            const new_index = @intCast(zir.Inst.Index, gz.astgen.instructions.len);
+            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
             gz.astgen.instructions.appendAssumeCapacity(.{
                 .tag = tag,
                 .data = .{ .pl_node = .{
@@ -1279,19 +1279,19 @@ pub const Scope = struct {
             return gz.astgen.indexToRef(new_index);
         }
 
-        /// Note that this returns a `zir.Inst.Index` not a ref.
+        /// Note that this returns a `Zir.Inst.Index` not a ref.
         /// Leaves the `payload_index` field undefined.
         pub fn addBoolBr(
             gz: *GenZir,
-            tag: zir.Inst.Tag,
-            lhs: zir.Inst.Ref,
-        ) !zir.Inst.Index {
+            tag: Zir.Inst.Tag,
+            lhs: Zir.Inst.Ref,
+        ) !Zir.Inst.Index {
             assert(lhs != .none);
             const gpa = gz.astgen.mod.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.astgen.instructions.ensureCapacity(gpa, gz.astgen.instructions.len + 1);
 
-            const new_index = @intCast(zir.Inst.Index, gz.astgen.instructions.len);
+            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
             gz.astgen.instructions.appendAssumeCapacity(.{
                 .tag = tag,
                 .data = .{ .bool_br = .{
@@ -1303,14 +1303,14 @@ pub const Scope = struct {
             return new_index;
         }
 
-        pub fn addInt(gz: *GenZir, integer: u64) !zir.Inst.Ref {
+        pub fn addInt(gz: *GenZir, integer: u64) !Zir.Inst.Ref {
             return gz.add(.{
                 .tag = .int,
                 .data = .{ .int = integer },
             });
         }
 
-        pub fn addFloat(gz: *GenZir, number: f32, src_node: ast.Node.Index) !zir.Inst.Ref {
+        pub fn addFloat(gz: *GenZir, number: f32, src_node: ast.Node.Index) !Zir.Inst.Ref {
             return gz.add(.{
                 .tag = .float,
                 .data = .{ .float = .{
@@ -1322,11 +1322,11 @@ pub const Scope = struct {
 
         pub fn addUnNode(
             gz: *GenZir,
-            tag: zir.Inst.Tag,
-            operand: zir.Inst.Ref,
+            tag: Zir.Inst.Tag,
+            operand: Zir.Inst.Ref,
             /// Absolute node index. This function does the conversion to offset from Decl.
             src_node: ast.Node.Index,
-        ) !zir.Inst.Ref {
+        ) !Zir.Inst.Ref {
             assert(operand != .none);
             return gz.add(.{
                 .tag = tag,
@@ -1339,17 +1339,17 @@ pub const Scope = struct {
 
         pub fn addPlNode(
             gz: *GenZir,
-            tag: zir.Inst.Tag,
+            tag: Zir.Inst.Tag,
             /// Absolute node index. This function does the conversion to offset from Decl.
             src_node: ast.Node.Index,
             extra: anytype,
-        ) !zir.Inst.Ref {
+        ) !Zir.Inst.Ref {
             const gpa = gz.astgen.mod.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.astgen.instructions.ensureCapacity(gpa, gz.astgen.instructions.len + 1);
 
             const payload_index = try gz.astgen.addExtra(extra);
-            const new_index = @intCast(zir.Inst.Index, gz.astgen.instructions.len);
+            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
             gz.astgen.instructions.appendAssumeCapacity(.{
                 .tag = tag,
                 .data = .{ .pl_node = .{
@@ -1363,19 +1363,19 @@ pub const Scope = struct {
 
         pub fn addArrayTypeSentinel(
             gz: *GenZir,
-            len: zir.Inst.Ref,
-            sentinel: zir.Inst.Ref,
-            elem_type: zir.Inst.Ref,
-        ) !zir.Inst.Ref {
+            len: Zir.Inst.Ref,
+            sentinel: Zir.Inst.Ref,
+            elem_type: Zir.Inst.Ref,
+        ) !Zir.Inst.Ref {
             const gpa = gz.astgen.mod.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.astgen.instructions.ensureCapacity(gpa, gz.astgen.instructions.len + 1);
 
-            const payload_index = try gz.astgen.addExtra(zir.Inst.ArrayTypeSentinel{
+            const payload_index = try gz.astgen.addExtra(Zir.Inst.ArrayTypeSentinel{
                 .sentinel = sentinel,
                 .elem_type = elem_type,
             });
-            const new_index = @intCast(zir.Inst.Index, gz.astgen.instructions.len);
+            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
             gz.astgen.instructions.appendAssumeCapacity(.{
                 .tag = .array_type_sentinel,
                 .data = .{ .array_type_sentinel = .{
@@ -1389,11 +1389,11 @@ pub const Scope = struct {
 
         pub fn addUnTok(
             gz: *GenZir,
-            tag: zir.Inst.Tag,
-            operand: zir.Inst.Ref,
+            tag: Zir.Inst.Tag,
+            operand: Zir.Inst.Ref,
             /// Absolute token index. This function does the conversion to Decl offset.
             abs_tok_index: ast.TokenIndex,
-        ) !zir.Inst.Ref {
+        ) !Zir.Inst.Ref {
             assert(operand != .none);
             return gz.add(.{
                 .tag = tag,
@@ -1406,11 +1406,11 @@ pub const Scope = struct {
 
         pub fn addStrTok(
             gz: *GenZir,
-            tag: zir.Inst.Tag,
+            tag: Zir.Inst.Tag,
             str_index: u32,
             /// Absolute token index. This function does the conversion to Decl offset.
             abs_tok_index: ast.TokenIndex,
-        ) !zir.Inst.Ref {
+        ) !Zir.Inst.Ref {
             return gz.add(.{
                 .tag = tag,
                 .data = .{ .str_tok = .{
@@ -1422,10 +1422,10 @@ pub const Scope = struct {
 
         pub fn addBreak(
             gz: *GenZir,
-            tag: zir.Inst.Tag,
-            break_block: zir.Inst.Index,
-            operand: zir.Inst.Ref,
-        ) !zir.Inst.Index {
+            tag: Zir.Inst.Tag,
+            break_block: Zir.Inst.Index,
+            operand: Zir.Inst.Ref,
+        ) !Zir.Inst.Index {
             return gz.addAsIndex(.{
                 .tag = tag,
                 .data = .{ .@"break" = .{
@@ -1437,10 +1437,10 @@ pub const Scope = struct {
 
         pub fn addBin(
             gz: *GenZir,
-            tag: zir.Inst.Tag,
-            lhs: zir.Inst.Ref,
-            rhs: zir.Inst.Ref,
-        ) !zir.Inst.Ref {
+            tag: Zir.Inst.Tag,
+            lhs: Zir.Inst.Ref,
+            rhs: Zir.Inst.Ref,
+        ) !Zir.Inst.Ref {
             assert(lhs != .none);
             assert(rhs != .none);
             return gz.add(.{
@@ -1454,10 +1454,10 @@ pub const Scope = struct {
 
         pub fn addDecl(
             gz: *GenZir,
-            tag: zir.Inst.Tag,
+            tag: Zir.Inst.Tag,
             decl_index: u32,
             src_node: ast.Node.Index,
-        ) !zir.Inst.Ref {
+        ) !Zir.Inst.Ref {
             return gz.add(.{
                 .tag = tag,
                 .data = .{ .pl_node = .{
@@ -1469,10 +1469,10 @@ pub const Scope = struct {
 
         pub fn addNode(
             gz: *GenZir,
-            tag: zir.Inst.Tag,
+            tag: Zir.Inst.Tag,
             /// Absolute node index. This function does the conversion to offset from Decl.
             src_node: ast.Node.Index,
-        ) !zir.Inst.Ref {
+        ) !Zir.Inst.Ref {
             return gz.add(.{
                 .tag = tag,
                 .data = .{ .node = gz.astgen.decl.nodeIndexToRelative(src_node) },
@@ -1482,9 +1482,9 @@ pub const Scope = struct {
         /// Asserts that `str` is 8 or fewer bytes.
         pub fn addSmallStr(
             gz: *GenZir,
-            tag: zir.Inst.Tag,
+            tag: Zir.Inst.Tag,
             str: []const u8,
-        ) !zir.Inst.Ref {
+        ) !Zir.Inst.Ref {
             var buf: [9]u8 = undefined;
             mem.copy(u8, &buf, str);
             buf[str.len] = 0;
@@ -1495,11 +1495,11 @@ pub const Scope = struct {
             });
         }
 
-        /// Note that this returns a `zir.Inst.Index` not a ref.
+        /// Note that this returns a `Zir.Inst.Index` not a ref.
         /// Does *not* append the block instruction to the scope.
         /// Leaves the `payload_index` field undefined.
-        pub fn addBlock(gz: *GenZir, tag: zir.Inst.Tag, node: ast.Node.Index) !zir.Inst.Index {
-            const new_index = @intCast(zir.Inst.Index, gz.astgen.instructions.len);
+        pub fn addBlock(gz: *GenZir, tag: Zir.Inst.Tag, node: ast.Node.Index) !Zir.Inst.Index {
+            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
             const gpa = gz.astgen.mod.gpa;
             try gz.astgen.instructions.append(gpa, .{
                 .tag = tag,
@@ -1511,12 +1511,12 @@ pub const Scope = struct {
             return new_index;
         }
 
-        /// Note that this returns a `zir.Inst.Index` not a ref.
+        /// Note that this returns a `Zir.Inst.Index` not a ref.
         /// Leaves the `payload_index` field undefined.
-        pub fn addCondBr(gz: *GenZir, tag: zir.Inst.Tag, node: ast.Node.Index) !zir.Inst.Index {
+        pub fn addCondBr(gz: *GenZir, tag: Zir.Inst.Tag, node: ast.Node.Index) !Zir.Inst.Index {
             const gpa = gz.astgen.mod.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
-            const new_index = @intCast(zir.Inst.Index, gz.astgen.instructions.len);
+            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
             try gz.astgen.instructions.append(gpa, .{
                 .tag = tag,
                 .data = .{ .pl_node = .{
@@ -1528,16 +1528,16 @@ pub const Scope = struct {
             return new_index;
         }
 
-        pub fn add(gz: *GenZir, inst: zir.Inst) !zir.Inst.Ref {
+        pub fn add(gz: *GenZir, inst: Zir.Inst) !Zir.Inst.Ref {
             return gz.astgen.indexToRef(try gz.addAsIndex(inst));
         }
 
-        pub fn addAsIndex(gz: *GenZir, inst: zir.Inst) !zir.Inst.Index {
+        pub fn addAsIndex(gz: *GenZir, inst: Zir.Inst) !Zir.Inst.Index {
             const gpa = gz.astgen.mod.gpa;
             try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
             try gz.astgen.instructions.ensureCapacity(gpa, gz.astgen.instructions.len + 1);
 
-            const new_index = @intCast(zir.Inst.Index, gz.astgen.instructions.len);
+            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
             gz.astgen.instructions.appendAssumeCapacity(inst);
             gz.instructions.appendAssumeCapacity(new_index);
             return new_index;
@@ -1554,7 +1554,7 @@ pub const Scope = struct {
         parent: *Scope,
         gen_zir: *GenZir,
         name: []const u8,
-        inst: zir.Inst.Ref,
+        inst: Zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
         src: LazySrcLoc,
     };
@@ -1569,7 +1569,7 @@ pub const Scope = struct {
         parent: *Scope,
         gen_zir: *GenZir,
         name: []const u8,
-        ptr: zir.Inst.Ref,
+        ptr: Zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
         src: LazySrcLoc,
     };
@@ -2511,7 +2511,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
             var analysis_arena = std.heap.ArenaAllocator.init(mod.gpa);
             defer analysis_arena.deinit();
 
-            var code: zir.Code = blk: {
+            var code: Zir = blk: {
                 var astgen = try AstGen.init(mod, decl, &analysis_arena.allocator);
                 defer astgen.deinit();
 
@@ -2578,7 +2578,7 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
             var analysis_arena = std.heap.ArenaAllocator.init(mod.gpa);
             defer analysis_arena.deinit();
 
-            var code: zir.Code = blk: {
+            var code: Zir = blk: {
                 var astgen = try AstGen.init(mod, decl, &analysis_arena.allocator);
                 defer astgen.deinit();
 
@@ -2676,7 +2676,7 @@ fn astgenAndSemaFn(
         }
         break :blk count;
     };
-    const param_types = try fn_type_scope_arena.allocator.alloc(zir.Inst.Ref, param_count);
+    const param_types = try fn_type_scope_arena.allocator.alloc(Zir.Inst.Ref, param_count);
 
     var is_var_args = false;
     {
@@ -2782,7 +2782,7 @@ fn astgenAndSemaFn(
     else
         false;
 
-    const cc: zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
+    const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
         // TODO instead of enum literal type, this needs to be the
         // std.builtin.CallingConvention enum. We need to implement importing other files
         // and enums in order to fix this.
@@ -2797,8 +2797,8 @@ fn astgenAndSemaFn(
     else
         .none;
 
-    const fn_type_inst: zir.Inst.Ref = if (cc != .none) fn_type: {
-        const tag: zir.Inst.Tag = if (is_var_args) .fn_type_cc_var_args else .fn_type_cc;
+    const fn_type_inst: Zir.Inst.Ref = if (cc != .none) fn_type: {
+        const tag: Zir.Inst.Tag = if (is_var_args) .fn_type_cc_var_args else .fn_type_cc;
         break :fn_type try fn_type_scope.addFnTypeCc(tag, .{
             .src_node = fn_proto.ast.proto_node,
             .ret_ty = return_type_inst,
@@ -2806,7 +2806,7 @@ fn astgenAndSemaFn(
             .cc = cc,
         });
     } else fn_type: {
-        const tag: zir.Inst.Tag = if (is_var_args) .fn_type_var_args else .fn_type;
+        const tag: Zir.Inst.Tag = if (is_var_args) .fn_type_var_args else .fn_type;
         break :fn_type try fn_type_scope.addFnType(tag, .{
             .src_node = fn_proto.ast.proto_node,
             .ret_ty = return_type_inst,
@@ -2890,10 +2890,10 @@ fn astgenAndSemaFn(
     const new_func = try decl_arena.allocator.create(Fn);
     const fn_payload = try decl_arena.allocator.create(Value.Payload.Function);
 
-    const fn_zir: zir.Code = blk: {
+    const fn_zir: Zir = blk: {
         // We put the ZIR inside the Decl arena.
         var astgen = try AstGen.init(mod, decl, &decl_arena.allocator);
-        astgen.ref_start_index = @intCast(u32, zir.Inst.Ref.typed_value_map.len + param_count);
+        astgen.ref_start_index = @intCast(u32, Zir.Inst.Ref.typed_value_map.len + param_count);
         defer astgen.deinit();
 
         var gen_scope: Scope.GenZir = .{
@@ -2920,7 +2920,7 @@ fn astgenAndSemaFn(
                 .gen_zir = &gen_scope,
                 .name = param_name,
                 // Implicit const list first, then implicit arg list.
-                .inst = @intToEnum(zir.Inst.Ref, @intCast(u32, zir.Inst.Ref.typed_value_map.len + i)),
+                .inst = @intToEnum(Zir.Inst.Ref, @intCast(u32, Zir.Inst.Ref.typed_value_map.len + i)),
                 .src = decl.tokSrcLoc(name_token),
             };
             params_scope = &sub_scope.base;

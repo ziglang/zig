@@ -1,7 +1,7 @@
-//! A Work-In-Progress `zir.Code`. This is a shared parent of all
-//! `GenZir` scopes. Once the `zir.Code` is produced, this struct
+//! A Work-In-Progress `Zir`. This is a shared parent of all
+//! `GenZir` scopes. Once the `Zir` is produced, this struct
 //! is deinitialized.
-//! The `GenZir.finish` function converts this to a `zir.Code`.
+//! The `GenZir.finish` function converts this to a `Zir`.
 
 const AstGen = @This();
 
