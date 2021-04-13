@@ -1236,11 +1236,12 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
             continue;
         } else if (Symbol.isGlobal(sym)) {
             const sym_name = object.getString(sym.n_strx);
+            const is_weak = Symbol.isWeakDef(sym) or Symbol.isPext(sym);
             const global = self.symtab.getEntry(sym_name) orelse {
                 // Put new global symbol into the symbol table.
                 const name = try self.allocator.dupe(u8, sym_name);
                 try self.symtab.putNoClobber(self.allocator, name, .{
-                    .tag = if (Symbol.isWeakDef(sym)) .weak else .strong,
+                    .tag = if (is_weak) .weak else .strong,
                     .name = name,
                     .address = 0,
                     .section = 0,
@@ -1251,10 +1252,15 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
             };
 
             switch (global.value.tag) {
-                .weak => continue, // If symbol is weak, nothing to do.
+                .weak => {
+                    if (is_weak) continue; // Nothing to do for weak symbol.
+                },
                 .strong => {
-                    log.err("symbol '{s}' defined multiple times", .{sym_name});
-                    return error.MultipleSymbolDefinitions;
+                    if (!is_weak) {
+                        log.err("symbol '{s}' defined multiple times", .{sym_name});
+                        return error.MultipleSymbolDefinitions;
+                    }
+                    continue;
                 },
                 else => {},
             }
@@ -1340,6 +1346,21 @@ fn resolveSymbols(self: *Zld) !void {
         .section = 0,
         .file = 0,
     });
+
+    {
+        log.warn("symtab", .{});
+        for (self.symtab.items()) |sym| {
+            switch (sym.value.tag) {
+                .weak, .strong => {
+                    log.warn("    | {s} => {s}", .{ sym.key, self.objects.items[sym.value.file.?].name.? });
+                },
+                .import => {
+                    log.warn("    | {s} => libSystem.B.dylib", .{sym.key});
+                },
+                else => unreachable,
+            }
+        }
+    }
 }
 
 fn resolveStubsAndGotEntries(self: *Zld) !void {
