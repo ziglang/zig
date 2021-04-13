@@ -11,8 +11,8 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
 const tlcsprng = @import("crypto/tlcsprng.zig");
-const native_arch = std.Target.current.cpu.arch;
-const native_os = std.Target.current.os.tag;
+const native_arch = builtin.cpu.arch;
+const native_os = builtin.os.tag;
 
 var argc_argv_ptr: [*]usize = undefined;
 
@@ -80,7 +80,7 @@ fn _start2() callconv(.Naked) noreturn {
 }
 
 fn exit2(code: u8) noreturn {
-    switch (native_arch) {
+    switch (builtin.stage2_arch) {
         .x86_64 => {
             asm volatile ("syscall"
                 :
