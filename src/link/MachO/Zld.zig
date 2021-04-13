@@ -1284,17 +1284,14 @@ fn resolveSymbols(self: *Zld) !void {
     }
 
     // Second pass, resolve symbols in static libraries.
-    var next: usize = 0;
-    var hit: bool = undefined;
-    while (true) {
-        var archive = &self.archives.items[next];
-        hit = false;
+    var next_sym: usize = 0;
+    var nsyms: usize = self.symtab.items().len;
+    while (next_sym < nsyms) : (next_sym += 1) {
+        const sym = self.symtab.items()[next_sym];
+        if (sym.value.tag != .undef) continue;
 
-        for (self.symtab.items()) |entry| {
-            if (entry.value.tag != .undef) continue;
-
-            const sym_name = entry.value.name;
-
+        const sym_name = sym.value.name;
+        for (self.archives.items) |archive| {
             // Check if the entry exists in a static archive.
             const offsets = archive.toc.get(sym_name) orelse {
                 // No hit.
@@ -1307,17 +1304,8 @@ fn resolveSymbols(self: *Zld) !void {
             try self.objects.append(self.allocator, object);
             try self.resolveSymbolsInObject(object_id);
 
-            hit = true;
+            nsyms = self.symtab.items().len;
             break;
-        }
-
-        if (!hit) {
-            // Next archive.
-            next += 1;
-            if (next == self.archives.items.len) {
-                break;
-            }
-            archive = &self.archives.items[next];
         }
     }
 
