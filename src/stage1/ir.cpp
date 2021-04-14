@@ -18896,6 +18896,14 @@ static IrInstGen *ir_analyze_instruction_merge_err_sets(IrAnalyze *ira,
 
 static IrInstGen *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstSrcBinOp *bin_op_instruction) {
     IrBinOp op_id = bin_op_instruction->op_id;
+    if (bin_op_instruction->op1->child->value->special == ConstValSpecialUndef) {
+        ir_add_error_node(ira, bin_op_instruction->op1->base.source_node, buf_sprintf("use of undefined value here causes undefined behavior"));
+        return ira->codegen->invalid_inst_gen;
+    }
+    if (bin_op_instruction->op2->child->value->special == ConstValSpecialUndef) {
+        ir_add_error_node(ira, bin_op_instruction->op2->base.source_node, buf_sprintf("use of undefined value here causes undefined behavior"));
+        return ira->codegen->invalid_inst_gen;
+    }
     switch (op_id) {
         case IrBinOpInvalid:
             zig_unreachable();
