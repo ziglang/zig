@@ -81,11 +81,19 @@ threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
 local_rebases: std.ArrayListUnmanaged(Pointer) = .{},
 stubs: std.StringArrayHashMapUnmanaged(u32) = .{},
 got_entries: std.StringArrayHashMapUnmanaged(GotEntry) = .{},
+cpp_initializers: std.StringArrayHashMapUnmanaged(CppStatic) = .{},
+cpp_finalizers: std.StringArrayHashMapUnmanaged(CppStatic) = .{},
 
 stub_helper_stubs_start_off: ?u64 = null,
 
 mappings: std.AutoHashMapUnmanaged(MappingKey, SectionMapping) = .{},
 unhandled_sections: std.AutoHashMapUnmanaged(MappingKey, u0) = .{},
+
+const CppStatic = struct {
+    index: u32,
+    target_addr: u64,
+    file: u16,
+};
 
 const GotEntry = struct {
     tag: enum {
@@ -133,6 +141,16 @@ pub fn deinit(self: *Zld) void {
         self.allocator.free(entry.key);
     }
     self.got_entries.deinit(self.allocator);
+
+    for (self.cpp_initializers.items()) |entry| {
+        self.allocator.free(entry.key);
+    }
+    self.cpp_initializers.deinit(self.allocator);
+
+    for (self.cpp_finalizers.items()) |entry| {
+        self.allocator.free(entry.key);
+    }
+    self.cpp_finalizers.deinit(self.allocator);
 
     for (self.load_commands.items) |*lc| {
         lc.deinit(self.allocator);
@@ -957,6 +975,38 @@ fn allocateStubsAndGotEntries(self: *Zld) !void {
             entry.value.target_addr,
         });
     }
+
+    for (self.cpp_initializers.items()) |*entry| {
+        const object = self.objects.items[entry.value.file];
+        entry.value.target_addr = target_addr: {
+            if (object.locals.get(entry.key)) |local| {
+                break :target_addr local.address;
+            }
+            const global = self.symtab.get(entry.key) orelse unreachable;
+            break :target_addr global.address;
+        };
+
+        log.debug("resolving C++ initializer '{s}' at 0x{x}", .{
+            entry.key,
+            entry.value.target_addr,
+        });
+    }
+
+    for (self.cpp_finalizers.items()) |*entry| {
+        const object = self.objects.items[entry.value.file];
+        entry.value.target_addr = target_addr: {
+            if (object.locals.get(entry.key)) |local| {
+                break :target_addr local.address;
+            }
+            const global = self.symtab.get(entry.key) orelse unreachable;
+            break :target_addr global.address;
+        };
+
+        log.debug("resolving C++ finalizer '{s}' at 0x{x}", .{
+            entry.key,
+            entry.value.target_addr,
+        });
+    }
 }
 
 fn writeStubHelperCommon(self: *Zld) !void {
@@ -1257,8 +1307,7 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
                 },
                 .strong => {
                     if (!is_weak) {
-                        log.err("symbol '{s}' defined multiple times", .{sym_name});
-                        return error.MultipleSymbolDefinitions;
+                        log.debug("strong symbol '{s}' defined multiple times", .{sym_name});
                     }
                     continue;
                 },
@@ -1348,14 +1397,14 @@ fn resolveSymbols(self: *Zld) !void {
     });
 
     {
-        log.warn("symtab", .{});
+        log.debug("symtab", .{});
         for (self.symtab.items()) |sym| {
             switch (sym.value.tag) {
                 .weak, .strong => {
-                    log.warn("    | {s} => {s}", .{ sym.key, self.objects.items[sym.value.file.?].name.? });
+                    log.debug("    | {s} => {s}", .{ sym.key, self.objects.items[sym.value.file.?].name.? });
                 },
                 .import => {
-                    log.warn("    | {s} => libSystem.B.dylib", .{sym.key});
+                    log.debug("    | {s} => libSystem.B.dylib", .{sym.key});
                 },
                 else => unreachable,
             }
@@ -1371,7 +1420,34 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
             const relocs = sect.relocs orelse continue;
             for (relocs) |rel| {
                 switch (rel.@"type") {
-                    .unsigned => continue,
+                    .unsigned => {
+                        if (rel.target != .symbol) continue;
+
+                        const sym = object.symtab.items[rel.target.symbol];
+                        const sym_name = object.getString(sym.n_strx);
+
+                        if (sect.inner.flags == macho.S_MOD_INIT_FUNC_POINTERS) {
+                            if (self.cpp_initializers.contains(sym_name)) continue;
+
+                            var name = try self.allocator.dupe(u8, sym_name);
+                            const index = @intCast(u32, self.cpp_initializers.items().len);
+                            try self.cpp_initializers.putNoClobber(self.allocator, name, .{
+                                .index = index,
+                                .target_addr = 0,
+                                .file = @intCast(u16, object_id),
+                            });
+                        } else if (sect.inner.flags == macho.S_MOD_TERM_FUNC_POINTERS) {
+                            if (self.cpp_finalizers.contains(sym_name)) continue;
+
+                            var name = try self.allocator.dupe(u8, sym_name);
+                            const index = @intCast(u32, self.cpp_finalizers.items().len);
+                            try self.cpp_finalizers.putNoClobber(self.allocator, name, .{
+                                .index = index,
+                                .target_addr = 0,
+                                .file = @intCast(u16, object_id),
+                            });
+                        } else continue;
+                    },
                     .got_page, .got_page_off, .got_load, .got => {
                         const sym = object.symtab.items[rel.target.symbol];
                         const sym_name = object.getString(sym.n_strx);
@@ -1433,8 +1509,13 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
         log.debug("relocating object {s}", .{object.name});
 
         for (object.sections.items) |sect, source_sect_id| {
+            if (sect.inner.flags == macho.S_MOD_INIT_FUNC_POINTERS or
+                sect.inner.flags == macho.S_MOD_TERM_FUNC_POINTERS) continue;
+
             const segname = parseName(&sect.inner.segname);
             const sectname = parseName(&sect.inner.sectname);
+
+            log.debug("relocating section '{s},{s}'", .{ segname, sectname });
 
             // Get mapping
             const target_mapping = self.mappings.get(.{
@@ -2061,6 +2142,42 @@ fn flush(self: *Zld) !void {
         try self.file.?.pwriteAll(buffer, sect.offset);
     }
 
+    if (self.mod_init_func_section_index) |index| {
+        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const sect = &seg.sections.items[index];
+
+        var buffer = try self.allocator.alloc(u8, self.cpp_initializers.items().len * @sizeOf(u64));
+        defer self.allocator.free(buffer);
+        
+        var stream = std.io.fixedBufferStream(buffer);
+        var writer = stream.writer();
+
+        for (self.cpp_initializers.items()) |entry| {
+            try writer.writeIntLittle(u64, entry.value.target_addr);
+        }
+
+        _ = try self.file.?.pwriteAll(buffer, sect.offset);
+        sect.size = @intCast(u32, buffer.len);
+    }
+
+    if (self.mod_term_func_section_index) |index| {
+        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const sect = &seg.sections.items[index];
+
+        var buffer = try self.allocator.alloc(u8, self.cpp_finalizers.items().len * @sizeOf(u64));
+        defer self.allocator.free(buffer);
+        
+        var stream = std.io.fixedBufferStream(buffer);
+        var writer = stream.writer();
+
+        for (self.cpp_finalizers.items()) |entry| {
+            try writer.writeIntLittle(u64, entry.value.target_addr);
+        }
+
+        _ = try self.file.?.pwriteAll(buffer, sect.offset);
+        sect.size = @intCast(u32, buffer.len);
+    }
+
     try self.writeGotEntries();
     try self.setEntryPoint();
     try self.writeRebaseInfoTable();
@@ -2160,15 +2277,12 @@ fn writeRebaseInfoTable(self: *Zld) !void {
         // TODO audit and investigate this.
         const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
         const sect = seg.sections.items[idx];
-        const npointers = sect.size * @sizeOf(u64);
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
 
-        try pointers.ensureCapacity(pointers.items.len + npointers);
-        var i: usize = 0;
-        while (i < npointers) : (i += 1) {
-            pointers.appendAssumeCapacity(.{
-                .offset = base_offset + i * @sizeOf(u64),
+        for (self.cpp_initializers.items()) |entry| {
+            try pointers.append(.{
+                .offset = base_offset + entry.value.index * @sizeOf(u64),
                 .segment_id = segment_id,
             });
         }
@@ -2178,15 +2292,12 @@ fn writeRebaseInfoTable(self: *Zld) !void {
         // TODO audit and investigate this.
         const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
         const sect = seg.sections.items[idx];
-        const npointers = sect.size * @sizeOf(u64);
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
 
-        try pointers.ensureCapacity(pointers.items.len + npointers);
-        var i: usize = 0;
-        while (i < npointers) : (i += 1) {
-            pointers.appendAssumeCapacity(.{
-                .offset = base_offset + i * @sizeOf(u64),
+        for (self.cpp_finalizers.items()) |entry| {
+            try pointers.append(.{
+                .offset = base_offset + entry.value.index * @sizeOf(u64),
                 .segment_id = segment_id,
             });
         }
