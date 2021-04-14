@@ -2161,8 +2161,8 @@ fn transCCast(
         return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = bool_to_int });
     }
     if (cIsEnum(dst_type)) {
-        // @intToEnum(dest_type, val)
-        return Tag.int_to_enum.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // import("std").meta.cast(dest_type, val)
+        return Tag.std_meta_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsEnum(src_type) and !cIsEnum(dst_type)) {
         // @enumToInt(val)

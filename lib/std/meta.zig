@@ -888,7 +888,7 @@ pub fn Vector(comptime len: u32, comptime child: type) type {
 /// Given a type and value, cast the value to the type as c would.
 /// This is for translate-c and is not intended for general use.
 pub fn cast(comptime DestType: type, target: anytype) DestType {
-    // this function should behave like transCCast in translate-c, except it's for macros
+    // this function should behave like transCCast in translate-c, except it's for macros and enums
     const SourceType = @TypeOf(target);
     switch (@typeInfo(DestType)) {
         .Pointer => {
@@ -925,9 +925,10 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
                 }
             }
         },
-        .Enum => {
+        .Enum => |enum_type| {
             if (@typeInfo(SourceType) == .Int or @typeInfo(SourceType) == .ComptimeInt) {
-                return @intToEnum(DestType, target);
+                const intermediate = cast(enum_type.tag_type, target);
+                return @intToEnum(DestType, intermediate);
             }
         },
         .Int => {
@@ -1015,6 +1016,17 @@ test "std.meta.cast" {
     testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*volatile u8, 2)));
 
     testing.expectEqual(@intToPtr(?*c_void, 2), cast(?*c_void, @intToPtr(*u8, 2)));
+
+    const C_ENUM = extern enum(c_int) {
+        A = 0,
+        B,
+        C,
+        _,
+    };
+    testing.expectEqual(cast(C_ENUM, @as(i64, -1)), @intToEnum(C_ENUM, -1));
+    testing.expectEqual(cast(C_ENUM, @as(i8, 1)), .B);
+    testing.expectEqual(cast(C_ENUM, @as(u64, 1)), .B);
+    testing.expectEqual(cast(C_ENUM, @as(u64, 42)), @intToEnum(C_ENUM, 42));
 }
 
 /// Given a value returns its size as C's sizeof operator would.
