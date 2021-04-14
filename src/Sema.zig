@@ -199,10 +199,10 @@ pub fn analyzeBody(
             .field_val => try sema.zirFieldVal(block, inst),
             .field_val_named => try sema.zirFieldValNamed(block, inst),
             .floatcast => try sema.zirFloatcast(block, inst),
-            .fn_type => try sema.zirFnType(block, inst, false),
-            .fn_type_cc => try sema.zirFnTypeCc(block, inst, false),
-            .fn_type_cc_var_args => try sema.zirFnTypeCc(block, inst, true),
-            .fn_type_var_args => try sema.zirFnType(block, inst, true),
+            .func => try sema.zirFunc(block, inst, false),
+            .func_extra => try sema.zirFuncExtra(block, inst, false),
+            .func_extra_var_args => try sema.zirFuncExtra(block, inst, true),
+            .func_var_args => try sema.zirFunc(block, inst, true),
             .has_decl => try sema.zirHasDecl(block, inst),
             .import => try sema.zirImport(block, inst),
             .indexable_ptr_len => try sema.zirIndexablePtrLen(block, inst),
@@ -2513,16 +2513,16 @@ fn zirEnsureErrPayloadVoid(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Inde
     }
 }
 
-fn zirFnType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, var_args: bool) InnerError!*Inst {
+fn zirFunc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, var_args: bool) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    const extra = sema.code.extraData(Zir.Inst.FnType, inst_data.payload_index);
+    const extra = sema.code.extraData(Zir.Inst.Func, inst_data.payload_index);
     const param_types = sema.code.refSlice(extra.end, extra.data.param_types_len);
 
-    return sema.fnTypeCommon(
+    return sema.funcCommon(
         block,
         inst_data.src_node,
         param_types,
@@ -2532,14 +2532,14 @@ fn zirFnType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, var_args: b
     );
 }
 
-fn zirFnTypeCc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, var_args: bool) InnerError!*Inst {
+fn zirFuncExtra(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, var_args: bool) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = inst_data.src_node };
-    const extra = sema.code.extraData(Zir.Inst.FnTypeCc, inst_data.payload_index);
+    const extra = sema.code.extraData(Zir.Inst.FuncExtra, inst_data.payload_index);
     const param_types = sema.code.refSlice(extra.end, extra.data.param_types_len);
 
     const cc_tv = try sema.resolveInstConst(block, cc_src, extra.data.cc);
@@ -2548,7 +2548,7 @@ fn zirFnTypeCc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, var_args:
     const cc_str = cc_tv.val.castTag(.enum_literal).?.data;
     const cc = std.meta.stringToEnum(std.builtin.CallingConvention, cc_str) orelse
         return sema.mod.fail(&block.base, cc_src, "Unknown calling convention {s}", .{cc_str});
-    return sema.fnTypeCommon(
+    return sema.funcCommon(
         block,
         inst_data.src_node,
         param_types,
@@ -2558,7 +2558,7 @@ fn zirFnTypeCc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, var_args:
     );
 }
 
-fn fnTypeCommon(
+fn funcCommon(
     sema: *Sema,
     block: *Scope.Block,
     src_node_offset: i32,
@@ -3920,9 +3920,6 @@ fn zirImport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
     const file = mod.importFile(block.getFileScope().pkg, operand) catch |err| switch (err) {
         error.ImportOutsidePkgPath => {
             return mod.fail(&block.base, src, "import of file outside package path: '{s}'", .{operand});
-        },
-        error.FileNotFound => {
-            return mod.fail(&block.base, src, "unable to find '{s}'", .{operand});
         },
         else => {
             // TODO: these errors are file system errors; make sure an update() will

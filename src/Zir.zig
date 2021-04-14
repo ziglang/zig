@@ -26,8 +26,6 @@ const ir = @import("ir.zig");
 const Module = @import("Module.zig");
 const LazySrcLoc = Module.LazySrcLoc;
 
-/// There is always implicitly a `block` instruction at index 0.
-/// This is so that `break_inline` can break from the root block.
 instructions: std.MultiArrayList(Inst).Slice,
 /// In order to store references to strings in fewer bytes, we copy all
 /// string bytes into here. String bytes can be null. It is up to whomever
@@ -36,6 +34,12 @@ instructions: std.MultiArrayList(Inst).Slice,
 /// `string_bytes` array is agnostic to either usage.
 string_bytes: []u8,
 /// The meaning of this data is determined by `Inst.Tag` value.
+/// Indexes 0 and 1 are reserved for:
+/// 0. struct_decl: Ref
+///    - the main struct decl for this file
+/// 1. errors_payload_index: u32
+///    - if this is 0, no compile errors. Otherwise there is a `CompileErrors`
+///      payload at this index.
 extra: []u32,
 
 /// Returns the requested data, as well as the new index which is at the start of the
@@ -358,16 +362,19 @@ pub const Inst = struct {
         /// Uses the `pl_node` field. AST is the `@floatCast` syntax.
         /// Payload is `Bin` with lhs as the dest type, rhs the operand.
         floatcast,
-        /// Returns a function type, assuming unspecified calling convention.
-        /// Uses the `pl_node` union field. `payload_index` points to a `FnType`.
-        fn_type,
-        /// Same as `fn_type` but the function is variadic.
-        fn_type_var_args,
-        /// Returns a function type, with a calling convention instruction operand.
-        /// Uses the `pl_node` union field. `payload_index` points to a `FnTypeCc`.
-        fn_type_cc,
-        /// Same as `fn_type_cc` but the function is variadic.
-        fn_type_cc_var_args,
+        /// Returns a function type, or a function instance, depending on whether
+        /// the body_len is 0. Calling convention is auto.
+        /// Uses the `pl_node` union field. `payload_index` points to a `Func`.
+        func,
+        /// Same as `func` but the function is variadic.
+        func_var_args,
+        /// Same as `func` but with extra fields:
+        ///  * calling convention
+        ///  * extern lib name
+        /// Uses the `pl_node` union field. `payload_index` points to a `FuncExtra`.
+        func_extra,
+        /// Same as `func_extra` but the function is variadic.
+        func_extra_var_args,
         /// Implements the `@hasDecl` builtin.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         has_decl,
@@ -769,10 +776,10 @@ pub const Inst = struct {
                 .field_val,
                 .field_ptr_named,
                 .field_val_named,
-                .fn_type,
-                .fn_type_var_args,
-                .fn_type_cc,
-                .fn_type_cc_var_args,
+                .func,
+                .func_var_args,
+                .func_extra,
+                .func_extra_var_args,
                 .has_decl,
                 .int,
                 .float,
@@ -1372,21 +1379,25 @@ pub const Inst = struct {
         clobbers_len: u32,
     };
 
-    /// This data is stored inside extra, with trailing parameter type indexes
-    /// according to `param_types_len`.
-    /// Each param type is a `Ref`.
-    pub const FnTypeCc = struct {
-        return_type: Ref,
+    /// Trailing:
+    /// 0. param_type: Ref // for each param_types_len
+    /// 1. body: Index // for each body_len
+    pub const FuncExtra = struct {
         cc: Ref,
+        /// null terminated string index, or 0 to mean none.
+        lib_name: u32,
+        return_type: Ref,
         param_types_len: u32,
+        body_len: u32,
     };
 
-    /// This data is stored inside extra, with trailing parameter type indexes
-    /// according to `param_types_len`.
-    /// Each param type is a `Ref`.
-    pub const FnType = struct {
+    /// Trailing:
+    /// 0. param_type: Ref // for each param_types_len
+    /// 1. body: Index // for each body_len
+    pub const Func = struct {
         return_type: Ref,
         param_types_len: u32,
+        body_len: u32,
     };
 
     /// This data is stored inside extra, with trailing operands according to `operands_len`.
@@ -1531,9 +1542,18 @@ pub const Inst = struct {
     ///        align: Ref, // if corresponding bit is set
     ///        default_value: Ref, // if corresponding bit is set
     ///    }
+    /// 3. decl_bits: u32 // for every 16 decls
+    ///    - sets of 2 bits:
+    ///      0b0X: whether corresponding decl is pub
+    ///      0bX0: whether corresponding decl is exported
+    /// 4. decl: { // for every decls_len
+    ///        name: u32, // null terminated string index
+    ///        value: Ref,
+    ///    }
     pub const StructDecl = struct {
         body_len: u32,
         fields_len: u32,
+        decls_len: u32,
     };
 
     /// Trailing:
@@ -1599,6 +1619,26 @@ pub const Inst = struct {
         container_type: Ref,
         /// Offset into `string_bytes`, null terminated.
         name_start: u32,
+    };
+
+    /// Trailing: `CompileErrors.Item` for each `items_len`.
+    pub const CompileErrors = struct {
+        items_len: u32,
+
+        /// Trailing: `note_payload_index: u32` for each `notes_len`.
+        /// It's a payload index of another `Item`.
+        pub const Item = struct {
+            /// null terminated string index
+            msg: u32,
+            node: ast.Node.Index,
+            /// If node is 0 then this will be populated.
+            token: ast.TokenIndex,
+            /// Can be used in combination with `token`.
+            byte_offset: u32,
+            /// 0 or a payload index of a `Block`, each is a payload
+            /// index of another `Item`.
+            notes: u32,
+        };
     };
 };
 
@@ -1819,10 +1859,10 @@ const Writer = struct {
             .decl_val_named,
             => try self.writeStrTok(stream, inst),
 
-            .fn_type => try self.writeFnType(stream, inst, false),
-            .fn_type_cc => try self.writeFnTypeCc(stream, inst, false),
-            .fn_type_var_args => try self.writeFnType(stream, inst, true),
-            .fn_type_cc_var_args => try self.writeFnTypeCc(stream, inst, true),
+            .func => try self.writeFunc(stream, inst, false),
+            .func_extra => try self.writeFuncExtra(stream, inst, false),
+            .func_var_args => try self.writeFunc(stream, inst, true),
+            .func_extra_var_args => try self.writeFuncExtra(stream, inst, true),
 
             .@"unreachable" => try self.writeUnreachable(stream, inst),
 
@@ -2383,7 +2423,7 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeFnType(
+    fn writeFunc(
         self: *Writer,
         stream: anytype,
         inst: Inst.Index,
@@ -2391,23 +2431,41 @@ const Writer = struct {
     ) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const src = inst_data.src();
-        const extra = self.code.extraData(Inst.FnType, inst_data.payload_index);
+        const extra = self.code.extraData(Inst.Func, inst_data.payload_index);
         const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
-        return self.writeFnTypeCommon(stream, param_types, extra.data.return_type, var_args, .none, src);
+        const body = self.code.extra[extra.end + param_types.len ..][0..extra.data.body_len];
+        return self.writeFuncCommon(
+            stream,
+            param_types,
+            extra.data.return_type,
+            var_args,
+            .none,
+            body,
+            src,
+        );
     }
 
-    fn writeFnTypeCc(
+    fn writeFuncExtra(
         self: *Writer,
         stream: anytype,
         inst: Inst.Index,
         var_args: bool,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+    ) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const src = inst_data.src();
-        const extra = self.code.extraData(Inst.FnTypeCc, inst_data.payload_index);
+        const extra = self.code.extraData(Inst.FuncExtra, inst_data.payload_index);
         const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
         const cc = extra.data.cc;
-        return self.writeFnTypeCommon(stream, param_types, extra.data.return_type, var_args, cc, src);
+        const body = self.code.extra[extra.end + param_types.len ..][0..extra.data.body_len];
+        return self.writeFuncCommon(
+            stream,
+            param_types,
+            extra.data.return_type,
+            var_args,
+            cc,
+            body,
+            src,
+        );
     }
 
     fn writeBoolBr(self: *Writer, stream: anytype, inst: Inst.Index) !void {
@@ -2449,13 +2507,14 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeFnTypeCommon(
+    fn writeFuncCommon(
         self: *Writer,
         stream: anytype,
         param_types: []const Inst.Ref,
         ret_ty: Inst.Ref,
         var_args: bool,
         cc: Inst.Ref,
+        body: []const Inst.Index,
         src: LazySrcLoc,
     ) !void {
         try stream.writeAll("[");
@@ -2467,7 +2526,13 @@ const Writer = struct {
         try self.writeInstRef(stream, ret_ty);
         try self.writeOptionalInstRef(stream, ", cc=", cc);
         try self.writeFlag(stream, ", var_args", var_args);
-        try stream.writeAll(") ");
+
+        try stream.writeAll(", {\n");
+        self.indent += 2;
+        try self.writeBody(stream, body);
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
+        try stream.writeAll("}) ");
         try self.writeSrc(stream, src);
     }
 

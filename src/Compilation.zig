@@ -49,6 +49,11 @@ work_queue: std.fifo.LinearFifo(Job, .Dynamic),
 /// gets linked with the Compilation.
 c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
 
+/// These jobs are to tokenize, parse, and astgen files, which may be outdated
+/// since the last compilation, as well as scan for `@import` and queue up
+/// additional jobs corresponding to those new files.
+astgen_work_queue: std.fifo.LinearFifo(*Module.Scope.File, .Dynamic),
+
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
 failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *CObject.ErrorMsg) = .{},
@@ -141,6 +146,7 @@ emit_analysis: ?EmitLoc,
 emit_docs: ?EmitLoc,
 
 work_queue_wait_group: WaitGroup,
+astgen_wait_group: WaitGroup,
 
 pub const InnerError = Module.InnerError;
 
@@ -1210,6 +1216,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .emit_docs = options.emit_docs,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
+            .astgen_work_queue = std.fifo.LinearFifo(*Module.Scope.File, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
             .use_clang = use_clang,
             .clang_argv = options.clang_argv,
@@ -1238,6 +1245,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .test_evented_io = options.test_evented_io,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .work_queue_wait_group = undefined,
+            .astgen_wait_group = undefined,
         };
         break :comp comp;
     };
@@ -1245,6 +1253,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
     try comp.work_queue_wait_group.init();
     errdefer comp.work_queue_wait_group.deinit();
+
+    try comp.astgen_wait_group.init();
+    errdefer comp.astgen_wait_group.deinit();
 
     if (comp.bin_file.options.module) |mod| {
         try comp.work_queue.writeItem(.{ .generate_builtin_zig = {} });
@@ -1381,6 +1392,7 @@ pub fn destroy(self: *Compilation) void {
     const gpa = self.gpa;
     self.work_queue.deinit();
     self.c_object_work_queue.deinit();
+    self.astgen_work_queue.deinit();
 
     {
         var it = self.crt_files.iterator();
@@ -1431,6 +1443,7 @@ pub fn destroy(self: *Compilation) void {
     if (self.owned_link_dir) |*dir| dir.close();
 
     self.work_queue_wait_group.deinit();
+    self.astgen_wait_group.deinit();
 
     // This destroys `self`.
     self.arena_state.promote(gpa).deinit();
@@ -1470,42 +1483,17 @@ pub fn update(self: *Compilation) !void {
             module.compile_log_text.shrinkAndFree(module.gpa, 0);
             module.generation += 1;
 
-            // Detect which source files changed.
-            for (module.import_table.items()) |entry| {
-                const file = entry.value;
-                var f = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{});
-                defer f.close();
-
-                // TODO handle error here by populating a retryable compile error
-                const stat = try f.stat();
-                const unchanged_metadata =
-                    stat.size == file.stat_size and
-                    stat.mtime == file.stat_mtime and
-                    stat.inode == file.stat_inode;
-
-                if (unchanged_metadata) {
-                    log.debug("unmodified metadata of file: {s}", .{file.sub_file_path});
-                    continue;
-                }
-
-                log.debug("metadata changed: {s}", .{file.sub_file_path});
-                if (file.status == .unloaded_parse_failure) {
-                    module.failed_files.swapRemove(file).?.value.destroy(module.gpa);
-                }
-
-                file.unload(module.gpa);
-                // TODO handle error here by populating a retryable compile error
-                try file.finishGettingSource(module.gpa, f, stat);
-
-                module.analyzeFile(file) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => continue,
-                    else => |e| return e,
-                };
-            }
-
-            // Simulate `_ = @import("std");` which in turn imports start.zig.
+            // Make sure std.zig is inside the import_table. We unconditionally need
+            // it for start.zig.
             _ = try module.importFile(module.root_pkg, "std");
+
+            // Put a work item in for every known source file to detect if
+            // it changed, and, if so, re-compute ZIR and then queue the job
+            // to update it.
+            try self.astgen_work_queue.ensureUnusedCapacity(module.import_table.count());
+            for (module.import_table.items()) |entry| {
+                self.astgen_work_queue.writeItemAssumeCapacity(entry.value);
+            }
         }
     }
 
@@ -1578,13 +1566,13 @@ pub fn totalErrorCount(self: *Compilation) usize {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (module.failed_decls.items()) |entry| {
-            if (entry.key.namespace.file_scope.status == .unloaded_parse_failure) {
+            if (entry.key.namespace.file_scope.status == .parse_failure) {
                 continue;
             }
             total += 1;
         }
         for (module.emit_h_failed_decls.items()) |entry| {
-            if (entry.key.namespace.file_scope.status == .unloaded_parse_failure) {
+            if (entry.key.namespace.file_scope.status == .parse_failure) {
                 continue;
             }
             total += 1;
@@ -1639,7 +1627,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
         for (module.failed_decls.items()) |entry| {
-            if (entry.key.namespace.file_scope.status == .unloaded_parse_failure) {
+            if (entry.key.namespace.file_scope.status == .parse_failure) {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
                 continue;
@@ -1647,7 +1635,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
         for (module.emit_h_failed_decls.items()) |entry| {
-            if (entry.key.namespace.file_scope.status == .unloaded_parse_failure) {
+            if (entry.key.namespace.file_scope.status == .parse_failure) {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
                 continue;
@@ -1719,17 +1707,37 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     defer main_progress_node.end();
     if (self.color == .off) progress.terminal = null;
 
-    var c_comp_progress_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
-    defer c_comp_progress_node.end();
+    // Here we queue up all the AstGen tasks first, followed by C object compilation.
+    // We wait until the AstGen tasks are all completed before proceeding to the
+    // (at least for now) single-threaded main work queue. However, C object compilation
+    // only needs to be finished by the end of this function.
+
+    var zir_prog_node = main_progress_node.start("AstGen", self.astgen_work_queue.count);
+    defer zir_prog_node.end();
+
+    var c_obj_prog_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
+    defer c_obj_prog_node.end();
 
     self.work_queue_wait_group.reset();
     defer self.work_queue_wait_group.wait();
 
-    while (self.c_object_work_queue.readItem()) |c_object| {
-        self.work_queue_wait_group.start();
-        try self.thread_pool.spawn(workerUpdateCObject, .{
-            self, c_object, &c_comp_progress_node, &self.work_queue_wait_group,
-        });
+    {
+        self.astgen_wait_group.reset();
+        defer self.astgen_wait_group.wait();
+
+        while (self.astgen_work_queue.readItem()) |file| {
+            self.astgen_wait_group.start();
+            try self.thread_pool.spawn(workerAstGenFile, .{
+                self, file, &zir_prog_node, &self.astgen_wait_group,
+            });
+        }
+
+        while (self.c_object_work_queue.readItem()) |c_object| {
+            self.work_queue_wait_group.start();
+            try self.thread_pool.spawn(workerUpdateCObject, .{
+                self, c_object, &c_obj_prog_node, &self.work_queue_wait_group,
+            });
+        }
     }
 
     while (self.work_queue.readItem()) |work_item| switch (work_item) {
@@ -2036,6 +2044,28 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     };
 }
 
+fn workerAstGenFile(
+    comp: *Compilation,
+    file: *Module.Scope.File,
+    prog_node: *std.Progress.Node,
+    wg: *WaitGroup,
+) void {
+    defer wg.finish();
+
+    const mod = comp.bin_file.options.module.?;
+    mod.astGenFile(file, prog_node) catch |err| switch (err) {
+        error.AnalysisFail => return,
+        else => {
+            file.status = .retryable_failure;
+            comp.reportRetryableAstGenError(file, err) catch |oom| switch (oom) {
+                // Swallowing this error is OK because it's implied to be OOM when
+                // there is a missing `failed_files` error message.
+                error.OutOfMemory => {},
+            };
+        },
+    };
+}
+
 pub fn obtainCObjectCacheManifest(comp: *const Compilation) Cache.Manifest {
     var man = comp.cache_parent.obtain();
 
@@ -2235,7 +2265,32 @@ fn reportRetryableCObjectError(
     }
 }
 
-fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *std.Progress.Node) !void {
+fn reportRetryableAstGenError(
+    comp: *Compilation,
+    file: *Module.Scope.File,
+    err: anyerror,
+) error{OutOfMemory}!void {
+    const mod = comp.bin_file.options.module.?;
+    const gpa = mod.gpa;
+
+    file.status = .retryable_failure;
+
+    const err_msg = try Module.ErrorMsg.create(gpa, .{
+        .container = .{ .file_scope = file },
+        .lazy = .entire_file,
+    }, "unable to load {s}: {s}", .{
+        file.sub_file_path, @errorName(err),
+    });
+    errdefer err_msg.destroy(gpa);
+
+    {
+        const lock = comp.mutex.acquire();
+        defer lock.release();
+        try mod.failed_files.putNoClobber(gpa, file, err_msg);
+    }
+}
+
+fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return comp.failCObj(c_object, "clang not available: compiler built without LLVM extensions", .{});
     }
@@ -2302,8 +2357,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
 
     const c_source_basename = std.fs.path.basename(c_object.src.src_path);
 
-    c_comp_progress_node.activate();
-    var child_progress_node = c_comp_progress_node.start(c_source_basename, 0);
+    c_obj_prog_node.activate();
+    var child_progress_node = c_obj_prog_node.start(c_source_basename, 0);
     child_progress_node.activate();
     defer child_progress_node.end();
 
