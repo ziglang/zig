@@ -45,6 +45,7 @@ static void demangling_terminate_handler()
                         exception_header + 1;
                 const __shim_type_info* thrown_type =
                     static_cast<const __shim_type_info*>(exception_header->exceptionType);
+#if !defined(LIBCXXABI_NON_DEMANGLING_TERMINATE)
                 // Try to get demangled name of thrown_type
                 int status;
                 char buf[1024];
@@ -52,6 +53,9 @@ static void demangling_terminate_handler()
                 const char* name = __cxa_demangle(thrown_type->name(), buf, &len, &status);
                 if (status != 0)
                     name = thrown_type->name();
+#else
+                const char* name = thrown_type->name();
+#endif
                 // If the uncaught exception can be caught with std::exception&
                 const __shim_type_info* catch_type =
                     static_cast<const __shim_type_info*>(&typeid(std::exception));

@@ -660,8 +660,8 @@ _LIBCPP_CONSTEXPR _IntT __max_representable_int_for_float() _NOEXCEPT {
 template <class _IntT, class _RealT>
 _LIBCPP_INLINE_VISIBILITY
 _IntT __clamp_to_integral(_RealT __r) _NOEXCEPT {
-  using _Lim = std::numeric_limits<_IntT>;
-  const _IntT _MaxVal = std::__max_representable_int_for_float<_IntT, _RealT>();
+  using _Lim = numeric_limits<_IntT>;
+  const _IntT _MaxVal = __max_representable_int_for_float<_IntT, _RealT>();
   if (__r >= ::nextafter(static_cast<_RealT>(_MaxVal), INFINITY)) {
     return _Lim::max();
   } else if (__r <= _Lim::lowest()) {

@@ -8,16 +8,16 @@
 
 find_path(LLD_INCLUDE_DIRS NAMES lld/Common/Driver.h
     PATHS
-        /usr/lib/llvm-11/include
-        /usr/local/llvm110/include
-        /usr/local/llvm11/include
+        /usr/lib/llvm-12/include
+        /usr/local/llvm120/include
+        /usr/local/llvm12/include
         /mingw64/include)
 
-find_library(LLD_LIBRARY NAMES lld-11.0 lld110 lld
+find_library(LLD_LIBRARY NAMES lld-12.0 lld120 lld
     PATHS
-        /usr/lib/llvm-11/lib
-        /usr/local/llvm110/lib
-        /usr/local/llvm11/lib
+        /usr/lib/llvm-12/lib
+        /usr/local/llvm120/lib
+        /usr/local/llvm12/lib
 )
 if(EXISTS ${LLD_LIBRARY})
     set(LLD_LIBRARIES ${LLD_LIBRARY})
@@ -27,9 +27,9 @@ else()
         find_library(LLD_${_prettylibname_}_LIB NAMES ${_libname_}
             PATHS
                 ${LLD_LIBDIRS}
-                /usr/lib/llvm-11/lib
-                /usr/local/llvm110/lib
-                /usr/local/llvm11/lib
+                /usr/lib/llvm-12/lib
+                /usr/local/llvm120/lib
+                /usr/local/llvm12/lib
                 /mingw64/lib
                 /c/msys64/mingw64/lib
                 c:/msys64/mingw64/lib)

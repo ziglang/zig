@@ -126,9 +126,8 @@ template <class charT, class traits>
   basic_ostream<charT,traits>& flush(basic_ostream<charT,traits>& os);
 
 // rvalue stream insertion
-template <class charT, class traits, class T>
-  basic_ostream<charT, traits>&
-  operator<<(basic_ostream<charT, traits>&& os, const T& x);
+template <class Stream, class T>
+  Stream&& operator<<(Stream&& os, const T& x);
 
 }  // std
 
@@ -1028,15 +1027,20 @@ flush(basic_ostream<_CharT, _Traits>& __os)
 
 #ifndef _LIBCPP_CXX03_LANG
 
+template <class _Stream, class _Tp, class = void>
+struct __is_ostreamable : false_type { };
+
 template <class _Stream, class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-typename enable_if
-<
-    !is_lvalue_reference<_Stream>::value &&
-    is_base_of<ios_base, _Stream>::value,
-    _Stream&&
->::type
-operator<<(_Stream&& __os, const _Tp& __x)
+struct __is_ostreamable<_Stream, _Tp, decltype(
+    _VSTD::declval<_Stream>() << _VSTD::declval<_Tp>(), void()
+)> : true_type { };
+
+template <class _Stream, class _Tp, class = typename enable_if<
+    _And<is_base_of<ios_base, _Stream>,
+         __is_ostreamable<_Stream&, const _Tp&>>::value
+>::type>
+_LIBCPP_INLINE_VISIBILITY
+_Stream&& operator<<(_Stream&& __os, const _Tp& __x)
 {
     __os << __x;
     return _VSTD::move(__os);
@@ -1097,10 +1101,8 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const bitset<_Size>& __x)
                          use_facet<ctype<_CharT> >(__os.getloc()).widen('1'));
 }
 
-#ifndef _LIBCPP_DO_NOT_ASSUME_STREAMS_EXPLICIT_INSTANTIATION_IN_DYLIB
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ostream<char>)
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ostream<wchar_t>)
-#endif
 
 _LIBCPP_END_NAMESPACE_STD
 

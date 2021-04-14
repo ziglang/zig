@@ -529,6 +529,13 @@ int ZigClang_main(int argc_, const char **argv_) {
 #ifdef _WIN32
       IsCrash |= CommandRes == 3;
 #endif
+#if LLVM_ON_UNIX
+      // When running in integrated-cc1 mode, the CrashRecoveryContext returns
+      // the same codes as if the program crashed. See section "Exit Status for
+      // Commands":
+      // https://pubs.opengroup.org/onlinepubs/9699919799/xrat/V4_xcu_chap02.html
+      IsCrash |= CommandRes > 128;
+#endif
       if (IsCrash) {
         TheDriver.generateCompilationDiagnostics(*C, *FailingCommand);
         break;

@@ -73,11 +73,11 @@ enum Os {
     OsOpenBSD,
     OsSolaris,
     OsWindows,
+    OsZOS,
     OsHaiku,
     OsMinix,
     OsRTEMS,
     OsNaCl,       // Native Client
-    OsCNK,        // BG/P Compute-Node Kernel
     OsAIX,
     OsCUDA,       // NVIDIA CUDA
     OsNVCL,       // NVIDIA OpenCL

@@ -94,6 +94,8 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsSolaris;
         case ZigLLVM_Win32:
             return OsWindows;
+        case ZigLLVM_ZOS:
+            return OsZOS;
         case ZigLLVM_Haiku:
             return OsHaiku;
         case ZigLLVM_Minix:
@@ -102,8 +104,6 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsRTEMS;
         case ZigLLVM_NaCl:
             return OsNaCl;
-        case ZigLLVM_CNK:
-            return OsCNK;
         case ZigLLVM_AIX:
             return OsAIX;
         case ZigLLVM_CUDA:

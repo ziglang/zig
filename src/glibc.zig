@@ -820,26 +820,26 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                         // .globl _Exit_2_2_5
                         // .type _Exit_2_2_5, %function;
                         // .symver _Exit_2_2_5, _Exit@@GLIBC_2.2.5
-                        // .hidden _Exit_2_2_5
                         // _Exit_2_2_5:
                         const ver_index = ver_list.versions[ver_i];
                         const ver = metadata.all_versions[ver_index];
                         const sym_name = libc_fn.name;
                         // Default symbol version definition vs normal symbol version definition
-                        const want_two_ats = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
-                        const at_sign_str = "@@"[0 .. @boolToInt(want_two_ats) + @as(usize, 1)];
-
+                        const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
+                        const at_sign_str: []const u8 = if (want_default) "@@" else "@";
                         if (ver.patch == 0) {
-                            const sym_plus_ver = try std.fmt.allocPrint(
-                                arena,
-                                "{s}_{d}_{d}",
-                                .{ sym_name, ver.major, ver.minor },
-                            );
+                            const sym_plus_ver = if (want_default)
+                                sym_name
+                            else
+                                try std.fmt.allocPrint(
+                                    arena,
+                                    "{s}_GLIBC_{d}_{d}",
+                                    .{ sym_name, ver.major, ver.minor },
+                                );
                             try zig_body.writer().print(
                                 \\.globl {s}
                                 \\.type {s}, %function;
                                 \\.symver {s}, {s}{s}GLIBC_{d}.{d}
-                                \\.hidden {s}
                                 \\{s}:
                                 \\
                             , .{
@@ -851,19 +851,20 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                                 ver.major,
                                 ver.minor,
                                 sym_plus_ver,
-                                sym_plus_ver,
                             });
                         } else {
-                            const sym_plus_ver = try std.fmt.allocPrint(
-                                arena,
-                                "{s}_{d}_{d}_{d}",
-                                .{ sym_name, ver.major, ver.minor, ver.patch },
-                            );
+                            const sym_plus_ver = if (want_default)
+                                sym_name
+                            else
+                                try std.fmt.allocPrint(
+                                    arena,
+                                    "{s}_GLIBC_{d}_{d}_{d}",
+                                    .{ sym_name, ver.major, ver.minor, ver.patch },
+                                );
                             try zig_body.writer().print(
                                 \\.globl {s}
                                 \\.type {s}, %function;
                                 \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
-                                \\.hidden {s}
                                 \\{s}:
                                 \\
                             , .{
@@ -875,7 +876,6 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                                 ver.major,
                                 ver.minor,
                                 ver.patch,
-                                sym_plus_ver,
                                 sym_plus_ver,
                             });
                         }

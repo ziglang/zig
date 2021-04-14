@@ -9,27 +9,27 @@
 
 find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
   PATHS
-    /usr/lib/llvm/11/include
-    /usr/lib/llvm-11/include
-    /usr/lib/llvm-11.0/include
-    /usr/local/llvm110/include
-    /usr/local/llvm11/include
+    /usr/lib/llvm/12/include
+    /usr/lib/llvm-12/include
+    /usr/lib/llvm-12.0/include
+    /usr/local/llvm120/include
+    /usr/local/llvm12/include
     /mingw64/include
 )
 
 if(ZIG_PREFER_CLANG_CPP_DYLIB)
   find_library(CLANG_LIBRARIES
     NAMES
-      clang-cpp-11.0
-      clang-cpp110
+      clang-cpp-12.0
+      clang-cpp120
       clang-cpp
     PATHS
       ${CLANG_LIBDIRS}
-      /usr/lib/llvm/11/lib
-      /usr/lib/llvm/11/lib64
-      /usr/lib/llvm-11/lib
-      /usr/local/llvm110/lib
-      /usr/local/llvm11/lib
+      /usr/lib/llvm/12/lib
+      /usr/lib/llvm/12/lib64
+      /usr/lib/llvm-12/lib
+      /usr/local/llvm120/lib
+      /usr/local/llvm12/lib
   )
 endif()
 
@@ -39,11 +39,11 @@ if(NOT CLANG_LIBRARIES)
     find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
       PATHS
         ${CLANG_LIBDIRS}
-        /usr/lib/llvm/11/lib
-        /usr/lib/llvm-11/lib
-        /usr/lib/llvm-11.0/lib
-        /usr/local/llvm110/lib
-        /usr/local/llvm11/lib
+        /usr/lib/llvm/12/lib
+        /usr/lib/llvm-12/lib
+        /usr/lib/llvm-12.0/lib
+        /usr/local/llvm120/lib
+        /usr/local/llvm12/lib
         /mingw64/lib
         /c/msys64/mingw64/lib
         c:\\msys64\\mingw64\\lib

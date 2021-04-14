@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------- support/ibm/xlocale.h -------------------===//
+//===-----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -9,15 +9,16 @@
 
 #ifndef _LIBCPP_SUPPORT_IBM_XLOCALE_H
 #define _LIBCPP_SUPPORT_IBM_XLOCALE_H
-#include <support/ibm/locale_mgmt_aix.h>
 
-#if defined(_AIX)
+#include <__support/ibm/locale_mgmt_aix.h>
+
 #include "cstdlib"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#if defined(_AIX)
 #if !defined(_AIX71)
 // AIX 7.1 and higher has these definitions.  Definitions and stubs
 // are provied here as a temporary workaround on AIX 6.1.
@@ -207,13 +208,19 @@ size_t wcsxfrm_l(wchar_t *__ws1, const wchar_t *__ws2, size_t __n,
 }
 #endif // !defined(_AIX71)
 
-// strftime_l() is defined by POSIX. However, AIX 7.1 does not have it
-// implemented yet.
+// strftime_l() is defined by POSIX. However, AIX 7.1 and z/OS do not have it
+// implemented yet. z/OS retrieves it from the POSIX fallbacks.
 static inline
 size_t strftime_l(char *__s, size_t __size, const char *__fmt,
                   const struct tm *__tm, locale_t locale) {
   return __xstrftime(locale, __s, __size, __fmt, __tm);
 }
+
+#elif defined(__MVS__)
+#include <wctype.h>
+// POSIX routines
+#include <__support/xlocale/__posix_l_fallback.h>
+#endif // defined(__MVS__)
 
 // The following are not POSIX routines.  These are quick-and-dirty hacks
 // to make things pretend to work
@@ -266,5 +273,4 @@ int vasprintf(char **strp, const char *fmt, va_list ap)
 #ifdef __cplusplus
 }
 #endif
-#endif // defined(_AIX)
 #endif // _LIBCPP_SUPPORT_IBM_XLOCALE_H

@@ -81,8 +81,8 @@ namespace std {
 */
 
 #include <experimental/__config>
+#include <__availability>
 #include <memory>
-#include <new>
 #include <typeinfo>
 #include <type_traits>
 #include <cstdlib>
@@ -157,7 +157,7 @@ namespace __any_imp
   template <class _Tp>
   inline _LIBCPP_INLINE_VISIBILITY
   constexpr const void* __get_fallback_typeid() {
-      return &__unique_typeinfo<decay_t<_Tp>>::__id;
+      return &__unique_typeinfo<remove_cv_t<remove_reference_t<_Tp>>>::__id;
   }
 
   template <class _Tp>
@@ -368,7 +368,11 @@ namespace __any_imp
     template <class ..._Args>
     _LIBCPP_INLINE_VISIBILITY
     static _Tp& __create(any & __dest, _Args&&... __args) {
-        _Tp* __ret = ::new (static_cast<void*>(&__dest.__s.__buf)) _Tp(_VSTD::forward<_Args>(__args)...);
+        typedef allocator<_Tp> _Alloc;
+        typedef allocator_traits<_Alloc> _ATraits;
+        _Alloc __a;
+        _Tp * __ret = static_cast<_Tp*>(static_cast<void*>(&__dest.__s.__buf));
+        _ATraits::construct(__a, __ret, _VSTD::forward<_Args>(__args)...);
         __dest.__h = &_SmallHandler::__handle;
         return *__ret;
     }
@@ -376,8 +380,11 @@ namespace __any_imp
   private:
     _LIBCPP_INLINE_VISIBILITY
     static void __destroy(any & __this) {
-        _Tp & __value = *static_cast<_Tp *>(static_cast<void*>(&__this.__s.__buf));
-        __value.~_Tp();
+        typedef allocator<_Tp> _Alloc;
+        typedef allocator_traits<_Alloc> _ATraits;
+        _Alloc __a;
+        _Tp * __p = static_cast<_Tp *>(static_cast<void*>(&__this.__s.__buf));
+        _ATraits::destroy(__a, __p);
         __this.__h = nullptr;
     }
 
@@ -445,10 +452,12 @@ namespace __any_imp
     _LIBCPP_INLINE_VISIBILITY
     static _Tp& __create(any & __dest, _Args&&... __args) {
         typedef allocator<_Tp> _Alloc;
+        typedef allocator_traits<_Alloc> _ATraits;
         typedef __allocator_destructor<_Alloc> _Dp;
         _Alloc __a;
-        unique_ptr<_Tp, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
-        _Tp* __ret = ::new ((void*)__hold.get()) _Tp(_VSTD::forward<_Args>(__args)...);
+        unique_ptr<_Tp, _Dp> __hold(_ATraits::allocate(__a, 1), _Dp(__a, 1));
+        _Tp * __ret = __hold.get();
+        _ATraits::construct(__a, __ret, _VSTD::forward<_Args>(__args)...);
         __dest.__s.__ptr = __hold.release();
         __dest.__h = &_LargeHandler::__handle;
         return *__ret;
@@ -458,7 +467,12 @@ namespace __any_imp
 
     _LIBCPP_INLINE_VISIBILITY
     static void __destroy(any & __this){
-        delete static_cast<_Tp*>(__this.__s.__ptr);
+        typedef allocator<_Tp> _Alloc;
+        typedef allocator_traits<_Alloc> _ATraits;
+        _Alloc __a;
+        _Tp * __p = static_cast<_Tp *>(__this.__s.__ptr);
+        _ATraits::destroy(__a, __p);
+        _ATraits::deallocate(__a, __p, 1);
         __this.__h = nullptr;
     }
 

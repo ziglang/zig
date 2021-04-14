@@ -420,10 +420,8 @@ template <class E> constexpr const E* data(initializer_list<E> il) noexcept;    
 #include <type_traits>
 #include <cstddef>
 #include <initializer_list>
+#include <__memory/base.h>
 #include <version>
-#ifdef __APPLE__
-#include <Availability.h>
-#endif
 
 #include <__debug>
 
@@ -498,12 +496,11 @@ struct __has_iterator_typedefs
 private:
     struct __two {char __lx; char __lxx;};
     template <class _Up> static __two __test(...);
-    template <class _Up> static char __test(typename std::__void_t<typename _Up::iterator_category>::type* = 0,
-    										typename std::__void_t<typename _Up::difference_type>::type* = 0,
-    										typename std::__void_t<typename _Up::value_type>::type* = 0,
-    										typename std::__void_t<typename _Up::reference>::type* = 0,
-    										typename std::__void_t<typename _Up::pointer>::type* = 0
-    										);
+    template <class _Up> static char __test(typename __void_t<typename _Up::iterator_category>::type* = 0,
+                                            typename __void_t<typename _Up::difference_type>::type* = 0,
+                                            typename __void_t<typename _Up::value_type>::type* = 0,
+                                            typename __void_t<typename _Up::reference>::type* = 0,
+                                            typename __void_t<typename _Up::pointer>::type* = 0);
 public:
     static const bool value = sizeof(__test<_Tp>(0,0,0,0,0)) == 1;
 };
@@ -515,9 +512,9 @@ struct __has_iterator_category
 private:
     struct __two {char __lx; char __lxx;};
     template <class _Up> static __two __test(...);
-    template <class _Up> static char __test(typename _Up::iterator_category* = 0);
+    template <class _Up> static char __test(typename _Up::iterator_category* = nullptr);
 public:
-    static const bool value = sizeof(__test<_Tp>(0)) == 1;
+    static const bool value = sizeof(__test<_Tp>(nullptr)) == 1;
 };
 
 template <class _Iter, bool> struct __iterator_traits_impl {};
@@ -667,9 +664,9 @@ void advance(_InputIter& __i, _Distance __orig_n)
 {
     _LIBCPP_ASSERT(__orig_n >= 0 || __is_cpp17_bidirectional_iterator<_InputIter>::value,
                    "Attempt to advance(it, n) with negative n on a non-bidirectional iterator");
-    typedef decltype(__convert_to_integral(__orig_n)) _IntegralSize;
+    typedef decltype(_VSTD::__convert_to_integral(__orig_n)) _IntegralSize;
     _IntegralSize __n = __orig_n;
-    __advance(__i, __n, typename iterator_traits<_InputIter>::iterator_category());
+    _VSTD::__advance(__i, __n, typename iterator_traits<_InputIter>::iterator_category());
 }
 
 template <class _InputIter>
@@ -696,7 +693,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 typename iterator_traits<_InputIter>::difference_type
 distance(_InputIter __first, _InputIter __last)
 {
-    return __distance(__first, __last, typename iterator_traits<_InputIter>::iterator_category());
+    return _VSTD::__distance(__first, __last, typename iterator_traits<_InputIter>::iterator_category());
 }
 
 template <class _InputIter>
@@ -998,11 +995,11 @@ private:
     istream_type* __in_stream_;
     _Tp __value_;
 public:
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR istream_iterator() : __in_stream_(0), __value_() {}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR istream_iterator() : __in_stream_(nullptr), __value_() {}
     _LIBCPP_INLINE_VISIBILITY istream_iterator(istream_type& __s) : __in_stream_(_VSTD::addressof(__s))
         {
             if (!(*__in_stream_ >> __value_))
-                __in_stream_ = 0;
+                __in_stream_ = nullptr;
         }
 
     _LIBCPP_INLINE_VISIBILITY const _Tp& operator*() const {return __value_;}
@@ -1010,7 +1007,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY istream_iterator& operator++()
         {
             if (!(*__in_stream_ >> __value_))
-                __in_stream_ = 0;
+                __in_stream_ = nullptr;
             return *this;
         }
     _LIBCPP_INLINE_VISIBILITY istream_iterator  operator++(int)
@@ -1052,15 +1049,25 @@ class _LIBCPP_TEMPLATE_VIS ostream_iterator
     : public iterator<output_iterator_tag, void, void, void, void>
 {
 public:
-    typedef _CharT char_type;
-    typedef _Traits traits_type;
-    typedef basic_ostream<_CharT,_Traits> ostream_type;
+    typedef output_iterator_tag             iterator_category;
+    typedef void                            value_type;
+#if _LIBCPP_STD_VER > 17
+    typedef std::ptrdiff_t                  difference_type;
+#else
+    typedef void                            difference_type;
+#endif
+    typedef void                            pointer;
+    typedef void                            reference;
+    typedef _CharT                          char_type;
+    typedef _Traits                         traits_type;
+    typedef basic_ostream<_CharT, _Traits>  ostream_type;
+
 private:
     ostream_type* __out_stream_;
     const char_type* __delim_;
 public:
     _LIBCPP_INLINE_VISIBILITY ostream_iterator(ostream_type& __s) _NOEXCEPT
-        : __out_stream_(_VSTD::addressof(__s)), __delim_(0) {}
+        : __out_stream_(_VSTD::addressof(__s)), __delim_(nullptr) {}
     _LIBCPP_INLINE_VISIBILITY ostream_iterator(ostream_type& __s, const _CharT* __delimiter) _NOEXCEPT
         : __out_stream_(_VSTD::addressof(__s)), __delim_(__delimiter) {}
     _LIBCPP_INLINE_VISIBILITY ostream_iterator& operator=(const _Tp& __value_)
@@ -1106,11 +1113,11 @@ private:
     bool __test_for_eof() const
     {
         if (__sbuf_ && traits_type::eq_int_type(__sbuf_->sgetc(), traits_type::eof()))
-            __sbuf_ = 0;
-        return __sbuf_ == 0;
+            __sbuf_ = nullptr;
+        return __sbuf_ == nullptr;
     }
 public:
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR istreambuf_iterator() _NOEXCEPT : __sbuf_(0) {}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR istreambuf_iterator() _NOEXCEPT : __sbuf_(nullptr) {}
     _LIBCPP_INLINE_VISIBILITY istreambuf_iterator(istream_type& __s) _NOEXCEPT
         : __sbuf_(__s.rdbuf()) {}
     _LIBCPP_INLINE_VISIBILITY istreambuf_iterator(streambuf_type* __s) _NOEXCEPT
@@ -1151,10 +1158,20 @@ class _LIBCPP_TEMPLATE_VIS ostreambuf_iterator
     : public iterator<output_iterator_tag, void, void, void, void>
 {
 public:
-    typedef _CharT                          char_type;
-    typedef _Traits                         traits_type;
-    typedef basic_streambuf<_CharT,_Traits> streambuf_type;
-    typedef basic_ostream<_CharT,_Traits>   ostream_type;
+    typedef output_iterator_tag                 iterator_category;
+    typedef void                                value_type;
+#if _LIBCPP_STD_VER > 17
+    typedef std::ptrdiff_t                      difference_type;
+#else
+    typedef void                                difference_type;
+#endif
+    typedef void                                pointer;
+    typedef void                                reference;
+    typedef _CharT                              char_type;
+    typedef _Traits                             traits_type;
+    typedef basic_streambuf<_CharT, _Traits>    streambuf_type;
+    typedef basic_ostream<_CharT, _Traits>      ostream_type;
+
 private:
     streambuf_type* __sbuf_;
 public:
@@ -1165,13 +1182,13 @@ public:
     _LIBCPP_INLINE_VISIBILITY ostreambuf_iterator& operator=(_CharT __c)
         {
             if (__sbuf_ && traits_type::eq_int_type(__sbuf_->sputc(__c), traits_type::eof()))
-                __sbuf_ = 0;
+                __sbuf_ = nullptr;
             return *this;
         }
     _LIBCPP_INLINE_VISIBILITY ostreambuf_iterator& operator*()     {return *this;}
     _LIBCPP_INLINE_VISIBILITY ostreambuf_iterator& operator++()    {return *this;}
     _LIBCPP_INLINE_VISIBILITY ostreambuf_iterator& operator++(int) {return *this;}
-    _LIBCPP_INLINE_VISIBILITY bool failed() const _NOEXCEPT {return __sbuf_ == 0;}
+    _LIBCPP_INLINE_VISIBILITY bool failed() const _NOEXCEPT {return __sbuf_ == nullptr;}
 
     template <class _Ch, class _Tr>
     friend
@@ -1373,13 +1390,13 @@ operator+(typename __wrap_iter<_Iter>::difference_type, __wrap_iter<_Iter>) _NOE
 
 template <class _Ip, class _Op> _Op _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 copy(_Ip, _Ip, _Op);
 template <class _B1, class _B2> _B2 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 copy_backward(_B1, _B1, _B2);
-template <class _Ip, class _Op> _Op _LIBCPP_INLINE_VISIBILITY move(_Ip, _Ip, _Op);
-template <class _B1, class _B2> _B2 _LIBCPP_INLINE_VISIBILITY move_backward(_B1, _B1, _B2);
+template <class _Ip, class _Op> _Op _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 move(_Ip, _Ip, _Op);
+template <class _B1, class _B2> _B2 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 move_backward(_B1, _B1, _B2);
 
 #if _LIBCPP_DEBUG_LEVEL < 2
 
 template <class _Tp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
 typename enable_if
 <
     is_trivially_copy_assignable<_Tp>::value,
@@ -1390,7 +1407,7 @@ __unwrap_iter(__wrap_iter<_Tp*>);
 #else
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
 typename enable_if
 <
     is_trivially_copy_assignable<_Tp>::value,
@@ -1418,20 +1435,20 @@ public:
                 : __i{}
 #endif
     {
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
         __get_db()->__insert_i(this);
 #endif
     }
     template <class _Up> _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
         __wrap_iter(const __wrap_iter<_Up>& __u,
-            typename enable_if<is_convertible<_Up, iterator_type>::value>::type* = 0) _NOEXCEPT
+            typename enable_if<is_convertible<_Up, iterator_type>::value>::type* = nullptr) _NOEXCEPT
             : __i(__u.base())
     {
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
         __get_db()->__iterator_copy(this, &__u);
 #endif
     }
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
     __wrap_iter(const __wrap_iter& __x)
         : __i(__x.base())
@@ -1456,7 +1473,7 @@ public:
 #endif
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG reference operator*() const _NOEXCEPT
     {
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
         _LIBCPP_ASSERT(__get_const_db()->__dereferenceable(this),
                        "Attempted to dereference a non-dereferenceable iterator");
 #endif
@@ -1464,7 +1481,7 @@ public:
     }
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG pointer  operator->() const _NOEXCEPT
     {
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
         _LIBCPP_ASSERT(__get_const_db()->__dereferenceable(this),
                        "Attempted to dereference a non-dereferenceable iterator");
 #endif
@@ -1472,7 +1489,7 @@ public:
     }
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter& operator++() _NOEXCEPT
     {
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
         _LIBCPP_ASSERT(__get_const_db()->__dereferenceable(this),
                        "Attempted to increment non-incrementable iterator");
 #endif
@@ -1484,7 +1501,7 @@ public:
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter& operator--() _NOEXCEPT
     {
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
         _LIBCPP_ASSERT(__get_const_db()->__decrementable(this),
                        "Attempted to decrement non-decrementable iterator");
 #endif
@@ -1497,7 +1514,7 @@ public:
         {__wrap_iter __w(*this); __w += __n; return __w;}
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter& operator+=(difference_type __n) _NOEXCEPT
     {
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
         _LIBCPP_ASSERT(__get_const_db()->__addable(this, __n),
                    "Attempted to add/subtract iterator outside of valid range");
 #endif
@@ -1510,7 +1527,7 @@ public:
         {*this += -__n; return *this;}
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG reference    operator[](difference_type __n) const _NOEXCEPT
     {
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
         _LIBCPP_ASSERT(__get_const_db()->__subscriptable(this, __n),
                    "Attempted to subscript iterator outside of valid range");
 #endif
@@ -1520,7 +1537,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG iterator_type base() const _NOEXCEPT {return __i;}
 
 private:
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter(const void* __p, iterator_type __x) : __i(__x)
     {
         __get_db()->__insert_ic(this, __p);
@@ -1584,12 +1601,12 @@ private:
 
     template <class _Ip, class _Op> friend _LIBCPP_CONSTEXPR_AFTER_CXX17 _Op copy(_Ip, _Ip, _Op);
     template <class _B1, class _B2> friend _LIBCPP_CONSTEXPR_AFTER_CXX17 _B2 copy_backward(_B1, _B1, _B2);
-    template <class _Ip, class _Op> friend _Op move(_Ip, _Ip, _Op);
-    template <class _B1, class _B2> friend _B2 move_backward(_B1, _B1, _B2);
+    template <class _Ip, class _Op> friend _LIBCPP_CONSTEXPR_AFTER_CXX17 _Op move(_Ip, _Ip, _Op);
+    template <class _B1, class _B2> friend _LIBCPP_CONSTEXPR_AFTER_CXX17 _B2 move_backward(_B1, _B1, _B2);
 
 #if _LIBCPP_DEBUG_LEVEL < 2
     template <class _Tp>
-    _LIBCPP_CONSTEXPR_IF_NODEBUG friend
+    _LIBCPP_CONSTEXPR friend
     typename enable_if
     <
         is_trivially_copy_assignable<_Tp>::value,
@@ -1598,7 +1615,7 @@ private:
     __unwrap_iter(__wrap_iter<_Tp*>);
 #else
   template <class _Tp>
-  inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
+  inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR friend
   typename enable_if
   <
       is_trivially_copy_assignable<_Tp>::value,
@@ -1621,7 +1638,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
 operator<(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 {
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
     _LIBCPP_ASSERT(__get_const_db()->__less_than_comparable(&__x, &__y),
                    "Attempted to compare incomparable iterators");
 #endif
@@ -1699,7 +1716,7 @@ auto
 operator-(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 -> decltype(__x.base() - __y.base())
 {
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
     _LIBCPP_ASSERT(__get_const_db()->__less_than_comparable(&__x, &__y),
                    "Attempted to subtract incompatible iterators");
 #endif
@@ -1711,7 +1728,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 typename __wrap_iter<_Iter1>::difference_type
 operator-(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 {
-#if _LIBCPP_DEBUG_LEVEL >= 2
+#if _LIBCPP_DEBUG_LEVEL == 2
     _LIBCPP_ASSERT(__get_const_db()->__less_than_comparable(&__x, &__y),
                    "Attempted to subtract incompatible iterators");
 #endif

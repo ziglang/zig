@@ -4633,6 +4633,7 @@ float16 __ovld __cnfn convert_float16(float16);
 // Conversions with double data type parameters or return value.
 
 #ifdef cl_khr_fp64
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
 char __ovld __cnfn convert_char(double);
 char __ovld __cnfn convert_char_rte(double);
 char __ovld __cnfn convert_char_rtn(double);
@@ -5455,6 +5456,7 @@ double16 __ovld __cnfn convert_double16_rtz(ushort16);
 #endif //cl_khr_fp64
 
 #ifdef cl_khr_fp16
+#pragma OPENCL EXTENSION cl_khr_fp16 : enable
 // Convert half types to non-double types.
 uchar __ovld __cnfn convert_uchar(half);
 uchar __ovld __cnfn convert_uchar_rte(half);

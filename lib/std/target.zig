@@ -36,11 +36,11 @@ pub const Target = struct {
             openbsd,
             solaris,
             windows,
+            zos,
             haiku,
             minix,
             rtems,
             nacl,
-            cnk,
             aix,
             cuda,
             nvcl,
@@ -232,11 +232,11 @@ pub const Target = struct {
                     .kfreebsd,
                     .lv2,
                     .solaris,
+                    .zos,
                     .haiku,
                     .minix,
                     .rtems,
                     .nacl,
-                    .cnk,
                     .aix,
                     .cuda,
                     .nvcl,
@@ -391,10 +391,10 @@ pub const Target = struct {
                 .kfreebsd,
                 .lv2,
                 .solaris,
+                .zos,
                 .minix,
                 .rtems,
                 .nacl,
-                .cnk,
                 .aix,
                 .cuda,
                 .nvcl,
@@ -430,8 +430,8 @@ pub const Target = struct {
     pub const powerpc = @import("target/powerpc.zig");
     pub const riscv = @import("target/riscv.zig");
     pub const sparc = @import("target/sparc.zig");
-    pub const spirv = @import("target/spirv.zig");
     pub const systemz = @import("target/systemz.zig");
+    pub const ve = @import("target/ve.zig");
     pub const wasm = @import("target/wasm.zig");
     pub const x86 = @import("target/x86.zig");
 
@@ -443,6 +443,7 @@ pub const Target = struct {
         gnueabi,
         gnueabihf,
         gnux32,
+        gnuilp32,
         code16,
         eabi,
         eabihf,
@@ -468,10 +469,10 @@ pub const Target = struct {
                 .dragonfly,
                 .lv2,
                 .solaris,
+                .zos,
                 .minix,
                 .rtems,
                 .nacl,
-                .cnk,
                 .aix,
                 .cuda,
                 .nvcl,
@@ -592,7 +593,7 @@ pub const Target = struct {
             pub const Set = struct {
                 ints: [usize_count]usize,
 
-                pub const needed_bit_count = 168;
+                pub const needed_bit_count = 172;
                 pub const byte_count = (needed_bit_count + 7) / 8;
                 pub const usize_count = (byte_count + (@sizeOf(usize) - 1)) / @sizeOf(usize);
                 pub const Index = std.math.Log2Int(std.meta.Int(.unsigned, usize_count * @bitSizeOf(usize)));
@@ -714,6 +715,7 @@ pub const Target = struct {
             avr,
             bpfel,
             bpfeb,
+            csky,
             hexagon,
             mips,
             mipsel,
@@ -721,6 +723,7 @@ pub const Target = struct {
             mips64el,
             msp430,
             powerpc,
+            powerpcle,
             powerpc64,
             powerpc64le,
             r600,
@@ -831,7 +834,7 @@ pub const Target = struct {
                     .le32 => ._NONE,
                     .mips => ._MIPS,
                     .mipsel => ._MIPS_RS3_LE,
-                    .powerpc => ._PPC,
+                    .powerpc, .powerpcle => ._PPC,
                     .r600 => ._NONE,
                     .riscv32 => ._RISCV,
                     .sparc => ._SPARC,
@@ -870,6 +873,7 @@ pub const Target = struct {
                     .amdgcn => ._NONE,
                     .bpfel => ._BPF,
                     .bpfeb => ._BPF,
+                    .csky => ._NONE,
                     .sparcv9 => ._SPARCV9,
                     .s390x => ._S390,
                     .ve => ._NONE,
@@ -890,7 +894,7 @@ pub const Target = struct {
                     .le32 => .Unknown,
                     .mips => .Unknown,
                     .mipsel => .Unknown,
-                    .powerpc => .POWERPC,
+                    .powerpc, .powerpcle => .POWERPC,
                     .r600 => .Unknown,
                     .riscv32 => .RISCV32,
                     .sparc => .Unknown,
@@ -929,6 +933,7 @@ pub const Target = struct {
                     .amdgcn => .Unknown,
                     .bpfel => .Unknown,
                     .bpfeb => .Unknown,
+                    .csky => .Unknown,
                     .sparcv9 => .Unknown,
                     .s390x => .Unknown,
                     .ve => .Unknown,
@@ -948,6 +953,7 @@ pub const Target = struct {
                     .amdil,
                     .amdil64,
                     .bpfel,
+                    .csky,
                     .hexagon,
                     .hsail,
                     .hsail64,
@@ -961,6 +967,7 @@ pub const Target = struct {
                     .nvptx64,
                     .sparcel,
                     .tcele,
+                    .powerpcle,
                     .powerpc64le,
                     .r600,
                     .riscv32,
@@ -1011,11 +1018,13 @@ pub const Target = struct {
                     .arc,
                     .arm,
                     .armeb,
+                    .csky,
                     .hexagon,
                     .le32,
                     .mips,
                     .mipsel,
                     .powerpc,
+                    .powerpcle,
                     .r600,
                     .riscv32,
                     .sparc,
@@ -1065,17 +1074,14 @@ pub const Target = struct {
                 }
             }
 
-            /// Returns a name that matches the lib/std/target/* directory name.
+            /// Returns a name that matches the lib/std/target/* source file name.
             pub fn genericName(arch: Arch) []const u8 {
                 return switch (arch) {
                     .arm, .armeb, .thumb, .thumbeb => "arm",
                     .aarch64, .aarch64_be, .aarch64_32 => "aarch64",
-                    .avr => "avr",
                     .bpfel, .bpfeb => "bpf",
-                    .hexagon => "hexagon",
                     .mips, .mipsel, .mips64, .mips64el => "mips",
-                    .msp430 => "msp430",
-                    .powerpc, .powerpc64, .powerpc64le => "powerpc",
+                    .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
                     .amdgcn => "amdgpu",
                     .riscv32, .riscv64 => "riscv",
                     .sparc, .sparcv9, .sparcel => "sparc",
@@ -1098,13 +1104,14 @@ pub const Target = struct {
                     .hexagon => &hexagon.all_features,
                     .mips, .mipsel, .mips64, .mips64el => &mips.all_features,
                     .msp430 => &msp430.all_features,
-                    .powerpc, .powerpc64, .powerpc64le => &powerpc.all_features,
+                    .powerpc, .powerpcle, .powerpc64, .powerpc64le => &powerpc.all_features,
                     .amdgcn => &amdgpu.all_features,
                     .riscv32, .riscv64 => &riscv.all_features,
                     .sparc, .sparcv9, .sparcel => &sparc.all_features,
                     .s390x => &systemz.all_features,
                     .i386, .x86_64 => &x86.all_features,
                     .nvptx, .nvptx64 => &nvptx.all_features,
+                    .ve => &ve.all_features,
                     .wasm32, .wasm64 => &wasm.all_features,
 
                     else => &[0]Cpu.Feature{},
@@ -1121,13 +1128,14 @@ pub const Target = struct {
                     .hexagon => comptime allCpusFromDecls(hexagon.cpu),
                     .mips, .mipsel, .mips64, .mips64el => comptime allCpusFromDecls(mips.cpu),
                     .msp430 => comptime allCpusFromDecls(msp430.cpu),
-                    .powerpc, .powerpc64, .powerpc64le => comptime allCpusFromDecls(powerpc.cpu),
+                    .powerpc, .powerpcle, .powerpc64, .powerpc64le => comptime allCpusFromDecls(powerpc.cpu),
                     .amdgcn => comptime allCpusFromDecls(amdgpu.cpu),
                     .riscv32, .riscv64 => comptime allCpusFromDecls(riscv.cpu),
                     .sparc, .sparcv9, .sparcel => comptime allCpusFromDecls(sparc.cpu),
                     .s390x => comptime allCpusFromDecls(systemz.cpu),
                     .i386, .x86_64 => comptime allCpusFromDecls(x86.cpu),
                     .nvptx, .nvptx64 => comptime allCpusFromDecls(nvptx.cpu),
+                    .ve => comptime allCpusFromDecls(ve.cpu),
                     .wasm32, .wasm64 => comptime allCpusFromDecls(wasm.cpu),
 
                     else => &[0]*const Model{},
@@ -1177,17 +1185,19 @@ pub const Target = struct {
                     .mips64, .mips64el => &mips.cpu.mips64,
                     .msp430 => &msp430.cpu.generic,
                     .powerpc => &powerpc.cpu.ppc32,
+                    .powerpcle => &powerpc.cpu.ppc32,
                     .powerpc64 => &powerpc.cpu.ppc64,
                     .powerpc64le => &powerpc.cpu.ppc64le,
                     .amdgcn => &amdgpu.cpu.generic,
                     .riscv32 => &riscv.cpu.generic_rv32,
                     .riscv64 => &riscv.cpu.generic_rv64,
-                    .sparc, .sparcel => &sparc.cpu.v8,
+                    .sparc, .sparcel => &sparc.cpu.generic,
                     .sparcv9 => &sparc.cpu.v9,
                     .s390x => &systemz.cpu.generic,
                     .i386 => &x86.cpu._i386,
                     .x86_64 => &x86.cpu.x86_64,
                     .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
+                    .ve => &ve.cpu.generic,
                     .wasm32, .wasm64 => &wasm.cpu.generic,
 
                     else => &S.generic_model,
@@ -1201,6 +1211,7 @@ pub const Target = struct {
                     .riscv64 => &riscv.cpu.baseline_rv64,
                     .i386 => &x86.cpu.pentium4,
                     .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
+                    .sparc, .sparcel => &sparc.cpu.v8,
 
                     else => generic(arch),
                 };
@@ -1490,7 +1501,7 @@ pub const Target = struct {
                     return print(&result, "/lib{s}/{s}", .{ lib_suffix, loader });
                 },
 
-                .powerpc => return copy(&result, "/lib/ld.so.1"),
+                .powerpc, .powerpcle => return copy(&result, "/lib/ld.so.1"),
                 .powerpc64, .powerpc64le => return copy(&result, "/lib64/ld64.so.2"),
                 .s390x => return copy(&result, "/lib64/ld64.so.1"),
                 .sparcv9 => return copy(&result, "/lib64/ld-linux.so.2"),
@@ -1519,6 +1530,7 @@ pub const Target = struct {
                 // TODO go over each item in this list and either move it to the above list, or
                 // implement the standard dynamic linker path code for it.
                 .arc,
+                .csky,
                 .hexagon,
                 .msp430,
                 .r600,
@@ -1573,10 +1585,10 @@ pub const Target = struct {
             .kfreebsd,
             .lv2,
             .solaris,
+            .zos,
             .minix,
             .rtems,
             .nacl,
-            .cnk,
             .aix,
             .cuda,
             .nvcl,

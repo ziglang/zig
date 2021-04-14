@@ -32,7 +32,7 @@
 class _LIBUNWIND_HIDDEN FrameHeaderCache {
   struct CacheEntry {
     uintptr_t LowPC() { return Info.dso_base; };
-    uintptr_t HighPC() { return Info.dso_base + Info.dwarf_section_length; };
+    uintptr_t HighPC() { return Info.dso_base + Info.text_segment_length; };
     UnwindInfoSections Info;
     CacheEntry *Next;
   };

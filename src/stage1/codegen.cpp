@@ -537,14 +537,12 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     if (fn->body_node != nullptr) {
         maybe_export_dll(g, llvm_fn, linkage);
 
-        bool want_fn_safety = g->build_mode != BuildModeFastRelease &&
+        bool want_ssp_attrs = g->build_mode != BuildModeFastRelease &&
                               g->build_mode != BuildModeSmallRelease &&
-                              !fn->def_scope->safety_off;
-        if (want_fn_safety) {
-            if (g->link_libc) {
-                addLLVMFnAttr(llvm_fn, "sspstrong");
-                addLLVMFnAttrStr(llvm_fn, "stack-protector-buffer-size", "4");
-            }
+                              g->link_libc;
+        if (want_ssp_attrs) {
+            addLLVMFnAttr(llvm_fn, "sspstrong");
+            addLLVMFnAttrStr(llvm_fn, "stack-protector-buffer-size", "4");
         }
         if (g->have_stack_probing && !fn->def_scope->safety_off) {
             addLLVMFnAttrStr(llvm_fn, "probe-stack", "__zig_probe_stack");
@@ -598,7 +596,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         } else if (want_first_arg_sret(g, &fn_type->data.fn.fn_type_id)) {
             // Sret pointers must not be address 0
             addLLVMArgAttr(llvm_fn, 0, "nonnull");
-            addLLVMArgAttr(llvm_fn, 0, "sret");
+            ZigLLVMAddSretAttr(llvm_fn, 0, get_llvm_type(g, return_type));
             if (cc_want_sret_attr(cc)) {
                 addLLVMArgAttr(llvm_fn, 0, "noalias");
             }
@@ -1644,35 +1642,16 @@ static const BuildBinOpFunc unsigned_op[3] = { LLVMBuildNUWAdd, LLVMBuildNUWSub,
 static LLVMValueRef gen_overflow_op(CodeGen *g, ZigType *operand_type, AddSubMul op,
         LLVMValueRef val1, LLVMValueRef val2)
 {
-    LLVMValueRef overflow_bit;
-    LLVMValueRef result;
-
+    LLVMValueRef fn_val = get_int_overflow_fn(g, operand_type, op);
+    LLVMValueRef params[] = {
+        val1,
+        val2,
+    };
+    LLVMValueRef result_struct = LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    LLVMValueRef result = LLVMBuildExtractValue(g->builder, result_struct, 0, "");
+    LLVMValueRef overflow_bit = LLVMBuildExtractValue(g->builder, result_struct, 1, "");
     if (operand_type->id == ZigTypeIdVector) {
-        ZigType *int_type = operand_type->data.vector.elem_type;
-        assert(int_type->id == ZigTypeIdInt);
-        LLVMTypeRef one_more_bit_int = LLVMIntType(int_type->data.integral.bit_count + 1);
-        LLVMTypeRef one_more_bit_int_vector = LLVMVectorType(one_more_bit_int, operand_type->data.vector.len);
-        const auto buildExtFn = int_type->data.integral.is_signed ? LLVMBuildSExt : LLVMBuildZExt;
-        LLVMValueRef extended1 = buildExtFn(g->builder, val1, one_more_bit_int_vector, "");
-        LLVMValueRef extended2 = buildExtFn(g->builder, val2, one_more_bit_int_vector, "");
-        LLVMValueRef extended_result = wrap_op[op](g->builder, extended1, extended2, "");
-        result = LLVMBuildTrunc(g->builder, extended_result, get_llvm_type(g, operand_type), "");
-
-        LLVMValueRef re_extended_result = buildExtFn(g->builder, result, one_more_bit_int_vector, "");
-        LLVMValueRef overflow_vector = LLVMBuildICmp(g->builder, LLVMIntNE, extended_result, re_extended_result, "");
-        LLVMTypeRef bitcast_int_type = LLVMIntType(operand_type->data.vector.len);
-        LLVMValueRef bitcasted_overflow = LLVMBuildBitCast(g->builder, overflow_vector, bitcast_int_type, "");
-        LLVMValueRef zero = LLVMConstNull(bitcast_int_type);
-        overflow_bit = LLVMBuildICmp(g->builder, LLVMIntNE, bitcasted_overflow, zero, "");
-    } else {
-        LLVMValueRef fn_val = get_int_overflow_fn(g, operand_type, op);
-        LLVMValueRef params[] = {
-            val1,
-            val2,
-        };
-        LLVMValueRef result_struct = LLVMBuildCall(g->builder, fn_val, params, 2, "");
-        result = LLVMBuildExtractValue(g->builder, result_struct, 0, "");
-        overflow_bit = LLVMBuildExtractValue(g->builder, result_struct, 1, "");
+        overflow_bit = ZigLLVMBuildOrReduce(g->builder, overflow_bit);
     }
 
     LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "OverflowFail");
@@ -2040,7 +2019,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             switch (fn_walk->id) {
                 case FnWalkIdAttrs:
                     if (abi_class != X64CABIClass_MEMORY_nobyval) {
-                        ZigLLVMAddByValAttr(llvm_fn, fn_walk->data.attrs.gen_i + 1, get_llvm_type(g, ty));
+                        ZigLLVMAddByValAttr(llvm_fn, fn_walk->data.attrs.gen_i, get_llvm_type(g, ty));
                         addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
                     } else if (g->zig_target->arch == ZigLLVM_aarch64 ||
                             g->zig_target->arch == ZigLLVM_aarch64_be)
@@ -4105,12 +4084,6 @@ static void gen_set_stack_pointer(CodeGen *g, LLVMValueRef aligned_end_addr) {
     LLVMBuildCall(g->builder, write_register_fn_val, params, 2, "");
 }
 
-static void set_call_instr_sret(CodeGen *g, LLVMValueRef call_instr) {
-    unsigned attr_kind_id = LLVMGetEnumAttributeKindForName("sret", 4);
-    LLVMAttributeRef sret_attr = LLVMCreateEnumAttribute(LLVMGetGlobalContext(), attr_kind_id, 0);
-    LLVMAddCallSiteAttribute(call_instr, 1, sret_attr);
-}
-
 static void render_async_spills(CodeGen *g) {
     ZigType *fn_type = g->cur_fn->type_entry;
     ZigType *import = get_scope_import(&g->cur_fn->fndef_scope->base);
@@ -4634,7 +4607,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
     } else if (!ret_has_bits) {
         return nullptr;
     } else if (first_arg_ret) {
-        set_call_instr_sret(g, result);
+        ZigLLVMSetCallSret(result, get_llvm_type(g, src_return_type));
         return result_loc;
     } else if (handle_is_ptr(g, src_return_type)) {
         LLVMValueRef store_instr = LLVMBuildStore(g->builder, result, result_loc);

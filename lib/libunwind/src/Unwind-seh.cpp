@@ -46,18 +46,6 @@ using namespace libunwind;
 /// handling.
 #define STATUS_GCC_UNWIND MAKE_GCC_EXCEPTION(1) // 0x21474343
 
-/// Class of foreign exceptions based on unrecognized SEH exceptions.
-static const uint64_t kSEHExceptionClass = 0x434C4E4753454800; // CLNGSEH\0
-
-/// Exception cleanup routine used by \c _GCC_specific_handler to
-/// free foreign exceptions.
-static void seh_exc_cleanup(_Unwind_Reason_Code urc, _Unwind_Exception *exc) {
-  (void)urc;
-  if (exc->exception_class != kSEHExceptionClass)
-    _LIBUNWIND_ABORT("SEH cleanup called on non-SEH exception");
-  free(exc);
-}
-
 static int __unw_init_seh(unw_cursor_t *cursor, CONTEXT *ctx);
 static DISPATCHER_CONTEXT *__unw_seh_get_disp_ctx(unw_cursor_t *cursor);
 static void __unw_seh_set_disp_ctx(unw_cursor_t *cursor,
@@ -108,10 +96,10 @@ _GCC_specific_handler(PEXCEPTION_RECORD ms_exc, PVOID frame, PCONTEXT ms_ctx,
     }
   } else {
     // Foreign exception.
-    exc = (_Unwind_Exception *)malloc(sizeof(_Unwind_Exception));
-    exc->exception_class = kSEHExceptionClass;
-    exc->exception_cleanup = seh_exc_cleanup;
-    memset(exc->private_, 0, sizeof(exc->private_));
+    // We can't interact with them (we don't know the original target frame
+    // that we should pass on to RtlUnwindEx in _Unwind_Resume), so just
+    // pass without calling our destructors here.
+    return ExceptionContinueSearch;
   }
   if (!ctx) {
     __unw_init_seh(&cursor, disp->ContextRecord);

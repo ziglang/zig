@@ -326,11 +326,33 @@ pub const NativeTargetInfo = struct {
             cpu_detection_unimplemented = true;
             break :backup_cpu_detection Target.Cpu.baseline(cpu_arch);
         };
-        cross_target.updateCpuFeatures(&cpu.features);
-
-        var target = try detectAbiAndDynamicLinker(allocator, cpu, os, cross_target);
-        target.cpu_detection_unimplemented = cpu_detection_unimplemented;
-        return target;
+        var result = try detectAbiAndDynamicLinker(allocator, cpu, os, cross_target);
+        // For x86, we need to populate some CPU feature flags depending on architecture
+        // and mode:
+        //  * 16bit_mode => if the abi is code16
+        //  * 32bit_mode => if the arch is i386
+        // However, the "mode" flags can be used as overrides, so if the user explicitly
+        // sets one of them, that takes precedence.
+        switch (cpu_arch) {
+            .i386 => {
+                if (!std.Target.x86.featureSetHasAny(cross_target.cpu_features_add, .{
+                    .@"16bit_mode", .@"32bit_mode",
+                })) {
+                    switch (result.target.abi) {
+                        .code16 => result.target.cpu.features.addFeature(
+                            @enumToInt(std.Target.x86.Feature.@"16bit_mode"),
+                        ),
+                        else => result.target.cpu.features.addFeature(
+                            @enumToInt(std.Target.x86.Feature.@"32bit_mode"),
+                        ),
+                    }
+                }
+            },
+            else => {},
+        }
+        cross_target.updateCpuFeatures(&result.target.cpu.features);
+        result.cpu_detection_unimplemented = cpu_detection_unimplemented;
+        return result;
     }
 
     /// First we attempt to use the executable's own binary. If it is dynamically

@@ -710,7 +710,7 @@ void
 basic_ios<_CharT, _Traits>::init(basic_streambuf<char_type, traits_type>* __sb)
 {
     ios_base::init(__sb);
-    __tie_ = 0;
+    __tie_ = nullptr;
     __fill_ = traits_type::eof();
 }
 
@@ -821,7 +821,7 @@ basic_ios<_CharT, _Traits>::move(basic_ios& __rhs)
 {
     ios_base::move(__rhs);
     __tie_ = __rhs.__tie_;
-    __rhs.__tie_ = 0;
+    __rhs.__tie_ = nullptr;
     __fill_ = __rhs.__fill_;
 }
 
@@ -1034,33 +1034,6 @@ defaultfloat(ios_base& __str)
     __str.unsetf(ios_base::floatfield);
     return __str;
 }
-
-template <class _CharT, class _Traits>
-class __save_flags
-{
-    typedef basic_ios<_CharT, _Traits> __stream_type;
-    typedef typename __stream_type::fmtflags fmtflags;
-
-    __stream_type& __stream_;
-    fmtflags       __fmtflags_;
-    _CharT         __fill_;
-
-    __save_flags(const __save_flags&);
-    __save_flags& operator=(const __save_flags&);
-public:
-    _LIBCPP_INLINE_VISIBILITY
-    explicit __save_flags(__stream_type& __stream)
-        : __stream_(__stream),
-          __fmtflags_(__stream.flags()),
-          __fill_(__stream.fill())
-        {}
-    _LIBCPP_INLINE_VISIBILITY
-    ~__save_flags()
-    {
-        __stream_.flags(__fmtflags_);
-        __stream_.fill(__fill_);
-    }
-};
 
 _LIBCPP_END_NAMESPACE_STD
 

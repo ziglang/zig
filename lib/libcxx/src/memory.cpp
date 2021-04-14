@@ -124,15 +124,11 @@ __shared_weak_count::lock() _NOEXCEPT
     return nullptr;
 }
 
-#if !defined(_LIBCPP_NO_RTTI) || !defined(_LIBCPP_BUILD_STATIC)
-
 const void*
 __shared_weak_count::__get_deleter(const type_info&) const _NOEXCEPT
 {
     return nullptr;
 }
-
-#endif  // _LIBCPP_NO_RTTI
 
 #if !defined(_LIBCPP_HAS_NO_ATOMIC_HEADER)
 

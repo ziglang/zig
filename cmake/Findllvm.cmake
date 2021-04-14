@@ -9,37 +9,37 @@
 
 find_path(LLVM_INCLUDE_DIRS NAMES llvm/IR/IRBuilder.h
   PATHS
-    /usr/lib/llvm/11/include
-    /usr/lib/llvm-11/include
-    /usr/lib/llvm-11.0/include
-    /usr/local/llvm11/include
-    /usr/local/llvm110/include
+    /usr/lib/llvm/12/include
+    /usr/lib/llvm-12/include
+    /usr/lib/llvm-12.0/include
+    /usr/local/llvm12/include
+    /usr/local/llvm120/include
     /mingw64/include
 )
 
 if(ZIG_PREFER_CLANG_CPP_DYLIB)
   find_library(LLVM_LIBRARIES
     NAMES
-      LLVM-11.0
-      LLVM-11
-      LLVM-110
+      LLVM-12.0
+      LLVM-12
+      LLVM-120
       LLVM
     PATHS
       ${LLVM_LIBDIRS}
-      /usr/lib/llvm/11/lib
-      /usr/lib/llvm/11/lib64
-      /usr/lib/llvm-11/lib
-      /usr/local/llvm11/lib
-      /usr/local/llvm110/lib
+      /usr/lib/llvm/12/lib
+      /usr/lib/llvm/12/lib64
+      /usr/lib/llvm-12/lib
+      /usr/local/llvm12/lib
+      /usr/local/llvm120/lib
   )
 
   find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-11 llvm-config-11.0 llvm-config110 llvm-config11 llvm-config
+      NAMES llvm-config-12 llvm-config-12.0 llvm-config120 llvm-config12 llvm-config
       PATHS
           "/mingw64/bin"
           "/c/msys64/mingw64/bin"
           "c:/msys64/mingw64/bin"
-          "C:/Libraries/llvm-11.0.0/bin")
+          "C:/Libraries/llvm-12.0.0/bin")
 
   if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
     message(FATAL_ERROR "unable to find llvm-config")
@@ -54,23 +54,23 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
     OUTPUT_VARIABLE LLVM_CONFIG_VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 11)
-    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 12)
+    message(FATAL_ERROR "expected LLVM 12.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 12)
-    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 13)
+    message(FATAL_ERROR "expected LLVM 12.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 12)
-    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 13)
+    message(FATAL_ERROR "expected LLVM 12.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
 elseif(ZIG_USE_LLVM_CONFIG)
   find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-11 llvm-config-11.0 llvm-config110 llvm-config11 llvm-config
+      NAMES llvm-config-12 llvm-config-12.0 llvm-config120 llvm-config12 llvm-config
       PATHS
           "/mingw64/bin"
           "/c/msys64/mingw64/bin"
           "c:/msys64/mingw64/bin"
-          "C:/Libraries/llvm-11.0.0/bin")
+          "C:/Libraries/llvm-12.0.0/bin")
 
   if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
     message(FATAL_ERROR "unable to find llvm-config")
@@ -85,14 +85,14 @@ elseif(ZIG_USE_LLVM_CONFIG)
     OUTPUT_VARIABLE LLVM_CONFIG_VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 11)
-    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 12)
+    message(FATAL_ERROR "expected LLVM 12.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 12)
-    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 13)
+    message(FATAL_ERROR "expected LLVM 12.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 12)
-    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 13)
+    message(FATAL_ERROR "expected LLVM 12.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
 
   execute_process(
@@ -166,7 +166,7 @@ elseif(ZIG_USE_LLVM_CONFIG)
   set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
 
   if(NOT LLVM_LIBRARIES)
-    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-11 LLVM-11.0)
+    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-12 LLVM-12.0)
   endif()
 
   link_directories("${CMAKE_PREFIX_PATH}/lib")
@@ -180,11 +180,11 @@ else()
     find_library(LLVM_${_prettylibname_}_LIB NAMES ${_libname_}
       PATHS
       ${LLVM_LIBDIRS}
-      /usr/lib/llvm/11/lib
-      /usr/lib/llvm-11/lib
-      /usr/lib/llvm-11.0/lib
-      /usr/local/llvm110/lib
-      /usr/local/llvm11/lib
+      /usr/lib/llvm/12/lib
+      /usr/lib/llvm-12/lib
+      /usr/lib/llvm-12.0/lib
+      /usr/local/llvm120/lib
+      /usr/local/llvm12/lib
       /mingw64/lib
       /c/msys64/mingw64/lib
       c:\\msys64\\mingw64\\lib)
@@ -194,78 +194,57 @@ else()
   # This list can be re-generated with `llvm-config --libfiles` and then
   # reformatting using your favorite text editor. Note we do not execute
   # `llvm-config` here because we are cross compiling.
-  FIND_AND_ADD_LLVM_LIB(LLVMXRay)
   FIND_AND_ADD_LLVM_LIB(LLVMWindowsManifest)
-  FIND_AND_ADD_LLVM_LIB(LLVMSymbolize)
-  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoPDB)
-  FIND_AND_ADD_LLVM_LIB(LLVMOrcJIT)
-  FIND_AND_ADD_LLVM_LIB(LLVMOrcError)
-  FIND_AND_ADD_LLVM_LIB(LLVMJITLink)
-  FIND_AND_ADD_LLVM_LIB(LLVMObjectYAML)
-  FIND_AND_ADD_LLVM_LIB(LLVMMCA)
-  FIND_AND_ADD_LLVM_LIB(LLVMLTO)
-  FIND_AND_ADD_LLVM_LIB(LLVMPasses)
-  FIND_AND_ADD_LLVM_LIB(LLVMCoroutines)
-  FIND_AND_ADD_LLVM_LIB(LLVMObjCARCOpts)
-  FIND_AND_ADD_LLVM_LIB(LLVMExtensions)
-  FIND_AND_ADD_LLVM_LIB(LLVMLineEditor)
+  FIND_AND_ADD_LLVM_LIB(LLVMXRay)
   FIND_AND_ADD_LLVM_LIB(LLVMLibDriver)
-  FIND_AND_ADD_LLVM_LIB(LLVMInterpreter)
-  FIND_AND_ADD_LLVM_LIB(LLVMFuzzMutate)
-  FIND_AND_ADD_LLVM_LIB(LLVMMCJIT)
-  FIND_AND_ADD_LLVM_LIB(LLVMExecutionEngine)
-  FIND_AND_ADD_LLVM_LIB(LLVMRuntimeDyld)
-  FIND_AND_ADD_LLVM_LIB(LLVMDWARFLinker)
   FIND_AND_ADD_LLVM_LIB(LLVMDlltoolDriver)
-  FIND_AND_ADD_LLVM_LIB(LLVMOption)
-  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoGSYM)
   FIND_AND_ADD_LLVM_LIB(LLVMCoverage)
+  FIND_AND_ADD_LLVM_LIB(LLVMLineEditor)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreDisassembler)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMX86Disassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMX86CodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMX86AsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMX86CodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMX86Desc)
   FIND_AND_ADD_LLVM_LIB(LLVMX86Info)
   FIND_AND_ADD_LLVM_LIB(LLVMWebAssemblyDisassembler)
+  FIND_AND_ADD_LLVM_LIB(LLVMWebAssemblyAsmParser)
   FIND_AND_ADD_LLVM_LIB(LLVMWebAssemblyCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMWebAssemblyDesc)
-  FIND_AND_ADD_LLVM_LIB(LLVMWebAssemblyAsmParser)
   FIND_AND_ADD_LLVM_LIB(LLVMWebAssemblyInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMSystemZDisassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMSystemZCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMSystemZAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMSystemZCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMSystemZDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMSystemZInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMSparcDisassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMSparcCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMSparcAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMSparcCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMSparcDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMSparcInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMRISCVDisassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMRISCVCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMRISCVAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMRISCVCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMRISCVDesc)
-  FIND_AND_ADD_LLVM_LIB(LLVMRISCVUtils)
   FIND_AND_ADD_LLVM_LIB(LLVMRISCVInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMPowerPCDisassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMPowerPCCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMPowerPCAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMPowerPCCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMPowerPCDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMPowerPCInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMNVPTXCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMNVPTXDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMNVPTXInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMMSP430Disassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMMSP430CodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMMSP430AsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMMSP430CodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMMSP430Desc)
   FIND_AND_ADD_LLVM_LIB(LLVMMSP430Info)
   FIND_AND_ADD_LLVM_LIB(LLVMMipsDisassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMMipsCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMMipsAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMMipsCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMMipsDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMMipsInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMLanaiDisassembler)
@@ -279,44 +258,73 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMHexagonDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMHexagonInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMBPFDisassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMBPFCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMBPFAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMBPFCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMBPFDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMBPFInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMAVRDisassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMAVRCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMAVRAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMAVRCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMAVRDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMAVRInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMARMDisassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMARMCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMARMAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMARMCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMARMDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMARMUtils)
   FIND_AND_ADD_LLVM_LIB(LLVMARMInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUDisassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUCodeGen)
-  FIND_AND_ADD_LLVM_LIB(LLVMMIRParser)
-  FIND_AND_ADD_LLVM_LIB(LLVMipo)
-  FIND_AND_ADD_LLVM_LIB(LLVMInstrumentation)
-  FIND_AND_ADD_LLVM_LIB(LLVMVectorize)
-  FIND_AND_ADD_LLVM_LIB(LLVMLinker)
-  FIND_AND_ADD_LLVM_LIB(LLVMIRReader)
-  FIND_AND_ADD_LLVM_LIB(LLVMAsmParser)
-  FIND_AND_ADD_LLVM_LIB(LLVMFrontendOpenMP)
   FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUUtils)
   FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMAArch64Disassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMMCDisassembler)
+  FIND_AND_ADD_LLVM_LIB(LLVMAArch64AsmParser)
   FIND_AND_ADD_LLVM_LIB(LLVMAArch64CodeGen)
+  FIND_AND_ADD_LLVM_LIB(LLVMAArch64Desc)
+  FIND_AND_ADD_LLVM_LIB(LLVMAArch64Utils)
+  FIND_AND_ADD_LLVM_LIB(LLVMAArch64Info)
+  FIND_AND_ADD_LLVM_LIB(LLVMOrcJIT)
+  FIND_AND_ADD_LLVM_LIB(LLVMMCJIT)
+  FIND_AND_ADD_LLVM_LIB(LLVMJITLink)
+  FIND_AND_ADD_LLVM_LIB(LLVMOrcTargetProcess)
+  FIND_AND_ADD_LLVM_LIB(LLVMOrcShared)
+  FIND_AND_ADD_LLVM_LIB(LLVMInterpreter)
+  FIND_AND_ADD_LLVM_LIB(LLVMExecutionEngine)
+  FIND_AND_ADD_LLVM_LIB(LLVMRuntimeDyld)
+  FIND_AND_ADD_LLVM_LIB(LLVMSymbolize)
+  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoPDB)
+  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoGSYM)
+  FIND_AND_ADD_LLVM_LIB(LLVMOption)
+  FIND_AND_ADD_LLVM_LIB(LLVMObjectYAML)
+  FIND_AND_ADD_LLVM_LIB(LLVMMCA)
+  FIND_AND_ADD_LLVM_LIB(LLVMMCDisassembler)
+  FIND_AND_ADD_LLVM_LIB(LLVMLTO)
+  FIND_AND_ADD_LLVM_LIB(LLVMPasses)
   FIND_AND_ADD_LLVM_LIB(LLVMCFGuard)
+  FIND_AND_ADD_LLVM_LIB(LLVMCoroutines)
+  FIND_AND_ADD_LLVM_LIB(LLVMObjCARCOpts)
+  FIND_AND_ADD_LLVM_LIB(LLVMHelloNew)
+  FIND_AND_ADD_LLVM_LIB(LLVMipo)
+  FIND_AND_ADD_LLVM_LIB(LLVMVectorize)
+  FIND_AND_ADD_LLVM_LIB(LLVMLinker)
+  FIND_AND_ADD_LLVM_LIB(LLVMInstrumentation)
+  FIND_AND_ADD_LLVM_LIB(LLVMFrontendOpenMP)
+  FIND_AND_ADD_LLVM_LIB(LLVMFrontendOpenACC)
+  FIND_AND_ADD_LLVM_LIB(LLVMExtensions)
+  FIND_AND_ADD_LLVM_LIB(LLVMDWARFLinker)
   FIND_AND_ADD_LLVM_LIB(LLVMGlobalISel)
-  FIND_AND_ADD_LLVM_LIB(LLVMSelectionDAG)
+  FIND_AND_ADD_LLVM_LIB(LLVMMIRParser)
   FIND_AND_ADD_LLVM_LIB(LLVMAsmPrinter)
   FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoDWARF)
+  FIND_AND_ADD_LLVM_LIB(LLVMSelectionDAG)
   FIND_AND_ADD_LLVM_LIB(LLVMCodeGen)
+  FIND_AND_ADD_LLVM_LIB(LLVMIRReader)
+  FIND_AND_ADD_LLVM_LIB(LLVMAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMInterfaceStub)
+  FIND_AND_ADD_LLVM_LIB(LLVMFileCheck)
+  FIND_AND_ADD_LLVM_LIB(LLVMFuzzMutate)
   FIND_AND_ADD_LLVM_LIB(LLVMTarget)
   FIND_AND_ADD_LLVM_LIB(LLVMScalarOpts)
   FIND_AND_ADD_LLVM_LIB(LLVMInstCombine)
@@ -327,19 +335,15 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMProfileData)
   FIND_AND_ADD_LLVM_LIB(LLVMObject)
   FIND_AND_ADD_LLVM_LIB(LLVMTextAPI)
+  FIND_AND_ADD_LLVM_LIB(LLVMMCParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMMC)
+  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoCodeView)
+  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoMSF)
   FIND_AND_ADD_LLVM_LIB(LLVMBitReader)
   FIND_AND_ADD_LLVM_LIB(LLVMCore)
   FIND_AND_ADD_LLVM_LIB(LLVMRemarks)
   FIND_AND_ADD_LLVM_LIB(LLVMBitstreamReader)
-  FIND_AND_ADD_LLVM_LIB(LLVMAArch64AsmParser)
-  FIND_AND_ADD_LLVM_LIB(LLVMMCParser)
-  FIND_AND_ADD_LLVM_LIB(LLVMAArch64Desc)
-  FIND_AND_ADD_LLVM_LIB(LLVMMC)
-  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoCodeView)
-  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoMSF)
   FIND_AND_ADD_LLVM_LIB(LLVMBinaryFormat)
-  FIND_AND_ADD_LLVM_LIB(LLVMAArch64Utils)
-  FIND_AND_ADD_LLVM_LIB(LLVMAArch64Info)
   FIND_AND_ADD_LLVM_LIB(LLVMSupport)
   FIND_AND_ADD_LLVM_LIB(LLVMDemangle)
 endif()

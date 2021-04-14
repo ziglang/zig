@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===------------------- support/android/locale_bionic.h ------------------===//
+//===-----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -28,13 +28,13 @@ extern "C" {
 #include <android/api-level.h>
 #include <android/ndk-version.h>
 #if __ANDROID_API__ < 21
-#include <support/xlocale/__posix_l_fallback.h>
+#include <__support/xlocale/__posix_l_fallback.h>
 #endif
 // In NDK versions later than 16, locale-aware functions are provided by
 // legacy_stdlib_inlines.h
 #if __NDK_MAJOR__ <= 16
 #if __ANDROID_API__ < 21
-#include <support/xlocale/__strtonum_fallback.h>
+#include <__support/xlocale/__strtonum_fallback.h>
 #elif __ANDROID_API__ < 26
 
 #if defined(__cplusplus)

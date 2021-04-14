@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "optional"
+#include "__availability"
 
 namespace std
 {

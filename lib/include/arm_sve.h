@@ -94,7 +94,7 @@ typedef __clang_svbfloat16x2_t svbfloat16x2_t;
 typedef __clang_svbfloat16x3_t svbfloat16x3_t;
 typedef __clang_svbfloat16x4_t svbfloat16x4_t;
 #endif
-typedef enum
+enum svpattern
 {
   SV_POW2 = 0,
   SV_VL1 = 1,
@@ -113,9 +113,9 @@ typedef enum
   SV_MUL4 = 29,
   SV_MUL3 = 30,
   SV_ALL = 31
-} sv_pattern;
+};
 
-typedef enum
+enum svprfop
 {
   SV_PLDL1KEEP = 0,
   SV_PLDL1STRM = 1,
@@ -129,7 +129,7 @@ typedef enum
   SV_PSTL2STRM = 11,
   SV_PSTL3KEEP = 12,
   SV_PSTL3STRM = 13
-} sv_prfop;
+};
 
 /* Function attributes */
 #define __aio static inline __attribute__((__always_inline__, __nodebug__, __overloadable__))
@@ -10013,69 +10013,69 @@ int16_t svorv(svbool_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpfirst_b)))
 svbool_t svpfirst(svbool_t, svbool_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfb_gather_u32base)))
-void svprfb_gather(svbool_t, svuint32_t, sv_prfop);
+void svprfb_gather(svbool_t, svuint32_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfb_gather_u64base)))
-void svprfb_gather(svbool_t, svuint64_t, sv_prfop);
+void svprfb_gather(svbool_t, svuint64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfb_gather_u32base_offset)))
-void svprfb_gather_offset(svbool_t, svuint32_t, int64_t, sv_prfop);
+void svprfb_gather_offset(svbool_t, svuint32_t, int64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfb_gather_u64base_offset)))
-void svprfb_gather_offset(svbool_t, svuint64_t, int64_t, sv_prfop);
+void svprfb_gather_offset(svbool_t, svuint64_t, int64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfb_gather_s32offset)))
-void svprfb_gather_offset(svbool_t, void const *, svint32_t, sv_prfop);
+void svprfb_gather_offset(svbool_t, void const *, svint32_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfb_gather_u32offset)))
-void svprfb_gather_offset(svbool_t, void const *, svuint32_t, sv_prfop);
+void svprfb_gather_offset(svbool_t, void const *, svuint32_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfb_gather_s64offset)))
-void svprfb_gather_offset(svbool_t, void const *, svint64_t, sv_prfop);
+void svprfb_gather_offset(svbool_t, void const *, svint64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfb_gather_u64offset)))
-void svprfb_gather_offset(svbool_t, void const *, svuint64_t, sv_prfop);
+void svprfb_gather_offset(svbool_t, void const *, svuint64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfd_gather_u32base)))
-void svprfd_gather(svbool_t, svuint32_t, sv_prfop);
+void svprfd_gather(svbool_t, svuint32_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfd_gather_u64base)))
-void svprfd_gather(svbool_t, svuint64_t, sv_prfop);
+void svprfd_gather(svbool_t, svuint64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfd_gather_u32base_index)))
-void svprfd_gather_index(svbool_t, svuint32_t, int64_t, sv_prfop);
+void svprfd_gather_index(svbool_t, svuint32_t, int64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfd_gather_u64base_index)))
-void svprfd_gather_index(svbool_t, svuint64_t, int64_t, sv_prfop);
+void svprfd_gather_index(svbool_t, svuint64_t, int64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfd_gather_s32index)))
-void svprfd_gather_index(svbool_t, void const *, svint32_t, sv_prfop);
+void svprfd_gather_index(svbool_t, void const *, svint32_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfd_gather_u32index)))
-void svprfd_gather_index(svbool_t, void const *, svuint32_t, sv_prfop);
+void svprfd_gather_index(svbool_t, void const *, svuint32_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfd_gather_s64index)))
-void svprfd_gather_index(svbool_t, void const *, svint64_t, sv_prfop);
+void svprfd_gather_index(svbool_t, void const *, svint64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfd_gather_u64index)))
-void svprfd_gather_index(svbool_t, void const *, svuint64_t, sv_prfop);
+void svprfd_gather_index(svbool_t, void const *, svuint64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfh_gather_u32base)))
-void svprfh_gather(svbool_t, svuint32_t, sv_prfop);
+void svprfh_gather(svbool_t, svuint32_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfh_gather_u64base)))
-void svprfh_gather(svbool_t, svuint64_t, sv_prfop);
+void svprfh_gather(svbool_t, svuint64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfh_gather_u32base_index)))
-void svprfh_gather_index(svbool_t, svuint32_t, int64_t, sv_prfop);
+void svprfh_gather_index(svbool_t, svuint32_t, int64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfh_gather_u64base_index)))
-void svprfh_gather_index(svbool_t, svuint64_t, int64_t, sv_prfop);
+void svprfh_gather_index(svbool_t, svuint64_t, int64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfh_gather_s32index)))
-void svprfh_gather_index(svbool_t, void const *, svint32_t, sv_prfop);
+void svprfh_gather_index(svbool_t, void const *, svint32_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfh_gather_u32index)))
-void svprfh_gather_index(svbool_t, void const *, svuint32_t, sv_prfop);
+void svprfh_gather_index(svbool_t, void const *, svuint32_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfh_gather_s64index)))
-void svprfh_gather_index(svbool_t, void const *, svint64_t, sv_prfop);
+void svprfh_gather_index(svbool_t, void const *, svint64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfh_gather_u64index)))
-void svprfh_gather_index(svbool_t, void const *, svuint64_t, sv_prfop);
+void svprfh_gather_index(svbool_t, void const *, svuint64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfw_gather_u32base)))
-void svprfw_gather(svbool_t, svuint32_t, sv_prfop);
+void svprfw_gather(svbool_t, svuint32_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfw_gather_u64base)))
-void svprfw_gather(svbool_t, svuint64_t, sv_prfop);
+void svprfw_gather(svbool_t, svuint64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfw_gather_u32base_index)))
-void svprfw_gather_index(svbool_t, svuint32_t, int64_t, sv_prfop);
+void svprfw_gather_index(svbool_t, svuint32_t, int64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfw_gather_u64base_index)))
-void svprfw_gather_index(svbool_t, svuint64_t, int64_t, sv_prfop);
+void svprfw_gather_index(svbool_t, svuint64_t, int64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfw_gather_s32index)))
-void svprfw_gather_index(svbool_t, void const *, svint32_t, sv_prfop);
+void svprfw_gather_index(svbool_t, void const *, svint32_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfw_gather_u32index)))
-void svprfw_gather_index(svbool_t, void const *, svuint32_t, sv_prfop);
+void svprfw_gather_index(svbool_t, void const *, svuint32_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfw_gather_s64index)))
-void svprfw_gather_index(svbool_t, void const *, svint64_t, sv_prfop);
+void svprfw_gather_index(svbool_t, void const *, svint64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfw_gather_u64index)))
-void svprfw_gather_index(svbool_t, void const *, svuint64_t, sv_prfop);
+void svprfw_gather_index(svbool_t, void const *, svuint64_t, enum svprfop);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqadd_n_s8)))
 svint8_t svqadd(svint8_t, int8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqadd_n_s32)))
@@ -10117,13 +10117,13 @@ uint32_t svqdecb(uint32_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecb_n_u64)))
 uint64_t svqdecb(uint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecb_pat_n_s32)))
-int32_t svqdecb_pat(int32_t, sv_pattern, uint64_t);
+int32_t svqdecb_pat(int32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecb_pat_n_s64)))
-int64_t svqdecb_pat(int64_t, sv_pattern, uint64_t);
+int64_t svqdecb_pat(int64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecb_pat_n_u32)))
-uint32_t svqdecb_pat(uint32_t, sv_pattern, uint64_t);
+uint32_t svqdecb_pat(uint32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecb_pat_n_u64)))
-uint64_t svqdecb_pat(uint64_t, sv_pattern, uint64_t);
+uint64_t svqdecb_pat(uint64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecd_n_s32)))
 int32_t svqdecd(int32_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecd_n_s64)))
@@ -10137,17 +10137,17 @@ svint64_t svqdecd(svint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecd_u64)))
 svuint64_t svqdecd(svuint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecd_pat_n_s32)))
-int32_t svqdecd_pat(int32_t, sv_pattern, uint64_t);
+int32_t svqdecd_pat(int32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecd_pat_n_s64)))
-int64_t svqdecd_pat(int64_t, sv_pattern, uint64_t);
+int64_t svqdecd_pat(int64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecd_pat_n_u32)))
-uint32_t svqdecd_pat(uint32_t, sv_pattern, uint64_t);
+uint32_t svqdecd_pat(uint32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecd_pat_n_u64)))
-uint64_t svqdecd_pat(uint64_t, sv_pattern, uint64_t);
+uint64_t svqdecd_pat(uint64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecd_pat_s64)))
-svint64_t svqdecd_pat(svint64_t, sv_pattern, uint64_t);
+svint64_t svqdecd_pat(svint64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecd_pat_u64)))
-svuint64_t svqdecd_pat(svuint64_t, sv_pattern, uint64_t);
+svuint64_t svqdecd_pat(svuint64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdech_n_s32)))
 int32_t svqdech(int32_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdech_n_s64)))
@@ -10161,17 +10161,17 @@ svint16_t svqdech(svint16_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdech_u16)))
 svuint16_t svqdech(svuint16_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdech_pat_n_s32)))
-int32_t svqdech_pat(int32_t, sv_pattern, uint64_t);
+int32_t svqdech_pat(int32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdech_pat_n_s64)))
-int64_t svqdech_pat(int64_t, sv_pattern, uint64_t);
+int64_t svqdech_pat(int64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdech_pat_n_u32)))
-uint32_t svqdech_pat(uint32_t, sv_pattern, uint64_t);
+uint32_t svqdech_pat(uint32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdech_pat_n_u64)))
-uint64_t svqdech_pat(uint64_t, sv_pattern, uint64_t);
+uint64_t svqdech_pat(uint64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdech_pat_s16)))
-svint16_t svqdech_pat(svint16_t, sv_pattern, uint64_t);
+svint16_t svqdech_pat(svint16_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdech_pat_u16)))
-svuint16_t svqdech_pat(svuint16_t, sv_pattern, uint64_t);
+svuint16_t svqdech_pat(svuint16_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecp_n_s32_b8)))
 int32_t svqdecp_b8(int32_t, svbool_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecp_n_s32_b32)))
@@ -10229,17 +10229,17 @@ svint32_t svqdecw(svint32_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecw_u32)))
 svuint32_t svqdecw(svuint32_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecw_pat_n_s32)))
-int32_t svqdecw_pat(int32_t, sv_pattern, uint64_t);
+int32_t svqdecw_pat(int32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecw_pat_n_s64)))
-int64_t svqdecw_pat(int64_t, sv_pattern, uint64_t);
+int64_t svqdecw_pat(int64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecw_pat_n_u32)))
-uint32_t svqdecw_pat(uint32_t, sv_pattern, uint64_t);
+uint32_t svqdecw_pat(uint32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecw_pat_n_u64)))
-uint64_t svqdecw_pat(uint64_t, sv_pattern, uint64_t);
+uint64_t svqdecw_pat(uint64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecw_pat_s32)))
-svint32_t svqdecw_pat(svint32_t, sv_pattern, uint64_t);
+svint32_t svqdecw_pat(svint32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqdecw_pat_u32)))
-svuint32_t svqdecw_pat(svuint32_t, sv_pattern, uint64_t);
+svuint32_t svqdecw_pat(svuint32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincb_n_s32)))
 int32_t svqincb(int32_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincb_n_s64)))
@@ -10249,13 +10249,13 @@ uint32_t svqincb(uint32_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincb_n_u64)))
 uint64_t svqincb(uint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincb_pat_n_s32)))
-int32_t svqincb_pat(int32_t, sv_pattern, uint64_t);
+int32_t svqincb_pat(int32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincb_pat_n_s64)))
-int64_t svqincb_pat(int64_t, sv_pattern, uint64_t);
+int64_t svqincb_pat(int64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincb_pat_n_u32)))
-uint32_t svqincb_pat(uint32_t, sv_pattern, uint64_t);
+uint32_t svqincb_pat(uint32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincb_pat_n_u64)))
-uint64_t svqincb_pat(uint64_t, sv_pattern, uint64_t);
+uint64_t svqincb_pat(uint64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincd_n_s32)))
 int32_t svqincd(int32_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincd_n_s64)))
@@ -10269,17 +10269,17 @@ svint64_t svqincd(svint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincd_u64)))
 svuint64_t svqincd(svuint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincd_pat_n_s32)))
-int32_t svqincd_pat(int32_t, sv_pattern, uint64_t);
+int32_t svqincd_pat(int32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincd_pat_n_s64)))
-int64_t svqincd_pat(int64_t, sv_pattern, uint64_t);
+int64_t svqincd_pat(int64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincd_pat_n_u32)))
-uint32_t svqincd_pat(uint32_t, sv_pattern, uint64_t);
+uint32_t svqincd_pat(uint32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincd_pat_n_u64)))
-uint64_t svqincd_pat(uint64_t, sv_pattern, uint64_t);
+uint64_t svqincd_pat(uint64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincd_pat_s64)))
-svint64_t svqincd_pat(svint64_t, sv_pattern, uint64_t);
+svint64_t svqincd_pat(svint64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincd_pat_u64)))
-svuint64_t svqincd_pat(svuint64_t, sv_pattern, uint64_t);
+svuint64_t svqincd_pat(svuint64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqinch_n_s32)))
 int32_t svqinch(int32_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqinch_n_s64)))
@@ -10293,17 +10293,17 @@ svint16_t svqinch(svint16_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqinch_u16)))
 svuint16_t svqinch(svuint16_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqinch_pat_n_s32)))
-int32_t svqinch_pat(int32_t, sv_pattern, uint64_t);
+int32_t svqinch_pat(int32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqinch_pat_n_s64)))
-int64_t svqinch_pat(int64_t, sv_pattern, uint64_t);
+int64_t svqinch_pat(int64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqinch_pat_n_u32)))
-uint32_t svqinch_pat(uint32_t, sv_pattern, uint64_t);
+uint32_t svqinch_pat(uint32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqinch_pat_n_u64)))
-uint64_t svqinch_pat(uint64_t, sv_pattern, uint64_t);
+uint64_t svqinch_pat(uint64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqinch_pat_s16)))
-svint16_t svqinch_pat(svint16_t, sv_pattern, uint64_t);
+svint16_t svqinch_pat(svint16_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqinch_pat_u16)))
-svuint16_t svqinch_pat(svuint16_t, sv_pattern, uint64_t);
+svuint16_t svqinch_pat(svuint16_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincp_n_s32_b8)))
 int32_t svqincp_b8(int32_t, svbool_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincp_n_s32_b32)))
@@ -10361,17 +10361,17 @@ svint32_t svqincw(svint32_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincw_u32)))
 svuint32_t svqincw(svuint32_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincw_pat_n_s32)))
-int32_t svqincw_pat(int32_t, sv_pattern, uint64_t);
+int32_t svqincw_pat(int32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincw_pat_n_s64)))
-int64_t svqincw_pat(int64_t, sv_pattern, uint64_t);
+int64_t svqincw_pat(int64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincw_pat_n_u32)))
-uint32_t svqincw_pat(uint32_t, sv_pattern, uint64_t);
+uint32_t svqincw_pat(uint32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincw_pat_n_u64)))
-uint64_t svqincw_pat(uint64_t, sv_pattern, uint64_t);
+uint64_t svqincw_pat(uint64_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincw_pat_s32)))
-svint32_t svqincw_pat(svint32_t, sv_pattern, uint64_t);
+svint32_t svqincw_pat(svint32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqincw_pat_u32)))
-svuint32_t svqincw_pat(svuint32_t, sv_pattern, uint64_t);
+svuint32_t svqincw_pat(svuint32_t, enum svpattern, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqsub_n_s8)))
 svint8_t svqsub(svint8_t, int8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqsub_n_s32)))

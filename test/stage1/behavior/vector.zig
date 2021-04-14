@@ -510,6 +510,19 @@ test "vector reduce operation" {
             const N = @typeInfo(@TypeOf(x)).Array.len;
             const TX = @typeInfo(@TypeOf(x)).Array.child;
 
+            // wasmtime: unknown import: `env::fminf` has not been defined
+            // https://github.com/ziglang/zig/issues/8131
+            switch (std.builtin.arch) {
+                .wasm32 => switch (@typeInfo(TX)) {
+                    .Float => switch (op) {
+                        .Min, .Max, => return,
+                        else => {},
+                    },
+                    else => {},
+                },
+                else => {},
+            }
+
             var r = @reduce(op, @as(Vector(N, TX), x));
             switch (@typeInfo(TX)) {
                 .Int, .Bool => expectEqual(expected, r),

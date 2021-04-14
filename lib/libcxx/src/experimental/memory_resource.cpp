@@ -76,16 +76,6 @@ union ResourceInitHelper {
   ~ResourceInitHelper() {}
 };
 
-// Detect if the init_priority attribute is supported.
-#if (defined(_LIBCPP_COMPILER_GCC) && defined(__APPLE__)) \
-  || defined(_LIBCPP_COMPILER_MSVC)
-// GCC on Apple doesn't support the init priority attribute,
-// and MSVC doesn't support any GCC attributes.
-# define _LIBCPP_INIT_PRIORITY_MAX
-#else
-# define _LIBCPP_INIT_PRIORITY_MAX __attribute__((init_priority(101)))
-#endif
-
 // When compiled in C++14 this initialization should be a constant expression.
 // Only in C++11 is "init_priority" needed to ensure initialization order.
 #if _LIBCPP_STD_VER > 11

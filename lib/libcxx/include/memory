@@ -46,7 +46,7 @@ struct pointer_traits<T*>
 };
 
 template <class T> constexpr T* to_address(T* p) noexcept; // C++20
-template <class Ptr> auto to_address(const Ptr& p) noexcept; // C++20
+template <class Ptr> constexpr auto to_address(const Ptr& p) noexcept; // C++20
 
 template <class Alloc>
 struct allocator_traits
@@ -83,21 +83,19 @@ struct allocator_traits
     template <class T> using rebind_alloc  = Alloc::rebind<T>::other | Alloc<T, Args...>;
     template <class T> using rebind_traits = allocator_traits<rebind_alloc<T>>;
 
-    static pointer allocate(allocator_type& a, size_type n);                          // [[nodiscard]] in C++20
-    static pointer allocate(allocator_type& a, size_type n, const_void_pointer hint); // [[nodiscard]] in C++20
+    static pointer allocate(allocator_type& a, size_type n);                          // constexpr and [[nodiscard]] in C++20
+    static pointer allocate(allocator_type& a, size_type n, const_void_pointer hint); // constexpr and [[nodiscard]] in C++20
 
-    static void deallocate(allocator_type& a, pointer p, size_type n) noexcept;
+    static void deallocate(allocator_type& a, pointer p, size_type n) noexcept; // constexpr in C++20
 
     template <class T, class... Args>
-        static void construct(allocator_type& a, T* p, Args&&... args);
+    static void construct(allocator_type& a, T* p, Args&&... args); // constexpr in C++20
 
     template <class T>
-        static void destroy(allocator_type& a, T* p);
+    static void destroy(allocator_type& a, T* p); // constexpr in C++20
 
-    static size_type max_size(const allocator_type& a); // noexcept in C++14
-
-    static allocator_type
-        select_on_container_copy_construction(const allocator_type& a);
+    static size_type max_size(const allocator_type& a); // noexcept in C++14, constexpr in C++20
+    static allocator_type select_on_container_copy_construction(const allocator_type& a); // constexpr in C++20
 };
 
 template <>
@@ -115,8 +113,8 @@ template <class T>
 class allocator
 {
 public:
-    typedef size_t    size_type;                         // deprecated in C++17, removed in C++20
-    typedef ptrdiff_t difference_type;                   // deprecated in C++17, removed in C++20
+    typedef size_t    size_type;
+    typedef ptrdiff_t difference_type;
     typedef T*        pointer;                           // deprecated in C++17, removed in C++20
     typedef const T*  const_pointer;                     // deprecated in C++17, removed in C++20
     typedef typename add_lvalue_reference<T>::type
@@ -135,12 +133,12 @@ public:
     constexpr allocator(const allocator&) noexcept;      // constexpr in C++20
     template <class U>
       constexpr allocator(const allocator<U>&) noexcept; // constexpr in C++20
-    ~allocator();
+    ~allocator();                                        // constexpr in C++20
     pointer address(reference x) const noexcept;             // deprecated in C++17, removed in C++20
     const_pointer address(const_reference x) const noexcept; // deprecated in C++17, removed in C++20
     T* allocate(size_t n, const void* hint);          // deprecated in C++17, removed in C++20
-    T* allocate(size_t n);
-    void deallocate(T* p, size_t n) noexcept;
+    T* allocate(size_t n);                              // constexpr in C++20
+    void deallocate(T* p, size_t n) noexcept;           // constexpr in C++20
     size_type max_size() const noexcept;              // deprecated in C++17, removed in C++20
     template<class U, class... Args>
         void construct(U* p, Args&&... args);         // deprecated in C++17, removed in C++20
@@ -149,10 +147,10 @@ public:
 };
 
 template <class T, class U>
-bool operator==(const allocator<T>&, const allocator<U>&) noexcept;
+bool operator==(const allocator<T>&, const allocator<U>&) noexcept; // constexpr in C++20
 
 template <class T, class U>
-bool operator!=(const allocator<T>&, const allocator<U>&) noexcept;
+bool operator!=(const allocator<T>&, const allocator<U>&) noexcept; // constexpr in C++20
 
 template <class OutputIterator, class T>
 class raw_storage_iterator
@@ -191,14 +189,17 @@ template <class ForwardIterator, class Size, class T>
 ForwardIterator
 uninitialized_fill_n(ForwardIterator first, Size n, const T& x);
 
+template <class T, class ...Args>
+constexpr T* construct_at(T* location, Args&& ...args); // since C++20
+
 template <class T>
-void destroy_at(T* location);
+void destroy_at(T* location); // constexpr in C++20
 
 template <class ForwardIterator>
- void destroy(ForwardIterator first, ForwardIterator last);
+void destroy(ForwardIterator first, ForwardIterator last); // constexpr in C++20
 
 template <class ForwardIterator, class Size>
- ForwardIterator destroy_n(ForwardIterator first, Size n);
+ForwardIterator destroy_n(ForwardIterator first, Size n); // constexpr in C++20
 
 template <class InputIterator, class ForwardIterator>
  ForwardIterator uninitialized_move(InputIterator first, InputIterator last, ForwardIterator result);
@@ -338,7 +339,7 @@ public:
     pointer release() noexcept;
     void reset(pointer p = pointer()) noexcept;
     void reset(nullptr_t) noexcept;
-    template <class U> void reset(U) = delete;
+  template <class U> void reset(U) = delete;
     void swap(unique_ptr& u) noexcept;
 };
 
@@ -664,6 +665,7 @@ void* align(size_t alignment, size_t size, void*& ptr, size_t& space);
 */
 
 #include <__config>
+#include <__availability>
 #include <type_traits>
 #include <typeinfo>
 #include <cstddef>
@@ -677,6 +679,10 @@ void* align(size_t alignment, size_t size, void*& ptr, size_t& space);
 #include <tuple>
 #include <stdexcept>
 #include <cstring>
+#include <__memory/allocator_traits.h>
+#include <__memory/base.h>
+#include <__memory/pointer_traits.h>
+#include <__memory/utilities.h>
 #if !defined(_LIBCPP_HAS_NO_ATOMIC_HEADER)
 #  include <atomic>
 #endif
@@ -716,413 +722,11 @@ _ValueType __libcpp_acquire_load(_ValueType const* __value) {
 #endif
 }
 
-// addressof moved to <type_traits>
-
-template <class _Tp> class allocator;
-
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_ALLOCATOR_MEMBERS)
-template <>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 allocator<void>
-{
-public:
-    typedef void*             pointer;
-    typedef const void*       const_pointer;
-    typedef void              value_type;
-
-    template <class _Up> struct rebind {typedef allocator<_Up> other;};
-};
-
-template <>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 allocator<const void>
-{
-public:
-    typedef const void*       pointer;
-    typedef const void*       const_pointer;
-    typedef const void        value_type;
-
-    template <class _Up> struct rebind {typedef allocator<_Up> other;};
-};
-#endif
-
-// pointer_traits
-
-template <class _Tp, class = void>
-struct __has_element_type : false_type {};
-
-template <class _Tp>
-struct __has_element_type<_Tp,
-              typename __void_t<typename _Tp::element_type>::type> : true_type {};
-
-template <class _Ptr, bool = __has_element_type<_Ptr>::value>
-struct __pointer_traits_element_type;
-
-template <class _Ptr>
-struct __pointer_traits_element_type<_Ptr, true>
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Ptr::element_type type;
-};
-
-#ifndef _LIBCPP_HAS_NO_VARIADICS
-
-template <template <class, class...> class _Sp, class _Tp, class ..._Args>
-struct __pointer_traits_element_type<_Sp<_Tp, _Args...>, true>
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Sp<_Tp, _Args...>::element_type type;
-};
-
-template <template <class, class...> class _Sp, class _Tp, class ..._Args>
-struct __pointer_traits_element_type<_Sp<_Tp, _Args...>, false>
-{
-    typedef _LIBCPP_NODEBUG_TYPE _Tp type;
-};
-
-#else  // _LIBCPP_HAS_NO_VARIADICS
-
-template <template <class> class _Sp, class _Tp>
-struct __pointer_traits_element_type<_Sp<_Tp>, true>
-{
-    typedef typename _Sp<_Tp>::element_type type;
-};
-
-template <template <class> class _Sp, class _Tp>
-struct __pointer_traits_element_type<_Sp<_Tp>, false>
-{
-    typedef _Tp type;
-};
-
-template <template <class, class> class _Sp, class _Tp, class _A0>
-struct __pointer_traits_element_type<_Sp<_Tp, _A0>, true>
-{
-    typedef typename _Sp<_Tp, _A0>::element_type type;
-};
-
-template <template <class, class> class _Sp, class _Tp, class _A0>
-struct __pointer_traits_element_type<_Sp<_Tp, _A0>, false>
-{
-    typedef _Tp type;
-};
-
-template <template <class, class, class> class _Sp, class _Tp, class _A0, class _A1>
-struct __pointer_traits_element_type<_Sp<_Tp, _A0, _A1>, true>
-{
-    typedef typename _Sp<_Tp, _A0, _A1>::element_type type;
-};
-
-template <template <class, class, class> class _Sp, class _Tp, class _A0, class _A1>
-struct __pointer_traits_element_type<_Sp<_Tp, _A0, _A1>, false>
-{
-    typedef _Tp type;
-};
-
-template <template <class, class, class, class> class _Sp, class _Tp, class _A0,
-                                                           class _A1, class _A2>
-struct __pointer_traits_element_type<_Sp<_Tp, _A0, _A1, _A2>, true>
-{
-    typedef typename _Sp<_Tp, _A0, _A1, _A2>::element_type type;
-};
-
-template <template <class, class, class, class> class _Sp, class _Tp, class _A0,
-                                                           class _A1, class _A2>
-struct __pointer_traits_element_type<_Sp<_Tp, _A0, _A1, _A2>, false>
-{
-    typedef _Tp type;
-};
-
-#endif  // _LIBCPP_HAS_NO_VARIADICS
-
-template <class _Tp, class = void>
-struct __has_difference_type : false_type {};
-
-template <class _Tp>
-struct __has_difference_type<_Tp,
-            typename __void_t<typename _Tp::difference_type>::type> : true_type {};
-
-template <class _Ptr, bool = __has_difference_type<_Ptr>::value>
-struct __pointer_traits_difference_type
-{
-    typedef _LIBCPP_NODEBUG_TYPE ptrdiff_t type;
-};
-
-template <class _Ptr>
-struct __pointer_traits_difference_type<_Ptr, true>
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Ptr::difference_type type;
-};
-
-template <class _Tp, class _Up>
-struct __has_rebind
-{
-private:
-    struct __two {char __lx; char __lxx;};
-    template <class _Xp> static __two __test(...);
-    _LIBCPP_SUPPRESS_DEPRECATED_PUSH
-    template <class _Xp> static char __test(typename _Xp::template rebind<_Up>* = 0);
-    _LIBCPP_SUPPRESS_DEPRECATED_POP
-public:
-    static const bool value = sizeof(__test<_Tp>(0)) == 1;
-};
-
-template <class _Tp, class _Up, bool = __has_rebind<_Tp, _Up>::value>
-struct __pointer_traits_rebind
-{
-#ifndef _LIBCPP_CXX03_LANG
-    typedef _LIBCPP_NODEBUG_TYPE typename _Tp::template rebind<_Up> type;
-#else
-    typedef _LIBCPP_NODEBUG_TYPE typename _Tp::template rebind<_Up>::other type;
-#endif
-};
-
-#ifndef _LIBCPP_HAS_NO_VARIADICS
-
-template <template <class, class...> class _Sp, class _Tp, class ..._Args, class _Up>
-struct __pointer_traits_rebind<_Sp<_Tp, _Args...>, _Up, true>
-{
-#ifndef _LIBCPP_CXX03_LANG
-    typedef _LIBCPP_NODEBUG_TYPE typename _Sp<_Tp, _Args...>::template rebind<_Up> type;
-#else
-    typedef _LIBCPP_NODEBUG_TYPE typename _Sp<_Tp, _Args...>::template rebind<_Up>::other type;
-#endif
-};
-
-template <template <class, class...> class _Sp, class _Tp, class ..._Args, class _Up>
-struct __pointer_traits_rebind<_Sp<_Tp, _Args...>, _Up, false>
-{
-    typedef _Sp<_Up, _Args...> type;
-};
-
-#else  // _LIBCPP_HAS_NO_VARIADICS
-
-template <template <class> class _Sp, class _Tp, class _Up>
-struct __pointer_traits_rebind<_Sp<_Tp>, _Up, true>
-{
-#ifndef _LIBCPP_CXX03_LANG
-    typedef typename _Sp<_Tp>::template rebind<_Up> type;
-#else
-    typedef typename _Sp<_Tp>::template rebind<_Up>::other type;
-#endif
-};
-
-template <template <class> class _Sp, class _Tp, class _Up>
-struct __pointer_traits_rebind<_Sp<_Tp>, _Up, false>
-{
-    typedef _Sp<_Up> type;
-};
-
-template <template <class, class> class _Sp, class _Tp, class _A0, class _Up>
-struct __pointer_traits_rebind<_Sp<_Tp, _A0>, _Up, true>
-{
-#ifndef _LIBCPP_CXX03_LANG
-    typedef typename _Sp<_Tp, _A0>::template rebind<_Up> type;
-#else
-    typedef typename _Sp<_Tp, _A0>::template rebind<_Up>::other type;
-#endif
-};
-
-template <template <class, class> class _Sp, class _Tp, class _A0, class _Up>
-struct __pointer_traits_rebind<_Sp<_Tp, _A0>, _Up, false>
-{
-    typedef _Sp<_Up, _A0> type;
-};
-
-template <template <class, class, class> class _Sp, class _Tp, class _A0,
-                                         class _A1, class _Up>
-struct __pointer_traits_rebind<_Sp<_Tp, _A0, _A1>, _Up, true>
-{
-#ifndef _LIBCPP_CXX03_LANG
-    typedef typename _Sp<_Tp, _A0, _A1>::template rebind<_Up> type;
-#else
-    typedef typename _Sp<_Tp, _A0, _A1>::template rebind<_Up>::other type;
-#endif
-};
-
-template <template <class, class, class> class _Sp, class _Tp, class _A0,
-                                         class _A1, class _Up>
-struct __pointer_traits_rebind<_Sp<_Tp, _A0, _A1>, _Up, false>
-{
-    typedef _Sp<_Up, _A0, _A1> type;
-};
-
-template <template <class, class, class, class> class _Sp, class _Tp, class _A0,
-                                                class _A1, class _A2, class _Up>
-struct __pointer_traits_rebind<_Sp<_Tp, _A0, _A1, _A2>, _Up, true>
-{
-#ifndef _LIBCPP_CXX03_LANG
-    typedef typename _Sp<_Tp, _A0, _A1, _A2>::template rebind<_Up> type;
-#else
-    typedef typename _Sp<_Tp, _A0, _A1, _A2>::template rebind<_Up>::other type;
-#endif
-};
-
-template <template <class, class, class, class> class _Sp, class _Tp, class _A0,
-                                                class _A1, class _A2, class _Up>
-struct __pointer_traits_rebind<_Sp<_Tp, _A0, _A1, _A2>, _Up, false>
-{
-    typedef _Sp<_Up, _A0, _A1, _A2> type;
-};
-
-#endif  // _LIBCPP_HAS_NO_VARIADICS
-
-template <class _Ptr>
-struct _LIBCPP_TEMPLATE_VIS pointer_traits
-{
-    typedef _Ptr                                                     pointer;
-    typedef typename __pointer_traits_element_type<pointer>::type    element_type;
-    typedef typename __pointer_traits_difference_type<pointer>::type difference_type;
-
-#ifndef _LIBCPP_CXX03_LANG
-    template <class _Up> using rebind = typename __pointer_traits_rebind<pointer, _Up>::type;
-#else
-    template <class _Up> struct rebind
-        {typedef typename __pointer_traits_rebind<pointer, _Up>::type other;};
-#endif  // _LIBCPP_CXX03_LANG
-
-private:
-    struct __nat {};
-public:
-    _LIBCPP_INLINE_VISIBILITY
-    static pointer pointer_to(typename conditional<is_void<element_type>::value,
-                                           __nat, element_type>::type& __r)
-        {return pointer::pointer_to(__r);}
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS pointer_traits<_Tp*>
-{
-    typedef _Tp*      pointer;
-    typedef _Tp       element_type;
-    typedef ptrdiff_t difference_type;
-
-#ifndef _LIBCPP_CXX03_LANG
-    template <class _Up> using rebind = _Up*;
-#else
-    template <class _Up> struct rebind {typedef _Up* other;};
-#endif
-
-private:
-    struct __nat {};
-public:
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-    static pointer pointer_to(typename conditional<is_void<element_type>::value,
-                                      __nat, element_type>::type& __r) _NOEXCEPT
-        {return _VSTD::addressof(__r);}
-};
-
-template <class _From, class _To>
-struct __rebind_pointer {
-#ifndef _LIBCPP_CXX03_LANG
-    typedef typename pointer_traits<_From>::template rebind<_To>        type;
-#else
-    typedef typename pointer_traits<_From>::template rebind<_To>::other type;
-#endif
-};
-
-// allocator_traits
-
-template <class _Tp, class = void>
-struct __has_pointer_type : false_type {};
-
-template <class _Tp>
-struct __has_pointer_type<_Tp,
-          typename __void_t<typename _Tp::pointer>::type> : true_type {};
-
-namespace __pointer_type_imp
-{
-
-template <class _Tp, class _Dp, bool = __has_pointer_type<_Dp>::value>
-struct __pointer_type
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Dp::pointer type;
-};
-
-template <class _Tp, class _Dp>
-struct __pointer_type<_Tp, _Dp, false>
-{
-    typedef _LIBCPP_NODEBUG_TYPE _Tp* type;
-};
-
-}  // __pointer_type_imp
-
-template <class _Tp, class _Dp>
-struct __pointer_type
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename __pointer_type_imp::__pointer_type<_Tp, typename remove_reference<_Dp>::type>::type type;
-};
-
-template <class _Tp, class = void>
-struct __has_const_pointer : false_type {};
-
-template <class _Tp>
-struct __has_const_pointer<_Tp,
-            typename __void_t<typename _Tp::const_pointer>::type> : true_type {};
-
-template <class _Tp, class _Ptr, class _Alloc, bool = __has_const_pointer<_Alloc>::value>
-struct __const_pointer
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Alloc::const_pointer type;
-};
-
-template <class _Tp, class _Ptr, class _Alloc>
-struct __const_pointer<_Tp, _Ptr, _Alloc, false>
-{
-#ifndef _LIBCPP_CXX03_LANG
-    typedef _LIBCPP_NODEBUG_TYPE typename pointer_traits<_Ptr>::template rebind<const _Tp> type;
-#else
-    typedef typename pointer_traits<_Ptr>::template rebind<const _Tp>::other type;
-#endif
-};
-
-template <class _Tp, class = void>
-struct __has_void_pointer : false_type {};
-
-template <class _Tp>
-struct __has_void_pointer<_Tp,
-               typename __void_t<typename _Tp::void_pointer>::type> : true_type {};
-
-template <class _Ptr, class _Alloc, bool = __has_void_pointer<_Alloc>::value>
-struct __void_pointer
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Alloc::void_pointer type;
-};
-
-template <class _Ptr, class _Alloc>
-struct __void_pointer<_Ptr, _Alloc, false>
-{
-#ifndef _LIBCPP_CXX03_LANG
-    typedef _LIBCPP_NODEBUG_TYPE typename pointer_traits<_Ptr>::template rebind<void> type;
-#else
-    typedef _LIBCPP_NODEBUG_TYPE typename pointer_traits<_Ptr>::template rebind<void>::other type;
-#endif
-};
-
-template <class _Tp, class = void>
-struct __has_const_void_pointer : false_type {};
-
-template <class _Tp>
-struct __has_const_void_pointer<_Tp,
-            typename __void_t<typename _Tp::const_void_pointer>::type> : true_type {};
-
-template <class _Ptr, class _Alloc, bool = __has_const_void_pointer<_Alloc>::value>
-struct __const_void_pointer
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Alloc::const_void_pointer type;
-};
-
-template <class _Ptr, class _Alloc>
-struct __const_void_pointer<_Ptr, _Alloc, false>
-{
-#ifndef _LIBCPP_CXX03_LANG
-    typedef _LIBCPP_NODEBUG_TYPE typename pointer_traits<_Ptr>::template rebind<const void> type;
-#else
-    typedef _LIBCPP_NODEBUG_TYPE typename pointer_traits<_Ptr>::template rebind<const void>::other type;
-#endif
-};
-
-
 template <bool _UsePointerTraits> struct __to_address_helper;
 
 template <> struct __to_address_helper<true> {
     template <class _Pointer>
-    using __return_type = decltype(pointer_traits<_Pointer>::to_address(std::declval<const _Pointer&>()));
+    using __return_type = decltype(pointer_traits<_Pointer>::to_address(_VSTD::declval<const _Pointer&>()));
 
     template <class _Pointer>
     _LIBCPP_CONSTEXPR
@@ -1157,7 +761,7 @@ template <> struct __to_address_helper<false> {
     template <class _Pointer>
     _LIBCPP_CONSTEXPR
     static __return_type<_Pointer>
-    __do_it(const _Pointer &__p) _NOEXCEPT { return std::__to_address(__p.operator->()); }
+    __do_it(const _Pointer &__p) _NOEXCEPT { return _VSTD::__to_address(__p.operator->()); }
 };
 
 
@@ -1172,7 +776,7 @@ to_address(_Tp* __p) _NOEXCEPT
 }
 
 template <class _Pointer>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY constexpr
 auto
 to_address(const _Pointer& __p) _NOEXCEPT
 {
@@ -1180,567 +784,31 @@ to_address(const _Pointer& __p) _NOEXCEPT
 }
 #endif
 
-template <class _Tp, class = void>
-struct __has_size_type : false_type {};
+template <class _Tp> class allocator;
 
-template <class _Tp>
-struct __has_size_type<_Tp,
-               typename __void_t<typename _Tp::size_type>::type> : true_type {};
-
-template <class _Alloc, class _DiffType, bool = __has_size_type<_Alloc>::value>
-struct __size_type
+#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_ALLOCATOR_MEMBERS)
+template <>
+class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 allocator<void>
 {
-    typedef _LIBCPP_NODEBUG_TYPE typename make_unsigned<_DiffType>::type type;
-};
-
-template <class _Alloc, class _DiffType>
-struct __size_type<_Alloc, _DiffType, true>
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Alloc::size_type type;
-};
-
-template <class _Tp, class = void>
-struct __has_propagate_on_container_copy_assignment : false_type {};
-
-template <class _Tp>
-struct __has_propagate_on_container_copy_assignment<_Tp,
-    typename __void_t<typename _Tp::propagate_on_container_copy_assignment>::type>
-        : true_type {};
-
-template <class _Alloc, bool = __has_propagate_on_container_copy_assignment<_Alloc>::value>
-struct __propagate_on_container_copy_assignment
-{
-    typedef _LIBCPP_NODEBUG_TYPE false_type type;
-};
-
-template <class _Alloc>
-struct __propagate_on_container_copy_assignment<_Alloc, true>
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Alloc::propagate_on_container_copy_assignment type;
-};
-
-template <class _Tp, class = void>
-struct __has_propagate_on_container_move_assignment : false_type {};
-
-template <class _Tp>
-struct __has_propagate_on_container_move_assignment<_Tp,
-           typename __void_t<typename _Tp::propagate_on_container_move_assignment>::type>
-               : true_type {};
-
-template <class _Alloc, bool = __has_propagate_on_container_move_assignment<_Alloc>::value>
-struct __propagate_on_container_move_assignment
-{
-    typedef false_type type;
-};
-
-template <class _Alloc>
-struct __propagate_on_container_move_assignment<_Alloc, true>
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Alloc::propagate_on_container_move_assignment type;
-};
-
-template <class _Tp, class = void>
-struct __has_propagate_on_container_swap : false_type {};
-
-template <class _Tp>
-struct __has_propagate_on_container_swap<_Tp,
-           typename __void_t<typename _Tp::propagate_on_container_swap>::type>
-               : true_type {};
-
-template <class _Alloc, bool = __has_propagate_on_container_swap<_Alloc>::value>
-struct __propagate_on_container_swap
-{
-    typedef false_type type;
-};
-
-template <class _Alloc>
-struct __propagate_on_container_swap<_Alloc, true>
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Alloc::propagate_on_container_swap type;
-};
-
-template <class _Tp, class = void>
-struct __has_is_always_equal : false_type {};
-
-template <class _Tp>
-struct __has_is_always_equal<_Tp,
-           typename __void_t<typename _Tp::is_always_equal>::type>
-               : true_type {};
-
-template <class _Alloc, bool = __has_is_always_equal<_Alloc>::value>
-struct __is_always_equal
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _VSTD::is_empty<_Alloc>::type type;
-};
-
-template <class _Alloc>
-struct __is_always_equal<_Alloc, true>
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Alloc::is_always_equal type;
-};
-
-template <class _Tp, class _Up, bool = __has_rebind<_Tp, _Up>::value>
-struct __has_rebind_other
-{
-private:
-    struct __two {char __lx; char __lxx;};
-    template <class _Xp> static __two __test(...);
-    _LIBCPP_SUPPRESS_DEPRECATED_PUSH
-    template <class _Xp> static char __test(typename _Xp::template rebind<_Up>::other* = 0);
-    _LIBCPP_SUPPRESS_DEPRECATED_POP
 public:
-    static const bool value = sizeof(__test<_Tp>(0)) == 1;
+    typedef void*             pointer;
+    typedef const void*       const_pointer;
+    typedef void              value_type;
+
+    template <class _Up> struct rebind {typedef allocator<_Up> other;};
 };
 
-template <class _Tp, class _Up>
-struct __has_rebind_other<_Tp, _Up, false>
+template <>
+class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 allocator<const void>
 {
-    static const bool value = false;
+public:
+    typedef const void*       pointer;
+    typedef const void*       const_pointer;
+    typedef const void        value_type;
+
+    template <class _Up> struct rebind {typedef allocator<_Up> other;};
 };
-
-template <class _Tp, class _Up, bool = __has_rebind_other<_Tp, _Up>::value>
-struct __allocator_traits_rebind
-{
-    _LIBCPP_SUPPRESS_DEPRECATED_PUSH
-    typedef _LIBCPP_NODEBUG_TYPE typename _Tp::template rebind<_Up>::other type;
-    _LIBCPP_SUPPRESS_DEPRECATED_POP
-};
-
-template <template <class, class...> class _Alloc, class _Tp, class ..._Args, class _Up>
-struct __allocator_traits_rebind<_Alloc<_Tp, _Args...>, _Up, true>
-{
-    _LIBCPP_SUPPRESS_DEPRECATED_PUSH
-    typedef _LIBCPP_NODEBUG_TYPE typename _Alloc<_Tp, _Args...>::template rebind<_Up>::other type;
-    _LIBCPP_SUPPRESS_DEPRECATED_POP
-};
-
-template <template <class, class...> class _Alloc, class _Tp, class ..._Args, class _Up>
-struct __allocator_traits_rebind<_Alloc<_Tp, _Args...>, _Up, false>
-{
-    typedef _LIBCPP_NODEBUG_TYPE _Alloc<_Up, _Args...> type;
-};
-
-#ifndef _LIBCPP_CXX03_LANG
-
-_LIBCPP_SUPPRESS_DEPRECATED_PUSH
-template <class _Alloc, class _SizeType, class _ConstVoidPtr>
-auto
-__has_allocate_hint_test(_Alloc&& __a, _SizeType&& __sz, _ConstVoidPtr&& __p)
-    -> decltype((void)__a.allocate(__sz, __p), true_type());
-_LIBCPP_SUPPRESS_DEPRECATED_POP
-
-template <class _Alloc, class _SizeType, class _ConstVoidPtr>
-auto
-__has_allocate_hint_test(const _Alloc& __a, _SizeType&& __sz, _ConstVoidPtr&& __p)
-    -> false_type;
-
-template <class _Alloc, class _SizeType, class _ConstVoidPtr>
-struct __has_allocate_hint
-    : decltype(_VSTD::__has_allocate_hint_test(declval<_Alloc>(),
-                                               declval<_SizeType>(),
-                                               declval<_ConstVoidPtr>()))
-{
-};
-
-#else  // _LIBCPP_CXX03_LANG
-
-template <class _Alloc, class _SizeType, class _ConstVoidPtr>
-struct __has_allocate_hint
-    : true_type
-{
-};
-
-#endif  // _LIBCPP_CXX03_LANG
-
-_LIBCPP_SUPPRESS_DEPRECATED_PUSH
-template <class _Alloc, class ..._Args,
-    class = decltype(_VSTD::declval<_Alloc>().construct(_VSTD::declval<_Args>()...))>
-static true_type __test_has_construct(int);
-_LIBCPP_SUPPRESS_DEPRECATED_POP
-
-template <class _Alloc, class...>
-static false_type __test_has_construct(...);
-
-template <class _Alloc, class ..._Args>
-struct __has_construct : decltype(__test_has_construct<_Alloc, _Args...>(0)) {};
-
-#if !defined(_LIBCPP_CXX03_LANG)
-
-_LIBCPP_SUPPRESS_DEPRECATED_PUSH
-template <class _Alloc, class _Pointer>
-auto
-__has_destroy_test(_Alloc&& __a, _Pointer&& __p)
-    -> decltype(__a.destroy(__p), true_type());
-_LIBCPP_SUPPRESS_DEPRECATED_POP
-
-template <class _Alloc, class _Pointer>
-auto
-__has_destroy_test(const _Alloc& __a, _Pointer&& __p)
-    -> false_type;
-
-template <class _Alloc, class _Pointer>
-struct __has_destroy
-    : decltype(_VSTD::__has_destroy_test(declval<_Alloc>(),
-                                         declval<_Pointer>()))
-{
-};
-
-_LIBCPP_SUPPRESS_DEPRECATED_PUSH
-template <class _Alloc>
-auto
-__has_max_size_test(_Alloc&& __a)
-    -> decltype(__a.max_size(), true_type());
-_LIBCPP_SUPPRESS_DEPRECATED_POP
-
-template <class _Alloc>
-auto
-__has_max_size_test(const volatile _Alloc& __a)
-    -> false_type;
-
-template <class _Alloc>
-struct __has_max_size
-    : decltype(_VSTD::__has_max_size_test(declval<_Alloc&>()))
-{
-};
-
-template <class _Alloc>
-auto
-__has_select_on_container_copy_construction_test(_Alloc&& __a)
-    -> decltype(__a.select_on_container_copy_construction(), true_type());
-
-template <class _Alloc>
-auto
-__has_select_on_container_copy_construction_test(const volatile _Alloc& __a)
-    -> false_type;
-
-template <class _Alloc>
-struct __has_select_on_container_copy_construction
-    : decltype(_VSTD::__has_select_on_container_copy_construction_test(declval<_Alloc&>()))
-{
-};
-
-#else  // _LIBCPP_CXX03_LANG
-
-template <class _Alloc, class _Pointer, class = void>
-struct __has_destroy : false_type {};
-
-template <class _Alloc, class _Pointer>
-struct __has_destroy<_Alloc, _Pointer, typename __void_t<
-    decltype(_VSTD::declval<_Alloc>().destroy(_VSTD::declval<_Pointer>()))
->::type> : std::true_type {};
-
-template <class _Alloc>
-struct __has_max_size
-    : true_type
-{
-};
-
-template <class _Alloc>
-struct __has_select_on_container_copy_construction
-    : false_type
-{
-};
-
-#endif  // _LIBCPP_CXX03_LANG
-
-template <class _Alloc, class _Ptr, bool = __has_difference_type<_Alloc>::value>
-struct __alloc_traits_difference_type
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename pointer_traits<_Ptr>::difference_type type;
-};
-
-template <class _Alloc, class _Ptr>
-struct __alloc_traits_difference_type<_Alloc, _Ptr, true>
-{
-    typedef _LIBCPP_NODEBUG_TYPE typename _Alloc::difference_type type;
-};
-
-template <class _Tp>
-struct __is_default_allocator : false_type {};
-
-template <class _Tp>
-struct __is_default_allocator<_VSTD::allocator<_Tp> > : true_type {};
-
-
-
-template <class _Alloc,
-    bool = __has_construct<_Alloc, typename _Alloc::value_type*,  typename _Alloc::value_type&&>::value && !__is_default_allocator<_Alloc>::value
-    >
-struct __is_cpp17_move_insertable;
-template <class _Alloc>
-struct __is_cpp17_move_insertable<_Alloc, true> : std::true_type {};
-template <class _Alloc>
-struct __is_cpp17_move_insertable<_Alloc, false> : std::is_move_constructible<typename _Alloc::value_type> {};
-
-template <class _Alloc,
-    bool = __has_construct<_Alloc, typename _Alloc::value_type*, const typename _Alloc::value_type&>::value && !__is_default_allocator<_Alloc>::value
-    >
-struct __is_cpp17_copy_insertable;
-template <class _Alloc>
-struct __is_cpp17_copy_insertable<_Alloc, true> : __is_cpp17_move_insertable<_Alloc> {};
-template <class _Alloc>
-struct __is_cpp17_copy_insertable<_Alloc, false> : integral_constant<bool,
-    std::is_copy_constructible<typename _Alloc::value_type>::value &&
-    __is_cpp17_move_insertable<_Alloc>::value>
-  {};
-
-
-
-template <class _Alloc>
-struct _LIBCPP_TEMPLATE_VIS allocator_traits
-{
-    typedef _Alloc                              allocator_type;
-    typedef typename allocator_type::value_type value_type;
-
-    typedef typename __pointer_type<value_type, allocator_type>::type pointer;
-    typedef typename __const_pointer<value_type, pointer, allocator_type>::type const_pointer;
-    typedef typename __void_pointer<pointer, allocator_type>::type void_pointer;
-    typedef typename __const_void_pointer<pointer, allocator_type>::type const_void_pointer;
-
-    typedef typename __alloc_traits_difference_type<allocator_type, pointer>::type difference_type;
-    typedef typename __size_type<allocator_type, difference_type>::type size_type;
-
-    typedef typename __propagate_on_container_copy_assignment<allocator_type>::type
-                     propagate_on_container_copy_assignment;
-    typedef typename __propagate_on_container_move_assignment<allocator_type>::type
-                     propagate_on_container_move_assignment;
-    typedef typename __propagate_on_container_swap<allocator_type>::type
-                     propagate_on_container_swap;
-    typedef typename __is_always_equal<allocator_type>::type
-                     is_always_equal;
-
-#ifndef _LIBCPP_CXX03_LANG
-    template <class _Tp> using rebind_alloc =
-                  typename __allocator_traits_rebind<allocator_type, _Tp>::type;
-    template <class _Tp> using rebind_traits = allocator_traits<rebind_alloc<_Tp> >;
-#else  // _LIBCPP_CXX03_LANG
-    template <class _Tp> struct rebind_alloc
-        {typedef typename __allocator_traits_rebind<allocator_type, _Tp>::type other;};
-    template <class _Tp> struct rebind_traits
-        {typedef allocator_traits<typename rebind_alloc<_Tp>::other> other;};
-#endif  // _LIBCPP_CXX03_LANG
-
-    _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_INLINE_VISIBILITY
-    static pointer allocate(allocator_type& __a, size_type __n)
-        {return __a.allocate(__n);}
-    _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_INLINE_VISIBILITY
-    static pointer allocate(allocator_type& __a, size_type __n, const_void_pointer __hint)
-        {return __allocate(__a, __n, __hint,
-            __has_allocate_hint<allocator_type, size_type, const_void_pointer>());}
-
-    _LIBCPP_INLINE_VISIBILITY
-    static void deallocate(allocator_type& __a, pointer __p, size_type __n) _NOEXCEPT
-        {__a.deallocate(__p, __n);}
-
-    template <class _Tp, class... _Args>
-        _LIBCPP_INLINE_VISIBILITY
-        static void construct(allocator_type& __a, _Tp* __p, _Args&&... __args)
-            {__construct(__has_construct<allocator_type, _Tp*, _Args...>(),
-                         __a, __p, _VSTD::forward<_Args>(__args)...);}
-
-    template <class _Tp>
-        _LIBCPP_INLINE_VISIBILITY
-        static void destroy(allocator_type& __a, _Tp* __p)
-            {__destroy(__has_destroy<allocator_type, _Tp*>(), __a, __p);}
-
-    _LIBCPP_INLINE_VISIBILITY
-    static size_type max_size(const allocator_type& __a) _NOEXCEPT
-        {return __max_size(__has_max_size<const allocator_type>(), __a);}
-
-    _LIBCPP_INLINE_VISIBILITY
-    static allocator_type
-        select_on_container_copy_construction(const allocator_type& __a)
-            {return __select_on_container_copy_construction(
-                __has_select_on_container_copy_construction<const allocator_type>(),
-                __a);}
-
-    template <class _Ptr>
-        _LIBCPP_INLINE_VISIBILITY
-        static
-        void
-        __construct_forward_with_exception_guarantees(allocator_type& __a, _Ptr __begin1, _Ptr __end1, _Ptr& __begin2)
-        {
-            static_assert(__is_cpp17_move_insertable<allocator_type>::value,
-              "The specified type does not meet the requirements of Cpp17MoveInsertible");
-            for (; __begin1 != __end1; ++__begin1, (void) ++__begin2)
-              construct(__a, _VSTD::__to_address(__begin2),
-#ifdef _LIBCPP_NO_EXCEPTIONS
-                        _VSTD::move(*__begin1)
-#else
-                        _VSTD::move_if_noexcept(*__begin1)
 #endif
-                        );
-        }
-
-    template <class _Tp>
-        _LIBCPP_INLINE_VISIBILITY
-        static
-        typename enable_if
-        <
-            (__is_default_allocator<allocator_type>::value
-                || !__has_construct<allocator_type, _Tp*, _Tp>::value) &&
-             is_trivially_move_constructible<_Tp>::value,
-            void
-        >::type
-        __construct_forward_with_exception_guarantees(allocator_type&, _Tp* __begin1, _Tp* __end1, _Tp*& __begin2)
-        {
-            ptrdiff_t _Np = __end1 - __begin1;
-            if (_Np > 0)
-            {
-                _VSTD::memcpy(__begin2, __begin1, _Np * sizeof(_Tp));
-                __begin2 += _Np;
-            }
-        }
-
-    template <class _Iter, class _Ptr>
-        _LIBCPP_INLINE_VISIBILITY
-        static
-        void
-        __construct_range_forward(allocator_type& __a, _Iter __begin1, _Iter __end1, _Ptr& __begin2)
-        {
-            for (; __begin1 != __end1; ++__begin1, (void) ++__begin2)
-                construct(__a, _VSTD::__to_address(__begin2), *__begin1);
-        }
-
-    template <class _SourceTp, class _DestTp,
-              class _RawSourceTp = typename remove_const<_SourceTp>::type,
-              class _RawDestTp = typename remove_const<_DestTp>::type>
-        _LIBCPP_INLINE_VISIBILITY
-        static
-        typename enable_if
-        <
-            is_trivially_copy_constructible<_DestTp>::value &&
-            is_same<_RawSourceTp, _RawDestTp>::value &&
-            (__is_default_allocator<allocator_type>::value ||
-             !__has_construct<allocator_type, _DestTp*, _SourceTp&>::value),
-            void
-        >::type
-        __construct_range_forward(allocator_type&, _SourceTp* __begin1, _SourceTp* __end1, _DestTp*& __begin2)
-        {
-            ptrdiff_t _Np = __end1 - __begin1;
-            if (_Np > 0)
-            {
-                _VSTD::memcpy(const_cast<_RawDestTp*>(__begin2), __begin1, _Np * sizeof(_DestTp));
-                __begin2 += _Np;
-            }
-        }
-
-    template <class _Ptr>
-        _LIBCPP_INLINE_VISIBILITY
-        static
-        void
-        __construct_backward_with_exception_guarantees(allocator_type& __a, _Ptr __begin1, _Ptr __end1, _Ptr& __end2)
-        {
-            static_assert(__is_cpp17_move_insertable<allocator_type>::value,
-              "The specified type does not meet the requirements of Cpp17MoveInsertable");
-            while (__end1 != __begin1)
-            {
-              construct(__a, _VSTD::__to_address(__end2 - 1),
-#ifdef _LIBCPP_NO_EXCEPTIONS
-                        _VSTD::move(*--__end1)
-#else
-                        _VSTD::move_if_noexcept(*--__end1)
-#endif
-                        );
-              --__end2;
-            }
-        }
-
-    template <class _Tp>
-        _LIBCPP_INLINE_VISIBILITY
-        static
-        typename enable_if
-        <
-            (__is_default_allocator<allocator_type>::value
-                || !__has_construct<allocator_type, _Tp*, _Tp>::value) &&
-             is_trivially_move_constructible<_Tp>::value,
-            void
-        >::type
-        __construct_backward_with_exception_guarantees(allocator_type&, _Tp* __begin1, _Tp* __end1, _Tp*& __end2)
-        {
-            ptrdiff_t _Np = __end1 - __begin1;
-            __end2 -= _Np;
-            if (_Np > 0)
-                _VSTD::memcpy(__end2, __begin1, _Np * sizeof(_Tp));
-        }
-
-private:
-
-    _LIBCPP_INLINE_VISIBILITY
-    static pointer __allocate(allocator_type& __a, size_type __n,
-        const_void_pointer __hint, true_type)
-        {
-            _LIBCPP_SUPPRESS_DEPRECATED_PUSH
-            return __a.allocate(__n, __hint);
-            _LIBCPP_SUPPRESS_DEPRECATED_POP
-        }
-    _LIBCPP_INLINE_VISIBILITY
-    static pointer __allocate(allocator_type& __a, size_type __n,
-        const_void_pointer, false_type)
-        {return __a.allocate(__n);}
-
-    template <class _Tp, class... _Args>
-        _LIBCPP_INLINE_VISIBILITY
-        static void __construct(true_type, allocator_type& __a, _Tp* __p, _Args&&... __args)
-            {
-                _LIBCPP_SUPPRESS_DEPRECATED_PUSH
-                __a.construct(__p, _VSTD::forward<_Args>(__args)...);
-                _LIBCPP_SUPPRESS_DEPRECATED_POP
-            }
-
-    template <class _Tp, class... _Args>
-        _LIBCPP_INLINE_VISIBILITY
-        static void __construct(false_type, allocator_type&, _Tp* __p, _Args&&... __args)
-            {
-                ::new ((void*)__p) _Tp(_VSTD::forward<_Args>(__args)...);
-            }
-
-    template <class _Tp>
-        _LIBCPP_INLINE_VISIBILITY
-        static void __destroy(true_type, allocator_type& __a, _Tp* __p)
-            {
-                _LIBCPP_SUPPRESS_DEPRECATED_PUSH
-                __a.destroy(__p);
-                _LIBCPP_SUPPRESS_DEPRECATED_POP
-            }
-    template <class _Tp>
-        _LIBCPP_INLINE_VISIBILITY
-        static void __destroy(false_type, allocator_type&, _Tp* __p)
-            {
-                __p->~_Tp();
-            }
-
-    _LIBCPP_INLINE_VISIBILITY
-    static size_type __max_size(true_type, const allocator_type& __a) _NOEXCEPT
-            {
-                _LIBCPP_SUPPRESS_DEPRECATED_PUSH
-                return __a.max_size();
-                _LIBCPP_SUPPRESS_DEPRECATED_POP
-            }
-
-    _LIBCPP_INLINE_VISIBILITY
-    static size_type __max_size(false_type, const allocator_type&) _NOEXCEPT
-            {return numeric_limits<size_type>::max() / sizeof(value_type);}
-
-    _LIBCPP_INLINE_VISIBILITY
-    static allocator_type
-        __select_on_container_copy_construction(true_type, const allocator_type& __a)
-            {return __a.select_on_container_copy_construction();}
-    _LIBCPP_INLINE_VISIBILITY
-    static allocator_type
-        __select_on_container_copy_construction(false_type, const allocator_type& __a)
-            {return __a;}
-};
-
-template <class _Traits, class _Tp>
-struct __rebind_alloc_helper
-{
-#ifndef _LIBCPP_CXX03_LANG
-    typedef _LIBCPP_NODEBUG_TYPE typename _Traits::template rebind_alloc<_Tp>        type;
-#else
-    typedef typename _Traits::template rebind_alloc<_Tp>::other type;
-#endif
-};
 
 // allocator
 
@@ -1748,67 +816,80 @@ template <class _Tp>
 class _LIBCPP_TEMPLATE_VIS allocator
 {
 public:
+    typedef size_t      size_type;
+    typedef ptrdiff_t   difference_type;
+    typedef _Tp         value_type;
+    typedef true_type   propagate_on_container_move_assignment;
+    typedef true_type   is_always_equal;
+
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    allocator() _NOEXCEPT { }
+
+    template <class _Up>
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    allocator(const allocator<_Up>&) _NOEXCEPT { }
+
+    _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    _Tp* allocate(size_t __n) {
+        if (__n > allocator_traits<allocator>::max_size(*this))
+            __throw_length_error("allocator<T>::allocate(size_t n)"
+                                 " 'n' exceeds maximum supported size");
+        if (__libcpp_is_constant_evaluated()) {
+            return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        } else {
+            return static_cast<_Tp*>(_VSTD::__libcpp_allocate(__n * sizeof(_Tp), _LIBCPP_ALIGNOF(_Tp)));
+        }
+    }
+
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    void deallocate(_Tp* __p, size_t __n) _NOEXCEPT {
+        if (__libcpp_is_constant_evaluated()) {
+            ::operator delete(__p);
+        } else {
+            _VSTD::__libcpp_deallocate((void*)__p, __n * sizeof(_Tp), _LIBCPP_ALIGNOF(_Tp));
+        }
+    }
+
+    // C++20 Removed members
 #if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_ALLOCATOR_MEMBERS)
-    _LIBCPP_DEPRECATED_IN_CXX17 typedef size_t     size_type;
-    _LIBCPP_DEPRECATED_IN_CXX17 typedef ptrdiff_t  difference_type;
     _LIBCPP_DEPRECATED_IN_CXX17 typedef _Tp*       pointer;
     _LIBCPP_DEPRECATED_IN_CXX17 typedef const _Tp* const_pointer;
     _LIBCPP_DEPRECATED_IN_CXX17 typedef _Tp&       reference;
     _LIBCPP_DEPRECATED_IN_CXX17 typedef const _Tp& const_reference;
 
-    template <class _Up> struct _LIBCPP_DEPRECATED_IN_CXX17 rebind {typedef allocator<_Up> other;};
-#endif
-
-    typedef _Tp value_type;
-
-    typedef true_type propagate_on_container_move_assignment;
-    typedef true_type is_always_equal;
-
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-    allocator() _NOEXCEPT {}
-
     template <class _Up>
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-    allocator(const allocator<_Up>&) _NOEXCEPT {}
+    struct _LIBCPP_DEPRECATED_IN_CXX17 rebind {
+        typedef allocator<_Up> other;
+    };
 
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_ALLOCATOR_MEMBERS)
     _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY
-    pointer address(reference __x) const _NOEXCEPT
-        {return _VSTD::addressof(__x);}
+    pointer address(reference __x) const _NOEXCEPT {
+        return _VSTD::addressof(__x);
+    }
     _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY
-    const_pointer address(const_reference __x) const _NOEXCEPT
-        {return _VSTD::addressof(__x);}
-#endif
+    const_pointer address(const_reference __x) const _NOEXCEPT {
+        return _VSTD::addressof(__x);
+    }
 
-    _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_INLINE_VISIBILITY _Tp* allocate(size_t __n)
-        {
-        // TODO(mpark): Replace with `allocator_traits<allocator>::max_size(*this)`.
-        if (__n > (size_t(~0) / sizeof(_Tp)))
-            __throw_length_error("allocator<T>::allocate(size_t n)"
-                                 " 'n' exceeds maximum supported size");
-        return static_cast<_Tp*>(_VSTD::__libcpp_allocate(__n * sizeof(_Tp), _LIBCPP_ALIGNOF(_Tp)));
-        }
-
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_ALLOCATOR_MEMBERS)
     _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_INLINE_VISIBILITY _LIBCPP_DEPRECATED_IN_CXX17
-    _Tp* allocate(size_t __n, const void*) { return allocate(__n); }
-#endif
+    _Tp* allocate(size_t __n, const void*) {
+        return allocate(__n);
+    }
 
-    _LIBCPP_INLINE_VISIBILITY void deallocate(_Tp* __p, size_t __n) _NOEXCEPT
-        {_VSTD::__libcpp_deallocate((void*)__p, __n * sizeof(_Tp), _LIBCPP_ALIGNOF(_Tp));}
-
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_ALLOCATOR_MEMBERS)
-    _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY size_type max_size() const _NOEXCEPT
-        {return size_type(~0) / sizeof(_Tp);}
+    _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY size_type max_size() const _NOEXCEPT {
+        return size_type(~0) / sizeof(_Tp);
+    }
 
     template <class _Up, class... _Args>
-        _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY
-        void
-        construct(_Up* __p, _Args&&... __args)
-        {
-            ::new((void*)__p) _Up(_VSTD::forward<_Args>(__args)...);
-        }
-    _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY void destroy(pointer __p) {__p->~_Tp();}
+    _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY
+    void construct(_Up* __p, _Args&&... __args) {
+        ::new ((void*)__p) _Up(_VSTD::forward<_Args>(__args)...);
+    }
+
+    _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY
+    void destroy(pointer __p) {
+        __p->~_Tp();
+    }
 #endif
 };
 
@@ -1816,128 +897,173 @@ template <class _Tp>
 class _LIBCPP_TEMPLATE_VIS allocator<const _Tp>
 {
 public:
+    typedef size_t      size_type;
+    typedef ptrdiff_t   difference_type;
+    typedef const _Tp   value_type;
+    typedef true_type   propagate_on_container_move_assignment;
+    typedef true_type   is_always_equal;
+
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    allocator() _NOEXCEPT { }
+
+    template <class _Up>
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    allocator(const allocator<_Up>&) _NOEXCEPT { }
+
+    _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    const _Tp* allocate(size_t __n) {
+        if (__n > allocator_traits<allocator>::max_size(*this))
+            __throw_length_error("allocator<const T>::allocate(size_t n)"
+                                 " 'n' exceeds maximum supported size");
+        if (__libcpp_is_constant_evaluated()) {
+            return static_cast<const _Tp*>(::operator new(__n * sizeof(_Tp)));
+        } else {
+            return static_cast<const _Tp*>(_VSTD::__libcpp_allocate(__n * sizeof(_Tp), _LIBCPP_ALIGNOF(_Tp)));
+        }
+    }
+
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    void deallocate(const _Tp* __p, size_t __n) {
+        if (__libcpp_is_constant_evaluated()) {
+            ::operator delete(const_cast<_Tp*>(__p));
+        } else {
+            _VSTD::__libcpp_deallocate((void*) const_cast<_Tp *>(__p), __n * sizeof(_Tp), _LIBCPP_ALIGNOF(_Tp));
+        }
+    }
+
+    // C++20 Removed members
 #if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_ALLOCATOR_MEMBERS)
-    _LIBCPP_DEPRECATED_IN_CXX17 typedef size_t     size_type;
-    _LIBCPP_DEPRECATED_IN_CXX17 typedef ptrdiff_t  difference_type;
     _LIBCPP_DEPRECATED_IN_CXX17 typedef const _Tp* pointer;
     _LIBCPP_DEPRECATED_IN_CXX17 typedef const _Tp* const_pointer;
     _LIBCPP_DEPRECATED_IN_CXX17 typedef const _Tp& reference;
     _LIBCPP_DEPRECATED_IN_CXX17 typedef const _Tp& const_reference;
 
-    template <class _Up> struct _LIBCPP_DEPRECATED_IN_CXX17 rebind {typedef allocator<_Up> other;};
-#endif
-
-    typedef const _Tp value_type;
-
-    typedef true_type propagate_on_container_move_assignment;
-    typedef true_type is_always_equal;
-
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-    allocator() _NOEXCEPT {}
-
     template <class _Up>
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-    allocator(const allocator<_Up>&) _NOEXCEPT {}
+    struct _LIBCPP_DEPRECATED_IN_CXX17 rebind {
+        typedef allocator<_Up> other;
+    };
 
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_ALLOCATOR_MEMBERS)
     _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY
-    const_pointer address(const_reference __x) const _NOEXCEPT
-        {return _VSTD::addressof(__x);}
-#endif
-
-    _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_INLINE_VISIBILITY const _Tp* allocate(size_t __n)
-    {
-        // TODO(mpark): Replace with `allocator_traits<allocator>::max_size(*this)`.
-        if (__n > (size_t(~0) / sizeof(_Tp)))
-            __throw_length_error("allocator<const T>::allocate(size_t n)"
-                                 " 'n' exceeds maximum supported size");
-        return static_cast<const _Tp*>(_VSTD::__libcpp_allocate(__n * sizeof(_Tp), _LIBCPP_ALIGNOF(_Tp)));
+    const_pointer address(const_reference __x) const _NOEXCEPT {
+        return _VSTD::addressof(__x);
     }
 
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_ALLOCATOR_MEMBERS)
     _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_INLINE_VISIBILITY _LIBCPP_DEPRECATED_IN_CXX17
-    const _Tp* allocate(size_t __n, const void*) { return allocate(__n); }
-#endif
+    const _Tp* allocate(size_t __n, const void*) {
+        return allocate(__n);
+    }
 
-    _LIBCPP_INLINE_VISIBILITY void deallocate(const _Tp* __p, size_t __n)
-        {_VSTD::__libcpp_deallocate((void*) const_cast<_Tp *>(__p), __n * sizeof(_Tp), _LIBCPP_ALIGNOF(_Tp));}
+    _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY size_type max_size() const _NOEXCEPT {
+        return size_type(~0) / sizeof(_Tp);
+    }
 
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_ALLOCATOR_MEMBERS)
-    _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY size_type max_size() const _NOEXCEPT
-        {return size_type(~0) / sizeof(_Tp);}
-
-#if !defined(_LIBCPP_HAS_NO_RVALUE_REFERENCES) && !defined(_LIBCPP_HAS_NO_VARIADICS)
     template <class _Up, class... _Args>
-        _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY
-        void
-        construct(_Up* __p, _Args&&... __args)
-        {
-            ::new((void*)__p) _Up(_VSTD::forward<_Args>(__args)...);
-        }
-#else  // !defined(_LIBCPP_HAS_NO_RVALUE_REFERENCES) && !defined(_LIBCPP_HAS_NO_VARIADICS)
-        _LIBCPP_INLINE_VISIBILITY
-        void
-        construct(pointer __p)
-        {
-            ::new((void*) const_cast<_Tp *>(__p)) _Tp();
-        }
-# if defined(_LIBCPP_HAS_NO_RVALUE_REFERENCES)
+    _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY
+    void construct(_Up* __p, _Args&&... __args) {
+        ::new ((void*)__p) _Up(_VSTD::forward<_Args>(__args)...);
+    }
 
-    template <class _A0>
-        _LIBCPP_INLINE_VISIBILITY
-        void
-        construct(pointer __p, _A0& __a0)
-        {
-            ::new((void*) const_cast<_Tp *>(__p)) _Tp(__a0);
-        }
-    template <class _A0>
-        _LIBCPP_INLINE_VISIBILITY
-        void
-        construct(pointer __p, const _A0& __a0)
-        {
-            ::new((void*) const_cast<_Tp *>(__p)) _Tp(__a0);
-        }
-# endif  // defined(_LIBCPP_HAS_NO_RVALUE_REFERENCES)
-    template <class _A0, class _A1>
-        _LIBCPP_INLINE_VISIBILITY
-        void
-        construct(pointer __p, _A0& __a0, _A1& __a1)
-        {
-            ::new((void*) const_cast<_Tp *>(__p)) _Tp(__a0, __a1);
-        }
-    template <class _A0, class _A1>
-        _LIBCPP_INLINE_VISIBILITY
-        void
-        construct(pointer __p, const _A0& __a0, _A1& __a1)
-        {
-            ::new((void*) const_cast<_Tp *>(__p)) _Tp(__a0, __a1);
-        }
-    template <class _A0, class _A1>
-        _LIBCPP_INLINE_VISIBILITY
-        void
-        construct(pointer __p, _A0& __a0, const _A1& __a1)
-        {
-            ::new((void*) const_cast<_Tp *>(__p)) _Tp(__a0, __a1);
-        }
-    template <class _A0, class _A1>
-        _LIBCPP_INLINE_VISIBILITY
-        void
-        construct(pointer __p, const _A0& __a0, const _A1& __a1)
-        {
-            ::new((void*) const_cast<_Tp *>(__p)) _Tp(__a0, __a1);
-        }
-#endif  // !defined(_LIBCPP_HAS_NO_RVALUE_REFERENCES) && !defined(_LIBCPP_HAS_NO_VARIADICS)
-    _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY void destroy(pointer __p) {__p->~_Tp();}
+    _LIBCPP_DEPRECATED_IN_CXX17 _LIBCPP_INLINE_VISIBILITY
+    void destroy(pointer __p) {
+        __p->~_Tp();
+    }
 #endif
 };
 
 template <class _Tp, class _Up>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 bool operator==(const allocator<_Tp>&, const allocator<_Up>&) _NOEXCEPT {return true;}
 
 template <class _Tp, class _Up>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 bool operator!=(const allocator<_Tp>&, const allocator<_Up>&) _NOEXCEPT {return false;}
+
+template <class _Alloc, class _Ptr>
+_LIBCPP_INLINE_VISIBILITY
+void __construct_forward_with_exception_guarantees(_Alloc& __a, _Ptr __begin1, _Ptr __end1, _Ptr& __begin2) {
+    static_assert(__is_cpp17_move_insertable<_Alloc>::value,
+        "The specified type does not meet the requirements of Cpp17MoveInsertable");
+    typedef allocator_traits<_Alloc> _Traits;
+    for (; __begin1 != __end1; ++__begin1, (void)++__begin2) {
+        _Traits::construct(__a, _VSTD::__to_address(__begin2),
+#ifdef _LIBCPP_NO_EXCEPTIONS
+            _VSTD::move(*__begin1)
+#else
+            _VSTD::move_if_noexcept(*__begin1)
+#endif
+        );
+    }
+}
+
+template <class _Alloc, class _Tp, typename enable_if<
+    (__is_default_allocator<_Alloc>::value || !__has_construct<_Alloc, _Tp*, _Tp>::value) &&
+    is_trivially_move_constructible<_Tp>::value
+>::type>
+_LIBCPP_INLINE_VISIBILITY
+void __construct_forward_with_exception_guarantees(_Alloc&, _Tp* __begin1, _Tp* __end1, _Tp*& __begin2) {
+    ptrdiff_t _Np = __end1 - __begin1;
+    if (_Np > 0) {
+        _VSTD::memcpy(__begin2, __begin1, _Np * sizeof(_Tp));
+        __begin2 += _Np;
+    }
+}
+
+template <class _Alloc, class _Iter, class _Ptr>
+_LIBCPP_INLINE_VISIBILITY
+void __construct_range_forward(_Alloc& __a, _Iter __begin1, _Iter __end1, _Ptr& __begin2) {
+    typedef allocator_traits<_Alloc> _Traits;
+    for (; __begin1 != __end1; ++__begin1, (void) ++__begin2) {
+        _Traits::construct(__a, _VSTD::__to_address(__begin2), *__begin1);
+    }
+}
+
+template <class _Alloc, class _Source, class _Dest,
+          class _RawSource = typename remove_const<_Source>::type,
+          class _RawDest = typename remove_const<_Dest>::type,
+          class =
+    typename enable_if<
+        is_trivially_copy_constructible<_Dest>::value &&
+        is_same<_RawSource, _RawDest>::value &&
+        (__is_default_allocator<_Alloc>::value || !__has_construct<_Alloc, _Dest*, _Source&>::value)
+    >::type>
+_LIBCPP_INLINE_VISIBILITY
+void __construct_range_forward(_Alloc&, _Source* __begin1, _Source* __end1, _Dest*& __begin2) {
+    ptrdiff_t _Np = __end1 - __begin1;
+    if (_Np > 0) {
+        _VSTD::memcpy(const_cast<_RawDest*>(__begin2), __begin1, _Np * sizeof(_Dest));
+        __begin2 += _Np;
+    }
+}
+
+template <class _Alloc, class _Ptr>
+_LIBCPP_INLINE_VISIBILITY
+void __construct_backward_with_exception_guarantees(_Alloc& __a, _Ptr __begin1, _Ptr __end1, _Ptr& __end2) {
+    static_assert(__is_cpp17_move_insertable<_Alloc>::value,
+        "The specified type does not meet the requirements of Cpp17MoveInsertable");
+    typedef allocator_traits<_Alloc> _Traits;
+    while (__end1 != __begin1) {
+        _Traits::construct(__a, _VSTD::__to_address(__end2 - 1),
+#ifdef _LIBCPP_NO_EXCEPTIONS
+            _VSTD::move(*--__end1)
+#else
+            _VSTD::move_if_noexcept(*--__end1)
+#endif
+        );
+        --__end2;
+    }
+}
+
+template <class _Alloc, class _Tp, class = typename enable_if<
+    (__is_default_allocator<_Alloc>::value || !__has_construct<_Alloc, _Tp*, _Tp>::value) &&
+    is_trivially_move_constructible<_Tp>::value
+>::type>
+_LIBCPP_INLINE_VISIBILITY
+void __construct_backward_with_exception_guarantees(_Alloc&, _Tp* __begin1, _Tp* __end1, _Tp*& __end2) {
+    ptrdiff_t _Np = __end1 - __begin1;
+    __end2 -= _Np;
+    if (_Np > 0)
+        _VSTD::memcpy(__end2, __begin1, _Np * sizeof(_Tp));
+}
 
 template <class _OutputIterator, class _Tp>
 class _LIBCPP_TEMPLATE_VIS raw_storage_iterator
@@ -1953,10 +1079,10 @@ public:
     _LIBCPP_INLINE_VISIBILITY explicit raw_storage_iterator(_OutputIterator __x) : __x_(__x) {}
     _LIBCPP_INLINE_VISIBILITY raw_storage_iterator& operator*() {return *this;}
     _LIBCPP_INLINE_VISIBILITY raw_storage_iterator& operator=(const _Tp& __element)
-        {::new(_VSTD::addressof(*__x_)) _Tp(__element); return *this;}
+        {::new ((void*)_VSTD::addressof(*__x_)) _Tp(__element); return *this;}
 #if _LIBCPP_STD_VER >= 14
     _LIBCPP_INLINE_VISIBILITY raw_storage_iterator& operator=(_Tp&& __element)
-        {::new(_VSTD::addressof(*__x_)) _Tp(_VSTD::move(__element)); return *this;}
+        {::new ((void*)_VSTD::addressof(*__x_)) _Tp(_VSTD::move(__element)); return *this;}
 #endif
     _LIBCPP_INLINE_VISIBILITY raw_storage_iterator& operator++() {++__x_; return *this;}
     _LIBCPP_INLINE_VISIBILITY raw_storage_iterator  operator++(int)
@@ -1982,8 +1108,8 @@ get_temporary_buffer(ptrdiff_t __n) _NOEXCEPT
 #if !defined(_LIBCPP_HAS_NO_ALIGNED_ALLOCATION)
     if (__is_overaligned_for_new(_LIBCPP_ALIGNOF(_Tp)))
         {
-            std::align_val_t __al =
-                std::align_val_t(std::alignment_of<_Tp>::value);
+            align_val_t __al =
+                align_val_t(alignment_of<_Tp>::value);
             __r.first = static_cast<_Tp*>(::operator new(
                 __n * sizeof(_Tp), __al, nothrow));
         } else {
@@ -2052,7 +1178,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY _Tp* release() _NOEXCEPT
     {
         _Tp* __t = __ptr_;
-        __ptr_ = 0;
+        __ptr_ = nullptr;
         return __t;
     }
     _LIBCPP_INLINE_VISIBILITY void reset(_Tp* __p = 0) _NOEXCEPT
@@ -2160,19 +1286,19 @@ struct __compressed_pair_elem<_Tp, _Idx, true> : private _Tp {
 template <class _T1, class _T2>
 class __compressed_pair : private __compressed_pair_elem<_T1, 0>,
                           private __compressed_pair_elem<_T2, 1> {
-  typedef _LIBCPP_NODEBUG_TYPE __compressed_pair_elem<_T1, 0> _Base1;
-  typedef _LIBCPP_NODEBUG_TYPE __compressed_pair_elem<_T2, 1> _Base2;
-
+public:
   // NOTE: This static assert should never fire because __compressed_pair
   // is *almost never* used in a scenario where it's possible for T1 == T2.
   // (The exception is std::function where it is possible that the function
   //  object and the allocator have the same type).
   static_assert((!is_same<_T1, _T2>::value),
-    "__compressed_pair cannot be instantated when T1 and T2 are the same type; "
+    "__compressed_pair cannot be instantiated when T1 and T2 are the same type; "
     "The current implementation is NOT ABI-compatible with the previous "
     "implementation for this configuration");
 
-public:
+    typedef _LIBCPP_NODEBUG_TYPE __compressed_pair_elem<_T1, 0> _Base1;
+    typedef _LIBCPP_NODEBUG_TYPE __compressed_pair_elem<_T2, 1> _Base2;
+
     template <bool _Dummy = true,
       class = typename enable_if<
           __dependent_type<is_default_constructible<_T1>, _Dummy>::value &&
@@ -2185,7 +1311,7 @@ public:
   template <class _U1, class _U2>
   _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
   __compressed_pair(_U1&& __t1, _U2&& __t2)
-      : _Base1(std::forward<_U1>(__t1)), _Base2(std::forward<_U2>(__t2)) {}
+      : _Base1(_VSTD::forward<_U1>(__t1)), _Base2(_VSTD::forward<_U2>(__t2)) {}
 
 #ifndef _LIBCPP_CXX03_LANG
   template <class... _Args1, class... _Args2>
@@ -2218,12 +1344,21 @@ public:
     return static_cast<_Base2 const&>(*this).__get();
   }
 
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+  static _Base1* __get_first_base(__compressed_pair* __pair) _NOEXCEPT {
+    return static_cast<_Base1*>(__pair);
+  }
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+  static _Base2* __get_second_base(__compressed_pair* __pair) _NOEXCEPT {
+    return static_cast<_Base2*>(__pair);
+  }
+
   _LIBCPP_INLINE_VISIBILITY
   void swap(__compressed_pair& __x)
     _NOEXCEPT_(__is_nothrow_swappable<_T1>::value &&
                __is_nothrow_swappable<_T2>::value)
   {
-    using std::swap;
+    using _VSTD::swap;
     swap(first(), __x.first());
     swap(second(), __x.second());
   }
@@ -2316,12 +1451,18 @@ struct __unique_ptr_deleter_sfinae<_Deleter&> {
   typedef false_type __enable_rval_overload;
 };
 
+#if defined(_LIBCPP_ABI_ENABLE_UNIQUE_PTR_TRIVIAL_ABI)
+#  define _LIBCPP_UNIQUE_PTR_TRIVIAL_ABI __attribute__((trivial_abi))
+#else
+#  define _LIBCPP_UNIQUE_PTR_TRIVIAL_ABI
+#endif
+
 template <class _Tp, class _Dp = default_delete<_Tp> >
-class _LIBCPP_TEMPLATE_VIS unique_ptr {
+class _LIBCPP_UNIQUE_PTR_TRIVIAL_ABI _LIBCPP_TEMPLATE_VIS unique_ptr {
 public:
   typedef _Tp element_type;
   typedef _Dp deleter_type;
-  typedef _LIBCPP_NODEBUG_TYPE typename __pointer_type<_Tp, deleter_type>::type pointer;
+  typedef _LIBCPP_NODEBUG_TYPE typename __pointer<_Tp, deleter_type>::type pointer;
 
   static_assert(!is_rvalue_reference<deleter_type>::value,
                 "the specified deleter type cannot be an rvalue reference");
@@ -2525,11 +1666,11 @@ public:
 
 
 template <class _Tp, class _Dp>
-class _LIBCPP_TEMPLATE_VIS unique_ptr<_Tp[], _Dp> {
+class _LIBCPP_UNIQUE_PTR_TRIVIAL_ABI _LIBCPP_TEMPLATE_VIS unique_ptr<_Tp[], _Dp> {
 public:
   typedef _Tp element_type;
   typedef _Dp deleter_type;
-  typedef typename __pointer_type<_Tp, deleter_type>::type pointer;
+  typedef typename __pointer<_Tp, deleter_type>::type pointer;
 
 private:
   __compressed_pair<pointer, deleter_type> __ptr_;
@@ -2987,7 +2128,7 @@ public:
         : __size_(__s) {}
 
     template <class _Tp>
-    _LIBCPP_INLINE_VISIBILITY void __incr(_Tp*) _NOEXCEPT
+    _LIBCPP_INLINE_VISIBILITY void __incr() _NOEXCEPT
         {__incr(integral_constant<bool, is_trivially_destructible<_Tp>::value>());}
 
     template <class _Tp>
@@ -3029,7 +2170,7 @@ uninitialized_copy(_InputIterator __f, _InputIterator __l, _ForwardIterator __r)
     {
 #endif
         for (; __f != __l; ++__f, (void) ++__r)
-            ::new (static_cast<void*>(_VSTD::addressof(*__r))) value_type(*__f);
+            ::new ((void*)_VSTD::addressof(*__r)) value_type(*__f);
 #ifndef _LIBCPP_NO_EXCEPTIONS
     }
     catch (...)
@@ -3053,7 +2194,7 @@ uninitialized_copy_n(_InputIterator __f, _Size __n, _ForwardIterator __r)
     {
 #endif
         for (; __n > 0; ++__f, (void) ++__r, (void) --__n)
-            ::new (static_cast<void*>(_VSTD::addressof(*__r))) value_type(*__f);
+            ::new ((void*)_VSTD::addressof(*__r)) value_type(*__f);
 #ifndef _LIBCPP_NO_EXCEPTIONS
     }
     catch (...)
@@ -3077,7 +2218,7 @@ uninitialized_fill(_ForwardIterator __f, _ForwardIterator __l, const _Tp& __x)
     {
 #endif
         for (; __f != __l; ++__f)
-            ::new (static_cast<void*>(_VSTD::addressof(*__f))) value_type(__x);
+            ::new ((void*)_VSTD::addressof(*__f)) value_type(__x);
 #ifndef _LIBCPP_NO_EXCEPTIONS
     }
     catch (...)
@@ -3100,7 +2241,7 @@ uninitialized_fill_n(_ForwardIterator __f, _Size __n, const _Tp& __x)
     {
 #endif
         for (; __n > 0; ++__f, (void) --__n)
-            ::new (static_cast<void*>(_VSTD::addressof(*__f))) value_type(__x);
+            ::new ((void*)_VSTD::addressof(*__f)) value_type(__x);
 #ifndef _LIBCPP_NO_EXCEPTIONS
     }
     catch (...)
@@ -3115,22 +2256,15 @@ uninitialized_fill_n(_ForwardIterator __f, _Size __n, const _Tp& __x)
 
 #if _LIBCPP_STD_VER > 14
 
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-void destroy_at(_Tp* __loc) {
-    _LIBCPP_ASSERT(__loc, "null pointer given to destroy_at");
-    __loc->~_Tp();
-}
-
 template <class _ForwardIterator>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 void destroy(_ForwardIterator __first, _ForwardIterator __last) {
     for (; __first != __last; ++__first)
         _VSTD::destroy_at(_VSTD::addressof(*__first));
 }
 
 template <class _ForwardIterator, class _Size>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 _ForwardIterator destroy_n(_ForwardIterator __first, _Size __n) {
     for (; __n > 0; (void)++__first, --__n)
         _VSTD::destroy_at(_VSTD::addressof(*__first));
@@ -3146,7 +2280,7 @@ void uninitialized_default_construct(_ForwardIterator __first, _ForwardIterator 
     try {
 #endif
     for (; __idx != __last; ++__idx)
-        ::new((void*)_VSTD::addressof(*__idx)) _Vt;
+        ::new ((void*)_VSTD::addressof(*__idx)) _Vt;
 #ifndef _LIBCPP_NO_EXCEPTIONS
     } catch (...) {
         _VSTD::destroy(__first, __idx);
@@ -3164,7 +2298,7 @@ _ForwardIterator uninitialized_default_construct_n(_ForwardIterator __first, _Si
     try {
 #endif
     for (; __n > 0; (void)++__idx, --__n)
-        ::new((void*)_VSTD::addressof(*__idx)) _Vt;
+        ::new ((void*)_VSTD::addressof(*__idx)) _Vt;
     return __idx;
 #ifndef _LIBCPP_NO_EXCEPTIONS
     } catch (...) {
@@ -3184,7 +2318,7 @@ void uninitialized_value_construct(_ForwardIterator __first, _ForwardIterator __
     try {
 #endif
     for (; __idx != __last; ++__idx)
-        ::new((void*)_VSTD::addressof(*__idx)) _Vt();
+        ::new ((void*)_VSTD::addressof(*__idx)) _Vt();
 #ifndef _LIBCPP_NO_EXCEPTIONS
     } catch (...) {
         _VSTD::destroy(__first, __idx);
@@ -3202,7 +2336,7 @@ _ForwardIterator uninitialized_value_construct_n(_ForwardIterator __first, _Size
     try {
 #endif
     for (; __n > 0; (void)++__idx, --__n)
-        ::new((void*)_VSTD::addressof(*__idx)) _Vt();
+        ::new ((void*)_VSTD::addressof(*__idx)) _Vt();
     return __idx;
 #ifndef _LIBCPP_NO_EXCEPTIONS
     } catch (...) {
@@ -3222,7 +2356,7 @@ _ForwardIt uninitialized_move(_InputIt __first, _InputIt __last, _ForwardIt __fi
     try {
 #endif
     for (; __first != __last; (void)++__idx, ++__first)
-        ::new((void*)_VSTD::addressof(*__idx)) _Vt(std::move(*__first));
+        ::new ((void*)_VSTD::addressof(*__idx)) _Vt(_VSTD::move(*__first));
     return __idx;
 #ifndef _LIBCPP_NO_EXCEPTIONS
     } catch (...) {
@@ -3242,7 +2376,7 @@ uninitialized_move_n(_InputIt __first, _Size __n, _ForwardIt __first_res) {
     try {
 #endif
     for (; __n > 0; ++__idx, (void)++__first, --__n)
-        ::new((void*)_VSTD::addressof(*__idx)) _Vt(std::move(*__first));
+        ::new ((void*)_VSTD::addressof(*__idx)) _Vt(_VSTD::move(*__first));
     return {__first, __idx};
 #ifndef _LIBCPP_NO_EXCEPTIONS
     } catch (...) {
@@ -3389,13 +2523,7 @@ public:
     long use_count() const _NOEXCEPT {return __shared_count::use_count();}
     __shared_weak_count* lock() _NOEXCEPT;
 
-    // Define the function out only if we build static libc++ without RTTI.
-    // Otherwise we may break clients who need to compile their projects with
-    // -fno-rtti and yet link against a libc++.dylib compiled
-    // without -fno-rtti.
-#if !defined(_LIBCPP_NO_RTTI) || !defined(_LIBCPP_BUILD_STATIC)
     virtual const void* __get_deleter(const type_info&) const _NOEXCEPT;
-#endif
 private:
     virtual void __on_zero_shared_weak() _NOEXCEPT = 0;
 };
@@ -3452,68 +2580,85 @@ __shared_ptr_pointer<_Tp, _Dp, _Alloc>::__on_zero_shared_weak() _NOEXCEPT
 }
 
 template <class _Tp, class _Alloc>
-class __shared_ptr_emplace
-    : public __shared_weak_count
+struct __shared_ptr_emplace
+    : __shared_weak_count
 {
-    __compressed_pair<_Alloc, _Tp> __data_;
-public:
+    template<class ..._Args>
+    _LIBCPP_HIDE_FROM_ABI
+    explicit __shared_ptr_emplace(_Alloc __a, _Args&& ...__args)
+        : __storage_(_VSTD::move(__a))
+    {
+#if _LIBCPP_STD_VER > 17
+        using _TpAlloc = typename __allocator_traits_rebind<_Alloc, _Tp>::type;
+        _TpAlloc __tmp(*__get_alloc());
+        allocator_traits<_TpAlloc>::construct(__tmp, __get_elem(), _VSTD::forward<_Args>(__args)...);
+#else
+        ::new ((void*)__get_elem()) _Tp(_VSTD::forward<_Args>(__args)...);
+#endif
+    }
 
-    _LIBCPP_INLINE_VISIBILITY
-    __shared_ptr_emplace(_Alloc __a)
-        :  __data_(_VSTD::move(__a), __value_init_tag()) {}
+    _LIBCPP_HIDE_FROM_ABI
+    _Alloc* __get_alloc() _NOEXCEPT { return __storage_.__get_alloc(); }
 
-
-#ifndef _LIBCPP_HAS_NO_VARIADICS
-    template <class ..._Args>
-        _LIBCPP_INLINE_VISIBILITY
-        __shared_ptr_emplace(_Alloc __a, _Args&& ...__args)
-            :  __data_(piecewise_construct, _VSTD::forward_as_tuple(__a),
-                   _VSTD::forward_as_tuple(_VSTD::forward<_Args>(__args)...)) {}
-#else  // _LIBCPP_HAS_NO_VARIADICS
-
-    template <class _A0>
-        _LIBCPP_INLINE_VISIBILITY
-        __shared_ptr_emplace(_Alloc __a, _A0& __a0)
-            :  __data_(__a, _Tp(__a0)) {}
-
-    template <class _A0, class _A1>
-        _LIBCPP_INLINE_VISIBILITY
-        __shared_ptr_emplace(_Alloc __a, _A0& __a0, _A1& __a1)
-            :  __data_(__a, _Tp(__a0, __a1)) {}
-
-    template <class _A0, class _A1, class _A2>
-        _LIBCPP_INLINE_VISIBILITY
-        __shared_ptr_emplace(_Alloc __a, _A0& __a0, _A1& __a1, _A2& __a2)
-            :  __data_(__a, _Tp(__a0, __a1, __a2)) {}
-
-#endif  // _LIBCPP_HAS_NO_VARIADICS
+    _LIBCPP_HIDE_FROM_ABI
+    _Tp* __get_elem() _NOEXCEPT { return __storage_.__get_elem(); }
 
 private:
-    virtual void __on_zero_shared() _NOEXCEPT;
-    virtual void __on_zero_shared_weak() _NOEXCEPT;
-public:
-    _LIBCPP_INLINE_VISIBILITY
-    _Tp* get() _NOEXCEPT {return _VSTD::addressof(__data_.second());}
+    virtual void __on_zero_shared() _NOEXCEPT {
+#if _LIBCPP_STD_VER > 17
+        using _TpAlloc = typename __allocator_traits_rebind<_Alloc, _Tp>::type;
+        _TpAlloc __tmp(*__get_alloc());
+        allocator_traits<_TpAlloc>::destroy(__tmp, __get_elem());
+#else
+        __get_elem()->~_Tp();
+#endif
+    }
+
+    virtual void __on_zero_shared_weak() _NOEXCEPT {
+        using _ControlBlockAlloc = typename __allocator_traits_rebind<_Alloc, __shared_ptr_emplace>::type;
+        using _ControlBlockPointer = typename allocator_traits<_ControlBlockAlloc>::pointer;
+        _ControlBlockAlloc __tmp(*__get_alloc());
+        __storage_.~_Storage();
+        allocator_traits<_ControlBlockAlloc>::deallocate(__tmp,
+            pointer_traits<_ControlBlockPointer>::pointer_to(*this), 1);
+    }
+
+    // This class implements the control block for non-array shared pointers created
+    // through `std::allocate_shared` and `std::make_shared`.
+    //
+    // In previous versions of the library, we used a compressed pair to store
+    // both the _Alloc and the _Tp. This implies using EBO, which is incompatible
+    // with Allocator construction for _Tp. To allow implementing P0674 in C++20,
+    // we now use a properly aligned char buffer while making sure that we maintain
+    // the same layout that we had when we used a compressed pair.
+    using _CompressedPair = __compressed_pair<_Alloc, _Tp>;
+    struct _ALIGNAS_TYPE(_CompressedPair) _Storage {
+        char __blob_[sizeof(_CompressedPair)];
+
+        _LIBCPP_HIDE_FROM_ABI explicit _Storage(_Alloc&& __a) {
+            ::new ((void*)__get_alloc()) _Alloc(_VSTD::move(__a));
+        }
+        _LIBCPP_HIDE_FROM_ABI ~_Storage() {
+            __get_alloc()->~_Alloc();
+        }
+        _Alloc* __get_alloc() _NOEXCEPT {
+            _CompressedPair *__as_pair = reinterpret_cast<_CompressedPair*>(__blob_);
+            typename _CompressedPair::_Base1* __first = _CompressedPair::__get_first_base(__as_pair);
+            _Alloc *__alloc = reinterpret_cast<_Alloc*>(__first);
+            return __alloc;
+        }
+        _LIBCPP_NO_CFI _Tp* __get_elem() _NOEXCEPT {
+            _CompressedPair *__as_pair = reinterpret_cast<_CompressedPair*>(__blob_);
+            typename _CompressedPair::_Base2* __second = _CompressedPair::__get_second_base(__as_pair);
+            _Tp *__elem = reinterpret_cast<_Tp*>(__second);
+            return __elem;
+        }
+    };
+
+    static_assert(_LIBCPP_ALIGNOF(_Storage) == _LIBCPP_ALIGNOF(_CompressedPair), "");
+    static_assert(sizeof(_Storage) == sizeof(_CompressedPair), "");
+    _Storage __storage_;
 };
-
-template <class _Tp, class _Alloc>
-void
-__shared_ptr_emplace<_Tp, _Alloc>::__on_zero_shared() _NOEXCEPT
-{
-    __data_.second().~_Tp();
-}
-
-template <class _Tp, class _Alloc>
-void
-__shared_ptr_emplace<_Tp, _Alloc>::__on_zero_shared_weak() _NOEXCEPT
-{
-    typedef typename __allocator_traits_rebind<_Alloc, __shared_ptr_emplace>::type _Al;
-    typedef allocator_traits<_Al> _ATraits;
-    typedef pointer_traits<typename _ATraits::pointer> _PTraits;
-    _Al __a(__data_.first());
-    __data_.first().~_Alloc();
-    __a.deallocate(_PTraits::pointer_to(*this), 1);
-}
 
 struct __shared_ptr_dummy_rebind_allocator_type;
 template <>
@@ -3537,8 +2682,14 @@ struct __compatible_with
     : is_convertible<_Tp*, _Up*> {};
 #endif // _LIBCPP_STD_VER > 14
 
+#if defined(_LIBCPP_ABI_ENABLE_SHARED_PTR_TRIVIAL_ABI)
+#  define _LIBCPP_SHARED_PTR_TRIVIAL_ABI __attribute__((trivial_abi))
+#else
+#  define _LIBCPP_SHARED_PTR_TRIVIAL_ABI
+#endif
+
 template<class _Tp>
-class _LIBCPP_TEMPLATE_VIS shared_ptr
+class _LIBCPP_SHARED_PTR_TRIVIAL_ABI _LIBCPP_TEMPLATE_VIS shared_ptr
 {
 public:
 #if _LIBCPP_STD_VER > 14
@@ -3577,25 +2728,17 @@ public:
         shared_ptr(const shared_ptr<_Yp>& __r,
                    typename enable_if<__compatible_with<_Yp, element_type>::value, __nat>::type = __nat())
                        _NOEXCEPT;
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
     _LIBCPP_INLINE_VISIBILITY
     shared_ptr(shared_ptr&& __r) _NOEXCEPT;
     template<class _Yp> _LIBCPP_INLINE_VISIBILITY  shared_ptr(shared_ptr<_Yp>&& __r,
                    typename enable_if<__compatible_with<_Yp, element_type>::value, __nat>::type = __nat())
                        _NOEXCEPT;
-#endif  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
     template<class _Yp> explicit shared_ptr(const weak_ptr<_Yp>& __r,
                    typename enable_if<is_convertible<_Yp*, element_type*>::value, __nat>::type= __nat());
 #if _LIBCPP_STD_VER <= 14 || defined(_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR)
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
     template<class _Yp>
         shared_ptr(auto_ptr<_Yp>&& __r,
                    typename enable_if<is_convertible<_Yp*, element_type*>::value, __nat>::type = __nat());
-#else
-    template<class _Yp>
-        shared_ptr(auto_ptr<_Yp> __r,
-                   typename enable_if<is_convertible<_Yp*, element_type*>::value, __nat>::type = __nat());
-#endif
 #endif
     template <class _Yp, class _Dp>
         shared_ptr(unique_ptr<_Yp, _Dp>&&,
@@ -3628,7 +2771,6 @@ public:
         >::type
         _LIBCPP_INLINE_VISIBILITY
         operator=(const shared_ptr<_Yp>& __r) _NOEXCEPT;
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
     _LIBCPP_INLINE_VISIBILITY
     shared_ptr& operator=(shared_ptr&& __r) _NOEXCEPT;
     template<class _Yp>
@@ -3650,19 +2792,6 @@ public:
         >::type&
         operator=(auto_ptr<_Yp>&& __r);
 #endif
-#else  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
-#if _LIBCPP_STD_VER <= 14 || defined(_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR)
-    template<class _Yp>
-        _LIBCPP_INLINE_VISIBILITY
-        typename enable_if
-        <
-            !is_array<_Yp>::value &&
-            is_convertible<_Yp*, element_type*>::value,
-            shared_ptr&
-        >::type
-        operator=(auto_ptr<_Yp> __r);
-#endif
-#endif
     template <class _Yp, class _Dp>
         typename enable_if
         <
@@ -3670,13 +2799,8 @@ public:
             is_convertible<typename unique_ptr<_Yp, _Dp>::pointer, element_type*>::value,
             shared_ptr&
         >::type
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
         _LIBCPP_INLINE_VISIBILITY
         operator=(unique_ptr<_Yp, _Dp>&& __r);
-#else  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
-        _LIBCPP_INLINE_VISIBILITY
-        operator=(unique_ptr<_Yp, _Dp> __r);
-#endif
 
     _LIBCPP_INLINE_VISIBILITY
     void swap(shared_ptr& __r) _NOEXCEPT;
@@ -3724,7 +2848,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     bool unique() const _NOEXCEPT {return use_count() == 1;}
     _LIBCPP_INLINE_VISIBILITY
-    _LIBCPP_EXPLICIT operator bool() const _NOEXCEPT {return get() != 0;}
+    _LIBCPP_EXPLICIT operator bool() const _NOEXCEPT {return get() != nullptr;}
     template <class _Up>
         _LIBCPP_INLINE_VISIBILITY
         bool owner_before(shared_ptr<_Up> const& __p) const _NOEXCEPT
@@ -3828,8 +2952,8 @@ template<class _Tp>
 inline
 _LIBCPP_CONSTEXPR
 shared_ptr<_Tp>::shared_ptr() _NOEXCEPT
-    : __ptr_(0),
-      __cntrl_(0)
+    : __ptr_(nullptr),
+      __cntrl_(nullptr)
 {
 }
 
@@ -3837,8 +2961,8 @@ template<class _Tp>
 inline
 _LIBCPP_CONSTEXPR
 shared_ptr<_Tp>::shared_ptr(nullptr_t) _NOEXCEPT
-    : __ptr_(0),
-      __cntrl_(0)
+    : __ptr_(nullptr),
+      __cntrl_(nullptr)
 {
 }
 
@@ -3883,7 +3007,7 @@ shared_ptr<_Tp>::shared_ptr(_Yp* __p, _Dp __d,
 template<class _Tp>
 template<class _Dp>
 shared_ptr<_Tp>::shared_ptr(nullptr_t __p, _Dp __d)
-    : __ptr_(0)
+    : __ptr_(nullptr)
 {
 #ifndef _LIBCPP_NO_EXCEPTIONS
     try
@@ -3917,8 +3041,7 @@ shared_ptr<_Tp>::shared_ptr(_Yp* __p, _Dp __d, _Alloc __a,
         typedef __allocator_destructor<_A2> _D2;
         _A2 __a2(__a);
         unique_ptr<_CntrlBlk, _D2> __hold2(__a2.allocate(1), _D2(__a2, 1));
-        ::new(static_cast<void*>(_VSTD::addressof(*__hold2.get())))
-            _CntrlBlk(__p, __d, __a);
+        ::new ((void*)_VSTD::addressof(*__hold2.get())) _CntrlBlk(__p, __d, __a);
         __cntrl_ = _VSTD::addressof(*__hold2.release());
         __enable_weak_this(__p, __p);
 #ifndef _LIBCPP_NO_EXCEPTIONS
@@ -3934,7 +3057,7 @@ shared_ptr<_Tp>::shared_ptr(_Yp* __p, _Dp __d, _Alloc __a,
 template<class _Tp>
 template<class _Dp, class _Alloc>
 shared_ptr<_Tp>::shared_ptr(nullptr_t __p, _Dp __d, _Alloc __a)
-    : __ptr_(0)
+    : __ptr_(nullptr)
 {
 #ifndef _LIBCPP_NO_EXCEPTIONS
     try
@@ -3945,8 +3068,7 @@ shared_ptr<_Tp>::shared_ptr(nullptr_t __p, _Dp __d, _Alloc __a)
         typedef __allocator_destructor<_A2> _D2;
         _A2 __a2(__a);
         unique_ptr<_CntrlBlk, _D2> __hold2(__a2.allocate(1), _D2(__a2, 1));
-        ::new(static_cast<void*>(_VSTD::addressof(*__hold2.get())))
-            _CntrlBlk(__p, __d, __a);
+        ::new ((void*)_VSTD::addressof(*__hold2.get())) _CntrlBlk(__p, __d, __a);
         __cntrl_ = _VSTD::addressof(*__hold2.release());
 #ifndef _LIBCPP_NO_EXCEPTIONS
     }
@@ -3992,16 +3114,14 @@ shared_ptr<_Tp>::shared_ptr(const shared_ptr<_Yp>& __r,
         __cntrl_->__add_shared();
 }
 
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
 template<class _Tp>
 inline
 shared_ptr<_Tp>::shared_ptr(shared_ptr&& __r) _NOEXCEPT
     : __ptr_(__r.__ptr_),
       __cntrl_(__r.__cntrl_)
 {
-    __r.__ptr_ = 0;
-    __r.__cntrl_ = 0;
+    __r.__ptr_ = nullptr;
+    __r.__cntrl_ = nullptr;
 }
 
 template<class _Tp>
@@ -4013,20 +3133,14 @@ shared_ptr<_Tp>::shared_ptr(shared_ptr<_Yp>&& __r,
     : __ptr_(__r.__ptr_),
       __cntrl_(__r.__cntrl_)
 {
-    __r.__ptr_ = 0;
-    __r.__cntrl_ = 0;
+    __r.__ptr_ = nullptr;
+    __r.__cntrl_ = nullptr;
 }
-
-#endif  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
 
 #if _LIBCPP_STD_VER <= 14 || defined(_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR)
 template<class _Tp>
 template<class _Yp>
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
 shared_ptr<_Tp>::shared_ptr(auto_ptr<_Yp>&& __r,
-#else
-shared_ptr<_Tp>::shared_ptr(auto_ptr<_Yp> __r,
-#endif
                             typename enable_if<is_convertible<_Yp*, element_type*>::value, __nat>::type)
     : __ptr_(__r.get())
 {
@@ -4121,8 +3235,6 @@ shared_ptr<_Tp>::operator=(const shared_ptr<_Yp>& __r) _NOEXCEPT
     return *this;
 }
 
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
 template<class _Tp>
 inline
 shared_ptr<_Tp>&
@@ -4178,43 +3290,6 @@ shared_ptr<_Tp>::operator=(unique_ptr<_Yp, _Dp>&& __r)
     shared_ptr(_VSTD::move(__r)).swap(*this);
     return *this;
 }
-
-#else  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
-#if _LIBCPP_STD_VER <= 14 || defined(_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR)
-template<class _Tp>
-template<class _Yp>
-inline _LIBCPP_INLINE_VISIBILITY
-typename enable_if
-<
-    !is_array<_Yp>::value &&
-    is_convertible<_Yp*, typename shared_ptr<_Tp>::element_type*>::value,
-    shared_ptr<_Tp>&
->::type
-shared_ptr<_Tp>::operator=(auto_ptr<_Yp> __r)
-{
-    shared_ptr(__r).swap(*this);
-    return *this;
-}
-#endif
-
-template<class _Tp>
-template <class _Yp, class _Dp>
-inline _LIBCPP_INLINE_VISIBILITY
-typename enable_if
-<
-    !is_array<_Yp>::value &&
-    is_convertible<typename unique_ptr<_Yp, _Dp>::pointer,
-                   typename shared_ptr<_Tp>::element_type*>::value,
-    shared_ptr<_Tp>&
->::type
-shared_ptr<_Tp>::operator=(unique_ptr<_Yp, _Dp> __r)
-{
-    shared_ptr(_VSTD::move(__r)).swap(*this);
-    return *this;
-}
-
-#endif  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
 
 template<class _Tp>
 inline
@@ -4272,50 +3347,26 @@ shared_ptr<_Tp>::reset(_Yp* __p, _Dp __d, _Alloc __a)
     shared_ptr(__p, __d, __a).swap(*this);
 }
 
-template<class _Tp, class ..._Args>
-inline _LIBCPP_INLINE_VISIBILITY
-typename enable_if
-<
-    !is_array<_Tp>::value,
-    shared_ptr<_Tp>
->::type
-make_shared(_Args&& ...__args)
+//
+// std::allocate_shared and std::make_shared
+//
+template<class _Tp, class _Alloc, class ..._Args, class = _EnableIf<!is_array<_Tp>::value> >
+_LIBCPP_HIDE_FROM_ABI
+shared_ptr<_Tp> allocate_shared(const _Alloc& __a, _Args&& ...__args)
 {
-    static_assert(is_constructible<_Tp, _Args...>::value, "Can't construct object in make_shared");
-    typedef __shared_ptr_emplace<_Tp, allocator<_Tp> > _CntrlBlk;
-    typedef allocator<_CntrlBlk> _A2;
-    typedef __allocator_destructor<_A2> _D2;
-
-    _A2 __a2;
-    unique_ptr<_CntrlBlk, _D2> __hold2(__a2.allocate(1), _D2(__a2, 1));
-    ::new(__hold2.get()) _CntrlBlk(__a2, _VSTD::forward<_Args>(__args)...);
-
-    _Tp *__ptr = __hold2.get()->get();
-    return shared_ptr<_Tp>::__create_with_control_block(__ptr, __hold2.release());
+    using _ControlBlock = __shared_ptr_emplace<_Tp, _Alloc>;
+    using _ControlBlockAllocator = typename __allocator_traits_rebind<_Alloc, _ControlBlock>::type;
+    __allocation_guard<_ControlBlockAllocator> __guard(__a, 1);
+    ::new ((void*)_VSTD::addressof(*__guard.__get())) _ControlBlock(__a, _VSTD::forward<_Args>(__args)...);
+    auto __control_block = __guard.__release_ptr();
+    return shared_ptr<_Tp>::__create_with_control_block((*__control_block).__get_elem(), _VSTD::addressof(*__control_block));
 }
 
-template<class _Tp, class _Alloc, class ..._Args>
-inline _LIBCPP_INLINE_VISIBILITY
-typename enable_if
-<
-    !is_array<_Tp>::value,
-    shared_ptr<_Tp>
->::type
-allocate_shared(const _Alloc& __a, _Args&& ...__args)
+template<class _Tp, class ..._Args, class = _EnableIf<!is_array<_Tp>::value> >
+_LIBCPP_HIDE_FROM_ABI
+shared_ptr<_Tp> make_shared(_Args&& ...__args)
 {
-    static_assert( is_constructible<_Tp, _Args...>::value, "Can't construct object in allocate_shared");
-
-    typedef __shared_ptr_emplace<_Tp, _Alloc> _CntrlBlk;
-    typedef typename __allocator_traits_rebind<_Alloc, _CntrlBlk>::type _A2;
-    typedef __allocator_destructor<_A2> _D2;
-
-    _A2 __a2(__a);
-    unique_ptr<_CntrlBlk, _D2> __hold2(__a2.allocate(1), _D2(__a2, 1));
-    ::new(static_cast<void*>(_VSTD::addressof(*__hold2.get())))
-        _CntrlBlk(__a, _VSTD::forward<_Args>(__args)...);
-
-    typename shared_ptr<_Tp>::element_type *__p = __hold2.get()->get();
-    return shared_ptr<_Tp>::__create_with_control_block(__p, _VSTD::addressof(*__hold2.release()));
+    return _VSTD::allocate_shared<_Tp>(allocator<_Tp>(), _VSTD::forward<_Args>(__args)...);
 }
 
 template<class _Tp, class _Up>
@@ -4526,7 +3577,7 @@ get_deleter(const shared_ptr<_Tp>& __p) _NOEXCEPT
 #endif  // _LIBCPP_NO_RTTI
 
 template<class _Tp>
-class _LIBCPP_TEMPLATE_VIS weak_ptr
+class _LIBCPP_SHARED_PTR_TRIVIAL_ABI _LIBCPP_TEMPLATE_VIS weak_ptr
 {
 public:
     typedef _Tp element_type;
@@ -4546,13 +3597,11 @@ public:
                    typename enable_if<is_convertible<_Yp*, _Tp*>::value, __nat*>::type = 0)
                          _NOEXCEPT;
 
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
     _LIBCPP_INLINE_VISIBILITY
     weak_ptr(weak_ptr&& __r) _NOEXCEPT;
     template<class _Yp> _LIBCPP_INLINE_VISIBILITY weak_ptr(weak_ptr<_Yp>&& __r,
                    typename enable_if<is_convertible<_Yp*, _Tp*>::value, __nat*>::type = 0)
                          _NOEXCEPT;
-#endif  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
     ~weak_ptr();
 
     _LIBCPP_INLINE_VISIBILITY
@@ -4566,8 +3615,6 @@ public:
         _LIBCPP_INLINE_VISIBILITY
         operator=(weak_ptr<_Yp> const& __r) _NOEXCEPT;
 
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
     _LIBCPP_INLINE_VISIBILITY
     weak_ptr& operator=(weak_ptr&& __r) _NOEXCEPT;
     template<class _Yp>
@@ -4578,8 +3625,6 @@ public:
         >::type
         _LIBCPP_INLINE_VISIBILITY
         operator=(weak_ptr<_Yp>&& __r) _NOEXCEPT;
-
-#endif  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
 
     template<class _Yp>
         typename enable_if
@@ -4600,7 +3645,7 @@ public:
         {return __cntrl_ ? __cntrl_->use_count() : 0;}
     _LIBCPP_INLINE_VISIBILITY
     bool expired() const _NOEXCEPT
-        {return __cntrl_ == 0 || __cntrl_->use_count() == 0;}
+        {return __cntrl_ == nullptr || __cntrl_->use_count() == 0;}
     shared_ptr<_Tp> lock() const _NOEXCEPT;
     template<class _Up>
         _LIBCPP_INLINE_VISIBILITY
@@ -4624,8 +3669,8 @@ template<class _Tp>
 inline
 _LIBCPP_CONSTEXPR
 weak_ptr<_Tp>::weak_ptr() _NOEXCEPT
-    : __ptr_(0),
-      __cntrl_(0)
+    : __ptr_(nullptr),
+      __cntrl_(nullptr)
 {
 }
 
@@ -4665,16 +3710,14 @@ weak_ptr<_Tp>::weak_ptr(weak_ptr<_Yp> const& __r,
         __cntrl_->__add_weak();
 }
 
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
 template<class _Tp>
 inline
 weak_ptr<_Tp>::weak_ptr(weak_ptr&& __r) _NOEXCEPT
     : __ptr_(__r.__ptr_),
       __cntrl_(__r.__cntrl_)
 {
-    __r.__ptr_ = 0;
-    __r.__cntrl_ = 0;
+    __r.__ptr_ = nullptr;
+    __r.__cntrl_ = nullptr;
 }
 
 template<class _Tp>
@@ -4686,11 +3729,9 @@ weak_ptr<_Tp>::weak_ptr(weak_ptr<_Yp>&& __r,
     : __ptr_(__r.__ptr_),
       __cntrl_(__r.__cntrl_)
 {
-    __r.__ptr_ = 0;
-    __r.__cntrl_ = 0;
+    __r.__ptr_ = nullptr;
+    __r.__cntrl_ = nullptr;
 }
-
-#endif  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
 
 template<class _Tp>
 weak_ptr<_Tp>::~weak_ptr()
@@ -4722,8 +3763,6 @@ weak_ptr<_Tp>::operator=(weak_ptr<_Yp> const& __r) _NOEXCEPT
     return *this;
 }
 
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
 template<class _Tp>
 inline
 weak_ptr<_Tp>&
@@ -4746,8 +3785,6 @@ weak_ptr<_Tp>::operator=(weak_ptr<_Yp>&& __r) _NOEXCEPT
     weak_ptr(_VSTD::move(__r)).swap(*this);
     return *this;
 }
-
-#endif  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
 
 template<class _Tp>
 template<class _Yp>
@@ -4795,7 +3832,7 @@ shared_ptr<_Tp>::shared_ptr(const weak_ptr<_Yp>& __r,
     : __ptr_(__r.__ptr_),
       __cntrl_(__r.__cntrl_ ? __r.__cntrl_->lock() : __r.__cntrl_)
 {
-    if (__cntrl_ == 0)
+    if (__cntrl_ == nullptr)
         __throw_bad_weak_ptr();
 }
 
@@ -5130,19 +4167,6 @@ _LIBCPP_FUNC_VIS void* align(size_t __align, size_t __sz, void*& __ptr, size_t& 
 
 // --- Helper for container swap --
 template <typename _Alloc>
-inline _LIBCPP_INLINE_VISIBILITY
-void __swap_allocator(_Alloc & __a1, _Alloc & __a2)
-#if _LIBCPP_STD_VER >= 14
-    _NOEXCEPT
-#else
-    _NOEXCEPT_(__is_nothrow_swappable<_Alloc>::value)
-#endif
-{
-    __swap_allocator(__a1, __a2,
-      integral_constant<bool, _VSTD::allocator_traits<_Alloc>::propagate_on_container_swap::value>());
-}
-
-template <typename _Alloc>
 _LIBCPP_INLINE_VISIBILITY
 void __swap_allocator(_Alloc & __a1, _Alloc & __a2, true_type)
 #if _LIBCPP_STD_VER >= 14
@@ -5159,6 +4183,19 @@ template <typename _Alloc>
 inline _LIBCPP_INLINE_VISIBILITY
 void __swap_allocator(_Alloc &, _Alloc &, false_type) _NOEXCEPT {}
 
+template <typename _Alloc>
+inline _LIBCPP_INLINE_VISIBILITY
+void __swap_allocator(_Alloc & __a1, _Alloc & __a2)
+#if _LIBCPP_STD_VER >= 14
+    _NOEXCEPT
+#else
+    _NOEXCEPT_(__is_nothrow_swappable<_Alloc>::value)
+#endif
+{
+    _VSTD::__swap_allocator(__a1, __a2,
+      integral_constant<bool, _VSTD::allocator_traits<_Alloc>::propagate_on_container_swap::value>());
+}
+
 template <typename _Alloc, typename _Traits=allocator_traits<_Alloc> >
 struct __noexcept_move_assign_container : public integral_constant<bool,
     _Traits::propagate_on_container_move_assignment::value
@@ -5170,7 +4207,6 @@ struct __noexcept_move_assign_container : public integral_constant<bool,
     > {};
 
 
-#ifndef _LIBCPP_HAS_NO_VARIADICS
 template <class _Tp, class _Alloc>
 struct __temp_value {
     typedef allocator_traits<_Alloc> _Traits;
@@ -5190,7 +4226,6 @@ struct __temp_value {
 
     ~__temp_value() { _Traits::destroy(__a, __addr()); }
     };
-#endif
 
 template<typename _Alloc, typename = void, typename = void>
 struct __is_allocator : false_type {};
@@ -5214,7 +4249,7 @@ struct __builtin_new_allocator {
         : __size_(__size), __align_(__align) {}
 
     void operator()(void* p) const _NOEXCEPT {
-        std::__libcpp_deallocate(p, __size_, __align_);
+        _VSTD::__libcpp_deallocate(p, __size_, __align_);
     }
 
    private:
@@ -5225,13 +4260,13 @@ struct __builtin_new_allocator {
   typedef unique_ptr<void, __builtin_new_deleter> __holder_t;
 
   static __holder_t __allocate_bytes(size_t __s, size_t __align) {
-      return __holder_t(std::__libcpp_allocate(__s, __align),
+      return __holder_t(_VSTD::__libcpp_allocate(__s, __align),
                      __builtin_new_deleter(__s, __align));
   }
 
   static void __deallocate_bytes(void* __p, size_t __s,
                                  size_t __align) _NOEXCEPT {
-      std::__libcpp_deallocate(__p, __s, __align);
+      _VSTD::__libcpp_deallocate(__p, __s, __align);
   }
 
   template <class _Tp>

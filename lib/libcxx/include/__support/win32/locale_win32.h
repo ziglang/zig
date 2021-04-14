@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------- support/win32/locale_win32.h -------------------===//
+//===-----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -201,8 +201,8 @@ decltype(MB_CUR_MAX) MB_CUR_MAX_L( locale_t __l );
 #define strtof_l _strtof_l
 #define strtold_l _strtold_l
 #else
-float strtof_l(const char*, char**, locale_t);
-long double strtold_l(const char*, char**, locale_t);
+_LIBCPP_FUNC_VIS float strtof_l(const char*, char**, locale_t);
+_LIBCPP_FUNC_VIS long double strtold_l(const char*, char**, locale_t);
 #endif
 inline _LIBCPP_INLINE_VISIBILITY
 int

@@ -157,6 +157,7 @@ const LineNumberProgram = struct {
     include_dirs: []const []const u8,
     file_entries: *ArrayList(FileEntry),
 
+    prev_valid: bool,
     prev_address: usize,
     prev_file: usize,
     prev_line: i64,
@@ -175,6 +176,7 @@ const LineNumberProgram = struct {
         self.basic_block = false;
         self.end_sequence = false;
         // Invalidate all the remaining fields
+        self.prev_valid = false;
         self.prev_address = 0;
         self.prev_file = undefined;
         self.prev_line = undefined;
@@ -197,6 +199,7 @@ const LineNumberProgram = struct {
             .file_entries = file_entries,
             .default_is_stmt = is_stmt,
             .target_address = target_address,
+            .prev_valid = false,
             .prev_address = 0,
             .prev_file = undefined,
             .prev_line = undefined,
@@ -208,7 +211,7 @@ const LineNumberProgram = struct {
     }
 
     pub fn checkLineMatch(self: *LineNumberProgram) !?debug.LineInfo {
-        if (self.target_address >= self.prev_address and self.target_address < self.address) {
+        if (self.prev_valid and self.target_address >= self.prev_address and self.target_address < self.address) {
             const file_entry = if (self.prev_file == 0) {
                 return error.MissingDebugInfo;
             } else if (self.prev_file - 1 >= self.file_entries.items.len) {
@@ -228,6 +231,7 @@ const LineNumberProgram = struct {
             };
         }
 
+        self.prev_valid = true;
         self.prev_address = self.address;
         self.prev_file = self.file;
         self.prev_line = self.line;
