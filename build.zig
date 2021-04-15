@@ -51,6 +51,7 @@ pub fn build(b: *Builder) !void {
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
+    const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
     const is_stage1 = b.option(bool, "stage1", "Build the stage1 compiler, put stage2 behind a feature flag") orelse false;
@@ -267,7 +268,9 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
     test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
-    test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
+    if (!skip_run_translated_c) {
+        test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
+    }
     // tests for this feature are disabled until we have the self-hosted compiler available
     // test_step.dependOn(tests.addGenHTests(b, test_filter));
     if (!skip_compile_errors) {
