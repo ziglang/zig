@@ -261,6 +261,10 @@ test "linkat with different directories" {
 test "fstatat" {
     // enable when `fstat` and `fstatat` are implemented on Windows
     if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .freebsd and builtin.mode == .ReleaseFast) {
+        // https://github.com/ziglang/zig/issues/8538
+        return error.SkipZigTest;
+    }
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
