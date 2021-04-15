@@ -7,7 +7,7 @@ brew update && brew install s3cmd
 
 ZIGDIR="$(pwd)"
 ARCH="x86_64"
-CACHE_BASENAME="zig+llvm+lld+clang-$ARCH-macos-gnu-0.6.0+1c9ef63a"
+CACHE_BASENAME="zig+llvm+lld+clang-$ARCH-macos-gnu-0.8.0-dev.1939+5a3ea9bec"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j2"
 
