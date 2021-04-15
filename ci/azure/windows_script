@@ -9,9 +9,9 @@ pacman -S --needed --noconfirm cmake git ninja wget p7zip python3-pip tar xz
 pip install s3cmd
 
 ZIGDIR="$(pwd)"
-CACHE_BASENAME="zig+llvm+lld+clang-x86_64-windows-gnu-0.8.0-dev.1939+5a3ea9bec"
+CACHE_BASENAME="zig+llvm+lld+clang-x86_64-windows-gnu-0.8.0-dev.1951+c59241bda"
 PREFIX="$HOME/$CACHE_BASENAME"
-ZIG="$PREFIX/bin/zig"
+ZIG="$PREFIX/bin/zig.exe"
 
 cd "$HOME"
 wget -nv "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
@@ -35,6 +35,8 @@ cmake .. -DCMAKE_BUILD_TYPE=Release \
     "-DCMAKE_INSTALL_PREFIX=$(pwd)/dist" \
     -DCMAKE_CROSSCOMPILING=True \
     -DCMAKE_SYSTEM_NAME="Windows" \
+    -DCMAKE_AR="$PREFIX/bin/llvm-ar.exe" \
+    -DCMAKE_RANLIB="$PREFIX/bin/llvm-ar.exe" \
     -DZIG_OMIT_STAGE2=ON \
     -DZIG_STATIC=ON \
     -DZIG_TARGET_TRIPLE="x86_64-windows-gnu" \
@@ -55,21 +57,21 @@ cmake .. -DZIG_EXECUTABLE="$(pwd)/dist/bin/zig.exe" -DZIG_TARGET_MCPU="x86_64_v2
 ninja install
 
 
-dist/bin/zig build test-behavior -Dskip-non-native
+dist/bin/zig.exe build test-behavior -Dskip-non-native
 # Disabled to prevent OOM
 # dist/bin/zig build test-stage2
-dist/bin/zig build test-fmt -Dskip-non-native
-dist/bin/zig build test-std -Dskip-non-native
-dist/bin/zig build test-compiler-rt -Dskip-non-native
-dist/bin/zig build test-compare-output -Dskip-non-native
-dist/bin/zig build test-standalone -Dskip-non-native
-dist/bin/zig build test-stack-traces -Dskip-non-native
-dist/bin/zig build test-cli -Dskip-non-native
-dist/bin/zig build test-asm-link -Dskip-non-native
-dist/bin/zig build test-runtime-safety -Dskip-non-native
-dist/bin/zig build test-translate-c -Dskip-non-native
-dist/bin/zig build test-run-translated-c -Dskip-non-native
-dist/bin/zig build docs
+dist/bin/zig.exe build test-fmt -Dskip-non-native
+dist/bin/zig.exe build test-std -Dskip-non-native
+dist/bin/zig.exe build test-compiler-rt -Dskip-non-native
+dist/bin/zig.exe build test-compare-output -Dskip-non-native
+dist/bin/zig.exe build test-standalone -Dskip-non-native
+dist/bin/zig.exe build test-stack-traces -Dskip-non-native
+dist/bin/zig.exe build test-cli -Dskip-non-native
+dist/bin/zig.exe build test-asm-link -Dskip-non-native
+dist/bin/zig.exe build test-runtime-safety -Dskip-non-native
+dist/bin/zig.exe build test-translate-c -Dskip-non-native
+dist/bin/zig.exe build test-run-translated-c -Dskip-non-native
+dist/bin/zig.exe build docs
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   cd "$ZIGDIR/build"
