@@ -122,7 +122,7 @@ fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
         if (shift > srcSigBits) {
             absResult = 0;
         } else {
-            const sticky: src_rep_t = significand << @intCast(SrcShift, srcBits - shift);
+            const sticky: src_rep_t = @boolToInt(significand << @intCast(SrcShift, srcBits - shift) != 0);
             const denormalizedSignificand: src_rep_t = significand >> @intCast(SrcShift, shift) | sticky;
             absResult = @intCast(dst_rep_t, denormalizedSignificand >> (srcSigBits - dstSigBits));
             const roundBits: src_rep_t = denormalizedSignificand & roundMask;
