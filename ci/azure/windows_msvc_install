@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -x
+set -e
+
+pacman -Suy --needed --noconfirm
+pacman -S --needed --noconfirm wget p7zip python3-pip tar xz
+
+pip install s3cmd
+wget -nv "https://ziglang.org/deps/llvm%2bclang%2blld-12.0.0-x86_64-windows-msvc-release-mt.tar.xz"
+tar xf llvm+clang+lld-12.0.0-x86_64-windows-msvc-release-mt.tar.xz

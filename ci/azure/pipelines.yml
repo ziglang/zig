@@ -60,7 +60,7 @@ jobs:
   - task: DownloadSecureFile@1
     inputs:
       secureFile: s3cfg
-  - script: ci/azure/windows_script.bat
+  - script: ci/azure/windows_msvc_script.bat
     name: main
     displayName: 'Build and test'
 - job: OnMasterSuccess
