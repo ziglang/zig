@@ -8,8 +8,8 @@ brew update && brew install s3cmd ninja gnu-tar
 ZIGDIR="$(pwd)"
 ARCH="aarch64"
 # {product}-{os}{sdk_version}-{arch}-{llvm_version}-{cmake_build_type}
-CACHE_HOST_BASENAME="llvm-macos10.15-x86_64-11.0.1-release"
-CACHE_ARM64_BASENAME="llvm-macos11.0-arm64-11.0.1-release"
+CACHE_HOST_BASENAME="ci-llvm-macos10.15-x86_64-12.0.0.1-release"
+CACHE_ARM64_BASENAME="ci-llvm-macos11.0-arm64-12.0.0.1-release"
 PREFIX_HOST="$HOME/$CACHE_HOST_BASENAME"
 PREFIX_ARM64="$HOME/$CACHE_ARM64_BASENAME"
 JOBS="-j2"
