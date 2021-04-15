@@ -9,6 +9,7 @@
 #include "bigint.hpp"
 #include "buffer.hpp"
 #include "softfloat.hpp"
+#include "softfloat_ext.hpp"
 #include "parse_f128.h"
 #include <stdio.h>
 #include <math.h>
@@ -60,9 +61,7 @@ void bigfloat_init_bigint(BigFloat *dest, const BigInt *op) {
 
         if (i == 0) {
             if (op->is_negative) {
-                float128_t zero_f128;
-                ui32_to_f128M(0, &zero_f128);
-                f128M_sub(&zero_f128, &dest->value, &dest->value);
+                f128M_neg(&dest->value, &dest->value);
             }
             return;
         }
@@ -89,9 +88,7 @@ void bigfloat_add(BigFloat *dest, const BigFloat *op1, const BigFloat *op2) {
 }
 
 void bigfloat_negate(BigFloat *dest, const BigFloat *op) {
-    float128_t zero_f128;
-    ui32_to_f128M(0, &zero_f128);
-    f128M_sub(&zero_f128, &op->value, &dest->value);
+    f128M_neg(&op->value, &dest->value);
 }
 
 void bigfloat_sub(BigFloat *dest, const BigFloat *op1, const BigFloat *op2) {
