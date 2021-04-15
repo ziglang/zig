@@ -675,17 +675,19 @@ pub const Builder = struct {
 
     /// Exposes standard `zig build` options for choosing a target.
     pub fn standardTargetOptions(self: *Builder, args: StandardTargetOptionsArgs) CrossTarget {
-        const triple = self.option(
+        const maybe_triple = self.option(
             []const u8,
             "target",
             "The CPU architecture, OS, and ABI to build for",
-        ) orelse return args.default_target;
+        );
+        const mcpu = self.option([]const u8, "cpu", "Target CPU");
 
-        // TODO add cpu and features as part of the target triple
+        const triple = maybe_triple orelse return args.default_target;
 
         var diags: CrossTarget.ParseOptions.Diagnostics = .{};
         const selected_target = CrossTarget.parse(.{
             .arch_os_abi = triple,
+            .cpu_features = mcpu,
             .diagnostics = &diags,
         }) catch |err| switch (err) {
             error.UnknownCpuModel => {

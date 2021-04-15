@@ -27,7 +27,9 @@ git fetch --tags
 
 mkdir build
 cd build
-"$ZIG" build -Dstage1 -Dtarget=x86_64-windows-gnu \
+"$ZIG" build -Dstage1 -Domit-stage2 -Drelease \
+    -Dtarget=x86_64-windows-gnu \
+    -Dcpu=x86_64_v2 \
     --search-prefix "$PREFIX" \
     --override-lib-dir "$ZIGDIR/lib" \
     --prefix "$(pwd)/dist"

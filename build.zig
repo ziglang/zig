@@ -55,6 +55,7 @@ pub fn build(b: *Builder) !void {
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
     const is_stage1 = b.option(bool, "stage1", "Build the stage1 compiler, put stage2 behind a feature flag") orelse false;
+    const omit_stage2 = b.option(bool, "omit-stage2", "Do not include stage2 behind a feature flag inside stage1") orelse false;
     const static_llvm = b.option(bool, "static-llvm", "Disable integration with system-installed LLVM, Clang, LLD, and libc++") orelse false;
     const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (is_stage1 or static_llvm);
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
@@ -196,7 +197,7 @@ pub fn build(b: *Builder) !void {
     exe.addBuildOption(bool, "enable_logging", enable_logging);
     exe.addBuildOption(bool, "enable_tracy", tracy != null);
     exe.addBuildOption(bool, "is_stage1", is_stage1);
-    exe.addBuildOption(bool, "omit_stage2", false);
+    exe.addBuildOption(bool, "omit_stage2", omit_stage2);
     if (tracy) |tracy_path| {
         const client_cpp = fs.path.join(
             b.allocator,
@@ -219,7 +220,7 @@ pub fn build(b: *Builder) !void {
 
     test_stage2.addBuildOption(bool, "skip_non_native", skip_non_native);
     test_stage2.addBuildOption(bool, "is_stage1", is_stage1);
-    test_stage2.addBuildOption(bool, "omit_stage2", false);
+    test_stage2.addBuildOption(bool, "omit_stage2", omit_stage2);
     test_stage2.addBuildOption(bool, "have_llvm", enable_llvm);
     test_stage2.addBuildOption(bool, "enable_qemu", is_qemu_enabled);
     test_stage2.addBuildOption(bool, "enable_wine", is_wine_enabled);
