@@ -13,6 +13,10 @@ pub fn __truncdfhf2(a: f64) callconv(.C) u16 {
     return @bitCast(u16, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f64, a }));
 }
 
+pub fn __trunctfhf2(a: f128) callconv(.C) u16 {
+    return @bitCast(u16, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f128, a }));
+}
+
 pub fn __trunctfsf2(a: f128) callconv(.C) f32 {
     return @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f32, f128, a });
 }
