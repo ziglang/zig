@@ -743,7 +743,8 @@ const lld_libs = [_][]const u8{
 };
 // This list can be re-generated with `llvm-config --libfiles` and then
 // reformatting using your favorite text editor. Note we do not execute
-// `llvm-config` here because we are cross compiling.
+// `llvm-config` here because we are cross compiling. Also omit LLVMTableGen
+// from these libs.
 const llvm_libs = [_][]const u8{
     "LLVMWindowsManifest",
     "LLVMXRay",
@@ -895,7 +896,6 @@ const llvm_libs = [_][]const u8{
     "LLVMRemarks",
     "LLVMBitstreamReader",
     "LLVMBinaryFormat",
-    "LLVMTableGen",
     "LLVMSupport",
     "LLVMDemangle",
 };
