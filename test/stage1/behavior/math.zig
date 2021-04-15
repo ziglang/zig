@@ -843,3 +843,20 @@ test "compare undefined literal with comptime_int" {
     x = true;
     expect(x);
 }
+
+test "signed zeros are represented properly" {
+    const S = struct {
+        fn doTheTest() void {
+            inline for ([_]type{ f16, f32, f64, f128 }) |T| {
+                const ST = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+                var as_fp_val = -@as(T, 0.0);
+                var as_uint_val = @bitCast(ST, as_fp_val);
+                // Ensure the sign bit is set.
+                expect(as_uint_val >> (@typeInfo(T).Float.bits - 1) == 1);
+            }
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
