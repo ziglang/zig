@@ -35,6 +35,8 @@ cmake .. -DCMAKE_BUILD_TYPE=Release \
     "-DCMAKE_INSTALL_PREFIX=$(pwd)/dist" \
     -DZIG_OMIT_STAGE2=ON \
     -DZIG_STATIC=ON \
+    -DZIG_TARGET_TRIPLE="x86_64-native-gnu" \
+    -DZIG_TARGET_MCPU="x86_64_v2" \
     -GNinja
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables

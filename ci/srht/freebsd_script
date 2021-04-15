@@ -34,7 +34,8 @@ cmake .. \
     -DCMAKE_PREFIX_PATH=$PREFIX \
     "-DCMAKE_INSTALL_PREFIX=$(pwd)/release" \
     -DZIG_STATIC=ON \
-    -DZIG_TARGET_TRIPLE="x86_64-freebsd-gnu" \
+    -DZIG_TARGET_TRIPLE="x86_64-native-gnu" \
+    -DZIG_TARGET_MCPU="x86_64_v2" \
     -GNinja
 samu install
 
