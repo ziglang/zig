@@ -7,7 +7,7 @@ platform:
 
 steps:
 - name: build-and-test
-  image: ziglang/static-base:llvm11-aarch64-1
+  image: ziglang/static-base:llvm12-aarch64-1
   environment:
     SRHT_OAUTH_TOKEN:
       from_secret: SRHT_OAUTH_TOKEN
