@@ -29,7 +29,13 @@ export TERM=dumb
 
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX "-DCMAKE_INSTALL_PREFIX=$(pwd)/release" -DZIG_STATIC=ON -GNinja
+cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH=$PREFIX \
+    "-DCMAKE_INSTALL_PREFIX=$(pwd)/release" \
+    -DZIG_STATIC=ON \
+    -DZIG_USE_LLVM_CONFIG=OFF \
+    -GNinja
 samu install
 
 # Here we skip some tests to save time.
