@@ -38,7 +38,7 @@ cmake .. \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
   -DZIG_TARGET_TRIPLE="$ARCH-native-gnu" \
-  -DZIG_TARGET_MCPU="x86_64_v2" \
+  -DZIG_TARGET_MCPU="baseline" \
   -DZIG_STATIC=ON
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
@@ -52,7 +52,7 @@ make $JOBS install
 # Here we rebuild zig but this time using the Zig binary we just now produced to
 # build zig1.o rather than relying on the one built with stage0. See
 # https://github.com/ziglang/zig/issues/6830 for more details.
-cmake .. -DZIG_EXECUTABLE="$(pwd)/release/bin/zig"
+cmake .. -DZIG_EXECUTABLE="$(pwd)/release/bin/zig" -DZIG_TARGET_MCPU="x86_64_v2"
 make $JOBS install
 
 release/bin/zig build test
