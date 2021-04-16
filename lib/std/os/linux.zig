@@ -632,7 +632,7 @@ pub fn tkill(tid: pid_t, sig: i32) usize {
 }
 
 pub fn tgkill(tgid: pid_t, tid: pid_t, sig: i32) usize {
-    return syscall2(.tgkill, @bitCast(usize, @as(isize, tgid)), @bitCast(usize, @as(isize, tid)), @bitCast(usize, @as(isize, sig)));
+    return syscall3(.tgkill, @bitCast(usize, @as(isize, tgid)), @bitCast(usize, @as(isize, tid)), @bitCast(usize, @as(isize, sig)));
 }
 
 pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) usize {
