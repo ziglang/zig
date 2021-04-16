@@ -301,7 +301,7 @@ pub const Dir = struct {
 
     const IteratorError = error{AccessDenied} || os.UnexpectedError;
 
-    pub const Iterator = switch (builtin.os.tag) {
+    pub const Iterator = switch (comptime builtin.os.tag) {
         .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => struct {
             dir: Dir,
             seek: i64,
