@@ -1557,7 +1557,7 @@ pub const Inst = struct {
     ///      0bX0: whether corresponding decl is exported
     /// 4. decl: { // for every decls_len
     ///        name: u32, // null terminated string index
-    ///        value: Ref,
+    ///        value: Index,
     ///    }
     pub const StructDecl = struct {
         body_len: u32,
@@ -2045,6 +2045,12 @@ const Writer = struct {
 
     fn writePlNodeBlock(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        try self.writePlNodeBlockWithoutSrc(stream, inst);
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeBlockWithoutSrc(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.Block, inst_data.payload_index);
         const body = self.code.extra[extra.end..][0..extra.data.body_len];
         try stream.writeAll("{\n");
@@ -2053,7 +2059,6 @@ const Writer = struct {
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("}) ");
-        try self.writeSrc(stream, inst_data.src());
     }
 
     fn writePlNodeCondBr(self: *Writer, stream: anytype, inst: Inst.Index) !void {
@@ -2082,9 +2087,6 @@ const Writer = struct {
         const body = self.code.extra[extra.end..][0..extra.data.body_len];
         const fields_len = extra.data.fields_len;
         const decls_len = extra.data.decls_len;
-
-        const prev_parent_decl_node = self.parent_decl_node;
-        self.parent_decl_node = self.relativeToNodeIndex(inst_data.src_node);
 
         var extra_index: usize = undefined;
 
@@ -2157,11 +2159,11 @@ const Writer = struct {
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("}) ");
         }
-        self.parent_decl_node = prev_parent_decl_node;
         try self.writeSrc(stream, inst_data.src());
     }
 
     fn writeDecls(self: *Writer, stream: anytype, decls_len: u32, extra_start: usize) !void {
+        const parent_decl_node = self.parent_decl_node;
         const bit_bags_count = std.math.divCeil(usize, decls_len, 16) catch unreachable;
         var extra_index = extra_start + bit_bags_count;
         var bit_bag_index: usize = extra_start;
@@ -2179,14 +2181,23 @@ const Writer = struct {
 
             const decl_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
             extra_index += 1;
-            const decl_value = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+            const decl_index = self.code.extra[extra_index];
             extra_index += 1;
 
+            const tag = self.code.instructions.items(.tag)[decl_index];
             const pub_str = if (is_pub) "pub " else "";
             const export_str = if (is_exported) "export " else "";
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.print("{s}{s}{} = ", .{ pub_str, export_str, std.zig.fmtId(decl_name) });
-            try self.writeInstRef(stream, decl_value);
+            try stream.print("{s}{s}{}: %{d} = {s}(", .{
+                pub_str, export_str, std.zig.fmtId(decl_name), decl_index, @tagName(tag),
+            });
+
+            const decl_block_inst_data = self.code.instructions.items(.data)[decl_index].pl_node;
+            const sub_decl_node_off = decl_block_inst_data.src_node;
+            self.parent_decl_node = self.relativeToNodeIndex(sub_decl_node_off);
+            try self.writePlNodeBlockWithoutSrc(stream, decl_index);
+            self.parent_decl_node = parent_decl_node;
+            try self.writeSrc(stream, decl_block_inst_data.src());
             try stream.writeAll("\n");
         }
     }

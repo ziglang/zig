@@ -2121,7 +2121,7 @@ fn globalVarDecl(
         return astgen.failNode(var_decl.ast.section_node, "TODO linksection on globals", .{});
     }
 
-    const var_inst: Zir.Inst.Ref = if (var_decl.ast.init_node != 0) vi: {
+    const var_inst: Zir.Inst.Index = if (var_decl.ast.init_node != 0) vi: {
         if (is_extern) {
             return astgen.failNode(
                 var_decl.ast.init_node,
@@ -2130,16 +2130,37 @@ fn globalVarDecl(
             );
         }
 
+        var block_scope: GenZir = .{
+            .parent = scope,
+            .decl_node_index = node,
+            .astgen = astgen,
+            .force_comptime = true,
+        };
+        defer block_scope.instructions.deinit(gpa);
+
         const init_result_loc: AstGen.ResultLoc = if (var_decl.ast.type_node != 0) .{
-            .ty = try expr(gz, scope, .{ .ty = .type_type }, var_decl.ast.type_node),
+            .ty = try expr(
+                &block_scope,
+                &block_scope.base,
+                .{ .ty = .type_type },
+                var_decl.ast.type_node,
+            ),
         } else .none;
 
-        const init_inst = try expr(gz, scope, init_result_loc, var_decl.ast.init_node);
+        const init_inst = try expr(
+            &block_scope,
+            &block_scope.base,
+            init_result_loc,
+            var_decl.ast.init_node,
+        );
 
         if (!is_mutable) {
             // const globals are just their instruction. mutable globals have
             // a special ZIR form.
-            break :vi init_inst;
+            const block_inst = try gz.addBlock(.block_inline, node);
+            _ = try block_scope.addBreak(.break_inline, block_inst, init_inst);
+            try block_scope.setBlockBody(block_inst);
+            break :vi block_inst;
         }
 
         @panic("TODO astgen global variable");
@@ -2160,7 +2181,7 @@ fn globalVarDecl(
 
     try wip_decls.name_and_value.ensureCapacity(gpa, wip_decls.name_and_value.items.len + 2);
     wip_decls.name_and_value.appendAssumeCapacity(name_str_index);
-    wip_decls.name_and_value.appendAssumeCapacity(@enumToInt(var_inst));
+    wip_decls.name_and_value.appendAssumeCapacity(var_inst);
 }
 
 fn comptimeDecl(

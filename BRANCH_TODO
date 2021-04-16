@@ -1,4 +1,3 @@
- * AstGen decls into blocks so we can evaluate them independently
  * look for cached zir code
  * save zir code to cache
  * store list of imported strings
@@ -740,3 +739,5 @@ fn errorSetDecl(
             try mod.analyzeExport(&decl_scope.base, export_src, name, decl);
         }
     }
+
+
