@@ -170,8 +170,8 @@ pub fn analyzeBody(
             .cmp_lte => try sema.zirCmp(block, inst, .lte),
             .cmp_neq => try sema.zirCmp(block, inst, .neq),
             .coerce_result_ptr => try sema.zirCoerceResultPtr(block, inst),
-            .decl_ref_named => try sema.zirDeclRefNamed(block, inst),
-            .decl_val_named => try sema.zirDeclValNamed(block, inst),
+            .decl_ref => try sema.zirDeclRef(block, inst),
+            .decl_val => try sema.zirDeclVal(block, inst),
             .load => try sema.zirLoad(block, inst),
             .div => try sema.zirArithmetic(block, inst),
             .elem_ptr => try sema.zirElemPtr(block, inst),
@@ -1658,7 +1658,7 @@ fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerE
     _ = try block.addDbgStmt(src, abs_byte_off);
 }
 
-fn zirDeclRefNamed(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirDeclRef(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
     const src = inst_data.src();
     const decl_name = inst_data.get(sema.code);
@@ -1666,7 +1666,7 @@ fn zirDeclRefNamed(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inner
     return sema.analyzeDeclRef(block, src, decl);
 }
 
-fn zirDeclValNamed(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
     const src = inst_data.src();
     const decl_name = inst_data.get(sema.code);

@@ -1276,8 +1276,8 @@ fn blockExprStmts(
                         .cmp_gt,
                         .cmp_neq,
                         .coerce_result_ptr,
-                        .decl_ref_named,
-                        .decl_val_named,
+                        .decl_ref,
+                        .decl_val,
                         .load,
                         .div,
                         .elem_ptr,
@@ -4260,9 +4260,9 @@ fn identifier(
     // depending on the scope, determined by the generic instantiation.
     const str_index = try gz.identAsString(ident_token);
     switch (rl) {
-        .ref, .none_or_ref => return gz.addStrTok(.decl_ref_named, str_index, ident_token),
+        .ref, .none_or_ref => return gz.addStrTok(.decl_ref, str_index, ident_token),
         else => {
-            const result = try gz.addStrTok(.decl_val_named, str_index, ident_token);
+            const result = try gz.addStrTok(.decl_val, str_index, ident_token);
             return rvalue(gz, scope, rl, result, ident);
         },
     }

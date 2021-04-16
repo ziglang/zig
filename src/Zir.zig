@@ -296,12 +296,12 @@ pub const Inst = struct {
         /// Declares the beginning of a statement. Used for debug info.
         /// Uses the `node` union field.
         dbg_stmt_node,
-        /// Same as `decl_ref` except instead of indexing into decls, uses
-        /// a name to identify the Decl. Uses the `str_tok` union field.
-        decl_ref_named,
-        /// Same as `decl_val` except instead of indexing into decls, uses
-        /// a name to identify the Decl. Uses the `str_tok` union field.
-        decl_val_named,
+        /// Uses a name to identify a Decl and takes a pointer to it.
+        /// Uses the `str_tok` union field.
+        decl_ref,
+        /// Uses a name to identify a Decl and uses it as a value.
+        /// Uses the `str_tok` union field.
+        decl_val,
         /// Load the value from a pointer. Assumes `x.*` syntax.
         /// Uses `un_node` field. AST node is the `x.*` syntax.
         load,
@@ -765,8 +765,8 @@ pub const Inst = struct {
                 .enum_decl_nonexhaustive,
                 .opaque_decl,
                 .dbg_stmt_node,
-                .decl_ref_named,
-                .decl_val_named,
+                .decl_ref,
+                .decl_val,
                 .load,
                 .div,
                 .elem_ptr,
@@ -1868,8 +1868,8 @@ const Writer = struct {
 
             .error_value,
             .enum_literal,
-            .decl_ref_named,
-            .decl_val_named,
+            .decl_ref,
+            .decl_val,
             .import,
             => try self.writeStrTok(stream, inst),
 
