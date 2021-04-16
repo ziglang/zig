@@ -594,7 +594,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/type.zig"
     "${CMAKE_SOURCE_DIR}/src/value.zig"
     "${CMAKE_SOURCE_DIR}/src/windows_sdk.zig"
-    "${CMAKE_SOURCE_DIR}/src/zir.zig"
+    "${CMAKE_SOURCE_DIR}/src/Zir.zig"
     "${CMAKE_SOURCE_DIR}/src/Sema.zig"
 )
 
