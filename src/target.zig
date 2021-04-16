@@ -135,7 +135,22 @@ pub fn osRequiresLibC(target: std.Target) bool {
 }
 
 pub fn libcNeedsLibUnwind(target: std.Target) bool {
-    return switch (target.os.tag) {
+    // libunwind is only available on x86 and Arm family architectures.
+    // https://github.com/llvm/llvm-project/blob/main/libunwind/docs/index.rst#platform-and-compiler-support
+    const has_libunwind = switch (target.cpu.arch) {
+        .arm,
+        .armeb,
+        .aarch64,
+        .aarch64_be,
+        .aarch64_32,
+        .i386,
+        .x86_64,
+        => true,
+
+        else => false,
+    };
+
+    const needs_libunwind = switch (target.os.tag) {
         .macos,
         .ios,
         .watchos,
@@ -146,6 +161,8 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
         .windows => target.abi != .msvc,
         else => true,
     };
+
+    return has_libunwind and needs_libunwind;
 }
 
 pub fn requiresPIE(target: std.Target) bool {
