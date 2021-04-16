@@ -1491,7 +1491,7 @@ fn varDecl(
     }
 
     if (var_decl.ast.init_node == 0) {
-        return astgen.failTok(name_token, "variables must be initialized", .{});
+        return astgen.failNode(node, "variables must be initialized", .{});
     }
 
     switch (token_tags[var_decl.ast.mut_token]) {
@@ -1851,10 +1851,12 @@ fn fnDecl(
 
     const is_pub = fn_proto.visib_token != null;
     const is_export = blk: {
-        if (fn_proto.extern_export_token) |maybe_export_token| {
-            break :blk token_tags[maybe_export_token] == .keyword_export;
-        }
-        break :blk false;
+        const maybe_export_token = fn_proto.extern_export_token orelse break :blk false;
+        break :blk token_tags[maybe_export_token] == .keyword_export;
+    };
+    const is_extern = blk: {
+        const maybe_extern_token = fn_proto.extern_export_token orelse break :blk false;
+        break :blk token_tags[maybe_extern_token] == .keyword_extern;
     };
     if (wip_decls.decl_index % 16 == 0 and wip_decls.decl_index != 0) {
         try wip_decls.bit_bag.append(gpa, wip_decls.cur_bit_bag);
@@ -1936,11 +1938,6 @@ fn fnDecl(
         .{ .ty = .type_type },
         fn_proto.ast.return_type,
     );
-
-    const is_extern = if (fn_proto.extern_export_token) |maybe_export_token|
-        token_tags[maybe_export_token] == .keyword_extern
-    else
-        false;
 
     const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
         // TODO instead of enum literal type, this needs to be the
@@ -2070,10 +2067,94 @@ fn fnDecl(
 fn globalVarDecl(
     astgen: *AstGen,
     gz: *GenZir,
+    scope: *Scope,
     wip_decls: *WipDecls,
+    node: ast.Node.Index,
     var_decl: ast.full.VarDecl,
 ) InnerError!void {
-    @panic("TODO astgen globalVarDecl");
+    const gpa = astgen.gpa;
+    const tree = &astgen.file.tree;
+    const token_tags = tree.tokens.items(.tag);
+
+    const is_pub = var_decl.visib_token != null;
+    const is_export = blk: {
+        const maybe_export_token = var_decl.extern_export_token orelse break :blk false;
+        break :blk token_tags[maybe_export_token] == .keyword_export;
+    };
+    const is_extern = blk: {
+        const maybe_extern_token = var_decl.extern_export_token orelse break :blk false;
+        break :blk token_tags[maybe_extern_token] == .keyword_extern;
+    };
+    if (wip_decls.decl_index % 16 == 0 and wip_decls.decl_index != 0) {
+        try wip_decls.bit_bag.append(gpa, wip_decls.cur_bit_bag);
+        wip_decls.cur_bit_bag = 0;
+    }
+    wip_decls.cur_bit_bag = (wip_decls.cur_bit_bag >> 2) |
+        (@as(u32, @boolToInt(is_pub)) << 30) |
+        (@as(u32, @boolToInt(is_export)) << 31);
+    wip_decls.decl_index += 1;
+
+    const is_mutable = token_tags[var_decl.ast.mut_token] == .keyword_var;
+    const is_threadlocal = if (var_decl.threadlocal_token) |tok| blk: {
+        if (!is_mutable) {
+            return astgen.failTok(tok, "threadlocal variable cannot be constant", .{});
+        }
+        break :blk true;
+    } else false;
+
+    const lib_name: u32 = if (var_decl.lib_name) |lib_name_token| blk: {
+        const lib_name_str = try gz.strLitAsString(lib_name_token);
+        break :blk lib_name_str.index;
+    } else 0;
+
+    assert(var_decl.comptime_token == null); // handled by parser
+    if (var_decl.ast.align_node != 0) {
+        return astgen.failNode(var_decl.ast.align_node, "TODO implement alignment on globals", .{});
+    }
+    if (var_decl.ast.section_node != 0) {
+        return astgen.failNode(var_decl.ast.section_node, "TODO linksection on globals", .{});
+    }
+
+    const var_inst: Zir.Inst.Ref = if (var_decl.ast.init_node != 0) vi: {
+        if (is_extern) {
+            return astgen.failNode(
+                var_decl.ast.init_node,
+                "extern variables have no initializers",
+                .{},
+            );
+        }
+
+        const init_result_loc: AstGen.ResultLoc = if (var_decl.ast.type_node != 0) .{
+            .ty = try expr(gz, scope, .{ .ty = .type_type }, var_decl.ast.type_node),
+        } else .none;
+
+        const init_inst = try expr(gz, scope, init_result_loc, var_decl.ast.init_node);
+
+        if (!is_mutable) {
+            // const globals are just their instruction. mutable globals have
+            // a special ZIR form.
+            break :vi init_inst;
+        }
+
+        @panic("TODO astgen global variable");
+    } else if (!is_extern) {
+        return astgen.failNode(node, "variables must be initialized", .{});
+    } else if (var_decl.ast.type_node != 0) {
+        // Extern variable which has an explicit type.
+
+        const type_inst = try typeExpr(gz, scope, var_decl.ast.type_node);
+
+        @panic("TODO AstGen extern global variable");
+    } else {
+        return astgen.failNode(node, "unable to infer variable type", .{});
+    };
+
+    const name_token = var_decl.ast.mut_token + 1;
+    const name_str_index = try gz.identAsString(name_token);
+
+    try wip_decls.name_and_value.ensureCapacity(gpa, wip_decls.name_and_value.items.len + 2);
+    wip_decls.name_and_value.appendAssumeCapacity(name_str_index);
+    wip_decls.name_and_value.appendAssumeCapacity(@enumToInt(var_inst));
 }
 
 fn comptimeDecl(
@@ -2191,19 +2272,19 @@ fn structDeclInner(
             },
 
             .global_var_decl => {
-                try astgen.globalVarDecl(gz, &wip_decls, tree.globalVarDecl(member_node));
+                try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.globalVarDecl(member_node));
                 continue;
             },
             .local_var_decl => {
-                try astgen.globalVarDecl(gz, &wip_decls, tree.localVarDecl(member_node));
+                try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.localVarDecl(member_node));
                 continue;
             },
             .simple_var_decl => {
-                try astgen.globalVarDecl(gz, &wip_decls, tree.simpleVarDecl(member_node));
+                try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.simpleVarDecl(member_node));
                 continue;
             },
             .aligned_var_decl => {
-                try astgen.globalVarDecl(gz, &wip_decls, tree.alignedVarDecl(member_node));
+                try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.alignedVarDecl(member_node));
                 continue;
             },
 

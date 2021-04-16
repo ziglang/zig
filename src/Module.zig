@@ -2457,6 +2457,9 @@ fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
 }
 
 pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const comp = mod.comp;
     const gpa = mod.gpa;
 
@@ -2468,7 +2471,9 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
 
     // Determine whether we need to reload the file from disk and redo parsing and AstGen.
     switch (file.status) {
-        .never_loaded, .retryable_failure => {},
+        .never_loaded, .retryable_failure => {
+            log.debug("first-time AstGen: {s}", .{file.sub_file_path});
+        },
         .parse_failure, .astgen_failure, .success => {
             const unchanged_metadata =
                 stat.size == file.stat_size and

@@ -1,4 +1,5 @@
  * get rid of failed_root_src_file
+ * get rid of Scope.DeclRef
  * handle decl collision with usingnamespace
  * the decl doing the looking up needs to create a decl dependency
    on each usingnamespace decl
@@ -104,42 +105,6 @@ fn getAnonTypeName(mod: *Module, scope: *Scope, base_token: std.zig.ast.TokenInd
     const loc = tree.tokenLocation(0, base_token);
     return std.fmt.allocPrint(mod.gpa, "{s}:{d}:{d}", .{ base_name, loc.line, loc.column });
 }
-
-
-            // Detect which source files changed.
-            for (module.import_table.items()) |entry| {
-                const file = entry.value;
-                var f = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{});
-                defer f.close();
-
-                // TODO handle error here by populating a retryable compile error
-                const stat = try f.stat();
-                const unchanged_metadata =
-                    stat.size == file.stat_size and
-                    stat.mtime == file.stat_mtime and
-                    stat.inode == file.stat_inode;
-
-                if (unchanged_metadata) {
-                    log.debug("unmodified metadata of file: {s}", .{file.sub_file_path});
-                    continue;
-                }
-
-                log.debug("metadata changed: {s}", .{file.sub_file_path});
-                if (file.status == .unloaded_parse_failure) {
-                    module.failed_files.swapRemove(file).?.value.destroy(module.gpa);
-                }
-
-                file.unload(module.gpa);
-                // TODO handle error here by populating a retryable compile error
-                try file.finishGettingSource(module.gpa, f, stat);
-
-                module.analyzeFile(file) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => continue,
-                    else => |e| return e,
-                };
-            }
-
 
 
     const parent_name_hash: Scope.NameHash = if (found_pkg) |pkg|
@@ -256,68 +221,6 @@ fn getAnonTypeName(mod: *Module, scope: *Scope, base_token: std.zig.ast.TokenInd
 
 
 
-pub fn getAstTree(mod: *Module, file: *Scope.File) !*const ast.Tree {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    if (file.tree_loaded) {
-        return &file.tree;
-    }
-
-    switch (file.status) {
-        .never_loaded, .success, .retryable_failure => {},
-        .parse_failure, .astgen_failure => return error.AnalysisFail,
-    }
-
-    switch (file.status) {
-        .never_loaded, .unloaded_success => {
-            const gpa = mod.gpa;
-
-            try mod.failed_files.ensureCapacity(gpa, mod.failed_files.items().len + 1);
-
-            const source = try file.getSource(gpa);
-
-            var keep_tree = false;
-            file.tree = try std.zig.parse(gpa, source);
-            defer if (!keep_tree) file.tree.deinit(gpa);
-
-            const tree = &file.tree;
-
-            if (tree.errors.len != 0) {
-                const parse_err = tree.errors[0];
-
-                var msg = std.ArrayList(u8).init(gpa);
-                defer msg.deinit();
-
-                const token_starts = tree.tokens.items(.start);
-
-                try tree.renderError(parse_err, msg.writer());
-                const err_msg = try gpa.create(ErrorMsg);
-                err_msg.* = .{
-                    .src_loc = .{
-                        .container = .{ .file_scope = file },
-                        .lazy = .{ .byte_abs = token_starts[parse_err.token] },
-                    },
-                    .msg = msg.toOwnedSlice(),
-                };
-
-                mod.failed_files.putAssumeCapacityNoClobber(file, err_msg);
-                file.status = .unloaded_parse_failure;
-                return error.AnalysisFail;
-            }
-
-            file.status = .success;
-            file.tree_loaded = true;
-            keep_tree = true;
-
-            return tree;
-        },
-
-        .unloaded_parse_failure => return error.AnalysisFail,
-
-        .success => return &file.tree,
-    }
-}
 
 
 
@@ -510,131 +413,6 @@ fn astgenAndSemaFn(
     body_node: ast.Node.Index,
     fn_proto: ast.full.FnProto,
 ) !bool {
-    var fn_type_sema: Sema = .{
-        .mod = mod,
-        .gpa = mod.gpa,
-        .arena = &decl_arena.allocator,
-        .code = fn_type_code,
-        .inst_map = try fn_type_scope_arena.allocator.alloc(*ir.Inst, fn_type_code.instructions.len),
-        .owner_decl = decl,
-        .namespace = decl.namespace,
-        .func = null,
-        .owner_func = null,
-        .param_inst_list = &.{},
-    };
-    var block_scope: Scope.Block = .{
-        .parent = null,
-        .sema = &fn_type_sema,
-        .src_decl = decl,
-        .instructions = .{},
-        .inlining = null,
-        .is_comptime = true,
-    };
-    defer block_scope.instructions.deinit(mod.gpa);
-
-    const fn_type = try fn_type_sema.rootAsType(&block_scope);
-    if (body_node == 0) {
-        // Extern function.
-        var type_changed = true;
-        if (decl.typedValueManaged()) |tvm| {
-            type_changed = !tvm.typed_value.ty.eql(fn_type);
-
-            tvm.deinit(mod.gpa);
-        }
-        const fn_val = try Value.Tag.extern_fn.create(&decl_arena.allocator, decl);
-
-        decl_arena_state.* = decl_arena.state;
-        decl.typed_value = .{
-            .most_recent = .{
-                .typed_value = .{ .ty = fn_type, .val = fn_val },
-                .arena = decl_arena_state,
-            },
-        };
-        decl.analysis = .complete;
-        decl.generation = mod.generation;
-
-        try mod.comp.bin_file.allocateDeclIndexes(decl);
-        try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
-
-        if (type_changed and mod.emit_h != null) {
-            try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
-        }
-
-        return type_changed;
-    }
-
-    if (fn_type.fnIsVarArgs()) {
-        return mod.failNode(&block_scope.base, fn_proto.ast.fn_token, "non-extern function is variadic", .{});
-    }
-
-    const new_func = try decl_arena.allocator.create(Fn);
-    const fn_payload = try decl_arena.allocator.create(Value.Payload.Function);
-
-    const fn_zir: Zir = blk: {
-        // We put the ZIR inside the Decl arena.
-        var astgen = try AstGen.init(mod, decl, &decl_arena.allocator);
-        astgen.ref_start_index = @intCast(u32, Zir.Inst.Ref.typed_value_map.len + param_count);
-        defer astgen.deinit();
-
-        var gen_scope: Scope.GenZir = .{
-            .force_comptime = false,
-            .parent = &decl.namespace.base,
-            .astgen = &astgen,
-        };
-        defer gen_scope.instructions.deinit(mod.gpa);
-
-        // Iterate over the parameters. We put the param names as the first N
-        // items inside `extra` so that debug info later can refer to the parameter names
-        // even while the respective source code is unloaded.
-        try astgen.extra.ensureCapacity(mod.gpa, param_count);
-
-        var params_scope = &gen_scope.base;
-        var i: usize = 0;
-        var it = fn_proto.iterate(tree);
-        while (it.next()) |param| : (i += 1) {
-            const name_token = param.name_token.?;
-            const param_name = try mod.identifierTokenString(&gen_scope.base, name_token);
-            const sub_scope = try decl_arena.allocator.create(Scope.LocalVal);
-            sub_scope.* = .{
-                .parent = params_scope,
-                .gen_zir = &gen_scope,
-                .name = param_name,
-                // Implicit const list first, then implicit arg list.
-                .inst = @intToEnum(Zir.Inst.Ref, @intCast(u32, Zir.Inst.Ref.typed_value_map.len + i)),
-                .src = decl.tokSrcLoc(name_token),
-            };
-            params_scope = &sub_scope.base;
-
-            // Additionally put the param name into `string_bytes` and reference it with
-            // `extra` so that we have access to the data in codegen, for debug info.
-            const str_index = @intCast(u32, astgen.string_bytes.items.len);
-            astgen.extra.appendAssumeCapacity(str_index);
-            const used_bytes = astgen.string_bytes.items.len;
-            try astgen.string_bytes.ensureCapacity(mod.gpa, used_bytes + param_name.len + 1);
-            astgen.string_bytes.appendSliceAssumeCapacity(param_name);
-            astgen.string_bytes.appendAssumeCapacity(0);
-        }
-
-        _ = try AstGen.expr(&gen_scope, params_scope, .none, body_node);
-
-        if (gen_scope.instructions.items.len == 0 or
-            !astgen.instructions.items(.tag)[gen_scope.instructions.items.len - 1]
-            .isNoReturn())
-        {
-            // astgen uses result location semantics to coerce return operands.
-            // Since we are adding the return instruction here, we must handle the coercion.
-            // We do this by using the `ret_coerce` instruction.
-            _ = try gen_scope.addUnTok(.ret_coerce, .void_value, tree.lastToken(body_node));
-        }
-
-        const code = try gen_scope.finish();
-        if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-            code.dump(mod.gpa, "fn_body", &gen_scope.base, param_count) catch {};
-        }
-
-        break :blk code;
-    };
-
     const is_inline = fn_type.fnCallingConvention() == .Inline;
     const anal_state: Fn.Analysis = if (is_inline) .inline_only else .queued;
 
@@ -716,264 +494,11 @@ fn astgenAndSemaVarDecl(
     tree: ast.Tree,
     var_decl: ast.full.VarDecl,
 ) !bool {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    decl.analysis = .in_progress;
-    decl.is_pub = var_decl.visib_token != null;
-
     const token_tags = tree.tokens.items(.tag);
 
-    // We need the memory for the Type to go into the arena for the Decl
-    var decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
-    errdefer decl_arena.deinit();
-    const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
-
-    // Used for simple error reporting.
-    var decl_scope: Scope.DeclRef = .{ .decl = decl };
-
-    const is_extern = blk: {
-        const maybe_extern_token = var_decl.extern_export_token orelse break :blk false;
-        break :blk token_tags[maybe_extern_token] == .keyword_extern;
-    };
-
-    if (var_decl.lib_name) |lib_name| {
-        assert(is_extern);
-        return mod.failTok(&decl_scope.base, lib_name, "TODO implement function library name", .{});
-    }
-    const is_mutable = token_tags[var_decl.ast.mut_token] == .keyword_var;
-    const is_threadlocal = if (var_decl.threadlocal_token) |some| blk: {
-        if (!is_mutable) {
-            return mod.failTok(&decl_scope.base, some, "threadlocal variable cannot be constant", .{});
-        }
-        break :blk true;
-    } else false;
-    assert(var_decl.comptime_token == null);
-    if (var_decl.ast.align_node != 0) {
-        return mod.failNode(
-            &decl_scope.base,
-            var_decl.ast.align_node,
-            "TODO implement function align expression",
-            .{},
-        );
-    }
-    if (var_decl.ast.section_node != 0) {
-        return mod.failNode(
-            &decl_scope.base,
-            var_decl.ast.section_node,
-            "TODO implement function section expression",
-            .{},
-        );
-    }
-
-    const var_info: struct { ty: Type, val: ?Value } = if (var_decl.ast.init_node != 0) vi: {
-        if (is_extern) {
-            return mod.failNode(
-                &decl_scope.base,
-                var_decl.ast.init_node,
-                "extern variables have no initializers",
-                .{},
-            );
-        }
-
-        var gen_scope_arena = std.heap.ArenaAllocator.init(mod.gpa);
-        defer gen_scope_arena.deinit();
-
-        var astgen = try AstGen.init(mod, decl, &gen_scope_arena.allocator);
-        defer astgen.deinit();
-
-        var gen_scope: Scope.GenZir = .{
-            .force_comptime = true,
-            .parent = &decl.namespace.base,
-            .astgen = &astgen,
-        };
-        defer gen_scope.instructions.deinit(mod.gpa);
-
-        const init_result_loc: AstGen.ResultLoc = if (var_decl.ast.type_node != 0) .{
-            .ty = try AstGen.expr(&gen_scope, &gen_scope.base, .{ .ty = .type_type }, var_decl.ast.type_node),
-        } else .none;
-
-        const init_inst = try AstGen.comptimeExpr(
-            &gen_scope,
-            &gen_scope.base,
-            init_result_loc,
-            var_decl.ast.init_node,
-        );
-        _ = try gen_scope.addBreak(.break_inline, 0, init_inst);
-        var code = try gen_scope.finish();
-        defer code.deinit(mod.gpa);
-        if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-            code.dump(mod.gpa, "var_init", &gen_scope.base, 0) catch {};
-        }
-
-        var sema: Sema = .{
-            .mod = mod,
-            .gpa = mod.gpa,
-            .arena = &gen_scope_arena.allocator,
-            .code = code,
-            .inst_map = try gen_scope_arena.allocator.alloc(*ir.Inst, code.instructions.len),
-            .owner_decl = decl,
-            .namespace = decl.namespace,
-            .func = null,
-            .owner_func = null,
-            .param_inst_list = &.{},
-        };
-        var block_scope: Scope.Block = .{
-            .parent = null,
-            .sema = &sema,
-            .src_decl = decl,
-            .instructions = .{},
-            .inlining = null,
-            .is_comptime = true,
-        };
-        defer block_scope.instructions.deinit(mod.gpa);
-
-        const init_inst_zir_ref = try sema.rootAsRef(&block_scope);
-        // The result location guarantees the type coercion.
-        const analyzed_init_inst = try sema.resolveInst(init_inst_zir_ref);
-        // The is_comptime in the Scope.Block guarantees the result is comptime-known.
-        const val = analyzed_init_inst.value().?;
-
-        break :vi .{
-            .ty = try analyzed_init_inst.ty.copy(&decl_arena.allocator),
-            .val = try val.copy(&decl_arena.allocator),
-        };
-    } else if (!is_extern) {
-        return mod.failTok(
-            &decl_scope.base,
-            var_decl.ast.mut_token,
-            "variables must be initialized",
-            .{},
-        );
-    } else if (var_decl.ast.type_node != 0) vi: {
-        var type_scope_arena = std.heap.ArenaAllocator.init(mod.gpa);
-        defer type_scope_arena.deinit();
-
-        var astgen = try AstGen.init(mod, decl, &type_scope_arena.allocator);
-        defer astgen.deinit();
-
-        var type_scope: Scope.GenZir = .{
-            .force_comptime = true,
-            .parent = &decl.namespace.base,
-            .astgen = &astgen,
-        };
-        defer type_scope.instructions.deinit(mod.gpa);
-
-        const var_type = try AstGen.typeExpr(&type_scope, &type_scope.base, var_decl.ast.type_node);
-        _ = try type_scope.addBreak(.break_inline, 0, var_type);
-
-        var code = try type_scope.finish();
-        defer code.deinit(mod.gpa);
-        if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-            code.dump(mod.gpa, "var_type", &type_scope.base, 0) catch {};
-        }
-
-        var sema: Sema = .{
-            .mod = mod,
-            .gpa = mod.gpa,
-            .arena = &type_scope_arena.allocator,
-            .code = code,
-            .inst_map = try type_scope_arena.allocator.alloc(*ir.Inst, code.instructions.len),
-            .owner_decl = decl,
-            .namespace = decl.namespace,
-            .func = null,
-            .owner_func = null,
-            .param_inst_list = &.{},
-        };
-        var block_scope: Scope.Block = .{
-            .parent = null,
-            .sema = &sema,
-            .src_decl = decl,
-            .instructions = .{},
-            .inlining = null,
-            .is_comptime = true,
-        };
-        defer block_scope.instructions.deinit(mod.gpa);
-
-        const ty = try sema.rootAsType(&block_scope);
-
-        break :vi .{
-            .ty = try ty.copy(&decl_arena.allocator),
-            .val = null,
-        };
-    } else {
-        return mod.failTok(
-            &decl_scope.base,
-            var_decl.ast.mut_token,
-            "unable to infer variable type",
-            .{},
-        );
-    };
-
-    if (is_mutable and !var_info.ty.isValidVarType(is_extern)) {
-        return mod.failTok(
-            &decl_scope.base,
-            var_decl.ast.mut_token,
-            "variable of type '{}' must be const",
-            .{var_info.ty},
-        );
-    }
-
-    var type_changed = true;
-    if (decl.typedValueManaged()) |tvm| {
-        type_changed = !tvm.typed_value.ty.eql(var_info.ty);
-
-        tvm.deinit(mod.gpa);
-    }
-
-    const new_variable = try decl_arena.allocator.create(Var);
-    new_variable.* = .{
-        .owner_decl = decl,
-        .init = var_info.val orelse undefined,
-        .is_extern = is_extern,
-        .is_mutable = is_mutable,
-        .is_threadlocal = is_threadlocal,
-    };
-    const var_val = try Value.Tag.variable.create(&decl_arena.allocator, new_variable);
-
-    decl_arena_state.* = decl_arena.state;
-    decl.typed_value = .{
-        .most_recent = .{
-            .typed_value = .{
-                .ty = var_info.ty,
-                .val = var_val,
-            },
-            .arena = decl_arena_state,
-        },
-    };
-    decl.analysis = .complete;
-    decl.generation = mod.generation;
-
-    if (var_decl.extern_export_token) |maybe_export_token| {
-        if (token_tags[maybe_export_token] == .keyword_export) {
-            const export_src = decl.tokSrcLoc(maybe_export_token);
-            const name_token = var_decl.ast.mut_token + 1;
-            const name = tree.tokenSlice(name_token); // TODO identifierTokenString
-            // The scope needs to have the decl in it.
-            try mod.analyzeExport(&decl_scope.base, export_src, name, decl);
-        }
-    }
-    return type_changed;
 }
 
 
-/// Call `deinit` on the result.
-pub fn init(mod: *Module, decl: *Decl, arena: *Allocator) !AstGen {
-    var astgen: AstGen = .{
-        .mod = mod,
-        .decl = decl,
-        .arena = arena,
-    };
-    // Must be a block instruction at index 0 with the root body.
-    try astgen.instructions.append(mod.gpa, .{
-        .tag = .block,
-        .data = .{ .pl_node = .{
-            .src_node = 0,
-            .payload_index = undefined,
-        } },
-    });
-    return astgen;
-}
     /// Asserts the scope is a child of a File and has an AST tree and returns the tree.
     pub fn tree(scope: *Scope) *const ast.Tree {
         switch (scope.tag) {
@@ -1181,26 +706,6 @@ fn errorSetDecl(
 }
 
 
-/// The string is stored in `arena` regardless of whether it uses @"" syntax.
-pub fn identifierTokenStringTreeArena(
-    astgen: *AstGen,
-    token: ast.TokenIndex,
-    tree: *const ast.Tree,
-    arena: *Allocator,
-) InnerError![]u8 {
-    const token_tags = tree.tokens.items(.tag);
-    assert(token_tags[token] == .identifier);
-    const ident_name = tree.tokenSlice(token);
-    if (!mem.startsWith(u8, ident_name, "@")) {
-        return arena.dupe(u8, ident_name);
-    }
-    var buf: ArrayListUnmanaged(u8) = .{};
-    defer buf.deinit(astgen.gpa);
-    try astgen.parseStrLit(token, &buf, ident_name, 1);
-    return arena.dupe(u8, buf.items);
-}
-
-
 
     if (mod.lookupIdentifier(scope, ident_name)) |decl| {
         const msg = msg: {
@@ -1217,3 +722,54 @@ pub fn identifierTokenStringTreeArena(
         return mod.failWithOwnedErrorMsg(scope, msg);
     }
 
+
+    var type_changed = true;
+    if (decl.typedValueManaged()) |tvm| {
+        type_changed = !tvm.typed_value.ty.eql(var_info.ty);
+
+        tvm.deinit(mod.gpa);
+    }
+
+    const new_variable = try decl_arena.allocator.create(Var);
+    new_variable.* = .{
+        .owner_decl = decl,
+        .init = var_info.val orelse undefined,
+        .is_extern = is_extern,
+        .is_mutable = is_mutable,
+        .is_threadlocal = is_threadlocal,
+    };
+    const var_val = try Value.Tag.variable.create(&decl_arena.allocator, new_variable);
+
+    decl_arena_state.* = decl_arena.state;
+    decl.typed_value = .{
+        .most_recent = .{
+            .typed_value = .{
+                .ty = var_info.ty,
+                .val = var_val,
+            },
+            .arena = decl_arena_state,
+        },
+    };
+    decl.analysis = .complete;
+    decl.generation = mod.generation;
+
+
+
+    if (is_mutable and !var_info.ty.isValidVarType(is_extern)) {
+        return mod.failTok(
+            &decl_scope.base,
+            var_decl.ast.mut_token,
+            "variable of type '{}' must be const",
+            .{var_info.ty},
+        );
+    }
+
+    if (var_decl.extern_export_token) |maybe_export_token| {
+        if (token_tags[maybe_export_token] == .keyword_export) {
+            const export_src = decl.tokSrcLoc(maybe_export_token);
+            const name_token = var_decl.ast.mut_token + 1;
+            const name = tree.tokenSlice(name_token); // TODO identifierTokenString
+            // The scope needs to have the decl in it.
+            try mod.analyzeExport(&decl_scope.base, export_src, name, decl);
+        }
+    }
