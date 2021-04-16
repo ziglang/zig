@@ -170,9 +170,7 @@ pub fn analyzeBody(
             .cmp_lte => try sema.zirCmp(block, inst, .lte),
             .cmp_neq => try sema.zirCmp(block, inst, .neq),
             .coerce_result_ptr => try sema.zirCoerceResultPtr(block, inst),
-            .decl_ref => try sema.zirDeclRef(block, inst),
             .decl_ref_named => try sema.zirDeclRefNamed(block, inst),
-            .decl_val => try sema.zirDeclVal(block, inst),
             .decl_val_named => try sema.zirDeclValNamed(block, inst),
             .load => try sema.zirLoad(block, inst),
             .div => try sema.zirArithmetic(block, inst),
@@ -266,6 +264,10 @@ pub fn analyzeBody(
             .type_info => try sema.zirTypeInfo(block, inst),
             .size_of => try sema.zirSizeOf(block, inst),
             .bit_size_of => try sema.zirBitSizeOf(block, inst),
+            .this => try sema.zirThis(block, inst),
+            .fence => try sema.zirFence(block, inst),
+            .ret_addr => try sema.zirRetAddr(block, inst),
+            .builtin_src => try sema.zirBuiltinSrc(block, inst),
             .typeof => try sema.zirTypeof(block, inst),
             .typeof_elem => try sema.zirTypeofElem(block, inst),
             .typeof_peer => try sema.zirTypeofPeer(block, inst),
@@ -1654,20 +1656,6 @@ fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerE
     const src_loc = src.toSrcLoc(&block.base);
     const abs_byte_off = try src_loc.byteOffset();
     _ = try block.addDbgStmt(src, abs_byte_off);
-}
-
-fn zirDeclRef(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const decl = sema.owner_decl.dependencies.entries.items[inst_data.payload_index].key;
-    return sema.analyzeDeclRef(block, src, decl);
-}
-
-fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const decl = sema.owner_decl.dependencies.entries.items[inst_data.payload_index].key;
-    return sema.analyzeDeclVal(block, src, decl);
 }
 
 fn zirDeclRefNamed(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
@@ -4371,6 +4359,27 @@ fn zirBitSizeOf(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErr
     const target = sema.mod.getTarget();
     const bit_size = operand_ty.bitSize(target);
     return sema.mod.constIntUnsigned(sema.arena, src, Type.initTag(.comptime_int), bit_size);
+}
+
+fn zirThis(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const src_node = sema.code.instructions.items(.data)[inst].node;
+    const src: LazySrcLoc = .{ .node_offset = src_node };
+    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirThis", .{});
+}
+fn zirFence(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const src_node = sema.code.instructions.items(.data)[inst].node;
+    const src: LazySrcLoc = .{ .node_offset = src_node };
+    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirFence", .{});
+}
+fn zirRetAddr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const src_node = sema.code.instructions.items(.data)[inst].node;
+    const src: LazySrcLoc = .{ .node_offset = src_node };
+    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirRetAddr", .{});
+}
+fn zirBuiltinSrc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const src_node = sema.code.instructions.items(.data)[inst].node;
+    const src: LazySrcLoc = .{ .node_offset = src_node };
+    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirBuiltinSrc", .{});
 }
 
 fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {

@@ -25,7 +25,11 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     process.exit(1);
 }
 
-pub const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
+/// There are many assumptions in the entire codebase that Zig source files can
+/// be byte-indexed with a u32 integer.
+pub const max_src_size = std.math.maxInt(u32);
+
+pub const debug_extensions_enabled = std.builtin.mode == .Debug;
 
 pub const Color = enum {
     auto,
@@ -33,7 +37,7 @@ pub const Color = enum {
     on,
 };
 
-const usage =
+const normal_usage =
     \\Usage: zig [command] [options]
     \\
     \\Commands:
@@ -62,6 +66,16 @@ const usage =
     \\  -h, --help       Print command-specific usage
     \\
 ;
+
+const debug_usage = normal_usage ++
+    \\
+    \\Debug Commands:
+    \\
+    \\  astgen           Print ZIR code for a .zig source file
+    \\
+;
+
+const usage = if (debug_extensions_enabled) debug_usage else normal_usage;
 
 pub const log_level: std.log.Level = switch (std.builtin.mode) {
     .Debug => .debug,
@@ -206,13 +220,15 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         const stdout = io.getStdOut().writer();
         return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, info.target);
     } else if (mem.eql(u8, cmd, "version")) {
-        try std.io.getStdOut().writeAll(build_options.version ++ "\n");
+        return std.io.getStdOut().writeAll(build_options.version ++ "\n");
     } else if (mem.eql(u8, cmd, "env")) {
-        try @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
+        return @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
     } else if (mem.eql(u8, cmd, "zen")) {
-        try io.getStdOut().writeAll(info_zen);
+        return io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
-        try io.getStdOut().writeAll(usage);
+        return io.getStdOut().writeAll(usage);
+    } else if (debug_extensions_enabled and mem.eql(u8, cmd, "astgen")) {
+        return cmdAstgen(gpa, arena, cmd_args);
     } else {
         std.log.info("{s}", .{usage});
         fatal("unknown command: {s}", .{args[1]});
@@ -3484,4 +3500,75 @@ pub fn cleanExit() void {
     } else {
         process.exit(0);
     }
+}
+
+/// This is only enabled for debug builds.
+pub fn cmdAstgen(
+    gpa: *Allocator,
+    arena: *Allocator,
+    args: []const []const u8,
+) !void {
+    const Module = @import("Module.zig");
+    const AstGen = @import("AstGen.zig");
+    const Zir = @import("Zir.zig");
+
+    const zig_source_file = args[0];
+
+    var f = try fs.cwd().openFile(zig_source_file, .{});
+    defer f.close();
+
+    const stat = try f.stat();
+
+    if (stat.size > max_src_size)
+        return error.FileTooBig;
+
+    var file: Module.Scope.File = .{
+        .status = .never_loaded,
+        .source_loaded = false,
+        .tree_loaded = false,
+        .zir_loaded = false,
+        .sub_file_path = zig_source_file,
+        .source = undefined,
+        .stat_size = stat.size,
+        .stat_inode = stat.inode,
+        .stat_mtime = stat.mtime,
+        .tree = undefined,
+        .zir = undefined,
+        .pkg = undefined,
+        .namespace = undefined,
+    };
+
+    const source = try arena.allocSentinel(u8, stat.size, 0);
+    const amt = try f.readAll(source);
+    if (amt != stat.size)
+        return error.UnexpectedEndOfFile;
+    file.source = source;
+    file.source_loaded = true;
+
+    file.tree = try std.zig.parse(gpa, file.source);
+    file.tree_loaded = true;
+    defer file.tree.deinit(gpa);
+
+    for (file.tree.errors) |parse_error| {
+        try printErrMsgToFile(gpa, parse_error, file.tree, zig_source_file, io.getStdErr(), .auto);
+    }
+    if (file.tree.errors.len != 0) {
+        process.exit(1);
+    }
+
+    file.zir = try AstGen.generate(gpa, &file);
+    file.zir_loaded = true;
+    defer file.zir.deinit(gpa);
+
+    if (file.zir.hasCompileErrors()) {
+        var errors = std.ArrayList(Compilation.AllErrors.Message).init(arena);
+        try Compilation.AllErrors.addZir(arena, &errors, &file, source);
+        const ttyconf = std.debug.detectTTYConfig();
+        for (errors.items) |full_err_msg| {
+            full_err_msg.renderToStdErr(ttyconf);
+        }
+        process.exit(1);
+    }
+
+    return Zir.renderAsTextToFile(gpa, &file, io.getStdOut());
 }

@@ -96,14 +96,18 @@ pub fn generate(gpa: *Allocator, file: *Scope.File) InnerError!Zir {
             .arg = 0,
         },
     };
-    const struct_decl_ref = try AstGen.structDeclInner(
+    if (AstGen.structDeclInner(
         &gen_scope,
         &gen_scope.base,
         0,
         container_decl,
         .struct_decl,
-    );
-    astgen.extra.items[0] = @enumToInt(struct_decl_ref);
+    )) |struct_decl_ref| {
+        astgen.extra.items[0] = @enumToInt(struct_decl_ref);
+    } else |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.AnalysisFail => {}, // Handled via compile_errors below.
+    }
 
     if (astgen.compile_errors.items.len == 0) {
         astgen.extra.items[1] = 0;
@@ -1272,8 +1276,6 @@ fn blockExprStmts(
                         .cmp_gt,
                         .cmp_neq,
                         .coerce_result_ptr,
-                        .decl_ref,
-                        .decl_val,
                         .decl_ref_named,
                         .decl_val_named,
                         .load,
@@ -1381,6 +1383,10 @@ fn blockExprStmts(
                         .type_info,
                         .size_of,
                         .bit_size_of,
+                        .this,
+                        .fence,
+                        .ret_addr,
+                        .builtin_src,
                         => break :b false,
 
                         // ZIR instructions that are always either `noreturn` or `void`.
@@ -2385,13 +2391,16 @@ fn structDeclInner(
 
     const decl_inst = try gz.addBlock(tag, node);
     try gz.instructions.append(gpa, decl_inst);
-    _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
+    if (field_index != 0) {
+        _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
+    }
 
     try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
         @typeInfo(Zir.Inst.StructDecl).Struct.fields.len +
-        bit_bag.items.len + 1 + fields_data.items.len +
+        bit_bag.items.len + @boolToInt(field_index != 0) + fields_data.items.len +
         block_scope.instructions.items.len +
-        wip_decls.bit_bag.items.len + 1 + wip_decls.name_and_value.items.len);
+        wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
+        wip_decls.name_and_value.items.len);
     const zir_datas = astgen.instructions.items(.data);
     zir_datas[decl_inst].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.StructDecl{
         .body_len = @intCast(u32, block_scope.instructions.items.len),
@@ -2401,11 +2410,15 @@ fn structDeclInner(
     astgen.extra.appendSliceAssumeCapacity(block_scope.instructions.items);
 
     astgen.extra.appendSliceAssumeCapacity(bit_bag.items); // Likely empty.
-    astgen.extra.appendAssumeCapacity(cur_bit_bag);
+    if (field_index != 0) {
+        astgen.extra.appendAssumeCapacity(cur_bit_bag);
+    }
     astgen.extra.appendSliceAssumeCapacity(fields_data.items);
 
     astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
-    astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
+    if (wip_decls.decl_index != 0) {
+        astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
+    }
     astgen.extra.appendSliceAssumeCapacity(wip_decls.name_and_value.items);
 
     return gz.indexToRef(decl_inst);
@@ -4750,6 +4763,11 @@ fn builtinCall(
             return rvalue(gz, scope, rl, result, node);
         },
 
+        .This => return rvalue(gz, scope, rl, try gz.addNode(.this, node), node),
+        .fence => return rvalue(gz, scope, rl, try gz.addNode(.fence, node), node),
+        .return_address => return rvalue(gz, scope, rl, try gz.addNode(.ret_addr, node), node),
+        .src => return rvalue(gz, scope, rl, try gz.addNode(.builtin_src, node), node),
+
         .add_with_overflow,
         .align_cast,
         .align_of,
@@ -4778,7 +4796,6 @@ fn builtinCall(
         .error_name,
         .error_return_trace,
         .err_set_cast,
-        .fence,
         .field_parent_ptr,
         .float_to_int,
         .has_field,
@@ -4794,7 +4811,6 @@ fn builtinCall(
         .pop_count,
         .ptr_cast,
         .rem,
-        .return_address,
         .set_align_stack,
         .set_cold,
         .set_float_mode,
@@ -4805,7 +4821,6 @@ fn builtinCall(
         .shuffle,
         .splat,
         .reduce,
-        .src,
         .sqrt,
         .sin,
         .cos,
@@ -4821,21 +4836,18 @@ fn builtinCall(
         .round,
         .sub_with_overflow,
         .tag_name,
-        .This,
         .truncate,
         .Type,
         .type_name,
         .union_init,
-        => return astgen.failNode(node, "TODO: implement builtin function {s}", .{
-            builtin_name,
-        }),
-
         .async_call,
         .frame,
         .Frame,
         .frame_address,
         .frame_size,
-        => return astgen.failNode(node, "async and related features are not yet supported", .{}),
+        => return astgen.failNode(node, "TODO: implement builtin function {s}", .{
+            builtin_name,
+        }),
     }
 }
 
@@ -5376,7 +5388,7 @@ pub fn failNodeNotes(
     {
         var managed = string_bytes.toManaged(astgen.gpa);
         defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format, args);
+        try managed.writer().print(format ++ "\x00", args);
     }
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
@@ -5417,7 +5429,7 @@ pub fn failTokNotes(
     {
         var managed = string_bytes.toManaged(astgen.gpa);
         defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format, args);
+        try managed.writer().print(format ++ "\x00", args);
     }
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
@@ -5451,7 +5463,7 @@ pub fn failOff(
     {
         var managed = string_bytes.toManaged(astgen.gpa);
         defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format, args);
+        try managed.writer().print(format ++ "\x00", args);
     }
     try astgen.compile_errors.append(astgen.gpa, .{
         .msg = msg,
@@ -5475,7 +5487,7 @@ pub fn errNoteTok(
     {
         var managed = string_bytes.toManaged(astgen.gpa);
         defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format, args);
+        try managed.writer().print(format ++ "\x00", args);
     }
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
@@ -5498,7 +5510,7 @@ pub fn errNoteNode(
     {
         var managed = string_bytes.toManaged(astgen.gpa);
         defer string_bytes.* = managed.toUnmanaged();
-        try managed.writer().print(format, args);
+        try managed.writer().print(format ++ "\x00", args);
     }
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,

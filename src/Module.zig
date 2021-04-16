@@ -70,7 +70,7 @@ emit_h_failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ErrorMsg) = .{},
 compile_log_decls: std.AutoArrayHashMapUnmanaged(*Decl, SrcLoc) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Scope.File`, using Module's general purpose allocator.
-failed_files: std.AutoArrayHashMapUnmanaged(*Scope.File, *ErrorMsg) = .{},
+failed_files: std.AutoArrayHashMapUnmanaged(*Scope.File, ?*ErrorMsg) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Export`, using Module's general purpose allocator.
 failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
@@ -267,9 +267,10 @@ pub const Decl = struct {
         return .{ .node_offset = decl.nodeIndexToRelative(node_index) };
     }
 
-    pub fn srcLoc(decl: *Decl) SrcLoc {
+    pub fn srcLoc(decl: Decl) SrcLoc {
         return .{
-            .container = .{ .decl = decl },
+            .file_scope = decl.getFileScope(),
+            .parent_decl_node = decl.src_node,
             .lazy = .{ .node_offset = 0 },
         };
     }
@@ -367,7 +368,8 @@ pub const ErrorSet = struct {
 
     pub fn srcLoc(self: ErrorSet) SrcLoc {
         return .{
-            .container = .{ .decl = self.owner_decl },
+            .file_scope = self.owner_decl.getFileScope(),
+            .parent_decl_node = self.owner_decl.src_node,
             .lazy = .{ .node_offset = self.node_offset },
         };
     }
@@ -397,7 +399,8 @@ pub const Struct = struct {
 
     pub fn srcLoc(s: Struct) SrcLoc {
         return .{
-            .container = .{ .decl = s.owner_decl },
+            .file_scope = s.owner_decl.getFileScope(),
+            .parent_decl_node = s.owner_decl.src_node,
             .lazy = .{ .node_offset = s.node_offset },
         };
     }
@@ -416,7 +419,8 @@ pub const EnumSimple = struct {
 
     pub fn srcLoc(self: EnumSimple) SrcLoc {
         return .{
-            .container = .{ .decl = self.owner_decl },
+            .file_scope = self.owner_decl.getFileScope(),
+            .parent_decl_node = self.owner_decl.src_node,
             .lazy = .{ .node_offset = self.node_offset },
         };
     }
@@ -444,7 +448,8 @@ pub const EnumFull = struct {
 
     pub fn srcLoc(self: EnumFull) SrcLoc {
         return .{
-            .container = .{ .decl = self.owner_decl },
+            .file_scope = self.owner_decl.getFileScope(),
+            .parent_decl_node = self.owner_decl.src_node,
             .lazy = .{ .node_offset = self.node_offset },
         };
     }
@@ -1710,51 +1715,19 @@ pub const ErrorMsg = struct {
 
 /// Canonical reference to a position within a source file.
 pub const SrcLoc = struct {
-    /// The active field is determined by tag of `lazy`.
-    container: union {
-        /// The containing `Decl` according to the source code.
-        decl: *Decl,
-        file_scope: *Scope.File,
-    },
-    /// Relative to `decl`.
+    file_scope: *Scope.File,
+    /// Might be 0 depending on tag of `lazy`.
+    parent_decl_node: ast.Node.Index,
+    /// Relative to `parent_decl_node`.
     lazy: LazySrcLoc,
 
-    pub fn fileScope(src_loc: SrcLoc) *Scope.File {
-        return switch (src_loc.lazy) {
-            .unneeded => unreachable,
+    pub fn declSrcToken(src_loc: SrcLoc) ast.TokenIndex {
+        const tree = src_loc.file_scope.tree;
+        return tree.firstToken(src_loc.parent_decl_node);
+    }
 
-            .byte_abs,
-            .token_abs,
-            .node_abs,
-            .entire_file,
-            => src_loc.container.file_scope,
-
-            .byte_offset,
-            .token_offset,
-            .node_offset,
-            .node_offset_back2tok,
-            .node_offset_var_decl_ty,
-            .node_offset_for_cond,
-            .node_offset_builtin_call_arg0,
-            .node_offset_builtin_call_arg1,
-            .node_offset_array_access_index,
-            .node_offset_slice_sentinel,
-            .node_offset_call_func,
-            .node_offset_field_name,
-            .node_offset_deref_ptr,
-            .node_offset_asm_source,
-            .node_offset_asm_ret_ty,
-            .node_offset_if_cond,
-            .node_offset_bin_op,
-            .node_offset_bin_lhs,
-            .node_offset_bin_rhs,
-            .node_offset_switch_operand,
-            .node_offset_switch_special_prong,
-            .node_offset_switch_range,
-            .node_offset_fn_type_cc,
-            .node_offset_fn_type_ret_ty,
-            => src_loc.container.decl.namespace.file_scope,
-        };
+    pub fn declRelativeToNodeIndex(src_loc: SrcLoc, offset: i32) ast.TokenIndex {
+        return @bitCast(ast.Node.Index, offset + @bitCast(i32, src_loc.parent_decl_node));
     }
 
     pub fn byteOffset(src_loc: SrcLoc) !u32 {
@@ -1765,48 +1738,45 @@ pub const SrcLoc = struct {
             .byte_abs => |byte_index| return byte_index,
 
             .token_abs => |tok_index| {
-                const tree = src_loc.container.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_abs => |node| {
-                const tree = src_loc.container.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const token_starts = tree.tokens.items(.start);
                 const tok_index = tree.firstToken(node);
                 return token_starts[tok_index];
             },
             .byte_offset => |byte_off| {
-                const decl = src_loc.container.decl;
-                return decl.srcByteOffset() + byte_off;
+                const tree = src_loc.file_scope.tree;
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[src_loc.declSrcToken()] + byte_off;
             },
             .token_offset => |tok_off| {
-                const decl = src_loc.container.decl;
-                const tok_index = decl.srcToken() + tok_off;
-                const tree = decl.namespace.file_scope.tree;
+                const tok_index = src_loc.declSrcToken() + tok_off;
+                const tree = src_loc.file_scope.tree;
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset, .node_offset_bin_op => |node_off| {
-                const decl = src_loc.container.decl;
-                const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.namespace.file_scope.tree;
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const tree = src_loc.file_scope.tree;
                 const main_tokens = tree.nodes.items(.main_token);
                 const tok_index = main_tokens[node];
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset_back2tok => |node_off| {
-                const decl = src_loc.container.decl;
-                const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.namespace.file_scope.tree;
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const tree = src_loc.file_scope.tree;
                 const tok_index = tree.firstToken(node) - 2;
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset_var_decl_ty => |node_off| {
-                const decl = src_loc.container.decl;
-                const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.namespace.file_scope.tree;
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const tree = src_loc.file_scope.tree;
                 const node_tags = tree.nodes.items(.tag);
                 const full = switch (node_tags[node]) {
                     .global_var_decl => tree.globalVarDecl(node),
@@ -1825,11 +1795,10 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_builtin_call_arg0 => |node_off| {
-                const decl = src_loc.container.decl;
-                const tree = decl.namespace.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
-                const node = decl.relativeToNodeIndex(node_off);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const param = switch (node_tags[node]) {
                     .builtin_call_two, .builtin_call_two_comma => node_datas[node].lhs,
                     .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs],
@@ -1841,11 +1810,10 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_builtin_call_arg1 => |node_off| {
-                const decl = src_loc.container.decl;
-                const tree = decl.namespace.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
-                const node = decl.relativeToNodeIndex(node_off);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const param = switch (node_tags[node]) {
                     .builtin_call_two, .builtin_call_two_comma => node_datas[node].rhs,
                     .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + 1],
@@ -1857,22 +1825,20 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_array_access_index => |node_off| {
-                const decl = src_loc.container.decl;
-                const tree = decl.namespace.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
-                const node = decl.relativeToNodeIndex(node_off);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const main_tokens = tree.nodes.items(.main_token);
                 const tok_index = main_tokens[node_datas[node].rhs];
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset_slice_sentinel => |node_off| {
-                const decl = src_loc.container.decl;
-                const tree = decl.namespace.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
-                const node = decl.relativeToNodeIndex(node_off);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = switch (node_tags[node]) {
                     .slice_open => tree.sliceOpen(node),
                     .slice => tree.slice(node),
@@ -1885,11 +1851,10 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_call_func => |node_off| {
-                const decl = src_loc.container.decl;
-                const tree = decl.namespace.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
-                const node = decl.relativeToNodeIndex(node_off);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 var params: [1]ast.Node.Index = undefined;
                 const full = switch (node_tags[node]) {
                     .call_one,
@@ -1912,11 +1877,10 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_field_name => |node_off| {
-                const decl = src_loc.container.decl;
-                const tree = decl.namespace.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
-                const node = decl.relativeToNodeIndex(node_off);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const tok_index = switch (node_tags[node]) {
                     .field_access => node_datas[node].rhs,
                     else => tree.firstToken(node) - 2,
@@ -1925,21 +1889,19 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_deref_ptr => |node_off| {
-                const decl = src_loc.container.decl;
-                const tree = decl.namespace.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
-                const node = decl.relativeToNodeIndex(node_off);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const tok_index = node_datas[node].lhs;
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset_asm_source => |node_off| {
-                const decl = src_loc.container.decl;
-                const tree = decl.namespace.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
-                const node = decl.relativeToNodeIndex(node_off);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = switch (node_tags[node]) {
                     .asm_simple => tree.asmSimple(node),
                     .@"asm" => tree.asmFull(node),
@@ -1951,11 +1913,10 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_asm_ret_ty => |node_off| {
-                const decl = src_loc.container.decl;
-                const tree = decl.namespace.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
-                const node = decl.relativeToNodeIndex(node_off);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = switch (node_tags[node]) {
                     .asm_simple => tree.asmSimple(node),
                     .@"asm" => tree.asmFull(node),
@@ -1968,9 +1929,8 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_for_cond, .node_offset_if_cond => |node_off| {
-                const decl = src_loc.container.decl;
-                const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.namespace.file_scope.tree;
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const tree = src_loc.file_scope.tree;
                 const node_tags = tree.nodes.items(.tag);
                 const src_node = switch (node_tags[node]) {
                     .if_simple => tree.ifSimple(node).ast.cond_expr,
@@ -1988,9 +1948,8 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_bin_lhs => |node_off| {
-                const decl = src_loc.container.decl;
-                const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.namespace.file_scope.tree;
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const src_node = node_datas[node].lhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -1999,9 +1958,8 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_bin_rhs => |node_off| {
-                const decl = src_loc.container.decl;
-                const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.namespace.file_scope.tree;
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const src_node = node_datas[node].rhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2011,9 +1969,8 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_switch_operand => |node_off| {
-                const decl = src_loc.container.decl;
-                const node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.namespace.file_scope.tree;
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const src_node = node_datas[node].lhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2023,9 +1980,8 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_switch_special_prong => |node_off| {
-                const decl = src_loc.container.decl;
-                const switch_node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.namespace.file_scope.tree;
+                const switch_node = src_loc.declRelativeToNodeIndex(node_off);
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2050,9 +2006,8 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_switch_range => |node_off| {
-                const decl = src_loc.container.decl;
-                const switch_node = decl.relativeToNodeIndex(node_off);
-                const tree = decl.namespace.file_scope.tree;
+                const switch_node = src_loc.declRelativeToNodeIndex(node_off);
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2081,11 +2036,10 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_fn_type_cc => |node_off| {
-                const decl = src_loc.container.decl;
-                const tree = decl.namespace.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
-                const node = decl.relativeToNodeIndex(node_off);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 var params: [1]ast.Node.Index = undefined;
                 const full = switch (node_tags[node]) {
                     .fn_proto_simple => tree.fnProtoSimple(&params, node),
@@ -2101,11 +2055,10 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_fn_type_ret_ty => |node_off| {
-                const decl = src_loc.container.decl;
-                const tree = decl.namespace.file_scope.tree;
+                const tree = src_loc.file_scope.tree;
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
-                const node = decl.relativeToNodeIndex(node_off);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 var params: [1]ast.Node.Index = undefined;
                 const full = switch (node_tags[node]) {
                     .fn_proto_simple => tree.fnProtoSimple(&params, node),
@@ -2288,7 +2241,8 @@ pub const LazySrcLoc = union(enum) {
             .token_abs,
             .node_abs,
             => .{
-                .container = .{ .file_scope = scope.getFileScope() },
+                .file_scope = scope.getFileScope(),
+                .parent_decl_node = 0,
                 .lazy = lazy,
             },
 
@@ -2317,7 +2271,8 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_fn_type_cc,
             .node_offset_fn_type_ret_ty,
             => .{
-                .container = .{ .decl = scope.srcDecl().? },
+                .file_scope = scope.getFileScope(),
+                .parent_decl_node = scope.srcDecl().?.src_node,
                 .lazy = lazy,
             },
         };
@@ -2332,7 +2287,8 @@ pub const LazySrcLoc = union(enum) {
             .token_abs,
             .node_abs,
             => .{
-                .container = .{ .file_scope = decl.getFileScope() },
+                .file_scope = decl.getFileScope(),
+                .parent_decl_node = 0,
                 .lazy = lazy,
             },
 
@@ -2361,7 +2317,8 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_fn_type_cc,
             .node_offset_fn_type_ret_ty,
             => .{
-                .container = .{ .decl = decl },
+                .file_scope = decl.getFileScope(),
+                .parent_decl_node = decl.src_node,
                 .lazy = lazy,
             },
         };
@@ -2409,7 +2366,7 @@ pub fn deinit(mod: *Module) void {
     mod.emit_h_failed_decls.deinit(gpa);
 
     for (mod.failed_files.items()) |entry| {
-        entry.value.destroy(gpa);
+        if (entry.value) |msg| msg.destroy(gpa);
     }
     mod.failed_files.deinit(gpa);
 
@@ -2495,7 +2452,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
             const lock = comp.mutex.acquire();
             defer lock.release();
             if (mod.failed_files.swapRemove(file)) |entry| {
-                entry.value.destroy(gpa); // Delete previous error message.
+                if (entry.value) |msg| msg.destroy(gpa); // Delete previous error message.
             }
         },
     }
@@ -2531,7 +2488,8 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
         const err_msg = try gpa.create(ErrorMsg);
         err_msg.* = .{
             .src_loc = .{
-                .container = .{ .file_scope = file },
+                .file_scope = file,
+                .parent_decl_node = 0,
                 .lazy = .{ .byte_abs = token_starts[parse_err.token] },
             },
             .msg = msg.toOwnedSlice(),
@@ -2550,11 +2508,11 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
     file.zir = try AstGen.generate(gpa, file);
     file.zir_loaded = true;
 
-    if (file.zir.extra[1] != 0) {
+    if (file.zir.hasCompileErrors()) {
         {
             const lock = comp.mutex.acquire();
             defer lock.release();
-            try mod.failed_files.putNoClobber(gpa, file, undefined);
+            try mod.failed_files.putNoClobber(gpa, file, null);
         }
         file.status = .astgen_failure;
         return error.AnalysisFail;
@@ -2972,12 +2930,14 @@ fn semaContainerFn(
         if (deleted_decls.swapRemove(decl) == null) {
             decl.analysis = .sema_failure;
             const msg = try ErrorMsg.create(mod.gpa, .{
-                .container = .{ .file_scope = namespace.file_scope },
+                .file_scope = namespace.file_scope,
+                .parent_decl_node = 0,
                 .lazy = .{ .token_abs = name_token },
             }, "redeclaration of '{s}'", .{decl.name});
             errdefer msg.destroy(mod.gpa);
             const other_src_loc: SrcLoc = .{
-                .container = .{ .file_scope = decl.namespace.file_scope },
+                .file_scope = namespace.file_scope,
+                .parent_decl_node = 0,
                 .lazy = .{ .node_abs = prev_src_node },
             };
             try mod.errNoteNonLazy(other_src_loc, msg, "previously declared here", .{});
@@ -3040,12 +3000,14 @@ fn semaContainerVar(
         if (deleted_decls.swapRemove(decl) == null) {
             decl.analysis = .sema_failure;
             const msg = try ErrorMsg.create(mod.gpa, .{
-                .container = .{ .file_scope = namespace.file_scope },
+                .file_scope = namespace.file_scope,
+                .parent_decl_node = 0,
                 .lazy = .{ .token_abs = name_token },
             }, "redeclaration of '{s}'", .{decl.name});
             errdefer msg.destroy(mod.gpa);
             const other_src_loc: SrcLoc = .{
-                .container = .{ .file_scope = decl.namespace.file_scope },
+                .file_scope = decl.namespace.file_scope,
+                .parent_decl_node = 0,
                 .lazy = .{ .node_abs = prev_src_node },
             };
             try mod.errNoteNonLazy(other_src_loc, msg, "previously declared here", .{});

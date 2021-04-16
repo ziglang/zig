@@ -42,6 +42,9 @@ string_bytes: []u8,
 ///      payload at this index.
 extra: []u32,
 
+pub const main_struct_extra_index = 0;
+pub const compile_error_extra_index = 1;
+
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, end: usize } {
@@ -76,6 +79,10 @@ pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
     return @bitCast([]Inst.Ref, raw_slice);
 }
 
+pub fn hasCompileErrors(code: Zir) bool {
+    return code.extra[compile_error_extra_index] != 0;
+}
+
 pub fn deinit(code: *Zir, gpa: *Allocator) void {
     code.instructions.deinit(gpa);
     gpa.free(code.string_bytes);
@@ -83,13 +90,11 @@ pub fn deinit(code: *Zir, gpa: *Allocator) void {
     code.* = undefined;
 }
 
-/// For debugging purposes, like dumpFn but for unanalyzed zir blocks
-pub fn dump(
-    code: Zir,
+/// Write human-readable, debug formatted ZIR code to a file.
+pub fn renderAsTextToFile(
     gpa: *Allocator,
-    kind: []const u8,
-    scope: *Module.Scope,
-    param_count: usize,
+    scope_file: *Module.Scope.File,
+    fs_file: std.fs.File,
 ) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
@@ -97,17 +102,17 @@ pub fn dump(
     var writer: Writer = .{
         .gpa = gpa,
         .arena = &arena.allocator,
-        .scope = scope,
-        .code = code,
+        .file = scope_file,
+        .code = scope_file.zir,
         .indent = 0,
-        .param_count = param_count,
+        .parent_decl_node = 0,
+        .param_count = 0,
     };
 
-    const decl_name = scope.srcDecl().?.name;
-    const stderr = std.io.getStdErr().writer();
-    try stderr.print("ZIR {s} {s} %0 ", .{ kind, decl_name });
-    try writer.writeInstToStream(stderr, 0);
-    try stderr.print(" // end ZIR {s} {s}\n\n", .{ kind, decl_name });
+    const main_struct_inst = scope_file.zir.extra[0] - @intCast(u32, Inst.Ref.typed_value_map.len);
+    try fs_file.writer().print("%{d} ", .{main_struct_inst});
+    try writer.writeInstToStream(fs_file.writer(), main_struct_inst);
+    try fs_file.writeAll("\n");
 }
 
 /// These are untyped instructions generated from an Abstract Syntax Tree.
@@ -291,12 +296,6 @@ pub const Inst = struct {
         /// Declares the beginning of a statement. Used for debug info.
         /// Uses the `node` union field.
         dbg_stmt_node,
-        /// Represents a pointer to a global decl.
-        /// Uses the `pl_node` union field. `payload_index` is into `decls`.
-        decl_ref,
-        /// Equivalent to a decl_ref followed by load.
-        /// Uses the `pl_node` union field. `payload_index` is into `decls`.
-        decl_val,
         /// Same as `decl_ref` except instead of indexing into decls, uses
         /// a name to identify the Decl. Uses the `str_tok` union field.
         decl_ref_named,
@@ -705,6 +704,14 @@ pub const Inst = struct {
         size_of,
         /// Implements the `@bitSizeOf` builtin. Uses `un_node`.
         bit_size_of,
+        /// Implements the `@This` builtin. Uses `node`.
+        this,
+        /// Implements the `@fence` builtin. Uses `un_node`.
+        fence,
+        /// Implements the `@returnAddress` builtin. Uses `un_node`.
+        ret_addr,
+        /// Implements the `@src` builtin. Uses `un_node`.
+        builtin_src,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -758,8 +765,6 @@ pub const Inst = struct {
                 .enum_decl_nonexhaustive,
                 .opaque_decl,
                 .dbg_stmt_node,
-                .decl_ref,
-                .decl_val,
                 .decl_ref_named,
                 .decl_val_named,
                 .load,
@@ -873,6 +878,10 @@ pub const Inst = struct {
                 .type_info,
                 .size_of,
                 .bit_size_of,
+                .this,
+                .fence,
+                .ret_addr,
+                .builtin_src,
                 => false,
 
                 .@"break",
@@ -1647,10 +1656,15 @@ pub const SpecialProng = enum { none, @"else", under };
 const Writer = struct {
     gpa: *Allocator,
     arena: *Allocator,
-    scope: *Module.Scope,
+    file: *Module.Scope.File,
     code: Zir,
-    indent: usize,
+    indent: u32,
+    parent_decl_node: u32,
     param_count: usize,
+
+    fn relativeToNodeIndex(self: *Writer, offset: i32) ast.Node.Index {
+        return @bitCast(ast.Node.Index, offset + @bitCast(i32, self.parent_decl_node));
+    }
 
     fn writeInstToStream(
         self: *Writer,
@@ -1832,10 +1846,6 @@ const Writer = struct {
             .typeof_peer,
             => try self.writePlNodeMultiOp(stream, inst),
 
-            .decl_ref,
-            .decl_val,
-            => try self.writePlNodeDecl(stream, inst),
-
             .field_ptr,
             .field_val,
             => try self.writePlNodeField(stream, inst),
@@ -1851,6 +1861,10 @@ const Writer = struct {
             .repeat_inline,
             .alloc_inferred,
             .alloc_inferred_mut,
+            .this,
+            .fence,
+            .ret_addr,
+            .builtin_src,
             => try self.writeNode(stream, inst),
 
             .error_value,
@@ -2067,68 +2081,114 @@ const Writer = struct {
         const extra = self.code.extraData(Inst.StructDecl, inst_data.payload_index);
         const body = self.code.extra[extra.end..][0..extra.data.body_len];
         const fields_len = extra.data.fields_len;
+        const decls_len = extra.data.decls_len;
+
+        const prev_parent_decl_node = self.parent_decl_node;
+        self.parent_decl_node = self.relativeToNodeIndex(inst_data.src_node);
+
+        var extra_index: usize = undefined;
 
         if (fields_len == 0) {
             assert(body.len == 0);
-            try stream.writeAll("{}, {}) ");
-            try self.writeSrc(stream, inst_data.src());
-            return;
+            try stream.writeAll("{}, {}, {");
+            extra_index = extra.end;
+        } else {
+            try stream.writeAll("{\n");
+            self.indent += 2;
+            try self.writeBody(stream, body);
+
+            try stream.writeByteNTimes(' ', self.indent - 2);
+            try stream.writeAll("}, {\n");
+
+            const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
+            const body_end = extra.end + body.len;
+            extra_index = body_end + bit_bags_count;
+            var bit_bag_index: usize = body_end;
+            var cur_bit_bag: u32 = undefined;
+            var field_i: u32 = 0;
+            while (field_i < fields_len) : (field_i += 1) {
+                if (field_i % 16 == 0) {
+                    cur_bit_bag = self.code.extra[bit_bag_index];
+                    bit_bag_index += 1;
+                }
+                const has_align = @truncate(u1, cur_bit_bag) != 0;
+                cur_bit_bag >>= 1;
+                const has_default = @truncate(u1, cur_bit_bag) != 0;
+                cur_bit_bag >>= 1;
+
+                const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
+                extra_index += 1;
+                const field_type = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
+
+                try stream.writeByteNTimes(' ', self.indent);
+                try stream.print("{}: ", .{std.zig.fmtId(field_name)});
+                try self.writeInstRef(stream, field_type);
+
+                if (has_align) {
+                    const align_ref = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                    extra_index += 1;
+
+                    try stream.writeAll(" align(");
+                    try self.writeInstRef(stream, align_ref);
+                    try stream.writeAll(")");
+                }
+                if (has_default) {
+                    const default_ref = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                    extra_index += 1;
+
+                    try stream.writeAll(" = ");
+                    try self.writeInstRef(stream, default_ref);
+                }
+                try stream.writeAll(",\n");
+            }
+
+            self.indent -= 2;
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.writeAll("}, {");
         }
+        if (decls_len == 0) {
+            try stream.writeAll("}) ");
+        } else {
+            try stream.writeAll("\n");
+            self.indent += 2;
+            try self.writeDecls(stream, decls_len, extra_index);
+            self.indent -= 2;
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.writeAll("}) ");
+        }
+        self.parent_decl_node = prev_parent_decl_node;
+        try self.writeSrc(stream, inst_data.src());
+    }
 
-        try stream.writeAll("{\n");
-        self.indent += 2;
-        try self.writeBody(stream, body);
-
-        try stream.writeByteNTimes(' ', self.indent - 2);
-        try stream.writeAll("}, {\n");
-
-        const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
-        const body_end = extra.end + body.len;
-        var extra_index: usize = body_end + bit_bags_count;
-        var bit_bag_index: usize = body_end;
+    fn writeDecls(self: *Writer, stream: anytype, decls_len: u32, extra_start: usize) !void {
+        const bit_bags_count = std.math.divCeil(usize, decls_len, 16) catch unreachable;
+        var extra_index = extra_start + bit_bags_count;
+        var bit_bag_index: usize = extra_start;
         var cur_bit_bag: u32 = undefined;
-        var field_i: u32 = 0;
-        while (field_i < fields_len) : (field_i += 1) {
-            if (field_i % 16 == 0) {
+        var decl_i: u32 = 0;
+        while (decl_i < decls_len) : (decl_i += 1) {
+            if (decl_i % 16 == 0) {
                 cur_bit_bag = self.code.extra[bit_bag_index];
                 bit_bag_index += 1;
             }
-            const has_align = @truncate(u1, cur_bit_bag) != 0;
+            const is_pub = @truncate(u1, cur_bit_bag) != 0;
             cur_bit_bag >>= 1;
-            const has_default = @truncate(u1, cur_bit_bag) != 0;
+            const is_exported = @truncate(u1, cur_bit_bag) != 0;
             cur_bit_bag >>= 1;
 
-            const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
+            const decl_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
             extra_index += 1;
-            const field_type = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+            const decl_value = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
             extra_index += 1;
 
+            const pub_str = if (is_pub) "pub " else "";
+            const export_str = if (is_exported) "export " else "";
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.print("{}: ", .{std.zig.fmtId(field_name)});
-            try self.writeInstRef(stream, field_type);
-
-            if (has_align) {
-                const align_ref = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
-                extra_index += 1;
-
-                try stream.writeAll(" align(");
-                try self.writeInstRef(stream, align_ref);
-                try stream.writeAll(")");
-            }
-            if (has_default) {
-                const default_ref = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
-                extra_index += 1;
-
-                try stream.writeAll(" = ");
-                try self.writeInstRef(stream, default_ref);
-            }
-            try stream.writeAll(",\n");
+            try stream.print("{s}{s}{} = ", .{ pub_str, export_str, std.zig.fmtId(decl_name) });
+            try self.writeInstRef(stream, decl_value);
+            try stream.writeAll("\n");
         }
-
-        self.indent -= 2;
-        try stream.writeByteNTimes(' ', self.indent);
-        try stream.writeAll("}) ");
-        try self.writeSrc(stream, inst_data.src());
     }
 
     fn writeEnumDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
@@ -2374,14 +2434,6 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writePlNodeDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const owner_decl = self.scope.ownerDecl().?;
-        const decl = owner_decl.dependencies.entries.items[inst_data.payload_index].key;
-        try stream.print("{s}) ", .{decl.name});
-        try self.writeSrc(stream, inst_data.src());
-    }
-
     fn writePlNodeField(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.Field, inst_data.payload_index).data;
@@ -2593,8 +2645,12 @@ const Writer = struct {
     }
 
     fn writeSrc(self: *Writer, stream: anytype, src: LazySrcLoc) !void {
-        const tree = self.scope.tree();
-        const src_loc = src.toSrcLoc(self.scope);
+        const tree = self.file.tree;
+        const src_loc: Module.SrcLoc = .{
+            .file_scope = self.file,
+            .parent_decl_node = self.parent_decl_node,
+            .lazy = src,
+        };
         const abs_byte_off = try src_loc.byteOffset();
         const delta_line = std.zig.findLineColumn(tree.source, abs_byte_off);
         try stream.print("{s}:{d}:{d}", .{

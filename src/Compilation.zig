@@ -391,10 +391,10 @@ pub const AllErrors = struct {
         const notes = try arena.allocator.alloc(Message, module_err_msg.notes.len);
         for (notes) |*note, i| {
             const module_note = module_err_msg.notes[i];
-            const source = try module_note.src_loc.fileScope().getSource(module.gpa);
+            const source = try module_note.src_loc.file_scope.getSource(module.gpa);
             const byte_offset = try module_note.src_loc.byteOffset();
             const loc = std.zig.findLineColumn(source, byte_offset);
-            const sub_file_path = module_note.src_loc.fileScope().sub_file_path;
+            const sub_file_path = module_note.src_loc.file_scope.sub_file_path;
             note.* = .{
                 .src = .{
                     .src_path = try arena.allocator.dupe(u8, sub_file_path),
@@ -406,10 +406,10 @@ pub const AllErrors = struct {
                 },
             };
         }
-        const source = try module_err_msg.src_loc.fileScope().getSource(module.gpa);
+        const source = try module_err_msg.src_loc.file_scope.getSource(module.gpa);
         const byte_offset = try module_err_msg.src_loc.byteOffset();
         const loc = std.zig.findLineColumn(source, byte_offset);
-        const sub_file_path = module_err_msg.src_loc.fileScope().sub_file_path;
+        const sub_file_path = module_err_msg.src_loc.file_scope.sub_file_path;
         try errors.append(.{
             .src = .{
                 .src_path = try arena.allocator.dupe(u8, sub_file_path),
@@ -421,6 +421,56 @@ pub const AllErrors = struct {
                 .source_line = try arena.allocator.dupe(u8, loc.source_line),
             },
         });
+    }
+
+    pub fn addZir(
+        arena: *Allocator,
+        errors: *std.ArrayList(Message),
+        file: *Module.Scope.File,
+        source: []const u8,
+    ) !void {
+        assert(file.zir_loaded);
+        assert(file.tree_loaded);
+        const Zir = @import("Zir.zig");
+        const payload_index = file.zir.extra[Zir.compile_error_extra_index];
+        assert(payload_index != 0);
+
+        const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
+        const items_len = header.data.items_len;
+        var extra_index = header.end;
+        var item_i: usize = 0;
+        while (item_i < items_len) : (item_i += 1) {
+            const item = file.zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
+            extra_index = item.end;
+
+            if (item.data.notes != 0) {
+                @panic("TODO implement AllErrors for Zir notes");
+            }
+
+            const msg = file.zir.nullTerminatedString(item.data.msg);
+            const byte_offset = blk: {
+                const token_starts = file.tree.tokens.items(.start);
+                if (item.data.node != 0) {
+                    const main_tokens = file.tree.nodes.items(.main_token);
+                    const main_token = main_tokens[item.data.node];
+                    break :blk token_starts[main_token];
+                }
+                break :blk token_starts[item.data.token] + item.data.byte_offset;
+            };
+            const loc = std.zig.findLineColumn(source, byte_offset);
+
+            try errors.append(.{
+                .src = .{
+                    .src_path = try arena.dupe(u8, file.sub_file_path),
+                    .msg = try arena.dupe(u8, msg),
+                    .byte_offset = byte_offset,
+                    .line = @intCast(u32, loc.line),
+                    .column = @intCast(u32, loc.column),
+                    .notes = &.{}, // TODO
+                    .source_line = try arena.dupe(u8, loc.source_line),
+                },
+            });
+        }
     }
 
     fn addPlain(
@@ -1624,7 +1674,13 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     }
     if (self.bin_file.options.module) |module| {
         for (module.failed_files.items()) |entry| {
-            try AllErrors.add(module, &arena, &errors, entry.value.*);
+            if (entry.value) |msg| {
+                try AllErrors.add(module, &arena, &errors, msg.*);
+            } else {
+                // Must be ZIR errors.
+                const source = try entry.key.getSource(module.gpa);
+                try AllErrors.addZir(&arena.allocator, &errors, entry.key, source);
+            }
         }
         for (module.failed_decls.items()) |entry| {
             if (entry.key.namespace.file_scope.status == .parse_failure) {
@@ -2276,7 +2332,8 @@ fn reportRetryableAstGenError(
     file.status = .retryable_failure;
 
     const err_msg = try Module.ErrorMsg.create(gpa, .{
-        .container = .{ .file_scope = file },
+        .file_scope = file,
+        .parent_decl_node = 0,
         .lazy = .entire_file,
     }, "unable to load {s}: {s}", .{
         file.sub_file_path, @errorName(err),

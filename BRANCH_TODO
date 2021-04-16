@@ -1,3 +1,14 @@
+ * AstGen decls into blocks so we can evaluate them independently
+ * look for cached zir code
+ * save zir code to cache
+ * store list of imported strings
+ * use list of imported strings to queue up more astgen tasks
+ * keep track of file dependencies/dependants
+ * unload files from memory when a dependency is dropped
+ * implement zir error notes 
+
+ * implement the new AstGen compile errors
+
  * get rid of failed_root_src_file
  * get rid of Scope.DeclRef
  * handle decl collision with usingnamespace
