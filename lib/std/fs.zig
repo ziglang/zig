@@ -501,7 +501,7 @@ pub const Dir = struct {
         },
         .linux => struct {
             dir: Dir,
-            buf: [8192]u8 align(@alignOf(os.dirent64)),
+            buf: [8192]u8 align(@alignOf(os.linux.dirent64)),
             index: usize,
             end_index: usize,
 
@@ -527,7 +527,7 @@ pub const Dir = struct {
                         self.index = 0;
                         self.end_index = rc;
                     }
-                    const linux_entry = @ptrCast(*align(1) os.dirent64, &self.buf[self.index]);
+                    const linux_entry = @ptrCast(*align(1) os.linux.dirent64, &self.buf[self.index]);
                     const next_index = self.index + linux_entry.reclen();
                     self.index = next_index;
 
