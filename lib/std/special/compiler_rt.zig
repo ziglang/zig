@@ -299,7 +299,7 @@ comptime {
         @export(@import("compiler_rt/sparc.zig")._Qp_qtod, .{ .name = "_Qp_qtod", .linkage = linkage });
     }
 
-    if (builtin.arch == .powerpc or builtin.arch.isPPC64()) {
+    if (arch == .powerpc or arch.isPPC64()) {
         @export(@import("compiler_rt/addXf3.zig").__addtf3, .{ .name = "__addkf3", .linkage = linkage });
         @export(@import("compiler_rt/addXf3.zig").__subtf3, .{ .name = "__subkf3", .linkage = linkage });
         @export(@import("compiler_rt/mulXf3.zig").__multf3, .{ .name = "__mulkf3", .linkage = linkage });

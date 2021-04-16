@@ -571,11 +571,11 @@ pub const StackTracesContext = struct {
             if (config.exclude.exclude()) return;
         }
         if (@hasField(@TypeOf(config), "exclude_arch")) {
-            const exclude_arch: []const builtin.Cpu.Arch = &config.exclude_arch;
+            const exclude_arch: []const std.Target.Cpu.Arch = &config.exclude_arch;
             for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
         }
         if (@hasField(@TypeOf(config), "exclude_os")) {
-            const exclude_os: []const builtin.Os.Tag = &config.exclude_os;
+            const exclude_os: []const std.Target.Os.Tag = &config.exclude_os;
             for (exclude_os) |os| if (os == builtin.os.tag) return;
         }
         for (self.modes) |mode| {
@@ -615,11 +615,11 @@ pub const StackTracesContext = struct {
             if (mode_config.exclude.exclude()) return;
         }
         if (@hasField(@TypeOf(mode_config), "exclude_arch")) {
-            const exclude_arch: []const builtin.Cpu.Arch = &mode_config.exclude_arch;
+            const exclude_arch: []const std.Target.Cpu.Arch = &mode_config.exclude_arch;
             for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
         }
         if (@hasField(@TypeOf(mode_config), "exclude_os")) {
-            const exclude_os: []const builtin.Os.Tag = &mode_config.exclude_os;
+            const exclude_os: []const std.Target.Os.Tag = &mode_config.exclude_os;
             for (exclude_os) |os| if (os == builtin.os.tag) return;
         }
 
