@@ -34,16 +34,21 @@ instructions: std.MultiArrayList(Inst).Slice,
 /// `string_bytes` array is agnostic to either usage.
 string_bytes: []u8,
 /// The meaning of this data is determined by `Inst.Tag` value.
-/// Indexes 0 and 1 are reserved for:
-/// 0. struct_decl: Ref
-///    - the main struct decl for this file
-/// 1. errors_payload_index: u32
-///    - if this is 0, no compile errors. Otherwise there is a `CompileErrors`
-///      payload at this index.
+/// The first few indexes are reserved. See `ExtraIndex` for the values.
 extra: []u32,
 
-pub const main_struct_extra_index = 0;
-pub const compile_error_extra_index = 1;
+pub const ExtraIndex = enum(u32) {
+    /// Ref. The main struct decl for this file.
+    main_struct,
+    /// If this is 0, no compile errors. Otherwise there is a `CompileErrors`
+    /// payload at this index.
+    compile_errors,
+    /// If this is 0, this file contains no imports. Otherwise there is a `Imports`
+    /// payload at this index.
+    imports,
+
+    _,
+};
 
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
@@ -80,7 +85,7 @@ pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
 }
 
 pub fn hasCompileErrors(code: Zir) bool {
-    return code.extra[compile_error_extra_index] != 0;
+    return code.extra[@enumToInt(ExtraIndex.compile_errors)] != 0;
 }
 
 pub fn deinit(code: *Zir, gpa: *Allocator) void {
@@ -109,10 +114,20 @@ pub fn renderAsTextToFile(
         .param_count = 0,
     };
 
-    const main_struct_inst = scope_file.zir.extra[0] - @intCast(u32, Inst.Ref.typed_value_map.len);
+    const main_struct_inst = scope_file.zir.extra[@enumToInt(ExtraIndex.main_struct)] -
+        @intCast(u32, Inst.Ref.typed_value_map.len);
     try fs_file.writer().print("%{d} ", .{main_struct_inst});
     try writer.writeInstToStream(fs_file.writer(), main_struct_inst);
     try fs_file.writeAll("\n");
+    const imports_index = scope_file.zir.extra[@enumToInt(ExtraIndex.imports)];
+    if (imports_index != 0) {
+        try fs_file.writeAll("Imports:\n");
+        const imports_len = scope_file.zir.extra[imports_index];
+        for (scope_file.zir.extra[imports_index + 1 ..][0..imports_len]) |str_index| {
+            const import_path = scope_file.zir.nullTerminatedString(str_index);
+            try fs_file.writer().print("  {s}\n", .{import_path});
+        }
+    }
 }
 
 /// These are untyped instructions generated from an Abstract Syntax Tree.
@@ -1648,6 +1663,11 @@ pub const Inst = struct {
             /// index of another `Item`.
             notes: u32,
         };
+    };
+
+    /// Trailing: for each `imports_len` there is a string table index.
+    pub const Imports = struct {
+        imports_len: u32,
     };
 };
 

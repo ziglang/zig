@@ -35,6 +35,8 @@ string_bytes: ArrayListUnmanaged(u8) = .{},
 arena: *Allocator,
 string_table: std.StringHashMapUnmanaged(u32) = .{},
 compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
+/// String table indexes, keeps track of all `@import` operands.
+imports: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 
 pub fn addExtra(astgen: *AstGen, extra: anytype) Allocator.Error!u32 {
     const fields = std.meta.fields(@TypeOf(extra));
@@ -76,8 +78,8 @@ pub fn generate(gpa: *Allocator, file: *Scope.File) InnerError!Zir {
     };
     defer astgen.deinit(gpa);
 
-    // Indexes 0,1 of extra are reserved and set at the end.
-    try astgen.extra.resize(gpa, 2);
+    // First few indexes of extra are reserved and set at the end.
+    try astgen.extra.resize(gpa, @typeInfo(Zir.ExtraIndex).Enum.fields.len);
 
     var gen_scope: Scope.GenZir = .{
         .force_comptime = true,
@@ -103,25 +105,41 @@ pub fn generate(gpa: *Allocator, file: *Scope.File) InnerError!Zir {
         container_decl,
         .struct_decl,
     )) |struct_decl_ref| {
-        astgen.extra.items[0] = @enumToInt(struct_decl_ref);
+        astgen.extra.items[@enumToInt(Zir.ExtraIndex.main_struct)] = @enumToInt(struct_decl_ref);
     } else |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.AnalysisFail => {}, // Handled via compile_errors below.
     }
 
+    const err_index = @enumToInt(Zir.ExtraIndex.compile_errors);
     if (astgen.compile_errors.items.len == 0) {
-        astgen.extra.items[1] = 0;
+        astgen.extra.items[err_index] = 0;
     } else {
         try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
             1 + astgen.compile_errors.items.len *
             @typeInfo(Zir.Inst.CompileErrors.Item).Struct.fields.len);
 
-        astgen.extra.items[1] = astgen.addExtraAssumeCapacity(Zir.Inst.CompileErrors{
+        astgen.extra.items[err_index] = astgen.addExtraAssumeCapacity(Zir.Inst.CompileErrors{
             .items_len = @intCast(u32, astgen.compile_errors.items.len),
         });
 
         for (astgen.compile_errors.items) |item| {
             _ = astgen.addExtraAssumeCapacity(item);
+        }
+    }
+
+    const imports_index = @enumToInt(Zir.ExtraIndex.imports);
+    if (astgen.imports.count() == 0) {
+        astgen.extra.items[imports_index] = 0;
+    } else {
+        try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
+            @typeInfo(Zir.Inst.Imports).Struct.fields.len + astgen.imports.count());
+
+        astgen.extra.items[imports_index] = astgen.addExtraAssumeCapacity(Zir.Inst.Imports{
+            .imports_len = @intCast(u32, astgen.imports.count()),
+        });
+        for (astgen.imports.items()) |entry| {
+            astgen.extra.appendAssumeCapacity(entry.key);
         }
     }
 
@@ -138,6 +156,7 @@ pub fn deinit(astgen: *AstGen, gpa: *Allocator) void {
     astgen.string_table.deinit(gpa);
     astgen.string_bytes.deinit(gpa);
     astgen.compile_errors.deinit(gpa);
+    astgen.imports.deinit(gpa);
 }
 
 pub const ResultLoc = union(enum) {
@@ -4684,6 +4703,7 @@ fn builtinCall(
             }
             const str_lit_token = main_tokens[operand_node];
             const str = try gz.strLitAsString(str_lit_token);
+            try astgen.imports.put(astgen.gpa, str.index, {});
             const result = try gz.addStrTok(.import, str.index, str_lit_token);
             return rvalue(gz, scope, rl, result, node);
         },

@@ -432,7 +432,7 @@ pub const AllErrors = struct {
         assert(file.zir_loaded);
         assert(file.tree_loaded);
         const Zir = @import("Zir.zig");
-        const payload_index = file.zir.extra[Zir.compile_error_extra_index];
+        const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
         assert(payload_index != 0);
 
         const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
