@@ -3900,10 +3900,9 @@ fn zirImport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
     defer tracy.end();
 
     const mod = sema.mod;
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
     const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand = try sema.resolveConstString(block, operand_src, inst_data.operand);
+    const operand = inst_data.get(sema.code);
 
     const file = mod.importFile(block.getFileScope().pkg, operand) catch |err| switch (err) {
         error.ImportOutsidePkgPath => {

@@ -4674,8 +4674,17 @@ fn builtinCall(
             return rvalue(gz, scope, rl, .void_value, node);
         },
         .import => {
-            const target = try expr(gz, scope, .none, params[0]);
-            const result = try gz.addUnNode(.import, target, node);
+            const node_tags = tree.nodes.items(.tag);
+            const node_datas = tree.nodes.items(.data);
+            const operand_node = params[0];
+
+            if (node_tags[operand_node] != .string_literal) {
+                // Spec reference: https://github.com/ziglang/zig/issues/2206
+                return astgen.failNode(operand_node, "@import operand must be a string literal", .{});
+            }
+            const str_lit_token = main_tokens[operand_node];
+            const str = try gz.strLitAsString(str_lit_token);
+            const result = try gz.addStrTok(.import, str.index, str_lit_token);
             return rvalue(gz, scope, rl, result, node);
         },
         .error_to_int => {

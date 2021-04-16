@@ -377,8 +377,8 @@ pub const Inst = struct {
         /// Implements the `@hasDecl` builtin.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         has_decl,
-        /// `@import(operand)`.
-        /// Uses the `un_node` field.
+        /// Implements the `@import` builtin.
+        /// Uses the `str_tok` field.
         import,
         /// Integer literal that fits in a u64. Uses the int union value.
         int,
@@ -1699,7 +1699,6 @@ const Writer = struct {
             .load,
             .ensure_result_used,
             .ensure_result_non_error,
-            .import,
             .ptrtoint,
             .ret_node,
             .set_eval_branch_quota,
@@ -1871,6 +1870,7 @@ const Writer = struct {
             .enum_literal,
             .decl_ref_named,
             .decl_val_named,
+            .import,
             => try self.writeStrTok(stream, inst),
 
             .func => try self.writeFunc(stream, inst, false),
