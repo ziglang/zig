@@ -2623,7 +2623,10 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         };
         defer comp.destroy();
 
-        try updateModule(gpa, comp, .none);
+        updateModule(gpa, comp, .none) catch |err| switch (err) {
+            error.SemanticAnalyzeFail => process.exit(1),
+            else => |e| return e,
+        };
         try comp.makeBinFileExecutable();
 
         child_argv.items[argv_index_exe] = try comp.bin_file.options.emit.?.directory.join(

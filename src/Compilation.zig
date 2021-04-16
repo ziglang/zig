@@ -53,6 +53,9 @@ c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
 /// This data is accessed by multiple threads and is protected by `mutex`.
 failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *CObject.ErrorMsg) = .{},
 
+/// Miscellaneous things that can fail.
+misc_failures: std.AutoArrayHashMapUnmanaged(MiscTask, MiscError) = .{},
+
 keep_source_files_loaded: bool,
 use_clang: bool,
 sanitize_c: bool,
@@ -256,6 +259,36 @@ pub const CObject = struct {
     }
 };
 
+pub const MiscTask = enum {
+    write_builtin_zig,
+    glibc_crt_file,
+    glibc_shared_objects,
+    musl_crt_file,
+    mingw_crt_file,
+    windows_import_lib,
+    libunwind,
+    libcxx,
+    libcxxabi,
+    libtsan,
+    compiler_rt,
+    libssp,
+    zig_libc,
+};
+
+pub const MiscError = struct {
+    /// Allocated with gpa.
+    msg: []u8,
+    children: ?AllErrors = null,
+
+    pub fn deinit(misc_err: *MiscError, gpa: *Allocator) void {
+        gpa.free(misc_err.msg);
+        if (misc_err.children) |*children| {
+            children.deinit(gpa);
+        }
+        misc_err.* = undefined;
+    }
+};
+
 /// To support incremental compilation, errors are stored in various places
 /// so that they can be created and destroyed appropriately. This structure
 /// is used to collect all the errors from the various places into one
@@ -278,6 +311,7 @@ pub const AllErrors = struct {
         },
         plain: struct {
             msg: []const u8,
+            notes: []Message = &.{},
         },
 
         pub fn renderToStdErr(msg: Message, ttyconf: std.debug.TTY.Config) void {
@@ -285,7 +319,7 @@ pub const AllErrors = struct {
             const held = std.debug.getStderrMutex().acquire();
             defer held.release();
             const stderr = std.io.getStdErr();
-            return msg.renderToStdErrInner(ttyconf, stderr, "error:", .Red) catch return;
+            return msg.renderToStdErrInner(ttyconf, stderr, "error:", .Red, 0) catch return;
         }
 
         fn renderToStdErrInner(
@@ -294,6 +328,7 @@ pub const AllErrors = struct {
             stderr_file: std.fs.File,
             kind: []const u8,
             color: std.debug.TTY.Color,
+            indent: usize,
         ) anyerror!void {
             const stderr = stderr_file.writer();
             switch (msg) {
@@ -305,6 +340,7 @@ pub const AllErrors = struct {
                         src.column + 1,
                     });
                     ttyconf.setColor(stderr, color);
+                    try stderr.writeByteNTimes(' ', indent);
                     try stderr.writeAll(kind);
                     ttyconf.setColor(stderr, .Bold);
                     try stderr.print(" {s}\n", .{src.msg});
@@ -318,11 +354,19 @@ pub const AllErrors = struct {
                         ttyconf.setColor(stderr, .Reset);
                     }
                     for (src.notes) |note| {
-                        try note.renderToStdErrInner(ttyconf, stderr_file, "note:", .Cyan);
+                        try note.renderToStdErrInner(ttyconf, stderr_file, "note:", .Cyan, indent);
                     }
                 },
                 .plain => |plain| {
-                    try stderr.print("{s}: {s}\n", .{ kind, plain.msg });
+                    ttyconf.setColor(stderr, color);
+                    try stderr.writeByteNTimes(' ', indent);
+                    try stderr.writeAll(kind);
+                    ttyconf.setColor(stderr, .Reset);
+                    try stderr.print(" {s}\n", .{plain.msg});
+                    ttyconf.setColor(stderr, .Reset);
+                    for (plain.notes) |note| {
+                        try note.renderToStdErrInner(ttyconf, stderr_file, "error:", .Red, indent + 4);
+                    }
                 },
             }
         }
@@ -379,6 +423,45 @@ pub const AllErrors = struct {
         msg: []const u8,
     ) !void {
         try errors.append(.{ .plain = .{ .msg = msg } });
+    }
+
+    fn addPlainWithChildren(
+        arena: *std.heap.ArenaAllocator,
+        errors: *std.ArrayList(Message),
+        msg: []const u8,
+        optional_children: ?AllErrors,
+    ) !void {
+        const duped_msg = try arena.allocator.dupe(u8, msg);
+        if (optional_children) |*children| {
+            try errors.append(.{ .plain = .{
+                .msg = duped_msg,
+                .notes = try dupeList(children.list, &arena.allocator),
+            } });
+        } else {
+            try errors.append(.{ .plain = .{ .msg = duped_msg } });
+        }
+    }
+
+    fn dupeList(list: []const Message, arena: *Allocator) Allocator.Error![]Message {
+        const duped_list = try arena.alloc(Message, list.len);
+        for (list) |item, i| {
+            duped_list[i] = switch (item) {
+                .src => |src| .{ .src = .{
+                    .msg = try arena.dupe(u8, src.msg),
+                    .src_path = try arena.dupe(u8, src.src_path),
+                    .line = src.line,
+                    .column = src.column,
+                    .byte_offset = src.byte_offset,
+                    .source_line = if (src.source_line) |s| try arena.dupe(u8, s) else null,
+                    .notes = try dupeList(src.notes, arena),
+                } },
+                .plain => |plain| .{ .plain = .{
+                    .msg = try arena.dupe(u8, plain.msg),
+                    .notes = try dupeList(plain.notes, arena),
+                } },
+            };
+        }
+        return duped_list;
     }
 };
 
@@ -1357,6 +1440,8 @@ pub fn destroy(self: *Compilation) void {
     }
     self.failed_c_objects.deinit(gpa);
 
+    self.clearMiscFailures();
+
     self.cache_parent.manifest_dir.close();
     if (self.owned_link_dir) |*dir| dir.close();
 
@@ -1364,6 +1449,14 @@ pub fn destroy(self: *Compilation) void {
 
     // This destroys `self`.
     self.arena_state.promote(gpa).deinit();
+}
+
+pub fn clearMiscFailures(comp: *Compilation) void {
+    for (comp.misc_failures.items()) |*entry| {
+        entry.value.deinit(comp.gpa);
+    }
+    comp.misc_failures.deinit(comp.gpa);
+    comp.misc_failures = .{};
 }
 
 pub fn getTarget(self: Compilation) Target {
@@ -1375,6 +1468,7 @@ pub fn update(self: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    self.clearMiscFailures();
     self.c_object_cache_digest_set.clearRetainingCapacity();
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
@@ -1475,7 +1569,7 @@ pub fn makeBinFileWritable(self: *Compilation) !void {
 }
 
 pub fn totalErrorCount(self: *Compilation) usize {
-    var total: usize = self.failed_c_objects.items().len;
+    var total: usize = self.failed_c_objects.count() + self.misc_failures.count();
 
     if (self.bin_file.options.module) |module| {
         total += module.failed_exports.items().len +
@@ -1538,6 +1632,9 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                 .source_line = null, // TODO
             },
         });
+    }
+    for (self.misc_failures.items()) |entry| {
+        try AllErrors.addPlainWithChildren(&arena, &errors, entry.value.msg, entry.value.children);
     }
     if (self.bin_file.options.module) |module| {
         for (module.failed_files.items()) |entry| {
@@ -1775,89 +1872,160 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         },
         .glibc_crt_file => |crt_file| {
             glibc.buildCRTFile(self, crt_file) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build glibc CRT file: {s}", .{@errorName(err)});
+                // TODO Surface more error details.
+                try self.setMiscFailure(.glibc_crt_file, "unable to build glibc CRT file: {s}", .{
+                    @errorName(err),
+                });
             };
         },
         .glibc_shared_objects => {
             glibc.buildSharedObjects(self) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build glibc shared objects: {s}", .{@errorName(err)});
+                // TODO Surface more error details.
+                try self.setMiscFailure(
+                    .glibc_shared_objects,
+                    "unable to build glibc shared objects: {s}",
+                    .{@errorName(err)},
+                );
             };
         },
         .musl_crt_file => |crt_file| {
             musl.buildCRTFile(self, crt_file) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build musl CRT file: {s}", .{@errorName(err)});
+                // TODO Surface more error details.
+                try self.setMiscFailure(
+                    .musl_crt_file,
+                    "unable to build musl CRT file: {s}",
+                    .{@errorName(err)},
+                );
             };
         },
         .mingw_crt_file => |crt_file| {
             mingw.buildCRTFile(self, crt_file) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build mingw-w64 CRT file: {s}", .{@errorName(err)});
+                // TODO Surface more error details.
+                try self.setMiscFailure(
+                    .mingw_crt_file,
+                    "unable to build mingw-w64 CRT file: {s}",
+                    .{@errorName(err)},
+                );
             };
         },
         .windows_import_lib => |index| {
             const link_lib = self.bin_file.options.system_libs.items()[index].key;
             mingw.buildImportLib(self, link_lib) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to generate DLL import .lib file: {s}", .{@errorName(err)});
+                // TODO Surface more error details.
+                try self.setMiscFailure(
+                    .windows_import_lib,
+                    "unable to generate DLL import .lib file: {s}",
+                    .{@errorName(err)},
+                );
             };
         },
         .libunwind => {
             libunwind.buildStaticLib(self) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build libunwind: {s}", .{@errorName(err)});
+                // TODO Surface more error details.
+                try self.setMiscFailure(
+                    .libunwind,
+                    "unable to build libunwind: {s}",
+                    .{@errorName(err)},
+                );
             };
         },
         .libcxx => {
             libcxx.buildLibCXX(self) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build libcxx: {s}", .{@errorName(err)});
+                // TODO Surface more error details.
+                try self.setMiscFailure(
+                    .libcxx,
+                    "unable to build libcxx: {s}",
+                    .{@errorName(err)},
+                );
             };
         },
         .libcxxabi => {
             libcxx.buildLibCXXABI(self) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build libcxxabi: {s}", .{@errorName(err)});
+                // TODO Surface more error details.
+                try self.setMiscFailure(
+                    .libcxxabi,
+                    "unable to build libcxxabi: {s}",
+                    .{@errorName(err)},
+                );
             };
         },
         .libtsan => {
             libtsan.buildTsan(self) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build TSAN library: {s}", .{@errorName(err)});
+                // TODO Surface more error details.
+                try self.setMiscFailure(
+                    .libtsan,
+                    "unable to build TSAN library: {s}",
+                    .{@errorName(err)},
+                );
             };
         },
         .compiler_rt_lib => {
-            self.buildOutputFromZig("compiler_rt.zig", .Lib, &self.compiler_rt_static_lib) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build compiler_rt: {s}", .{@errorName(err)});
+            self.buildOutputFromZig(
+                "compiler_rt.zig",
+                .Lib,
+                &self.compiler_rt_static_lib,
+                .compiler_rt,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.SubCompilationFailed => continue, // error reported already
+                else => try self.setMiscFailure(
+                    .compiler_rt,
+                    "unable to build compiler_rt: {s}",
+                    .{@errorName(err)},
+                ),
             };
         },
         .compiler_rt_obj => {
-            self.buildOutputFromZig("compiler_rt.zig", .Obj, &self.compiler_rt_obj) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build compiler_rt: {s}", .{@errorName(err)});
+            self.buildOutputFromZig(
+                "compiler_rt.zig",
+                .Obj,
+                &self.compiler_rt_obj,
+                .compiler_rt,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.SubCompilationFailed => continue, // error reported already
+                else => try self.setMiscFailure(
+                    .compiler_rt,
+                    "unable to build compiler_rt: {s}",
+                    .{@errorName(err)},
+                ),
             };
         },
         .libssp => {
-            self.buildOutputFromZig("ssp.zig", .Lib, &self.libssp_static_lib) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build libssp: {s}", .{@errorName(err)});
+            self.buildOutputFromZig(
+                "ssp.zig",
+                .Lib,
+                &self.libssp_static_lib,
+                .libssp,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.SubCompilationFailed => continue, // error reported already
+                else => try self.setMiscFailure(
+                    .libssp,
+                    "unable to build libssp: {s}",
+                    .{@errorName(err)},
+                ),
             };
         },
         .zig_libc => {
-            self.buildOutputFromZig("c.zig", .Lib, &self.libc_static_lib) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to build zig's multitarget libc: {s}", .{@errorName(err)});
+            self.buildOutputFromZig(
+                "c.zig",
+                .Lib,
+                &self.libc_static_lib,
+                .zig_libc,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.SubCompilationFailed => continue, // error reported already
+                else => try self.setMiscFailure(
+                    .zig_libc,
+                    "unable to build zig's multitarget libc: {s}",
+                    .{@errorName(err)},
+                ),
             };
         },
         .generate_builtin_zig => {
             // This Job is only queued up if there is a zig module.
-            self.updateBuiltinZigFile(self.bin_file.options.module.?) catch |err| {
-                // TODO Expose this as a normal compile error rather than crashing here.
-                fatal("unable to update builtin.zig file: {s}", .{@errorName(err)});
-            };
+            try self.updateBuiltinZigFile(self.bin_file.options.module.?);
         },
         .stage1_module => {
             if (!build_options.is_stage1)
@@ -2858,13 +3026,31 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
         target_util.libcNeedsLibUnwind(comp.getTarget());
 }
 
-fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) !void {
+fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) Allocator.Error!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const source = try comp.generateBuiltinZigSource(comp.gpa);
     defer comp.gpa.free(source);
-    try mod.zig_cache_artifact_directory.handle.writeFile("builtin.zig", source);
+
+    mod.zig_cache_artifact_directory.handle.writeFile("builtin.zig", source) catch |err| {
+        const dir_path: []const u8 = mod.zig_cache_artifact_directory.path orelse ".";
+        try comp.setMiscFailure(.write_builtin_zig, "unable to write builtin.zig to {s}: {s}", .{
+            dir_path,
+            @errorName(err),
+        });
+    };
+}
+
+fn setMiscFailure(
+    comp: *Compilation,
+    tag: MiscTask,
+    comptime format: []const u8,
+    args: anytype,
+) Allocator.Error!void {
+    try comp.misc_failures.ensureCapacity(comp.gpa, comp.misc_failures.count() + 1);
+    const msg = try std.fmt.allocPrint(comp.gpa, format, args);
+    comp.misc_failures.putAssumeCapacityNoClobber(tag, .{ .msg = msg });
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
@@ -2874,7 +3060,7 @@ pub fn dump_argv(argv: []const []const u8) void {
     std.debug.print("{s}\n", .{argv[argv.len - 1]});
 }
 
-pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8 {
+pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Allocator.Error![]u8 {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3071,6 +3257,10 @@ pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
     try sub_compilation.update();
 
     // Look for compilation errors in this sub_compilation
+    // TODO instead of logging these errors, handle them in the callsites
+    // of updateSubCompilation and attach them as sub-errors, properly
+    // surfacing the errors. You can see an example of this already
+    // done inside buildOutputFromZig.
     var errors = try sub_compilation.getAllErrorsAlloc();
     defer errors.deinit(sub_compilation.gpa);
 
@@ -3099,6 +3289,7 @@ fn buildOutputFromZig(
     src_basename: []const u8,
     output_mode: std.builtin.OutputMode,
     out: *?CRTFile,
+    misc_task_tag: MiscTask,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -3173,7 +3364,23 @@ fn buildOutputFromZig(
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try sub_compilation.update();
+    // Look for compilation errors in this sub_compilation.
+    var keep_errors = false;
+    var errors = try sub_compilation.getAllErrorsAlloc();
+    defer if (!keep_errors) errors.deinit(sub_compilation.gpa);
+
+    if (errors.list.len != 0) {
+        try comp.misc_failures.ensureCapacity(comp.gpa, comp.misc_failures.count() + 1);
+        comp.misc_failures.putAssumeCapacityNoClobber(misc_task_tag, .{
+            .msg = try std.fmt.allocPrint(comp.gpa, "sub-compilation of {s} failed", .{
+                @tagName(misc_task_tag),
+            }),
+            .children = errors,
+        });
+        keep_errors = true;
+        return error.SubCompilationFailed;
+    }
 
     assert(out.* == null);
     out.* = Compilation.CRTFile{
