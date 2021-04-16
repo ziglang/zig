@@ -2160,19 +2160,59 @@ fn globalVarDecl(
 fn comptimeDecl(
     astgen: *AstGen,
     gz: *GenZir,
-    wip_decls: *WipDecls,
+    scope: *Scope,
     node: ast.Node.Index,
 ) InnerError!void {
-    @panic("TODO astgen comptimeDecl");
+    const tree = &astgen.file.tree;
+    const node_datas = tree.nodes.items(.data);
+    const block_expr = node_datas[node].lhs;
+    // TODO probably we want to put these into a block and store a list of them
+    _ = try expr(gz, scope, .none, block_expr);
 }
 
 fn usingnamespaceDecl(
     astgen: *AstGen,
     gz: *GenZir,
-    wip_decls: *WipDecls,
+    scope: *Scope,
     node: ast.Node.Index,
 ) InnerError!void {
-    @panic("TODO astgen usingnamespaceDecl");
+    const tree = &astgen.file.tree;
+    const node_datas = tree.nodes.items(.data);
+
+    const type_expr = node_datas[node].lhs;
+    const is_pub = blk: {
+        const main_tokens = tree.nodes.items(.main_token);
+        const token_tags = tree.tokens.items(.tag);
+        const main_token = main_tokens[node];
+        break :blk (main_token > 0 and token_tags[main_token - 1] == .keyword_pub);
+    };
+    // TODO probably we want to put these into a block and store a list of them
+    const namespace_inst = try expr(gz, scope, .{ .ty = .type_type }, type_expr);
+}
+
+fn testDecl(
+    astgen: *AstGen,
+    gz: *GenZir,
+    scope: *Scope,
+    node: ast.Node.Index,
+) InnerError!void {
+    const tree = &astgen.file.tree;
+    const node_datas = tree.nodes.items(.data);
+    const test_expr = node_datas[node].rhs;
+
+    const test_name: u32 = blk: {
+        const main_tokens = tree.nodes.items(.main_token);
+        const token_tags = tree.tokens.items(.tag);
+        const test_token = main_tokens[node];
+        const str_lit_token = test_token + 1;
+        if (token_tags[str_lit_token] == .string_literal) {
+            break :blk (try gz.strLitAsString(str_lit_token)).index;
+        }
+        break :blk 0;
+    };
+
+    // TODO probably we want to put these into a block and store a list of them
+    const block_inst = try expr(gz, scope, .none, test_expr);
 }
 
 fn structDeclInner(
@@ -2289,11 +2329,15 @@ fn structDeclInner(
             },
 
             .@"comptime" => {
-                try astgen.comptimeDecl(gz, &wip_decls, member_node);
+                try astgen.comptimeDecl(gz, scope, member_node);
                 continue;
             },
             .@"usingnamespace" => {
-                try astgen.usingnamespaceDecl(gz, &wip_decls, member_node);
+                try astgen.usingnamespaceDecl(gz, scope, member_node);
+                continue;
+            },
+            .test_decl => {
+                try astgen.testDecl(gz, scope, member_node);
                 continue;
             },
             else => unreachable,

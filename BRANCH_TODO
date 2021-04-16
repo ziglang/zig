@@ -338,19 +338,6 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
         .@"usingnamespace" => {
             decl.analysis = .in_progress;
 
-            const type_expr = node_datas[decl_node].lhs;
-            const is_pub = blk: {
-                const main_tokens = tree.nodes.items(.main_token);
-                const token_tags = tree.tokens.items(.tag);
-                const main_token = main_tokens[decl_node];
-                break :blk (main_token > 0 and token_tags[main_token - 1] == .keyword_pub);
-            };
-
-            // A usingnamespace decl does not store any value so we can
-            // deinit this arena after analysis is done.
-            var analysis_arena = std.heap.ArenaAllocator.init(mod.gpa);
-            defer analysis_arena.deinit();
-
             var code: Zir = blk: {
                 var astgen = try AstGen.init(mod, decl, &analysis_arena.allocator);
                 defer astgen.deinit();
@@ -363,39 +350,8 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
                 defer gen_scope.instructions.deinit(mod.gpa);
 
                 const ns_type = try AstGen.typeExpr(&gen_scope, &gen_scope.base, type_expr);
-                _ = try gen_scope.addBreak(.break_inline, 0, ns_type);
 
-                const code = try gen_scope.finish();
-                if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-                    code.dump(mod.gpa, "usingnamespace_type", &gen_scope.base, 0) catch {};
-                }
-                break :blk code;
             };
-            defer code.deinit(mod.gpa);
-
-            var sema: Sema = .{
-                .mod = mod,
-                .gpa = mod.gpa,
-                .arena = &analysis_arena.allocator,
-                .code = code,
-                .inst_map = try analysis_arena.allocator.alloc(*ir.Inst, code.instructions.len),
-                .owner_decl = decl,
-                .namespace = decl.namespace,
-                .func = null,
-                .owner_func = null,
-                .param_inst_list = &.{},
-            };
-            var block_scope: Scope.Block = .{
-                .parent = null,
-                .sema = &sema,
-                .src_decl = decl,
-                .instructions = .{},
-                .inlining = null,
-                .is_comptime = true,
-            };
-            defer block_scope.instructions.deinit(mod.gpa);
-
-            const ty = try sema.rootAsType(&block_scope);
             try decl.namespace.usingnamespace_set.put(mod.gpa, ty.getNamespace().?, is_pub);
 
             decl.analysis = .complete;
