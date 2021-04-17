@@ -30,6 +30,7 @@ const c_codegen = @import("codegen/c.zig");
 const ThreadPool = @import("ThreadPool.zig");
 const WaitGroup = @import("WaitGroup.zig");
 const libtsan = @import("libtsan.zig");
+const Zir = @import("Zir.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -431,7 +432,6 @@ pub const AllErrors = struct {
     ) !void {
         assert(file.zir_loaded);
         assert(file.tree_loaded);
-        const Zir = @import("Zir.zig");
         const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
         assert(payload_index != 0);
 
@@ -2120,6 +2120,35 @@ fn workerAstGenFile(
             };
         },
     };
+
+    // Pre-emptively look for `@import` paths and queue them up.
+    // If we experience an error preemptively fetching the
+    // file, just ignore it and let it happen again later during Sema.
+    assert(file.zir_loaded);
+    const imports_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.imports)];
+    if (imports_index != 0) {
+        const imports_len = file.zir.extra[imports_index];
+
+        for (file.zir.extra[imports_index + 1 ..][0..imports_len]) |str_index| {
+            const import_path = file.zir.nullTerminatedString(str_index);
+
+            const import_result = blk: {
+                const lock = comp.mutex.acquire();
+                defer lock.release();
+
+                break :blk mod.importFile(file.pkg, import_path) catch continue;
+            };
+            if (import_result.is_new) {
+                wg.start();
+                comp.thread_pool.spawn(workerAstGenFile, .{
+                    comp, import_result.file, prog_node, wg,
+                }) catch {
+                    wg.finish();
+                    continue;
+                };
+            }
+        }
+    }
 }
 
 pub fn obtainCObjectCacheManifest(comp: *const Compilation) Cache.Manifest {

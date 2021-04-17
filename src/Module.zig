@@ -2628,7 +2628,16 @@ pub fn declareDeclDependency(mod: *Module, depender: *Decl, dependee: *Decl) !vo
     depender.dependencies.putAssumeCapacity(dependee, {});
 }
 
-pub fn importFile(mod: *Module, cur_pkg: *Package, import_string: []const u8) !*Scope.File {
+pub const ImportFileResult = struct {
+    file: *Scope.File,
+    is_new: bool,
+};
+
+pub fn importFile(
+    mod: *Module,
+    cur_pkg: *Package,
+    import_string: []const u8,
+) !ImportFileResult {
     const gpa = mod.gpa;
 
     const cur_pkg_dir_path = cur_pkg.root_src_directory.path orelse ".";
@@ -2642,7 +2651,10 @@ pub fn importFile(mod: *Module, cur_pkg: *Package, import_string: []const u8) !*
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
     const gop = try mod.import_table.getOrPut(gpa, resolved_path);
-    if (gop.found_existing) return gop.entry.value;
+    if (gop.found_existing) return ImportFileResult{
+        .file = gop.entry.value,
+        .is_new = false,
+    };
 
     if (found_pkg == null) {
         const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
@@ -2671,7 +2683,10 @@ pub fn importFile(mod: *Module, cur_pkg: *Package, import_string: []const u8) !*
         .namespace = undefined,
     };
     keep_resolved_path = true;
-    return new_file;
+    return ImportFileResult{
+        .file = new_file,
+        .is_new = true,
+    };
 }
 
 pub fn analyzeNamespace(

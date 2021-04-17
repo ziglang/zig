@@ -3904,7 +3904,7 @@ fn zirImport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
     const src = inst_data.src();
     const operand = inst_data.get(sema.code);
 
-    const file = mod.importFile(block.getFileScope().pkg, operand) catch |err| switch (err) {
+    const result = mod.importFile(block.getFileScope().pkg, operand) catch |err| switch (err) {
         error.ImportOutsidePkgPath => {
             return mod.fail(&block.base, src, "import of file outside package path: '{s}'", .{operand});
         },
@@ -3914,7 +3914,7 @@ fn zirImport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
             return mod.fail(&block.base, src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
-    return mod.constType(sema.arena, src, file.namespace.ty);
+    return mod.constType(sema.arena, src, result.file.namespace.ty);
 }
 
 fn zirShl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {

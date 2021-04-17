@@ -1,6 +1,5 @@
  * look for cached zir code
  * save zir code to cache
- * use list of imported strings to queue up more astgen tasks
  * keep track of file dependencies/dependants
  * unload files from memory when a dependency is dropped
  * implement zir error notes 
