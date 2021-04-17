@@ -29,6 +29,8 @@ git config core.abbrev 9
 git fetch --unshallow || true
 git fetch --tags
 
+export ZIG_SYSTEM_LINKER_HACK=1
+
 # Phase1: use zig-bootstrap to build host-zig.
 # Build is `Debug` type to reduce zig0 wall time.
 
@@ -76,7 +78,6 @@ ZIG_EXE="$ZIGDIR/build.host/zig"
 #export ZIG_LIBC="$NATIVE_LIBC_TXT"
 export CC="$ZIG_EXE cc -target ${ARCH}-apple-macos"
 export CXX="$ZIG_EXE c++ -target ${ARCH}-apple-macos"
-export ZIG_SYSTEM_LINKER_HACK=1
 
 mkdir build.arm64
 cd build.arm64
