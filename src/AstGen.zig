@@ -2438,12 +2438,11 @@ fn structDeclInner(
 
     const decl_inst = try gz.addBlock(tag, node);
     try gz.instructions.append(gpa, decl_inst);
-    if (field_index != 0) {
+    if (block_scope.instructions.items.len != 0) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
     }
 
-    try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
-        @typeInfo(Zir.Inst.StructDecl).Struct.fields.len +
+    try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.StructDecl).Struct.fields.len +
         bit_bag.items.len + @boolToInt(field_index != 0) + fields_data.items.len +
         block_scope.instructions.items.len +
         wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
@@ -2483,6 +2482,7 @@ fn containerDecl(
     const tree = &astgen.file.tree;
     const token_tags = tree.tokens.items(.tag);
     const node_tags = tree.nodes.items(.tag);
+    const node_datas = tree.nodes.items(.data);
 
     // We must not create any types until Sema. Here the goal is only to generate
     // ZIR for all the field types, alignments, and default value expressions.
@@ -2594,22 +2594,12 @@ fn containerDecl(
                     },
                 );
             }
-            if (counts.values == 0 and counts.decls == 0 and arg_inst == .none) {
-                return astgen.failNode(node, "TODO AstGen simple enums", .{});
-            }
             // In this case we must generate ZIR code for the tag values, similar to
             // how structs are handled above.
             const tag: Zir.Inst.Tag = if (counts.nonexhaustive_node == 0)
                 .enum_decl
             else
                 .enum_decl_nonexhaustive;
-            if (counts.total_fields == 0) {
-                return gz.addPlNode(tag, node, Zir.Inst.EnumDecl{
-                    .tag_type = arg_inst,
-                    .fields_len = 0,
-                    .body_len = 0,
-                });
-            }
 
             // The enum_decl instruction introduces a scope in which the decls of the enum
             // are in scope, so that tag values can refer to decls within the enum itself.
@@ -2620,6 +2610,9 @@ fn containerDecl(
                 .force_comptime = true,
             };
             defer block_scope.instructions.deinit(gpa);
+
+            var wip_decls: WipDecls = .{};
+            defer wip_decls.deinit(gpa);
 
             var fields_data = ArrayListUnmanaged(u32){};
             defer fields_data.deinit(gpa);
@@ -2639,7 +2632,81 @@ fn containerDecl(
                     .container_field_init => tree.containerFieldInit(member_node),
                     .container_field_align => tree.containerFieldAlign(member_node),
                     .container_field => tree.containerField(member_node),
-                    else => continue,
+
+                    .fn_decl => {
+                        const fn_proto = node_datas[member_node].lhs;
+                        const body = node_datas[member_node].rhs;
+                        switch (node_tags[fn_proto]) {
+                            .fn_proto_simple => {
+                                var params: [1]ast.Node.Index = undefined;
+                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoSimple(&params, fn_proto));
+                                continue;
+                            },
+                            .fn_proto_multi => {
+                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoMulti(fn_proto));
+                                continue;
+                            },
+                            .fn_proto_one => {
+                                var params: [1]ast.Node.Index = undefined;
+                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoOne(&params, fn_proto));
+                                continue;
+                            },
+                            .fn_proto => {
+                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProto(fn_proto));
+                                continue;
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    .fn_proto_simple => {
+                        var params: [1]ast.Node.Index = undefined;
+                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoSimple(&params, member_node));
+                        continue;
+                    },
+                    .fn_proto_multi => {
+                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoMulti(member_node));
+                        continue;
+                    },
+                    .fn_proto_one => {
+                        var params: [1]ast.Node.Index = undefined;
+                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoOne(&params, member_node));
+                        continue;
+                    },
+                    .fn_proto => {
+                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProto(member_node));
+                        continue;
+                    },
+
+                    .global_var_decl => {
+                        try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.globalVarDecl(member_node));
+                        continue;
+                    },
+                    .local_var_decl => {
+                        try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.localVarDecl(member_node));
+                        continue;
+                    },
+                    .simple_var_decl => {
+                        try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.simpleVarDecl(member_node));
+                        continue;
+                    },
+                    .aligned_var_decl => {
+                        try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.alignedVarDecl(member_node));
+                        continue;
+                    },
+
+                    .@"comptime" => {
+                        try astgen.comptimeDecl(gz, scope, member_node);
+                        continue;
+                    },
+                    .@"usingnamespace" => {
+                        try astgen.usingnamespaceDecl(gz, scope, member_node);
+                        continue;
+                    },
+                    .test_decl => {
+                        try astgen.testDecl(gz, scope, member_node);
+                        continue;
+                    },
+                    else => unreachable,
                 };
                 if (field_index % 32 == 0 and field_index != 0) {
                     try bit_bag.append(gpa, cur_bit_bag);
@@ -2663,27 +2730,45 @@ fn containerDecl(
 
                 field_index += 1;
             }
-            const empty_slot_count = 32 - (field_index % 32);
-            cur_bit_bag >>= @intCast(u5, empty_slot_count);
+            {
+                const empty_slot_count = 32 - (field_index % 32);
+                cur_bit_bag >>= @intCast(u5, empty_slot_count);
+            }
+
+            if (wip_decls.decl_index != 0) {
+                const empty_slot_count = 16 - (wip_decls.decl_index % 16);
+                wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
+            }
 
             const decl_inst = try gz.addBlock(tag, node);
             try gz.instructions.append(gpa, decl_inst);
-            _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
+            if (block_scope.instructions.items.len != 0) {
+                _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
+            }
 
-            try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
-                @typeInfo(Zir.Inst.EnumDecl).Struct.fields.len +
+            try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.EnumDecl).Struct.fields.len +
                 bit_bag.items.len + 1 + fields_data.items.len +
-                block_scope.instructions.items.len);
+                block_scope.instructions.items.len +
+                wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
+                wip_decls.name_and_value.items.len);
             const zir_datas = astgen.instructions.items(.data);
             zir_datas[decl_inst].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.EnumDecl{
                 .tag_type = arg_inst,
                 .body_len = @intCast(u32, block_scope.instructions.items.len),
                 .fields_len = @intCast(u32, field_index),
+                .decls_len = @intCast(u32, wip_decls.decl_index),
             });
             astgen.extra.appendSliceAssumeCapacity(block_scope.instructions.items);
             astgen.extra.appendSliceAssumeCapacity(bit_bag.items); // Likely empty.
             astgen.extra.appendAssumeCapacity(cur_bit_bag);
             astgen.extra.appendSliceAssumeCapacity(fields_data.items);
+
+            astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
+            if (wip_decls.decl_index != 0) {
+                astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
+            }
+            astgen.extra.appendSliceAssumeCapacity(wip_decls.name_and_value.items);
+
             return rvalue(gz, scope, rl, gz.indexToRef(decl_inst), node);
         },
         .keyword_opaque => {
