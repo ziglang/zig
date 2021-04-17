@@ -739,12 +739,18 @@ pub const Scope = struct {
         }
 
         pub fn deinit(file: *File, gpa: *Allocator) void {
+            gpa.free(file.sub_file_path);
             file.unload(gpa);
             file.* = undefined;
         }
 
         pub fn getSource(file: *File, gpa: *Allocator) ![:0]const u8 {
             if (file.source_loaded) return file.source;
+
+            const root_dir_path = file.pkg.root_src_directory.path orelse ".";
+            log.debug("File.getSource, not cached. pkgdir={s} sub_file_path={s}", .{
+                root_dir_path, file.sub_file_path,
+            });
 
             // Keep track of inode, file size, mtime, hash so we can detect which files
             // have been modified when an incremental update is requested.
@@ -2633,20 +2639,15 @@ pub const ImportFileResult = struct {
     is_new: bool,
 };
 
-pub fn importFile(
-    mod: *Module,
-    cur_pkg: *Package,
-    import_string: []const u8,
-) !ImportFileResult {
+pub fn importPkg(mod: *Module, cur_pkg: *Package, pkg: *Package) !ImportFileResult {
     const gpa = mod.gpa;
 
-    const cur_pkg_dir_path = cur_pkg.root_src_directory.path orelse ".";
-    const found_pkg = cur_pkg.table.get(import_string);
-
-    const resolved_path = if (found_pkg) |pkg|
-        try std.fs.path.resolve(gpa, &[_][]const u8{ pkg.root_src_directory.path orelse ".", pkg.root_src_path })
-    else
-        try std.fs.path.resolve(gpa, &[_][]const u8{ cur_pkg_dir_path, import_string });
+    // The resolved path is used as the key in the import table, to detect if
+    // an import refers to the same as another, despite different relative paths
+    // or differently mapped package names.
+    const resolved_path = try std.fs.path.resolve(gpa, &[_][]const u8{
+        pkg.root_src_directory.path orelse ".", pkg.root_src_path,
+    });
     var keep_resolved_path = false;
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
@@ -2655,20 +2656,17 @@ pub fn importFile(
         .file = gop.entry.value,
         .is_new = false,
     };
+    keep_resolved_path = true; // It's now owned by import_table.
 
-    if (found_pkg == null) {
-        const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
-        defer gpa.free(resolved_root_path);
-
-        if (!mem.startsWith(u8, resolved_path, resolved_root_path)) {
-            return error.ImportOutsidePkgPath;
-        }
-    }
+    const sub_file_path = try gpa.dupe(u8, pkg.root_src_path);
+    errdefer gpa.free(sub_file_path);
 
     const new_file = try gpa.create(Scope.File);
+    errdefer gpa.destroy(new_file);
+
     gop.entry.value = new_file;
     new_file.* = .{
-        .sub_file_path = resolved_path,
+        .sub_file_path = sub_file_path,
         .source = undefined,
         .source_loaded = false,
         .tree_loaded = false,
@@ -2679,10 +2677,75 @@ pub fn importFile(
         .tree = undefined,
         .zir = undefined,
         .status = .never_loaded,
-        .pkg = found_pkg orelse cur_pkg,
+        .pkg = pkg,
         .namespace = undefined,
     };
-    keep_resolved_path = true;
+    return ImportFileResult{
+        .file = new_file,
+        .is_new = true,
+    };
+}
+
+pub fn importFile(
+    mod: *Module,
+    cur_file: *Scope.File,
+    import_string: []const u8,
+) !ImportFileResult {
+    if (cur_file.pkg.table.get(import_string)) |pkg| {
+        return mod.importPkg(cur_file.pkg, pkg);
+    }
+    const gpa = mod.gpa;
+
+    // The resolved path is used as the key in the import table, to detect if
+    // an import refers to the same as another, despite different relative paths
+    // or differently mapped package names.
+    const cur_pkg_dir_path = cur_file.pkg.root_src_directory.path orelse ".";
+    const resolved_path = try std.fs.path.resolve(gpa, &[_][]const u8{
+        cur_pkg_dir_path, cur_file.sub_file_path, "..", import_string,
+    });
+    var keep_resolved_path = false;
+    defer if (!keep_resolved_path) gpa.free(resolved_path);
+
+    const gop = try mod.import_table.getOrPut(gpa, resolved_path);
+    if (gop.found_existing) return ImportFileResult{
+        .file = gop.entry.value,
+        .is_new = false,
+    };
+    keep_resolved_path = true; // It's now owned by import_table.
+
+    const new_file = try gpa.create(Scope.File);
+    errdefer gpa.destroy(new_file);
+
+    const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
+    defer gpa.free(resolved_root_path);
+
+    if (!mem.startsWith(u8, resolved_path, resolved_root_path)) {
+        return error.ImportOutsidePkgPath;
+    }
+    // +1 for the directory separator here.
+    const sub_file_path = try gpa.dupe(u8, resolved_path[resolved_root_path.len + 1 ..]);
+    errdefer gpa.free(sub_file_path);
+
+    log.debug("new importFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, import_string={s}", .{
+        resolved_root_path, resolved_path, sub_file_path, import_string,
+    });
+
+    gop.entry.value = new_file;
+    new_file.* = .{
+        .sub_file_path = sub_file_path,
+        .source = undefined,
+        .source_loaded = false,
+        .tree_loaded = false,
+        .zir_loaded = false,
+        .stat_size = undefined,
+        .stat_inode = undefined,
+        .stat_mtime = undefined,
+        .tree = undefined,
+        .zir = undefined,
+        .status = .never_loaded,
+        .pkg = cur_file.pkg,
+        .namespace = undefined,
+    };
     return ImportFileResult{
         .file = new_file,
         .is_new = true,

@@ -1535,7 +1535,8 @@ pub fn update(self: *Compilation) !void {
 
             // Make sure std.zig is inside the import_table. We unconditionally need
             // it for start.zig.
-            _ = try module.importFile(module.root_pkg, "std");
+            const std_pkg = module.root_pkg.table.get("std").?;
+            _ = try module.importPkg(module.root_pkg, std_pkg);
 
             // Put a work item in for every known source file to detect if
             // it changed, and, if so, re-compute ZIR and then queue the job
@@ -2118,6 +2119,7 @@ fn workerAstGenFile(
                 // there is a missing `failed_files` error message.
                 error.OutOfMemory => {},
             };
+            return;
         },
     };
 
@@ -2136,7 +2138,7 @@ fn workerAstGenFile(
                 const lock = comp.mutex.acquire();
                 defer lock.release();
 
-                break :blk mod.importFile(file.pkg, import_path) catch continue;
+                break :blk mod.importFile(file, import_path) catch continue;
             };
             if (import_result.is_new) {
                 wg.start();
