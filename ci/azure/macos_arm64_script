@@ -3,7 +3,47 @@
 set -x
 set -e
 
-brew update && brew install s3cmd ninja gnu-tar
+# TODO
+#brew update && brew install s3cmd ninja gnu-tar
+brew install s3cmd ninja gnu-tar
 
-env
-which llvm-config
+ZIGDIR="$(pwd)"
+ARCH="aarch64"
+CACHE_HOST_BASENAME="zig+llvm+lld+clang-x86_64-macos-gnu-0.8.0-dev.1939+5a3ea9bec"
+CACHE_ARM64_BASENAME="zig+llvm+lld+clang-aarch64-macos-gnu-0.8.0-dev.1960+68e69aae2"
+PREFIX_HOST="$HOME/$CACHE_HOST_BASENAME"
+PREFIX_ARM64="$HOME/$CACHE_ARM64_BASENAME"
+JOBS="-j2"
+
+rm -rf $PREFIX
+cd $HOME
+wget -nv "https://ziglang.org/deps/$CACHE_HOST_BASENAME.tar.xz"
+wget -nv "https://ziglang.org/deps/$CACHE_ARM64_BASENAME.tar.xz"
+gtar xf "$CACHE_HOST_BASENAME.tar.xz"
+gtar xf "$CACHE_ARM64_BASENAME.tar.xz"
+
+cd $ZIGDIR
+
+# Make the `zig version` number consistent.
+# This will affect the cmake command below.
+git config core.abbrev 9
+git fetch --unshallow || true
+git fetch --tags
+
+# Phase1: use zig-bootstrap to build host-zig.
+# Build is `Debug` type to reduce zig0 wall time.
+
+ZIG="$PREFIX_HOST/bin/zig"
+NATIVE_LIBC_TXT="$HOME/native_libc.txt"
+$ZIG libc > "$NATIVE_LIBC_TXT"
+export ZIG_LIBC="$NATIVE_LIBC_TXT"
+export CC="$ZIG cc"
+export CXX="$ZIG c++"
+
+mkdir build.host
+cd build.host
+cmake -G "Ninja" .. \
+  -DCMAKE_INSTALL_PREFIX="$(pwd)/release" \
+  -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_BUILD_TYPE="Debug" \
+  -DZIG_STATIC="OFF"
