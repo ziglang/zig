@@ -46,7 +46,7 @@ cmake -G "Ninja" .. \
   -DCMAKE_INSTALL_PREFIX="$(pwd)/install.host" \
   -DCMAKE_PREFIX_PATH="$PREFIX_HOST" \
   -DCMAKE_BUILD_TYPE="Debug" \
-  -DZIG_STATIC="OFF" \
+  -DZIG_STATIC="ON" \
   -DZIG_USE_LLVM_CONFIG="OFF"
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
@@ -57,6 +57,9 @@ unset ZIG_LIBC
 
 # Build but do not install.
 ninja $JOBS
+
+echo "DRAFT: STOP"
+exit
 
 # Phase2: use host-zig to build arm64-zig.
 # - build is `Release` type for publishing
