@@ -10,7 +10,7 @@ brew install s3cmd ninja gnu-tar
 ZIGDIR="$(pwd)"
 ARCH="aarch64"
 CACHE_HOST_BASENAME="zig+llvm+lld+clang-x86_64-macos-gnu-0.8.0-dev.1939+5a3ea9bec"
-CACHE_ARM64_BASENAME="zig+llvm+lld+clang-${ARC}-macos-gnu-0.8.0-dev.1960+68e69aae2"
+CACHE_ARM64_BASENAME="zig+llvm+lld+clang-${ARCH}-macos-gnu-0.8.0-dev.1960+68e69aae2"
 PREFIX_HOST="$HOME/$CACHE_HOST_BASENAME"
 PREFIX_ARM64="$HOME/$CACHE_ARM64_BASENAME"
 JOBS="-j2"
