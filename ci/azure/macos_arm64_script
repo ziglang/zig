@@ -48,12 +48,14 @@ cd build.host
 #  -DCMAKE_BUILD_TYPE="Debug" \
 #  -DZIG_STATIC="OFF"
 cmake -G "Ninja" .. \
-  -DCMAKE_INSTALL_PREFIX="$(pwd)/release" \
+  -DCMAKE_INSTALL_PREFIX="$(pwd)/install.host" \
   -DCMAKE_PREFIX_PATH="$PREFIX_HOST" \
   -DCMAKE_BUILD_TYPE="Debug" \
-  -DZIG_TARGET_TRIPLE="x86_64-native-gnu" \
-  -DZIG_TARGET_MCPU="baseline" \
-  -DZIG_STATIC=ON
+  -DZIG_STATIC="OFF"
+
+#  -DZIG_TARGET_TRIPLE="x86_64-native-gnu" \
+#  -DZIG_TARGET_MCPU="baseline" \
+#  -DZIG_STATIC=ON
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
 # so that installation and testing do not get affected by them.
@@ -62,4 +64,4 @@ unset CXX
 unset ZIG_LIBC
 
 # Build but do not install.
-cmake $JOBS
+ninja $JOBS
