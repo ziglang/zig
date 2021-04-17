@@ -367,7 +367,7 @@ pub fn analyzeBody(
                 i = 0;
                 continue;
             },
-            .block_inline => blk: {
+            .block_inline, .block_inline_var => blk: {
                 // Directly analyze the block body without introducing a new block.
                 const inst_data = datas[inst].pl_node;
                 const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);

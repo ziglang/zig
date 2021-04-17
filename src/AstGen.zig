@@ -1281,6 +1281,7 @@ fn blockExprStmts(
                         .bit_or,
                         .block,
                         .block_inline,
+                        .block_inline_var,
                         .loop,
                         .bool_br_and,
                         .bool_br_or,
@@ -2020,7 +2021,7 @@ fn fnDecl(
         // Iterate over the parameters. We put the param names as the first N
         // items inside `extra` so that debug info later can refer to the parameter names
         // even while the respective source code is unloaded.
-        try astgen.extra.ensureCapacity(gpa, param_count);
+        try astgen.extra.ensureUnusedCapacity(gpa, param_count);
 
         {
             var params_scope = &fn_gz.base;
@@ -2080,7 +2081,7 @@ fn fnDecl(
     };
 
     const fn_name_token = fn_proto.name_token orelse {
-        @panic("TODO handle missing function names in the parser");
+        return astgen.failTok(fn_proto.ast.fn_token, "missing function name", .{});
     };
     const fn_name_str_index = try gz.identAsString(fn_name_token);
 
@@ -2173,16 +2174,13 @@ fn globalVarDecl(
             var_decl.ast.init_node,
         );
 
-        if (!is_mutable) {
-            // const globals are just their instruction. mutable globals have
-            // a special ZIR form.
-            const block_inst = try gz.addBlock(.block_inline, node);
-            _ = try block_scope.addBreak(.break_inline, block_inst, init_inst);
-            try block_scope.setBlockBody(block_inst);
-            break :vi block_inst;
-        }
-
-        @panic("TODO astgen global variable");
+        const tag: Zir.Inst.Tag = if (is_mutable) .block_inline_var else .block_inline;
+        // const globals are just their instruction. mutable globals have
+        // a special ZIR form.
+        const block_inst = try gz.addBlock(tag, node);
+        _ = try block_scope.addBreak(.break_inline, block_inst, init_inst);
+        try block_scope.setBlockBody(block_inst);
+        break :vi block_inst;
     } else if (!is_extern) {
         return astgen.failNode(node, "variables must be initialized", .{});
     } else if (var_decl.ast.type_node != 0) {
@@ -2190,7 +2188,7 @@ fn globalVarDecl(
 
         const type_inst = try typeExpr(gz, scope, var_decl.ast.type_node);
 
-        @panic("TODO AstGen extern global variable");
+        return astgen.failNode(node, "TODO AstGen extern global variable", .{});
     } else {
         return astgen.failNode(node, "unable to infer variable type", .{});
     };
@@ -2588,7 +2586,7 @@ fn containerDecl(
                 );
             }
             if (counts.values == 0 and counts.decls == 0 and arg_inst == .none) {
-                @panic("AstGen simple enum");
+                return astgen.failNode(node, "TODO AstGen simple enums", .{});
             }
             // In this case we must generate ZIR code for the tag values, similar to
             // how structs are handled above.
@@ -2698,7 +2696,7 @@ fn errorSetDecl(
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
 
-    @panic("TODO AstGen errorSetDecl");
+    return astgen.failNode(node, "TODO AstGen errorSetDecl", .{});
 }
 
 fn orelseCatchExpr(

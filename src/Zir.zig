@@ -208,6 +208,8 @@ pub const Inst = struct {
         /// a noreturn instruction.
         /// Uses the `pl_node` union field. Payload is `Block`.
         block_inline,
+        /// Same as `block_inline` but it additionally marks a decl as being a variable.
+        block_inline_var,
         /// Boolean AND. See also `bit_and`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         bool_and,
@@ -753,6 +755,7 @@ pub const Inst = struct {
                 .bit_or,
                 .block,
                 .block_inline,
+                .block_inline_var,
                 .loop,
                 .bool_br_and,
                 .bool_br_or,
@@ -1830,6 +1833,7 @@ const Writer = struct {
 
             .block,
             .block_inline,
+            .block_inline_var,
             .loop,
             .validate_struct_init_ptr,
             => try self.writePlNodeBlock(stream, inst),
