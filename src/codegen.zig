@@ -1247,7 +1247,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .stack_offset => |off| {
                     log.debug("reusing stack offset {} => {*}", .{ off, inst });
-                    return true;
                 },
                 else => return false,
             }
