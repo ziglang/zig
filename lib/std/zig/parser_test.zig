@@ -1315,6 +1315,27 @@ test "zig fmt: 'zig fmt: (off|on)' works in the middle of code" {
     );
 }
 
+test "zig fmt: 'zig fmt: on' indentation is unchanged" {
+    try testCanonical(
+        \\fn initOptionsAndLayouts(output: *Output, context: *Context) !void {
+        \\    // zig fmt: off
+        \\    try output.main_amount.init(output, "main_amount"); errdefer optput.main_amount.deinit();
+        \\    try output.main_factor.init(output, "main_factor"); errdefer optput.main_factor.deinit();
+        \\    try output.view_padding.init(output, "view_padding"); errdefer optput.view_padding.deinit();
+        \\    try output.outer_padding.init(output, "outer_padding"); errdefer optput.outer_padding.deinit();
+        \\    // zig fmt: on
+        \\
+        \\    // zig fmt: off
+        \\    try output.top.init(output, .top); errdefer optput.top.deinit();
+        \\    try output.right.init(output, .right); errdefer optput.right.deinit();
+        \\    try output.bottom.init(output, .bottom); errdefer optput.bottom.deinit();
+        \\    try output.left.init(output, .left); errdefer optput.left.deinit();
+        \\        // zig fmt: on
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: pointer of unknown length" {
     try testCanonical(
         \\fn foo(ptr: [*]u8) void {}
