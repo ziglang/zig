@@ -34,9 +34,9 @@ git fetch --tags
 
 cd $ZIGDIR
 ZIG_EXE="$PREFIX_HOST/bin/zig"
-NATIVE_LIBC_TXT="$HOME/native_libc.txt"
-$ZIG_EXE libc > "$NATIVE_LIBC_TXT"
-export ZIG_LIBC="$NATIVE_LIBC_TXT"
+#NATIVE_LIBC_TXT="$HOME/native_libc.txt"
+#$ZIG_EXE libc > "$NATIVE_LIBC_TXT"
+#export ZIG_LIBC="$NATIVE_LIBC_TXT"
 export CC="$ZIG_EXE cc"
 export CXX="$ZIG_EXE c++"
 
@@ -48,7 +48,7 @@ cmake -G "Ninja" .. \
   -DCMAKE_BUILD_TYPE="Debug" \
   -DZIG_TARGET_TRIPLE="x86_64-native-gnu" \
   -DZIG_TARGET_MCPU="baseline" \
-  -DZIG_STATIC="OFF" \
+  -DZIG_STATIC="ON" \
   -DZIG_USE_LLVM_CONFIG="OFF"
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
@@ -70,11 +70,13 @@ exit
 
 cd $ZIGDIR
 ZIG_EXE="$ZIGDIR/build.host/zig"
-NATIVE_LIBC_TXT="$HOME/native_libc.txt"
-$ZIG_EXE libc > "$NATIVE_LIBC_TXT"
-export ZIG_LIBC="$NATIVE_LIBC_TXT"
-export CC="$ZIG_EXE cc"
-export CXX="$ZIG_EXE c++"
+#rm "$NATIVE_LIBC_TXT"
+#NATIVE_LIBC_TXT="$HOME/native_libc.txt"
+#$ZIG_EXE libc > "$NATIVE_LIBC_TXT"
+#export ZIG_LIBC="$NATIVE_LIBC_TXT"
+export CC="$ZIG_EXE cc -target ${ARCH}-apple-macos"
+export CXX="$ZIG_EXE c++ -target ${ARCH}-apple-macos"
+export ZIG_SYSTEM_LINKER_HACK=1
 
 mkdir build.arm64
 cd build.arm64
@@ -85,14 +87,12 @@ cmake -G "Ninja" .. \
   -DCMAKE_CROSSCOMPILING="True" \
   -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" \
   -DCMAKE_SYSTEM_NAME="Darwin" \
+  -DCMAKE_EXE_LINKER_FLAGS="-lz -Xlinker -adhoc_codesign" \
   -DZIG_TARGET_TRIPLE="${ARCH}-native-gnu" \
   -DZIG_TARGET_MCPU="native" \
   -DZIG_STATIC="ON" \
   -DZIG_EXECUTABLE="$ZIG_EXE" \
   -DZIG_USE_LLVM_CONFIG="OFF"
-
-# TODO?
-# -DCMAKE_EXE_LINKER_FLAGS="-lz -Xlinker -adhoc_codesign" \
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
 # so that installation and testing do not get affected by them.
