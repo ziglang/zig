@@ -10,7 +10,7 @@ brew install s3cmd ninja gnu-tar
 ZIGDIR="$(pwd)"
 ARCH="aarch64"
 CACHE_HOST_BASENAME="zig+llvm+lld+clang-x86_64-macos-gnu-0.8.0-dev.1939+5a3ea9bec"
-CACHE_ARM64_BASENAME="zig+llvm+lld+clang-aarch64-macos-gnu-0.8.0-dev.1960+68e69aae2"
+CACHE_ARM64_BASENAME="zig+llvm+lld+clang-${ARC}-macos-gnu-0.8.0-dev.1960+68e69aae2"
 PREFIX_HOST="$HOME/$CACHE_HOST_BASENAME"
 PREFIX_ARM64="$HOME/$CACHE_ARM64_BASENAME"
 JOBS="-j2"
@@ -22,10 +22,9 @@ wget -nv "https://ziglang.org/deps/$CACHE_ARM64_BASENAME.tar.xz"
 gtar xf "$CACHE_HOST_BASENAME.tar.xz"
 gtar xf "$CACHE_ARM64_BASENAME.tar.xz"
 
-cd $ZIGDIR
-
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
+cd $ZIGDIR
 git config core.abbrev 9
 git fetch --unshallow || true
 git fetch --tags
@@ -33,29 +32,22 @@ git fetch --tags
 # Phase1: use zig-bootstrap to build host-zig.
 # Build is `Debug` type to reduce zig0 wall time.
 
-ZIG="$PREFIX_HOST/bin/zig"
+cd $ZIGDIR
+ZIG_EXE="$PREFIX_HOST/bin/zig"
 NATIVE_LIBC_TXT="$HOME/native_libc.txt"
-$ZIG libc > "$NATIVE_LIBC_TXT"
+$ZIG_EXE libc > "$NATIVE_LIBC_TXT"
 export ZIG_LIBC="$NATIVE_LIBC_TXT"
-export CC="$ZIG cc"
-export CXX="$ZIG c++"
+export CC="$ZIG_EXE cc"
+export CXX="$ZIG_EXE c++"
 
 mkdir build.host
 cd build.host
-#cmake -G "Ninja" .. \
-#  -DCMAKE_INSTALL_PREFIX="$(pwd)/release" \
-#  -DCMAKE_PREFIX_PATH="$PREFIX" \
-#  -DCMAKE_BUILD_TYPE="Debug" \
-#  -DZIG_STATIC="OFF"
 cmake -G "Ninja" .. \
   -DCMAKE_INSTALL_PREFIX="$(pwd)/install.host" \
   -DCMAKE_PREFIX_PATH="$PREFIX_HOST" \
   -DCMAKE_BUILD_TYPE="Debug" \
-  -DZIG_STATIC="OFF"
-
-#  -DZIG_TARGET_TRIPLE="x86_64-native-gnu" \
-#  -DZIG_TARGET_MCPU="baseline" \
-#  -DZIG_STATIC=ON
+  -DZIG_STATIC="OFF" \
+  -DZIG_USE_LLVM_CONFIG="OFF"
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
 # so that installation and testing do not get affected by them.
@@ -65,3 +57,94 @@ unset ZIG_LIBC
 
 # Build but do not install.
 ninja $JOBS
+
+# Phase2: use host-zig to build arm64-zig.
+# - build is `Release` type for publishing
+# - ad-hoc codesign with linker
+# - note: apple quarantine of downloads (eg. via safari) still apply
+
+cd $ZIGDIR
+ZIG_EXE="$ZIGDIR/build.host/zig"
+NATIVE_LIBC_TXT="$HOME/native_libc.txt"
+$ZIG_EXE libc > "$NATIVE_LIBC_TXT"
+export ZIG_LIBC="$NATIVE_LIBC_TXT"
+export CC="$ZIG_EXE cc"
+export CXX="$ZIG_EXE c++"
+
+mkdir build.arm64
+cd build.arm64
+cmake -G "Ninja" .. \
+  -DCMAKE_INSTALL_PREFIX="$(pwd)/install.arm64" \
+  -DCMAKE_PREFIX_PATH="$PREFIX_ARM64" \
+  -DCMAKE_BUILD_TYPE="Release" \
+  -DCMAKE_CROSSCOMPILING="True" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" \
+  -DCMAKE_SYSTEM_NAME="Darwin" \
+  -DZIG_TARGET_TRIPLE="${ARCH}-native-gnu" \
+  -DZIG_TARGET_MCPU="native" \
+  -DZIG_STATIC="ON" \
+  -DZIG_EXECUTABLE="$ZIG_EXE" \
+  -DZIG_USE_LLVM_CONFIG="OFF"
+
+# TODO?
+# -DCMAKE_EXE_LINKER_FLAGS="-lz -Xlinker -adhoc_codesign" \
+
+# Now cmake will use zig as the C/C++ compiler. We reset the environment variables
+# so that installation and testing do not get affected by them.
+unset CC
+unset CXX
+unset ZIG_LIBC
+
+# Build and install.
+ninja $JOBS install
+
+if [ "${BUILD_REASON}" != "PullRequest" ]; then
+  mv ../LICENSE release/
+
+  # We do not run test suite but still need langref.
+  mkdir -p release/docs
+  $ZIG_EXE run ../doc/docgen.zig -- $ZIG_EXE ../doc/langref.html.in release/docs/langref.html
+
+  # Produce the experimental std lib documentation.
+  mkdir -p release/docs/std
+  $ZIG_EXE test ../lib/std/std.zig \
+    --override-lib-dir ../lib \
+    -femit-docs=release/docs/std \
+    -fno-emit-bin
+
+  # Remove the unnecessary bin dir in $prefix/bin/zig
+  mv release/bin/zig release/
+  rmdir release/bin
+
+  # Remove the unnecessary zig dir in $prefix/lib/zig/std/std.zig
+  mv release/lib/zig release/lib2
+  rmdir release/lib
+  mv release/lib2 release/lib
+
+  VERSION=$($ZIG_EXE version)
+  DIRNAME="zig-macos-$ARCH-$VERSION"
+  TARBALL="$DIRNAME.tar.xz"
+  gtar cJf "$TARBALL" release/ --owner=root --sort=name --transform="s,^release,${DIRNAME},"
+  ln "$TARBALL" "$BUILD_ARTIFACTSTAGINGDIRECTORY/."
+
+  mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
+  s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
+
+  SHASUM=$(shasum -a 256 $TARBALL | cut '-d ' -f1)
+  BYTESIZE=$(wc -c < $TARBALL)
+
+  JSONFILE="tarball.json"
+  touch $JSONFILE
+  echo "{\"tarball\": \"$TARBALL\"," >>$JSONFILE
+  echo "\"shasum\": \"$SHASUM\"," >>$JSONFILE
+  echo "\"size\": \"$BYTESIZE\"}" >>$JSONFILE
+
+  s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/$ARCH-macos-$VERSION.json"
+
+  # `set -x` causes these variables to be mangled.
+  # See https://developercommunity.visualstudio.com/content/problem/375679/pipeline-variable-incorrectly-inserts-single-quote.html
+  set +x
+  echo "##vso[task.setvariable variable=tarball;isOutput=true]$TARBALL"
+  echo "##vso[task.setvariable variable=shasum;isOutput=true]$SHASUM"
+  echo "##vso[task.setvariable variable=bytesize;isOutput=true]$BYTESIZE"
+fi
