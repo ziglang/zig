@@ -2341,7 +2341,7 @@ pub const LibExeObjStep = struct {
             try zig_args.append("-ffunction-sections");
         }
         if (self.linker_allow_shlib_undefined) |x| {
-            try zig_args.append(if (x) "--allow-shlib-undefined" else "--no-allow-shlib-undefined");
+            try zig_args.append(if (x) "-fallow-shlib-undefined" else "-fno-allow-shlib-undefined");
         }
         if (self.single_threaded) {
             try zig_args.append("--single-threaded");
