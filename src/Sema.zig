@@ -133,8 +133,6 @@ pub fn analyzeBody(
         map[inst] = switch (tags[inst]) {
             .elided => continue,
 
-            .add => try sema.zirArithmetic(block, inst),
-            .addwrap => try sema.zirArithmetic(block, inst),
             .alloc => try sema.zirAlloc(block, inst),
             .alloc_inferred => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_const)),
             .alloc_inferred_mut => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_mut)),
@@ -173,7 +171,6 @@ pub fn analyzeBody(
             .decl_ref => try sema.zirDeclRef(block, inst),
             .decl_val => try sema.zirDeclVal(block, inst),
             .load => try sema.zirLoad(block, inst),
-            .div => try sema.zirArithmetic(block, inst),
             .elem_ptr => try sema.zirElemPtr(block, inst),
             .elem_ptr_node => try sema.zirElemPtrNode(block, inst),
             .elem_val => try sema.zirElemVal(block, inst),
@@ -217,9 +214,6 @@ pub fn analyzeBody(
             .is_null_ptr => try sema.zirIsNullPtr(block, inst, false),
             .loop => try sema.zirLoop(block, inst),
             .merge_error_sets => try sema.zirMergeErrorSets(block, inst),
-            .mod_rem => try sema.zirArithmetic(block, inst),
-            .mul => try sema.zirArithmetic(block, inst),
-            .mulwrap => try sema.zirArithmetic(block, inst),
             .negate => try sema.zirNegate(block, inst, .sub),
             .negate_wrap => try sema.zirNegate(block, inst, .subwrap),
             .optional_payload_safe => try sema.zirOptionalPayload(block, inst, true),
@@ -241,8 +235,6 @@ pub fn analyzeBody(
             .slice_sentinel => try sema.zirSliceSentinel(block, inst),
             .slice_start => try sema.zirSliceStart(block, inst),
             .str => try sema.zirStr(block, inst),
-            .sub => try sema.zirArithmetic(block, inst),
-            .subwrap => try sema.zirArithmetic(block, inst),
             .switch_block => try sema.zirSwitchBlock(block, inst, false, .none),
             .switch_block_multi => try sema.zirSwitchBlockMulti(block, inst, false, .none),
             .switch_block_else => try sema.zirSwitchBlock(block, inst, false, .@"else"),
@@ -271,6 +263,7 @@ pub fn analyzeBody(
             .typeof => try sema.zirTypeof(block, inst),
             .typeof_elem => try sema.zirTypeofElem(block, inst),
             .typeof_peer => try sema.zirTypeofPeer(block, inst),
+            .log2_int_type => try sema.zirLog2IntType(block, inst),
             .xor => try sema.zirBitwise(block, inst, .xor),
             .struct_init_empty => try sema.zirStructInitEmpty(block, inst),
             .struct_init => try sema.zirStructInit(block, inst),
@@ -283,6 +276,20 @@ pub fn analyzeBody(
             .enum_decl_nonexhaustive => try sema.zirEnumDecl(block, inst, true),
             .union_decl => try sema.zirUnionDecl(block, inst),
             .opaque_decl => try sema.zirOpaqueDecl(block, inst),
+
+            .add => try sema.zirArithmetic(block, inst),
+            .addwrap => try sema.zirArithmetic(block, inst),
+            .div => try sema.zirArithmetic(block, inst),
+            .mod_rem => try sema.zirArithmetic(block, inst),
+            .mul => try sema.zirArithmetic(block, inst),
+            .mulwrap => try sema.zirArithmetic(block, inst),
+            .sub => try sema.zirArithmetic(block, inst),
+            .subwrap => try sema.zirArithmetic(block, inst),
+
+            .add_with_overflow => try sema.zirOverflowArithmetic(block, inst),
+            .sub_with_overflow => try sema.zirOverflowArithmetic(block, inst),
+            .mul_with_overflow => try sema.zirOverflowArithmetic(block, inst),
+            .shl_with_overflow => try sema.zirOverflowArithmetic(block, inst),
 
             // Instructions that we know to *always* be noreturn based solely on their tag.
             // These functions match the return type of analyzeBody so that we can
@@ -4048,6 +4055,16 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
     return sema.analyzeArithmetic(block, tag_override, lhs, rhs, src, lhs_src, rhs_src);
 }
 
+fn zirOverflowArithmetic(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+
+    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirOverflowArithmetic", .{});
+}
+
 fn analyzeArithmetic(
     sema: *Sema,
     block: *Scope.Block,
@@ -4400,6 +4417,12 @@ fn zirTypeofElem(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
     const operand_ptr = try sema.resolveInst(inst_data.operand);
     const elem_ty = operand_ptr.ty.elemType();
     return sema.mod.constType(sema.arena, src, elem_ty);
+}
+
+fn zirLog2IntType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirLog2IntType", .{});
 }
 
 fn zirTypeofPeer(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {

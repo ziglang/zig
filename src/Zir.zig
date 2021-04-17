@@ -573,6 +573,9 @@ pub const Inst = struct {
         /// of one or more params.
         /// Uses the `pl_node` field. AST node is the `@TypeOf` call. Payload is `MultiOp`.
         typeof_peer,
+        /// Given an integer type, returns the integer type for the RHS of a shift operation.
+        /// Uses the `un_node` field.
+        log2_int_type,
         /// Asserts control-flow will not reach this instruction (`unreachable`).
         /// Uses the `unreachable` union field.
         @"unreachable",
@@ -729,6 +732,14 @@ pub const Inst = struct {
         ret_addr,
         /// Implements the `@src` builtin. Uses `un_node`.
         builtin_src,
+        /// Implements the `@addWithOverflow` builtin. Uses `pl_node` with `OverflowArithmetic`.
+        add_with_overflow,
+        /// Implements the `@subWithOverflow` builtin. Uses `pl_node` with `OverflowArithmetic`.
+        sub_with_overflow,
+        /// Implements the `@mulWithOverflow` builtin. Uses `pl_node` with `OverflowArithmetic`.
+        mul_with_overflow,
+        /// Implements the `@shlWithOverflow` builtin. Uses `pl_node` with `OverflowArithmetic`.
+        shl_with_overflow,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -865,6 +876,7 @@ pub const Inst = struct {
                 .slice_sentinel,
                 .import,
                 .typeof_peer,
+                .log2_int_type,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
                 .compile_log,
@@ -900,6 +912,10 @@ pub const Inst = struct {
                 .fence,
                 .ret_addr,
                 .builtin_src,
+                .add_with_overflow,
+                .sub_with_overflow,
+                .mul_with_overflow,
+                .shl_with_overflow,
                 => false,
 
                 .@"break",
@@ -1657,6 +1673,12 @@ pub const Inst = struct {
         name_start: u32,
     };
 
+    pub const OverflowArithmetic = struct {
+        lhs: Ref,
+        rhs: Ref,
+        ptr: Ref,
+    };
+
     /// Trailing: `CompileErrors.Item` for each `items_len`.
     pub const CompileErrors = struct {
         items_len: u32,
@@ -1762,6 +1784,7 @@ const Writer = struct {
             .type_info,
             .size_of,
             .bit_size_of,
+            .log2_int_type,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -1803,6 +1826,12 @@ const Writer = struct {
             .struct_init,
             .field_type,
             => try self.writePlNode(stream, inst),
+
+            .add_with_overflow,
+            .sub_with_overflow,
+            .mul_with_overflow,
+            .shl_with_overflow,
+            => try self.writePlNodeOverflowArithmetic(stream, inst),
 
             .add,
             .addwrap,
@@ -2057,6 +2086,18 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeOverflowArithmetic(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.OverflowArithmetic, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.rhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.ptr);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }

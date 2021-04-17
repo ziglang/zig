@@ -1407,6 +1407,11 @@ fn blockExprStmts(
                         .fence,
                         .ret_addr,
                         .builtin_src,
+                        .add_with_overflow,
+                        .sub_with_overflow,
+                        .mul_with_overflow,
+                        .shl_with_overflow,
+                        .log2_int_type,
                         => break :b false,
 
                         // ZIR instructions that are always either `noreturn` or `void`.
@@ -4910,7 +4915,32 @@ fn builtinCall(
         .return_address => return rvalue(gz, scope, rl, try gz.addNode(.ret_addr, node), node),
         .src => return rvalue(gz, scope, rl, try gz.addNode(.builtin_src, node), node),
 
-        .add_with_overflow,
+        .add_with_overflow => return overflowArithmetic(gz, scope, rl, node, params, .add_with_overflow),
+        .sub_with_overflow => return overflowArithmetic(gz, scope, rl, node, params, .sub_with_overflow),
+        .mul_with_overflow => return overflowArithmetic(gz, scope, rl, node, params, .mul_with_overflow),
+        .shl_with_overflow => {
+            const int_type = try typeExpr(gz, scope, params[0]);
+            const log2_int_type = try gz.addUnNode(.log2_int_type, int_type, params[0]);
+            const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
+                .ptr_type_simple = .{
+                    .is_allowzero = false,
+                    .is_mutable = true,
+                    .is_volatile = false,
+                    .size = .One,
+                    .elem_type = int_type,
+                },
+            } });
+            const lhs = try expr(gz, scope, .{ .ty = int_type }, params[1]);
+            const rhs = try expr(gz, scope, .{ .ty = log2_int_type }, params[2]);
+            const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[3]);
+            const result = try gz.addPlNode(.shl_with_overflow, node, Zir.Inst.OverflowArithmetic{
+                .lhs = lhs,
+                .rhs = rhs,
+                .ptr = ptr,
+            });
+            return rvalue(gz, scope, rl, result, node);
+        },
+
         .align_cast,
         .align_of,
         .atomic_load,
@@ -4948,7 +4978,6 @@ fn builtinCall(
         .wasm_memory_size,
         .wasm_memory_grow,
         .mod,
-        .mul_with_overflow,
         .panic,
         .pop_count,
         .ptr_cast,
@@ -4958,7 +4987,6 @@ fn builtinCall(
         .set_float_mode,
         .set_runtime_safety,
         .shl_exact,
-        .shl_with_overflow,
         .shr_exact,
         .shuffle,
         .splat,
@@ -4976,7 +5004,6 @@ fn builtinCall(
         .ceil,
         .trunc,
         .round,
-        .sub_with_overflow,
         .tag_name,
         .truncate,
         .Type,
@@ -4991,6 +5018,35 @@ fn builtinCall(
             builtin_name,
         }),
     }
+}
+
+fn overflowArithmetic(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+    params: []const ast.Node.Index,
+    tag: Zir.Inst.Tag,
+) InnerError!Zir.Inst.Ref {
+    const int_type = try typeExpr(gz, scope, params[0]);
+    const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
+        .ptr_type_simple = .{
+            .is_allowzero = false,
+            .is_mutable = true,
+            .is_volatile = false,
+            .size = .One,
+            .elem_type = int_type,
+        },
+    } });
+    const lhs = try expr(gz, scope, .{ .ty = int_type }, params[1]);
+    const rhs = try expr(gz, scope, .{ .ty = int_type }, params[2]);
+    const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[3]);
+    const result = try gz.addPlNode(tag, node, Zir.Inst.OverflowArithmetic{
+        .lhs = lhs,
+        .rhs = rhs,
+        .ptr = ptr,
+    });
+    return rvalue(gz, scope, rl, result, node);
 }
 
 fn callExpr(
