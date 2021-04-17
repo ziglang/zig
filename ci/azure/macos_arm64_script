@@ -33,8 +33,9 @@ export ZIG_SYSTEM_LINKER_HACK=1
 
 # Phase1: use zig-bootstrap to build host-zig.
 # Build is `Debug` type to reduce zig0 wall time.
-
+echo "Phase1: build zig for host."
 cd $ZIGDIR
+
 ZIG_EXE="$PREFIX_HOST/bin/zig"
 #NATIVE_LIBC_TXT="$HOME/native_libc.txt"
 #$ZIG_EXE libc > "$NATIVE_LIBC_TXT"
@@ -62,15 +63,13 @@ unset ZIG_LIBC
 # Build but do not install.
 ninja $JOBS
 
-echo "DRAFT: STOP"
-exit
-
 # Phase2: use host-zig to build arm64-zig.
 # - build is `Release` type for publishing
 # - ad-hoc codesign with linker
 # - note: apple quarantine of downloads (eg. via safari) still apply
-
+echo "Phase2: build zig for arm64"
 cd $ZIGDIR
+
 ZIG_EXE="$ZIGDIR/build.host/zig"
 #rm "$NATIVE_LIBC_TXT"
 #NATIVE_LIBC_TXT="$HOME/native_libc.txt"
