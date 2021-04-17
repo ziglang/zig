@@ -1387,6 +1387,29 @@ pub fn madvise(address: [*]u8, len: usize, advice: u32) usize {
     return syscall3(.madvise, @ptrToInt(address), len, advice);
 }
 
+pub fn pidfd_open(pid: pid_t, flags: u32) usize {
+    return syscall2(.pidfd_open, @bitCast(usize, @as(isize, pid)), flags);
+}
+
+pub fn pidfd_getfd(pidfd: fd_t, targetfd: fd_t, flags: u32) usize {
+    return syscall3(
+        .pidfd_getfd,
+        @bitCast(usize, @as(isize, pidfd)),
+        @bitCast(usize, @as(isize, targetfd)),
+        flags,
+    );
+}
+
+pub fn pidfd_send_signal(pidfd: fd_t, sig: i32, info: ?*siginfo_t, flags: u32) usize {
+    return syscall4(
+        .pidfd_send_signal,
+        @bitCast(usize, @as(isize, pidfd)),
+        @bitCast(usize, @as(isize, sig)),
+        @ptrToInt(info),
+        flags,
+    );
+}
+
 test {
     if (builtin.os.tag == .linux) {
         _ = @import("linux/test.zig");
