@@ -239,8 +239,8 @@ pub const Edwards25519 = struct {
     };
 
     /// Multiply an Edwards25519 point by a scalar without clamping it.
-    /// Return error.WeakPublicKey if the resulting point is
-    /// the identity element.
+    /// Return error.WeakPublicKey if the base generates a small-order group,
+    /// and error.IdentityElement if the result is the identity element.
     pub fn mul(p: Edwards25519, s: [32]u8) (IdentityElementError || WeakPublicKeyError)!Edwards25519 {
         const pc = if (p.is_base) basePointPc else pc: {
             const xpc = precompute(p, 15);
