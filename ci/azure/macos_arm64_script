@@ -46,7 +46,9 @@ cmake -G "Ninja" .. \
   -DCMAKE_INSTALL_PREFIX="$(pwd)/install.host" \
   -DCMAKE_PREFIX_PATH="$PREFIX_HOST" \
   -DCMAKE_BUILD_TYPE="Debug" \
-  -DZIG_STATIC="ON" \
+  -DZIG_TARGET_TRIPLE="x86_64-native-gnu" \
+  -DZIG_TARGET_MCPU="baseline" \
+  -DZIG_STATIC="OFF" \
   -DZIG_USE_LLVM_CONFIG="OFF"
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
