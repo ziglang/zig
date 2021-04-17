@@ -2311,9 +2311,9 @@ fn renderComments(ais: *Ais, tree: ast.Tree, start: usize, end: usize) Error!boo
             // to the underlying writer, fixing up invaild whitespace.
             const disabled_source = tree.source[ais.disabled_offset.?..comment_start];
             try writeFixingWhitespace(ais.underlying_writer, disabled_source);
-            ais.disabled_offset = null;
             // Write with the canonical single space.
-            try ais.writer().writeAll("// zig fmt: on\n");
+            try ais.underlying_writer.writeAll("// zig fmt: on\n");
+            ais.disabled_offset = null;
         } else if (ais.disabled_offset == null and mem.eql(u8, comment_content, "zig fmt: off")) {
             // Write with the canonical single space.
             try ais.writer().writeAll("// zig fmt: off\n");
