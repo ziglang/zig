@@ -15,7 +15,10 @@ const Vector = std.meta.Vector;
 const Poly1305 = crypto.onetimeauth.Poly1305;
 const Blake2b = crypto.hash.blake2.Blake2b;
 const X25519 = crypto.dh.X25519;
-const Error = crypto.Error;
+
+const AuthenticationError = crypto.errors.AuthenticationError;
+const IdentityElementError = crypto.errors.IdentityElementError;
+const WeakPublicKeyError = crypto.errors.WeakPublicKeyError;
 
 const Salsa20VecImpl = struct {
     const Lane = Vector(4, u32);
@@ -399,7 +402,7 @@ pub const XSalsa20Poly1305 = struct {
     /// ad: Associated Data
     /// npub: public nonce
     /// k: private key
-    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) Error!void {
+    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) AuthenticationError!void {
         debug.assert(c.len == m.len);
         const extended = extend(k, npub);
         var block0 = [_]u8{0} ** 64;
@@ -447,7 +450,7 @@ pub const SecretBox = struct {
 
     /// Verify and decrypt `c` using a nonce `npub` and a key `k`.
     /// `m` must be exactly `tag_length` smaller than `c`, as `c` includes an authentication tag in addition to the encrypted message.
-    pub fn open(m: []u8, c: []const u8, npub: [nonce_length]u8, k: [key_length]u8) Error!void {
+    pub fn open(m: []u8, c: []const u8, npub: [nonce_length]u8, k: [key_length]u8) AuthenticationError!void {
         if (c.len < tag_length) {
             return error.AuthenticationFailed;
         }
@@ -482,20 +485,20 @@ pub const Box = struct {
     pub const KeyPair = X25519.KeyPair;
 
     /// Compute a secret suitable for `secretbox` given a recipent's public key and a sender's secret key.
-    pub fn createSharedSecret(public_key: [public_length]u8, secret_key: [secret_length]u8) Error![shared_length]u8 {
+    pub fn createSharedSecret(public_key: [public_length]u8, secret_key: [secret_length]u8) (IdentityElementError || WeakPublicKeyError)![shared_length]u8 {
         const p = try X25519.scalarmult(secret_key, public_key);
         const zero = [_]u8{0} ** 16;
         return Salsa20Impl.hsalsa20(zero, p);
     }
 
     /// Encrypt and authenticate a message using a recipient's public key `public_key` and a sender's `secret_key`.
-    pub fn seal(c: []u8, m: []const u8, npub: [nonce_length]u8, public_key: [public_length]u8, secret_key: [secret_length]u8) Error!void {
+    pub fn seal(c: []u8, m: []const u8, npub: [nonce_length]u8, public_key: [public_length]u8, secret_key: [secret_length]u8) (IdentityElementError || WeakPublicKeyError)!void {
         const shared_key = try createSharedSecret(public_key, secret_key);
         return SecretBox.seal(c, m, npub, shared_key);
     }
 
     /// Verify and decrypt a message using a recipient's secret key `public_key` and a sender's `public_key`.
-    pub fn open(m: []u8, c: []const u8, npub: [nonce_length]u8, public_key: [public_length]u8, secret_key: [secret_length]u8) Error!void {
+    pub fn open(m: []u8, c: []const u8, npub: [nonce_length]u8, public_key: [public_length]u8, secret_key: [secret_length]u8) (IdentityElementError || WeakPublicKeyError || AuthenticationError)!void {
         const shared_key = try createSharedSecret(public_key, secret_key);
         return SecretBox.open(m, c, npub, shared_key);
     }
@@ -528,7 +531,7 @@ pub const SealedBox = struct {
 
     /// Encrypt a message `m` for a recipient whose public key is `public_key`.
     /// `c` must be `seal_length` bytes larger than `m`, so that the required metadata can be added.
-    pub fn seal(c: []u8, m: []const u8, public_key: [public_length]u8) Error!void {
+    pub fn seal(c: []u8, m: []const u8, public_key: [public_length]u8) (WeakPublicKeyError || IdentityElementError)!void {
         debug.assert(c.len == m.len + seal_length);
         var ekp = try KeyPair.create(null);
         const nonce = createNonce(ekp.public_key, public_key);
@@ -539,7 +542,7 @@ pub const SealedBox = struct {
 
     /// Decrypt a message using a key pair.
     /// `m` must be exactly `seal_length` bytes smaller than `c`, as `c` also includes metadata.
-    pub fn open(m: []u8, c: []const u8, keypair: KeyPair) Error!void {
+    pub fn open(m: []u8, c: []const u8, keypair: KeyPair) (IdentityElementError || WeakPublicKeyError || AuthenticationError)!void {
         if (c.len < seal_length) {
             return error.AuthenticationFailed;
         }

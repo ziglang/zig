@@ -13,7 +13,7 @@ const testing = std.testing;
 const maxInt = math.maxInt;
 const Vector = std.meta.Vector;
 const Poly1305 = std.crypto.onetimeauth.Poly1305;
-const Error = std.crypto.Error;
+const AuthenticationError = std.crypto.errors.AuthenticationError;
 
 /// IETF-variant of the ChaCha20 stream cipher, as designed for TLS.
 pub const ChaCha20IETF = ChaChaIETF(20);
@@ -521,7 +521,7 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
         /// npub: public nonce
         /// k: private key
         /// NOTE: the check of the authentication tag is currently not done in constant time
-        pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) Error!void {
+        pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
 
             var polyKey = [_]u8{0} ** 32;
@@ -583,7 +583,7 @@ fn XChaChaPoly1305(comptime rounds_nb: usize) type {
         /// ad: Associated Data
         /// npub: public nonce
         /// k: private key
-        pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) Error!void {
+        pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) AuthenticationError!void {
             const extended = extend(k, npub, rounds_nb);
             return ChaChaPoly1305(rounds_nb).decrypt(m, c, tag, ad, extended.nonce, extended.key);
         }

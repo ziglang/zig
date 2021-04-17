@@ -20,7 +20,7 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const htest = @import("test.zig");
 const Vector = std.meta.Vector;
-const Error = std.crypto.Error;
+const AuthenticationError = std.crypto.errors.AuthenticationError;
 
 pub const State = struct {
     pub const BLOCKBYTES = 48;
@@ -393,7 +393,7 @@ pub const Aead = struct {
     /// npub: public nonce
     /// k: private key
     /// NOTE: the check of the authentication tag is currently not done in constant time
-    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) Error!void {
+    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) AuthenticationError!void {
         assert(c.len == m.len);
 
         var state = Aead.init(ad, npub, k);

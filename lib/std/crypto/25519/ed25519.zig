@@ -8,8 +8,15 @@ const crypto = std.crypto;
 const debug = std.debug;
 const fmt = std.fmt;
 const mem = std.mem;
+
 const Sha512 = crypto.hash.sha2.Sha512;
-const Error = crypto.Error;
+
+const EncodingError = crypto.errors.EncodingError;
+const IdentityElementError = crypto.errors.IdentityElementError;
+const NonCanonicalError = crypto.errors.NonCanonicalError;
+const SignatureVerificationError = crypto.errors.SignatureVerificationError;
+const KeyMismatchError = crypto.errors.KeyMismatchError;
+const WeakPublicKeyError = crypto.errors.WeakPublicKeyError;
 
 /// Ed25519 (EdDSA) signatures.
 pub const Ed25519 = struct {
@@ -41,7 +48,7 @@ pub const Ed25519 = struct {
         ///
         /// For this reason, an EdDSA secret key is commonly called a seed,
         /// from which the actual secret is derived.
-        pub fn create(seed: ?[seed_length]u8) Error!KeyPair {
+        pub fn create(seed: ?[seed_length]u8) IdentityElementError!KeyPair {
             const ss = seed orelse ss: {
                 var random_seed: [seed_length]u8 = undefined;
                 crypto.random.bytes(&random_seed);
@@ -51,7 +58,7 @@ pub const Ed25519 = struct {
             var h = Sha512.init(.{});
             h.update(&ss);
             h.final(&az);
-            const p = try Curve.basePoint.clampedMul(az[0..32].*);
+            const p = Curve.basePoint.clampedMul(az[0..32].*) catch return error.IdentityElement;
             var sk: [secret_length]u8 = undefined;
             mem.copy(u8, &sk, &ss);
             const pk = p.toBytes();
@@ -72,7 +79,7 @@ pub const Ed25519 = struct {
     /// Sign a message using a key pair, and optional random noise.
     /// Having noise creates non-standard, non-deterministic signatures,
     /// but has been proven to increase resilience against fault attacks.
-    pub fn sign(msg: []const u8, key_pair: KeyPair, noise: ?[noise_length]u8) Error![signature_length]u8 {
+    pub fn sign(msg: []const u8, key_pair: KeyPair, noise: ?[noise_length]u8) (IdentityElementError || WeakPublicKeyError || KeyMismatchError)![signature_length]u8 {
         const seed = key_pair.secret_key[0..seed_length];
         const public_key = key_pair.secret_key[seed_length..];
         if (!mem.eql(u8, public_key, &key_pair.public_key)) {
@@ -113,7 +120,7 @@ pub const Ed25519 = struct {
 
     /// Verify an Ed25519 signature given a message and a public key.
     /// Returns error.SignatureVerificationFailed is the signature verification failed.
-    pub fn verify(sig: [signature_length]u8, msg: []const u8, public_key: [public_length]u8) Error!void {
+    pub fn verify(sig: [signature_length]u8, msg: []const u8, public_key: [public_length]u8) (SignatureVerificationError || WeakPublicKeyError || EncodingError || NonCanonicalError || IdentityElementError)!void {
         const r = sig[0..32];
         const s = sig[32..64];
         try Curve.scalar.rejectNonCanonical(s.*);
@@ -146,7 +153,7 @@ pub const Ed25519 = struct {
     };
 
     /// Verify several signatures in a single operation, much faster than verifying signatures one-by-one
-    pub fn verifyBatch(comptime count: usize, signature_batch: [count]BatchElement) Error!void {
+    pub fn verifyBatch(comptime count: usize, signature_batch: [count]BatchElement) (SignatureVerificationError || IdentityElementError || WeakPublicKeyError || EncodingError || NonCanonicalError)!void {
         var r_batch: [count][32]u8 = undefined;
         var s_batch: [count][32]u8 = undefined;
         var a_batch: [count]Curve = undefined;
@@ -180,7 +187,7 @@ pub const Ed25519 = struct {
 
         var z_batch: [count]Curve.scalar.CompressedScalar = undefined;
         for (z_batch) |*z| {
-            std.crypto.random.bytes(z[0..16]);
+            crypto.random.bytes(z[0..16]);
             mem.set(u8, z[16..], 0);
         }
 
@@ -233,8 +240,8 @@ test "ed25519 batch verification" {
         const key_pair = try Ed25519.KeyPair.create(null);
         var msg1: [32]u8 = undefined;
         var msg2: [32]u8 = undefined;
-        std.crypto.random.bytes(&msg1);
-        std.crypto.random.bytes(&msg2);
+        crypto.random.bytes(&msg1);
+        crypto.random.bytes(&msg2);
         const sig1 = try Ed25519.sign(&msg1, key_pair, null);
         const sig2 = try Ed25519.sign(&msg2, key_pair, null);
         var signature_batch = [_]Ed25519.BatchElement{
