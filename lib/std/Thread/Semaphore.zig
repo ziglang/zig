@@ -23,7 +23,7 @@ pub fn wait(sem: *Semaphore) void {
     defer held.release();
 
     while (sem.permits == 0)
-        sem.cond.wait(&sem.mutex);
+        sem.cond.wait(&held);
 
     sem.permits -= 1;
     if (sem.permits > 0)
