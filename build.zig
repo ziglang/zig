@@ -53,6 +53,7 @@ pub fn build(b: *Builder) !void {
     const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_stage2_tests = b.option(bool, "skip-stage2-tests", "Main test suite skips self-hosted compiler tests") orelse false;
+    const skip_install_lib_files = b.option(bool, "skip-install-lib-files", "Do not copy lib/ files to installation prefix") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
     const is_stage1 = b.option(bool, "stage1", "Build the stage1 compiler, put stage2 behind a feature flag") orelse false;
@@ -61,19 +62,21 @@ pub fn build(b: *Builder) !void {
     const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (is_stage1 or static_llvm);
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
 
-    b.installDirectory(InstallDirectoryOptions{
-        .source_dir = "lib",
-        .install_dir = .Lib,
-        .install_subdir = "zig",
-        .exclude_extensions = &[_][]const u8{
-            "test.zig",
-            "README.md",
-            ".z.0",
-            ".z.9",
-            ".gz",
-            "rfc1951.txt",
-        },
-    });
+    if (!skip_install_lib_files) {
+        b.installDirectory(InstallDirectoryOptions{
+            .source_dir = "lib",
+            .install_dir = .Lib,
+            .install_subdir = "zig",
+            .exclude_extensions = &[_][]const u8{
+                "test.zig",
+                "README.md",
+                ".z.0",
+                ".z.9",
+                ".gz",
+                "rfc1951.txt",
+            },
+        });
+    }
 
     if (only_install_lib_files)
         return;
