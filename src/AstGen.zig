@@ -3400,7 +3400,7 @@ fn forExpr(
         const is_ptr = ident != payload_token;
         const value_name = tree.tokenSlice(ident);
         if (!mem.eql(u8, value_name, "_")) {
-            return astgen.failNode(ident, "TODO implement for loop value payload", .{});
+            return astgen.failTok(ident, "TODO implement for loop value payload", .{});
         } else if (is_ptr) {
             return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
         }
