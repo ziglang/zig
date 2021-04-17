@@ -1,3 +1,4 @@
+jobs:
 - job: BuildMacOS_arm64
   pool:
     vmImage: 'macOS-10.15'
