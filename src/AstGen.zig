@@ -1574,8 +1574,7 @@ fn varDecl(
                 // const local, and type inference becomes trivial.
                 // Move the init_scope instructions into the parent scope, eliding
                 // the alloc instruction and the store_to_block_ptr instruction.
-                const expected_len = parent_zir.items.len + init_scope.instructions.items.len - 2;
-                try parent_zir.ensureCapacity(gpa, expected_len);
+                try parent_zir.ensureUnusedCapacity(gpa, init_scope.instructions.items.len);
                 for (init_scope.instructions.items) |src_inst| {
                     if (gz.indexToRef(src_inst) == init_scope.rl_ptr) continue;
                     if (zir_tags[src_inst] == .store_to_block_ptr) {
@@ -1583,7 +1582,6 @@ fn varDecl(
                     }
                     parent_zir.appendAssumeCapacity(src_inst);
                 }
-                assert(parent_zir.items.len == expected_len);
 
                 const sub_scope = try block_arena.create(Scope.LocalVal);
                 sub_scope.* = .{
@@ -1907,6 +1905,15 @@ fn fnDecl(
     const param_types = try gpa.alloc(Zir.Inst.Ref, param_count);
     defer gpa.free(param_types);
 
+    var decl_gz: Scope.GenZir = .{
+        .force_comptime = true,
+        .decl_node_index = fn_proto.ast.proto_node,
+        .parent = &gz.base,
+        .astgen = astgen,
+        .ref_start_index = @intCast(u32, Zir.Inst.Ref.typed_value_map.len + param_count),
+    };
+    defer decl_gz.instructions.deinit(gpa);
+
     var is_var_args = false;
     {
         var param_type_i: usize = 0;
@@ -1929,13 +1936,13 @@ fn fnDecl(
             const param_type_node = param.type_expr;
             assert(param_type_node != 0);
             param_types[param_type_i] =
-                try expr(gz, &gz.base, .{ .ty = .type_type }, param_type_node);
+                try expr(&decl_gz, &decl_gz.base, .{ .ty = .type_type }, param_type_node);
         }
         assert(param_type_i == param_count);
     }
 
     const lib_name: u32 = if (fn_proto.lib_name) |lib_name_token| blk: {
-        const lib_name_str = try gz.strLitAsString(lib_name_token);
+        const lib_name_str = try decl_gz.strLitAsString(lib_name_token);
         break :blk lib_name_str.index;
     } else 0;
 
@@ -1959,8 +1966,8 @@ fn fnDecl(
         return astgen.failTok(maybe_bang, "TODO implement inferred error sets", .{});
     }
     const return_type_inst = try AstGen.expr(
-        gz,
-        &gz.base,
+        &decl_gz,
+        &decl_gz.base,
         .{ .ty = .type_type },
         fn_proto.ast.return_type,
     );
@@ -1969,14 +1976,14 @@ fn fnDecl(
         // TODO instead of enum literal type, this needs to be the
         // std.builtin.CallingConvention enum. We need to implement importing other files
         // and enums in order to fix this.
-        try AstGen.comptimeExpr(
-            gz,
-            &gz.base,
+        try AstGen.expr(
+            &decl_gz,
+            &decl_gz.base,
             .{ .ty = .enum_literal_type },
             fn_proto.ast.callconv_expr,
         )
     else if (is_extern) // note: https://github.com/ziglang/zig/issues/5269
-        try gz.addSmallStr(.enum_literal_small, "C")
+        try decl_gz.addSmallStr(.enum_literal_small, "C")
     else
         .none;
 
@@ -1987,7 +1994,7 @@ fn fnDecl(
 
         if (cc != .none or lib_name != 0) {
             const tag: Zir.Inst.Tag = if (is_var_args) .func_extra_var_args else .func_extra;
-            break :func try gz.addFuncExtra(tag, .{
+            break :func try decl_gz.addFuncExtra(tag, .{
                 .src_node = fn_proto.ast.proto_node,
                 .ret_ty = return_type_inst,
                 .param_types = param_types,
@@ -1998,7 +2005,7 @@ fn fnDecl(
         }
 
         const tag: Zir.Inst.Tag = if (is_var_args) .func_var_args else .func;
-        break :func try gz.addFunc(tag, .{
+        break :func try decl_gz.addFunc(tag, .{
             .src_node = fn_proto.ast.proto_node,
             .ret_ty = return_type_inst,
             .param_types = param_types,
@@ -2012,7 +2019,7 @@ fn fnDecl(
         var fn_gz: Scope.GenZir = .{
             .force_comptime = false,
             .decl_node_index = fn_proto.ast.proto_node,
-            .parent = &gz.base,
+            .parent = &decl_gz.base,
             .astgen = astgen,
             .ref_start_index = @intCast(u32, Zir.Inst.Ref.typed_value_map.len + param_count),
         };
@@ -2061,7 +2068,7 @@ fn fnDecl(
 
         if (cc != .none or lib_name != 0) {
             const tag: Zir.Inst.Tag = if (is_var_args) .func_extra_var_args else .func_extra;
-            break :func try fn_gz.addFuncExtra(tag, .{
+            break :func try decl_gz.addFuncExtra(tag, .{
                 .src_node = fn_proto.ast.proto_node,
                 .ret_ty = return_type_inst,
                 .param_types = param_types,
@@ -2072,7 +2079,7 @@ fn fnDecl(
         }
 
         const tag: Zir.Inst.Tag = if (is_var_args) .func_var_args else .func;
-        break :func try fn_gz.addFunc(tag, .{
+        break :func try decl_gz.addFunc(tag, .{
             .src_node = fn_proto.ast.proto_node,
             .ret_ty = return_type_inst,
             .param_types = param_types,
@@ -2083,11 +2090,15 @@ fn fnDecl(
     const fn_name_token = fn_proto.name_token orelse {
         return astgen.failTok(fn_proto.ast.fn_token, "missing function name", .{});
     };
-    const fn_name_str_index = try gz.identAsString(fn_name_token);
+    const fn_name_str_index = try decl_gz.identAsString(fn_name_token);
+
+    const block_inst = try gz.addBlock(.block_inline, fn_proto.ast.proto_node);
+    _ = try decl_gz.addBreak(.break_inline, block_inst, func_inst);
+    try decl_gz.setBlockBody(block_inst);
 
     try wip_decls.name_and_value.ensureCapacity(gpa, wip_decls.name_and_value.items.len + 2);
     wip_decls.name_and_value.appendAssumeCapacity(fn_name_str_index);
-    wip_decls.name_and_value.appendAssumeCapacity(@enumToInt(func_inst));
+    wip_decls.name_and_value.appendAssumeCapacity(block_inst);
 }
 
 fn globalVarDecl(
@@ -2175,8 +2186,6 @@ fn globalVarDecl(
         );
 
         const tag: Zir.Inst.Tag = if (is_mutable) .block_inline_var else .block_inline;
-        // const globals are just their instruction. mutable globals have
-        // a special ZIR form.
         const block_inst = try gz.addBlock(tag, node);
         _ = try block_scope.addBreak(.break_inline, block_inst, init_inst);
         try block_scope.setBlockBody(block_inst);
