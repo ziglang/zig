@@ -88,8 +88,8 @@ cmake -G "Ninja" .. \
   -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" \
   -DCMAKE_SYSTEM_NAME="Darwin" \
   -DCMAKE_EXE_LINKER_FLAGS="-lz -Xlinker -adhoc_codesign" \
-  -DZIG_TARGET_TRIPLE="${ARCH}-native-gnu" \
-  -DZIG_TARGET_MCPU="native" \
+  -DZIG_TARGET_TRIPLE="${ARCH}-macos" \
+  -DZIG_TARGET_MCPU="baseline" \
   -DZIG_STATIC="ON" \
   -DZIG_EXECUTABLE="$ZIG_EXE" \
   -DZIG_USE_LLVM_CONFIG="OFF"
