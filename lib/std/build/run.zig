@@ -191,6 +191,13 @@ pub const RunStep = struct {
         child.stdout_behavior = stdIoActionToBehavior(self.stdout_action);
         child.stderr_behavior = stdIoActionToBehavior(self.stderr_action);
 
+        if (self.builder.verbose) {
+            for (argv) |arg| {
+                warn("{s} ", .{arg});
+            }
+            warn("\n", .{});
+        }
+
         child.spawn() catch |err| {
             warn("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
             return err;
