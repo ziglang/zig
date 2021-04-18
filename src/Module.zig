@@ -79,9 +79,9 @@ deletion_set: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
 
 /// Error tags and their values, tag names are duped with mod.gpa.
 /// Corresponds with `error_name_list`.
-global_error_set: std.StringHashMapUnmanaged(ErrorInt) = .{},
+global_error_set: std.StringHashMapUnmanaged(MaxErrorInt) = .{},
 
-/// ErrorInt -> []const u8 for fast lookups for @intToError at comptime
+/// MaxErrorInt -> []const u8 for fast lookups for @intToError at comptime
 /// Corresponds with `global_error_set`.
 error_name_list: ArrayListUnmanaged([]const u8) = .{},
 
@@ -110,7 +110,8 @@ emit_h: ?Compilation.EmitLoc,
 
 compile_log_text: ArrayListUnmanaged(u8) = .{},
 
-pub const ErrorInt = u32;
+// The maximum size of an error in Zig. Used to store errors in the compiler.
+pub const MaxErrorInt = u32;
 
 pub const Export = struct {
     options: std.builtin.ExportOptions,
@@ -3847,7 +3848,7 @@ fn createNewDecl(
 }
 
 /// Get error value for error tag `name`.
-pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged(ErrorInt).Entry {
+pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged(MaxErrorInt).Entry {
     const gop = try mod.global_error_set.getOrPut(mod.gpa, name);
     if (gop.found_existing)
         return gop.entry.*;
@@ -3855,7 +3856,7 @@ pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged
     errdefer mod.global_error_set.removeAssertDiscard(name);
     try mod.error_name_list.ensureCapacity(mod.gpa, mod.error_name_list.items.len + 1);
     gop.entry.key = try mod.gpa.dupe(u8, name);
-    gop.entry.value = @intCast(ErrorInt, mod.error_name_list.items.len);
+    gop.entry.value = @intCast(MaxErrorInt, mod.error_name_list.items.len);
     mod.error_name_list.appendAssumeCapacity(gop.entry.key);
     return gop.entry.*;
 }
