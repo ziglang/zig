@@ -75,8 +75,8 @@ ZIG_EXE="$ZIGDIR/build.host/zig"
 #NATIVE_LIBC_TXT="$HOME/native_libc.txt"
 #$ZIG_EXE libc > "$NATIVE_LIBC_TXT"
 #export ZIG_LIBC="$NATIVE_LIBC_TXT"
-export CC="$ZIG_EXE cc -target ${ARCH}-apple-macos"
-export CXX="$ZIG_EXE c++ -target ${ARCH}-apple-macos"
+export CC="$ZIG_EXE cc -target ${ARCH}-macos"
+export CXX="$ZIG_EXE c++ -target ${ARCH}-macos"
 
 mkdir build.arm64
 cd build.arm64
