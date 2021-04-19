@@ -3560,6 +3560,29 @@ pub fn cmdAstgen(
     file.zir_loaded = true;
     defer file.zir.deinit(gpa);
 
+    {
+        const instruction_bytes = file.zir.instructions.len *
+            (@sizeOf(Zir.Inst.Tag) + @sizeOf(Zir.Inst.Data));
+        const extra_bytes = file.zir.extra.len * @sizeOf(u32);
+        const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
+            file.zir.string_bytes.len * @sizeOf(u8);
+        const stdout = io.getStdOut();
+        try stdout.writer().print(
+            \\# Total bytes:        {}
+            \\# Instructions:       {d} ({})
+            \\# String Table Bytes: {}
+            \\# Extra Data Items:   {d} ({})
+            \\
+        , .{
+            std.fmt.fmtIntSizeBin(total_bytes),
+            file.zir.instructions.len,
+            std.fmt.fmtIntSizeBin(instruction_bytes),
+            std.fmt.fmtIntSizeBin(file.zir.string_bytes.len),
+            file.zir.extra.len,
+            std.fmt.fmtIntSizeBin(extra_bytes),
+        });
+    }
+
     if (file.zir.hasCompileErrors()) {
         var errors = std.ArrayList(Compilation.AllErrors.Message).init(arena);
         try Compilation.AllErrors.addZir(arena, &errors, &file, source);
