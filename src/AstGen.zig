@@ -1375,9 +1375,7 @@ fn blockExprStmts(
                         .field_ptr_named,
                         .field_val_named,
                         .func,
-                        .func_var_args,
-                        .func_extra,
-                        .func_extra_var_args,
+                        .func_inferred,
                         .int,
                         .float,
                         .float128,
@@ -2129,9 +2127,8 @@ fn fnDecl(
     }
 
     const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
-    if (token_tags[maybe_bang] == .bang) {
-        return astgen.failTok(maybe_bang, "TODO implement inferred error sets", .{});
-    }
+    const is_inferred_error = token_tags[maybe_bang] == .bang;
+
     const return_type_inst = try AstGen.expr(
         &decl_gz,
         &decl_gz.base,
@@ -2153,31 +2150,24 @@ fn fnDecl(
 
     const func_inst: Zir.Inst.Ref = if (body_node == 0) func: {
         if (is_extern) {
-            return astgen.failNode(fn_proto.ast.fn_token, "non-extern function has no body", .{});
+            return astgen.failTok(fn_proto.ast.fn_token, "non-extern function has no body", .{});
         }
-
-        if (cc != .none or lib_name != 0) {
-            const tag: Zir.Inst.Tag = if (is_var_args) .func_extra_var_args else .func_extra;
-            break :func try decl_gz.addFuncExtra(tag, .{
-                .src_node = fn_proto.ast.proto_node,
-                .ret_ty = return_type_inst,
-                .param_types = param_types,
-                .cc = cc,
-                .lib_name = lib_name,
-                .body = &[0]Zir.Inst.Index{},
-            });
+        if (is_inferred_error) {
+            return astgen.failTok(maybe_bang, "function prototype requires explicit error set", .{});
         }
-
-        const tag: Zir.Inst.Tag = if (is_var_args) .func_var_args else .func;
-        break :func try decl_gz.addFunc(tag, .{
+        break :func try decl_gz.addFunc(.{
             .src_node = fn_proto.ast.proto_node,
             .ret_ty = return_type_inst,
             .param_types = param_types,
             .body = &[0]Zir.Inst.Index{},
+            .cc = cc,
+            .lib_name = lib_name,
+            .is_var_args = is_var_args,
+            .is_inferred_error = false,
         });
     } else func: {
         if (is_var_args) {
-            return astgen.failNode(fn_proto.ast.fn_token, "non-extern function is variadic", .{});
+            return astgen.failTok(fn_proto.ast.fn_token, "non-extern function is variadic", .{});
         }
 
         var fn_gz: Scope.GenZir = .{
@@ -2224,30 +2214,20 @@ fn fnDecl(
         if (fn_gz.instructions.items.len == 0 or
             !astgen.instructions.items(.tag)[fn_gz.instructions.items.len - 1].isNoReturn())
         {
-            // astgen uses result location semantics to coerce return operands.
             // Since we are adding the return instruction here, we must handle the coercion.
             // We do this by using the `ret_coerce` instruction.
             _ = try fn_gz.addUnTok(.ret_coerce, .void_value, tree.lastToken(body_node));
         }
 
-        if (cc != .none or lib_name != 0) {
-            const tag: Zir.Inst.Tag = if (is_var_args) .func_extra_var_args else .func_extra;
-            break :func try decl_gz.addFuncExtra(tag, .{
-                .src_node = fn_proto.ast.proto_node,
-                .ret_ty = return_type_inst,
-                .param_types = param_types,
-                .cc = cc,
-                .lib_name = lib_name,
-                .body = fn_gz.instructions.items,
-            });
-        }
-
-        const tag: Zir.Inst.Tag = if (is_var_args) .func_var_args else .func;
-        break :func try decl_gz.addFunc(tag, .{
+        break :func try decl_gz.addFunc(.{
             .src_node = fn_proto.ast.proto_node,
             .ret_ty = return_type_inst,
             .param_types = param_types,
             .body = fn_gz.instructions.items,
+            .cc = cc,
+            .lib_name = lib_name,
+            .is_var_args = is_var_args,
+            .is_inferred_error = is_inferred_error,
         });
     };
 

@@ -194,9 +194,7 @@ pub fn analyzeBody(
             .field_val                    => try sema.zirFieldVal(block, inst),
             .field_val_named              => try sema.zirFieldValNamed(block, inst),
             .func                         => try sema.zirFunc(block, inst, false),
-            .func_extra                   => try sema.zirFuncExtra(block, inst, false),
-            .func_extra_var_args          => try sema.zirFuncExtra(block, inst, true),
-            .func_var_args                => try sema.zirFunc(block, inst, true),
+            .func_inferred                => try sema.zirFunc(block, inst, true),
             .import                       => try sema.zirImport(block, inst),
             .indexable_ptr_len            => try sema.zirIndexablePtrLen(block, inst),
             .int                          => try sema.zirInt(block, inst),
@@ -2646,7 +2644,12 @@ fn zirEnsureErrPayloadVoid(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Inde
     }
 }
 
-fn zirFunc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, var_args: bool) InnerError!*Inst {
+fn zirFunc(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: Zir.Inst.Index,
+    inferred_error_set: bool,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2654,40 +2657,17 @@ fn zirFunc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, var_args: boo
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Func, inst_data.payload_index);
     const param_types = sema.code.refSlice(extra.end, extra.data.param_types_len);
+    const body = sema.code.extra[extra.end + param_types.len ..][0..extra.data.body_len];
 
     return sema.funcCommon(
         block,
         inst_data.src_node,
         param_types,
+        body,
         extra.data.return_type,
         .Unspecified,
-        var_args,
-    );
-}
-
-fn zirFuncExtra(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, var_args: bool) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = inst_data.src_node };
-    const extra = sema.code.extraData(Zir.Inst.FuncExtra, inst_data.payload_index);
-    const param_types = sema.code.refSlice(extra.end, extra.data.param_types_len);
-
-    const cc_tv = try sema.resolveInstConst(block, cc_src, extra.data.cc);
-    // TODO once we're capable of importing and analyzing decls from
-    // std.builtin, this needs to change
-    const cc_str = cc_tv.val.castTag(.enum_literal).?.data;
-    const cc = std.meta.stringToEnum(std.builtin.CallingConvention, cc_str) orelse
-        return sema.mod.fail(&block.base, cc_src, "Unknown calling convention {s}", .{cc_str});
-    return sema.funcCommon(
-        block,
-        inst_data.src_node,
-        param_types,
-        extra.data.return_type,
-        cc,
-        var_args,
+        false,
+        inferred_error_set,
     );
 }
 
@@ -2696,9 +2676,11 @@ fn funcCommon(
     block: *Scope.Block,
     src_node_offset: i32,
     zir_param_types: []const Zir.Inst.Ref,
+    body: []const Zir.Inst.Index,
     zir_return_type: Zir.Inst.Ref,
     cc: std.builtin.CallingConvention,
     var_args: bool,
+    inferred_error_set: bool,
 ) InnerError!*Inst {
     const src: LazySrcLoc = .{ .node_offset = src_node_offset };
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
@@ -5307,13 +5289,66 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
     const extended = sema.code.instructions.items(.data)[inst].extended;
     switch (extended.opcode) {
         // zig fmt: off
-        .c_undef            => return sema.zirCUndef(           block, inst, extended),
-        .c_include          => return sema.zirCInclude(         block, inst, extended),
-        .c_define           => return sema.zirCDefine(          block, inst, extended),
-        .wasm_memory_size   => return sema.zirWasmMemorySize(   block, inst, extended),
-        .wasm_memory_grow   => return sema.zirWasmMemoryGrow(   block, inst, extended),
+        .func               => return sema.zirFuncExtended(  block, inst, extended),
+        .c_undef            => return sema.zirCUndef(        block, inst, extended),
+        .c_include          => return sema.zirCInclude(      block, inst, extended),
+        .c_define           => return sema.zirCDefine(       block, inst, extended),
+        .wasm_memory_size   => return sema.zirWasmMemorySize(block, inst, extended),
+        .wasm_memory_grow   => return sema.zirWasmMemoryGrow(block, inst, extended),
         // zig fmt: on
     }
+}
+
+fn zirFuncExtended(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: Zir.Inst.Index,
+    extended: Zir.Inst.Extended.InstData,
+) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const extra = sema.code.extraData(Zir.Inst.ExtendedFunc, extended.operand);
+    const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+    const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = extra.data.src_node };
+    const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
+
+    var extra_index: usize = extra.end;
+    if (small.has_lib_name) {
+        const lib_name = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        return sema.mod.fail(&block.base, src, "TODO: implement Sema func lib name", .{});
+    }
+    const cc: std.builtin.CallingConvention = if (small.has_cc) blk: {
+        const cc_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        const cc_tv = try sema.resolveInstConst(block, cc_src, cc_ref);
+        // TODO this needs to resolve other kinds of Value tags rather than
+        // assuming the tag will be .enum_field_index.
+        const cc_field_index = cc_tv.val.castTag(.enum_field_index).?.data;
+        // TODO should `@intToEnum` do this `@intCast` for you?
+        const cc = @intToEnum(
+            std.builtin.CallingConvention,
+            @intCast(@typeInfo(std.builtin.CallingConvention).Enum.tag_type, cc_field_index),
+        );
+        break :blk cc;
+    } else .Unspecified;
+
+    const param_types = sema.code.refSlice(extra_index, extra.data.param_types_len);
+    extra_index += 1;
+
+    const body = sema.code.extra[extra_index..][0..extra.data.body_len];
+
+    return sema.funcCommon(
+        block,
+        extra.data.src_node,
+        param_types,
+        body,
+        extra.data.return_type,
+        cc,
+        small.is_var_args,
+        small.is_inferred_error,
+    );
 }
 
 fn zirCUndef(

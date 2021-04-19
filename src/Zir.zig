@@ -371,15 +371,8 @@ pub const Inst = struct {
         /// the body_len is 0. Calling convention is auto.
         /// Uses the `pl_node` union field. `payload_index` points to a `Func`.
         func,
-        /// Same as `func` but the function is variadic.
-        func_var_args,
-        /// Same as `func` but with extra fields:
-        ///  * calling convention
-        ///  * extern lib name
-        /// Uses the `pl_node` union field. `payload_index` points to a `FuncExtra`.
-        func_extra,
-        /// Same as `func_extra` but the function is variadic.
-        func_extra_var_args,
+        /// Same as `func` but has an inferred error set.
+        func_inferred,
         /// Implements the `@import` builtin.
         /// Uses the `str_tok` field.
         import,
@@ -1010,9 +1003,7 @@ pub const Inst = struct {
                 .field_ptr_named,
                 .field_val_named,
                 .func,
-                .func_var_args,
-                .func_extra,
-                .func_extra_var_args,
+                .func_inferred,
                 .has_decl,
                 .int,
                 .float,
@@ -1211,6 +1202,11 @@ pub const Inst = struct {
     /// Rarer instructions are here; ones that do not fit in the 8-bit `Tag` enum.
     /// `noreturn` instructions may not go here; they must be part of the main `Tag` enum.
     pub const Extended = enum(u16) {
+        /// Represents a function declaration or function prototype, depending on
+        /// whether body_len is 0.
+        /// `operand` is payload index to `ExtendedFunc`.
+        /// `small` is `ExtendedFunc.Small`.
+        func,
         /// `operand` is payload index to `UnNode`.
         c_undef,
         /// `operand` is payload index to `UnNode`.
@@ -1774,15 +1770,23 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. param_type: Ref // for each param_types_len
-    /// 1. body: Index // for each body_len
-    pub const FuncExtra = struct {
-        cc: Ref,
-        /// null terminated string index, or 0 to mean none.
-        lib_name: u32,
+    /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
+    /// 1. cc: Ref, // if has_cc is set
+    /// 2. param_type: Ref // for each param_types_len
+    /// 3. body: Index // for each body_len
+    pub const ExtendedFunc = struct {
+        src_node: i32,
         return_type: Ref,
         param_types_len: u32,
         body_len: u32,
+
+        pub const Small = packed struct {
+            is_var_args: bool,
+            is_inferred_error: bool,
+            has_lib_name: bool,
+            has_cc: bool,
+            _: u12 = undefined,
+        };
     };
 
     /// Trailing:
@@ -2459,9 +2463,7 @@ const Writer = struct {
             => try self.writeStrTok(stream, inst),
 
             .func => try self.writeFunc(stream, inst, false),
-            .func_extra => try self.writeFuncExtra(stream, inst, false),
-            .func_var_args => try self.writeFunc(stream, inst, true),
-            .func_extra_var_args => try self.writeFuncExtra(stream, inst, true),
+            .func_inferred => try self.writeFunc(stream, inst, true),
 
             .@"unreachable" => try self.writeUnreachable(stream, inst),
 
@@ -3099,7 +3101,7 @@ const Writer = struct {
         self: *Writer,
         stream: anytype,
         inst: Inst.Index,
-        var_args: bool,
+        inferred_error_set: bool,
     ) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const src = inst_data.src();
@@ -3110,31 +3112,9 @@ const Writer = struct {
             stream,
             param_types,
             extra.data.return_type,
-            var_args,
+            inferred_error_set,
+            false,
             .none,
-            body,
-            src,
-        );
-    }
-
-    fn writeFuncExtra(
-        self: *Writer,
-        stream: anytype,
-        inst: Inst.Index,
-        var_args: bool,
-    ) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const src = inst_data.src();
-        const extra = self.code.extraData(Inst.FuncExtra, inst_data.payload_index);
-        const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
-        const cc = extra.data.cc;
-        const body = self.code.extra[extra.end + param_types.len ..][0..extra.data.body_len];
-        return self.writeFuncCommon(
-            stream,
-            param_types,
-            extra.data.return_type,
-            var_args,
-            cc,
             body,
             src,
         );
@@ -3184,6 +3164,7 @@ const Writer = struct {
         stream: anytype,
         param_types: []const Inst.Ref,
         ret_ty: Inst.Ref,
+        inferred_error_set: bool,
         var_args: bool,
         cc: Inst.Ref,
         body: []const Inst.Index,
@@ -3197,7 +3178,8 @@ const Writer = struct {
         try stream.writeAll("], ");
         try self.writeInstRef(stream, ret_ty);
         try self.writeOptionalInstRef(stream, ", cc=", cc);
-        try self.writeFlag(stream, ", var_args", var_args);
+        try self.writeFlag(stream, ", vargs", var_args);
+        try self.writeFlag(stream, ", inferror", inferred_error_set);
 
         try stream.writeAll(", {\n");
         self.indent += 2;

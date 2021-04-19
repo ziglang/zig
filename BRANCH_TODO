@@ -737,3 +737,27 @@ fn errorSetDecl(
             try mod.analyzeExport(&decl_scope.base, export_src, name, decl);
         }
     }
+
+    fn writeFuncExtra(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+        var_args: bool,
+    ) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const src = inst_data.src();
+        const extra = self.code.extraData(Inst.FuncExtra, inst_data.payload_index);
+        const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
+        const cc = extra.data.cc;
+        const body = self.code.extra[extra.end + param_types.len ..][0..extra.data.body_len];
+        return self.writeFuncCommon(
+            stream,
+            param_types,
+            extra.data.return_type,
+            var_args,
+            cc,
+            body,
+            src,
+        );
+    }
+

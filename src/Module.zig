@@ -1278,79 +1278,90 @@ pub const Scope = struct {
             }
         }
 
-        pub fn addFuncExtra(gz: *GenZir, tag: Zir.Inst.Tag, args: struct {
+        pub fn addFunc(gz: *GenZir, args: struct {
             src_node: ast.Node.Index,
             param_types: []const Zir.Inst.Ref,
+            body: []const Zir.Inst.Index,
             ret_ty: Zir.Inst.Ref,
             cc: Zir.Inst.Ref,
-            body: []const Zir.Inst.Index,
             lib_name: u32,
+            is_var_args: bool,
+            is_inferred_error: bool,
         }) !Zir.Inst.Ref {
             assert(args.src_node != 0);
             assert(args.ret_ty != .none);
-            assert(args.cc != .none);
-            const gpa = gz.astgen.gpa;
-            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
-            try gz.astgen.instructions.ensureCapacity(gpa, gz.astgen.instructions.len + 1);
-            try gz.astgen.extra.ensureCapacity(gpa, gz.astgen.extra.items.len +
-                @typeInfo(Zir.Inst.FuncExtra).Struct.fields.len + args.param_types.len +
-                args.body.len);
+            const astgen = gz.astgen;
+            const gpa = astgen.gpa;
 
-            const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.FuncExtra{
-                .return_type = args.ret_ty,
-                .cc = args.cc,
-                .param_types_len = @intCast(u32, args.param_types.len),
-                .body_len = @intCast(u32, args.body.len),
-                .lib_name = args.lib_name,
-            });
-            gz.astgen.appendRefsAssumeCapacity(args.param_types);
-            gz.astgen.extra.appendSliceAssumeCapacity(args.body);
+            try gz.instructions.ensureUnusedCapacity(gpa, 1);
+            try astgen.instructions.ensureUnusedCapacity(gpa, 1);
 
-            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
-            gz.astgen.instructions.appendAssumeCapacity(.{
-                .tag = tag,
-                .data = .{ .pl_node = .{
+            if (args.cc != .none or args.lib_name != 0 or args.is_var_args) {
+                try astgen.extra.ensureUnusedCapacity(
+                    gpa,
+                    @typeInfo(Zir.Inst.ExtendedFunc).Struct.fields.len +
+                        args.param_types.len + args.body.len +
+                        @boolToInt(args.lib_name != 0) +
+                        @boolToInt(args.cc != .none),
+                );
+                const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.ExtendedFunc{
                     .src_node = gz.nodeIndexToRelative(args.src_node),
-                    .payload_index = payload_index,
-                } },
-            });
-            gz.instructions.appendAssumeCapacity(new_index);
-            return gz.indexToRef(new_index);
-        }
+                    .return_type = args.ret_ty,
+                    .param_types_len = @intCast(u32, args.param_types.len),
+                    .body_len = @intCast(u32, args.body.len),
+                });
+                if (args.cc != .none) {
+                    astgen.extra.appendAssumeCapacity(@enumToInt(args.cc));
+                }
+                if (args.lib_name != 0) {
+                    astgen.extra.appendAssumeCapacity(args.lib_name);
+                }
+                astgen.appendRefsAssumeCapacity(args.param_types);
+                astgen.extra.appendSliceAssumeCapacity(args.body);
 
-        pub fn addFunc(gz: *GenZir, tag: Zir.Inst.Tag, args: struct {
-            src_node: ast.Node.Index,
-            ret_ty: Zir.Inst.Ref,
-            param_types: []const Zir.Inst.Ref,
-            body: []const Zir.Inst.Index,
-        }) !Zir.Inst.Ref {
-            assert(args.src_node != 0);
-            assert(args.ret_ty != .none);
-            const gpa = gz.astgen.gpa;
-            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
-            try gz.astgen.instructions.ensureCapacity(gpa, gz.astgen.instructions.len + 1);
-            try gz.astgen.extra.ensureCapacity(gpa, gz.astgen.extra.items.len +
-                @typeInfo(Zir.Inst.Func).Struct.fields.len + args.param_types.len +
-                args.body.len);
+                const new_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
+                astgen.instructions.appendAssumeCapacity(.{
+                    .tag = .extended,
+                    .data = .{ .extended = .{
+                        .opcode = .func,
+                        .small = @bitCast(u16, Zir.Inst.ExtendedFunc.Small{
+                            .is_var_args = args.is_var_args,
+                            .is_inferred_error = args.is_inferred_error,
+                            .has_lib_name = args.lib_name != 0,
+                            .has_cc = args.cc != .none,
+                        }),
+                        .operand = payload_index,
+                    } },
+                });
+                gz.instructions.appendAssumeCapacity(new_index);
+                return gz.indexToRef(new_index);
+            } else {
+                try gz.astgen.extra.ensureUnusedCapacity(
+                    gpa,
+                    @typeInfo(Zir.Inst.Func).Struct.fields.len +
+                        args.param_types.len + args.body.len,
+                );
 
-            const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Func{
-                .return_type = args.ret_ty,
-                .param_types_len = @intCast(u32, args.param_types.len),
-                .body_len = @intCast(u32, args.body.len),
-            });
-            gz.astgen.appendRefsAssumeCapacity(args.param_types);
-            gz.astgen.extra.appendSliceAssumeCapacity(args.body);
+                const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Func{
+                    .return_type = args.ret_ty,
+                    .param_types_len = @intCast(u32, args.param_types.len),
+                    .body_len = @intCast(u32, args.body.len),
+                });
+                gz.astgen.appendRefsAssumeCapacity(args.param_types);
+                gz.astgen.extra.appendSliceAssumeCapacity(args.body);
 
-            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
-            gz.astgen.instructions.appendAssumeCapacity(.{
-                .tag = tag,
-                .data = .{ .pl_node = .{
-                    .src_node = gz.nodeIndexToRelative(args.src_node),
-                    .payload_index = payload_index,
-                } },
-            });
-            gz.instructions.appendAssumeCapacity(new_index);
-            return gz.indexToRef(new_index);
+                const tag: Zir.Inst.Tag = if (args.is_inferred_error) .func_inferred else .func;
+                const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
+                gz.astgen.instructions.appendAssumeCapacity(.{
+                    .tag = tag,
+                    .data = .{ .pl_node = .{
+                        .src_node = gz.nodeIndexToRelative(args.src_node),
+                        .payload_index = payload_index,
+                    } },
+                });
+                gz.instructions.appendAssumeCapacity(new_index);
+                return gz.indexToRef(new_index);
+            }
         }
 
         pub fn addCall(
