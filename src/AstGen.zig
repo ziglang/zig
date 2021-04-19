@@ -877,63 +877,115 @@ pub fn structInitExpr(
         }
     }
     switch (rl) {
-        .discard => return astgen.failNode(node, "TODO implement structInitExpr discard", .{}),
-        .none, .none_or_ref => return astgen.failNode(node, "TODO implement structInitExpr none", .{}),
-        .ref => unreachable, // struct literal not valid as l-value
-        .ty => |ty_inst| {
-            const fields_list = try gpa.alloc(Zir.Inst.StructInit.Item, struct_init.ast.fields.len);
+        .discard => {
+            for (struct_init.ast.fields) |field_init| {
+                _ = try expr(gz, scope, .discard, field_init);
+            }
+            return Zir.Inst.Ref.void_value;
+        },
+        .none, .none_or_ref => {
+            if (struct_init.ast.type_expr != 0) {
+                const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+                return structInitExprRlTy(gz, scope, rl, node, struct_init, ty_inst);
+            }
+            const fields_list = try gpa.alloc(Zir.Inst.StructInitAnon.Item, struct_init.ast.fields.len);
             defer gpa.free(fields_list);
 
             for (struct_init.ast.fields) |field_init, i| {
                 const name_token = tree.firstToken(field_init) - 2;
                 const str_index = try gz.identAsString(name_token);
 
-                const field_ty_inst = try gz.addPlNode(.field_type, field_init, Zir.Inst.FieldType{
-                    .container_type = ty_inst,
-                    .name_start = str_index,
-                });
                 fields_list[i] = .{
-                    .field_type = gz.refToIndex(field_ty_inst).?,
-                    .init = try expr(gz, scope, .{ .ty = field_ty_inst }, field_init),
+                    .field_name = str_index,
+                    .init = try expr(gz, scope, .none, field_init),
                 };
             }
-            const init_inst = try gz.addPlNode(.struct_init, node, Zir.Inst.StructInit{
+            const init_inst = try gz.addPlNode(.struct_init_anon, node, Zir.Inst.StructInitAnon{
                 .fields_len = @intCast(u32, fields_list.len),
             });
             try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
-                fields_list.len * @typeInfo(Zir.Inst.StructInit.Item).Struct.fields.len);
+                fields_list.len * @typeInfo(Zir.Inst.StructInitAnon.Item).Struct.fields.len);
             for (fields_list) |field| {
                 _ = gz.astgen.addExtraAssumeCapacity(field);
             }
-            return rvalue(gz, scope, rl, init_inst, node);
+            return init_inst;
         },
-        .ptr => |ptr_inst| {
-            const field_ptr_list = try gpa.alloc(Zir.Inst.Index, struct_init.ast.fields.len);
-            defer gpa.free(field_ptr_list);
-
-            for (struct_init.ast.fields) |field_init, i| {
-                const name_token = tree.firstToken(field_init) - 2;
-                const str_index = try gz.identAsString(name_token);
-                const field_ptr = try gz.addPlNode(.field_ptr, field_init, Zir.Inst.Field{
-                    .lhs = ptr_inst,
-                    .field_name_start = str_index,
-                });
-                field_ptr_list[i] = gz.refToIndex(field_ptr).?;
-                _ = try expr(gz, scope, .{ .ptr = field_ptr }, field_init);
-            }
-            const validate_inst = try gz.addPlNode(.validate_struct_init_ptr, node, Zir.Inst.Block{
-                .body_len = @intCast(u32, field_ptr_list.len),
-            });
-            try astgen.extra.appendSlice(gpa, field_ptr_list);
-            return validate_inst;
-        },
-        .inferred_ptr => |ptr_inst| {
-            return astgen.failNode(node, "TODO implement structInitExpr inferred_ptr", .{});
-        },
-        .block_ptr => |block_gz| {
-            return astgen.failNode(node, "TODO implement structInitExpr block", .{});
-        },
+        .ref => unreachable, // struct literal not valid as l-value
+        .ty => |ty_inst| return structInitExprRlTy(gz, scope, rl, node, struct_init, ty_inst),
+        .ptr, .inferred_ptr => |ptr_inst| return structInitExprRlPtr(gz, scope, rl, node, struct_init, ptr_inst),
+        .block_ptr => |block_gz| return structInitExprRlPtr(gz, scope, rl, node, struct_init, block_gz.rl_ptr),
     }
+}
+
+pub fn structInitExprRlPtr(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+    struct_init: ast.full.StructInit,
+    result_ptr: Zir.Inst.Ref,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = &astgen.file.tree;
+
+    const field_ptr_list = try gpa.alloc(Zir.Inst.Index, struct_init.ast.fields.len);
+    defer gpa.free(field_ptr_list);
+
+    for (struct_init.ast.fields) |field_init, i| {
+        const name_token = tree.firstToken(field_init) - 2;
+        const str_index = try gz.identAsString(name_token);
+        const field_ptr = try gz.addPlNode(.field_ptr, field_init, Zir.Inst.Field{
+            .lhs = result_ptr,
+            .field_name_start = str_index,
+        });
+        field_ptr_list[i] = gz.refToIndex(field_ptr).?;
+        _ = try expr(gz, scope, .{ .ptr = field_ptr }, field_init);
+    }
+    const validate_inst = try gz.addPlNode(.validate_struct_init_ptr, node, Zir.Inst.Block{
+        .body_len = @intCast(u32, field_ptr_list.len),
+    });
+    try astgen.extra.appendSlice(gpa, field_ptr_list);
+    return validate_inst;
+}
+
+pub fn structInitExprRlTy(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+    struct_init: ast.full.StructInit,
+    ty_inst: Zir.Inst.Ref,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = &astgen.file.tree;
+
+    const fields_list = try gpa.alloc(Zir.Inst.StructInit.Item, struct_init.ast.fields.len);
+    defer gpa.free(fields_list);
+
+    for (struct_init.ast.fields) |field_init, i| {
+        const name_token = tree.firstToken(field_init) - 2;
+        const str_index = try gz.identAsString(name_token);
+
+        const field_ty_inst = try gz.addPlNode(.field_type, field_init, Zir.Inst.FieldType{
+            .container_type = ty_inst,
+            .name_start = str_index,
+        });
+        fields_list[i] = .{
+            .field_type = gz.refToIndex(field_ty_inst).?,
+            .init = try expr(gz, scope, .{ .ty = field_ty_inst }, field_init),
+        };
+    }
+    const init_inst = try gz.addPlNode(.struct_init, node, Zir.Inst.StructInit{
+        .fields_len = @intCast(u32, fields_list.len),
+    });
+    try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
+        fields_list.len * @typeInfo(Zir.Inst.StructInit.Item).Struct.fields.len);
+    for (fields_list) |field| {
+        _ = gz.astgen.addExtraAssumeCapacity(field);
+    }
+    return init_inst;
 }
 
 pub fn comptimeExpr(
@@ -1318,7 +1370,6 @@ fn blockExprStmts(
                         .elem_val,
                         .elem_ptr_node,
                         .elem_val_node,
-                        .floatcast,
                         .field_ptr,
                         .field_val,
                         .field_ptr_named,
@@ -1403,8 +1454,10 @@ fn blockExprStmts(
                         .switch_capture_else_ref,
                         .struct_init_empty,
                         .struct_init,
+                        .struct_init_anon,
                         .union_init_ptr,
                         .field_type,
+                        .field_type_ref,
                         .struct_decl,
                         .struct_decl_packed,
                         .struct_decl_extern,
@@ -4706,19 +4759,59 @@ fn as(
             const result = try expr(gz, scope, .{ .ty = dest_type }, rhs);
             return rvalue(gz, scope, rl, result, node);
         },
-
-        .ptr => |result_ptr| {
+        .ptr, .inferred_ptr => |result_ptr| {
             return asRlPtr(gz, scope, rl, result_ptr, rhs, dest_type);
         },
         .block_ptr => |block_scope| {
             return asRlPtr(gz, scope, rl, block_scope.rl_ptr, rhs, dest_type);
         },
+    }
+}
 
-        .inferred_ptr => |result_alloc| {
-            // TODO here we should be able to resolve the inference; we now have a type for the result.
-            return gz.astgen.failNode(node, "TODO implement @as with inferred-type result location pointer", .{});
+fn unionInit(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+    params: []const ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const union_type = try typeExpr(gz, scope, params[0]);
+    const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
+    switch (rl) {
+        .none, .none_or_ref, .discard, .ref, .ty, .inferred_ptr => {
+            const field_type = try gz.addPlNode(.field_type_ref, params[1], Zir.Inst.FieldTypeRef{
+                .container_type = union_type,
+                .field_name = field_name,
+            });
+            const result = try expr(gz, scope, .{ .ty = union_type }, params[2]);
+            return rvalue(gz, scope, rl, result, node);
+        },
+        .ptr => |result_ptr| {
+            return unionInitRlPtr(gz, scope, rl, node, result_ptr, params[2], union_type, field_name);
+        },
+        .block_ptr => |block_scope| {
+            return unionInitRlPtr(gz, scope, rl, node, block_scope.rl_ptr, params[2], union_type, field_name);
         },
     }
+}
+
+fn unionInitRlPtr(
+    parent_gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+    result_ptr: Zir.Inst.Ref,
+    expr_node: ast.Node.Index,
+    union_type: Zir.Inst.Ref,
+    field_name: Zir.Inst.Ref,
+) InnerError!Zir.Inst.Ref {
+    const union_init_ptr = try parent_gz.addPlNode(.union_init_ptr, node, Zir.Inst.UnionInitPtr{
+        .result_ptr = result_ptr,
+        .union_type = union_type,
+        .field_name = field_name,
+    });
+    // TODO check if we need to do the elision like below in asRlPtr
+    return expr(parent_gz, scope, .{ .ptr = union_init_ptr }, expr_node);
 }
 
 fn asRlPtr(
@@ -4750,8 +4843,7 @@ fn asRlPtr(
         // Busted! This expression didn't actually need a pointer.
         const zir_tags = astgen.instructions.items(.tag);
         const zir_datas = astgen.instructions.items(.data);
-        const expected_len = parent_zir.items.len + as_scope.instructions.items.len - 2;
-        try parent_zir.ensureCapacity(astgen.gpa, expected_len);
+        try parent_zir.ensureUnusedCapacity(astgen.gpa, as_scope.instructions.items.len);
         for (as_scope.instructions.items) |src_inst| {
             if (parent_gz.indexToRef(src_inst) == as_scope.rl_ptr) continue;
             if (zir_tags[src_inst] == .store_to_block_ptr) {
@@ -4759,7 +4851,6 @@ fn asRlPtr(
             }
             parent_zir.appendAssumeCapacity(src_inst);
         }
-        assert(parent_zir.items.len == expected_len);
         const casted_result = try parent_gz.addBin(.as, dest_type, result);
         return rvalue(parent_gz, scope, rl, casted_result, operand_node);
     } else {
@@ -5443,24 +5534,6 @@ fn cImport(
     try gz.instructions.append(gpa, block_inst);
 
     return rvalue(gz, scope, rl, .void_value, node);
-}
-
-fn unionInit(
-    gz: *GenZir,
-    scope: *Scope,
-    rl: ResultLoc,
-    node: ast.Node.Index,
-    params: []const ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
-    const union_type = try typeExpr(gz, scope, params[0]);
-    const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
-    const union_init_ptr = try gz.addPlNode(.union_init_ptr, node, Zir.Inst.UnionInitPtr{
-        .union_type = union_type,
-        .field_name = field_name,
-    });
-    // TODO: set up a store_to_block_ptr elision thing here
-    const result = try expr(gz, scope, .{ .ptr = union_init_ptr }, params[2]);
-    return rvalue(gz, scope, rl, result, node);
 }
 
 fn overflowArithmetic(

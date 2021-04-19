@@ -193,7 +193,6 @@ pub fn analyzeBody(
             .field_ptr_named              => try sema.zirFieldPtrNamed(block, inst),
             .field_val                    => try sema.zirFieldVal(block, inst),
             .field_val_named              => try sema.zirFieldValNamed(block, inst),
-            .floatcast                    => try sema.zirFloatcast(block, inst),
             .func                         => try sema.zirFunc(block, inst, false),
             .func_extra                   => try sema.zirFuncExtra(block, inst, false),
             .func_extra_var_args          => try sema.zirFuncExtra(block, inst, true),
@@ -266,8 +265,10 @@ pub fn analyzeBody(
             .xor                          => try sema.zirBitwise(block, inst, .xor),
             .struct_init_empty            => try sema.zirStructInitEmpty(block, inst),
             .struct_init                  => try sema.zirStructInit(block, inst),
+            .struct_init_anon             => try sema.zirStructInitAnon(block, inst),
             .union_init_ptr               => try sema.zirUnionInitPtr(block, inst),
             .field_type                   => try sema.zirFieldType(block, inst),
+            .field_type_ref               => try sema.zirFieldTypeRef(block, inst),
             .error_return_trace           => try sema.zirErrorReturnTrace(block, inst),
             .frame                        => try sema.zirFrame(block, inst),
             .frame_address                => try sema.zirFrameAddress(block, inst),
@@ -2904,7 +2905,7 @@ fn zirBitcast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError
     return sema.bitcast(block, dest_type, operand);
 }
 
-fn zirFloatcast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirFloatCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -4984,6 +4985,18 @@ fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirStructInit", .{});
 }
 
+fn zirStructInitAnon(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirStructInitAnon", .{});
+}
+
+fn zirFieldTypeRef(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirFieldTypeRef", .{});
+}
+
 fn zirFieldType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
@@ -5090,12 +5103,6 @@ fn zirIntToPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirIntToPtr", .{});
-}
-
-fn zirFloatCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirFloatCast", .{});
 }
 
 fn zirIntCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {

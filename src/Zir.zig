@@ -367,11 +367,6 @@ pub const Inst = struct {
         /// The field name is a comptime instruction. Used by @field.
         /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
         field_val_named,
-        /// Convert a larger float type to any other float type, possibly causing
-        /// a loss of precision.
-        /// Uses the `pl_node` field. AST is the `@floatCast` syntax.
-        /// Payload is `Bin` with lhs as the dest type, rhs the operand.
-        floatcast,
         /// Returns a function type, or a function instance, depending on whether
         /// the body_len is 0. Calling convention is auto.
         /// Uses the `pl_node` union field. `payload_index` points to a `Func`.
@@ -686,13 +681,19 @@ pub const Inst = struct {
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
-        /// Given a struct, union, enum, or opaque and a field name, returns the field type.
-        /// Uses the `pl_node` field. Payload is `FieldType`.
+        /// Given a struct, union, enum, or opaque and a field name as a string index,
+        /// returns the field type. Uses the `pl_node` field. Payload is `FieldType`.
         field_type,
+        /// Given a struct, union, enum, or opaque and a field name as a Ref,
+        /// returns the field type. Uses the `pl_node` field. Payload is `FieldTypeRef`.
+        field_type_ref,
         /// Finalizes a typed struct initialization, performs validation, and returns the
         /// struct value.
         /// Uses the `pl_node` field. Payload is `StructInit`.
         struct_init,
+        /// Struct initialization without a type.
+        /// Uses the `pl_node` field. Payload is `StructInitAnon`.
+        struct_init_anon,
         /// Given a pointer to a union and a comptime known field name, activates that field
         /// and returns a pointer to it.
         /// Uses the `pl_node` field. Payload is `UnionInitPtr`.
@@ -813,8 +814,10 @@ pub const Inst = struct {
         /// Converts an integer into an enum value.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
         int_to_enum,
-        /// Implements the `@floatCast` builtin.
-        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        /// Convert a larger float type to any other float type, possibly causing
+        /// a loss of precision.
+        /// Uses the `pl_node` field. AST is the `@floatCast` syntax.
+        /// Payload is `Bin` with lhs as the dest type, rhs the operand.
         float_cast,
         /// Implements the `@intCast` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
@@ -1002,7 +1005,6 @@ pub const Inst = struct {
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .@"export",
-                .floatcast,
                 .field_ptr,
                 .field_val,
                 .field_ptr_named,
@@ -1099,8 +1101,10 @@ pub const Inst = struct {
                 .validate_struct_init_ptr,
                 .struct_init_empty,
                 .struct_init,
+                .struct_init_anon,
                 .union_init_ptr,
                 .field_type,
+                .field_type_ref,
                 .int_to_enum,
                 .enum_to_int,
                 .type_info,
@@ -2031,10 +2035,27 @@ pub const Inst = struct {
         };
     };
 
+    /// Trailing is an item per field.
+    pub const StructInitAnon = struct {
+        fields_len: u32,
+
+        pub const Item = struct {
+            /// Null-terminated string table index.
+            field_name: u32,
+            /// The field init expression to be used as the field value.
+            init: Ref,
+        };
+    };
+
     pub const FieldType = struct {
         container_type: Ref,
         /// Offset into `string_bytes`, null terminated.
         name_start: u32,
+    };
+
+    pub const FieldTypeRef = struct {
+        container_type: Ref,
+        field_name: Ref,
     };
 
     pub const OverflowArithmetic = struct {
@@ -2059,6 +2080,7 @@ pub const Inst = struct {
     };
 
     pub const UnionInitPtr = struct {
+        result_ptr: Ref,
         union_type: Ref,
         field_name: Ref,
     };
@@ -2279,14 +2301,15 @@ const Writer = struct {
             .elem_val_node,
             .field_ptr_named,
             .field_val_named,
-            .floatcast,
             .slice_start,
             .slice_end,
             .slice_sentinel,
             .union_decl,
             .struct_init,
+            .struct_init_anon,
             .union_init_ptr,
             .field_type,
+            .field_type_ref,
             .cmpxchg_strong,
             .cmpxchg_weak,
             .shuffle,
