@@ -1353,10 +1353,14 @@ fn transCreatePointerArithmeticSignedOp(
 
     const bitcast_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
 
-    const arith_args = .{ .lhs = lhs_node, .rhs = bitcast_node };
-    const arith_node = try if (is_add) Tag.add.create(c.arena, arith_args) else Tag.sub.create(c.arena, arith_args);
-
-    return maybeSuppressResult(c, scope, result_used, arith_node);
+    return transCreateNodeInfixOp(
+        c,
+        scope,
+        if (is_add) .add else .sub,
+        lhs_node,
+        bitcast_node,
+        result_used,
+    );
 }
 
 fn transBinaryOperator(
