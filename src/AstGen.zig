@@ -820,7 +820,7 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
 
         .@"defer" => return astgen.failNode(node, "TODO implement astgen.expr for .defer", .{}),
         .@"errdefer" => return astgen.failNode(node, "TODO implement astgen.expr for .errdefer", .{}),
-        .@"try" => return astgen.failNode(node, "TODO implement astgen.expr for .Try", .{}),
+        .@"try" => return tryExpr(gz, scope, rl, node_datas[node].lhs),
 
         .array_init_one, .array_init_one_comma => {
             var elements: [1]ast.Node.Index = undefined;
@@ -3152,6 +3152,110 @@ fn errorSetDecl(
     });
     try astgen.extra.appendSlice(gpa, field_names.items);
     return rvalue(gz, scope, rl, result, node);
+}
+
+fn tryExpr(
+    parent_gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const astgen = parent_gz.astgen;
+    const tree = &astgen.file.tree;
+    const main_tokens = tree.nodes.items(.main_token);
+    const token_tags = tree.tokens.items(.tag);
+    const node_datas = tree.nodes.items(.data);
+    const node_tags = tree.nodes.items(.tag);
+
+    var block_scope: GenZir = .{
+        .parent = scope,
+        .decl_node_index = parent_gz.decl_node_index,
+        .astgen = parent_gz.astgen,
+        .force_comptime = parent_gz.force_comptime,
+        .instructions = .{},
+    };
+    block_scope.setBreakResultLoc(rl);
+    defer block_scope.instructions.deinit(astgen.gpa);
+
+    // This could be a pointer or value depending on the `operand_rl` parameter.
+    // We cannot use `block_scope.break_result_loc` because that has the bare
+    // type, whereas this expression has the optional type. Later we make
+    // up for this fact by calling rvalue on the else branch.
+    block_scope.break_count += 1;
+
+    const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
+        .ref => .ref,
+        .discard, .none, .none_or_ref, .block_ptr, .inferred_ptr => .none,
+        .ty => |elem_ty| {
+            @panic("TODO");
+        },
+        .ptr => |ptr_ty| {
+            @panic("TODO");
+        },
+    };
+    const ops = switch (rl) {
+        .ref => [3]Zir.Inst.Tag{ .is_err_ptr, .err_union_code_ptr, .err_union_payload_unsafe_ptr },
+        else => [3]Zir.Inst.Tag{ .is_err, .err_union_code, .err_union_payload_unsafe },
+    };
+    const operand = try expr(&block_scope, &block_scope.base, operand_rl, node);
+    const cond = try block_scope.addUnNode(ops[0], operand, node);
+    const condbr = try block_scope.addCondBr(.condbr, node);
+
+    const block = try parent_gz.addBlock(.block, node);
+    try parent_gz.instructions.append(astgen.gpa, block);
+    try block_scope.setBlockBody(block);
+
+    var then_scope: GenZir = .{
+        .parent = scope,
+        .decl_node_index = parent_gz.decl_node_index,
+        .astgen = parent_gz.astgen,
+        .force_comptime = block_scope.force_comptime,
+        .instructions = .{},
+    };
+    defer then_scope.instructions.deinit(astgen.gpa);
+
+    const then_result = try then_scope.addUnNode(ops[1], operand, node);
+    const to_return = try then_scope.addUnNode(.ret_node, then_result, node);
+
+    block_scope.break_count += 1;
+    // We hold off on the break instructions as well as copying the then/else
+    // instructions into place until we know whether to keep store_to_block_ptr
+    // instructions or not.
+
+    var else_scope: GenZir = .{
+        .parent = scope,
+        .decl_node_index = parent_gz.decl_node_index,
+        .astgen = parent_gz.astgen,
+        .force_comptime = block_scope.force_comptime,
+        .instructions = .{},
+    };
+    defer else_scope.instructions.deinit(astgen.gpa);
+
+    // This could be a pointer or value depending on `unwrap_op`.
+    const unwrapped_payload = try else_scope.addUnNode(ops[2], operand, node);
+    const else_result = switch (rl) {
+        .ref => unwrapped_payload,
+        else => try rvalue(&else_scope, &else_scope.base, block_scope.break_result_loc, unwrapped_payload, node),
+    };
+
+    return finishThenElseBlock(
+        parent_gz,
+        scope,
+        rl,
+        node,
+        &block_scope,
+        &then_scope,
+        &else_scope,
+        condbr,
+        cond,
+        node,
+        node,
+        to_return,
+        else_result,
+        block,
+        block,
+        .@"break",
+    );
 }
 
 fn orelseCatchExpr(
