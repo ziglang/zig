@@ -1396,20 +1396,20 @@ fn resolveSymbols(self: *Zld) !void {
         .file = 0,
     });
 
-    {
-        log.debug("symtab", .{});
-        for (self.symtab.items()) |sym| {
-            switch (sym.value.tag) {
-                .weak, .strong => {
-                    log.debug("    | {s} => {s}", .{ sym.key, self.objects.items[sym.value.file.?].name.? });
-                },
-                .import => {
-                    log.debug("    | {s} => libSystem.B.dylib", .{sym.key});
-                },
-                else => unreachable,
-            }
-        }
-    }
+    // {
+    //     log.warn("symtab", .{});
+    //     for (self.symtab.items()) |sym| {
+    //         switch (sym.value.tag) {
+    //             .weak, .strong => {
+    //                 log.warn("    | {s} => {s}", .{ sym.key, self.objects.items[sym.value.file.?].name.? });
+    //             },
+    //             .import => {
+    //                 log.warn("    | {s} => libSystem.B.dylib", .{sym.key});
+    //             },
+    //             else => unreachable,
+    //         }
+    //     }
+    // }
 }
 
 fn resolveStubsAndGotEntries(self: *Zld) !void {
@@ -1654,7 +1654,31 @@ fn relocTargetAddr(self: *Zld, object_id: u16, target: reloc.Relocation.Target) 
                 const sym = object.symtab.items[sym_id];
                 const sym_name = object.getString(sym.n_strx);
 
-                if (Symbol.isSect(sym)) {
+                if (self.symtab.get(sym_name)) |global| {
+                    switch (global.tag) {
+                        .weak, .strong => {
+                            log.debug("    | global symbol '{s}'", .{sym_name});
+                            break :blk global.address;
+                        },
+                        .import => {
+                            if (self.stubs.get(sym_name)) |index| {
+                                log.debug("    | symbol stub '{s}'", .{sym_name});
+                                const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+                                const stubs = segment.sections.items[self.stubs_section_index.?];
+                                break :blk stubs.addr + index * stubs.reserved2;
+                            } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
+                                log.debug("    | symbol '__tlv_bootstrap'", .{});
+                                const segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+                                const tlv = segment.sections.items[self.tlv_section_index.?];
+                                break :blk tlv.addr;
+                            } else {
+                                log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
+                                return error.FailedToResolveRelocationTarget;
+                            }
+                        },
+                        else => unreachable,
+                    }
+                } else if (Symbol.isSect(sym)) {
                     log.debug("    | local symbol '{s}'", .{sym_name});
                     if (object.locals.get(sym_name)) |local| {
                         break :blk local.address;
@@ -1674,24 +1698,8 @@ fn relocTargetAddr(self: *Zld, object_id: u16, target: reloc.Relocation.Target) 
                     const target_addr = target_sect.addr + target_mapping.offset;
                     break :blk sym.n_value - source_sect.addr + target_addr;
                 } else {
-                    if (self.stubs.get(sym_name)) |index| {
-                        log.debug("    | symbol stub '{s}'", .{sym_name});
-                        const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-                        const stubs = segment.sections.items[self.stubs_section_index.?];
-                        break :blk stubs.addr + index * stubs.reserved2;
-                    } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
-                        log.debug("    | symbol '__tlv_bootstrap'", .{});
-                        const segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-                        const tlv = segment.sections.items[self.tlv_section_index.?];
-                        break :blk tlv.addr;
-                    } else {
-                        const global = self.symtab.get(sym_name) orelse {
-                            log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
-                            return error.FailedToResolveRelocationTarget;
-                        };
-                        log.debug("    | global symbol '{s}'", .{sym_name});
-                        break :blk global.address;
-                    }
+                    log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
+                    return error.FailedToResolveRelocationTarget;
                 }
             },
             .section => |sect_id| {
@@ -2148,7 +2156,7 @@ fn flush(self: *Zld) !void {
 
         var buffer = try self.allocator.alloc(u8, self.cpp_initializers.items().len * @sizeOf(u64));
         defer self.allocator.free(buffer);
-        
+
         var stream = std.io.fixedBufferStream(buffer);
         var writer = stream.writer();
 
@@ -2166,7 +2174,7 @@ fn flush(self: *Zld) !void {
 
         var buffer = try self.allocator.alloc(u8, self.cpp_finalizers.items().len * @sizeOf(u64));
         defer self.allocator.free(buffer);
-        
+
         var stream = std.io.fixedBufferStream(buffer);
         var writer = stream.writer();
 
