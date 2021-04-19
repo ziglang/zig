@@ -1463,6 +1463,7 @@ fn blockExprStmts(
                         .enum_decl,
                         .enum_decl_nonexhaustive,
                         .opaque_decl,
+                        .error_set_decl,
                         .int_to_enum,
                         .enum_to_int,
                         .type_info,
@@ -2930,11 +2931,37 @@ fn errorSetDecl(
     node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
+    const gpa = astgen.gpa;
     const tree = &astgen.file.tree;
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
 
-    return astgen.failNode(node, "TODO AstGen errorSetDecl", .{});
+    var field_names: std.ArrayListUnmanaged(u32) = .{};
+    defer field_names.deinit(gpa);
+
+    {
+        const error_token = main_tokens[node];
+        var tok_i = error_token + 2;
+        var field_i: usize = 0;
+        while (true) : (tok_i += 1) {
+            switch (token_tags[tok_i]) {
+                .doc_comment, .comma => {},
+                .identifier => {
+                    const str_index = try gz.identAsString(tok_i);
+                    try field_names.append(gpa, str_index);
+                    field_i += 1;
+                },
+                .r_brace => break,
+                else => unreachable,
+            }
+        }
+    }
+
+    const result = try gz.addPlNode(.error_set_decl, node, Zir.Inst.ErrorSetDecl{
+        .fields_len = @intCast(u32, field_names.items.len),
+    });
+    try astgen.extra.appendSlice(gpa, field_names.items);
+    return rvalue(gz, scope, rl, result, node);
 }
 
 fn orelseCatchExpr(

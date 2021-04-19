@@ -604,73 +604,6 @@ fn astgenAndSemaVarDecl(
             }
 
 
-fn errorSetDecl(
-    gz: *GenZir,
-    scope: *Scope,
-    rl: ResultLoc,
-    node: ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
-    const astgen = gz.astgen;
-    const tree = &astgen.file.tree;
-    const main_tokens = tree.nodes.items(.main_token);
-    const token_tags = tree.tokens.items(.tag);
-
-    // Count how many fields there are.
-    const error_token = main_tokens[node];
-    const count: usize = count: {
-        var tok_i = error_token + 2;
-        var count: usize = 0;
-        while (true) : (tok_i += 1) {
-            switch (token_tags[tok_i]) {
-                .doc_comment, .comma => {},
-                .identifier => count += 1,
-                .r_brace => break :count count,
-                else => unreachable,
-            }
-        } else unreachable; // TODO should not need else unreachable here
-    };
-
-    const gpa = astgen.gpa;
-    var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
-    errdefer new_decl_arena.deinit();
-    const arena = &new_decl_arena.allocator;
-
-    const fields = try arena.alloc([]const u8, count);
-    {
-        var tok_i = error_token + 2;
-        var field_i: usize = 0;
-        while (true) : (tok_i += 1) {
-            switch (token_tags[tok_i]) {
-                .doc_comment, .comma => {},
-                .identifier => {
-                    fields[field_i] = try astgen.identifierTokenStringTreeArena(tok_i, tree, arena);
-                    field_i += 1;
-                },
-                .r_brace => break,
-                else => unreachable,
-            }
-        }
-    }
-    const error_set = try arena.create(Module.ErrorSet);
-    error_set.* = .{
-        .owner_decl = astgen.decl,
-        .node_offset = astgen.decl.nodeIndexToRelative(node),
-        .names_ptr = fields.ptr,
-        .names_len = @intCast(u32, fields.len),
-    };
-    const error_set_ty = try Type.Tag.error_set.create(arena, error_set);
-    const error_set_val = try Value.Tag.ty.create(arena, error_set_ty);
-    const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
-        .ty = Type.initTag(.type),
-        .val = error_set_val,
-    });
-    const decl_index = try mod.declareDeclDependency(astgen.decl, new_decl);
-    const result = try gz.addDecl(.decl_val, decl_index, node);
-    return rvalue(gz, scope, rl, result, node);
-}
-
-
-
     if (mod.lookupIdentifier(scope, ident_name)) |decl| {
         const msg = msg: {
             const msg = try mod.errMsg(
@@ -761,3 +694,20 @@ fn errorSetDecl(
         );
     }
 
+
+    const error_set = try arena.create(Module.ErrorSet);
+    error_set.* = .{
+        .owner_decl = astgen.decl,
+        .node_offset = astgen.decl.nodeIndexToRelative(node),
+        .names_ptr = fields.ptr,
+        .names_len = @intCast(u32, fields.len),
+    };
+    const error_set_ty = try Type.Tag.error_set.create(arena, error_set);
+    const error_set_val = try Value.Tag.ty.create(arena, error_set_ty);
+    const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
+        .ty = Type.initTag(.type),
+        .val = error_set_val,
+    });
+    const decl_index = try mod.declareDeclDependency(astgen.decl, new_decl);
+    const result = try gz.addDecl(.decl_val, decl_index, node);
+    return rvalue(gz, scope, rl, result, node);

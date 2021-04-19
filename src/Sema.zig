@@ -343,6 +343,7 @@ pub fn analyzeBody(
             .enum_decl_nonexhaustive => try sema.zirEnumDecl(block, inst, true),
             .union_decl              => try sema.zirUnionDecl(block, inst),
             .opaque_decl             => try sema.zirOpaqueDecl(block, inst),
+            .error_set_decl          => try sema.zirErrorSetDecl(block, inst),
 
             .add     => try sema.zirArithmetic(block, inst),
             .addwrap => try sema.zirArithmetic(block, inst),
@@ -976,6 +977,17 @@ fn zirOpaqueDecl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
     const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
 
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirOpaqueDecl", .{});
+}
+
+fn zirErrorSetDecl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(Zir.Inst.ErrorSetDecl, inst_data.payload_index);
+
+    return sema.mod.fail(&block.base, sema.src, "TODO implement zirErrorSetDecl", .{});
 }
 
 fn zirRetPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {

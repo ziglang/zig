@@ -307,6 +307,9 @@ pub const Inst = struct {
         /// An opaque type definition. Provides an AST node only.
         /// Uses the `node` union field.
         opaque_decl,
+        /// An error set type definition. Contains a list of field names.
+        /// Uses the `pl_node` union field. Payload is `ErrorSetDecl`.
+        error_set_decl,
         /// Declares the beginning of a statement. Used for debug info.
         /// Uses the `node` union field.
         dbg_stmt_node,
@@ -986,6 +989,7 @@ pub const Inst = struct {
                 .enum_decl,
                 .enum_decl_nonexhaustive,
                 .opaque_decl,
+                .error_set_decl,
                 .dbg_stmt_node,
                 .decl_ref,
                 .decl_val,
@@ -2011,6 +2015,11 @@ pub const Inst = struct {
         fields_len: u32,
     };
 
+    /// Trailing: field_name: u32 // for every field: null terminated string index
+    pub const ErrorSetDecl = struct {
+        fields_len: u32,
+    };
+
     /// A f128 value, broken up into 4 u32 parts.
     pub const Float128 = struct {
         piece0: u32,
@@ -2328,6 +2337,8 @@ const Writer = struct {
             .builtin_async_call,
             => try self.writePlNode(stream, inst),
 
+            .error_set_decl => try self.writePlNodeErrorSetDecl(stream, inst),
+
             .add_with_overflow,
             .sub_with_overflow,
             .mul_with_overflow,
@@ -2596,11 +2607,7 @@ const Writer = struct {
         try stream.print("\"{}\")", .{std.zig.fmtEscapes(str)});
     }
 
-    fn writePlNode(
-        self: *Writer,
-        stream: anytype,
-        inst: Inst.Index,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+    fn writePlNode(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         try stream.writeAll("TODO) ");
         try self.writeSrc(stream, inst_data.src());
@@ -2613,6 +2620,25 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
         try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeErrorSetDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.ErrorSetDecl, inst_data.payload_index);
+        const fields = self.code.extra[extra.end..][0..extra.data.fields_len];
+
+        try stream.writeAll("{\n");
+        self.indent += 2;
+        for (fields) |str_index| {
+            const name = self.code.nullTerminatedString(str_index);
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.print("{},\n", .{std.zig.fmtId(name)});
+        }
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
+        try stream.writeAll("}) ");
+
         try self.writeSrc(stream, inst_data.src());
     }
 
