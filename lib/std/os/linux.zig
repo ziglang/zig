@@ -1410,6 +1410,30 @@ pub fn pidfd_send_signal(pidfd: fd_t, sig: i32, info: ?*siginfo_t, flags: u32) u
     );
 }
 
+pub fn process_vm_readv(pid: pid_t, local: [*]const iovec, local_count: usize, remote: [*]const iovec, remote_count: usize, flags: usize) usize {
+    return syscall6(
+        .process_vm_readv,
+        @bitCast(usize, @as(isize, pid)),
+        @ptrToInt(local),
+        local_count,
+        @ptrToInt(remote),
+        remote_count,
+        flags,
+    );
+}
+
+pub fn process_vm_writev(pid: pid_t, local: [*]const iovec, local_count: usize, remote: [*]const iovec, remote_count: usize, flags: usize) usize {
+    return syscall6(
+        .process_vm_writev,
+        @bitCast(usize, @as(isize, pid)),
+        @ptrToInt(local),
+        local_count,
+        @ptrToInt(remote),
+        remote_count,
+        flags,
+    );
+}
+
 test {
     if (builtin.os.tag == .linux) {
         _ = @import("linux/test.zig");
