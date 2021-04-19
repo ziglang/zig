@@ -3264,6 +3264,9 @@ fn ifExpr(
     if_full: ast.full.If,
 ) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
+    const tree = &astgen.file.tree;
+    const token_tags = tree.tokens.items(.tag);
+
     var block_scope: GenZir = .{
         .parent = scope,
         .decl_node_index = parent_gz.decl_node_index,
@@ -3274,14 +3277,37 @@ fn ifExpr(
     block_scope.setBreakResultLoc(rl);
     defer block_scope.instructions.deinit(astgen.gpa);
 
-    const cond = c: {
-        // TODO https://github.com/ziglang/zig/issues/7929
+    const payload_is_ref = if (if_full.payload_token) |payload_token|
+        token_tags[payload_token] == .asterisk
+    else
+        false;
+
+    const cond: struct {
+        inst: Zir.Inst.Ref,
+        bool_bit: Zir.Inst.Ref,
+    } = c: {
         if (if_full.error_token) |error_token| {
-            return astgen.failTok(error_token, "TODO implement if error union", .{});
+            const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
+            const err_union = try expr(&block_scope, &block_scope.base, cond_rl, if_full.ast.cond_expr);
+            const tag: Zir.Inst.Tag = if (payload_is_ref) .is_err_ptr else .is_err;
+            break :c .{
+                .inst = err_union,
+                .bool_bit = try block_scope.addUnNode(tag, err_union, node),
+            };
         } else if (if_full.payload_token) |payload_token| {
-            return astgen.failTok(payload_token, "TODO implement if optional", .{});
+            const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
+            const optional = try expr(&block_scope, &block_scope.base, cond_rl, if_full.ast.cond_expr);
+            const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_null_ptr else .is_non_null;
+            break :c .{
+                .inst = optional,
+                .bool_bit = try block_scope.addUnNode(tag, optional, node),
+            };
         } else {
-            break :c try expr(&block_scope, &block_scope.base, bool_rl, if_full.ast.cond_expr);
+            const cond = try expr(&block_scope, &block_scope.base, bool_rl, if_full.ast.cond_expr);
+            break :c .{
+                .inst = cond,
+                .bool_bit = cond,
+            };
         }
     };
 
@@ -3300,8 +3326,44 @@ fn ifExpr(
     };
     defer then_scope.instructions.deinit(astgen.gpa);
 
-    // declare payload to the then_scope
-    const then_sub_scope = &then_scope.base;
+    var payload_val_scope: Scope.LocalVal = undefined;
+
+    const then_sub_scope = s: {
+        if (if_full.error_token) |error_token| {
+            const tag: Zir.Inst.Tag = if (payload_is_ref)
+                .err_union_payload_unsafe_ptr
+            else
+                .err_union_payload_unsafe;
+            const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
+            const ident_name = try astgen.identifierTokenString(error_token);
+            payload_val_scope = .{
+                .parent = &then_scope.base,
+                .gen_zir = &then_scope,
+                .name = ident_name,
+                .inst = payload_inst,
+                .token_src = error_token,
+            };
+            break :s &payload_val_scope.base;
+        } else if (if_full.payload_token) |payload_token| {
+            const ident_token = if (payload_is_ref) payload_token + 1 else payload_token;
+            const tag: Zir.Inst.Tag = if (payload_is_ref)
+                .optional_payload_unsafe_ptr
+            else
+                .optional_payload_unsafe;
+            const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
+            const ident_name = try astgen.identifierTokenString(ident_token);
+            payload_val_scope = .{
+                .parent = &then_scope.base,
+                .gen_zir = &then_scope,
+                .name = ident_name,
+                .inst = payload_inst,
+                .token_src = ident_token,
+            };
+            break :s &payload_val_scope.base;
+        } else {
+            break :s &then_scope.base;
+        }
+    };
 
     block_scope.break_count += 1;
     const then_result = try expr(&then_scope, then_sub_scope, block_scope.break_result_loc, if_full.ast.then_expr);
@@ -3324,7 +3386,26 @@ fn ifExpr(
         result: Zir.Inst.Ref,
     } = if (else_node != 0) blk: {
         block_scope.break_count += 1;
-        const sub_scope = &else_scope.base;
+        const sub_scope = s: {
+            if (if_full.error_token) |error_token| {
+                const tag: Zir.Inst.Tag = if (payload_is_ref)
+                    .err_union_code_ptr
+                else
+                    .err_union_code;
+                const payload_inst = try else_scope.addUnNode(tag, cond.inst, node);
+                const ident_name = try astgen.identifierTokenString(error_token);
+                payload_val_scope = .{
+                    .parent = &else_scope.base,
+                    .gen_zir = &else_scope,
+                    .name = ident_name,
+                    .inst = payload_inst,
+                    .token_src = error_token,
+                };
+                break :s &payload_val_scope.base;
+            } else {
+                break :s &else_scope.base;
+            }
+        };
         break :blk .{
             .src = else_node,
             .result = try expr(&else_scope, sub_scope, block_scope.break_result_loc, else_node),
@@ -3343,7 +3424,7 @@ fn ifExpr(
         &then_scope,
         &else_scope,
         condbr,
-        cond,
+        cond.bool_bit,
         if_full.ast.then_expr,
         else_info.src,
         then_result,
