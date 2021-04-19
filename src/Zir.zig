@@ -274,9 +274,6 @@ pub const Inst = struct {
         /// Uses the `bin` union field.
         /// LHS is destination element type, RHS is result pointer.
         coerce_result_ptr,
-        /// Emit an error message and fail compilation.
-        /// Uses the `un_node` field.
-        compile_error,
         /// Log compile time variables and emit an error message.
         /// Uses the `pl_node` union field. The AST node is the compile log builtin call.
         /// The payload is `MultiOp`.
@@ -339,9 +336,6 @@ pub const Inst = struct {
         /// Same as `elem_val` except also stores a source location node.
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
         elem_val_node,
-        /// This instruction has been deleted late in the astgen phase. It must
-        /// be ignored, and the corresponding `Data` is undefined.
-        elided,
         /// Emits a compile error if the operand is not `void`.
         /// Uses the `un_node` field.
         ensure_result_used,
@@ -391,9 +385,6 @@ pub const Inst = struct {
         func_extra,
         /// Same as `func_extra` but the function is variadic.
         func_extra_var_args,
-        /// Implements the `@hasDecl` builtin.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        has_decl,
         /// Implements the `@import` builtin.
         /// Uses the `str_tok` field.
         import,
@@ -412,10 +403,6 @@ pub const Inst = struct {
         /// Make an integer type out of signedness and bit count.
         /// Payload is `int_type`
         int_type,
-        /// Convert an error type to `u16`
-        error_to_int,
-        /// Convert a `u16` to `anyerror`
-        int_to_error,
         /// Return a boolean false if an optional is null. `x != null`
         /// Uses the `un_node` field.
         is_non_null,
@@ -498,16 +485,6 @@ pub const Inst = struct {
         /// Same as `ret_tok` except the operand needs to get coerced to the function's
         /// return type.
         ret_coerce,
-        /// Changes the maximum number of backwards branches that compile-time
-        /// code execution can use before giving up and making a compile error.
-        /// Uses the `un_node` union field.
-        set_eval_branch_quota,
-        /// Integer shift-left. Zeroes are shifted in from the right hand side.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        shl,
-        /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
-        /// Uses the `pl_node` union field. Payload is `Bin`.
-        shr,
         /// Create a pointer type that does not have a sentinel, alignment, or bit range specified.
         /// Uses the `ptr_type_simple` union field.
         ptr_type_simple,
@@ -573,6 +550,10 @@ pub const Inst = struct {
         /// of one or more params.
         /// Uses the `pl_node` field. AST node is the `@TypeOf` call. Payload is `MultiOp`.
         typeof_peer,
+        /// Given a value, look at the type of it, which must be an integer type.
+        /// Returns the integer type for the RHS of a shift operation.
+        /// Uses the `un_node` field.
+        typeof_log2_int_type,
         /// Given an integer type, returns the integer type for the RHS of a shift operation.
         /// Uses the `un_node` field.
         log2_int_type,
@@ -712,12 +693,10 @@ pub const Inst = struct {
         /// struct value.
         /// Uses the `pl_node` field. Payload is `StructInit`.
         struct_init,
-        /// Converts an integer into an enum value.
-        /// Uses `pl_node` with payload `Bin`. `lhs` is enum type, `rhs` is operand.
-        int_to_enum,
-        /// Converts an enum value into an integer. Resulting type will be the tag type
-        /// of the enum. Uses `un_node`.
-        enum_to_int,
+        /// Given a pointer to a union and a comptime known field name, activates that field
+        /// and returns a pointer to it.
+        /// Uses the `pl_node` field. Payload is `UnionInitPtr`.
+        union_init_ptr,
         /// Implements the `@typeInfo` builtin. Uses `un_node`.
         type_info,
         /// Implements the `@sizeOf` builtin. Uses `un_node`.
@@ -740,6 +719,224 @@ pub const Inst = struct {
         mul_with_overflow,
         /// Implements the `@shlWithOverflow` builtin. Uses `pl_node` with `OverflowArithmetic`.
         shl_with_overflow,
+
+        /// Implements the `@errorReturnTrace` builtin.
+        /// Uses the `un_node` field.
+        error_return_trace,
+        /// Implements the `@frame` builtin.
+        /// Uses the `un_node` field.
+        frame,
+        /// Implements the `@frameAddress` builtin.
+        /// Uses the `un_node` field.
+        frame_address,
+
+        /// Implement builtin `@ptrToInt`. Uses `un_node`.
+        ptr_to_int,
+        /// Implement builtin `@errToInt`. Uses `un_node`.
+        error_to_int,
+        /// Implement builtin `@intToError`. Uses `un_node`.
+        int_to_error,
+        /// Emit an error message and fail compilation.
+        /// Uses the `un_node` field.
+        compile_error,
+        /// Changes the maximum number of backwards branches that compile-time
+        /// code execution can use before giving up and making a compile error.
+        /// Uses the `un_node` union field.
+        set_eval_branch_quota,
+        /// Converts an enum value into an integer. Resulting type will be the tag type
+        /// of the enum. Uses `un_node`.
+        enum_to_int,
+        /// Implement builtin `@alignOf`. Uses `un_node`.
+        align_of,
+        /// Implement builtin `@boolToInt`. Uses `un_node`.
+        bool_to_int,
+        /// Implement builtin `@embedFile`. Uses `un_node`.
+        embed_file,
+        /// Implement builtin `@errorName`. Uses `un_node`.
+        error_name,
+        /// Implement builtin `@panic`. Uses `un_node`.
+        panic,
+        /// Implement builtin `@setAlignStack`. Uses `un_node`.
+        set_align_stack,
+        /// Implement builtin `@setCold`. Uses `un_node`.
+        set_cold,
+        /// Implement builtin `@setFloatMode`. Uses `un_node`.
+        set_float_mode,
+        /// Implement builtin `@setRuntimeSafety`. Uses `un_node`.
+        set_runtime_safety,
+        /// Implement builtin `@sqrt`. Uses `un_node`.
+        sqrt,
+        /// Implement builtin `@sin`. Uses `un_node`.
+        sin,
+        /// Implement builtin `@cos`. Uses `un_node`.
+        cos,
+        /// Implement builtin `@exp`. Uses `un_node`.
+        exp,
+        /// Implement builtin `@exp2`. Uses `un_node`.
+        exp2,
+        /// Implement builtin `@log`. Uses `un_node`.
+        log,
+        /// Implement builtin `@log2`. Uses `un_node`.
+        log2,
+        /// Implement builtin `@log10`. Uses `un_node`.
+        log10,
+        /// Implement builtin `@fabs`. Uses `un_node`.
+        fabs,
+        /// Implement builtin `@floor`. Uses `un_node`.
+        floor,
+        /// Implement builtin `@ceil`. Uses `un_node`.
+        ceil,
+        /// Implement builtin `@trunc`. Uses `un_node`.
+        trunc,
+        /// Implement builtin `@round`. Uses `un_node`.
+        round,
+        /// Implement builtin `@tagName`. Uses `un_node`.
+        tag_name,
+        /// Implement builtin `@Type`. Uses `un_node`.
+        reify,
+        /// Implement builtin `@typeName`. Uses `un_node`.
+        type_name,
+        /// Implement builtin `@Frame`. Uses `un_node`.
+        frame_type,
+        /// Implement builtin `@frameSize`. Uses `un_node`.
+        frame_size,
+
+        /// Implements the `@floatToInt` builtin.
+        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        float_to_int,
+        /// Implements the `@intToFloat` builtin.
+        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        int_to_float,
+        /// Implements the `@intToPtr` builtin.
+        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        int_to_ptr,
+        /// Converts an integer into an enum value.
+        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        int_to_enum,
+        /// Implements the `@floatCast` builtin.
+        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        float_cast,
+        /// Implements the `@intCast` builtin.
+        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        int_cast,
+        /// Implements the `@errSetCast` builtin.
+        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        err_set_cast,
+        /// Implements the `@ptrCast` builtin.
+        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        ptr_cast,
+        /// Implements the `@truncate` builtin.
+        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        truncate,
+        /// Implements the `@alignCast` builtin.
+        /// Uses `pl_node` with payload `Bin`. `lhs` is dest alignment, `rhs` is operand.
+        align_cast,
+
+        /// Implements the `@hasDecl` builtin.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        has_decl,
+        /// Implements the `@hasField` builtin.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        has_field,
+
+        /// Implements the `@clz` builtin. Uses the `un_node` union field.
+        clz,
+        /// Implements the `@ctz` builtin. Uses the `un_node` union field.
+        ctz,
+        /// Implements the `@popCount` builtin. Uses the `un_node` union field.
+        pop_count,
+        /// Implements the `@byteSwap` builtin. Uses the `un_node` union field.
+        byte_swap,
+        /// Implements the `@bitReverse` builtin. Uses the `un_node` union field.
+        bit_reverse,
+
+        /// Implements the `@divExact` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        div_exact,
+        /// Implements the `@divFloor` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        div_floor,
+        /// Implements the `@divTrunc` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        div_trunc,
+        /// Implements the `@mod` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        mod,
+        /// Implements the `@rem` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        rem,
+
+        /// Integer shift-left. Zeroes are shifted in from the right hand side.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        shl,
+        /// Implements the `@shlExact` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        shl_exact,
+        /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        shr,
+        /// Implements the `@shrExact` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        shr_exact,
+
+        /// Implements the `@bitOffsetOf` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        bit_offset_of,
+        /// Implements the `@byteOffsetOf` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        byte_offset_of,
+        /// Implements the `@cmpxchgStrong` builtin.
+        /// Uses the `pl_node` union field with payload `Cmpxchg`.
+        cmpxchg_strong,
+        /// Implements the `@cmpxchgWeak` builtin.
+        /// Uses the `pl_node` union field with payload `Cmpxchg`.
+        cmpxchg_weak,
+        /// Implements the `@splat` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        splat,
+        /// Implements the `@reduce` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        reduce,
+        /// Implements the `@shuffle` builtin.
+        /// Uses the `pl_node` union field with payload `Shuffle`.
+        shuffle,
+        /// Implements the `@atomicLoad` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        atomic_load,
+        /// Implements the `@atomicRmw` builtin.
+        /// Uses the `pl_node` union field with payload `AtomicRmw`.
+        atomic_rmw,
+        /// Implements the `@atomicStore` builtin.
+        /// Uses the `pl_node` union field with payload `AtomicStore`.
+        atomic_store,
+        /// Implements the `@mulAdd` builtin.
+        /// Uses the `pl_node` union field with payload `MulAdd`.
+        mul_add,
+        /// Implements the `@call` builtin.
+        /// Uses the `pl_node` union field with payload `BuiltinCall`.
+        builtin_call,
+        /// Given a type and a field name, returns a pointer to the field type.
+        /// Assumed to be part of a `@fieldParentPtr` builtin call.
+        /// Uses the `bin` union field. LHS is type, RHS is field name.
+        field_ptr_type,
+        /// Implements the `@fieldParentPtr` builtin.
+        /// Uses the `pl_node` union field with payload `FieldParentPtr`.
+        field_parent_ptr,
+        /// Implements the `@memcpy` builtin.
+        /// Uses the `pl_node` union field with payload `Memcpy`.
+        memcpy,
+        /// Implements the `@memset` builtin.
+        /// Uses the `pl_node` union field with payload `Memset`.
+        memset,
+        /// Implements the `@asyncCall` builtin.
+        /// Uses the `pl_node` union field with payload `AsyncCall`.
+        builtin_async_call,
+        /// Implements the `@cImport` builtin.
+        /// Uses the `pl_node` union field with payload `Block`.
+        c_import,
+        /// The ZIR instruction tag is one of the `Extended` ones.
+        /// Uses the `extended` union field.
+        extended,
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -876,11 +1073,11 @@ pub const Inst = struct {
                 .slice_sentinel,
                 .import,
                 .typeof_peer,
+                .typeof_log2_int_type,
                 .log2_int_type,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
                 .compile_log,
-                .elided,
                 .switch_capture,
                 .switch_capture_ref,
                 .switch_capture_multi,
@@ -902,6 +1099,7 @@ pub const Inst = struct {
                 .validate_struct_init_ptr,
                 .struct_init_empty,
                 .struct_init,
+                .union_init_ptr,
                 .field_type,
                 .int_to_enum,
                 .enum_to_int,
@@ -916,6 +1114,77 @@ pub const Inst = struct {
                 .sub_with_overflow,
                 .mul_with_overflow,
                 .shl_with_overflow,
+                .error_return_trace,
+                .frame,
+                .frame_address,
+                .ptr_to_int,
+                .align_of,
+                .bool_to_int,
+                .embed_file,
+                .error_name,
+                .set_align_stack,
+                .set_cold,
+                .set_float_mode,
+                .set_runtime_safety,
+                .sqrt,
+                .sin,
+                .cos,
+                .exp,
+                .exp2,
+                .log,
+                .log2,
+                .log10,
+                .fabs,
+                .floor,
+                .ceil,
+                .trunc,
+                .round,
+                .tag_name,
+                .reify,
+                .type_name,
+                .frame_type,
+                .frame_size,
+                .float_to_int,
+                .int_to_float,
+                .int_to_ptr,
+                .float_cast,
+                .int_cast,
+                .err_set_cast,
+                .ptr_cast,
+                .truncate,
+                .align_cast,
+                .has_field,
+                .clz,
+                .ctz,
+                .pop_count,
+                .byte_swap,
+                .bit_reverse,
+                .div_exact,
+                .div_floor,
+                .div_trunc,
+                .mod,
+                .rem,
+                .shl_exact,
+                .shr_exact,
+                .bit_offset_of,
+                .byte_offset_of,
+                .cmpxchg_strong,
+                .cmpxchg_weak,
+                .splat,
+                .reduce,
+                .shuffle,
+                .atomic_load,
+                .atomic_rmw,
+                .atomic_store,
+                .mul_add,
+                .builtin_call,
+                .field_ptr_type,
+                .field_parent_ptr,
+                .memcpy,
+                .memset,
+                .builtin_async_call,
+                .c_import,
+                .extended,
                 => false,
 
                 .@"break",
@@ -929,9 +1198,31 @@ pub const Inst = struct {
                 .@"unreachable",
                 .repeat,
                 .repeat_inline,
+                .panic,
                 => true,
             };
         }
+    };
+
+    /// Rarer instructions are here; ones that do not fit in the 8-bit `Tag` enum.
+    /// `noreturn` instructions may not go here; they must be part of the main `Tag` enum.
+    pub const Extended = enum(u16) {
+        /// `operand` is payload index to `UnNode`.
+        c_undef,
+        /// `operand` is payload index to `UnNode`.
+        c_include,
+        /// `operand` is payload index to `BinNode`.
+        c_define,
+        /// `operand` is payload index to `UnNode`.
+        wasm_memory_size,
+        /// `operand` is payload index to `BinNode`.
+        wasm_memory_grow,
+
+        pub const InstData = struct {
+            opcode: Extended,
+            small: u16,
+            operand: u32,
+        };
     };
 
     /// The position of a ZIR instruction within the `Zir` instructions array.
@@ -1002,6 +1293,14 @@ pub const Inst = struct {
         single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
         enum_literal_type,
+        manyptr_u8_type,
+        manyptr_const_u8_type,
+        atomic_ordering_type,
+        atomic_rmw_op_type,
+        calling_convention_type,
+        float_mode_type,
+        reduce_op_type,
+        call_options_type,
 
         /// `undefined` (untyped)
         undef,
@@ -1025,6 +1324,8 @@ pub const Inst = struct {
         zero_usize,
         /// `1` (usize)
         one_usize,
+        /// `std.builtin.CallingConvention.C`
+        calling_convention_c,
 
         _,
 
@@ -1191,6 +1492,38 @@ pub const Inst = struct {
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.enum_literal_type),
             },
+            .manyptr_u8_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.manyptr_u8_type),
+            },
+            .manyptr_const_u8_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.manyptr_const_u8_type),
+            },
+            .atomic_ordering_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.atomic_ordering_type),
+            },
+            .atomic_rmw_op_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.atomic_rmw_op_type),
+            },
+            .calling_convention_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.calling_convention_type),
+            },
+            .float_mode_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.float_mode_type),
+            },
+            .reduce_op_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.reduce_op_type),
+            },
+            .call_options_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.call_options_type),
+            },
 
             .undef = .{
                 .ty = Type.initTag(.@"undefined"),
@@ -1236,13 +1569,27 @@ pub const Inst = struct {
                 .ty = Type.initTag(.empty_struct_literal),
                 .val = Value.initTag(.empty_struct_value),
             },
+            .calling_convention_c = .{
+                .ty = Type.initTag(.calling_convention),
+                .val = .{ .ptr_otherwise = &calling_convention_c_payload.base },
+            },
         });
+    };
+
+    /// We would like this to be const but `Value` wants a mutable pointer for
+    /// its payload field. Nothing should mutate this though.
+    var calling_convention_c_payload: Value.Payload.U32 = .{
+        .base = .{ .tag = .enum_field_index },
+        .data = @enumToInt(std.builtin.CallingConvention.C),
     };
 
     /// All instructions have an 8-byte payload, which is contained within
     /// this union. `Tag` determines which union field is active, as well as
     /// how to interpret the data within.
     pub const Data = union {
+        /// Used for `Tag.extended`. The extended opcode determines the meaning
+        /// of the `small` and `operand` fields.
+        extended: Extended.InstData,
         /// Used for unary operators, with an AST node source location.
         un_node: struct {
             /// Offset from Decl AST node index.
@@ -1462,6 +1809,12 @@ pub const Inst = struct {
         args_len: u32,
     };
 
+    pub const BuiltinCall = struct {
+        options: Ref,
+        callee: Ref,
+        args: Ref,
+    };
+
     /// This data is stored inside extra, with two sets of trailing `Ref`:
     /// * 0. the then body, according to `then_body_len`.
     /// * 1. the else body, according to `else_body_len`.
@@ -1508,6 +1861,17 @@ pub const Inst = struct {
     pub const Bin = struct {
         lhs: Ref,
         rhs: Ref,
+    };
+
+    pub const BinNode = struct {
+        node: i32,
+        lhs: Ref,
+        rhs: Ref,
+    };
+
+    pub const UnNode = struct {
+        node: i32,
+        operand: Ref,
     };
 
     /// This form is supported when there are no ranges, and exactly 1 item per block.
@@ -1679,6 +2043,70 @@ pub const Inst = struct {
         ptr: Ref,
     };
 
+    pub const Cmpxchg = struct {
+        ptr: Ref,
+        expected_value: Ref,
+        new_value: Ref,
+        success_order: Ref,
+        fail_order: Ref,
+    };
+
+    pub const AtomicRmw = struct {
+        ptr: Ref,
+        operation: Ref,
+        operand: Ref,
+        ordering: Ref,
+    };
+
+    pub const UnionInitPtr = struct {
+        union_type: Ref,
+        field_name: Ref,
+    };
+
+    pub const AtomicStore = struct {
+        ptr: Ref,
+        operand: Ref,
+        ordering: Ref,
+    };
+
+    pub const MulAdd = struct {
+        mulend1: Ref,
+        mulend2: Ref,
+        addend: Ref,
+    };
+
+    pub const FieldParentPtr = struct {
+        parent_type: Ref,
+        field_name: Ref,
+        field_ptr: Ref,
+    };
+
+    pub const Memcpy = struct {
+        dest: Ref,
+        source: Ref,
+        byte_count: Ref,
+    };
+
+    pub const Memset = struct {
+        dest: Ref,
+        byte: Ref,
+        byte_count: Ref,
+    };
+
+    pub const Shuffle = struct {
+        elem_type: Ref,
+        a: Ref,
+        b: Ref,
+        mask: Ref,
+    };
+
+    pub const AsyncCall = struct {
+        frame_buffer: Ref,
+        result_ptr: Ref,
+        fn_ptr: Ref,
+        args: Ref,
+    };
+
     /// Trailing: `CompileErrors.Item` for each `items_len`.
     pub const CompileErrors = struct {
         items_len: u32,
@@ -1749,13 +2177,11 @@ const Writer = struct {
             .negate_wrap,
             .call_none,
             .call_none_chkused,
-            .compile_error,
             .load,
             .ensure_result_used,
             .ensure_result_non_error,
             .ptrtoint,
             .ret_node,
-            .set_eval_branch_quota,
             .resolve_inferred_alloc,
             .optional_type,
             .optional_type_from_ptr_elem,
@@ -1769,8 +2195,6 @@ const Writer = struct {
             .err_union_payload_unsafe_ptr,
             .err_union_code,
             .err_union_code_ptr,
-            .int_to_error,
-            .error_to_int,
             .is_non_null,
             .is_null,
             .is_non_null_ptr,
@@ -1780,11 +2204,49 @@ const Writer = struct {
             .typeof,
             .typeof_elem,
             .struct_init_empty,
-            .enum_to_int,
             .type_info,
             .size_of,
             .bit_size_of,
+            .typeof_log2_int_type,
             .log2_int_type,
+            .ptr_to_int,
+            .error_to_int,
+            .int_to_error,
+            .compile_error,
+            .set_eval_branch_quota,
+            .enum_to_int,
+            .align_of,
+            .bool_to_int,
+            .embed_file,
+            .error_name,
+            .panic,
+            .set_align_stack,
+            .set_cold,
+            .set_float_mode,
+            .set_runtime_safety,
+            .sqrt,
+            .sin,
+            .cos,
+            .exp,
+            .exp2,
+            .log,
+            .log2,
+            .log10,
+            .fabs,
+            .floor,
+            .ceil,
+            .trunc,
+            .round,
+            .tag_name,
+            .reify,
+            .type_name,
+            .frame_type,
+            .frame_size,
+            .clz,
+            .ctz,
+            .pop_count,
+            .byte_swap,
+            .bit_reverse,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -1805,7 +2267,6 @@ const Writer = struct {
             .float => try self.writeFloat(stream, inst),
             .float128 => try self.writeFloat128(stream, inst),
             .str => try self.writeStr(stream, inst),
-            .elided => try stream.writeAll(")"),
             .int_type => try self.writeIntType(stream, inst),
 
             .@"break",
@@ -1824,7 +2285,20 @@ const Writer = struct {
             .slice_sentinel,
             .union_decl,
             .struct_init,
+            .union_init_ptr,
             .field_type,
+            .cmpxchg_strong,
+            .cmpxchg_weak,
+            .shuffle,
+            .atomic_rmw,
+            .atomic_store,
+            .mul_add,
+            .builtin_call,
+            .field_ptr_type,
+            .field_parent_ptr,
+            .memcpy,
+            .memset,
+            .builtin_async_call,
             => try self.writePlNode(stream, inst),
 
             .add_with_overflow,
@@ -1851,9 +2325,12 @@ const Writer = struct {
             .cmp_neq,
             .div,
             .has_decl,
+            .has_field,
             .mod_rem,
             .shl,
+            .shl_exact,
             .shr,
+            .shr_exact,
             .xor,
             .store_node,
             .error_union_type,
@@ -1861,7 +2338,26 @@ const Writer = struct {
             .merge_error_sets,
             .bit_and,
             .bit_or,
+            .float_to_int,
+            .int_to_float,
+            .int_to_ptr,
             .int_to_enum,
+            .float_cast,
+            .int_cast,
+            .err_set_cast,
+            .ptr_cast,
+            .truncate,
+            .align_cast,
+            .div_exact,
+            .div_floor,
+            .div_trunc,
+            .mod,
+            .rem,
+            .bit_offset_of,
+            .byte_offset_of,
+            .splat,
+            .reduce,
+            .atomic_load,
             => try self.writePlNodeBin(stream, inst),
 
             .call,
@@ -1874,6 +2370,7 @@ const Writer = struct {
             .block_inline_var,
             .loop,
             .validate_struct_init_ptr,
+            .c_import,
             => try self.writePlNodeBlock(stream, inst),
 
             .condbr,
@@ -1926,6 +2423,9 @@ const Writer = struct {
             .fence,
             .ret_addr,
             .builtin_src,
+            .error_return_trace,
+            .frame,
+            .frame_address,
             => try self.writeNode(stream, inst),
 
             .error_value,
@@ -1954,6 +2454,7 @@ const Writer = struct {
 
             .bitcast,
             .bitcast_result_ptr,
+            .extended,
             => try stream.writeAll("TODO)"),
         }
     }

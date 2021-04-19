@@ -1198,6 +1198,30 @@ pub const Scope = struct {
             gz.astgen.extra.appendSliceAssumeCapacity(gz.instructions.items);
         }
 
+        /// Same as `setBlockBody` except we don't copy instructions which are
+        /// `store_to_block_ptr` instructions with lhs set to .none.
+        pub fn setBlockBodyEliding(gz: GenZir, inst: Zir.Inst.Index) !void {
+            const gpa = gz.astgen.gpa;
+            try gz.astgen.extra.ensureCapacity(gpa, gz.astgen.extra.items.len +
+                @typeInfo(Zir.Inst.Block).Struct.fields.len + gz.instructions.items.len);
+            const zir_datas = gz.astgen.instructions.items(.data);
+            const zir_tags = gz.astgen.instructions.items(.tag);
+            const block_pl_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Block{
+                .body_len = @intCast(u32, gz.instructions.items.len),
+            });
+            zir_datas[inst].pl_node.payload_index = block_pl_index;
+            for (gz.instructions.items) |sub_inst| {
+                if (zir_tags[sub_inst] == .store_to_block_ptr and
+                    zir_datas[sub_inst].bin.lhs == .none)
+                {
+                    // Decrement `body_len`.
+                    gz.astgen.extra.items[block_pl_index] -= 1;
+                    continue;
+                }
+                gz.astgen.extra.appendAssumeCapacity(sub_inst);
+            }
+        }
+
         pub fn identAsString(gz: *GenZir, ident_token: ast.TokenIndex) !u32 {
             const astgen = gz.astgen;
             const gpa = astgen.gpa;
@@ -1439,6 +1463,30 @@ pub const Scope = struct {
                 .data = .{ .pl_node = .{
                     .src_node = gz.nodeIndexToRelative(src_node),
                     .payload_index = payload_index,
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+            return gz.indexToRef(new_index);
+        }
+
+        pub fn addExtendedPayload(
+            gz: *GenZir,
+            opcode: Zir.Inst.Extended,
+            extra: anytype,
+        ) !Zir.Inst.Ref {
+            const gpa = gz.astgen.gpa;
+
+            try gz.instructions.ensureCapacity(gpa, gz.instructions.items.len + 1);
+            try gz.astgen.instructions.ensureCapacity(gpa, gz.astgen.instructions.len + 1);
+
+            const payload_index = try gz.astgen.addExtra(extra);
+            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
+            gz.astgen.instructions.appendAssumeCapacity(.{
+                .tag = .extended,
+                .data = .{ .extended = .{
+                    .opcode = opcode,
+                    .small = undefined,
+                    .operand = payload_index,
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);

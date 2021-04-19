@@ -737,5 +737,3 @@ fn errorSetDecl(
             try mod.analyzeExport(&decl_scope.base, export_src, name, decl);
         }
     }
-
-

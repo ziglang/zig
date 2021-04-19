@@ -83,6 +83,8 @@ pub const Type = extern union {
             .pointer,
             .inferred_alloc_const,
             .inferred_alloc_mut,
+            .manyptr_u8,
+            .manyptr_const_u8,
             => return .Pointer,
 
             .optional,
@@ -96,11 +98,17 @@ pub const Type = extern union {
             .empty_struct,
             .empty_struct_literal,
             .@"struct",
+            .call_options,
             => return .Struct,
 
             .enum_full,
             .enum_nonexhaustive,
             .enum_simple,
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
             => return .Enum,
 
             .var_args_param => unreachable, // can be any type
@@ -205,6 +213,8 @@ pub const Type = extern union {
             .mut_slice,
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
+            .manyptr_u8,
+            .manyptr_const_u8,
             => self.cast(Payload.ElemType),
 
             .inferred_alloc_const => unreachable,
@@ -271,8 +281,30 @@ pub const Type = extern union {
                 .@"volatile" = false,
                 .size = .Many,
             } },
+            .manyptr_const_u8 => return .{ .data = .{
+                .pointee_type = Type.initTag(.u8),
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .Many,
+            } },
             .many_mut_pointer => return .{ .data = .{
                 .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = true,
+                .@"volatile" = false,
+                .size = .Many,
+            } },
+            .manyptr_u8 => return .{ .data = .{
+                .pointee_type = Type.initTag(.u8),
                 .sentinel = null,
                 .@"align" = 0,
                 .bit_offset = 0,
@@ -576,6 +608,14 @@ pub const Type = extern union {
             .inferred_alloc_mut,
             .var_args_param,
             .empty_struct_literal,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
             => unreachable,
 
             .array_u8,
@@ -746,6 +786,14 @@ pub const Type = extern union {
                 .fn_naked_noreturn_no_args => return writer.writeAll("fn() callconv(.Naked) noreturn"),
                 .fn_ccc_void_no_args => return writer.writeAll("fn() callconv(.C) void"),
                 .single_const_pointer_to_comptime_int => return writer.writeAll("*const comptime_int"),
+                .manyptr_u8 => return writer.writeAll("[*]u8"),
+                .manyptr_const_u8 => return writer.writeAll("[*]const u8"),
+                .atomic_ordering => return writer.writeAll("std.builtin.AtomicOrdering"),
+                .atomic_rmw_op => return writer.writeAll("std.builtin.AtomicRmwOp"),
+                .calling_convention => return writer.writeAll("std.builtin.CallingConvention"),
+                .float_mode => return writer.writeAll("std.builtin.FloatMode"),
+                .reduce_op => return writer.writeAll("std.builtin.ReduceOp"),
+                .call_options => return writer.writeAll("std.builtin.CallOptions"),
                 .function => {
                     const payload = ty.castTag(.function).?.data;
                     try writer.writeAll("fn(");
@@ -952,6 +1000,14 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int => return Value.initTag(.single_const_pointer_to_comptime_int_type),
             .const_slice_u8 => return Value.initTag(.const_slice_u8_type),
             .enum_literal => return Value.initTag(.enum_literal_type),
+            .manyptr_u8 => return Value.initTag(.manyptr_u8_type),
+            .manyptr_const_u8 => return Value.initTag(.manyptr_const_u8_type),
+            .atomic_ordering => return Value.initTag(.atomic_ordering_type),
+            .atomic_rmw_op => return Value.initTag(.atomic_rmw_op_type),
+            .calling_convention => return Value.initTag(.calling_convention_type),
+            .float_mode => return Value.initTag(.float_mode_type),
+            .reduce_op => return Value.initTag(.reduce_op_type),
+            .call_options => return Value.initTag(.call_options_type),
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             else => return Value.Tag.ty.create(allocator, self),
@@ -1001,6 +1057,14 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
             => true,
 
             .@"struct" => {
@@ -1079,7 +1143,10 @@ pub const Type = extern union {
             .optional_single_mut_pointer,
             => return self.cast(Payload.ElemType).?.data.abiAlignment(target),
 
-            .const_slice_u8 => return 1,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .const_slice_u8,
+            => return 1,
 
             .pointer => {
                 const ptr_info = self.castTag(.pointer).?.data;
@@ -1102,6 +1169,12 @@ pub const Type = extern union {
             .bool,
             .array_u8_sentinel_0,
             .array_u8,
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
             => return 1,
 
             .fn_noreturn_no_args, // represents machine code; not a pointer
@@ -1136,6 +1209,8 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
             .pointer,
+            .manyptr_u8,
+            .manyptr_const_u8,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
             .c_short => return @divExact(CType.short.sizeInBits(target), 8),
@@ -1271,6 +1346,12 @@ pub const Type = extern union {
             .u8,
             .i8,
             .bool,
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
             => return 1,
 
             .array_u8 => self.castTag(.array_u8).?.data,
@@ -1321,6 +1402,10 @@ pub const Type = extern union {
                 if (self.elemType().hasCodeGenBits()) return 0;
                 return @divExact(target.cpu.arch.ptrBitWidth(), 8);
             },
+
+            .manyptr_u8,
+            .manyptr_const_u8,
+            => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
             .c_short => return @divExact(CType.short.sizeInBits(target), 8),
             .c_ushort => return @divExact(CType.ushort.sizeInBits(target), 8),
@@ -1475,6 +1560,10 @@ pub const Type = extern union {
                 }
             },
 
+            .manyptr_u8,
+            .manyptr_const_u8,
+            => return target.cpu.arch.ptrBitWidth(),
+
             .c_short => return CType.short.sizeInBits(target),
             .c_ushort => return CType.ushort.sizeInBits(target),
             .c_int => return CType.int.sizeInBits(target),
@@ -1517,8 +1606,16 @@ pub const Type = extern union {
                 } else if (!payload.payload.hasCodeGenBits()) {
                     return payload.error_set.bitSize(target);
                 }
-                @panic("TODO abiSize error union");
+                @panic("TODO bitSize error union");
             },
+
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            => @panic("TODO at some point we gotta resolve builtin types"),
         };
     }
 
@@ -1564,6 +1661,8 @@ pub const Type = extern union {
 
             .many_const_pointer,
             .many_mut_pointer,
+            .manyptr_u8,
+            .manyptr_const_u8,
             => .Many,
 
             .c_const_pointer,
@@ -1604,6 +1703,7 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .const_slice,
+            .manyptr_const_u8,
             => true,
 
             .pointer => !self.castTag(.pointer).?.data.mutable,
@@ -1718,7 +1818,13 @@ pub const Type = extern union {
             .mut_slice,
             => self.castPointer().?.data,
 
-            .array_u8, .array_u8_sentinel_0, .const_slice_u8 => Type.initTag(.u8),
+            .array_u8,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            => Type.initTag(.u8),
+
             .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
             .pointer => self.castTag(.pointer).?.data.pointee_type,
 
@@ -1811,6 +1917,8 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int,
             .array,
             .array_u8,
+            .manyptr_u8,
+            .manyptr_const_u8,
             => return null,
 
             .pointer => return self.castTag(.pointer).?.data.sentinel,
@@ -2122,6 +2230,14 @@ pub const Type = extern union {
             .error_set_single,
             .@"opaque",
             .var_args_param,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
             => return null,
 
             .@"struct" => {
@@ -2281,6 +2397,14 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.count();
             },
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            => @panic("TODO resolve std.builtin types"),
+
             else => unreachable,
         }
     }
@@ -2295,6 +2419,13 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.entries.items[field_index].key;
             },
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
     }
@@ -2309,6 +2440,13 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.getIndex(field_name);
             },
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
     }
@@ -2345,6 +2483,13 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return S.fieldWithRange(enum_tag, enum_simple.fields.count());
             },
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
     }
@@ -2367,6 +2512,13 @@ pub const Type = extern union {
                 const error_set = ty.castTag(.error_set).?.data;
                 return error_set.srcLoc();
             },
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
     }
@@ -2390,6 +2542,13 @@ pub const Type = extern union {
                 return error_set.owner_decl;
             },
             .@"opaque" => @panic("TODO"),
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
     }
@@ -2422,6 +2581,13 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return S.intInRange(int, enum_simple.fields.count());
             },
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            => @panic("TODO resolve std.builtin types"),
 
             else => unreachable,
         }
@@ -2469,6 +2635,14 @@ pub const Type = extern union {
         comptime_float,
         noreturn,
         enum_literal,
+        manyptr_u8,
+        manyptr_const_u8,
+        atomic_ordering,
+        atomic_rmw_op,
+        calling_convention,
+        float_mode,
+        reduce_op,
+        call_options,
         @"null",
         @"undefined",
         fn_noreturn_no_args,
@@ -2572,6 +2746,14 @@ pub const Type = extern union {
                 .inferred_alloc_mut,
                 .var_args_param,
                 .empty_struct_literal,
+                .manyptr_u8,
+                .manyptr_const_u8,
+                .atomic_ordering,
+                .atomic_rmw_op,
+                .calling_convention,
+                .float_mode,
+                .reduce_op,
+                .call_options,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .array_u8,

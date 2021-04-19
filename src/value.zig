@@ -64,6 +64,14 @@ pub const Value = extern union {
         single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
         enum_literal_type,
+        manyptr_u8_type,
+        manyptr_const_u8_type,
+        atomic_ordering_type,
+        atomic_rmw_op_type,
+        calling_convention_type,
+        float_mode_type,
+        reduce_op_type,
+        call_options_type,
 
         undef,
         zero,
@@ -169,6 +177,14 @@ pub const Value = extern union {
                 .bool_true,
                 .bool_false,
                 .abi_align_default,
+                .manyptr_u8_type,
+                .manyptr_const_u8_type,
+                .atomic_ordering_type,
+                .atomic_rmw_op_type,
+                .calling_convention_type,
+                .float_mode_type,
+                .reduce_op_type,
+                .call_options_type,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .int_big_positive,
@@ -327,6 +343,14 @@ pub const Value = extern union {
             .bool_false,
             .empty_struct_value,
             .abi_align_default,
+            .manyptr_u8_type,
+            .manyptr_const_u8_type,
+            .atomic_ordering_type,
+            .atomic_rmw_op_type,
+            .calling_convention_type,
+            .float_mode_type,
+            .reduce_op_type,
+            .call_options_type,
             => unreachable,
 
             .ty => {
@@ -474,6 +498,14 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
             .enum_literal_type => return out_stream.writeAll("@Type(.EnumLiteral)"),
+            .manyptr_u8_type => return out_stream.writeAll("[*]u8"),
+            .manyptr_const_u8_type => return out_stream.writeAll("[*]const u8"),
+            .atomic_ordering_type => return out_stream.writeAll("std.builtin.AtomicOrdering"),
+            .atomic_rmw_op_type => return out_stream.writeAll("std.builtin.AtomicRmwOp"),
+            .calling_convention_type => return out_stream.writeAll("std.builtin.CallingConvention"),
+            .float_mode_type => return out_stream.writeAll("std.builtin.FloatMode"),
+            .reduce_op_type => return out_stream.writeAll("std.builtin.ReduceOp"),
+            .call_options_type => return out_stream.writeAll("std.builtin.CallOptions"),
             .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
@@ -595,6 +627,14 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
             .enum_literal_type => Type.initTag(.enum_literal),
+            .manyptr_u8_type => Type.initTag(.manyptr_u8),
+            .manyptr_const_u8_type => Type.initTag(.manyptr_const_u8),
+            .atomic_ordering_type => Type.initTag(.atomic_ordering),
+            .atomic_rmw_op_type => Type.initTag(.atomic_rmw_op),
+            .calling_convention_type => Type.initTag(.calling_convention),
+            .float_mode_type => Type.initTag(.float_mode),
+            .reduce_op_type => Type.initTag(.reduce_op),
+            .call_options_type => Type.initTag(.call_options),
 
             .int_type => {
                 const payload = self.castTag(.int_type).?.data;
@@ -1132,6 +1172,16 @@ pub const Value = extern union {
                 std.hash.autoHash(&hasher, payload.hash());
             },
             .inferred_alloc => unreachable,
+
+            .manyptr_u8_type,
+            .manyptr_const_u8_type,
+            .atomic_ordering_type,
+            .atomic_rmw_op_type,
+            .calling_convention_type,
+            .float_mode_type,
+            .reduce_op_type,
+            .call_options_type,
+            => @panic("TODO this hash function looks pretty broken. audit it"),
         }
         return hasher.final();
     }
@@ -1278,6 +1328,14 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .enum_literal_type,
+            .manyptr_u8_type,
+            .manyptr_const_u8_type,
+            .atomic_ordering_type,
+            .atomic_rmw_op_type,
+            .calling_convention_type,
+            .float_mode_type,
+            .reduce_op_type,
+            .call_options_type,
             => true,
 
             .zero,
