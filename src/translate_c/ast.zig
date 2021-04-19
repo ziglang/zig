@@ -1665,7 +1665,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .array_access => {
             const payload = node.castTag(.array_access).?.data;
-            const lhs = try renderNode(c, payload.lhs);
+            const lhs = try renderNodeGrouped(c, payload.lhs);
             const l_bracket = try c.addToken(.l_bracket, "[");
             const index_expr = try renderNode(c, payload.rhs);
             _ = try c.addToken(.r_bracket, "]");

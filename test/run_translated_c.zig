@@ -1467,4 +1467,13 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Render array LHS as grouped node if necessary",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int arr[] = {40, 41, 42, 43};
+        \\    if ((arr + 1)[1] != 42) abort();
+        \\    return 0;
+        \\}
+    , "");
 }
