@@ -1,3 +1,7 @@
+ * defer
+   - `break`
+   - `continue`
+ * nested function decl: how to refer to params?
  * look for cached zir code
  * save zir code to cache
  * keep track of file dependencies/dependants
@@ -12,6 +16,15 @@
  * the decl doing the looking up needs to create a decl dependency
    on each usingnamespace decl
  * handle usingnamespace cycles
+
+ * compile error for return inside defer expression
+
+ * when block has noreturn statement
+   - avoid emitting defers
+   - compile error for unreachable code
+ 
+ * detect `return error.Foo` and emit ZIR that unconditionally generates errdefers
+ * `return`: check return operand and generate errdefers if necessary
 
  * have failed_trees and just put the file in there
    - this way we can emit all the parse errors not just the first one

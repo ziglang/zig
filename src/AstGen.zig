@@ -37,6 +37,8 @@ string_table: std.StringHashMapUnmanaged(u32) = .{},
 compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
 /// String table indexes, keeps track of all `@import` operands.
 imports: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
+/// The topmost block of the current function.
+fn_block: ?*GenZir = null,
 
 pub fn addExtra(astgen: *AstGen, extra: anytype) Allocator.Error!u32 {
     const fields = std.meta.fields(@TypeOf(extra));
@@ -82,7 +84,7 @@ pub fn generate(gpa: *Allocator, file: *Scope.File) InnerError!Zir {
     // First few indexes of extra are reserved and set at the end.
     try astgen.extra.resize(gpa, @typeInfo(Zir.ExtraIndex).Enum.fields.len);
 
-    var gen_scope: Scope.GenZir = .{
+    var gen_scope: GenZir = .{
         .force_comptime = true,
         .parent = &file.base,
         .decl_node_index = 0,
@@ -461,6 +463,8 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
         .local_var_decl => unreachable, // Handled in `blockExpr`.
         .simple_var_decl => unreachable, // Handled in `blockExpr`.
         .aligned_var_decl => unreachable, // Handled in `blockExpr`.
+        .@"defer" => unreachable, // Handled in `blockExpr`.
+        .@"errdefer" => unreachable, // Handled in `blockExpr`.
 
         .switch_case => unreachable, // Handled in `switchExpr`.
         .switch_case_one => unreachable, // Handled in `switchExpr`.
@@ -818,8 +822,6 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
         .@"await" => return astgen.failNode(node, "async and related features are not yet supported", .{}),
         .@"resume" => return astgen.failNode(node, "async and related features are not yet supported", .{}),
 
-        .@"defer" => return astgen.failNode(node, "TODO implement astgen.expr for .defer", .{}),
-        .@"errdefer" => return astgen.failNode(node, "TODO implement astgen.expr for .errdefer", .{}),
         .@"try" => return tryExpr(gz, scope, rl, node_datas[node].lhs),
 
         .array_init_one, .array_init_one_comma => {
@@ -1245,6 +1247,8 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: ast.Node.Index) Inn
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            .defer_normal => @panic("TODO break/defer"),
+            .defer_error => @panic("TODO break/defer"),
             else => if (break_label != 0) {
                 const label_name = try astgen.identifierTokenString(break_label);
                 return astgen.failTok(break_label, "label not found: '{s}'", .{label_name});
@@ -1290,6 +1294,8 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: ast.Node.Index) 
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            .defer_normal => @panic("TODO continue/defer"),
+            .defer_error => @panic("TODO continue/defer"),
             else => if (break_label != 0) {
                 const label_name = try astgen.identifierTokenString(break_label);
                 return astgen.failTok(break_label, "label not found: '{s}'", .{label_name});
@@ -1354,6 +1360,7 @@ fn checkLabelRedefinition(astgen: *AstGen, parent_scope: *Scope, label: ast.Toke
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            .defer_normal, .defer_error => scope = scope.cast(Scope.Defer).?.parent,
             else => return,
         }
     }
@@ -1393,6 +1400,7 @@ fn labeledBlockExpr(
         .decl_node_index = gz.decl_node_index,
         .astgen = gz.astgen,
         .force_comptime = gz.force_comptime,
+        .ref_start_index = gz.ref_start_index,
         .instructions = .{},
         // TODO @as here is working around a stage1 miscompilation bug :(
         .label = @as(?GenZir.Label, GenZir.Label{
@@ -1463,16 +1471,16 @@ fn blockExprStmts(
 
     var scope = parent_scope;
     for (statements) |statement| {
-        if (!gz.force_comptime) {
-            _ = try gz.addNode(.dbg_stmt_node, statement);
-        }
         switch (node_tags[statement]) {
-            .global_var_decl => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.globalVarDecl(statement)),
-            .local_var_decl => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.localVarDecl(statement)),
-            .simple_var_decl => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.simpleVarDecl(statement)),
+            // zig fmt: off
+            .global_var_decl  => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.globalVarDecl(statement)),
+            .local_var_decl   => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.localVarDecl(statement)),
+            .simple_var_decl  => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.simpleVarDecl(statement)),
             .aligned_var_decl => scope = try varDecl(gz, scope, statement, &block_arena.allocator, tree.alignedVarDecl(statement)),
 
-            // zig fmt: off
+            .@"defer"    => scope = try deferStmt(gz, scope, statement, &block_arena.allocator, .defer_normal),
+            .@"errdefer" => scope = try deferStmt(gz, scope, statement, &block_arena.allocator, .defer_error),
+
             .assign => try assign(gz, scope, statement),
 
             .assign_bit_shift_left  => try assignShift(gz, scope, statement, .shl),
@@ -1489,300 +1497,355 @@ fn blockExprStmts(
             .assign_add_wrap => try assignOp(gz, scope, statement, .addwrap),
             .assign_mul      => try assignOp(gz, scope, statement, .mul),
             .assign_mul_wrap => try assignOp(gz, scope, statement, .mulwrap),
+
+            else => try unusedResultExpr(gz, scope, statement),
             // zig fmt: on
-
-            else => {
-                // We need to emit an error if the result is not `noreturn` or `void`, but
-                // we want to avoid adding the ZIR instruction if possible for performance.
-                const maybe_unused_result = try expr(gz, scope, .none, statement);
-                const elide_check = if (gz.refToIndex(maybe_unused_result)) |inst| b: {
-                    // Note that this array becomes invalid after appending more items to it
-                    // in the above while loop.
-                    const zir_tags = gz.astgen.instructions.items(.tag);
-                    switch (zir_tags[inst]) {
-                        // For some instructions, swap in a slightly different ZIR tag
-                        // so we can avoid a separate ensure_result_used instruction.
-                        .call_none_chkused => unreachable,
-                        .call_none => {
-                            zir_tags[inst] = .call_none_chkused;
-                            break :b true;
-                        },
-                        .call_chkused => unreachable,
-                        .call => {
-                            zir_tags[inst] = .call_chkused;
-                            break :b true;
-                        },
-
-                        // ZIR instructions that might be a type other than `noreturn` or `void`.
-                        .add,
-                        .addwrap,
-                        .alloc,
-                        .alloc_mut,
-                        .alloc_inferred,
-                        .alloc_inferred_mut,
-                        .array_cat,
-                        .array_mul,
-                        .array_type,
-                        .array_type_sentinel,
-                        .elem_type,
-                        .indexable_ptr_len,
-                        .as,
-                        .as_node,
-                        .@"asm",
-                        .asm_volatile,
-                        .bit_and,
-                        .bitcast,
-                        .bitcast_result_ptr,
-                        .bit_or,
-                        .block,
-                        .block_inline,
-                        .block_inline_var,
-                        .loop,
-                        .bool_br_and,
-                        .bool_br_or,
-                        .bool_not,
-                        .bool_and,
-                        .bool_or,
-                        .call_compile_time,
-                        .cmp_lt,
-                        .cmp_lte,
-                        .cmp_eq,
-                        .cmp_gte,
-                        .cmp_gt,
-                        .cmp_neq,
-                        .coerce_result_ptr,
-                        .decl_ref,
-                        .decl_val,
-                        .load,
-                        .div,
-                        .elem_ptr,
-                        .elem_val,
-                        .elem_ptr_node,
-                        .elem_val_node,
-                        .field_ptr,
-                        .field_val,
-                        .field_ptr_named,
-                        .field_val_named,
-                        .func,
-                        .func_inferred,
-                        .int,
-                        .float,
-                        .float128,
-                        .intcast,
-                        .int_type,
-                        .is_non_null,
-                        .is_null,
-                        .is_non_null_ptr,
-                        .is_null_ptr,
-                        .is_err,
-                        .is_err_ptr,
-                        .mod_rem,
-                        .mul,
-                        .mulwrap,
-                        .param_type,
-                        .ptrtoint,
-                        .ref,
-                        .shl,
-                        .shr,
-                        .str,
-                        .sub,
-                        .subwrap,
-                        .negate,
-                        .negate_wrap,
-                        .typeof,
-                        .typeof_elem,
-                        .xor,
-                        .optional_type,
-                        .optional_type_from_ptr_elem,
-                        .optional_payload_safe,
-                        .optional_payload_unsafe,
-                        .optional_payload_safe_ptr,
-                        .optional_payload_unsafe_ptr,
-                        .err_union_payload_safe,
-                        .err_union_payload_unsafe,
-                        .err_union_payload_safe_ptr,
-                        .err_union_payload_unsafe_ptr,
-                        .err_union_code,
-                        .err_union_code_ptr,
-                        .ptr_type,
-                        .ptr_type_simple,
-                        .enum_literal,
-                        .enum_literal_small,
-                        .merge_error_sets,
-                        .error_union_type,
-                        .bit_not,
-                        .error_value,
-                        .error_to_int,
-                        .int_to_error,
-                        .slice_start,
-                        .slice_end,
-                        .slice_sentinel,
-                        .import,
-                        .typeof_peer,
-                        .switch_block,
-                        .switch_block_multi,
-                        .switch_block_else,
-                        .switch_block_else_multi,
-                        .switch_block_under,
-                        .switch_block_under_multi,
-                        .switch_block_ref,
-                        .switch_block_ref_multi,
-                        .switch_block_ref_else,
-                        .switch_block_ref_else_multi,
-                        .switch_block_ref_under,
-                        .switch_block_ref_under_multi,
-                        .switch_capture,
-                        .switch_capture_ref,
-                        .switch_capture_multi,
-                        .switch_capture_multi_ref,
-                        .switch_capture_else,
-                        .switch_capture_else_ref,
-                        .struct_init_empty,
-                        .struct_init,
-                        .struct_init_anon,
-                        .array_init,
-                        .array_init_anon,
-                        .array_init_ref,
-                        .array_init_anon_ref,
-                        .union_init_ptr,
-                        .field_type,
-                        .field_type_ref,
-                        .struct_decl,
-                        .struct_decl_packed,
-                        .struct_decl_extern,
-                        .union_decl,
-                        .enum_decl,
-                        .enum_decl_nonexhaustive,
-                        .opaque_decl,
-                        .error_set_decl,
-                        .int_to_enum,
-                        .enum_to_int,
-                        .type_info,
-                        .size_of,
-                        .bit_size_of,
-                        .add_with_overflow,
-                        .sub_with_overflow,
-                        .mul_with_overflow,
-                        .shl_with_overflow,
-                        .log2_int_type,
-                        .typeof_log2_int_type,
-                        .ptr_to_int,
-                        .align_of,
-                        .bool_to_int,
-                        .embed_file,
-                        .error_name,
-                        .sqrt,
-                        .sin,
-                        .cos,
-                        .exp,
-                        .exp2,
-                        .log,
-                        .log2,
-                        .log10,
-                        .fabs,
-                        .floor,
-                        .ceil,
-                        .trunc,
-                        .round,
-                        .tag_name,
-                        .reify,
-                        .type_name,
-                        .frame_type,
-                        .frame_size,
-                        .float_to_int,
-                        .int_to_float,
-                        .int_to_ptr,
-                        .float_cast,
-                        .int_cast,
-                        .err_set_cast,
-                        .ptr_cast,
-                        .truncate,
-                        .align_cast,
-                        .has_decl,
-                        .has_field,
-                        .clz,
-                        .ctz,
-                        .pop_count,
-                        .byte_swap,
-                        .bit_reverse,
-                        .div_exact,
-                        .div_floor,
-                        .div_trunc,
-                        .mod,
-                        .rem,
-                        .shl_exact,
-                        .shr_exact,
-                        .bit_offset_of,
-                        .byte_offset_of,
-                        .cmpxchg_strong,
-                        .cmpxchg_weak,
-                        .splat,
-                        .reduce,
-                        .shuffle,
-                        .atomic_load,
-                        .atomic_rmw,
-                        .atomic_store,
-                        .mul_add,
-                        .builtin_call,
-                        .field_ptr_type,
-                        .field_parent_ptr,
-                        .memcpy,
-                        .memset,
-                        .builtin_async_call,
-                        .c_import,
-                        .extended,
-                        => break :b false,
-
-                        // ZIR instructions that are always either `noreturn` or `void`.
-                        .breakpoint,
-                        .fence,
-                        .dbg_stmt_node,
-                        .ensure_result_used,
-                        .ensure_result_non_error,
-                        .@"export",
-                        .set_eval_branch_quota,
-                        .compile_log,
-                        .ensure_err_payload_void,
-                        .@"break",
-                        .break_inline,
-                        .condbr,
-                        .condbr_inline,
-                        .compile_error,
-                        .ret_node,
-                        .ret_tok,
-                        .ret_coerce,
-                        .@"unreachable",
-                        .store,
-                        .store_node,
-                        .store_to_block_ptr,
-                        .store_to_inferred_ptr,
-                        .resolve_inferred_alloc,
-                        .repeat,
-                        .repeat_inline,
-                        .validate_struct_init_ptr,
-                        .validate_array_init_ptr,
-                        .panic,
-                        .set_align_stack,
-                        .set_cold,
-                        .set_float_mode,
-                        .set_runtime_safety,
-                        => break :b true,
-                    }
-                } else switch (maybe_unused_result) {
-                    .none => unreachable,
-
-                    .void_value,
-                    .unreachable_value,
-                    => true,
-
-                    else => false,
-                };
-                if (!elide_check) {
-                    _ = try gz.addUnNode(.ensure_result_used, maybe_unused_result, statement);
-                }
-            },
         }
     }
+
+    try genDefers(gz, parent_scope, scope, .none);
+}
+
+fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) InnerError!void {
+    try emitDbgNode(gz, statement);
+    // We need to emit an error if the result is not `noreturn` or `void`, but
+    // we want to avoid adding the ZIR instruction if possible for performance.
+    const maybe_unused_result = try expr(gz, scope, .none, statement);
+    const elide_check = if (gz.refToIndex(maybe_unused_result)) |inst| b: {
+        // Note that this array becomes invalid after appending more items to it
+        // in the above while loop.
+        const zir_tags = gz.astgen.instructions.items(.tag);
+        switch (zir_tags[inst]) {
+            // For some instructions, swap in a slightly different ZIR tag
+            // so we can avoid a separate ensure_result_used instruction.
+            .call_none_chkused => unreachable,
+            .call_none => {
+                zir_tags[inst] = .call_none_chkused;
+                break :b true;
+            },
+            .call_chkused => unreachable,
+            .call => {
+                zir_tags[inst] = .call_chkused;
+                break :b true;
+            },
+
+            // ZIR instructions that might be a type other than `noreturn` or `void`.
+            .add,
+            .addwrap,
+            .alloc,
+            .alloc_mut,
+            .alloc_inferred,
+            .alloc_inferred_mut,
+            .array_cat,
+            .array_mul,
+            .array_type,
+            .array_type_sentinel,
+            .elem_type,
+            .indexable_ptr_len,
+            .as,
+            .as_node,
+            .@"asm",
+            .asm_volatile,
+            .bit_and,
+            .bitcast,
+            .bitcast_result_ptr,
+            .bit_or,
+            .block,
+            .block_inline,
+            .block_inline_var,
+            .loop,
+            .bool_br_and,
+            .bool_br_or,
+            .bool_not,
+            .bool_and,
+            .bool_or,
+            .call_compile_time,
+            .cmp_lt,
+            .cmp_lte,
+            .cmp_eq,
+            .cmp_gte,
+            .cmp_gt,
+            .cmp_neq,
+            .coerce_result_ptr,
+            .decl_ref,
+            .decl_val,
+            .load,
+            .div,
+            .elem_ptr,
+            .elem_val,
+            .elem_ptr_node,
+            .elem_val_node,
+            .field_ptr,
+            .field_val,
+            .field_ptr_named,
+            .field_val_named,
+            .func,
+            .func_inferred,
+            .int,
+            .float,
+            .float128,
+            .intcast,
+            .int_type,
+            .is_non_null,
+            .is_null,
+            .is_non_null_ptr,
+            .is_null_ptr,
+            .is_err,
+            .is_err_ptr,
+            .mod_rem,
+            .mul,
+            .mulwrap,
+            .param_type,
+            .ptrtoint,
+            .ref,
+            .shl,
+            .shr,
+            .str,
+            .sub,
+            .subwrap,
+            .negate,
+            .negate_wrap,
+            .typeof,
+            .typeof_elem,
+            .xor,
+            .optional_type,
+            .optional_type_from_ptr_elem,
+            .optional_payload_safe,
+            .optional_payload_unsafe,
+            .optional_payload_safe_ptr,
+            .optional_payload_unsafe_ptr,
+            .err_union_payload_safe,
+            .err_union_payload_unsafe,
+            .err_union_payload_safe_ptr,
+            .err_union_payload_unsafe_ptr,
+            .err_union_code,
+            .err_union_code_ptr,
+            .ptr_type,
+            .ptr_type_simple,
+            .enum_literal,
+            .enum_literal_small,
+            .merge_error_sets,
+            .error_union_type,
+            .bit_not,
+            .error_value,
+            .error_to_int,
+            .int_to_error,
+            .slice_start,
+            .slice_end,
+            .slice_sentinel,
+            .import,
+            .typeof_peer,
+            .switch_block,
+            .switch_block_multi,
+            .switch_block_else,
+            .switch_block_else_multi,
+            .switch_block_under,
+            .switch_block_under_multi,
+            .switch_block_ref,
+            .switch_block_ref_multi,
+            .switch_block_ref_else,
+            .switch_block_ref_else_multi,
+            .switch_block_ref_under,
+            .switch_block_ref_under_multi,
+            .switch_capture,
+            .switch_capture_ref,
+            .switch_capture_multi,
+            .switch_capture_multi_ref,
+            .switch_capture_else,
+            .switch_capture_else_ref,
+            .struct_init_empty,
+            .struct_init,
+            .struct_init_anon,
+            .array_init,
+            .array_init_anon,
+            .array_init_ref,
+            .array_init_anon_ref,
+            .union_init_ptr,
+            .field_type,
+            .field_type_ref,
+            .struct_decl,
+            .struct_decl_packed,
+            .struct_decl_extern,
+            .union_decl,
+            .enum_decl,
+            .enum_decl_nonexhaustive,
+            .opaque_decl,
+            .error_set_decl,
+            .int_to_enum,
+            .enum_to_int,
+            .type_info,
+            .size_of,
+            .bit_size_of,
+            .add_with_overflow,
+            .sub_with_overflow,
+            .mul_with_overflow,
+            .shl_with_overflow,
+            .log2_int_type,
+            .typeof_log2_int_type,
+            .ptr_to_int,
+            .align_of,
+            .bool_to_int,
+            .embed_file,
+            .error_name,
+            .sqrt,
+            .sin,
+            .cos,
+            .exp,
+            .exp2,
+            .log,
+            .log2,
+            .log10,
+            .fabs,
+            .floor,
+            .ceil,
+            .trunc,
+            .round,
+            .tag_name,
+            .reify,
+            .type_name,
+            .frame_type,
+            .frame_size,
+            .float_to_int,
+            .int_to_float,
+            .int_to_ptr,
+            .float_cast,
+            .int_cast,
+            .err_set_cast,
+            .ptr_cast,
+            .truncate,
+            .align_cast,
+            .has_decl,
+            .has_field,
+            .clz,
+            .ctz,
+            .pop_count,
+            .byte_swap,
+            .bit_reverse,
+            .div_exact,
+            .div_floor,
+            .div_trunc,
+            .mod,
+            .rem,
+            .shl_exact,
+            .shr_exact,
+            .bit_offset_of,
+            .byte_offset_of,
+            .cmpxchg_strong,
+            .cmpxchg_weak,
+            .splat,
+            .reduce,
+            .shuffle,
+            .atomic_load,
+            .atomic_rmw,
+            .atomic_store,
+            .mul_add,
+            .builtin_call,
+            .field_ptr_type,
+            .field_parent_ptr,
+            .memcpy,
+            .memset,
+            .builtin_async_call,
+            .c_import,
+            .extended,
+            => break :b false,
+
+            // ZIR instructions that are always either `noreturn` or `void`.
+            .breakpoint,
+            .fence,
+            .dbg_stmt_node,
+            .ensure_result_used,
+            .ensure_result_non_error,
+            .@"export",
+            .set_eval_branch_quota,
+            .compile_log,
+            .ensure_err_payload_void,
+            .@"break",
+            .break_inline,
+            .condbr,
+            .condbr_inline,
+            .compile_error,
+            .ret_node,
+            .ret_tok,
+            .ret_coerce,
+            .@"unreachable",
+            .store,
+            .store_node,
+            .store_to_block_ptr,
+            .store_to_inferred_ptr,
+            .resolve_inferred_alloc,
+            .repeat,
+            .repeat_inline,
+            .validate_struct_init_ptr,
+            .validate_array_init_ptr,
+            .panic,
+            .set_align_stack,
+            .set_cold,
+            .set_float_mode,
+            .set_runtime_safety,
+            => break :b true,
+        }
+    } else switch (maybe_unused_result) {
+        .none => unreachable,
+
+        .void_value,
+        .unreachable_value,
+        => true,
+
+        else => false,
+    };
+    if (!elide_check) {
+        _ = try gz.addUnNode(.ensure_result_used, maybe_unused_result, statement);
+    }
+}
+
+fn genDefers(
+    gz: *GenZir,
+    outer_scope: *Scope,
+    inner_scope: *Scope,
+    err_code: Zir.Inst.Ref,
+) InnerError!void {
+    const astgen = gz.astgen;
+    const tree = &astgen.file.tree;
+    const node_datas = tree.nodes.items(.data);
+
+    var scope = inner_scope;
+    while (scope != outer_scope) {
+        switch (scope.tag) {
+            .gen_zir => scope = scope.cast(GenZir).?.parent,
+            .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
+            .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            .defer_normal => {
+                const defer_scope = scope.cast(Scope.Defer).?;
+                scope = defer_scope.parent;
+                const expr_node = node_datas[defer_scope.defer_node].rhs;
+                try unusedResultExpr(gz, defer_scope.parent, expr_node);
+            },
+            .defer_error => {
+                const defer_scope = scope.cast(Scope.Defer).?;
+                scope = defer_scope.parent;
+                if (err_code == .none) continue;
+                const expr_node = node_datas[defer_scope.defer_node].rhs;
+                try unusedResultExpr(gz, defer_scope.parent, expr_node);
+            },
+            else => unreachable,
+        }
+    }
+}
+
+fn deferStmt(
+    gz: *GenZir,
+    scope: *Scope,
+    node: ast.Node.Index,
+    block_arena: *Allocator,
+    scope_tag: Scope.Tag,
+) InnerError!*Scope {
+    const defer_scope = try block_arena.create(Scope.Defer);
+    defer_scope.* = .{
+        .base = .{ .tag = scope_tag },
+        .parent = scope,
+        .defer_node = node,
+    };
+    return &defer_scope.base;
 }
 
 fn varDecl(
@@ -1792,6 +1855,7 @@ fn varDecl(
     block_arena: *Allocator,
     var_decl: ast.full.VarDecl,
 ) InnerError!*Scope {
+    try emitDbgNode(gz, node);
     const astgen = gz.astgen;
     if (var_decl.comptime_token) |comptime_token| {
         return astgen.failTok(comptime_token, "TODO implement comptime locals", .{});
@@ -1841,6 +1905,7 @@ fn varDecl(
                 s = local_ptr.parent;
             },
             .gen_zir => s = s.cast(GenZir).?.parent,
+            .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
             .file => break,
             else => unreachable,
         };
@@ -1877,6 +1942,7 @@ fn varDecl(
                 .parent = scope,
                 .decl_node_index = gz.decl_node_index,
                 .force_comptime = gz.force_comptime,
+                .ref_start_index = gz.ref_start_index,
                 .astgen = astgen,
             };
             defer init_scope.instructions.deinit(gpa);
@@ -1984,7 +2050,14 @@ fn varDecl(
     }
 }
 
+fn emitDbgNode(gz: *GenZir, node: ast.Node.Index) !void {
+    if (!gz.force_comptime) {
+        _ = try gz.addNode(.dbg_stmt_node, node);
+    }
+}
+
 fn assign(gz: *GenZir, scope: *Scope, infix_node: ast.Node.Index) InnerError!void {
+    try emitDbgNode(gz, infix_node);
     const astgen = gz.astgen;
     const tree = &astgen.file.tree;
     const node_datas = tree.nodes.items(.data);
@@ -2011,6 +2084,7 @@ fn assignOp(
     infix_node: ast.Node.Index,
     op_inst_tag: Zir.Inst.Tag,
 ) InnerError!void {
+    try emitDbgNode(gz, infix_node);
     const astgen = gz.astgen;
     const tree = &astgen.file.tree;
     const node_datas = tree.nodes.items(.data);
@@ -2033,6 +2107,7 @@ fn assignShift(
     infix_node: ast.Node.Index,
     op_inst_tag: Zir.Inst.Tag,
 ) InnerError!void {
+    try emitDbgNode(gz, infix_node);
     const astgen = gz.astgen;
     const tree = &astgen.file.tree;
     const node_datas = tree.nodes.items(.data);
@@ -2257,12 +2332,12 @@ fn fnDecl(
     const param_types = try gpa.alloc(Zir.Inst.Ref, param_count);
     defer gpa.free(param_types);
 
-    var decl_gz: Scope.GenZir = .{
+    var decl_gz: GenZir = .{
         .force_comptime = true,
         .decl_node_index = fn_proto.ast.proto_node,
         .parent = &gz.base,
         .astgen = astgen,
-        .ref_start_index = @intCast(u32, Zir.Inst.Ref.typed_value_map.len + param_count),
+        .ref_start_index = @intCast(u32, Zir.Inst.Ref.typed_value_map.len),
     };
     defer decl_gz.instructions.deinit(gpa);
 
@@ -2357,7 +2432,7 @@ fn fnDecl(
             return astgen.failTok(fn_proto.ast.fn_token, "non-extern function is variadic", .{});
         }
 
-        var fn_gz: Scope.GenZir = .{
+        var fn_gz: GenZir = .{
             .force_comptime = false,
             .decl_node_index = fn_proto.ast.proto_node,
             .parent = &decl_gz.base,
@@ -2365,6 +2440,9 @@ fn fnDecl(
             .ref_start_index = @intCast(u32, Zir.Inst.Ref.typed_value_map.len + param_count),
         };
         defer fn_gz.instructions.deinit(gpa);
+
+        const prev_fn_block = astgen.fn_block;
+        astgen.fn_block = &fn_gz;
 
         // Iterate over the parameters. We put the param names as the first N
         // items inside `extra` so that debug info later can refer to the parameter names
@@ -2405,6 +2483,8 @@ fn fnDecl(
             // We do this by using the `ret_coerce` instruction.
             _ = try fn_gz.addUnTok(.ret_coerce, .void_value, tree.lastToken(body_node));
         }
+
+        astgen.fn_block = prev_fn_block;
 
         break :func try decl_gz.addFunc(.{
             .src_node = fn_proto.ast.proto_node,
@@ -2580,9 +2660,18 @@ fn testDecl(
     scope: *Scope,
     node: ast.Node.Index,
 ) InnerError!void {
+    const gpa = astgen.gpa;
     const tree = &astgen.file.tree;
     const node_datas = tree.nodes.items(.data);
-    const test_expr = node_datas[node].rhs;
+    const body_node = node_datas[node].rhs;
+
+    var decl_block: GenZir = .{
+        .force_comptime = true,
+        .decl_node_index = node,
+        .parent = &gz.base,
+        .astgen = astgen,
+    };
+    defer decl_block.instructions.deinit(gpa);
 
     const test_name: u32 = blk: {
         const main_tokens = tree.nodes.items(.main_token);
@@ -2590,13 +2679,49 @@ fn testDecl(
         const test_token = main_tokens[node];
         const str_lit_token = test_token + 1;
         if (token_tags[str_lit_token] == .string_literal) {
-            break :blk (try gz.strLitAsString(str_lit_token)).index;
+            break :blk (try decl_block.strLitAsString(str_lit_token)).index;
         }
         break :blk 0;
     };
 
-    // TODO probably we want to put these into a block and store a list of them
-    const block_inst = try expr(gz, scope, .none, test_expr);
+    var fn_block: GenZir = .{
+        .force_comptime = false,
+        .decl_node_index = node,
+        .parent = &decl_block.base,
+        .astgen = astgen,
+    };
+    defer fn_block.instructions.deinit(gpa);
+
+    const prev_fn_block = astgen.fn_block;
+    astgen.fn_block = &fn_block;
+
+    const block_result = try expr(&fn_block, &fn_block.base, .none, body_node);
+    if (fn_block.instructions.items.len == 0 or !fn_block.refIsNoReturn(block_result)) {
+        // Since we are adding the return instruction here, we must handle the coercion.
+        // We do this by using the `ret_coerce` instruction.
+        _ = try fn_block.addUnTok(.ret_coerce, .void_value, tree.lastToken(body_node));
+    }
+
+    astgen.fn_block = prev_fn_block;
+
+    const func_inst = try decl_block.addFunc(.{
+        .src_node = node,
+        .ret_ty = .void_type,
+        .param_types = &[0]Zir.Inst.Ref{},
+        .body = fn_block.instructions.items,
+        .cc = .none,
+        .lib_name = 0,
+        .is_var_args = false,
+        .is_inferred_error = true,
+    });
+
+    const block_inst = try gz.addBlock(.block_inline, node);
+    _ = try decl_block.addBreak(.break_inline, block_inst, func_inst);
+    try decl_block.setBlockBody(block_inst);
+
+    // TODO collect these into a test decl list
+    _ = test_name;
+    _ = block_inst;
 }
 
 fn structDeclInner(
@@ -2628,6 +2753,7 @@ fn structDeclInner(
         .decl_node_index = node,
         .astgen = astgen,
         .force_comptime = true,
+        .ref_start_index = gz.ref_start_index,
     };
     defer block_scope.instructions.deinit(gpa);
 
@@ -2943,6 +3069,7 @@ fn containerDecl(
                 .decl_node_index = node,
                 .astgen = astgen,
                 .force_comptime = true,
+                .ref_start_index = gz.ref_start_index,
             };
             defer block_scope.instructions.deinit(gpa);
 
@@ -3168,6 +3295,7 @@ fn tryExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = parent_gz.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     block_scope.setBreakResultLoc(rl);
@@ -3200,11 +3328,13 @@ fn tryExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = block_scope.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer then_scope.instructions.deinit(astgen.gpa);
 
     const err_code = try then_scope.addUnNode(err_ops[1], operand, node);
+    try genDefers(&then_scope, &astgen.fn_block.?.base, scope, err_code);
     const then_result = try then_scope.addUnNode(.ret_node, err_code, node);
 
     var else_scope: GenZir = .{
@@ -3212,6 +3342,7 @@ fn tryExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = block_scope.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer else_scope.instructions.deinit(astgen.gpa);
@@ -3264,6 +3395,7 @@ fn orelseCatchExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = parent_gz.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     block_scope.setBreakResultLoc(rl);
@@ -3300,6 +3432,7 @@ fn orelseCatchExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = block_scope.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer then_scope.instructions.deinit(astgen.gpa);
@@ -3332,6 +3465,7 @@ fn orelseCatchExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = block_scope.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer else_scope.instructions.deinit(astgen.gpa);
@@ -3532,6 +3666,7 @@ fn boolBinOp(
         .decl_node_index = gz.decl_node_index,
         .astgen = gz.astgen,
         .force_comptime = gz.force_comptime,
+        .ref_start_index = gz.ref_start_index,
     };
     defer rhs_scope.instructions.deinit(gz.astgen.gpa);
     const rhs = try expr(&rhs_scope, &rhs_scope.base, bool_rl, node_datas[node].rhs);
@@ -3558,6 +3693,7 @@ fn ifExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = parent_gz.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     block_scope.setBreakResultLoc(rl);
@@ -3608,6 +3744,7 @@ fn ifExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = block_scope.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer then_scope.instructions.deinit(astgen.gpa);
@@ -3662,6 +3799,7 @@ fn ifExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = block_scope.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer else_scope.instructions.deinit(astgen.gpa);
@@ -3812,6 +3950,7 @@ fn whileExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = parent_gz.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     loop_scope.setBreakResultLoc(rl);
@@ -3822,6 +3961,7 @@ fn whileExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = loop_scope.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer continue_scope.instructions.deinit(astgen.gpa);
@@ -3891,6 +4031,7 @@ fn whileExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = continue_scope.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer then_scope.instructions.deinit(astgen.gpa);
@@ -3942,6 +4083,7 @@ fn whileExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = continue_scope.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer else_scope.instructions.deinit(astgen.gpa);
@@ -4043,6 +4185,7 @@ fn forExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = parent_gz.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     loop_scope.setBreakResultLoc(rl);
@@ -4053,6 +4196,7 @@ fn forExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = loop_scope.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer cond_scope.instructions.deinit(astgen.gpa);
@@ -4096,6 +4240,7 @@ fn forExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = cond_scope.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer then_scope.instructions.deinit(astgen.gpa);
@@ -4141,6 +4286,7 @@ fn forExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = cond_scope.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer else_scope.instructions.deinit(astgen.gpa);
@@ -4443,6 +4589,7 @@ fn switchExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = parent_gz.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     block_scope.setBreakResultLoc(rl);
@@ -4457,6 +4604,7 @@ fn switchExpr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = parent_gz.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer case_scope.instructions.deinit(gpa);
@@ -4900,15 +5048,21 @@ fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref
     const main_tokens = tree.nodes.items(.main_token);
 
     const operand_node = node_datas[node].lhs;
-    const operand: Zir.Inst.Ref = if (operand_node != 0) operand: {
+    if (operand_node != 0) {
         const rl: ResultLoc = if (nodeMayNeedMemoryLocation(tree, operand_node)) .{
             .ptr = try gz.addNodeExtended(.ret_ptr, node),
         } else .{
             .ty = try gz.addNodeExtended(.ret_type, node),
         };
-        break :operand try expr(gz, scope, rl, operand_node);
-    } else .void_value;
-    _ = try gz.addUnNode(.ret_node, operand, node);
+        const operand = try expr(gz, scope, rl, operand_node);
+        // TODO check operand to see if we need to generate errdefers
+        try genDefers(gz, &astgen.fn_block.?.base, scope, .none);
+        _ = try gz.addUnNode(.ret_node, operand, node);
+        return Zir.Inst.Ref.unreachable_value;
+    }
+    // Returning a void value; skip error defers.
+    try genDefers(gz, &astgen.fn_block.?.base, scope, .none);
+    _ = try gz.addUnNode(.ret_node, .void_value, node);
     return Zir.Inst.Ref.unreachable_value;
 }
 
@@ -5309,6 +5463,7 @@ fn asRlPtr(
         .decl_node_index = parent_gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = parent_gz.force_comptime,
+        .ref_start_index = parent_gz.ref_start_index,
         .instructions = .{},
     };
     defer as_scope.instructions.deinit(astgen.gpa);
@@ -5998,6 +6153,7 @@ fn cImport(
         .decl_node_index = gz.decl_node_index,
         .astgen = astgen,
         .force_comptime = true,
+        .ref_start_index = gz.ref_start_index,
         .instructions = .{},
     };
     defer block_scope.instructions.deinit(gpa);
@@ -6454,7 +6610,7 @@ fn rvalue(
 
 /// Given an identifier token, obtain the string for it.
 /// If the token uses @"" syntax, parses as a string, reports errors if applicable,
-/// and allocates the result within `scope.arena()`.
+/// and allocates the result within `astgen.arena`.
 /// Otherwise, returns a reference to the source code bytes directly.
 /// See also `appendIdentStr` and `parseStrLit`.
 pub fn identifierTokenString(astgen: *AstGen, token: ast.TokenIndex) InnerError![]const u8 {

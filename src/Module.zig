@@ -514,23 +514,16 @@ pub const Scope = struct {
     pub const NameHash = [16]u8;
 
     pub fn cast(base: *Scope, comptime T: type) ?*T {
+        if (T == Defer) {
+            switch (base.tag) {
+                .defer_normal, .defer_error => return @fieldParentPtr(T, "base", base),
+                else => return null,
+            }
+        }
         if (base.tag != T.base_tag)
             return null;
 
         return @fieldParentPtr(T, "base", base);
-    }
-
-    /// Returns the arena Allocator associated with the Decl of the Scope.
-    pub fn arena(scope: *Scope) *Allocator {
-        switch (scope.tag) {
-            .block => return scope.cast(Block).?.sema.arena,
-            .gen_zir => return scope.cast(GenZir).?.astgen.arena,
-            .local_val => return scope.cast(LocalVal).?.gen_zir.astgen.arena,
-            .local_ptr => return scope.cast(LocalPtr).?.gen_zir.astgen.arena,
-            .file => unreachable,
-            .namespace => unreachable,
-            .decl_ref => unreachable,
-        }
     }
 
     pub fn ownerDecl(scope: *Scope) ?*Decl {
@@ -539,6 +532,8 @@ pub const Scope = struct {
             .gen_zir => unreachable,
             .local_val => unreachable,
             .local_ptr => unreachable,
+            .defer_normal => unreachable,
+            .defer_error => unreachable,
             .file => null,
             .namespace => null,
             .decl_ref => scope.cast(DeclRef).?.decl,
@@ -551,6 +546,8 @@ pub const Scope = struct {
             .gen_zir => unreachable,
             .local_val => unreachable,
             .local_ptr => unreachable,
+            .defer_normal => unreachable,
+            .defer_error => unreachable,
             .file => null,
             .namespace => null,
             .decl_ref => scope.cast(DeclRef).?.decl,
@@ -564,23 +561,12 @@ pub const Scope = struct {
             .gen_zir => unreachable,
             .local_val => unreachable,
             .local_ptr => unreachable,
+            .defer_normal => unreachable,
+            .defer_error => unreachable,
             .file => return scope.cast(File).?.namespace,
             .namespace => return scope.cast(Namespace).?,
             .decl_ref => return scope.cast(DeclRef).?.decl.namespace,
         }
-    }
-
-    /// Asserts the scope is a child of a `GenZir` and returns it.
-    pub fn getGenZir(scope: *Scope) *GenZir {
-        return switch (scope.tag) {
-            .block => unreachable,
-            .gen_zir => scope.cast(GenZir).?,
-            .local_val => return scope.cast(LocalVal).?.gen_zir,
-            .local_ptr => return scope.cast(LocalPtr).?.gen_zir,
-            .file => unreachable,
-            .namespace => unreachable,
-            .decl_ref => unreachable,
-        };
     }
 
     /// Asserts the scope has a parent which is a Namespace or File and
@@ -593,6 +579,8 @@ pub const Scope = struct {
             .gen_zir => unreachable,
             .local_val => unreachable,
             .local_ptr => unreachable,
+            .defer_normal => unreachable,
+            .defer_error => unreachable,
             .decl_ref => unreachable,
         }
     }
@@ -604,9 +592,11 @@ pub const Scope = struct {
             cur = switch (cur.tag) {
                 .namespace => return @fieldParentPtr(Namespace, "base", cur).file_scope,
                 .file => return @fieldParentPtr(File, "base", cur),
-                .gen_zir => @fieldParentPtr(GenZir, "base", cur).parent,
-                .local_val => @fieldParentPtr(LocalVal, "base", cur).parent,
-                .local_ptr => @fieldParentPtr(LocalPtr, "base", cur).parent,
+                .gen_zir => return @fieldParentPtr(GenZir, "base", cur).astgen.file,
+                .local_val => return @fieldParentPtr(LocalVal, "base", cur).gen_zir.astgen.file,
+                .local_ptr => return @fieldParentPtr(LocalPtr, "base", cur).gen_zir.astgen.file,
+                .defer_normal => @fieldParentPtr(Defer, "base", cur).parent,
+                .defer_error => @fieldParentPtr(Defer, "base", cur).parent,
                 .block => return @fieldParentPtr(Block, "base", cur).src_decl.namespace.file_scope,
                 .decl_ref => return @fieldParentPtr(DeclRef, "base", cur).decl.namespace.file_scope,
             };
@@ -634,6 +624,8 @@ pub const Scope = struct {
         /// `Decl` for use with `srcDecl` and `ownerDecl`.
         /// Has no parents or children.
         decl_ref,
+        defer_normal,
+        defer_error,
     };
 
     /// The container that structs, enums, unions, and opaques have.
@@ -1709,7 +1701,7 @@ pub const Scope = struct {
     pub const LocalVal = struct {
         pub const base_tag: Tag = .local_val;
         base: Scope = Scope{ .tag = base_tag },
-        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`.
+        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`.
         parent: *Scope,
         gen_zir: *GenZir,
         name: []const u8,
@@ -1724,13 +1716,20 @@ pub const Scope = struct {
     pub const LocalPtr = struct {
         pub const base_tag: Tag = .local_ptr;
         base: Scope = Scope{ .tag = base_tag },
-        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`.
+        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`.
         parent: *Scope,
         gen_zir: *GenZir,
         name: []const u8,
         ptr: Zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
         token_src: ast.TokenIndex,
+    };
+
+    pub const Defer = struct {
+        base: Scope,
+        /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`.
+        parent: *Scope,
+        defer_node: ast.Node.Index,
     };
 
     pub const DeclRef = struct {
@@ -3821,7 +3820,7 @@ pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) In
             }
             mod.failed_decls.putAssumeCapacityNoClobber(block.sema.owner_decl, err_msg);
         },
-        .gen_zir, .local_val, .local_ptr => unreachable,
+        .gen_zir, .local_val, .local_ptr, .defer_normal, .defer_error => unreachable,
         .file => unreachable,
         .namespace => unreachable,
         .decl_ref => {

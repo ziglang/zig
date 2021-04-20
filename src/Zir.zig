@@ -2304,6 +2304,7 @@ const Writer = struct {
             .byte_swap,
             .bit_reverse,
             .elem_type,
+            .bitcast_result_ptr,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -2424,6 +2425,7 @@ const Writer = struct {
             .splat,
             .reduce,
             .atomic_load,
+            .bitcast,
             => try self.writePlNodeBin(stream, inst),
 
             .call,
@@ -2509,11 +2511,38 @@ const Writer = struct {
             .switch_capture_else_ref,
             => try self.writeSwitchCapture(stream, inst),
 
-            .bitcast,
-            .bitcast_result_ptr,
-            .extended,
-            => try stream.writeAll("TODO)"),
+            .extended => try self.writeExtended(stream, inst),
         }
+    }
+
+    fn writeExtended(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const extended = self.code.instructions.items(.data)[inst].extended;
+        try stream.print("{s}(", .{@tagName(extended.opcode)});
+        switch (extended.opcode) {
+            .ret_ptr,
+            .ret_type,
+            .this,
+            .ret_addr,
+            .error_return_trace,
+            .frame,
+            .frame_address,
+            .builtin_src,
+            => try self.writeExtNode(stream, extended),
+
+            .func,
+            .c_undef,
+            .c_include,
+            .c_define,
+            .wasm_memory_size,
+            .wasm_memory_grow,
+            => try stream.writeAll("TODO))"),
+        }
+    }
+
+    fn writeExtNode(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
+        const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
+        try stream.writeAll(")) ");
+        try self.writeSrc(stream, src);
     }
 
     fn writeBin(self: *Writer, stream: anytype, inst: Inst.Index) !void {
