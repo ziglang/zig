@@ -557,18 +557,10 @@ pub const kernel_stat = extern struct {
     size: off_t,
     blksize: blksize_t,
     blocks: blkcnt_t,
-    __atim32: timespec32,
-    __mtim32: timespec32,
-    __ctim32: timespec32,
-    __unused: [2]u32,
     atim: timespec,
     mtim: timespec,
     ctim: timespec,
-
-    const timespec32 = extern struct {
-        tv_sec: i32,
-        tv_nsec: i32,
-    };
+    __unused: [2]u32,
 
     pub fn atime(self: @This()) timespec {
         return self.atim;
