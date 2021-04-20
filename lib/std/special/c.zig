@@ -859,6 +859,27 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     return @bitCast(T, ux);
 }
 
+test "fmod, fmodf" {
+    inline for ([_]type{ f32, f64 }) |T| {
+        const nan_val = math.nan(T);
+        const inf_val = math.inf(T);
+
+        std.testing.expect(isNan(generic_fmod(T, nan_val, 1.0)));
+        std.testing.expect(isNan(generic_fmod(T, 1.0, nan_val)));
+        std.testing.expect(isNan(generic_fmod(T, inf_val, 1.0)));
+        std.testing.expect(isNan(generic_fmod(T, 0.0, 0.0)));
+        std.testing.expect(isNan(generic_fmod(T, 1.0, 0.0)));
+
+        std.testing.expectEqual(@as(T, 0.0), generic_fmod(T, 0.0, 2.0));
+        std.testing.expectEqual(@as(T, -0.0), generic_fmod(T, -0.0, 2.0));
+
+        std.testing.expectEqual(@as(T, -2.0), generic_fmod(T, -32.0, 10.0));
+        std.testing.expectEqual(@as(T, -2.0), generic_fmod(T, -32.0, -10.0));
+        std.testing.expectEqual(@as(T, 2.0), generic_fmod(T, 32.0, 10.0));
+        std.testing.expectEqual(@as(T, 2.0), generic_fmod(T, 32.0, -10.0));
+    }
+}
+
 // NOTE: The original code is full of implicit signed -> unsigned assumptions and u32 wraparound
 // behaviour. Most intermediate i32 values are changed to u32 where appropriate but there are
 // potentially some edge cases remaining that are not handled in the same way.
