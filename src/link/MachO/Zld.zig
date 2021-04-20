@@ -1340,13 +1340,14 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
                 .strong => {
                     if (!is_weak) {
                         log.debug("strong symbol '{s}' defined multiple times", .{sym_name});
+                        return error.MultipleSymbolDefinitions;
                     }
                     continue;
                 },
                 else => {},
             }
 
-            global.value.tag = .strong;
+            global.value.tag = if (is_weak) .weak else .strong;
             global.value.file = object_id;
             global.value.index = @intCast(u32, sym_id);
         } else if (Symbol.isUndef(sym)) {
@@ -1428,20 +1429,20 @@ fn resolveSymbols(self: *Zld) !void {
         .file = 0,
     });
 
-    // {
-    //     log.warn("symtab", .{});
-    //     for (self.symtab.items()) |sym| {
-    //         switch (sym.value.tag) {
-    //             .weak, .strong => {
-    //                 log.warn("    | {s} => {s}", .{ sym.key, self.objects.items[sym.value.file.?].name.? });
-    //             },
-    //             .import => {
-    //                 log.warn("    | {s} => libSystem.B.dylib", .{sym.key});
-    //             },
-    //             else => unreachable,
-    //         }
-    //     }
-    // }
+    {
+        log.debug("symtab", .{});
+        for (self.symtab.items()) |sym| {
+            switch (sym.value.tag) {
+                .weak, .strong => {
+                    log.debug("    | {s} => {s}", .{ sym.key, self.objects.items[sym.value.file.?].name.? });
+                },
+                .import => {
+                    log.debug("    | {s} => libSystem.B.dylib", .{sym.key});
+                },
+                else => unreachable,
+            }
+        }
+    }
 }
 
 fn resolveStubsAndGotEntries(self: *Zld) !void {
@@ -1687,7 +1688,26 @@ fn relocTargetAddr(self: *Zld, object_id: u16, target: reloc.Relocation.Target) 
                 const sym = object.symtab.items[sym_id];
                 const sym_name = object.getString(sym.n_strx);
 
-                if (self.symtab.get(sym_name)) |global| {
+                if (Symbol.isSect(sym)) {
+                    log.debug("    | local symbol '{s}'", .{sym_name});
+                    if (object.locals.get(sym_name)) |local| {
+                        break :blk local.address;
+                    }
+                    // For temp locals, i.e., symbols prefixed with l... we relocate
+                    // based on section addressing.
+                    const source_sect_id = sym.n_sect - 1;
+                    const target_mapping = self.mappings.get(.{
+                        .object_id = object_id,
+                        .source_sect_id = source_sect_id,
+                    }) orelse unreachable;
+
+                    const source_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
+                    const source_sect = source_seg.sections.items[source_sect_id];
+                    const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
+                    const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
+                    const target_addr = target_sect.addr + target_mapping.offset;
+                    break :blk sym.n_value - source_sect.addr + target_addr;
+                } else if (self.symtab.get(sym_name)) |global| {
                     switch (global.tag) {
                         .weak, .strong => {
                             log.debug("    | global symbol '{s}'", .{sym_name});
@@ -1711,25 +1731,6 @@ fn relocTargetAddr(self: *Zld, object_id: u16, target: reloc.Relocation.Target) 
                         },
                         else => unreachable,
                     }
-                } else if (Symbol.isSect(sym)) {
-                    log.debug("    | local symbol '{s}'", .{sym_name});
-                    if (object.locals.get(sym_name)) |local| {
-                        break :blk local.address;
-                    }
-                    // For temp locals, i.e., symbols prefixed with l... we relocate
-                    // based on section addressing.
-                    const source_sect_id = sym.n_sect - 1;
-                    const target_mapping = self.mappings.get(.{
-                        .object_id = object_id,
-                        .source_sect_id = source_sect_id,
-                    }) orelse unreachable;
-
-                    const source_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-                    const source_sect = source_seg.sections.items[source_sect_id];
-                    const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
-                    const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
-                    const target_addr = target_sect.addr + target_mapping.offset;
-                    break :blk sym.n_value - source_sect.addr + target_addr;
                 } else {
                     log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
                     return error.FailedToResolveRelocationTarget;
