@@ -28,13 +28,27 @@ samu install
 ## - doesn't seem to linked to a specific test
 ## - time between `build test` and first console output ~282s
 
-# run-translated-c tests are skipped due to: https://github.com/ziglang/zig/issues/8537
+## enable coredumps
+ulimit -c unlimited
+
+## prepare GDB script
+cat > gdb.script <<EOF
+bt
+quit
+EOF
+
+## test_runner has an OOT killer set send SEGV to self-pid at 600s
+## test_runner will also create file `core.exename` with path to test
+
 ./zig build test \
     -Dskip-release \
     -Dskip-non-native \
     -Dskip-compile-errors \
     -Dskip-run-translated-c \
     --verbose-cc --verbose-link -Dlog=true
+
+## now if we had a test hang, there should be "core" in cwd
+gdb -batch -x gdb.script `cat core.exename` core
 
 if [ -z "$DRONE_PULL_REQUEST" ]; then
   mv ../LICENSE "$DISTDIR/"
