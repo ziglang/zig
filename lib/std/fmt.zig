@@ -1358,6 +1358,7 @@ pub fn Formatter(comptime format_fn: anytype) type {
 ///  * A prefix of "0x" implies radix=16,
 ///  * Otherwise radix=10 is assumed.
 ///
+/// Ignores '_' character in `buf`.
 /// See also `parseUnsigned`.
 pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
     if (buf.len == 0) return error.InvalidCharacter;
@@ -1394,12 +1395,18 @@ test "parseInt" {
 
     // autodectect the radix
     std.testing.expect((try parseInt(i32, "111", 0)) == 111);
+    std.testing.expect((try parseInt(i32, "1_1_1", 0)) == 111);
+    std.testing.expect((try parseInt(i32, "1_1_1", 0)) == 111);
     std.testing.expect((try parseInt(i32, "+0b111", 0)) == 7);
+    std.testing.expect((try parseInt(i32, "+0b1_11", 0)) == 7);
     std.testing.expect((try parseInt(i32, "+0o111", 0)) == 73);
+    std.testing.expect((try parseInt(i32, "+0o11_1", 0)) == 73);
     std.testing.expect((try parseInt(i32, "+0x111", 0)) == 273);
     std.testing.expect((try parseInt(i32, "-0b111", 0)) == -7);
+    std.testing.expect((try parseInt(i32, "-0b11_1", 0)) == -7);
     std.testing.expect((try parseInt(i32, "-0o111", 0)) == -73);
     std.testing.expect((try parseInt(i32, "-0x111", 0)) == -273);
+    std.testing.expect((try parseInt(i32, "-0x1_11", 0)) == -273);
 
     // bare binary/octal/decimal prefix is invalid
     std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0b", 0));
@@ -1448,6 +1455,7 @@ fn parseWithSign(
     var x: T = 0;
 
     for (buf_start) |c| {
+        if (c == '_') continue;
         const digit = try charToDigit(c, buf_radix);
 
         if (x != 0) x = try math.mul(T, x, try math.cast(T, buf_radix));
@@ -1466,6 +1474,7 @@ fn parseWithSign(
 ///  * A prefix of "0x" implies radix=16,
 ///  * Otherwise radix=10 is assumed.
 ///
+/// Ignores '_' character in `buf`.
 /// See also `parseInt`.
 pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
     return parseWithSign(T, buf, radix, .Pos);
@@ -1474,9 +1483,11 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseIntError
 test "parseUnsigned" {
     std.testing.expect((try parseUnsigned(u16, "050124", 10)) == 50124);
     std.testing.expect((try parseUnsigned(u16, "65535", 10)) == 65535);
+    std.testing.expect((try parseUnsigned(u16, "65_535", 10)) == 65535);
     std.testing.expectError(error.Overflow, parseUnsigned(u16, "65536", 10));
 
     std.testing.expect((try parseUnsigned(u64, "0ffffffffffffffff", 16)) == 0xffffffffffffffff);
+    std.testing.expect((try parseUnsigned(u64, "0f_fff_fff_fff_fff_fff", 16)) == 0xffffffffffffffff);
     std.testing.expectError(error.Overflow, parseUnsigned(u64, "10000000000000000", 16));
 
     std.testing.expect((try parseUnsigned(u32, "DeadBeef", 16)) == 0xDEADBEEF);
