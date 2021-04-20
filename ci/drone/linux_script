@@ -4,7 +4,7 @@ set -x
 set -e
 
 echo $HOME
-ls -al $HOME/.cache
+ls -al $HOME
 whoami
 id
 
