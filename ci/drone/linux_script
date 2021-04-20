@@ -30,6 +30,7 @@ samu install
 
 ## enable coredumps
 ulimit -c unlimited
+ulimit -a
 
 ## test_runner has an OOT killer set send SEGV to self-pid at 600s
 ## test_runner will also create file `core.exename` with path to test
