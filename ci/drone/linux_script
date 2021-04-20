@@ -3,6 +3,12 @@
 set -x
 set -e
 
+echo ~
+df .
+ls -al ~/.cache
+
+exit 0
+
 TRIPLEARCH="$(uname -m)"
 BUILDDIR="$(pwd)"
 DISTDIR="$(pwd)/dist"
