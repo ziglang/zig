@@ -4,9 +4,10 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const builtin = @import("builtin");
-const __extenddftf2 = @import("extendXfYf2.zig").__extenddftf2;
 const __extendhfsf2 = @import("extendXfYf2.zig").__extendhfsf2;
+const __extendhftf2 = @import("extendXfYf2.zig").__extendhftf2;
 const __extendsftf2 = @import("extendXfYf2.zig").__extendsftf2;
+const __extenddftf2 = @import("extendXfYf2.zig").__extenddftf2;
 
 fn test__extenddftf2(a: f64, expectedHi: u64, expectedLo: u64) void {
     const x = __extenddftf2(a);
@@ -160,4 +161,50 @@ fn makeNaN32(rand: u32) f32 {
 
 fn makeInf32() f32 {
     return @bitCast(f32, @as(u32, 0x7f800000));
+}
+
+fn test__extendhftf2(a: u16, expectedHi: u64, expectedLo: u64) void {
+    const x = __extendhftf2(a);
+
+    const rep = @bitCast(u128, x);
+    const hi = @intCast(u64, rep >> 64);
+    const lo = @truncate(u64, rep);
+
+    if (hi == expectedHi and lo == expectedLo)
+        return;
+
+    // test other possible NaN representation(signal NaN)
+    if (expectedHi == 0x7fff800000000000 and expectedLo == 0x0) {
+        if ((hi & 0x7fff000000000000) == 0x7fff000000000000 and
+            ((hi & 0xffffffffffff) > 0 or lo > 0))
+        {
+            return;
+        }
+    }
+
+    @panic("__extendhftf2 test failure");
+}
+
+test "extendhftf2" {
+    // qNaN
+    test__extendhftf2(0x7e00, 0x7fff800000000000, 0x0);
+    // NaN
+    test__extendhftf2(0x7d00, 0x7fff400000000000, 0x0);
+    // inf
+    test__extendhftf2(0x7c00, 0x7fff000000000000, 0x0);
+    test__extendhftf2(0xfc00, 0xffff000000000000, 0x0);
+    // zero
+    test__extendhftf2(0x0000, 0x0000000000000000, 0x0);
+    test__extendhftf2(0x8000, 0x8000000000000000, 0x0);
+    // denormal
+    test__extendhftf2(0x0010, 0x3feb000000000000, 0x0);
+    test__extendhftf2(0x0001, 0x3fe7000000000000, 0x0);
+    test__extendhftf2(0x8001, 0xbfe7000000000000, 0x0);
+
+    // pi
+    test__extendhftf2(0x4248, 0x4000920000000000, 0x0);
+    test__extendhftf2(0xc248, 0xc000920000000000, 0x0);
+
+    test__extendhftf2(0x508c, 0x4004230000000000, 0x0);
+    test__extendhftf2(0x1bb7, 0x3ff6edc000000000, 0x0);
 }

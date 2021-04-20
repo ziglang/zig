@@ -11363,11 +11363,8 @@ static void float_negate(ZigValue *out_val, ZigValue *op) {
     } else if (op->type->id == ZigTypeIdFloat) {
         switch (op->type->data.floating.bit_count) {
             case 16:
-                {
-                    const float16_t zero = zig_double_to_f16(0);
-                    out_val->data.x_f16 = f16_sub(zero, op->data.x_f16);
-                    return;
-                }
+                out_val->data.x_f16 = f16_neg(op->data.x_f16);
+                return;
             case 32:
                 out_val->data.x_f32 = -op->data.x_f32;
                 return;
@@ -11375,9 +11372,7 @@ static void float_negate(ZigValue *out_val, ZigValue *op) {
                 out_val->data.x_f64 = -op->data.x_f64;
                 return;
             case 128:
-                float128_t zero_f128;
-                ui32_to_f128M(0, &zero_f128);
-                f128M_sub(&zero_f128, &op->data.x_f128, &out_val->data.x_f128);
+                f128M_neg(&op->data.x_f128, &out_val->data.x_f128);
                 return;
             default:
                 zig_unreachable();

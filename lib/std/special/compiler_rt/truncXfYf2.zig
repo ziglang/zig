@@ -13,6 +13,10 @@ pub fn __truncdfhf2(a: f64) callconv(.C) u16 {
     return @bitCast(u16, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f64, a }));
 }
 
+pub fn __trunctfhf2(a: f128) callconv(.C) u16 {
+    return @bitCast(u16, @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f16, f128, a }));
+}
+
 pub fn __trunctfsf2(a: f128) callconv(.C) f32 {
     return @call(.{ .modifier = .always_inline }, truncXfYf2, .{ f32, f128, a });
 }
@@ -122,7 +126,7 @@ fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
         if (shift > srcSigBits) {
             absResult = 0;
         } else {
-            const sticky: src_rep_t = significand << @intCast(SrcShift, srcBits - shift);
+            const sticky: src_rep_t = @boolToInt(significand << @intCast(SrcShift, srcBits - shift) != 0);
             const denormalizedSignificand: src_rep_t = significand >> @intCast(SrcShift, shift) | sticky;
             absResult = @intCast(dst_rep_t, denormalizedSignificand >> (srcSigBits - dstSigBits));
             const roundBits: src_rep_t = denormalizedSignificand & roundMask;

@@ -242,3 +242,59 @@ test "truncdfsf2" {
     // huge number becomes inf
     test__truncdfsf2(340282366920938463463374607431768211456.0, 0x7f800000);
 }
+
+const __trunctfhf2 = @import("truncXfYf2.zig").__trunctfhf2;
+
+fn test__trunctfhf2(a: f128, expected: u16) void {
+    const x = __trunctfhf2(a);
+
+    const rep = @bitCast(u16, x);
+    if (rep == expected) {
+        return;
+    }
+
+    @import("std").debug.warn("got 0x{x} wanted 0x{x}\n", .{ rep, expected });
+
+    @panic("__trunctfhf2 test failure");
+}
+
+test "trunctfhf2" {
+    // qNaN
+    test__trunctfhf2(@bitCast(f128, @as(u128, 0x7fff8000000000000000000000000000)), 0x7e00);
+    // NaN
+    test__trunctfhf2(@bitCast(f128, @as(u128, 0x7fff0000000000000000000000000001)), 0x7e00);
+    // inf
+    test__trunctfhf2(@bitCast(f128, @as(u128, 0x7fff0000000000000000000000000000)), 0x7c00);
+    test__trunctfhf2(-@bitCast(f128, @as(u128, 0x7fff0000000000000000000000000000)), 0xfc00);
+    // zero
+    test__trunctfhf2(0.0, 0x0);
+    test__trunctfhf2(-0.0, 0x8000);
+
+    test__trunctfhf2(3.1415926535, 0x4248);
+    test__trunctfhf2(-3.1415926535, 0xc248);
+    test__trunctfhf2(0x1.987124876876324p+100, 0x7c00);
+    test__trunctfhf2(0x1.987124876876324p+12, 0x6e62);
+    test__trunctfhf2(0x1.0p+0, 0x3c00);
+    test__trunctfhf2(0x1.0p-14, 0x0400);
+    // denormal
+    test__trunctfhf2(0x1.0p-20, 0x0010);
+    test__trunctfhf2(0x1.0p-24, 0x0001);
+    test__trunctfhf2(-0x1.0p-24, 0x8001);
+    test__trunctfhf2(0x1.5p-25, 0x0001);
+    // and back to zero
+    test__trunctfhf2(0x1.0p-25, 0x0000);
+    test__trunctfhf2(-0x1.0p-25, 0x8000);
+    // max (precise)
+    test__trunctfhf2(65504.0, 0x7bff);
+    // max (rounded)
+    test__trunctfhf2(65519.0, 0x7bff);
+    // max (to +inf)
+    test__trunctfhf2(65520.0, 0x7c00);
+    test__trunctfhf2(65536.0, 0x7c00);
+    test__trunctfhf2(-65520.0, 0xfc00);
+
+    test__trunctfhf2(0x1.23a2abb4a2ddee355f36789abcdep+5, 0x508f);
+    test__trunctfhf2(0x1.e3d3c45bd3abfd98b76a54cc321fp-9, 0x1b8f);
+    test__trunctfhf2(0x1.234eebb5faa678f4488693abcdefp+453, 0x7c00);
+    test__trunctfhf2(0x1.edcba9bb8c76a5a43dd21f334634p-43, 0x0);
+}
