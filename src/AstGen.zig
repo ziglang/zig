@@ -1294,8 +1294,13 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: ast.Node.Index) 
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
-            .defer_normal => @panic("TODO continue/defer"),
-            .defer_error => @panic("TODO continue/defer"),
+            .defer_normal => {
+                const defer_scope = scope.cast(Scope.Defer).?;
+                scope = defer_scope.parent;
+                const expr_node = node_datas[defer_scope.defer_node].rhs;
+                try unusedResultExpr(parent_gz, defer_scope.parent, expr_node);
+            },
+            .defer_error => scope = scope.cast(Scope.LocalPtr).?.parent,
             else => if (break_label != 0) {
                 const label_name = try astgen.identifierTokenString(break_label);
                 return astgen.failTok(break_label, "label not found: '{s}'", .{label_name});

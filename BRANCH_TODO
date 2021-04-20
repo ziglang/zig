@@ -1,6 +1,5 @@
  * defer
    - `break`
-   - `continue`
  * nested function decl: how to refer to params?
  * look for cached zir code
  * save zir code to cache
