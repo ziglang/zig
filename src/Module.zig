@@ -1622,6 +1622,22 @@ pub const Scope = struct {
             });
         }
 
+        pub fn addNodeExtended(
+            gz: *GenZir,
+            opcode: Zir.Inst.Extended,
+            /// Absolute node index. This function does the conversion to offset from Decl.
+            src_node: ast.Node.Index,
+        ) !Zir.Inst.Ref {
+            return gz.add(.{
+                .tag = .extended,
+                .data = .{ .extended = .{
+                    .opcode = opcode,
+                    .small = undefined,
+                    .operand = @bitCast(u32, gz.nodeIndexToRelative(src_node)),
+                } },
+            });
+        }
+
         /// Asserts that `str` is 8 or fewer bytes.
         pub fn addSmallStr(
             gz: *GenZir,
@@ -2583,6 +2599,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
         return error.AnalysisFail;
     }
 
+    log.debug("AstGen success: {s}", .{file.sub_file_path});
     file.status = .success;
 }
 

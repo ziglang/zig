@@ -169,6 +169,9 @@ pub const Inst = struct {
         /// `[N:S]T` syntax. No source location provided.
         /// Uses the `array_type_sentinel` field.
         array_type_sentinel,
+        /// Given an array type, returns the element type.
+        /// Uses the `un_node` union field.
+        elem_type,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -457,12 +460,6 @@ pub const Inst = struct {
         /// instruction.
         /// Uses the `un_tok` union field.
         ref,
-        /// Obtains a pointer to the return value.
-        /// Uses the `node` union field.
-        ret_ptr,
-        /// Obtains the return type of the in-scope function.
-        /// Uses the `node` union field.
-        ret_type,
         /// Sends control flow back to the function's callee.
         /// Includes an operand as the return value.
         /// Includes an AST node source location.
@@ -674,6 +671,13 @@ pub const Inst = struct {
         /// because it must use one of them to find out the struct type.
         /// Uses the `pl_node` field. Payload is `Block`.
         validate_struct_init_ptr,
+        /// Given a set of `elem_ptr_node` instructions, assumes they are all part of an
+        /// array initialization expression, and emits a compile error if the number of
+        /// elements does not match the array type.
+        /// This instruction asserts that there is at least one elem_ptr_node instruction,
+        /// because it must use one of them to find out the array type.
+        /// Uses the `pl_node` field. Payload is `Block`.
+        validate_array_init_ptr,
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
@@ -690,6 +694,18 @@ pub const Inst = struct {
         /// Struct initialization without a type.
         /// Uses the `pl_node` field. Payload is `StructInitAnon`.
         struct_init_anon,
+        /// Array initialization syntax.
+        /// Uses the `pl_node` field. Payload is `MultiOp`.
+        array_init,
+        /// Anonymous array initialization syntax.
+        /// Uses the `pl_node` field. Payload is `MultiOp`.
+        array_init_anon,
+        /// Array initialization syntax, make the result a pointer.
+        /// Uses the `pl_node` field. Payload is `MultiOp`.
+        array_init_ref,
+        /// Anonymous array initialization syntax, make the result a pointer.
+        /// Uses the `pl_node` field. Payload is `MultiOp`.
+        array_init_anon_ref,
         /// Given a pointer to a union and a comptime known field name, activates that field
         /// and returns a pointer to it.
         /// Uses the `pl_node` field. Payload is `UnionInitPtr`.
@@ -700,14 +716,8 @@ pub const Inst = struct {
         size_of,
         /// Implements the `@bitSizeOf` builtin. Uses `un_node`.
         bit_size_of,
-        /// Implements the `@This` builtin. Uses `node`.
-        this,
-        /// Implements the `@fence` builtin. Uses `un_node`.
+        /// Implements the `@fence` builtin. Uses `node`.
         fence,
-        /// Implements the `@returnAddress` builtin. Uses `un_node`.
-        ret_addr,
-        /// Implements the `@src` builtin. Uses `un_node`.
-        builtin_src,
         /// Implements the `@addWithOverflow` builtin. Uses `pl_node` with `OverflowArithmetic`.
         add_with_overflow,
         /// Implements the `@subWithOverflow` builtin. Uses `pl_node` with `OverflowArithmetic`.
@@ -716,16 +726,6 @@ pub const Inst = struct {
         mul_with_overflow,
         /// Implements the `@shlWithOverflow` builtin. Uses `pl_node` with `OverflowArithmetic`.
         shl_with_overflow,
-
-        /// Implements the `@errorReturnTrace` builtin.
-        /// Uses the `un_node` field.
-        error_return_trace,
-        /// Implements the `@frame` builtin.
-        /// Uses the `un_node` field.
-        frame,
-        /// Implements the `@frameAddress` builtin.
-        /// Uses the `un_node` field.
-        frame_address,
 
         /// Implement builtin `@ptrToInt`. Uses `un_node`.
         ptr_to_int,
@@ -951,6 +951,7 @@ pub const Inst = struct {
                 .array_mul,
                 .array_type,
                 .array_type_sentinel,
+                .elem_type,
                 .indexable_ptr_len,
                 .as,
                 .as_node,
@@ -970,6 +971,7 @@ pub const Inst = struct {
                 .bool_and,
                 .bool_or,
                 .breakpoint,
+                .fence,
                 .call,
                 .call_chkused,
                 .call_compile_time,
@@ -1026,8 +1028,6 @@ pub const Inst = struct {
                 .param_type,
                 .ptrtoint,
                 .ref,
-                .ret_ptr,
-                .ret_type,
                 .shl,
                 .shr,
                 .store,
@@ -1094,9 +1094,14 @@ pub const Inst = struct {
                 .switch_block_ref_under,
                 .switch_block_ref_under_multi,
                 .validate_struct_init_ptr,
+                .validate_array_init_ptr,
                 .struct_init_empty,
                 .struct_init,
                 .struct_init_anon,
+                .array_init,
+                .array_init_anon,
+                .array_init_ref,
+                .array_init_anon_ref,
                 .union_init_ptr,
                 .field_type,
                 .field_type_ref,
@@ -1105,17 +1110,10 @@ pub const Inst = struct {
                 .type_info,
                 .size_of,
                 .bit_size_of,
-                .this,
-                .fence,
-                .ret_addr,
-                .builtin_src,
                 .add_with_overflow,
                 .sub_with_overflow,
                 .mul_with_overflow,
                 .shl_with_overflow,
-                .error_return_trace,
-                .frame,
-                .frame_address,
                 .ptr_to_int,
                 .align_of,
                 .bool_to_int,
@@ -1211,6 +1209,30 @@ pub const Inst = struct {
         /// `operand` is payload index to `ExtendedFunc`.
         /// `small` is `ExtendedFunc.Small`.
         func,
+        /// Obtains a pointer to the return value.
+        /// `operand` is `src_node: i32`.
+        ret_ptr,
+        /// Obtains the return type of the in-scope function.
+        /// `operand` is `src_node: i32`.
+        ret_type,
+        /// Implements the `@This` builtin.
+        /// `operand` is `src_node: i32`.
+        this,
+        /// Implements the `@returnAddress` builtin.
+        /// `operand` is `src_node: i32`.
+        ret_addr,
+        /// Implements the `@src` builtin.
+        /// `operand` is `src_node: i32`.
+        builtin_src,
+        /// Implements the `@errorReturnTrace` builtin.
+        /// `operand` is `src_node: i32`.
+        error_return_trace,
+        /// Implements the `@frame` builtin.
+        /// `operand` is `src_node: i32`.
+        frame,
+        /// Implements the `@frameAddress` builtin.
+        /// `operand` is `src_node: i32`.
+        frame_address,
         /// `operand` is payload index to `UnNode`.
         c_undef,
         /// `operand` is payload index to `UnNode`.
@@ -2281,6 +2303,7 @@ const Writer = struct {
             .pop_count,
             .byte_swap,
             .bit_reverse,
+            .elem_type,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -2317,6 +2340,10 @@ const Writer = struct {
             .union_decl,
             .struct_init,
             .struct_init_anon,
+            .array_init,
+            .array_init_anon,
+            .array_init_ref,
+            .array_init_anon_ref,
             .union_init_ptr,
             .field_type,
             .field_type_ref,
@@ -2409,6 +2436,7 @@ const Writer = struct {
             .block_inline_var,
             .loop,
             .validate_struct_init_ptr,
+            .validate_array_init_ptr,
             .c_import,
             => try self.writePlNodeBlock(stream, inst),
 
@@ -2450,21 +2478,13 @@ const Writer = struct {
             .as_node => try self.writeAs(stream, inst),
 
             .breakpoint,
+            .fence,
             .opaque_decl,
             .dbg_stmt_node,
-            .ret_ptr,
-            .ret_type,
             .repeat,
             .repeat_inline,
             .alloc_inferred,
             .alloc_inferred_mut,
-            .this,
-            .fence,
-            .ret_addr,
-            .builtin_src,
-            .error_return_trace,
-            .frame,
-            .frame_address,
             => try self.writeNode(stream, inst),
 
             .error_value,
