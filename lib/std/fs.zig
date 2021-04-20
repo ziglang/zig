@@ -501,7 +501,7 @@ pub const Dir = struct {
         },
         .linux => struct {
             dir: Dir,
-            buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
+            buf: [8192]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(os.linux.dirent64)),
             index: usize,
             end_index: usize,
 
