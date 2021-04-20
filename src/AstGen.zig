@@ -3162,43 +3162,33 @@ fn tryExpr(
 ) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
     const tree = &astgen.file.tree;
-    const main_tokens = tree.nodes.items(.main_token);
-    const token_tags = tree.tokens.items(.tag);
-    const node_datas = tree.nodes.items(.data);
-    const node_tags = tree.nodes.items(.tag);
 
     var block_scope: GenZir = .{
         .parent = scope,
         .decl_node_index = parent_gz.decl_node_index,
-        .astgen = parent_gz.astgen,
+        .astgen = astgen,
         .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
     block_scope.setBreakResultLoc(rl);
     defer block_scope.instructions.deinit(astgen.gpa);
 
+    const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
+        .ref => .ref,
+        else => .none,
+    };
+    const err_ops = switch (rl) {
+        // zig fmt: off
+        .ref => [3]Zir.Inst.Tag{ .is_err_ptr, .err_union_code_ptr, .err_union_payload_unsafe_ptr },
+        else => [3]Zir.Inst.Tag{ .is_err,     .err_union_code,     .err_union_payload_unsafe },
+        // zig fmt: on
+    };
     // This could be a pointer or value depending on the `operand_rl` parameter.
     // We cannot use `block_scope.break_result_loc` because that has the bare
     // type, whereas this expression has the optional type. Later we make
     // up for this fact by calling rvalue on the else branch.
-    block_scope.break_count += 1;
-
-    const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
-        .ref => .ref,
-        .discard, .none, .none_or_ref, .block_ptr, .inferred_ptr => .none,
-        .ty => |elem_ty| {
-            @panic("TODO");
-        },
-        .ptr => |ptr_ty| {
-            @panic("TODO");
-        },
-    };
-    const ops = switch (rl) {
-        .ref => [3]Zir.Inst.Tag{ .is_err_ptr, .err_union_code_ptr, .err_union_payload_unsafe_ptr },
-        else => [3]Zir.Inst.Tag{ .is_err, .err_union_code, .err_union_payload_unsafe },
-    };
     const operand = try expr(&block_scope, &block_scope.base, operand_rl, node);
-    const cond = try block_scope.addUnNode(ops[0], operand, node);
+    const cond = try block_scope.addUnNode(err_ops[0], operand, node);
     const condbr = try block_scope.addCondBr(.condbr, node);
 
     const block = try parent_gz.addBlock(.block, node);
@@ -3208,31 +3198,27 @@ fn tryExpr(
     var then_scope: GenZir = .{
         .parent = scope,
         .decl_node_index = parent_gz.decl_node_index,
-        .astgen = parent_gz.astgen,
+        .astgen = astgen,
         .force_comptime = block_scope.force_comptime,
         .instructions = .{},
     };
     defer then_scope.instructions.deinit(astgen.gpa);
 
-    const then_result = try then_scope.addUnNode(ops[1], operand, node);
-    const to_return = try then_scope.addUnNode(.ret_node, then_result, node);
-
-    block_scope.break_count += 1;
-    // We hold off on the break instructions as well as copying the then/else
-    // instructions into place until we know whether to keep store_to_block_ptr
-    // instructions or not.
+    const err_code = try then_scope.addUnNode(err_ops[1], operand, node);
+    const then_result = try then_scope.addUnNode(.ret_node, err_code, node);
 
     var else_scope: GenZir = .{
         .parent = scope,
         .decl_node_index = parent_gz.decl_node_index,
-        .astgen = parent_gz.astgen,
+        .astgen = astgen,
         .force_comptime = block_scope.force_comptime,
         .instructions = .{},
     };
     defer else_scope.instructions.deinit(astgen.gpa);
 
-    // This could be a pointer or value depending on `unwrap_op`.
-    const unwrapped_payload = try else_scope.addUnNode(ops[2], operand, node);
+    block_scope.break_count += 1;
+    // This could be a pointer or value depending on `err_ops[2]`.
+    const unwrapped_payload = try else_scope.addUnNode(err_ops[2], operand, node);
     const else_result = switch (rl) {
         .ref => unwrapped_payload,
         else => try rvalue(&else_scope, &else_scope.base, block_scope.break_result_loc, unwrapped_payload, node),
@@ -3250,7 +3236,7 @@ fn tryExpr(
         cond,
         node,
         node,
-        to_return,
+        then_result,
         else_result,
         block,
         block,
@@ -3276,18 +3262,12 @@ fn orelseCatchExpr(
     var block_scope: GenZir = .{
         .parent = scope,
         .decl_node_index = parent_gz.decl_node_index,
-        .astgen = parent_gz.astgen,
+        .astgen = astgen,
         .force_comptime = parent_gz.force_comptime,
         .instructions = .{},
     };
     block_scope.setBreakResultLoc(rl);
     defer block_scope.instructions.deinit(astgen.gpa);
-
-    // This could be a pointer or value depending on the `operand_rl` parameter.
-    // We cannot use `block_scope.break_result_loc` because that has the bare
-    // type, whereas this expression has the optional type. Later we make
-    // up for this fact by calling rvalue on the else branch.
-    block_scope.break_count += 1;
 
     // TODO handle catch
     const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
@@ -3302,6 +3282,11 @@ fn orelseCatchExpr(
             break :blk .{ .ty = wrapped_ty };
         },
     };
+    block_scope.break_count += 1;
+    // This could be a pointer or value depending on the `operand_rl` parameter.
+    // We cannot use `block_scope.break_result_loc` because that has the bare
+    // type, whereas this expression has the optional type. Later we make
+    // up for this fact by calling rvalue on the else branch.
     const operand = try expr(&block_scope, &block_scope.base, operand_rl, lhs);
     const cond = try block_scope.addUnNode(cond_op, operand, node);
     const condbr = try block_scope.addCondBr(.condbr, node);
@@ -3313,7 +3298,7 @@ fn orelseCatchExpr(
     var then_scope: GenZir = .{
         .parent = scope,
         .decl_node_index = parent_gz.decl_node_index,
-        .astgen = parent_gz.astgen,
+        .astgen = astgen,
         .force_comptime = block_scope.force_comptime,
         .instructions = .{},
     };
@@ -3345,7 +3330,7 @@ fn orelseCatchExpr(
     var else_scope: GenZir = .{
         .parent = scope,
         .decl_node_index = parent_gz.decl_node_index,
-        .astgen = parent_gz.astgen,
+        .astgen = astgen,
         .force_comptime = block_scope.force_comptime,
         .instructions = .{},
     };
@@ -3424,12 +3409,12 @@ fn finishThenElseBlock(
             } else {
                 _ = try else_scope.addBreak(break_tag, main_block, .void_value);
             }
+            const block_ref = parent_gz.indexToRef(main_block);
             if (strat.elide_store_to_block_ptr_instructions) {
-                try setCondBrPayloadElideBlockStorePtr(condbr, cond, then_scope, else_scope);
+                try setCondBrPayloadElideBlockStorePtr(condbr, cond, then_scope, else_scope, block_ref);
             } else {
                 try setCondBrPayload(condbr, cond, then_scope, else_scope);
             }
-            const block_ref = parent_gz.indexToRef(main_block);
             switch (rl) {
                 .ref => return block_ref,
                 else => return rvalue(parent_gz, parent_scope, rl, block_ref, node),
@@ -3758,33 +3743,47 @@ fn setCondBrPayload(
     astgen.extra.appendSliceAssumeCapacity(else_scope.instructions.items);
 }
 
-/// If `elide_block_store_ptr` is set, expects to find exactly 1 .store_to_block_ptr instruction.
 fn setCondBrPayloadElideBlockStorePtr(
     condbr: Zir.Inst.Index,
     cond: Zir.Inst.Ref,
     then_scope: *GenZir,
     else_scope: *GenZir,
+    main_block: Zir.Inst.Ref,
 ) !void {
     const astgen = then_scope.astgen;
 
-    try astgen.extra.ensureCapacity(astgen.gpa, astgen.extra.items.len +
-        @typeInfo(Zir.Inst.CondBr).Struct.fields.len +
-        then_scope.instructions.items.len + else_scope.instructions.items.len - 2);
-
-    const zir_datas = astgen.instructions.items(.data);
-    zir_datas[condbr].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.CondBr{
-        .condition = cond,
-        .then_body_len = @intCast(u32, then_scope.instructions.items.len - 1),
-        .else_body_len = @intCast(u32, else_scope.instructions.items.len - 1),
-    });
+    try astgen.extra.ensureUnusedCapacity(astgen.gpa, @typeInfo(Zir.Inst.CondBr).Struct.fields.len +
+        then_scope.instructions.items.len + else_scope.instructions.items.len);
 
     const zir_tags = astgen.instructions.items(.tag);
-    for ([_]*GenZir{ then_scope, else_scope }) |scope| {
-        for (scope.instructions.items) |src_inst| {
-            if (zir_tags[src_inst] != .store_to_block_ptr) {
-                astgen.extra.appendAssumeCapacity(src_inst);
+    const zir_datas = astgen.instructions.items(.data);
+
+    const condbr_pl = astgen.addExtraAssumeCapacity(Zir.Inst.CondBr{
+        .condition = cond,
+        .then_body_len = @intCast(u32, then_scope.instructions.items.len),
+        .else_body_len = @intCast(u32, else_scope.instructions.items.len),
+    });
+    zir_datas[condbr].pl_node.payload_index = condbr_pl;
+    const then_body_len_index = condbr_pl + 1;
+    const else_body_len_index = condbr_pl + 2;
+
+    for (then_scope.instructions.items) |src_inst| {
+        if (zir_tags[src_inst] == .store_to_block_ptr) {
+            if (zir_datas[src_inst].bin.lhs == main_block) {
+                astgen.extra.items[then_body_len_index] -= 1;
+                continue;
             }
         }
+        astgen.extra.appendAssumeCapacity(src_inst);
+    }
+    for (else_scope.instructions.items) |src_inst| {
+        if (zir_tags[src_inst] == .store_to_block_ptr) {
+            if (zir_datas[src_inst].bin.lhs == main_block) {
+                astgen.extra.items[else_body_len_index] -= 1;
+                continue;
+            }
+        }
+        astgen.extra.appendAssumeCapacity(src_inst);
     }
 }
 
