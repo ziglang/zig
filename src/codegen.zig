@@ -2721,7 +2721,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 return MCValue.dead;
             switch (arch) {
                 .spu_2 => {
-                    if (inst.inputs.len > 0 or inst.output != null) {
+                    if (inst.inputs.len > 0 or inst.output_constraint != null) {
                         return self.fail(inst.base.src, "TODO implement inline asm inputs / outputs for SPU Mark II", .{});
                     }
                     if (mem.eql(u8, inst.asm_source, "undefined0")) {
