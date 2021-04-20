@@ -64,6 +64,7 @@ got_section_index: ?u16 = null,
 mod_init_func_section_index: ?u16 = null,
 mod_term_func_section_index: ?u16 = null,
 data_const_section_index: ?u16 = null,
+common_section_index: ?u16 = null,
 
 // __DATA segment sections
 tlv_section_index: ?u16 = null,
@@ -483,23 +484,43 @@ fn updateMetadata(self: *Zld) !void {
                 },
                 macho.S_ZEROFILL => {
                     if (!mem.eql(u8, segname, "__DATA")) continue;
-                    if (self.bss_section_index != null) continue;
+                    if (mem.eql(u8, sectname, "__common")) {
+                        if (self.common_section_index != null) continue;
 
-                    self.bss_section_index = @intCast(u16, data_seg.sections.items.len);
-                    try data_seg.addSection(self.allocator, .{
-                        .sectname = makeStaticString("__bss"),
-                        .segname = makeStaticString("__DATA"),
-                        .addr = 0,
-                        .size = 0,
-                        .offset = 0,
-                        .@"align" = 0,
-                        .reloff = 0,
-                        .nreloc = 0,
-                        .flags = macho.S_ZEROFILL,
-                        .reserved1 = 0,
-                        .reserved2 = 0,
-                        .reserved3 = 0,
-                    });
+                        self.common_section_index = @intCast(u16, data_const_seg.sections.items.len);
+                        try data_const_seg.addSection(self.allocator, .{
+                            .sectname = makeStaticString("__common"),
+                            .segname = makeStaticString("__DATA_CONST"),
+                            .addr = 0,
+                            .size = 0,
+                            .offset = 0,
+                            .@"align" = 0,
+                            .reloff = 0,
+                            .nreloc = 0,
+                            .flags = macho.S_ZEROFILL,
+                            .reserved1 = 0,
+                            .reserved2 = 0,
+                            .reserved3 = 0,
+                        });
+                    } else {
+                        if (self.bss_section_index != null) continue;
+
+                        self.bss_section_index = @intCast(u16, data_seg.sections.items.len);
+                        try data_seg.addSection(self.allocator, .{
+                            .sectname = makeStaticString("__bss"),
+                            .segname = makeStaticString("__DATA"),
+                            .addr = 0,
+                            .size = 0,
+                            .offset = 0,
+                            .@"align" = 0,
+                            .reloff = 0,
+                            .nreloc = 0,
+                            .flags = macho.S_ZEROFILL,
+                            .reserved1 = 0,
+                            .reserved2 = 0,
+                            .reserved3 = 0,
+                        });
+                    }
                 },
                 macho.S_THREAD_LOCAL_VARIABLES => {
                     if (!mem.eql(u8, segname, "__DATA")) continue;
@@ -586,7 +607,9 @@ fn updateMetadata(self: *Zld) !void {
 
             const segname = parseName(&source_sect.segname);
             const sectname = parseName(&source_sect.sectname);
+
             log.debug("section '{s}/{s}' will be unmapped", .{ segname, sectname });
+
             try self.unhandled_sections.putNoClobber(self.allocator, .{
                 .object_id = object_id,
                 .source_sect_id = source_sect_id,
@@ -603,6 +626,7 @@ const MatchingSection = struct {
 fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
     const segname = parseName(&section.segname);
     const sectname = parseName(&section.sectname);
+
     const res: ?MatchingSection = blk: {
         switch (section.flags) {
             macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
@@ -630,6 +654,12 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
                 };
             },
             macho.S_ZEROFILL => {
+                if (mem.eql(u8, sectname, "__common")) {
+                    break :blk .{
+                        .seg = self.data_const_segment_cmd_index.?,
+                        .sect = self.common_section_index.?,
+                    };
+                }
                 break :blk .{
                     .seg = self.data_segment_cmd_index.?,
                     .sect = self.bss_section_index.?,
@@ -685,6 +715,7 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
             },
         }
     };
+
     return res;
 }
 
@@ -733,6 +764,7 @@ fn sortSections(self: *Zld) !void {
             &self.mod_init_func_section_index,
             &self.mod_term_func_section_index,
             &self.data_const_section_index,
+            &self.common_section_index,
         };
         for (indices) |maybe_index| {
             const new_index: u16 = if (maybe_index.*) |index| blk: {
@@ -1634,6 +1666,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                     target_sect_off,
                     target_sect_off + sect.code.len,
                 });
+
                 // Zero-out the space
                 var zeroes = try self.allocator.alloc(u8, sect.code.len);
                 defer self.allocator.free(zeroes);
@@ -2118,6 +2151,12 @@ fn populateMetadata(self: *Zld) !void {
 }
 
 fn flush(self: *Zld) !void {
+    if (self.common_section_index) |index| {
+        const seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const sect = &seg.sections.items[index];
+        sect.offset = 0;
+    }
+
     if (self.bss_section_index) |index| {
         const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         const sect = &seg.sections.items[index];
