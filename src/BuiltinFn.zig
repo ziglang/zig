@@ -129,7 +129,7 @@ pub const list = list: {
             "@alignCast",
             .{
                 .tag = .align_cast,
-                .param_count = 1,
+                .param_count = 2,
             },
         },
         .{
