@@ -909,6 +909,35 @@ test "fmin, fminf" {
     }
 }
 
+fn generic_fmax(comptime T: type, x: T, y: T) T {
+    if (isNan(x))
+        return y;
+    if (isNan(y))
+        return x;
+    return if (x < y) y else x;
+}
+
+export fn fmaxf(x: f32, y: f32) callconv(.C) f32 {
+    return generic_fmax(f32, x, y);
+}
+
+export fn fmax(x: f64, y: f64) callconv(.C) f64 {
+    return generic_fmax(f64, x, y);
+}
+
+test "fmax, fmaxf" {
+    inline for ([_]type{ f32, f64 }) |T| {
+        const nan_val = math.nan(T);
+
+        std.testing.expect(isNan(generic_fmax(T, nan_val, nan_val)));
+        std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, nan_val, 1.0));
+        std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, 1.0, nan_val));
+
+        std.testing.expectEqual(@as(T, 10.0), generic_fmax(T, 1.0, 10.0));
+        std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, 1.0, -1.0));
+    }
+}
+
 // NOTE: The original code is full of implicit signed -> unsigned assumptions and u32 wraparound
 // behaviour. Most intermediate i32 values are changed to u32 where appropriate but there are
 // potentially some edge cases remaining that are not handled in the same way.
