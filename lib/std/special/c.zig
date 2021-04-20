@@ -239,7 +239,7 @@ export fn memcmp(vl: ?[*]const u8, vr: ?[*]const u8, n: usize) callconv(.C) isiz
     return 0;
 }
 
-test "test_memcmp" {
+test "memcmp" {
     const base_arr = &[_]u8{ 1, 1, 1 };
     const arr1 = &[_]u8{ 1, 1, 1 };
     const arr2 = &[_]u8{ 1, 0, 1 };
@@ -263,7 +263,7 @@ export fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) c
     return 0;
 }
 
-test "test_bcmp" {
+test "bcmp" {
     const base_arr = &[_]u8{ 1, 1, 1 };
     const arr1 = &[_]u8{ 1, 1, 1 };
     const arr2 = &[_]u8{ 1, 0, 1 };
@@ -1096,8 +1096,8 @@ test "sqrt special" {
     std.testing.expect(std.math.isPositiveInf(sqrt(std.math.inf(f64))));
     std.testing.expect(sqrt(0.0) == 0.0);
     std.testing.expect(sqrt(-0.0) == -0.0);
-    std.testing.expect(std.math.isNan(sqrt(-1.0)));
-    std.testing.expect(std.math.isNan(sqrt(std.math.nan(f64))));
+    std.testing.expect(isNan(sqrt(-1.0)));
+    std.testing.expect(isNan(sqrt(std.math.nan(f64))));
 }
 
 export fn sqrtf(x: f32) f32 {
@@ -1201,6 +1201,6 @@ test "sqrtf special" {
     std.testing.expect(std.math.isPositiveInf(sqrtf(std.math.inf(f32))));
     std.testing.expect(sqrtf(0.0) == 0.0);
     std.testing.expect(sqrtf(-0.0) == -0.0);
-    std.testing.expect(std.math.isNan(sqrtf(-1.0)));
-    std.testing.expect(std.math.isNan(sqrtf(std.math.nan(f32))));
+    std.testing.expect(isNan(sqrtf(-1.0)));
+    std.testing.expect(isNan(sqrtf(std.math.nan(f32))));
 }
