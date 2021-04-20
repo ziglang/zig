@@ -42,7 +42,7 @@ ulimit -c unlimited
     --verbose-cc --verbose-link -Dlog=true
 
 ## now if we had a test hang, there should be "core" in cwd
-gdb -batch -ex "bt" `cat core.exename` core
+gdb -batch -ex "thread 1" -ex "bt" `cat core.exename` core
 
 if [ -z "$DRONE_PULL_REQUEST" ]; then
   mv ../LICENSE "$DISTDIR/"
