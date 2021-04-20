@@ -663,6 +663,12 @@ const llvm_targets = [_]LlvmTarget{
         .zig_name = "powerpc",
         .llvm_name = "PowerPC",
         .td_name = "PPC.td",
+        .feature_overrides = &.{
+            .{
+                .llvm_name = "ppc32",
+                .omit = true,
+            },
+        },
     },
     .{
         .zig_name = "riscv",
