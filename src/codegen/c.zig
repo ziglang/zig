@@ -1036,11 +1036,11 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
     }
     const volatile_string: []const u8 = if (as.is_volatile) "volatile " else "";
     try writer.print("__asm {s}(\"{s}\"", .{ volatile_string, as.asm_source });
-    if (as.output) |_| {
-        return o.dg.fail(.{ .node_offset = 0 }, "TODO inline asm output", .{});
+    if (as.output_constraint) |_| {
+        return o.dg.fail(.{ .node_offset = 0 }, "TODO: CBE inline asm output", .{});
     }
     if (as.inputs.len > 0) {
-        if (as.output == null) {
+        if (as.output_constraint == null) {
             try writer.writeAll(" :");
         }
         try writer.writeAll(": ");

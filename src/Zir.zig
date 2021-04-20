@@ -1760,15 +1760,14 @@ pub const Inst = struct {
     };
 
     /// Stored in extra. Trailing is:
-    /// * output_name: u32 // index into string_bytes (null terminated) if output is present
+    /// * output_constraint: u32 // index into string_bytes (null terminated) if output is present
     /// * arg: Ref // for every args_len.
     /// * constraint: u32 // index into string_bytes (null terminated) for every args_len.
     /// * clobber: u32 // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
         asm_source: Ref,
-        return_type: Ref,
         /// May be omitted.
-        output: Ref,
+        output_type: Ref,
         args_len: u32,
         clobbers_len: u32,
     };
@@ -2308,8 +2307,6 @@ const Writer = struct {
             .break_inline,
             => try self.writeBreak(stream, inst),
 
-            .@"asm",
-            .asm_volatile,
             .elem_ptr_node,
             .elem_val_node,
             .field_ptr_named,
@@ -2336,6 +2333,10 @@ const Writer = struct {
             .memset,
             .builtin_async_call,
             => try self.writePlNode(stream, inst),
+
+            .@"asm",
+            .asm_volatile,
+            => try self.writePlNodeAsm(stream, inst),
 
             .error_set_decl => try self.writePlNodeErrorSetDecl(stream, inst),
 
@@ -2639,6 +2640,51 @@ const Writer = struct {
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("}) ");
 
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeAsm(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.Asm, inst_data.payload_index);
+        var extra_i: usize = extra.end;
+
+        if (extra.data.output_type != .none) {
+            const constraint_str_index = self.code.extra[extra_i];
+            extra_i += 1;
+            const constraint = self.code.nullTerminatedString(constraint_str_index);
+            try stream.print("\"{}\"->", .{std.zig.fmtEscapes(constraint)});
+            try self.writeInstRef(stream, extra.data.output_type);
+            try stream.writeAll(", ");
+        }
+        {
+            var i: usize = 0;
+            while (i < extra.data.args_len) : (i += 1) {
+                const arg = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_i]);
+                extra_i += 1;
+                try self.writeInstRef(stream, arg);
+                try stream.writeAll(", ");
+            }
+        }
+        {
+            var i: usize = 0;
+            while (i < extra.data.args_len) : (i += 1) {
+                const str_index = self.code.extra[extra_i];
+                extra_i += 1;
+                const constraint = self.code.nullTerminatedString(str_index);
+                try stream.print("\"{}\", ", .{std.zig.fmtEscapes(constraint)});
+            }
+        }
+        {
+            var i: usize = 0;
+            while (i < extra.data.clobbers_len) : (i += 1) {
+                const str_index = self.code.extra[extra_i];
+                extra_i += 1;
+                const clobber = self.code.nullTerminatedString(str_index);
+                try stream.print("{}, ", .{std.zig.fmtId(clobber)});
+            }
+        }
+        try self.writeInstRef(stream, extra.data.asm_source);
+        try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
 

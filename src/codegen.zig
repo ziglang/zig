@@ -2754,7 +2754,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more arm assembly instructions", .{});
                     }
 
-                    if (inst.output_name) |output| {
+                    if (inst.output_constraint) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
@@ -2789,7 +2789,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more aarch64 assembly instructions", .{});
                     }
 
-                    if (inst.output_name) |output| {
+                    if (inst.output_constraint) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
@@ -2822,7 +2822,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more riscv64 assembly instructions", .{});
                     }
 
-                    if (inst.output_name) |output| {
+                    if (inst.output_constraint) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
@@ -2855,7 +2855,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
                     }
 
-                    if (inst.output_name) |output| {
+                    if (inst.output_constraint) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }

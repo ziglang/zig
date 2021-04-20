@@ -711,3 +711,8 @@ fn astgenAndSemaVarDecl(
     const decl_index = try mod.declareDeclDependency(astgen.decl, new_decl);
     const result = try gz.addDecl(.decl_val, decl_index, node);
     return rvalue(gz, scope, rl, result, node);
+
+
+
+        // when implementing this be sure to add test coverage for the asm return type
+        // not resolving into a type (the node_offset_asm_ret_ty  field of LazySrcLoc)

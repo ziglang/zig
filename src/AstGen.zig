@@ -4875,39 +4875,53 @@ fn asmExpr(
     const main_tokens = tree.nodes.items(.main_token);
     const node_datas = tree.nodes.items(.data);
 
-    const asm_source = try expr(gz, scope, .{ .ty = .const_slice_u8_type }, full.ast.template);
+    const asm_source = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, full.ast.template);
 
-    if (full.outputs.len != 0) {
-        // when implementing this be sure to add test coverage for the asm return type
-        // not resolving into a type (the node_offset_asm_ret_ty  field of LazySrcLoc)
-        return astgen.failTok(full.ast.asm_token, "TODO implement asm with an output", .{});
+    // See https://github.com/ziglang/zig/issues/215 and related issues discussing
+    // possible inline assembly improvements. Until this is settled, I am avoiding
+    // potentially wasting time implementing status quo assembly that is not used by
+    // any of the standard library.
+    if (full.outputs.len > 1) {
+        return astgen.failNode(node, "TODO more than 1 asm output", .{});
     }
+    const output: struct {
+        ty: Zir.Inst.Ref = .none,
+        constraint: u32 = 0,
+    } = if (full.outputs.len == 0) .{} else blk: {
+        const output_node = full.outputs[0];
+        const out_type_node = node_datas[output_node].lhs;
+        if (out_type_node == 0) {
+            return astgen.failNode(out_type_node, "TODO asm with non -> output", .{});
+        }
+        const constraint_token = main_tokens[output_node] + 2;
+        break :blk .{
+            .ty = try typeExpr(gz, scope, out_type_node),
+            .constraint = (try gz.strLitAsString(constraint_token)).index,
+        };
+    };
 
     const constraints = try arena.alloc(u32, full.inputs.len);
     const args = try arena.alloc(Zir.Inst.Ref, full.inputs.len);
 
     for (full.inputs) |input, i| {
         const constraint_token = main_tokens[input] + 2;
-        const string_bytes = &astgen.string_bytes;
-        constraints[i] = @intCast(u32, string_bytes.items.len);
-        const token_bytes = tree.tokenSlice(constraint_token);
-        try astgen.parseStrLit(constraint_token, string_bytes, token_bytes, 0);
-        try string_bytes.append(astgen.gpa, 0);
-
+        constraints[i] = (try gz.strLitAsString(constraint_token)).index;
         args[i] = try expr(gz, scope, .{ .ty = .usize_type }, node_datas[input].lhs);
     }
 
     const tag: Zir.Inst.Tag = if (full.volatile_token != null) .asm_volatile else .@"asm";
     const result = try gz.addPlNode(tag, node, Zir.Inst.Asm{
         .asm_source = asm_source,
-        .return_type = .void_type,
-        .output = .none,
+        .output_type = output.ty,
         .args_len = @intCast(u32, full.inputs.len),
         .clobbers_len = 0, // TODO implement asm clobbers
     });
 
     try astgen.extra.ensureCapacity(astgen.gpa, astgen.extra.items.len +
-        args.len + constraints.len);
+        args.len + constraints.len + @boolToInt(output.ty != .none));
+    if (output.ty != .none) {
+        astgen.extra.appendAssumeCapacity(output.constraint);
+    }
     astgen.appendRefsAssumeCapacity(args);
     astgen.extra.appendSliceAssumeCapacity(constraints);
 

@@ -4337,17 +4337,16 @@ fn zirAsm(
     const asm_source_src: LazySrcLoc = .{ .node_offset_asm_source = inst_data.src_node };
     const ret_ty_src: LazySrcLoc = .{ .node_offset_asm_ret_ty = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Asm, inst_data.payload_index);
-    const return_type = try sema.resolveType(block, ret_ty_src, extra.data.return_type);
     const asm_source = try sema.resolveConstString(block, asm_source_src, extra.data.asm_source);
 
     var extra_i = extra.end;
-    const Output = struct { name: []const u8, inst: *Inst };
-    const output: ?Output = if (extra.data.output != .none) blk: {
-        const name = sema.code.nullTerminatedString(sema.code.extra[extra_i]);
+    const Output = struct { constraint: []const u8, ty: Type };
+    const output: ?Output = if (extra.data.output_type != .none) blk: {
+        const constraint = sema.code.nullTerminatedString(sema.code.extra[extra_i]);
         extra_i += 1;
         break :blk Output{
-            .name = name,
-            .inst = try sema.resolveInst(extra.data.output),
+            .constraint = constraint,
+            .ty = try sema.resolveType(block, ret_ty_src, extra.data.output_type),
         };
     } else null;
 
@@ -4369,23 +4368,22 @@ fn zirAsm(
     }
 
     try sema.requireRuntimeBlock(block, src);
-    const asm_tzir = try sema.arena.create(Inst.Assembly);
-    asm_tzir.* = .{
+    const asm_air = try sema.arena.create(Inst.Assembly);
+    asm_air.* = .{
         .base = .{
             .tag = .assembly,
-            .ty = return_type,
+            .ty = if (output) |o| o.ty else Type.initTag(.void),
             .src = src,
         },
         .asm_source = asm_source,
         .is_volatile = is_volatile,
-        .output = if (output) |o| o.inst else null,
-        .output_name = if (output) |o| o.name else null,
+        .output_constraint = if (output) |o| o.constraint else null,
         .inputs = inputs,
         .clobbers = clobbers,
         .args = args,
     };
-    try block.instructions.append(sema.gpa, &asm_tzir.base);
-    return &asm_tzir.base;
+    try block.instructions.append(sema.gpa, &asm_air.base);
+    return &asm_air.base;
 }
 
 fn zirCmp(

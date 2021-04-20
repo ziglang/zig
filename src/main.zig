@@ -3561,26 +3561,41 @@ pub fn cmdAstgen(
     defer file.zir.deinit(gpa);
 
     {
+        const token_bytes = @sizeOf(std.zig.ast.TokenList) +
+            file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(std.zig.ast.ByteOffset));
+        const tree_bytes = @sizeOf(std.zig.ast.Tree) + file.tree.nodes.len *
+            (@sizeOf(std.zig.ast.Node.Tag) +
+            @sizeOf(std.zig.ast.Node.Data) +
+            @sizeOf(std.zig.ast.TokenIndex));
         const instruction_bytes = file.zir.instructions.len *
-            (@sizeOf(Zir.Inst.Tag) + @sizeOf(Zir.Inst.Data));
+            // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
+            // the debug safety tag but we want to measure release size.
+            (@sizeOf(Zir.Inst.Tag) + 8);
         const extra_bytes = file.zir.extra.len * @sizeOf(u32);
         const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
             file.zir.string_bytes.len * @sizeOf(u8);
         const stdout = io.getStdOut();
+        const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
+        // zig fmt: off
         try stdout.writer().print(
-            \\# Total bytes:        {}
+            \\# Source bytes:       {}
+            \\# Tokens:             {} ({})
+            \\# AST Nodes:          {} ({})
+            \\# Total ZIR bytes:    {}
             \\# Instructions:       {d} ({})
             \\# String Table Bytes: {}
             \\# Extra Data Items:   {d} ({})
             \\
         , .{
-            std.fmt.fmtIntSizeBin(total_bytes),
-            file.zir.instructions.len,
-            std.fmt.fmtIntSizeBin(instruction_bytes),
-            std.fmt.fmtIntSizeBin(file.zir.string_bytes.len),
-            file.zir.extra.len,
-            std.fmt.fmtIntSizeBin(extra_bytes),
+            fmtIntSizeBin(source.len),
+            file.tree.tokens.len, fmtIntSizeBin(token_bytes),
+            file.tree.nodes.len, fmtIntSizeBin(tree_bytes),
+            fmtIntSizeBin(total_bytes),
+            file.zir.instructions.len, fmtIntSizeBin(instruction_bytes),
+            fmtIntSizeBin(file.zir.string_bytes.len),
+            file.zir.extra.len, fmtIntSizeBin(extra_bytes),
         });
+        // zig fmt: on
     }
 
     if (file.zir.hasCompileErrors()) {
