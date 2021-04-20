@@ -10,7 +10,7 @@ const aes = crypto.core.aes;
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
-const Error = crypto.Error;
+const AuthenticationError = crypto.errors.AuthenticationError;
 
 pub const Aes128Ocb = AesOcb(aes.Aes128);
 pub const Aes256Ocb = AesOcb(aes.Aes256);
@@ -179,7 +179,7 @@ fn AesOcb(comptime Aes: anytype) type {
         /// ad: Associated Data
         /// npub: public nonce
         /// k: secret key
-        pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) Error!void {
+        pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) AuthenticationError!void {
             assert(c.len == m.len);
 
             const aes_enc_ctx = Aes.initEnc(key);

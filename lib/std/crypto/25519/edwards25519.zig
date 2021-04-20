@@ -4,10 +4,16 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
+const crypto = std.crypto;
 const debug = std.debug;
 const fmt = std.fmt;
 const mem = std.mem;
-const Error = std.crypto.Error;
+
+const EncodingError = crypto.errors.EncodingError;
+const IdentityElementError = crypto.errors.IdentityElementError;
+const NonCanonicalError = crypto.errors.NonCanonicalError;
+const NotSquareError = crypto.errors.NotSquareError;
+const WeakPublicKeyError = crypto.errors.WeakPublicKeyError;
 
 /// Group operations over Edwards25519.
 pub const Edwards25519 = struct {
@@ -26,7 +32,7 @@ pub const Edwards25519 = struct {
     is_base: bool = false,
 
     /// Decode an Edwards25519 point from its compressed (Y+sign) coordinates.
-    pub fn fromBytes(s: [encoded_length]u8) Error!Edwards25519 {
+    pub fn fromBytes(s: [encoded_length]u8) EncodingError!Edwards25519 {
         const z = Fe.one;
         const y = Fe.fromBytes(s);
         var u = y.sq();
@@ -56,7 +62,7 @@ pub const Edwards25519 = struct {
     }
 
     /// Check that the encoding of a point is canonical.
-    pub fn rejectNonCanonical(s: [32]u8) Error!void {
+    pub fn rejectNonCanonical(s: [32]u8) NonCanonicalError!void {
         return Fe.rejectNonCanonical(s, true);
     }
 
@@ -81,7 +87,7 @@ pub const Edwards25519 = struct {
     const identityElement = Edwards25519{ .x = Fe.zero, .y = Fe.one, .z = Fe.one, .t = Fe.zero };
 
     /// Reject the neutral element.
-    pub fn rejectIdentity(p: Edwards25519) Error!void {
+    pub fn rejectIdentity(p: Edwards25519) IdentityElementError!void {
         if (p.x.isZero()) {
             return error.IdentityElement;
         }
@@ -177,7 +183,7 @@ pub const Edwards25519 = struct {
     // Based on real-world benchmarks, we only use this for multi-scalar multiplication.
     // NAF could be useful to half the size of precomputation tables, but we intentionally
     // avoid these to keep the standard library lightweight.
-    fn pcMul(pc: [9]Edwards25519, s: [32]u8, comptime vartime: bool) Error!Edwards25519 {
+    fn pcMul(pc: [9]Edwards25519, s: [32]u8, comptime vartime: bool) IdentityElementError!Edwards25519 {
         std.debug.assert(vartime);
         const e = nonAdjacentForm(s);
         var q = Edwards25519.identityElement;
@@ -197,7 +203,7 @@ pub const Edwards25519 = struct {
     }
 
     // Scalar multiplication with a 4-bit window and the first 15 multiples.
-    fn pcMul16(pc: [16]Edwards25519, s: [32]u8, comptime vartime: bool) Error!Edwards25519 {
+    fn pcMul16(pc: [16]Edwards25519, s: [32]u8, comptime vartime: bool) IdentityElementError!Edwards25519 {
         var q = Edwards25519.identityElement;
         var pos: usize = 252;
         while (true) : (pos -= 4) {
@@ -233,12 +239,12 @@ pub const Edwards25519 = struct {
     };
 
     /// Multiply an Edwards25519 point by a scalar without clamping it.
-    /// Return error.WeakPublicKey if the resulting point is
-    /// the identity element.
-    pub fn mul(p: Edwards25519, s: [32]u8) Error!Edwards25519 {
+    /// Return error.WeakPublicKey if the base generates a small-order group,
+    /// and error.IdentityElement if the result is the identity element.
+    pub fn mul(p: Edwards25519, s: [32]u8) (IdentityElementError || WeakPublicKeyError)!Edwards25519 {
         const pc = if (p.is_base) basePointPc else pc: {
             const xpc = precompute(p, 15);
-            xpc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
+            xpc[4].rejectIdentity() catch return error.WeakPublicKey;
             break :pc xpc;
         };
         return pcMul16(pc, s, false);
@@ -246,7 +252,7 @@ pub const Edwards25519 = struct {
 
     /// Multiply an Edwards25519 point by a *PUBLIC* scalar *IN VARIABLE TIME*
     /// This can be used for signature verification.
-    pub fn mulPublic(p: Edwards25519, s: [32]u8) Error!Edwards25519 {
+    pub fn mulPublic(p: Edwards25519, s: [32]u8) (IdentityElementError || WeakPublicKeyError)!Edwards25519 {
         if (p.is_base) {
             return pcMul16(basePointPc, s, true);
         } else {
@@ -258,7 +264,7 @@ pub const Edwards25519 = struct {
 
     /// Multiscalar multiplication *IN VARIABLE TIME* for public data
     /// Computes ps0*ss0 + ps1*ss1 + ps2*ss2... faster than doing many of these operations individually
-    pub fn mulMulti(comptime count: usize, ps: [count]Edwards25519, ss: [count][32]u8) Error!Edwards25519 {
+    pub fn mulMulti(comptime count: usize, ps: [count]Edwards25519, ss: [count][32]u8) (IdentityElementError || WeakPublicKeyError)!Edwards25519 {
         var pcs: [count][9]Edwards25519 = undefined;
         for (ps) |p, i| {
             if (p.is_base) {
@@ -297,14 +303,14 @@ pub const Edwards25519 = struct {
     /// This is strongly recommended for DH operations.
     /// Return error.WeakPublicKey if the resulting point is
     /// the identity element.
-    pub fn clampedMul(p: Edwards25519, s: [32]u8) Error!Edwards25519 {
+    pub fn clampedMul(p: Edwards25519, s: [32]u8) (IdentityElementError || WeakPublicKeyError)!Edwards25519 {
         var t: [32]u8 = s;
         scalar.clamp(&t);
         return mul(p, t);
     }
 
     // montgomery -- recover y = sqrt(x^3 + A*x^2 + x)
-    fn xmontToYmont(x: Fe) Error!Fe {
+    fn xmontToYmont(x: Fe) NotSquareError!Fe {
         var x2 = x.sq();
         const x3 = x.mul(x2);
         x2 = x2.mul32(Fe.edwards25519a_32);
@@ -367,7 +373,7 @@ pub const Edwards25519 = struct {
 
     fn stringToPoints(comptime n: usize, ctx: []const u8, s: []const u8) [n]Edwards25519 {
         debug.assert(n <= 2);
-        const H = std.crypto.hash.sha2.Sha512;
+        const H = crypto.hash.sha2.Sha512;
         const h_l: usize = 48;
         var xctx = ctx;
         var hctx: [H.digest_length]u8 = undefined;
@@ -485,8 +491,8 @@ test "edwards25519 packing/unpacking" {
 test "edwards25519 point addition/substraction" {
     var s1: [32]u8 = undefined;
     var s2: [32]u8 = undefined;
-    std.crypto.random.bytes(&s1);
-    std.crypto.random.bytes(&s2);
+    crypto.random.bytes(&s1);
+    crypto.random.bytes(&s2);
     const p = try Edwards25519.basePoint.clampedMul(s1);
     const q = try Edwards25519.basePoint.clampedMul(s2);
     const r = p.add(q).add(q).sub(q).sub(q);
