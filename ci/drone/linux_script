@@ -3,15 +3,6 @@
 set -x
 set -e
 
-echo $HOME
-ls -al $HOME
-whoami
-id
-cat /proc/meminfo
-
-exit 0
-
-
 TRIPLEARCH="$(uname -m)"
 BUILDDIR="$(pwd)"
 DISTDIR="$(pwd)/dist"
@@ -31,6 +22,12 @@ cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON -DCMAKE_PREFIX_PATH=/deps/local -GNinja
 
 samu install
+
+## what we know about drone hang
+## - happens during test
+## - doesn't seem to linked to a specific test
+## - time between `build test` and first console output ~282s
+
 # run-translated-c tests are skipped due to: https://github.com/ziglang/zig/issues/8537
 ./zig build test \
     -Dskip-release \
