@@ -5,6 +5,11 @@ set -e
 
 echo $HOME
 ls -al $HOME/.cache
+whoami
+id
+
+exit 0
+
 
 TRIPLEARCH="$(uname -m)"
 BUILDDIR="$(pwd)"
