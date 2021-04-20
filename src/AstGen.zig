@@ -5111,6 +5111,7 @@ fn integerLiteral(
         };
         return rvalue(gz, scope, rl, result, node);
     } else |err| {
+        assert(err != error.InvalidCharacter);
         return gz.astgen.failNode(node, "TODO implement int literals that don't fit in a u64", .{});
     }
 }
