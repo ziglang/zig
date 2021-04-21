@@ -64,7 +64,6 @@ got_section_index: ?u16 = null,
 mod_init_func_section_index: ?u16 = null,
 mod_term_func_section_index: ?u16 = null,
 data_const_section_index: ?u16 = null,
-common_section_index: ?u16 = null,
 
 // __DATA segment sections
 tlv_section_index: ?u16 = null,
@@ -73,6 +72,7 @@ tlv_bss_section_index: ?u16 = null,
 la_symbol_ptr_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
 bss_section_index: ?u16 = null,
+common_section_index: ?u16 = null,
 
 symtab: std.StringArrayHashMapUnmanaged(Symbol) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
@@ -487,10 +487,10 @@ fn updateMetadata(self: *Zld) !void {
                     if (mem.eql(u8, sectname, "__common")) {
                         if (self.common_section_index != null) continue;
 
-                        self.common_section_index = @intCast(u16, data_const_seg.sections.items.len);
-                        try data_const_seg.addSection(self.allocator, .{
+                        self.common_section_index = @intCast(u16, data_seg.sections.items.len);
+                        try data_seg.addSection(self.allocator, .{
                             .sectname = makeStaticString("__common"),
-                            .segname = makeStaticString("__DATA_CONST"),
+                            .segname = makeStaticString("__DATA"),
                             .addr = 0,
                             .size = 0,
                             .offset = 0,
@@ -656,7 +656,7 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
             macho.S_ZEROFILL => {
                 if (mem.eql(u8, sectname, "__common")) {
                     break :blk .{
-                        .seg = self.data_const_segment_cmd_index.?,
+                        .seg = self.data_segment_cmd_index.?,
                         .sect = self.common_section_index.?,
                     };
                 }
@@ -764,7 +764,6 @@ fn sortSections(self: *Zld) !void {
             &self.mod_init_func_section_index,
             &self.mod_term_func_section_index,
             &self.data_const_section_index,
-            &self.common_section_index,
         };
         for (indices) |maybe_index| {
             const new_index: u16 = if (maybe_index.*) |index| blk: {
@@ -787,11 +786,12 @@ fn sortSections(self: *Zld) !void {
         // __DATA segment
         const indices = &[_]*?u16{
             &self.la_symbol_ptr_section_index,
-            &self.tlv_section_index,
             &self.data_section_index,
+            &self.tlv_section_index,
             &self.tlv_data_section_index,
             &self.tlv_bss_section_index,
             &self.bss_section_index,
+            &self.common_section_index,
         };
         for (indices) |maybe_index| {
             const new_index: u16 = if (maybe_index.*) |index| blk: {
@@ -2153,7 +2153,7 @@ fn populateMetadata(self: *Zld) !void {
 
 fn flush(self: *Zld) !void {
     if (self.common_section_index) |index| {
-        const seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         const sect = &seg.sections.items[index];
         sect.offset = 0;
     }
