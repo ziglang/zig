@@ -3,6 +3,8 @@
 set -x
 set -e
 
+export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-cache"
+
 df -h $HOME/.
 df -h .
 ulimit -a
@@ -35,6 +37,7 @@ samu install
 ## enable coredumps
 ulimit -c unlimited
 ulimit -a
+sync
 
 ## test_runner has an OOT killer set send SEGV to self-pid at 600s
 ## test_runner will also create file `core.exename` with path to test
@@ -48,7 +51,7 @@ ulimit -a
     -Dlog=true
 
 BUILD_TEST_PID=$!
-(sleep 1800; kill $BUILD_TEST_PID) &
+(sleep 60; echo "--- KILL $BUILD_TEST_PID ---"; kill -SEGV $BUILD_TEST_PID) &
 
 echo "-----  ALL DONE -----"
 echo "-----  ALL DONE -----"
