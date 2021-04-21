@@ -1314,11 +1314,11 @@ pub const BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM: u8 = 0x40;
 pub const BIND_OPCODE_SET_TYPE_IMM: u8 = 0x50;
 pub const BIND_OPCODE_SET_ADDEND_SLEB: u8 = 0x60;
 pub const BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB: u8 = 0x70;
-pub const BIND_OPCODE_ADD_ADDR_ULEB: 0x80;
+pub const BIND_OPCODE_ADD_ADDR_ULEB: u8 = 0x80;
 pub const BIND_OPCODE_DO_BIND: u8 = 0x90;
 pub const BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB: u8 = 0xa0;
 pub const BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED: u8 = 0xb0;
-pub const BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB: u8 = xc0;
+pub const BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB: u8 = 0xc0;
 
 pub const reloc_type_x86_64 = packed enum(u4) {
     /// for absolute addresses
