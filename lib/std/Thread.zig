@@ -38,6 +38,192 @@ else
 
 impl: Impl,
 
+pub const max_name_len = switch (std.Target.current.os.tag) {
+    .linux => 15,
+    .windows => 31,
+    .macos, .ios, .watchos, .tvos => 63,
+    .netbsd => 31,
+    .freebsd => 15,
+    .openbsd => 31,
+    else => 0,
+};
+
+pub const SetNameError = error{
+    NameTooLong,
+    Unsupported,
+    Unexpected,
+} || os.PrctlError || os.WriteError || std.fs.File.OpenError || std.fmt.BufPrintError;
+
+pub fn setName(self: Thread, name: []const u8) SetNameError!void {
+    if (name.len > max_name_len) return error.NameTooLong;
+
+    const name_with_terminator = blk: {
+        var name_buf: [max_name_len:0]u8 = undefined;
+        std.mem.copy(u8, &name_buf, name);
+        name_buf[name.len] = 0;
+        break :blk name_buf[0..name.len :0];
+    };
+
+    switch (std.Target.current.os.tag) {
+        .linux => if (use_pthreads) {
+            const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
+            return switch (err) {
+                0 => {},
+                os.ERANGE => unreachable,
+                else => return os.unexpectedErrno(err),
+            };
+        } else if (use_pthreads and self.getHandle() == std.c.pthread_self()) {
+            const err = try os.prctl(.SET_NAME, .{@ptrToInt(name_with_terminator.ptr)});
+            return switch (err) {
+                0 => {},
+                else => return os.unexpectedErrno(err),
+            };
+        } else {
+            var buf: [32]u8 = undefined;
+            const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
+
+            const file = try std.fs.cwd().openFile(path, .{ .write = true });
+            defer file.close();
+
+            try file.writer().writeAll(name);
+        },
+        .windows => if (std.Target.current.os.isAtLeast(.windows, .win10_rs1)) |res| {
+            // SetThreadDescription is only available since version 1607, which is 10.0.14393.795
+            // See https://en.wikipedia.org/wiki/Microsoft_Windows_SDK
+            if (!res) {
+                return error.Unsupported;
+            }
+
+            var name_buf_w: [max_name_len:0]u16 = undefined;
+            const length = try std.unicode.utf8ToUtf16Le(&name_buf_w, name);
+            name_buf_w[length] = 0;
+
+            try os.windows.SetThreadDescription(
+                self.getHandle(),
+                @ptrCast(os.windows.LPWSTR, &name_buf_w),
+            );
+        } else {
+            return error.Unsupported;
+        },
+        .macos, .ios, .watchos, .tvos => if (use_pthreads) {
+            // There doesn't seem to be a way to set the name for an arbitrary thread, only the current one.
+            if (self.getHandle() != std.c.pthread_self()) return error.Unsupported;
+
+            const err = std.c.pthread_setname_np(name_with_terminator.ptr);
+            return switch (err) {
+                0 => {},
+                else => return os.unexpectedErrno(err),
+            };
+        },
+        .netbsd => if (use_pthreads) {
+            const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr, null);
+            return switch (err) {
+                0 => {},
+                os.EINVAL => unreachable,
+                os.ESRCH => unreachable,
+                os.ENOMEM => unreachable,
+                else => return os.unexpectedErrno(err),
+            };
+        },
+        .freebsd, .openbsd => if (use_pthreads) {
+            // Use pthread_set_name_np for FreeBSD because pthread_setname_np is FreeBSD 12.2+ only.
+            // TODO maybe revisit this if depending on FreeBSD 12.2+ is acceptable because pthread_setname_np can return an error.
+
+            std.c.pthread_set_name_np(self.getHandle(), name_with_terminator.ptr);
+        },
+        else => return error.Unsupported,
+    }
+}
+
+pub const GetNameError = error{
+    // For Windows, the name is converted from UTF16 to UTF8
+    CodepointTooLarge,
+    Utf8CannotEncodeSurrogateHalf,
+    DanglingSurrogateHalf,
+    ExpectedSecondSurrogateHalf,
+    UnexpectedSecondSurrogateHalf,
+
+    Unsupported,
+    Unexpected,
+} || os.PrctlError || os.ReadError || std.fs.File.OpenError || std.fmt.BufPrintError;
+
+pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]const u8 {
+    buffer_ptr[max_name_len] = 0;
+    var buffer = std.mem.span(buffer_ptr);
+
+    switch (std.Target.current.os.tag) {
+        .linux => if (use_pthreads and comptime std.Target.current.abi.isGnu()) {
+            const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
+            return switch (err) {
+                0 => std.mem.sliceTo(buffer, 0),
+                os.ERANGE => unreachable,
+                else => return os.unexpectedErrno(err),
+            };
+        } else if (use_pthreads and self.getHandle() == std.c.pthread_self()) {
+            const err = try os.prctl(.GET_NAME, .{@ptrToInt(buffer.ptr)});
+            return switch (err) {
+                0 => std.mem.sliceTo(buffer, 0),
+                else => return os.unexpectedErrno(err),
+            };
+        } else if (!use_pthreads) {
+            var buf: [32]u8 = undefined;
+            const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
+
+            const file = try std.fs.cwd().openFile(path, .{});
+            defer file.close();
+
+            const data_len = try file.reader().readAll(buffer_ptr[0 .. max_name_len + 1]);
+
+            return if (data_len >= 1) buffer[0 .. data_len - 1] else null;
+        } else {
+            // musl doesn't provide pthread_getname_np and there's no way to retrieve the thread id of an arbitrary thread.
+            return error.Unsupported;
+        },
+        .windows => if (std.Target.current.os.isAtLeast(.windows, .win10_rs1)) |res| {
+            // GetThreadDescription is only available since version 1607, which is 10.0.14393.795
+            // See https://en.wikipedia.org/wiki/Microsoft_Windows_SDK
+            if (!res) {
+                return error.Unsupported;
+            }
+
+            var name_w: os.windows.LPWSTR = undefined;
+            try os.windows.GetThreadDescription(self.getHandle(), &name_w);
+            defer os.windows.LocalFree(name_w);
+
+            const data_len = try std.unicode.utf16leToUtf8(buffer, std.mem.sliceTo(name_w, 0));
+
+            return if (data_len >= 1) buffer[0..data_len] else null;
+        } else {
+            return error.Unsupported;
+        },
+        .macos, .ios, .watchos, .tvos => if (use_pthreads) {
+            const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
+            return switch (err) {
+                0 => std.mem.sliceTo(buffer, 0),
+                os.ESRCH => unreachable,
+                else => return os.unexpectedErrno(err),
+            };
+        },
+        .netbsd => if (use_pthreads) {
+            const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
+            return switch (err) {
+                0 => std.mem.sliceTo(buffer, 0),
+                os.EINVAL => unreachable,
+                os.ESRCH => unreachable,
+                else => return os.unexpectedErrno(err),
+            };
+        },
+        .freebsd, .openbsd => if (use_pthreads) {
+            // Use pthread_get_name_np for FreeBSD because pthread_getname_np is FreeBSD 12.2+ only.
+            // TODO maybe revisit this if depending on FreeBSD 12.2+ is acceptable because pthread_getname_np can return an error.
+
+            std.c.pthread_get_name_np(self.getHandle(), buffer.ptr, max_name_len + 1);
+            return std.mem.sliceTo(buffer, 0);
+        },
+        else => return error.Unsupported,
+    }
+}
+
 /// Represents a unique ID per thread.
 pub const Id = u64;
 
@@ -778,6 +964,94 @@ const LinuxThreadImpl = struct {
         }
     }
 };
+
+fn testThreadName(thread: *Thread) !void {
+    const testCases = &[_][]const u8{
+        "mythread",
+        "b" ** max_name_len,
+    };
+
+    inline for (testCases) |tc| {
+        try thread.setName(tc);
+
+        var name_buffer: [max_name_len:0]u8 = undefined;
+
+        const name = try thread.getName(&name_buffer);
+        if (name) |value| {
+            try std.testing.expectEqual(tc.len, value.len);
+            try std.testing.expectEqualStrings(tc, value);
+        }
+    }
+}
+
+test "setName, getName" {
+    if (std.builtin.single_threaded) return error.SkipZigTest;
+
+    const Context = struct {
+        start_wait_event: ResetEvent = undefined,
+        test_done_event: ResetEvent = undefined,
+
+        done: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(false),
+        thread: Thread = undefined,
+
+        fn init(self: *@This()) !void {
+            try self.start_wait_event.init();
+            try self.test_done_event.init();
+        }
+
+        pub fn run(ctx: *@This()) !void {
+            // Wait for the main thread to have set the thread field in the context.
+            ctx.start_wait_event.wait();
+
+            switch (std.Target.current.os.tag) {
+                .windows => testThreadName(&ctx.thread) catch |err| switch (err) {
+                    error.Unsupported => return error.SkipZigTest,
+                    else => return err,
+                },
+                else => try testThreadName(&ctx.thread),
+            }
+
+            // Signal our test is done
+            ctx.test_done_event.set();
+
+            while (!ctx.done.load(.SeqCst)) {
+                std.time.sleep(5 * std.time.ns_per_ms);
+            }
+        }
+    };
+
+    var context = Context{};
+    try context.init();
+
+    var thread = try spawn(.{}, Context.run, .{&context});
+    context.thread = thread;
+    context.start_wait_event.set();
+    context.test_done_event.wait();
+
+    switch (std.Target.current.os.tag) {
+        .macos, .ios, .watchos, .tvos => {
+            const res = thread.setName("foobar");
+            try std.testing.expectError(error.Unsupported, res);
+        },
+        .windows => testThreadName(&thread) catch |err| switch (err) {
+            error.Unsupported => return error.SkipZigTest,
+            else => return err,
+        },
+        else => |tag| if (tag == .linux and use_pthreads and comptime std.Target.current.abi.isMusl()) {
+            try thread.setName("foobar");
+
+            var name_buffer: [max_name_len:0]u8 = undefined;
+            const res = thread.getName(&name_buffer);
+
+            try std.testing.expectError(error.Unsupported, res);
+        } else {
+            try testThreadName(&thread);
+        },
+    }
+
+    context.done.store(true, .SeqCst);
+    thread.join();
+}
 
 test "std.Thread" {
     // Doesn't use testing.refAllDecls() since that would pull in the compileError spinLoopHint.
