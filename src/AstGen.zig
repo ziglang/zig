@@ -81,8 +81,14 @@ pub fn generate(gpa: *Allocator, file: *Scope.File) InnerError!Zir {
     };
     defer astgen.deinit(gpa);
 
+    // We expect at least as many ZIR instructions and extra data items
+    // as AST nodes.
+    try astgen.instructions.ensureTotalCapacity(gpa, file.tree.nodes.len);
+
     // First few indexes of extra are reserved and set at the end.
-    try astgen.extra.resize(gpa, @typeInfo(Zir.ExtraIndex).Enum.fields.len);
+    const reserved_count = @typeInfo(Zir.ExtraIndex).Enum.fields.len;
+    try astgen.extra.ensureTotalCapacity(gpa, file.tree.nodes.len + reserved_count);
+    astgen.extra.items.len += reserved_count;
 
     var gen_scope: GenZir = .{
         .force_comptime = true,
