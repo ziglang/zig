@@ -12,7 +12,6 @@ ls -al .
 ulimit -a
 env | sort
 
-
 set -e
 
 export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-cache"
