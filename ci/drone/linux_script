@@ -11,7 +11,6 @@ ls -al $HOME/.
 ls -al .
 ulimit -a
 env | sort
-cat /proc/cpuinfo
 
 set -e
 
@@ -25,6 +24,9 @@ apk update
 apk add py3-pip xz perl-utils jq curl samurai
 pip3 install s3cmd
 
+apk add util-linux
+lscpu
+
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
 git config core.abbrev 9
@@ -36,6 +38,9 @@ cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON -DCMAKE_PREFIX_PATH=/deps/local -GNinja
 
 samu install
+
+## what does zig detect
+./zig build-obj --show-builtin
 
 ## what we know about drone hang
 ## - happens during test
