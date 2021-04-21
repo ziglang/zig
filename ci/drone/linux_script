@@ -2,12 +2,16 @@
 
 set -x
 
+uname -a
+hostname
 pwd
 df -h $HOME/.
 df -h .
 ls -al $HOME/.
 ls -al .
 ulimit -a
+env | sort
+cat /proc/cpuinfo
 
 set -e
 
@@ -54,15 +58,15 @@ sync
     --verbose-cc --verbose-link \
     -Dlog=true
 
-BUILD_TEST_PID=$!
-(sleep 60; echo "--- KILL $BUILD_TEST_PID ---"; kill -SEGV $BUILD_TEST_PID) &
+#BUILD_TEST_PID=$!
+#(sleep 60; echo "--- KILL $BUILD_TEST_PID ---"; kill -SEGV $BUILD_TEST_PID) &
 
 echo "-----  ALL DONE -----"
 echo "-----  ALL DONE -----"
 echo "-----  ALL DONE -----"
 
 ## now if we had a test hang, there should be "core" in cwd
-gdb -batch -ex "thread 1" -ex "bt" `cat core.exename` core
+#gdb -batch -ex "thread 1" -ex "bt" `cat core.exename` core
 
 if [ -z "$DRONE_PULL_REQUEST" ]; then
   mv ../LICENSE "$DISTDIR/"
