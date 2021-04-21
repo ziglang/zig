@@ -301,6 +301,10 @@ pub const Inst = struct {
         /// the field types and optional type tag expression.
         /// Uses the `pl_node` union field. Payload is `UnionDecl`.
         union_decl,
+        /// Same as `union_decl`, except has the `packed` layout.
+        union_decl_packed,
+        /// Same as `union_decl`, except has the `extern` layout.
+        union_decl_extern,
         /// An enum type definition. Contains references to ZIR instructions for
         /// the field value expressions and optional type tag expression.
         /// Uses the `pl_node` union field. Payload is `EnumDecl`.
@@ -988,6 +992,8 @@ pub const Inst = struct {
                 .struct_decl_packed,
                 .struct_decl_extern,
                 .union_decl,
+                .union_decl_packed,
+                .union_decl_extern,
                 .enum_decl,
                 .enum_decl_nonexhaustive,
                 .opaque_decl,
@@ -2022,19 +2028,37 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. has_bits: u32 // for every 10 fields (+1)
-    ///    - first bit is special: set if and only if auto enum tag is enabled.
-    ///    - sets of 3 bits:
-    ///      0b00X: whether corresponding field has a type expression
-    ///      0b0X0: whether corresponding field has a align expression
-    ///      0bX00: whether corresponding field has a tag value expression
-    /// 1. field_name: u32 // for every field: null terminated string index
-    /// 2. opt_exprs // Ref for every field for which corresponding bit is set
-    ///    - interleaved. type if present, align if present, tag value if present.
+    /// 0. inst: Index // for every body_len
+    /// 1. has_bits: u32 // for every 8 fields
+    ///    - sets of 4 bits:
+    ///      0b000X: whether corresponding field has a type expression
+    ///      0b00X0: whether corresponding field has a align expression
+    ///      0b0X00: whether corresponding field has a tag value expression
+    ///      0bX000: unused(*)
+    ///    * the first unused bit (the unused bit of the first field) is used
+    ///      to indicate whether auto enum tag is enabled.
+    ///      0 = union(tag_type)
+    ///      1 = union(enum(tag_type))
+    /// 2. fields: { // for every fields_len
+    ///        field_name: u32, // null terminated string index
+    ///        field_type: Ref, // if corresponding bit is set
+    ///        align: Ref, // if corresponding bit is set
+    ///        tag_value: Ref, // if corresponding bit is set
+    ///    }
+    /// 3. decl_bits: u32 // for every 16 decls
+    ///    - sets of 2 bits:
+    ///      0b0X: whether corresponding decl is pub
+    ///      0bX0: whether corresponding decl is exported
+    /// 4. decl: { // for every decls_len
+    ///        name: u32, // null terminated string index
+    ///        value: Index,
+    ///    }
     pub const UnionDecl = struct {
         /// Can be `Ref.none`.
         tag_type: Ref,
+        body_len: u32,
         fields_len: u32,
+        decls_len: u32,
     };
 
     /// Trailing: field_name: u32 // for every field: null terminated string index
@@ -2339,7 +2363,6 @@ const Writer = struct {
             .slice_start,
             .slice_end,
             .slice_sentinel,
-            .union_decl,
             .struct_init,
             .struct_init_anon,
             .array_init,
@@ -2451,6 +2474,11 @@ const Writer = struct {
             .struct_decl_packed,
             .struct_decl_extern,
             => try self.writeStructDecl(stream, inst),
+
+            .union_decl,
+            .union_decl_packed,
+            .union_decl_extern,
+            => try self.writeUnionDecl(stream, inst),
 
             .enum_decl,
             .enum_decl_nonexhaustive,
@@ -2884,6 +2912,105 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
+    fn writeUnionDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.UnionDecl, inst_data.payload_index);
+        const body = self.code.extra[extra.end..][0..extra.data.body_len];
+        const fields_len = extra.data.fields_len;
+        const decls_len = extra.data.decls_len;
+        const tag_type_ref = extra.data.tag_type;
+
+        assert(fields_len != 0);
+        var first_has_auto_enum: ?bool = null;
+
+        if (tag_type_ref != .none) {
+            try self.writeInstRef(stream, tag_type_ref);
+            try stream.writeAll(", ");
+        }
+
+        var extra_index: usize = undefined;
+
+        try stream.writeAll("{\n");
+        self.indent += 2;
+        try self.writeBody(stream, body);
+
+        try stream.writeByteNTimes(' ', self.indent - 2);
+        try stream.writeAll("}, {\n");
+
+        const bits_per_field = 4;
+        const fields_per_u32 = 32 / bits_per_field;
+        const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
+        const body_end = extra.end + body.len;
+        extra_index = body_end + bit_bags_count;
+        var bit_bag_index: usize = body_end;
+        var cur_bit_bag: u32 = undefined;
+        var field_i: u32 = 0;
+        while (field_i < fields_len) : (field_i += 1) {
+            if (field_i % fields_per_u32 == 0) {
+                cur_bit_bag = self.code.extra[bit_bag_index];
+                bit_bag_index += 1;
+            }
+            const has_type = @truncate(u1, cur_bit_bag) != 0;
+            cur_bit_bag >>= 1;
+            const has_align = @truncate(u1, cur_bit_bag) != 0;
+            cur_bit_bag >>= 1;
+            const has_value = @truncate(u1, cur_bit_bag) != 0;
+            cur_bit_bag >>= 1;
+            const has_auto_enum = @truncate(u1, cur_bit_bag) != 0;
+            cur_bit_bag >>= 1;
+
+            if (first_has_auto_enum == null) {
+                first_has_auto_enum = has_auto_enum;
+            }
+
+            const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
+            extra_index += 1;
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.print("{}", .{std.zig.fmtId(field_name)});
+
+            if (has_type) {
+                const field_type = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
+
+                try stream.writeAll(": ");
+                try self.writeInstRef(stream, field_type);
+            }
+            if (has_align) {
+                const align_ref = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
+
+                try stream.writeAll(" align(");
+                try self.writeInstRef(stream, align_ref);
+                try stream.writeAll(")");
+            }
+            if (has_value) {
+                const default_ref = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
+
+                try stream.writeAll(" = ");
+                try self.writeInstRef(stream, default_ref);
+            }
+            try stream.writeAll(",\n");
+        }
+
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
+        try stream.writeAll("}, {");
+        if (decls_len == 0) {
+            try stream.writeAll("}");
+        } else {
+            try stream.writeAll("\n");
+            self.indent += 2;
+            try self.writeDecls(stream, decls_len, extra_index);
+            self.indent -= 2;
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.writeAll("}");
+        }
+        try self.writeFlag(stream, ", autoenum", first_has_auto_enum.?);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
     fn writeDecls(self: *Writer, stream: anytype, decls_len: u32, extra_start: usize) !void {
         const parent_decl_node = self.parent_decl_node;
         const bit_bags_count = std.math.divCeil(usize, decls_len, 16) catch unreachable;
@@ -2930,10 +3057,10 @@ const Writer = struct {
         const body = self.code.extra[extra.end..][0..extra.data.body_len];
         const fields_len = extra.data.fields_len;
         const decls_len = extra.data.decls_len;
-        const tag_ty_ref = extra.data.tag_type;
+        const tag_type_ref = extra.data.tag_type;
 
-        if (tag_ty_ref != .none) {
-            try self.writeInstRef(stream, tag_ty_ref);
+        if (tag_type_ref != .none) {
+            try self.writeInstRef(stream, tag_type_ref);
             try stream.writeAll(", ");
         }
 

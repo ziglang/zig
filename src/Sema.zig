@@ -338,7 +338,9 @@ pub fn analyzeBody(
             .struct_decl_extern      => try sema.zirStructDecl(block, inst, .Extern),
             .enum_decl               => try sema.zirEnumDecl(block, inst, false),
             .enum_decl_nonexhaustive => try sema.zirEnumDecl(block, inst, true),
-            .union_decl              => try sema.zirUnionDecl(block, inst),
+            .union_decl              => try sema.zirUnionDecl(block, inst, .Auto),
+            .union_decl_packed       => try sema.zirUnionDecl(block, inst, .Packed),
+            .union_decl_extern       => try sema.zirUnionDecl(block, inst, .Extern),
             .opaque_decl             => try sema.zirOpaqueDecl(block, inst),
             .error_set_decl          => try sema.zirErrorSetDecl(block, inst),
 
@@ -980,7 +982,12 @@ fn zirEnumDecl(
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
-fn zirUnionDecl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirUnionDecl(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: Zir.Inst.Index,
+    layout: std.builtin.TypeInfo.ContainerLayout,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 

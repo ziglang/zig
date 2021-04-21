@@ -1703,6 +1703,8 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .struct_decl_packed,
             .struct_decl_extern,
             .union_decl,
+            .union_decl_packed,
+            .union_decl_extern,
             .enum_decl,
             .enum_decl_nonexhaustive,
             .opaque_decl,
@@ -2897,7 +2899,7 @@ fn structDeclInner(
         if (member.comptime_token) |comptime_token| {
             return astgen.failTok(comptime_token, "TODO implement comptime struct fields", .{});
         }
-        try fields_data.ensureCapacity(gpa, fields_data.items.len + 4);
+        try fields_data.ensureUnusedCapacity(gpa, 4);
 
         const field_name = try gz.identAsString(member.ast.name_token);
         fields_data.appendAssumeCapacity(field_name);
@@ -2969,6 +2971,229 @@ fn structDeclInner(
     return gz.indexToRef(decl_inst);
 }
 
+fn unionDeclInner(
+    gz: *GenZir,
+    scope: *Scope,
+    node: ast.Node.Index,
+    members: []const ast.Node.Index,
+    tag: Zir.Inst.Tag,
+    arg_inst: Zir.Inst.Ref,
+    have_auto_enum: bool,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = &astgen.file.tree;
+    const node_tags = tree.nodes.items(.tag);
+    const node_datas = tree.nodes.items(.data);
+
+    // The union_decl instruction introduces a scope in which the decls of the union
+    // are in scope, so that field types, alignments, and default value expressions
+    // can refer to decls within the union itself.
+    var block_scope: GenZir = .{
+        .parent = scope,
+        .decl_node_index = node,
+        .astgen = astgen,
+        .force_comptime = true,
+        .ref_start_index = gz.ref_start_index,
+    };
+    defer block_scope.instructions.deinit(gpa);
+
+    var wip_decls: WipDecls = .{};
+    defer wip_decls.deinit(gpa);
+
+    // We don't know which members are fields until we iterate, so cannot do
+    // an accurate ensureCapacity yet.
+    var fields_data = ArrayListUnmanaged(u32){};
+    defer fields_data.deinit(gpa);
+
+    const bits_per_field = 4;
+    const fields_per_u32 = 32 / bits_per_field;
+    // We only need this if there are greater than fields_per_u32 fields.
+    var bit_bag = ArrayListUnmanaged(u32){};
+    defer bit_bag.deinit(gpa);
+
+    var cur_bit_bag: u32 = 0;
+    var field_index: usize = 0;
+    for (members) |member_node| {
+        const member = switch (node_tags[member_node]) {
+            .container_field_init => tree.containerFieldInit(member_node),
+            .container_field_align => tree.containerFieldAlign(member_node),
+            .container_field => tree.containerField(member_node),
+
+            .fn_decl => {
+                const fn_proto = node_datas[member_node].lhs;
+                const body = node_datas[member_node].rhs;
+                switch (node_tags[fn_proto]) {
+                    .fn_proto_simple => {
+                        var params: [1]ast.Node.Index = undefined;
+                        try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoSimple(&params, fn_proto));
+                        continue;
+                    },
+                    .fn_proto_multi => {
+                        try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoMulti(fn_proto));
+                        continue;
+                    },
+                    .fn_proto_one => {
+                        var params: [1]ast.Node.Index = undefined;
+                        try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoOne(&params, fn_proto));
+                        continue;
+                    },
+                    .fn_proto => {
+                        try astgen.fnDecl(gz, &wip_decls, body, tree.fnProto(fn_proto));
+                        continue;
+                    },
+                    else => unreachable,
+                }
+            },
+            .fn_proto_simple => {
+                var params: [1]ast.Node.Index = undefined;
+                try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoSimple(&params, member_node));
+                continue;
+            },
+            .fn_proto_multi => {
+                try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoMulti(member_node));
+                continue;
+            },
+            .fn_proto_one => {
+                var params: [1]ast.Node.Index = undefined;
+                try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoOne(&params, member_node));
+                continue;
+            },
+            .fn_proto => {
+                try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProto(member_node));
+                continue;
+            },
+
+            .global_var_decl => {
+                try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.globalVarDecl(member_node));
+                continue;
+            },
+            .local_var_decl => {
+                try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.localVarDecl(member_node));
+                continue;
+            },
+            .simple_var_decl => {
+                try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.simpleVarDecl(member_node));
+                continue;
+            },
+            .aligned_var_decl => {
+                try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.alignedVarDecl(member_node));
+                continue;
+            },
+
+            .@"comptime" => {
+                try astgen.comptimeDecl(gz, scope, member_node);
+                continue;
+            },
+            .@"usingnamespace" => {
+                try astgen.usingnamespaceDecl(gz, scope, member_node);
+                continue;
+            },
+            .test_decl => {
+                try astgen.testDecl(gz, scope, member_node);
+                continue;
+            },
+            else => unreachable,
+        };
+        if (field_index % fields_per_u32 == 0 and field_index != 0) {
+            try bit_bag.append(gpa, cur_bit_bag);
+            cur_bit_bag = 0;
+        }
+        if (member.comptime_token) |comptime_token| {
+            return astgen.failTok(comptime_token, "union fields cannot be marked comptime", .{});
+        }
+        try fields_data.ensureUnusedCapacity(gpa, 4);
+
+        const field_name = try gz.identAsString(member.ast.name_token);
+        fields_data.appendAssumeCapacity(field_name);
+
+        const have_type = member.ast.type_expr != 0;
+        const have_align = member.ast.align_expr != 0;
+        const have_value = member.ast.value_expr != 0;
+        cur_bit_bag = (cur_bit_bag >> bits_per_field) |
+            (@as(u32, @boolToInt(have_type)) << 28) |
+            (@as(u32, @boolToInt(have_align)) << 29) |
+            (@as(u32, @boolToInt(have_value)) << 30) |
+            (@as(u32, @boolToInt(have_auto_enum)) << 31);
+
+        if (have_type) {
+            const field_type = try typeExpr(&block_scope, &block_scope.base, member.ast.type_expr);
+            fields_data.appendAssumeCapacity(@enumToInt(field_type));
+        }
+        if (have_align) {
+            const align_inst = try expr(&block_scope, &block_scope.base, .{ .ty = .u32_type }, member.ast.align_expr);
+            fields_data.appendAssumeCapacity(@enumToInt(align_inst));
+        }
+        if (have_value) {
+            if (arg_inst == .none) {
+                return astgen.failNodeNotes(
+                    node,
+                    "explicitly valued tagged union missing integer tag type",
+                    .{},
+                    &[_]u32{
+                        try astgen.errNoteNode(
+                            member.ast.value_expr,
+                            "tag value specified here",
+                            .{},
+                        ),
+                    },
+                );
+            }
+            const tag_value = try expr(&block_scope, &block_scope.base, .{ .ty = arg_inst }, member.ast.value_expr);
+            fields_data.appendAssumeCapacity(@enumToInt(tag_value));
+        }
+
+        field_index += 1;
+    }
+    if (field_index == 0) {
+        return astgen.failNode(node, "union declarations must have at least one tag", .{});
+    }
+    {
+        const empty_slot_count = fields_per_u32 - (field_index % fields_per_u32);
+        if (empty_slot_count < fields_per_u32) {
+            cur_bit_bag >>= @intCast(u5, empty_slot_count * bits_per_field);
+        }
+    }
+    {
+        const empty_slot_count = 16 - (wip_decls.decl_index % 16);
+        if (empty_slot_count < 16) {
+            wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
+        }
+    }
+
+    const decl_inst = try gz.addBlock(tag, node);
+    try gz.instructions.append(gpa, decl_inst);
+    if (block_scope.instructions.items.len != 0) {
+        _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
+    }
+
+    try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.UnionDecl).Struct.fields.len +
+        bit_bag.items.len + 1 + fields_data.items.len +
+        block_scope.instructions.items.len +
+        wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
+        wip_decls.name_and_value.items.len);
+    const zir_datas = astgen.instructions.items(.data);
+    zir_datas[decl_inst].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.UnionDecl{
+        .tag_type = arg_inst,
+        .body_len = @intCast(u32, block_scope.instructions.items.len),
+        .fields_len = @intCast(u32, field_index),
+        .decls_len = @intCast(u32, wip_decls.decl_index),
+    });
+    astgen.extra.appendSliceAssumeCapacity(block_scope.instructions.items);
+
+    astgen.extra.appendSliceAssumeCapacity(bit_bag.items); // Likely empty.
+    astgen.extra.appendAssumeCapacity(cur_bit_bag);
+    astgen.extra.appendSliceAssumeCapacity(fields_data.items);
+
+    astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
+    if (wip_decls.decl_index != 0) {
+        astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
+    }
+    astgen.extra.appendSliceAssumeCapacity(wip_decls.name_and_value.items);
+
+    return gz.indexToRef(decl_inst);
+}
+
 fn containerDecl(
     gz: *GenZir,
     scope: *Scope,
@@ -3005,7 +3230,18 @@ fn containerDecl(
             return rvalue(gz, scope, rl, result, node);
         },
         .keyword_union => {
-            return astgen.failTok(container_decl.ast.main_token, "TODO AstGen for union decl", .{});
+            const tag = if (container_decl.layout_token) |t| switch (token_tags[t]) {
+                .keyword_packed => Zir.Inst.Tag.union_decl_packed,
+                .keyword_extern => Zir.Inst.Tag.union_decl_extern,
+                else => unreachable,
+            } else Zir.Inst.Tag.union_decl;
+
+            // See `Zir.Inst.UnionDecl` doc comments for why this is stored along
+            // with fields instead of separately.
+            const have_auto_enum = container_decl.ast.enum_token != null;
+
+            const result = try unionDeclInner(gz, scope, node, container_decl.ast.members, tag, arg_inst, have_auto_enum);
+            return rvalue(gz, scope, rl, result, node);
         },
         .keyword_enum => {
             if (container_decl.layout_token) |t| {
@@ -3224,6 +3460,20 @@ fn containerDecl(
                     (@as(u32, @boolToInt(have_value)) << 31);
 
                 if (have_value) {
+                    if (arg_inst == .none) {
+                        return astgen.failNodeNotes(
+                            node,
+                            "explicitly valued enum missing integer tag type",
+                            .{},
+                            &[_]u32{
+                                try astgen.errNoteNode(
+                                    member.ast.value_expr,
+                                    "tag value specified here",
+                                    .{},
+                                ),
+                            },
+                        );
+                    }
                     const tag_value_inst = try expr(&block_scope, &block_scope.base, .{ .ty = arg_inst }, member.ast.value_expr);
                     fields_data.appendAssumeCapacity(@enumToInt(tag_value_inst));
                 }
@@ -3232,12 +3482,15 @@ fn containerDecl(
             }
             {
                 const empty_slot_count = 32 - (field_index % 32);
-                cur_bit_bag >>= @intCast(u5, empty_slot_count);
+                if (empty_slot_count < 32) {
+                    cur_bit_bag >>= @intCast(u5, empty_slot_count);
+                }
             }
-
-            if (wip_decls.decl_index != 0) {
+            {
                 const empty_slot_count = 16 - (wip_decls.decl_index % 16);
-                wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
+                if (empty_slot_count < 16) {
+                    wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
+                }
             }
 
             const decl_inst = try gz.addBlock(tag, node);
@@ -4789,7 +5042,7 @@ fn switchExpr(
                     .prong_index = capture_index,
                 } },
             });
-            const capture_name = try astgen.identifierTokenString(payload_token);
+            const capture_name = try astgen.identifierTokenString(ident);
             capture_val_scope = .{
                 .parent = &case_scope.base,
                 .gen_zir = &case_scope,
