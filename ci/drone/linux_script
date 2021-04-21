@@ -35,7 +35,7 @@ git fetch --tags
 
 mkdir build
 cd build
-cmake -GNinja \
+cmake .. -GNinja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$DISTDIR" \
     -DZIG_STATIC=ON \
