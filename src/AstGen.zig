@@ -4263,6 +4263,7 @@ fn forExpr(
     };
     defer then_scope.instructions.deinit(astgen.gpa);
 
+    var payload_val_scope: Scope.LocalVal = undefined;
     var index_scope: Scope.LocalPtr = undefined;
     const then_sub_scope = blk: {
         const payload_token = for_full.payload_token.?;
@@ -4272,22 +4273,34 @@ fn forExpr(
             payload_token;
         const is_ptr = ident != payload_token;
         const value_name = tree.tokenSlice(ident);
+        var payload_sub_scope: *Scope = undefined;
         if (!mem.eql(u8, value_name, "_")) {
-            return astgen.failTok(ident, "TODO implement for loop value payload", .{});
+            const tag: Zir.Inst.Tag = if (is_ptr) .elem_ptr else .elem_val;
+            const payload_inst = try then_scope.addBin(tag, array_ptr, index);
+            payload_val_scope = .{
+                .parent = &then_scope.base,
+                .gen_zir = &then_scope,
+                .name = value_name,
+                .inst = payload_inst,
+                .token_src = ident,
+            };
+            payload_sub_scope = &payload_val_scope.base;
         } else if (is_ptr) {
             return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
+        } else {
+            payload_sub_scope = &then_scope.base;
         }
 
         const index_token = if (token_tags[ident + 1] == .comma)
             ident + 2
         else
-            break :blk &then_scope.base;
+            break :blk payload_sub_scope;
         if (mem.eql(u8, tree.tokenSlice(index_token), "_")) {
             return astgen.failTok(index_token, "discard of index capture; omit it instead", .{});
         }
         const index_name = try astgen.identifierTokenString(index_token);
         index_scope = .{
-            .parent = &then_scope.base,
+            .parent = payload_sub_scope,
             .gen_zir = &then_scope,
             .name = index_name,
             .ptr = index_ptr,
