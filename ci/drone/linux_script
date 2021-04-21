@@ -1,13 +1,17 @@
 #!/bin/sh
 
 set -x
+
+pwd
+df -h $HOME/.
+df -h .
+ls -al $HOME/.
+ls -al .
+ulimit -a
+
 set -e
 
 export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-cache"
-
-df -h $HOME/.
-df -h .
-ulimit -a
 
 TRIPLEARCH="$(uname -m)"
 BUILDDIR="$(pwd)"
