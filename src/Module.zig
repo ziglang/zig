@@ -1813,7 +1813,7 @@ pub const SrcLoc = struct {
     pub fn byteOffset(src_loc: SrcLoc) !u32 {
         switch (src_loc.lazy) {
             .unneeded => unreachable,
-            .entire_file => unreachable,
+            .entire_file => return 0,
 
             .byte_abs => |byte_index| return byte_index,
 

@@ -822,7 +822,7 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
         .@"await" => return astgen.failNode(node, "async and related features are not yet supported", .{}),
         .@"resume" => return astgen.failNode(node, "async and related features are not yet supported", .{}),
 
-        .@"try" => return tryExpr(gz, scope, rl, node_datas[node].lhs),
+        .@"try" => return tryExpr(gz, scope, rl, node, node_datas[node].lhs),
 
         .array_init_one, .array_init_one_comma => {
             var elements: [1]ast.Node.Index = undefined;
@@ -1247,8 +1247,13 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: ast.Node.Index) Inn
             },
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
-            .defer_normal => @panic("TODO break/defer"),
-            .defer_error => @panic("TODO break/defer"),
+            .defer_normal => {
+                const defer_scope = scope.cast(Scope.Defer).?;
+                scope = defer_scope.parent;
+                const expr_node = node_datas[defer_scope.defer_node].rhs;
+                try unusedResultExpr(parent_gz, defer_scope.parent, expr_node);
+            },
+            .defer_error => scope = scope.cast(Scope.Defer).?.parent,
             else => if (break_label != 0) {
                 const label_name = try astgen.identifierTokenString(break_label);
                 return astgen.failTok(break_label, "label not found: '{s}'", .{label_name});
@@ -1300,7 +1305,7 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: ast.Node.Index) 
                 const expr_node = node_datas[defer_scope.defer_node].rhs;
                 try unusedResultExpr(parent_gz, defer_scope.parent, expr_node);
             },
-            .defer_error => scope = scope.cast(Scope.LocalPtr).?.parent,
+            .defer_error => scope = scope.cast(Scope.Defer).?.parent,
             else => if (break_label != 0) {
                 const label_name = try astgen.identifierTokenString(break_label);
                 return astgen.failTok(break_label, "label not found: '{s}'", .{label_name});
@@ -3291,9 +3296,14 @@ fn tryExpr(
     scope: *Scope,
     rl: ResultLoc,
     node: ast.Node.Index,
+    operand_node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
     const tree = &astgen.file.tree;
+
+    const fn_block = astgen.fn_block orelse {
+        return astgen.failNode(node, "invalid 'try' outside function scope", .{});
+    };
 
     var block_scope: GenZir = .{
         .parent = scope,
@@ -3320,7 +3330,7 @@ fn tryExpr(
     // We cannot use `block_scope.break_result_loc` because that has the bare
     // type, whereas this expression has the optional type. Later we make
     // up for this fact by calling rvalue on the else branch.
-    const operand = try expr(&block_scope, &block_scope.base, operand_rl, node);
+    const operand = try expr(&block_scope, &block_scope.base, operand_rl, operand_node);
     const cond = try block_scope.addUnNode(err_ops[0], operand, node);
     const condbr = try block_scope.addCondBr(.condbr, node);
 
@@ -3339,7 +3349,7 @@ fn tryExpr(
     defer then_scope.instructions.deinit(astgen.gpa);
 
     const err_code = try then_scope.addUnNode(err_ops[1], operand, node);
-    try genDefers(&then_scope, &astgen.fn_block.?.base, scope, err_code);
+    try genDefers(&then_scope, &fn_block.base, scope, err_code);
     const then_result = try then_scope.addUnNode(.ret_node, err_code, node);
 
     var else_scope: GenZir = .{
@@ -3406,7 +3416,7 @@ fn orelseCatchExpr(
     block_scope.setBreakResultLoc(rl);
     defer block_scope.instructions.deinit(astgen.gpa);
 
-    // TODO handle catch
+    // TODO get rid of optional_type_from_ptr_elem
     const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
         .ref => .ref,
         .discard, .none, .none_or_ref, .block_ptr, .inferred_ptr => .none,

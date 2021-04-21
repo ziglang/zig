@@ -1,5 +1,3 @@
- * defer
-   - `break`
  * nested function decl: how to refer to params?
  * look for cached zir code
  * save zir code to cache
@@ -11,6 +9,7 @@
 
  * get rid of failed_root_src_file
  * get rid of Scope.DeclRef
+ * get rid of optional_type_from_ptr_elem
  * handle decl collision with usingnamespace
  * the decl doing the looking up needs to create a decl dependency
    on each usingnamespace decl
