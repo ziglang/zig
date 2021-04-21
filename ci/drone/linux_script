@@ -61,16 +61,20 @@ sync
 ## test_runner has an OOT killer set send SEGV to self-pid at 600s
 ## test_runner will also create file `core.exename` with path to test
 
-./zig build test \
-    -Dskip-release \
-    -Dskip-non-native \
-    -Dskip-compile-errors \
-    -Dskip-run-translated-c \
-    --verbose-cc --verbose-link \
-    -Dlog=true
+#./zig build test \
+#    -Dskip-release \
+#    -Dskip-non-native \
+#    -Dskip-compile-errors \
+#    -Dskip-run-translated-c \
+#    -Dlog=true \
+#    -Dcpu=baseline \
+#    --verbose-cc --verbose-link
 
 #BUILD_TEST_PID=$!
 #(sleep 60; echo "--- KILL $BUILD_TEST_PID ---"; kill -SEGV $BUILD_TEST_PID) &
+
+./zig test ../lib/std/std.zig -mcpu=baseline
+./zig test ../lib/std/std.zig
 
 echo "-----  ALL DONE -----"
 echo "-----  ALL DONE -----"
