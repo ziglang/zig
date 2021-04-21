@@ -134,10 +134,10 @@ pub fn build(b: *Builder) !void {
             try addStaticLlvmOptionsToExe(test_stage2);
         }
     }
-//    if (link_libc) {
+    if (link_libc) {
         exe.linkLibC();
         test_stage2.linkLibC();
-//    }
+    }
 
     const enable_logging = b.option(bool, "log", "Whether to enable logging") orelse false;
 

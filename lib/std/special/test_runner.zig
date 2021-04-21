@@ -16,22 +16,22 @@ var args_allocator = std.heap.FixedBufferAllocator.init(&args_buffer);
 
 extern "c" fn getpid() std.os.pid_t;
 
-fn oot(seconds: u32) void {
-    std.time.sleep(@as(u64, seconds) * 1_000_000_000);
-    std.debug.warn("\n\n*** OOT killer sending SEGV\n\n",.{});
-    std.os.kill(getpid(), std.os.SIGSEGV) catch unreachable;
-}
+//fn oot(seconds: u32) void {
+//    std.time.sleep(@as(u64, seconds) * 1_000_000_000);
+//    std.debug.warn("\n\n*** OOT killer sending SEGV\n\n",.{});
+//    std.os.kill(getpid(), std.os.SIGSEGV) catch unreachable;
+//}
 
 pub fn main() anyerror!void {
-    var epb: [256]u8 = undefined;
-    const ep = try std.fs.selfExePath(&epb);
-    std.debug.warn("EXE NAME: {s}\n", .{ ep });
-    const out = try std.fs.cwd().createFile("test.exename", .{});
-    try out.writeAll(ep);
-    out.close();
-
-    const killer = try std.Thread.spawn(oot, 600);
-    std.debug.warn("OOT killer installed\n",.{});
+//    var epb: [256]u8 = undefined;
+//    const ep = try std.fs.selfExePath(&epb);
+//    std.debug.warn("EXE NAME: {s}\n", .{ ep });
+//    const out = try std.fs.cwd().createFile("test.exename", .{});
+//    try out.writeAll(ep);
+//    out.close();
+//
+//    const killer = try std.Thread.spawn(oot, 600);
+//    std.debug.warn("OOT killer installed\n",.{});
 
     const args = std.process.argsAlloc(&args_allocator.allocator) catch {
         @panic("Too many bytes passed over the CLI to the test runner");

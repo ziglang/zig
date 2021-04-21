@@ -45,8 +45,10 @@ ulimit -a
     -Dskip-compile-errors \
     -Dskip-run-translated-c \
     --verbose-cc --verbose-link \
-    -Dlog=true \
-    -Dforce-link-libc
+    -Dlog=true
+
+BUILD_TEST_PID=$!
+(sleep 1800; kill $BUILD_TEST_PID) &
 
 echo "-----  ALL DONE -----"
 echo "-----  ALL DONE -----"

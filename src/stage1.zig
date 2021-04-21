@@ -280,7 +280,7 @@ export fn stage2_progress_create() *std.Progress {
     const ptr = std.heap.c_allocator.create(std.Progress) catch @panic("out of memory");
     // If the terminal is dumb, we dont want to show the user all the
     // output.
-    ptr.* = std.Progress{ .dont_print_on_dumb = true };
+    ptr.* = std.Progress{ .dont_print_on_dumb = false };
     return ptr;
 }
 

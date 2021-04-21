@@ -1716,7 +1716,7 @@ pub fn getCompileLogOutput(self: *Compilation) []const u8 {
 pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemory }!void {
     // If the terminal is dumb, we dont want to show the user all the
     // output.
-    var progress: std.Progress = .{ .dont_print_on_dumb = true };
+    var progress: std.Progress = .{ .dont_print_on_dumb = false };
     var main_progress_node = try progress.start("", 0);
     defer main_progress_node.end();
     if (self.color == .off) progress.terminal = null;
