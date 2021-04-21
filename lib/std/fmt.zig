@@ -1374,6 +1374,10 @@ test "parseInt" {
     std.testing.expectError(error.Overflow, parseInt(u32, "-10", 10));
     std.testing.expectError(error.InvalidCharacter, parseInt(u32, " 10", 10));
     std.testing.expectError(error.InvalidCharacter, parseInt(u32, "10 ", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "_10_", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0x_10_", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0x10_", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0x_10", 10));
     std.testing.expect((try parseInt(u8, "255", 10)) == 255);
     std.testing.expectError(error.Overflow, parseInt(u8, "256", 10));
 
@@ -1453,6 +1457,8 @@ fn parseWithSign(
     };
 
     var x: T = 0;
+
+    if (buf_start[0] == '_' or buf_start[buf_start.len - 1] == '_') return error.InvalidCharacter;
 
     for (buf_start) |c| {
         if (c == '_') continue;
