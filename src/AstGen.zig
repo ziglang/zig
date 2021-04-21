@@ -4952,13 +4952,15 @@ fn switchExpr(
                         .rhs = zir_datas[break_inst].@"break".operand,
                     };
                     zir_datas[break_inst].@"break".operand = parent_gz.indexToRef(store_inst);
-                } else {
-                    assert(zir_datas[store_inst].bin.lhs == block_scope.rl_ptr);
+                } else if (zir_datas[store_inst].bin.lhs == block_scope.rl_ptr) {
                     scalar_cases_payload.items[body_len_index] -= 1;
                     astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[start_index..extra_index]);
                     extra_index += 1;
                     astgen.extra.appendAssumeCapacity(scalar_cases_payload.items[extra_index]);
                     extra_index += 1;
+                } else {
+                    extra_index += 2;
+                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[start_index..extra_index]);
                 }
             }
             extra_index = 0;
