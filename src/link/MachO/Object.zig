@@ -14,6 +14,7 @@ const Allocator = mem.Allocator;
 const Relocation = reloc.Relocation;
 const Symbol = @import("Symbol.zig");
 const parseName = @import("Zld.zig").parseName;
+const CppStatic = @import("Zld.zig").CppStatic;
 
 usingnamespace @import("commands.zig");
 
@@ -216,6 +217,7 @@ pub fn parse(self: *Object) !void {
     try self.parseSections();
     if (self.symtab_cmd_index != null) try self.parseSymtab();
     if (self.data_in_code_cmd_index != null) try self.readDataInCode();
+    try self.parseInitializers();
     try self.parseDebugInfo();
 }
 
@@ -298,25 +300,39 @@ pub fn parseSections(self: *Object) !void {
         var section = Section{
             .inner = sect,
             .code = code,
-            .relocs = undefined,
+            .relocs = null,
         };
 
         // Parse relocations
-        section.relocs = if (sect.nreloc > 0) relocs: {
+        if (sect.nreloc > 0) {
             var raw_relocs = try self.allocator.alloc(u8, @sizeOf(macho.relocation_info) * sect.nreloc);
             defer self.allocator.free(raw_relocs);
 
             _ = try self.file.?.preadAll(raw_relocs, sect.reloff);
 
-            break :relocs try reloc.parse(
+            section.relocs = try reloc.parse(
                 self.allocator,
                 self.arch.?,
                 section.code,
                 mem.bytesAsSlice(macho.relocation_info, raw_relocs),
             );
-        } else null;
+        }
 
         self.sections.appendAssumeCapacity(section);
+    }
+}
+
+pub fn parseInitializers(self: *Object) !void {
+    for (self.sections.items) |section| {
+        if (section.inner.flags != macho.S_MOD_INIT_FUNC_POINTERS) continue;
+        log.warn("parsing initializers in {s}", .{self.name.?});
+        // Parse C++ initializers
+        const relocs = section.relocs orelse unreachable;
+        for (relocs) |rel| {
+            const sym = self.symtab.items[rel.target.symbol];
+            const sym_name = self.getString(sym.n_strx);
+            log.warn("    | {s}", .{sym_name});
+        }
     }
 }
 

@@ -90,7 +90,7 @@ stub_helper_stubs_start_off: ?u64 = null,
 mappings: std.AutoHashMapUnmanaged(MappingKey, SectionMapping) = .{},
 unhandled_sections: std.AutoHashMapUnmanaged(MappingKey, u0) = .{},
 
-const CppStatic = struct {
+pub const CppStatic = struct {
     index: u32,
     target_addr: u64,
     file: u16,
