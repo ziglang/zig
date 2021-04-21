@@ -897,18 +897,22 @@ pub fn arrayInitExpr(
             if (node_tags[array_type.ast.elem_count] == .identifier and
                 mem.eql(u8, tree.tokenSlice(main_tokens[array_type.ast.elem_count]), "_"))
             {
-                const tag: Zir.Inst.Tag = switch (node_tags[array_init.ast.type_expr]) {
-                    .array_type => .array_type,
-                    .array_type_sentinel => .array_type_sentinel,
-                    else => unreachable,
-                };
                 const len_inst = try gz.addInt(array_init.ast.elements.len);
                 const elem_type = try typeExpr(gz, scope, array_type.ast.elem_type);
-                const array_type_inst = try gz.addBin(tag, len_inst, elem_type);
-                break :inst .{
-                    .array = array_type_inst,
-                    .elem = elem_type,
-                };
+                if (array_type.ast.sentinel == 0) {
+                    const array_type_inst = try gz.addBin(.array_type, len_inst, elem_type);
+                    break :inst .{
+                        .array = array_type_inst,
+                        .elem = elem_type,
+                    };
+                } else {
+                    const sentinel = try comptimeExpr(gz, scope, .{ .ty = elem_type }, array_type.ast.sentinel);
+                    const array_type_inst = try gz.addArrayTypeSentinel(len_inst, elem_type, sentinel);
+                    break :inst .{
+                        .array = array_type_inst,
+                        .elem = elem_type,
+                    };
+                }
             }
         }
         const array_type_inst = try typeExpr(gz, scope, array_init.ast.type_expr);
@@ -1053,11 +1057,33 @@ pub fn structInitExpr(
     if (struct_init.ast.fields.len == 0) {
         if (struct_init.ast.type_expr == 0) {
             return rvalue(gz, scope, rl, .empty_struct, node);
-        } else {
-            const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
-            const result = try gz.addUnNode(.struct_init_empty, ty_inst, node);
-            return rvalue(gz, scope, rl, result, node);
         }
+        array: {
+            const node_tags = tree.nodes.items(.tag);
+            const main_tokens = tree.nodes.items(.main_token);
+            const array_type: ast.full.ArrayType = switch (node_tags[struct_init.ast.type_expr]) {
+                .array_type => tree.arrayType(struct_init.ast.type_expr),
+                .array_type_sentinel => tree.arrayTypeSentinel(struct_init.ast.type_expr),
+                else => break :array,
+            };
+            // This intentionally does not support `@"_"` syntax.
+            if (node_tags[array_type.ast.elem_count] == .identifier and
+                mem.eql(u8, tree.tokenSlice(main_tokens[array_type.ast.elem_count]), "_"))
+            {
+                const elem_type = try typeExpr(gz, scope, array_type.ast.elem_type);
+                const array_type_inst = if (array_type.ast.sentinel == 0) blk: {
+                    break :blk try gz.addBin(.array_type, .zero_usize, elem_type);
+                } else blk: {
+                    const sentinel = try comptimeExpr(gz, scope, .{ .ty = elem_type }, array_type.ast.sentinel);
+                    break :blk try gz.addArrayTypeSentinel(.zero_usize, elem_type, sentinel);
+                };
+                const result = try gz.addUnNode(.struct_init_empty, array_type_inst, node);
+                return rvalue(gz, scope, rl, result, node);
+            }
+        }
+        const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+        const result = try gz.addUnNode(.struct_init_empty, ty_inst, node);
+        return rvalue(gz, scope, rl, result, node);
     }
     switch (rl) {
         .discard => {
@@ -2278,7 +2304,6 @@ fn arrayTypeSentinel(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.I
     const node_datas = tree.nodes.items(.data);
     const extra = tree.extraData(node_datas[node].rhs, ast.Node.ArrayTypeSentinel);
 
-    // TODO check for [_]T
     const len = try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].lhs);
     const elem_type = try typeExpr(gz, scope, extra.elem_type);
     const sentinel = try expr(gz, scope, .{ .ty = elem_type }, extra.sentinel);
