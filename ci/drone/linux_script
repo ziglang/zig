@@ -41,6 +41,7 @@ samu install
 
 ## what does zig detect
 ./zig build-obj --show-builtin
+./zig build-obj --show-builtin -mcpu=baseline
 
 ## what we know about drone hang
 ## - happens during test
