@@ -3,6 +3,10 @@
 set -x
 set -e
 
+df -h $HOME/.
+df -h .
+ulimit -a
+
 TRIPLEARCH="$(uname -m)"
 BUILDDIR="$(pwd)"
 DISTDIR="$(pwd)/dist"
@@ -40,7 +44,13 @@ ulimit -a
     -Dskip-non-native \
     -Dskip-compile-errors \
     -Dskip-run-translated-c \
-    --verbose-cc --verbose-link -Dlog=true
+    --verbose-cc --verbose-link \
+    -Dlog=true \
+    -Dforce-link-libc
+
+echo "-----  ALL DONE -----"
+echo "-----  ALL DONE -----"
+echo "-----  ALL DONE -----"
 
 ## now if we had a test hang, there should be "core" in cwd
 gdb -batch -ex "thread 1" -ex "bt" `cat core.exename` core

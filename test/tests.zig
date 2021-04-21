@@ -542,9 +542,9 @@ pub fn addPkgTests(
         these_tests.setFilter(test_filter);
         these_tests.setBuildMode(test_target.mode);
         these_tests.setTarget(test_target.target);
-        if (test_target.link_libc) {
+//      if (test_target.link_libc) {
             these_tests.linkSystemLibrary("c");
-        }
+//      }
         these_tests.overrideZigLibDir("lib");
         these_tests.enable_wine = is_wine_enabled;
         these_tests.enable_qemu = is_qemu_enabled;
