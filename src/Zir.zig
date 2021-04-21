@@ -1816,6 +1816,7 @@ pub const Inst = struct {
 
     /// Trailing:
     /// 0. param_type: Ref // for each param_types_len
+    ///    - `none` indicates that the param type is `anytype`.
     /// 1. body: Index // for each body_len
     pub const Func = struct {
         return_type: Ref,
@@ -3304,7 +3305,10 @@ const Writer = struct {
 
         try stream.writeAll(", {\n");
         self.indent += 2;
+        const prev_param_count = self.param_count;
+        self.param_count = param_types.len;
         try self.writeBody(stream, body);
+        self.param_count = prev_param_count;
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("}) ");

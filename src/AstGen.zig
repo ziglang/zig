@@ -2334,7 +2334,11 @@ fn fnDecl(
         var count: usize = 0;
         var it = fn_proto.iterate(tree.*);
         while (it.next()) |param| {
-            if (param.anytype_ellipsis3) |some| if (token_tags[some] == .ellipsis3) break;
+            if (param.anytype_ellipsis3) |token| switch (token_tags[token]) {
+                .ellipsis3 => break,
+                .keyword_anytype => {},
+                else => unreachable,
+            };
             count += 1;
         }
         break :blk count;
@@ -2358,11 +2362,10 @@ fn fnDecl(
         while (it.next()) |param| : (param_type_i += 1) {
             if (param.anytype_ellipsis3) |token| {
                 switch (token_tags[token]) {
-                    .keyword_anytype => return astgen.failTok(
-                        token,
-                        "TODO implement anytype parameter",
-                        .{},
-                    ),
+                    .keyword_anytype => {
+                        param_types[param_type_i] = .none;
+                        continue;
+                    },
                     .ellipsis3 => {
                         is_var_args = true;
                         break;
