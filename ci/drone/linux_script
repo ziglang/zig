@@ -114,13 +114,14 @@ sync
 
 set +e
 
+# give time for background test.exe to build and launch
+sleep 120
+
 GFOLDER="gdrive:drone.${DRONE_BUILD_NUMBER}"
 PID_ZIG=$!
 PID_TEST=$(pgrep -ox test)
 
-sleep 60
-
-# is it still running?
+# sanity check: is it still running?
 pgrep -ox "zig"
 pgrep -ox "test"
 
@@ -129,8 +130,10 @@ if [[ -n "$PID_TEST" ]]; then
     kill -SEGV "$PID_TEST"
     # give time for core file to dump
     sleep 30
-    rclone --config ../gdrive.conf copyto core "$GFOLDER/core.test"
-    rm core
+    if [[ -f core ]]; then
+        rclone --config ../gdrive.conf copyto core "$GFOLDER/core.test"
+        rm core
+    fi
 fi
 
 if [[ -n "$PID_ZIG" ]]; then
@@ -138,8 +141,10 @@ if [[ -n "$PID_ZIG" ]]; then
     kill -SEGV "$PID_ZIG"
     # give time for core file to dump
     sleep 30
-    rclone --config ../gdrive.conf copyto core "$GFOLDER/core.test"
-    rm core
+    if [[ -f core ]]; then
+        rclone --config ../gdrive.conf copyto core "$GFOLDER/core.zig"
+        rm core
+    fi
 fi
 
 rclone --config ../gdrive.conf copy z0.log $GFOLDER
