@@ -196,7 +196,7 @@ pub const Inst = struct {
         bitcast,
         /// A typed result location pointer is bitcasted to a new result location pointer.
         /// The new result location pointer has an inferred type.
-        /// Uses the un_node field.
+        /// Uses the pl_node field with payload `Bin`.
         bitcast_result_ptr,
         /// Bitwise NOT. `~`
         /// Uses `un_node`.
@@ -2329,7 +2329,6 @@ const Writer = struct {
             .byte_swap,
             .bit_reverse,
             .elem_type,
-            .bitcast_result_ptr,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -2450,6 +2449,7 @@ const Writer = struct {
             .reduce,
             .atomic_load,
             .bitcast,
+            .bitcast_result_ptr,
             => try self.writePlNodeBin(stream, inst),
 
             .call,

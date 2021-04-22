@@ -1125,7 +1125,7 @@ pub fn structInitExpr(
             }
             return init_inst;
         },
-        .ref => unreachable, // struct literal not valid as l-value
+        .ref => return astgen.failNode(node, "cannot take address of struct literal", .{}),
         .ty => |ty_inst| {
             if (struct_init.ast.type_expr == 0) {
                 return structInitExprRlTy(gz, scope, rl, node, struct_init, ty_inst);
@@ -5819,7 +5819,7 @@ fn bitCast(
     const astgen = gz.astgen;
     const dest_type = try typeExpr(gz, scope, lhs);
     switch (rl) {
-        .none, .discard, .ty => {
+        .none, .none_or_ref, .discard, .ty => {
             const operand = try expr(gz, scope, .none, rhs);
             const result = try gz.addPlNode(.bitcast, node, Zir.Inst.Bin{
                 .lhs = dest_type,
@@ -5827,19 +5827,32 @@ fn bitCast(
             });
             return rvalue(gz, scope, rl, result, node);
         },
-        .ref, .none_or_ref => unreachable, // `@bitCast` is not allowed as an r-value.
-        .ptr => |result_ptr| {
-            const casted_result_ptr = try gz.addUnNode(.bitcast_result_ptr, result_ptr, node);
-            return expr(gz, scope, .{ .ptr = casted_result_ptr }, rhs);
+        .ref => {
+            return astgen.failNode(node, "cannot take address of `@bitCast` result", .{});
         },
-        .block_ptr => |block_ptr| {
-            return astgen.failNode(node, "TODO implement @bitCast with result location inferred peer types", .{});
+        .ptr, .inferred_ptr => |result_ptr| {
+            return bitCastRlPtr(gz, scope, rl, node, dest_type, result_ptr, rhs);
         },
-        .inferred_ptr => |result_alloc| {
-            // TODO here we should be able to resolve the inference; we now have a type for the result.
-            return astgen.failNode(node, "TODO implement @bitCast with inferred-type result location pointer", .{});
+        .block_ptr => |block| {
+            return bitCastRlPtr(gz, scope, rl, node, dest_type, block.rl_ptr, rhs);
         },
     }
+}
+
+fn bitCastRlPtr(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+    dest_type: Zir.Inst.Ref,
+    result_ptr: Zir.Inst.Ref,
+    rhs: ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const casted_result_ptr = try gz.addPlNode(.bitcast_result_ptr, node, Zir.Inst.Bin{
+        .lhs = dest_type,
+        .rhs = result_ptr,
+    });
+    return expr(gz, scope, .{ .ptr = casted_result_ptr }, rhs);
 }
 
 fn typeOf(
