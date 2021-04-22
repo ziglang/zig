@@ -414,14 +414,14 @@ pub const list = list: {
             "@floatCast",
             .{
                 .tag = .float_cast,
-                .param_count = 1,
+                .param_count = 2,
             },
         },
         .{
             "@floatToInt",
             .{
                 .tag = .float_to_int,
-                .param_count = 1,
+                .param_count = 2,
             },
         },
         .{
