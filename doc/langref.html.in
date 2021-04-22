@@ -2624,7 +2624,7 @@ fn doTheTest() void {
     expect(@sizeOf(Divided) == 2);
     var full = Full{ .number = 0x1234 };
     var divided = @bitCast(Divided, full);
-    switch (builtin.endian) {
+    switch (std.Target.current.cpu.arch.endian()) {
         .Big => {
             expect(divided.half1 == 0x12);
             expect(divided.quarter3 == 0x3);

@@ -9,7 +9,7 @@ test "reinterpret bytes as integer with nonzero offset" {
 
 fn testReinterpretBytesAsInteger() void {
     const bytes = "\x12\x34\x56\x78\xab";
-    const expected = switch (builtin.endian) {
+    const expected = switch (std.Target.current.cpu.arch.endian()) {
         builtin.Endian.Little => 0xab785634,
         builtin.Endian.Big => 0x345678ab,
     };
@@ -37,7 +37,7 @@ fn testReinterpretBytesAsExternStruct() void {
 
 test "reinterpret struct field at comptime" {
     const numNative = comptime Bytes.init(0x12345678);
-    if (builtin.endian != .Little) {
+    if (std.Target.current.cpu.arch.endian() != .Little) {
         expect(std.mem.eql(u8, &[_]u8{ 0x12, 0x34, 0x56, 0x78 }, &numNative.bytes));
     } else {
         expect(std.mem.eql(u8, &[_]u8{ 0x78, 0x56, 0x34, 0x12 }, &numNative.bytes));

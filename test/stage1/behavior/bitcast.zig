@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const maxInt = std.math.maxInt;
+const native_endian = std.Target.current.cpu.arch.endian();
 
 test "@bitCast i32 -> u32" {
     testBitCast_i32_u32();
@@ -50,7 +51,7 @@ test "@bitCast packed structs at runtime and comptime" {
         fn doTheTest() void {
             var full = Full{ .number = 0x1234 };
             var two_halves = @bitCast(Divided, full);
-            switch (builtin.endian) {
+            switch (native_endian) {
                 builtin.Endian.Big => {
                     expect(two_halves.half1 == 0x12);
                     expect(two_halves.quarter3 == 0x3);
@@ -80,7 +81,7 @@ test "@bitCast extern structs at runtime and comptime" {
         fn doTheTest() void {
             var full = Full{ .number = 0x1234 };
             var two_halves = @bitCast(TwoHalves, full);
-            switch (builtin.endian) {
+            switch (native_endian) {
                 builtin.Endian.Big => {
                     expect(two_halves.half1 == 0x12);
                     expect(two_halves.half2 == 0x34);

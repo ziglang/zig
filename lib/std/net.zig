@@ -567,7 +567,7 @@ pub const Ip6Address = extern struct {
             return;
         }
         const big_endian_parts = @ptrCast(*align(1) const [8]u16, &self.sa.addr);
-        const native_endian_parts = switch (builtin.endian) {
+        const native_endian_parts = switch (std.Target.current.cpu.arch.endian()) {
             .Big => big_endian_parts.*,
             .Little => blk: {
                 var buf: [8]u16 = undefined;

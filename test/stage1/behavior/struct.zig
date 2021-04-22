@@ -417,7 +417,7 @@ const Bitfields = packed struct {
 };
 
 test "native bit field understands endianness" {
-    var all: u64 = if (builtin.endian != .Little)
+    var all: u64 = if (std.Target.current.cpu.arch.endian() != .Little)
         0x1111222233445677
     else
         0x7765443322221111;

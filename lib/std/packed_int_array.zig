@@ -7,6 +7,7 @@ const std = @import("std");
 const builtin = std.builtin;
 const debug = std.debug;
 const testing = std.testing;
+const native_endian = std.Target.current.cpu.arch.endian();
 
 pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
     //The general technique employed here is to cast bytes in the array to a container
@@ -71,7 +72,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             const value_ptr = @ptrCast(*align(1) const Container, &bytes[start_byte]);
             var value = value_ptr.*;
 
-            if (endian != builtin.endian) value = @byteSwap(Container, value);
+            if (endian != native_endian) value = @byteSwap(Container, value);
 
             switch (endian) {
                 .Big => {
@@ -119,7 +120,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             const target_ptr = @ptrCast(*align(1) Container, &bytes[start_byte]);
             var target = target_ptr.*;
 
-            if (endian != builtin.endian) target = @byteSwap(Container, target);
+            if (endian != native_endian) target = @byteSwap(Container, target);
 
             //zero the bits we want to replace in the existing bytes
             const inv_mask = @intCast(Container, std.math.maxInt(UnInt)) << keep_shift;
@@ -129,7 +130,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             //merge the new value
             target |= value;
 
-            if (endian != builtin.endian) target = @byteSwap(Container, target);
+            if (endian != native_endian) target = @byteSwap(Container, target);
 
             //save it back
             target_ptr.* = target;
@@ -172,7 +173,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
 /// are packed using native endianess and without storing any meta
 /// data. PackedIntArray(i3, 8) will occupy exactly 3 bytes of memory.
 pub fn PackedIntArray(comptime Int: type, comptime int_count: usize) type {
-    return PackedIntArrayEndian(Int, builtin.endian, int_count);
+    return PackedIntArrayEndian(Int, native_endian, int_count);
 }
 
 ///Creates a bit-packed array of integers of type Int. Bits
@@ -257,7 +258,7 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian,
 /// Bits are packed using native endianess and without storing any meta
 /// data.
 pub fn PackedIntSlice(comptime Int: type) type {
-    return PackedIntSliceEndian(Int, builtin.endian);
+    return PackedIntSliceEndian(Int, native_endian);
 }
 
 ///Uses a slice as a bit-packed block of int_count integers of type Int.
@@ -539,7 +540,7 @@ test "PackedInt(Array/Slice) sliceCast" {
 
     var i = @as(usize, 0);
     while (i < packed_slice_cast_2.len()) : (i += 1) {
-        const val = switch (builtin.endian) {
+        const val = switch (native_endian) {
             .Big => 0b01,
             .Little => 0b10,
         };
@@ -547,7 +548,7 @@ test "PackedInt(Array/Slice) sliceCast" {
     }
     i = 0;
     while (i < packed_slice_cast_4.len()) : (i += 1) {
-        const val = switch (builtin.endian) {
+        const val = switch (native_endian) {
             .Big => 0b0101,
             .Little => 0b1010,
         };
@@ -561,7 +562,7 @@ test "PackedInt(Array/Slice) sliceCast" {
     }
     i = 0;
     while (i < packed_slice_cast_3.len()) : (i += 1) {
-        const val = switch (builtin.endian) {
+        const val = switch (native_endian) {
             .Big => if (i % 2 == 0) @as(u3, 0b111) else @as(u3, 0b000),
             .Little => if (i % 2 == 0) @as(u3, 0b111) else @as(u3, 0b000),
         };
