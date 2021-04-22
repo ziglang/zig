@@ -861,12 +861,121 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
         => return structInitExpr(gz, scope, rl, node, tree.structInit(node)),
 
         .@"anytype" => return astgen.failNode(node, "TODO implement astgen.expr for .anytype", .{}),
-        .fn_proto_simple,
-        .fn_proto_multi,
-        .fn_proto_one,
-        .fn_proto,
-        => return astgen.failNode(node, "TODO implement astgen.expr for function prototypes", .{}),
+
+        .fn_proto_simple => {
+            var params: [1]ast.Node.Index = undefined;
+            return fnProtoExpr(gz, scope, rl, tree.fnProtoSimple(&params, node));
+        },
+        .fn_proto_multi => {
+            return fnProtoExpr(gz, scope, rl, tree.fnProtoMulti(node));
+        },
+        .fn_proto_one => {
+            var params: [1]ast.Node.Index = undefined;
+            return fnProtoExpr(gz, scope, rl, tree.fnProtoOne(&params, node));
+        },
+        .fn_proto => {
+            return fnProtoExpr(gz, scope, rl, tree.fnProto(node));
+        },
     }
+}
+
+pub fn fnProtoExpr(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    fn_proto: ast.full.FnProto,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = &astgen.file.tree;
+    const token_tags = tree.tokens.items(.tag);
+
+    const is_extern = blk: {
+        const maybe_extern_token = fn_proto.extern_export_token orelse break :blk false;
+        break :blk token_tags[maybe_extern_token] == .keyword_extern;
+    };
+    assert(!is_extern);
+
+    // The AST params array does not contain anytype and ... parameters.
+    // We must iterate to count how many param types to allocate.
+    const param_count = blk: {
+        var count: usize = 0;
+        var it = fn_proto.iterate(tree.*);
+        while (it.next()) |param| {
+            if (param.anytype_ellipsis3) |token| switch (token_tags[token]) {
+                .ellipsis3 => break,
+                .keyword_anytype => {},
+                else => unreachable,
+            };
+            count += 1;
+        }
+        break :blk count;
+    };
+    const param_types = try gpa.alloc(Zir.Inst.Ref, param_count);
+    defer gpa.free(param_types);
+
+    var is_var_args = false;
+    {
+        var param_type_i: usize = 0;
+        var it = fn_proto.iterate(tree.*);
+        while (it.next()) |param| : (param_type_i += 1) {
+            if (param.anytype_ellipsis3) |token| {
+                switch (token_tags[token]) {
+                    .keyword_anytype => {
+                        param_types[param_type_i] = .none;
+                        continue;
+                    },
+                    .ellipsis3 => {
+                        is_var_args = true;
+                        break;
+                    },
+                    else => unreachable,
+                }
+            }
+            const param_type_node = param.type_expr;
+            assert(param_type_node != 0);
+            param_types[param_type_i] =
+                try expr(gz, scope, .{ .ty = .type_type }, param_type_node);
+        }
+        assert(param_type_i == param_count);
+    }
+
+    assert(fn_proto.ast.align_expr == 0); // caught by the parser
+    assert(fn_proto.ast.section_expr == 0); // caught by the parser
+
+    const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
+    const is_inferred_error = token_tags[maybe_bang] == .bang;
+    if (is_inferred_error) {
+        return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
+    }
+    const return_type_inst = try AstGen.expr(
+        gz,
+        scope,
+        .{ .ty = .type_type },
+        fn_proto.ast.return_type,
+    );
+
+    const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
+        try AstGen.expr(
+            gz,
+            scope,
+            .{ .ty = .calling_convention_type },
+            fn_proto.ast.callconv_expr,
+        )
+    else
+        Zir.Inst.Ref.none;
+
+    const result = try gz.addFunc(.{
+        .src_node = fn_proto.ast.proto_node,
+        .ret_ty = return_type_inst,
+        .param_types = param_types,
+        .body = &[0]Zir.Inst.Index{},
+        .cc = cc,
+        .lib_name = 0,
+        .is_var_args = is_var_args,
+        .is_inferred_error = false,
+    });
+    return rvalue(gz, scope, rl, result, fn_proto.ast.proto_node);
 }
 
 pub fn arrayInitExpr(
@@ -2506,11 +2615,11 @@ fn fnDecl(
         Zir.Inst.Ref.none;
 
     const func_inst: Zir.Inst.Ref = if (body_node == 0) func: {
-        if (is_extern) {
+        if (!is_extern) {
             return astgen.failTok(fn_proto.ast.fn_token, "non-extern function has no body", .{});
         }
         if (is_inferred_error) {
-            return astgen.failTok(maybe_bang, "function prototype requires explicit error set", .{});
+            return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
         }
         break :func try decl_gz.addFunc(.{
             .src_node = fn_proto.ast.proto_node,
