@@ -111,19 +111,42 @@ sync
 #./zig test ../lib/std/std.zig
 
 ./zig test ../test/stage1/behavior.zig -I ../test -lc > z0.log 2>&1 &
-zig_pid=$!
 
 set +e
 
-sleep 60
-gdb -batch -p $(pgrep -ox test) -ex 'thread apply all bt' > z1.log 2>&1
-kill -SEGV $pid
-
 GFOLDER="gdrive:drone.${DRONE_BUILD_NUMBER}"
+PID_ZIG=$!
+PID_TEST=$(pgrep -ox test)
+
+sleep 60
+
+# is it still running?
+pgrep -ox "zig"
+pgrep -ox "test"
+
+if [[ -n "$PID_TEST" ]]; then
+    gdb -batch -p "$PID_TEST" -ex 'thread apply all bt' > z1.log 2>&1
+    kill -SEGV "$PID_TEST"
+    # give time for core file to dump
+    sleep 30
+    rclone --config ../gdrive.conf copyto core "$GFOLDER/core.test"
+    rm core
+fi
+
+if [[ -n "$PID_ZIG" ]]; then
+    gdb -batch -p "$PID_ZIG" -ex 'thread apply all bt' > z2.log 2>&1
+    kill -SEGV "$PID_ZIG"
+    # give time for core file to dump
+    sleep 30
+    rclone --config ../gdrive.conf copyto core "$GFOLDER/core.test"
+    rm core
+fi
+
 rclone --config ../gdrive.conf copy z0.log $GFOLDER
 rclone --config ../gdrive.conf copy z1.log $GFOLDER
+rclone --config ../gdrive.conf copy z2.log $GFOLDER
 rclone --config ../gdrive.conf copy $(find ../test/stage1/zig-cache -name test) $GFOLDER
-rclone --config ../gdrive.conf copy core $GFOLDER
+rclone --config ../gdrive.conf copy zig $GFOLDER
 
 set -e
 
