@@ -805,7 +805,7 @@ comptime {
     if (@sizeOf(usize) == 4)
         std.debug.assert(@sizeOf(siginfo_t) == 128)
     else
-    // Take into account the padding between errno and data fields.
+        // Take into account the padding between errno and data fields.
         std.debug.assert(@sizeOf(siginfo_t) == 136);
 }
 

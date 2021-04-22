@@ -12,7 +12,7 @@ const Socket = @This();
 /// A socket-address pair.
 pub const Connection = struct {
     socket: Socket,
-    address: net.Address,  
+    address: net.Address,
 };
 
 /// The underlying handle of a socket.
@@ -231,7 +231,7 @@ test {
 }
 
 test "socket/linux: set read timeout of 1 millisecond on blocking socket" {
-     if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
 
     const a = try Socket.init(os.AF_INET, os.SOCK_STREAM | os.SOCK_CLOEXEC, os.IPPROTO_TCP);
     defer a.deinit();
