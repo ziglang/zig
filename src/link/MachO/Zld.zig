@@ -2627,7 +2627,7 @@ fn writeDebugInfo(self: *Zld) !void {
             .n_type = macho.N_OSO,
             .n_sect = 0,
             .n_desc = 1,
-            .n_value = tu_mtime,
+            .n_value = 0, //tu_mtime, TODO figure out why precalculated mtime value doesn't work
         });
 
         for (object.stabs.items) |stab| {

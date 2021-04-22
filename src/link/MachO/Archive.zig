@@ -208,14 +208,13 @@ pub fn parseObject(self: Archive, offset: u32) !Object {
 
     const object_name = try parseName(self.allocator, object_header, reader);
     defer self.allocator.free(object_name);
-    const object_basename = std.fs.path.basename(object_name);
 
-    log.debug("extracting object '{s}' from archive '{s}'", .{ object_basename, self.name.? });
+    log.debug("extracting object '{s}' from archive '{s}'", .{ object_name, self.name.? });
 
     const name = name: {
         var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const path = try std.os.realpath(self.name.?, &buffer);
-        break :name try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ path, object_basename });
+        break :name try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ path, object_name });
     };
 
     var object = Object.init(self.allocator);
