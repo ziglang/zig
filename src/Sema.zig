@@ -517,6 +517,7 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
         .frame              => return sema.zirFrame(           block, extended),
         .frame_address      => return sema.zirFrameAddress(    block, extended),
         .alloc              => return sema.zirAllocExtended(   block, extended),
+        .builtin_extern     => return sema.zirBuiltinExtern(   block, extended),
         .c_undef            => return sema.zirCUndef(          block, extended),
         .c_include          => return sema.zirCInclude(        block, extended),
         .c_define           => return sema.zirCDefine(         block, extended),
@@ -5486,6 +5487,16 @@ fn zirWasmMemoryGrow(
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset = extra.node };
     return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirWasmMemoryGrow", .{});
+}
+
+fn zirBuiltinExtern(
+    sema: *Sema,
+    block: *Scope.Block,
+    extended: Zir.Inst.Extended.InstData,
+) InnerError!*Inst {
+    const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
+    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirBuiltinExtern", .{});
 }
 
 fn requireFunctionBlock(sema: *Sema, block: *Scope.Block, src: LazySrcLoc) !void {

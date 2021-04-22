@@ -1258,6 +1258,9 @@ pub const Inst = struct {
         ///  * 0b0X00 - 1=const, 0=var
         ///  * 0bX000 - is comptime
         alloc,
+        /// The `@extern` builtin.
+        /// `operand` is payload index to `BinNode`.
+        builtin_extern,
         /// `operand` is payload index to `UnNode`.
         c_undef,
         /// `operand` is payload index to `UnNode`.
@@ -1353,6 +1356,7 @@ pub const Inst = struct {
         reduce_op_type,
         call_options_type,
         export_options_type,
+        extern_options_type,
 
         /// `undefined` (untyped)
         undef,
@@ -1579,6 +1583,10 @@ pub const Inst = struct {
             .export_options_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.export_options_type),
+            },
+            .extern_options_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.extern_options_type),
             },
 
             .undef = .{
@@ -2598,6 +2606,7 @@ const Writer = struct {
 
             .func,
             .alloc,
+            .builtin_extern,
             .c_undef,
             .c_include,
             .c_define,

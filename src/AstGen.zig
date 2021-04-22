@@ -6135,12 +6135,25 @@ fn builtinCall(
             }
             const ident_token = main_tokens[params[0]];
             const decl_name = try gz.identAsString(ident_token);
+            // TODO look for local variables in scope matching `decl_name` and emit a compile
+            // error. Only top-level declarations can be exported. Until this is done, the
+            // compile error will end up being "use of undeclared identifier" in Sema.
             const options = try comptimeExpr(gz, scope, .{ .ty = .export_options_type }, params[1]);
             _ = try gz.addPlNode(.@"export", node, Zir.Inst.Export{
                 .decl_name = decl_name,
                 .options = options,
             });
             return rvalue(gz, scope, rl, .void_value, node);
+        },
+        .@"extern" => {
+            const type_inst = try typeExpr(gz, scope, params[0]);
+            const options = try comptimeExpr(gz, scope, .{ .ty = .extern_options_type }, params[1]);
+            const result = try gz.addExtendedPayload(.builtin_extern, Zir.Inst.BinNode{
+                .node = gz.nodeIndexToRelative(node),
+                .lhs = type_inst,
+                .rhs = options,
+            });
+            return rvalue(gz, scope, rl, result, node);
         },
 
         .breakpoint => return simpleNoOpVoid(gz, scope, rl, node, .breakpoint),

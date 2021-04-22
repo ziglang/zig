@@ -39,6 +39,7 @@ pub const Tag = enum {
     error_to_int,
     err_set_cast,
     @"export",
+    @"extern",
     fence,
     field,
     field_parent_ptr,
@@ -384,6 +385,13 @@ pub const list = list: {
             "@export",
             .{
                 .tag = .@"export",
+                .param_count = 2,
+            },
+        },
+        .{
+            "@extern",
+            .{
+                .tag = .@"extern",
                 .param_count = 2,
             },
         },

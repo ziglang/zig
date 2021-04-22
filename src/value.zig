@@ -73,6 +73,7 @@ pub const Value = extern union {
         reduce_op_type,
         call_options_type,
         export_options_type,
+        extern_options_type,
 
         undef,
         zero,
@@ -187,6 +188,7 @@ pub const Value = extern union {
                 .reduce_op_type,
                 .call_options_type,
                 .export_options_type,
+                .extern_options_type,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .int_big_positive,
@@ -354,6 +356,7 @@ pub const Value = extern union {
             .reduce_op_type,
             .call_options_type,
             .export_options_type,
+            .extern_options_type,
             => unreachable,
 
             .ty => {
@@ -510,6 +513,7 @@ pub const Value = extern union {
             .reduce_op_type => return out_stream.writeAll("std.builtin.ReduceOp"),
             .call_options_type => return out_stream.writeAll("std.builtin.CallOptions"),
             .export_options_type => return out_stream.writeAll("std.builtin.ExportOptions"),
+            .extern_options_type => return out_stream.writeAll("std.builtin.ExternOptions"),
             .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
@@ -640,6 +644,7 @@ pub const Value = extern union {
             .reduce_op_type => Type.initTag(.reduce_op),
             .call_options_type => Type.initTag(.call_options),
             .export_options_type => Type.initTag(.export_options),
+            .extern_options_type => Type.initTag(.extern_options),
 
             .int_type => {
                 const payload = self.castTag(.int_type).?.data;
@@ -1187,6 +1192,7 @@ pub const Value = extern union {
             .reduce_op_type,
             .call_options_type,
             .export_options_type,
+            .extern_options_type,
             => @panic("TODO this hash function looks pretty broken. audit it"),
         }
         return hasher.final();
@@ -1343,6 +1349,7 @@ pub const Value = extern union {
             .reduce_op_type,
             .call_options_type,
             .export_options_type,
+            .extern_options_type,
             => true,
 
             .zero,
