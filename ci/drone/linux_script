@@ -12,7 +12,6 @@ ls -al $HOME/.
 ls -al .
 ulimit -a
 env | sort
-cat /etc/apk/repositories
 
 set -e
 
@@ -84,10 +83,7 @@ sync
 #   .trbe,
 #   .use_postra_scheduler,
 
-./zig test ../test/stage1/behavior.zig -I ../test -lc -mcpu=baseline
-./zig test ../test/stage1/behavior.zig -I ../test -lc
-
-./zig test ../lib/std/std.zig -mcpu=baseline
+./zig test ../lib/std/std.zig -mcpu=baseline-ete-fp_armv8-fuse_aes-neon-perfmon-trbe-use_postra_scheduler
 ./zig test ../lib/std/std.zig
 
 echo "-----  ALL DONE -----"
@@ -96,8 +92,6 @@ echo "-----  ALL DONE -----"
 
 ## now if we had a test hang, there should be "core" in cwd
 #gdb -batch -ex "thread 1" -ex "bt" `cat core.exename` core
-
-exit 0
 
 if [ -z "$DRONE_PULL_REQUEST" ]; then
   mv ../LICENSE "$DISTDIR/"
