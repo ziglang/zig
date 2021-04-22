@@ -472,9 +472,7 @@ pub fn HashMapUnmanaged(
 
         /// Insert an entry in the map. Assumes it is not already present.
         pub fn putNoClobber(self: *Self, allocator: *Allocator, key: K, value: V) !void {
-            assert(!self.contains(key));
             try self.growIfNeeded(allocator, 1);
-
             self.putAssumeCapacityNoClobber(key, value);
         }
 
@@ -489,7 +487,12 @@ pub fn HashMapUnmanaged(
         /// Insert an entry in the map. Assumes it is not already present,
         /// and that no allocation is needed.
         pub fn putAssumeCapacityNoClobber(self: *Self, key: K, value: V) void {
-            assert(!self.contains(key));
+            if (std.debug.runtime_safety) {
+                // Note: The compiler can't optimize this away in release-fast
+                // for some reason.  If anyone wants to dig into llvm and find
+                // out why, that would be a useful piece of information.
+                assert(!self.contains(key));
+            }
 
             const hash = hashFn(key);
             const mask = self.capacity() - 1;
@@ -681,7 +684,12 @@ pub fn HashMapUnmanaged(
         /// Asserts there is an `Entry` with matching key, deletes it from the hash map,
         /// and discards it.
         pub fn removeAssertDiscard(self: *Self, key: K) void {
-            assert(self.contains(key));
+            if (std.debug.runtime_safety) {
+                // Note: The compiler can't optimize this away in release-fast
+                // for some reason.  If anyone wants to dig into llvm and find
+                // out why, that would be a useful piece of information.
+                assert(self.contains(key));
+            }
 
             const hash = hashFn(key);
             const mask = self.capacity() - 1;
