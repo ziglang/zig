@@ -1630,6 +1630,57 @@ pub const Scope = struct {
             });
         }
 
+        pub fn addAllocExtended(
+            gz: *GenZir,
+            args: struct {
+                /// Absolute node index. This function does the conversion to offset from Decl.
+                node: ast.Node.Index,
+                type_inst: Zir.Inst.Ref,
+                align_inst: Zir.Inst.Ref,
+                is_const: bool,
+                is_comptime: bool,
+            },
+        ) !Zir.Inst.Ref {
+            const astgen = gz.astgen;
+            const gpa = astgen.gpa;
+
+            try gz.instructions.ensureUnusedCapacity(gpa, 1);
+            try astgen.instructions.ensureUnusedCapacity(gpa, 1);
+            try astgen.extra.ensureUnusedCapacity(
+                gpa,
+                @typeInfo(Zir.Inst.AllocExtended).Struct.fields.len +
+                    @as(usize, @boolToInt(args.type_inst != .none)) +
+                    @as(usize, @boolToInt(args.align_inst != .none)),
+            );
+            const payload_index = gz.astgen.addExtra(Zir.Inst.AllocExtended{
+                .src_node = gz.nodeIndexToRelative(args.node),
+            }) catch unreachable; // ensureUnusedCapacity above
+            if (args.type_inst != .none) {
+                astgen.extra.appendAssumeCapacity(@enumToInt(args.type_inst));
+            }
+            if (args.align_inst != .none) {
+                astgen.extra.appendAssumeCapacity(@enumToInt(args.align_inst));
+            }
+
+            const has_type: u4 = @boolToInt(args.type_inst != .none);
+            const has_align: u4 = @boolToInt(args.align_inst != .none);
+            const is_const: u4 = @boolToInt(args.is_const);
+            const is_comptime: u4 = @boolToInt(args.is_comptime);
+            const small: u16 = has_type | (has_align << 1) | (is_const << 2) | (is_comptime << 3);
+
+            const new_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
+            astgen.instructions.appendAssumeCapacity(.{
+                .tag = .extended,
+                .data = .{ .extended = .{
+                    .opcode = .alloc,
+                    .small = small,
+                    .operand = payload_index,
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+            return gz.indexToRef(new_index);
+        }
+
         /// Asserts that `str` is 8 or fewer bytes.
         pub fn addSmallStr(
             gz: *GenZir,

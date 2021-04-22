@@ -1902,9 +1902,6 @@ fn varDecl(
 ) InnerError!*Scope {
     try emitDbgNode(gz, node);
     const astgen = gz.astgen;
-    if (var_decl.ast.align_node != 0) {
-        return astgen.failNode(var_decl.ast.align_node, "TODO implement alignment on locals", .{});
-    }
     const gpa = astgen.gpa;
     const tree = &astgen.file.tree;
     const token_tags = tree.tokens.items(.tag);
@@ -1919,12 +1916,12 @@ fn varDecl(
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
                 if (mem.eql(u8, local_val.name, ident_name)) {
-                    return astgen.failTokNotes(name_token, "redefinition of '{s}'", .{
+                    return astgen.failTokNotes(name_token, "redeclaration of '{s}'", .{
                         ident_name,
                     }, &[_]u32{
                         try astgen.errNoteTok(
                             local_val.token_src,
-                            "previous definition is here",
+                            "previous declaration is here",
                             .{},
                         ),
                     });
@@ -1934,12 +1931,12 @@ fn varDecl(
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (mem.eql(u8, local_ptr.name, ident_name)) {
-                    return astgen.failTokNotes(name_token, "redefinition of '{s}'", .{
+                    return astgen.failTokNotes(name_token, "redeclaration of '{s}'", .{
                         ident_name,
                     }, &[_]u32{
                         try astgen.errNoteTok(
                             local_ptr.token_src,
-                            "previous definition is here",
+                            "previous declaration is here",
                             .{},
                         ),
                     });
@@ -1957,15 +1954,21 @@ fn varDecl(
         return astgen.failNode(node, "variables must be initialized", .{});
     }
 
+    const align_inst: Zir.Inst.Ref = if (var_decl.ast.align_node != 0)
+        try expr(gz, scope, align_rl, var_decl.ast.align_node)
+    else
+        .none;
+
     switch (token_tags[var_decl.ast.mut_token]) {
         .keyword_const => {
             if (var_decl.comptime_token) |comptime_token| {
                 return astgen.failTok(comptime_token, "'comptime const' is redundant; instead wrap the initialization expression with 'comptime'", .{});
             }
+
             // Depending on the type of AST the initialization expression is, we may need an lvalue
             // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
             // the variable, no memory location needed.
-            if (!nodeMayNeedMemoryLocation(tree, var_decl.ast.init_node)) {
+            if (align_inst == .none and !nodeMayNeedMemoryLocation(tree, var_decl.ast.init_node)) {
                 const result_loc: ResultLoc = if (var_decl.ast.type_node != 0) .{
                     .ty = try typeExpr(gz, scope, var_decl.ast.type_node),
                 } else .none;
@@ -1997,10 +2000,29 @@ fn varDecl(
             if (var_decl.ast.type_node != 0) {
                 const type_inst = try typeExpr(gz, &init_scope.base, var_decl.ast.type_node);
                 opt_type_inst = type_inst;
-                init_scope.rl_ptr = try init_scope.addUnNode(.alloc, type_inst, node);
+                if (align_inst == .none) {
+                    init_scope.rl_ptr = try init_scope.addUnNode(.alloc, type_inst, node);
+                } else {
+                    init_scope.rl_ptr = try gz.addAllocExtended(.{
+                        .node = node,
+                        .type_inst = type_inst,
+                        .align_inst = align_inst,
+                        .is_const = true,
+                        .is_comptime = false,
+                    });
+                }
                 init_scope.rl_ty_inst = type_inst;
             } else {
-                const alloc = try init_scope.addNode(.alloc_inferred, node);
+                const alloc = if (align_inst == .none)
+                    try init_scope.addNode(.alloc_inferred, node)
+                else
+                    try gz.addAllocExtended(.{
+                        .node = node,
+                        .type_inst = .none,
+                        .align_inst = align_inst,
+                        .is_const = true,
+                        .is_comptime = false,
+                    });
                 resolve_inferred_alloc = alloc;
                 init_scope.rl_ptr = alloc;
             }
@@ -2010,7 +2032,7 @@ fn varDecl(
             const zir_datas = astgen.instructions.items(.data);
 
             const parent_zir = &gz.instructions;
-            if (init_scope.rvalue_rl_count == 1) {
+            if (align_inst == .none and init_scope.rvalue_rl_count == 1) {
                 // Result location pointer not used. We don't need an alloc for this
                 // const local, and type inference becomes trivial.
                 // Move the init_scope instructions into the parent scope, eliding
@@ -2070,12 +2092,36 @@ fn varDecl(
                 alloc: Zir.Inst.Ref,
             } = if (var_decl.ast.type_node != 0) a: {
                 const type_inst = try typeExpr(gz, scope, var_decl.ast.type_node);
-                const tag: Zir.Inst.Tag = if (is_comptime) .alloc_comptime else .alloc_mut;
-                const alloc = try gz.addUnNode(tag, type_inst, node);
+                const alloc = alloc: {
+                    if (align_inst == .none) {
+                        const tag: Zir.Inst.Tag = if (is_comptime) .alloc_comptime else .alloc_mut;
+                        break :alloc try gz.addUnNode(tag, type_inst, node);
+                    } else {
+                        break :alloc try gz.addAllocExtended(.{
+                            .node = node,
+                            .type_inst = type_inst,
+                            .align_inst = align_inst,
+                            .is_const = false,
+                            .is_comptime = is_comptime,
+                        });
+                    }
+                };
                 break :a .{ .alloc = alloc, .result_loc = .{ .ptr = alloc } };
             } else a: {
-                const tag: Zir.Inst.Tag = if (is_comptime) .alloc_inferred_comptime else .alloc_inferred_mut;
-                const alloc = try gz.addNode(tag, node);
+                const alloc = alloc: {
+                    if (align_inst == .none) {
+                        const tag: Zir.Inst.Tag = if (is_comptime) .alloc_inferred_comptime else .alloc_inferred_mut;
+                        break :alloc try gz.addNode(tag, node);
+                    } else {
+                        break :alloc try gz.addAllocExtended(.{
+                            .node = node,
+                            .type_inst = .none,
+                            .align_inst = align_inst,
+                            .is_const = false,
+                            .is_comptime = is_comptime,
+                        });
+                    }
+                };
                 resolve_inferred_alloc = alloc;
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };

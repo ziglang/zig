@@ -926,7 +926,6 @@ pub const Inst = struct {
         /// Allocates stack local memory.
         /// Uses the `un_node` union field. The operand is the type of the allocated object.
         /// The node source location points to a var decl node.
-        /// Indicates the beginning of a new statement in debug info.
         alloc,
         /// Same as `alloc` except mutable.
         alloc_mut,
@@ -1251,6 +1250,14 @@ pub const Inst = struct {
         /// Implements the `@frameAddress` builtin.
         /// `operand` is `src_node: i32`.
         frame_address,
+        /// Same as `alloc` from `Tag` but may contain an alignment instruction.
+        /// `operand` is payload index to `AllocExtended`.
+        /// `small`:
+        ///  * 0b000X - has type
+        ///  * 0b00X0 - has alignment
+        ///  * 0b0X00 - 1=const, 0=var
+        ///  * 0bX000 - is comptime
+        alloc,
         /// `operand` is payload index to `UnNode`.
         c_undef,
         /// `operand` is payload index to `UnNode`.
@@ -2200,6 +2207,13 @@ pub const Inst = struct {
         args: Ref,
     };
 
+    /// Trailing:
+    /// 0. type_inst: Ref,  // if small 0b000X is set
+    /// 1. align_inst: Ref, // if small 0b00X0 is set
+    pub const AllocExtended = struct {
+        src_node: i32,
+    };
+
     /// Trailing: `CompileErrors.Item` for each `items_len`.
     pub const CompileErrors = struct {
         items_len: u32,
@@ -2571,6 +2585,7 @@ const Writer = struct {
             => try self.writeExtNode(stream, extended),
 
             .func,
+            .alloc,
             .c_undef,
             .c_include,
             .c_define,

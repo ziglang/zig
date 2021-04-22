@@ -516,6 +516,7 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
         .error_return_trace => return sema.zirErrorReturnTrace(block, extended),
         .frame              => return sema.zirFrame(           block, extended),
         .frame_address      => return sema.zirFrameAddress(    block, extended),
+        .alloc              => return sema.zirAllocExtended(   block, extended),
         .c_undef            => return sema.zirCUndef(          block, extended),
         .c_include          => return sema.zirCInclude(        block, extended),
         .c_define           => return sema.zirCDefine(         block, extended),
@@ -1129,6 +1130,16 @@ fn zirIndexablePtrLen(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) In
     }
     const result_ptr = try sema.namedFieldPtr(block, src, array_ptr, "len", src);
     return sema.analyzeLoad(block, src, result_ptr, result_ptr.src);
+}
+
+fn zirAllocExtended(
+    sema: *Sema,
+    block: *Scope.Block,
+    extended: Zir.Inst.Extended.InstData,
+) InnerError!*Inst {
+    const extra = sema.code.extraData(Zir.Inst.AllocExtended, extended.operand);
+    const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirAllocExtended", .{});
 }
 
 fn zirAllocComptime(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
