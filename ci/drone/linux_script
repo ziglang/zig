@@ -118,12 +118,17 @@ set +e
 sleep 120
 
 GFOLDER="gdrive:drone.${DRONE_BUILD_NUMBER}"
+rclone --config ../gdrive.conf mkdir $GFOLDER
+
 PID_ZIG=$!
 PID_TEST=$(pgrep -ox test)
 
 # sanity check: is it still running?
 pgrep -ox "zig"
 pgrep -ox "test"
+
+# pause processes so we may get cores
+kill -STOP $PID_ZIG $PID_TEST
 
 if [[ -n "$PID_TEST" ]]; then
     gdb -batch -p "$PID_TEST" -ex 'thread apply all bt' > z1.log 2>&1
