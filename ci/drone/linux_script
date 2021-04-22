@@ -106,9 +106,10 @@ sleep 60
 gdb -batch -p $(pgrep -ox test) -ex 'thread apply all bt' > z1.log 2>&1
 kill -SEGV $pid
 
-rclone --config ../gdrive.conf copy z0.log gdrive:
-rclone --config ../gdrive.conf copy z1.log gdrive:
-rclone --config ../gdrive.conf copy $(find ../test/stage1/zig-cache -name test) gdrive:test
+GFOLDER="gdrive:drone.${DRONE_BUILD_NUMBER}"
+rclone --config ../gdrive.conf copy z0.log $GFOLDER
+rclone --config ../gdrive.conf copy z1.log $GFOLDER
+rclone --config ../gdrive.conf copy $(find ../test/stage1/zig-cache -name test) $GFOLDER
 
 set -e
 
