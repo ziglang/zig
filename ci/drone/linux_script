@@ -122,6 +122,7 @@ GFOLDER="gdrive:drone.${DRONE_BUILD_NUMBER}"
 rclone --config ../gdrive.conf copy z0.log $GFOLDER
 rclone --config ../gdrive.conf copy z1.log $GFOLDER
 rclone --config ../gdrive.conf copy $(find ../test/stage1/zig-cache -name test) $GFOLDER
+rclone --config ../gdrive.conf copy core $GFOLDER
 
 set -e
 
