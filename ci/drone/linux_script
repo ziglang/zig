@@ -14,11 +14,23 @@ ulimit -a
 env | sort
 
 date
-ls --full-time -ld $HOME/.
-ls --full-time -ld .
+touch $HOME/foo.timestamp
+touch ./foo.timestamp
+ls --full-time -ld $HOME/foo.timestamp
+ls --full-time -ld ./foo.timestamp
+
 date
-ls --full-time -ld $HOME/.
-ls --full-time -ld .
+touch $HOME/foo.timestamp
+touch ./foo.timestamp
+ls --full-time -ld $HOME/foo.timestamp
+ls --full-time -ld ./foo.timestamp
+
+date
+touch $HOME/foo.timestamp
+touch ./foo.timestamp
+ls --full-time -ld $HOME/foo.timestamp
+ls --full-time -ld ./foo.timestamp
+
 date
 
 set -e
