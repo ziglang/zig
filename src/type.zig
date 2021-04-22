@@ -99,6 +99,7 @@ pub const Type = extern union {
             .empty_struct_literal,
             .@"struct",
             .call_options,
+            .export_options,
             => return .Struct,
 
             .enum_full,
@@ -616,6 +617,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => unreachable,
 
             .array_u8,
@@ -794,6 +796,7 @@ pub const Type = extern union {
                 .float_mode => return writer.writeAll("std.builtin.FloatMode"),
                 .reduce_op => return writer.writeAll("std.builtin.ReduceOp"),
                 .call_options => return writer.writeAll("std.builtin.CallOptions"),
+                .export_options => return writer.writeAll("std.builtin.ExportOptions"),
                 .function => {
                     const payload = ty.castTag(.function).?.data;
                     try writer.writeAll("fn(");
@@ -1008,6 +1011,7 @@ pub const Type = extern union {
             .float_mode => return Value.initTag(.float_mode_type),
             .reduce_op => return Value.initTag(.reduce_op_type),
             .call_options => return Value.initTag(.call_options_type),
+            .export_options => return Value.initTag(.export_options_type),
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             else => return Value.Tag.ty.create(allocator, self),
@@ -1065,6 +1069,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => true,
 
             .@"struct" => {
@@ -1175,6 +1180,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => return 1,
 
             .fn_noreturn_no_args, // represents machine code; not a pointer
@@ -1352,6 +1358,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => return 1,
 
             .array_u8 => self.castTag(.array_u8).?.data,
@@ -1615,6 +1622,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => @panic("TODO at some point we gotta resolve builtin types"),
         };
     }
@@ -2238,6 +2246,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => return null,
 
             .@"struct" => {
@@ -2403,6 +2412,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => @panic("TODO resolve std.builtin types"),
 
             else => unreachable,
@@ -2425,6 +2435,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
@@ -2446,6 +2457,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
@@ -2489,6 +2501,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
@@ -2518,6 +2531,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
@@ -2548,6 +2562,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
@@ -2587,6 +2602,7 @@ pub const Type = extern union {
             .float_mode,
             .reduce_op,
             .call_options,
+            .export_options,
             => @panic("TODO resolve std.builtin types"),
 
             else => unreachable,
@@ -2643,6 +2659,7 @@ pub const Type = extern union {
         float_mode,
         reduce_op,
         call_options,
+        export_options,
         @"null",
         @"undefined",
         fn_noreturn_no_args,
@@ -2754,6 +2771,7 @@ pub const Type = extern union {
                 .float_mode,
                 .reduce_op,
                 .call_options,
+                .export_options,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .array_u8,

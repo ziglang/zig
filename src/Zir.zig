@@ -1352,6 +1352,7 @@ pub const Inst = struct {
         float_mode_type,
         reduce_op_type,
         call_options_type,
+        export_options_type,
 
         /// `undefined` (untyped)
         undef,
@@ -1574,6 +1575,10 @@ pub const Inst = struct {
             .call_options_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.call_options_type),
+            },
+            .export_options_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.export_options_type),
             },
 
             .undef = .{
@@ -2214,6 +2219,12 @@ pub const Inst = struct {
         src_node: i32,
     };
 
+    pub const Export = struct {
+        /// Null-terminated string index.
+        decl_name: u32,
+        options: Ref,
+    };
+
     /// Trailing: `CompileErrors.Item` for each `items_len`.
     pub const CompileErrors = struct {
         items_len: u32,
@@ -2451,7 +2462,6 @@ const Writer = struct {
             .xor,
             .store_node,
             .error_union_type,
-            .@"export",
             .merge_error_sets,
             .bit_and,
             .bit_or,
@@ -2478,6 +2488,8 @@ const Writer = struct {
             .bitcast,
             .bitcast_result_ptr,
             => try self.writePlNodeBin(stream, inst),
+
+            .@"export" => try self.writePlNodeExport(stream, inst),
 
             .call,
             .call_chkused,
@@ -2725,6 +2737,17 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeExport(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.Export, inst_data.payload_index).data;
+        const decl_name = self.code.nullTerminatedString(extra.decl_name);
+
+        try stream.print("{}, ", .{std.zig.fmtId(decl_name)});
+        try self.writeInstRef(stream, extra.options);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }

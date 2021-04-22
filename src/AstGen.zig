@@ -6127,15 +6127,18 @@ fn builtinCall(
         .c_import   => return cImport(  gz, scope, rl, node, params[0]),
 
         .@"export" => {
-            // TODO: @export is supposed to be able to export things other than functions.
-            // Instead of `comptimeExpr` here we need `decl_ref`.
-            const fn_to_export = try comptimeExpr(gz, scope, .none, params[0]);
-            // TODO: the second parameter here is supposed to be
-            // `std.builtin.ExportOptions`, not a string.
-            const export_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
-            _ = try gz.addPlNode(.@"export", node, Zir.Inst.Bin{
-                .lhs = fn_to_export,
-                .rhs = export_name,
+            const node_tags = tree.nodes.items(.tag);
+            // This function causes a Decl to be exported. The first parameter is not an expression,
+            // but an identifier of the Decl to be exported.
+            if (node_tags[params[0]] != .identifier) {
+                return astgen.failNode(params[0], "the first @export parameter must be an identifier", .{});
+            }
+            const ident_token = main_tokens[params[0]];
+            const decl_name = try gz.identAsString(ident_token);
+            const options = try comptimeExpr(gz, scope, .{ .ty = .export_options_type }, params[1]);
+            _ = try gz.addPlNode(.@"export", node, Zir.Inst.Export{
+                .decl_name = decl_name,
+                .options = options,
             });
             return rvalue(gz, scope, rl, .void_value, node);
         },

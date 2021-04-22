@@ -1766,21 +1766,20 @@ fn zirExport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const extra = sema.code.extraData(Zir.Inst.Export, inst_data.payload_index).data;
     const src = inst_data.src();
     const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const decl_name = sema.code.nullTerminatedString(extra.decl_name);
+    const decl = try sema.lookupIdentifier(block, lhs_src, decl_name);
+    const options = try sema.resolveInstConst(block, rhs_src, extra.options);
 
-    // TODO (see corresponding TODO in AstGen) this is supposed to be a `decl_ref`
-    // instruction, which could reference any decl, which is then supposed to get
-    // exported, regardless of whether or not it is a function.
-    const target_fn = try sema.resolveInstConst(block, lhs_src, extra.lhs);
-    // TODO (see corresponding TODO in AstGen) this is supposed to be
-    // `std.builtin.ExportOptions`, not a string.
-    const export_name = try sema.resolveConstString(block, rhs_src, extra.rhs);
+    // TODO respect the name, linkage, and section options. Until then we export
+    // as the decl name.
+    _ = options;
+    const export_name = mem.spanZ(decl.name);
 
-    const actual_fn = target_fn.val.castTag(.function).?.data;
-    try sema.mod.analyzeExport(&block.base, src, export_name, actual_fn.owner_decl);
+    try sema.mod.analyzeExport(&block.base, src, export_name, decl);
 }
 
 fn zirSetAlignStack(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!void {

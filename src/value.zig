@@ -72,6 +72,7 @@ pub const Value = extern union {
         float_mode_type,
         reduce_op_type,
         call_options_type,
+        export_options_type,
 
         undef,
         zero,
@@ -185,6 +186,7 @@ pub const Value = extern union {
                 .float_mode_type,
                 .reduce_op_type,
                 .call_options_type,
+                .export_options_type,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .int_big_positive,
@@ -351,6 +353,7 @@ pub const Value = extern union {
             .float_mode_type,
             .reduce_op_type,
             .call_options_type,
+            .export_options_type,
             => unreachable,
 
             .ty => {
@@ -506,6 +509,7 @@ pub const Value = extern union {
             .float_mode_type => return out_stream.writeAll("std.builtin.FloatMode"),
             .reduce_op_type => return out_stream.writeAll("std.builtin.ReduceOp"),
             .call_options_type => return out_stream.writeAll("std.builtin.CallOptions"),
+            .export_options_type => return out_stream.writeAll("std.builtin.ExportOptions"),
             .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
@@ -635,6 +639,7 @@ pub const Value = extern union {
             .float_mode_type => Type.initTag(.float_mode),
             .reduce_op_type => Type.initTag(.reduce_op),
             .call_options_type => Type.initTag(.call_options),
+            .export_options_type => Type.initTag(.export_options),
 
             .int_type => {
                 const payload = self.castTag(.int_type).?.data;
@@ -1181,6 +1186,7 @@ pub const Value = extern union {
             .float_mode_type,
             .reduce_op_type,
             .call_options_type,
+            .export_options_type,
             => @panic("TODO this hash function looks pretty broken. audit it"),
         }
         return hasher.final();
@@ -1336,6 +1342,7 @@ pub const Value = extern union {
             .float_mode_type,
             .reduce_op_type,
             .call_options_type,
+            .export_options_type,
             => true,
 
             .zero,
