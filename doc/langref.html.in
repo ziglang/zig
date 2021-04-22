@@ -2624,7 +2624,7 @@ fn doTheTest() void {
     expect(@sizeOf(Divided) == 2);
     var full = Full{ .number = 0x1234 };
     var divided = @bitCast(Divided, full);
-    switch (std.Target.current.cpu.arch.endian()) {
+    switch (comptime std.Target.current.cpu.arch.endian()) {
         .Big => {
             expect(divided.half1 == 0x12);
             expect(divided.quarter3 == 0x3);
@@ -9729,7 +9729,7 @@ test "expect in release fast mode" {
       to see a command-line usage help menu. This will include project-specific
       options that were declared in the build.zig script.
       </p>
-      
+
       {#header_open|Building an Executable#}
       <p>This <code>build.zig</code> file is automatically generated
         by <code>zig init-exe</code>.</p>

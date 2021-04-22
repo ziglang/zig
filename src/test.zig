@@ -135,7 +135,7 @@ pub const TestContext = struct {
         /// to Executable.
         output_mode: std.builtin.OutputMode,
         updates: std.ArrayList(Update),
-        object_format: ?std.builtin.ObjectFormat = null,
+        object_format: ?std.Target.ObjectFormat = null,
         emit_h: bool = false,
         llvm_backend: bool = false,
 

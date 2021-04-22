@@ -3381,7 +3381,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
 
     if (comp.bin_file.options.is_test) {
         try buffer.appendSlice(
-            \\pub var test_functions: []TestFn = undefined; // overwritten later
+            \\pub var test_functions: []std.builtin.TestFn = undefined; // overwritten later
             \\
         );
         if (comp.test_evented_io) {
