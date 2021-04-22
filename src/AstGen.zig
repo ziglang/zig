@@ -5179,7 +5179,9 @@ fn switchExpr(
                 }
                 extra_index += body_len - 2;
                 const store_inst = scalar_cases_payload.items[extra_index];
-                if (zir_tags[store_inst] != .store_to_block_ptr) {
+                if (zir_tags[store_inst] != .store_to_block_ptr or
+                    zir_datas[store_inst].bin.lhs != block_scope.rl_ptr)
+                {
                     extra_index += 2;
                     astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[0..extra_index]);
                     break :special_prong;
@@ -5220,7 +5222,9 @@ fn switchExpr(
                 }
                 extra_index += body_len - 2;
                 const store_inst = scalar_cases_payload.items[extra_index];
-                if (zir_tags[store_inst] != .store_to_block_ptr) {
+                if (zir_tags[store_inst] != .store_to_block_ptr or
+                    zir_datas[store_inst].bin.lhs != block_scope.rl_ptr)
+                {
                     extra_index += 2;
                     astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[start_index..extra_index]);
                     continue;
@@ -5236,15 +5240,12 @@ fn switchExpr(
                         .rhs = zir_datas[break_inst].@"break".operand,
                     };
                     zir_datas[break_inst].@"break".operand = parent_gz.indexToRef(store_inst);
-                } else if (zir_datas[store_inst].bin.lhs == block_scope.rl_ptr) {
+                } else {
                     scalar_cases_payload.items[body_len_index] -= 1;
                     astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[start_index..extra_index]);
                     extra_index += 1;
                     astgen.extra.appendAssumeCapacity(scalar_cases_payload.items[extra_index]);
                     extra_index += 1;
-                } else {
-                    extra_index += 2;
-                    astgen.extra.appendSliceAssumeCapacity(scalar_cases_payload.items[start_index..extra_index]);
                 }
             }
             extra_index = 0;
@@ -5267,7 +5268,9 @@ fn switchExpr(
                 }
                 extra_index += body_len - 2;
                 const store_inst = multi_cases_payload.items[extra_index];
-                if (zir_tags[store_inst] != .store_to_block_ptr) {
+                if (zir_tags[store_inst] != .store_to_block_ptr or
+                    zir_datas[store_inst].bin.lhs != block_scope.rl_ptr)
+                {
                     extra_index += 2;
                     astgen.extra.appendSliceAssumeCapacity(multi_cases_payload.items[start_index..extra_index]);
                     continue;
