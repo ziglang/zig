@@ -13,6 +13,14 @@ ls -al .
 ulimit -a
 env | sort
 
+date
+ls --full-time -ld $HOME/.
+ls --full-time -ld .
+date
+ls --full-time -ld $HOME/.
+ls --full-time -ld .
+date
+
 set -e
 
 export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-cache"
@@ -25,7 +33,7 @@ apk update
 apk add py3-pip xz perl-utils jq curl samurai
 pip3 install s3cmd
 
-apk add util-linux
+apk add util-linux rclone gdb
 lscpu
 
 # Make the `zig version` number consistent.
@@ -83,12 +91,32 @@ sync
 #   .trbe,
 #   .use_postra_scheduler,
 
-./zig test ../lib/std/std.zig -mcpu=baseline-ete-fp_armv8-fuse_aes-neon-perfmon-trbe-use_postra_scheduler
-./zig test ../lib/std/std.zig
+#./zig test ../test/stage1/behavior.zig -I ../test -lc -mcpu=baseline
+#./zig test ../test/stage1/behavior.zig -I ../test -lc
+
+#./zig test ../lib/std/std.zig -mcpu=baseline
+#./zig test ../lib/std/std.zig
+
+./zig test ../test/stage1/behavior.zig -I ../test -lc > z0.log 2>&1 &
+zig_pid=$!
+
+set +e
+
+sleep 60
+gdb -batch -p $(pgrep -ox test) -ex 'thread apply all bt' > z1.log 2>&1
+kill -SEGV $pid
+
+rclone --config ../gdrive.conf copy z0.log gdrive:
+rclone --config ../gdrive.conf copy z1.log gdrive:
+rclone --config ../gdrive.conf copy $(find ../test/stage1/zig-cache -name test) gdrive:test
+
+set -e
 
 echo "-----  ALL DONE -----"
 echo "-----  ALL DONE -----"
 echo "-----  ALL DONE -----"
+
+exit 0
 
 ## now if we had a test hang, there should be "core" in cwd
 #gdb -batch -ex "thread 1" -ex "bt" `cat core.exename` core
