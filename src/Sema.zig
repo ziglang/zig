@@ -135,7 +135,9 @@ pub fn analyzeBody(
             .alloc                        => try sema.zirAlloc(block, inst),
             .alloc_inferred               => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_const)),
             .alloc_inferred_mut           => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_mut)),
+            .alloc_inferred_comptime      => try sema.zirAllocInferredComptime(block, inst),
             .alloc_mut                    => try sema.zirAllocMut(block, inst),
+            .alloc_comptime               => try sema.zirAllocComptime(block, inst),
             .array_cat                    => try sema.zirArrayCat(block, inst),
             .array_mul                    => try sema.zirArrayMul(block, inst),
             .array_type                   => try sema.zirArrayType(block, inst),
@@ -177,7 +179,6 @@ pub fn analyzeBody(
             .elem_val_node                => try sema.zirElemValNode(block, inst),
             .elem_type                    => try sema.zirElemType(block, inst),
             .enum_literal                 => try sema.zirEnumLiteral(block, inst),
-            .enum_literal_small           => try sema.zirEnumLiteralSmall(block, inst),
             .enum_to_int                  => try sema.zirEnumToInt(block, inst),
             .int_to_enum                  => try sema.zirIntToEnum(block, inst),
             .err_union_code               => try sema.zirErrUnionCode(block, inst),
@@ -1128,6 +1129,18 @@ fn zirIndexablePtrLen(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) In
     }
     const result_ptr = try sema.namedFieldPtr(block, src, array_ptr, "len", src);
     return sema.analyzeLoad(block, src, result_ptr, result_ptr.src);
+}
+
+fn zirAllocComptime(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirAllocComptime", .{});
+}
+
+fn zirAllocInferredComptime(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const src_node = sema.code.instructions.items(.data)[inst].node;
+    const src: LazySrcLoc = .{ .node_offset = src_node };
+    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirAllocInferredComptime", .{});
 }
 
 fn zirAlloc(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
@@ -2328,19 +2341,6 @@ fn zirEnumLiteral(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerE
     const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
     const src = inst_data.src();
     const duped_name = try sema.arena.dupe(u8, inst_data.get(sema.code));
-    return sema.mod.constInst(sema.arena, src, .{
-        .ty = Type.initTag(.enum_literal),
-        .val = try Value.Tag.enum_literal.create(sema.arena, duped_name),
-    });
-}
-
-fn zirEnumLiteralSmall(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const name = sema.code.instructions.items(.data)[inst].small_str.get();
-    const src: LazySrcLoc = .unneeded;
-    const duped_name = try sema.arena.dupe(u8, name);
     return sema.mod.constInst(sema.arena, src, .{
         .ty = Type.initTag(.enum_literal),
         .val = try Value.Tag.enum_literal.create(sema.arena, duped_name),

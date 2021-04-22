@@ -145,18 +145,6 @@ pub const Inst = struct {
         /// Twos complement wrapping integer addition.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         addwrap,
-        /// Allocates stack local memory.
-        /// Uses the `un_node` union field. The operand is the type of the allocated object.
-        /// The node source location points to a var decl node.
-        /// Indicates the beginning of a new statement in debug info.
-        alloc,
-        /// Same as `alloc` except mutable.
-        alloc_mut,
-        /// Same as `alloc` except the type is inferred.
-        /// Uses the `node` union field.
-        alloc_inferred,
-        /// Same as `alloc_inferred` except mutable.
-        alloc_inferred_mut,
         /// Array concatenation. `a ++ b`
         /// Uses the `pl_node` union field. Payload is `Bin`.
         array_cat,
@@ -483,12 +471,6 @@ pub const Inst = struct {
         /// Create a pointer type which can have a sentinel, alignment, and/or bit range.
         /// Uses the `ptr_type` union field.
         ptr_type,
-        /// Each `store_to_inferred_ptr` puts the type of the stored value into a set,
-        /// and then `resolve_inferred_alloc` triggers peer type resolution on the set.
-        /// The operand is a `alloc_inferred` or `alloc_inferred_mut` instruction, which
-        /// is the allocation that needs to have its type inferred.
-        /// Uses the `un_node` field. The AST node is the var decl.
-        resolve_inferred_alloc,
         /// Slice operation `lhs[rhs..]`. No sentinel and no end offset.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceStart`.
         slice_start,
@@ -613,37 +595,40 @@ pub const Inst = struct {
         ensure_err_payload_void,
         /// An enum literal. Uses the `str_tok` union field.
         enum_literal,
-        /// An enum literal 8 or fewer bytes. No source location.
-        /// Uses the `small_str` field.
-        enum_literal_small,
         /// A switch expression. Uses the `pl_node` union field.
         /// AST node is the switch, payload is `SwitchBlock`.
         /// All prongs of target handled.
         switch_block,
         /// Same as switch_block, except one or more prongs have multiple items.
+        /// Payload is `SwitchBlockMulti`
         switch_block_multi,
         /// Same as switch_block, except has an else prong.
         switch_block_else,
         /// Same as switch_block_else, except one or more prongs have multiple items.
+        /// Payload is `SwitchBlockMulti`
         switch_block_else_multi,
         /// Same as switch_block, except has an underscore prong.
         switch_block_under,
         /// Same as switch_block, except one or more prongs have multiple items.
+        /// Payload is `SwitchBlockMulti`
         switch_block_under_multi,
         /// Same as `switch_block` but the target is a pointer to the value being switched on.
         switch_block_ref,
         /// Same as `switch_block_multi` but the target is a pointer to the value being switched on.
+        /// Payload is `SwitchBlockMulti`
         switch_block_ref_multi,
         /// Same as `switch_block_else` but the target is a pointer to the value being switched on.
         switch_block_ref_else,
         /// Same as `switch_block_else_multi` but the target is a pointer to the
         /// value being switched on.
+        /// Payload is `SwitchBlockMulti`
         switch_block_ref_else_multi,
         /// Same as `switch_block_under` but the target is a pointer to the value
         /// being switched on.
         switch_block_ref_under,
         /// Same as `switch_block_under_multi` but the target is a pointer to
         /// the value being switched on.
+        /// Payload is `SwitchBlockMulti`
         switch_block_ref_under_multi,
         /// Produces the capture value for a switch prong.
         /// Uses the `switch_capture` field.
@@ -937,6 +922,32 @@ pub const Inst = struct {
         /// Implements the `@cImport` builtin.
         /// Uses the `pl_node` union field with payload `Block`.
         c_import,
+
+        /// Allocates stack local memory.
+        /// Uses the `un_node` union field. The operand is the type of the allocated object.
+        /// The node source location points to a var decl node.
+        /// Indicates the beginning of a new statement in debug info.
+        alloc,
+        /// Same as `alloc` except mutable.
+        alloc_mut,
+        /// Allocates comptime-mutable memory.
+        /// Uses the `un_node` union field. The operand is the type of the allocated object.
+        /// The node source location points to a var decl node.
+        alloc_comptime,
+        /// Same as `alloc` except the type is inferred.
+        /// Uses the `node` union field.
+        alloc_inferred,
+        /// Same as `alloc_inferred` except mutable.
+        alloc_inferred_mut,
+        /// Same as `alloc_comptime` except the type is inferred.
+        alloc_inferred_comptime,
+        /// Each `store_to_inferred_ptr` puts the type of the stored value into a set,
+        /// and then `resolve_inferred_alloc` triggers peer type resolution on the set.
+        /// The operand is a `alloc_inferred` or `alloc_inferred_mut` instruction, which
+        /// is the allocation that needs to have its type inferred.
+        /// Uses the `un_node` field. The AST node is the var decl.
+        resolve_inferred_alloc,
+
         /// The ZIR instruction tag is one of the `Extended` ones.
         /// Uses the `extended` union field.
         extended,
@@ -949,8 +960,10 @@ pub const Inst = struct {
                 .addwrap,
                 .alloc,
                 .alloc_mut,
+                .alloc_comptime,
                 .alloc_inferred,
                 .alloc_inferred_mut,
+                .alloc_inferred_comptime,
                 .array_cat,
                 .array_mul,
                 .array_type,
@@ -1066,7 +1079,6 @@ pub const Inst = struct {
                 .ptr_type_simple,
                 .ensure_err_payload_void,
                 .enum_literal,
-                .enum_literal_small,
                 .merge_error_sets,
                 .error_union_type,
                 .bit_not,
@@ -2251,6 +2263,7 @@ const Writer = struct {
 
             .alloc,
             .alloc_mut,
+            .alloc_comptime,
             .indexable_ptr_len,
             .bit_not,
             .bool_not,
@@ -2516,6 +2529,7 @@ const Writer = struct {
             .repeat_inline,
             .alloc_inferred,
             .alloc_inferred_mut,
+            .alloc_inferred_comptime,
             => try self.writeNode(stream, inst),
 
             .error_value,
@@ -2529,8 +2543,6 @@ const Writer = struct {
             .func_inferred => try self.writeFunc(stream, inst, true),
 
             .@"unreachable" => try self.writeUnreachable(stream, inst),
-
-            .enum_literal_small => try self.writeSmallStr(stream, inst),
 
             .switch_capture,
             .switch_capture_ref,
@@ -3440,15 +3452,6 @@ const Writer = struct {
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("}) ");
         try self.writeSrc(stream, src);
-    }
-
-    fn writeSmallStr(
-        self: *Writer,
-        stream: anytype,
-        inst: Inst.Index,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const str = self.code.instructions.items(.data)[inst].small_str.get();
-        try stream.print("\"{}\")", .{std.zig.fmtEscapes(str)});
     }
 
     fn writeSwitchCapture(self: *Writer, stream: anytype, inst: Inst.Index) !void {

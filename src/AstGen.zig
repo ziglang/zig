@@ -1576,8 +1576,10 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .addwrap,
             .alloc,
             .alloc_mut,
+            .alloc_comptime,
             .alloc_inferred,
             .alloc_inferred_mut,
+            .alloc_inferred_comptime,
             .array_cat,
             .array_mul,
             .array_type,
@@ -1665,7 +1667,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .ptr_type,
             .ptr_type_simple,
             .enum_literal,
-            .enum_literal_small,
             .merge_error_sets,
             .error_union_type,
             .bit_not,
@@ -1901,9 +1902,6 @@ fn varDecl(
 ) InnerError!*Scope {
     try emitDbgNode(gz, node);
     const astgen = gz.astgen;
-    if (var_decl.comptime_token) |comptime_token| {
-        return astgen.failTok(comptime_token, "TODO implement comptime locals", .{});
-    }
     if (var_decl.ast.align_node != 0) {
         return astgen.failNode(var_decl.ast.align_node, "TODO implement alignment on locals", .{});
     }
@@ -1961,6 +1959,9 @@ fn varDecl(
 
     switch (token_tags[var_decl.ast.mut_token]) {
         .keyword_const => {
+            if (var_decl.comptime_token) |comptime_token| {
+                return astgen.failTok(comptime_token, "'comptime const' is redundant; instead wrap the initialization expression with 'comptime'", .{});
+            }
             // Depending on the type of AST the initialization expression is, we may need an lvalue
             // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
             // the variable, no memory location needed.
@@ -2062,17 +2063,19 @@ fn varDecl(
             return &sub_scope.base;
         },
         .keyword_var => {
+            const is_comptime = var_decl.comptime_token != null;
             var resolve_inferred_alloc: Zir.Inst.Ref = .none;
             const var_data: struct {
                 result_loc: ResultLoc,
                 alloc: Zir.Inst.Ref,
             } = if (var_decl.ast.type_node != 0) a: {
                 const type_inst = try typeExpr(gz, scope, var_decl.ast.type_node);
-
-                const alloc = try gz.addUnNode(.alloc_mut, type_inst, node);
+                const tag: Zir.Inst.Tag = if (is_comptime) .alloc_comptime else .alloc_mut;
+                const alloc = try gz.addUnNode(tag, type_inst, node);
                 break :a .{ .alloc = alloc, .result_loc = .{ .ptr = alloc } };
             } else a: {
-                const alloc = try gz.addNode(.alloc_inferred_mut, node);
+                const tag: Zir.Inst.Tag = if (is_comptime) .alloc_inferred_comptime else .alloc_inferred_mut;
+                const alloc = try gz.addNode(tag, node);
                 resolve_inferred_alloc = alloc;
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };
