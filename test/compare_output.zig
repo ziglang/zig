@@ -525,35 +525,45 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\
         \\pub const scope_levels = [_]std.log.ScopeLevel{
         \\    .{ .scope = .a, .level = .alert },
+        \\    .{ .scope = .c, .level = .emerg },
         \\};
         \\
         \\const loga = std.log.scoped(.a);
         \\const logb = std.log.scoped(.b);
+        \\const logc = std.log.scoped(.c);
         \\
         \\pub fn main() !void {
         \\    loga.debug("", .{});
         \\    logb.debug("", .{});
+        \\    logc.debug("", .{});
         \\
         \\    loga.info("", .{});
         \\    logb.info("", .{});
+        \\    logc.info("", .{});
         \\
         \\    loga.notice("", .{});
         \\    logb.notice("", .{});
+        \\    logc.notice("", .{});
         \\
         \\    loga.warn("", .{});
         \\    logb.warn("", .{});
+        \\    logc.warn("", .{});
         \\
         \\    loga.err("", .{});
         \\    logb.err("", .{});
+        \\    logc.err("", .{});
         \\
         \\    loga.crit("", .{});
         \\    logb.crit("", .{});
+        \\    logc.crit("", .{});
         \\
         \\    loga.alert("", .{});
         \\    logb.alert("", .{});
+        \\    logc.alert("", .{});
         \\
         \\    loga.emerg("", .{});
         \\    logb.emerg("", .{});
+        \\    logc.emerg("", .{});
         \\}
         \\pub fn log(
         \\    comptime level: std.log.Level,
@@ -586,6 +596,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\alert(b): 
         \\emergency(a): 
         \\emergency(b): 
+        \\emergency(c): 
         \\
     );
 }
