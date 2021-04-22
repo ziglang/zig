@@ -73,7 +73,16 @@ sync
 #BUILD_TEST_PID=$!
 #(sleep 60; echo "--- KILL $BUILD_TEST_PID ---"; kill -SEGV $BUILD_TEST_PID) &
 
-./zig test ../lib/std/std.zig -mcpu=baseline
+## these are baseline features shown
+#   .ete,
+#   .fp_armv8,
+#   .fuse_aes,
+#   .neon,
+#   .perfmon,
+#   .trbe,
+#   .use_postra_scheduler,
+
+./zig test ../lib/std/std.zig -mcpu=baseline-ete-fp_armv8-fuse_aes-neon-perfmon-trbe-use_postra_scheduler
 ./zig test ../lib/std/std.zig
 
 echo "-----  ALL DONE -----"
