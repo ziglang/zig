@@ -4,6 +4,7 @@ set -x
 
 uname -a
 hostname
+cat /proc/meminfo| grep -i ^mem
 pwd
 df -h $HOME/.
 df -h .
