@@ -21660,8 +21660,8 @@ static ErrorMsg *ir_eval_negation_scalar(IrAnalyze *ira, IrInst* source_instr, Z
 {
     bool is_float = (scalar_type->id == ZigTypeIdFloat || scalar_type->id == ZigTypeIdComptimeFloat);
 
-    bool ok_type = ((scalar_type->id == ZigTypeIdInt && scalar_type->data.integral.is_signed) ||
-        scalar_type->id == ZigTypeIdComptimeInt || (is_float && !is_wrap_op));
+    bool ok_type = scalar_type->id == ZigTypeIdInt || scalar_type->id == ZigTypeIdComptimeInt ||
+            (is_float && !is_wrap_op);
 
     if (!ok_type) {
         const char *fmt = is_wrap_op ? "invalid wrapping negation type: '%s'" : "invalid negation type: '%s'";
@@ -21672,7 +21672,7 @@ static ErrorMsg *ir_eval_negation_scalar(IrAnalyze *ira, IrInst* source_instr, Z
         float_negate(scalar_out_val, operand_val);
     } else if (is_wrap_op) {
         bigint_negate_wrap(&scalar_out_val->data.x_bigint, &operand_val->data.x_bigint,
-                scalar_type->data.integral.bit_count);
+                scalar_type->data.integral.bit_count, scalar_type->data.integral.is_signed);
     } else {
         bigint_negate(&scalar_out_val->data.x_bigint, &operand_val->data.x_bigint);
     }
