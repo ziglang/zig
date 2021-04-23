@@ -283,8 +283,8 @@ pub fn EnumSet(comptime E: type) type {
                     var result = Self{};
                     comptime var i: usize = 0;
                     inline while (i < Self.len) : (i += 1) {
-                        comptime const key = Indexer.keyForIndex(i);
-                        comptime const tag = @tagName(key);
+                        const key = comptime Indexer.keyForIndex(i);
+                        const tag = comptime @tagName(key);
                         if (@field(init_values, tag)) {
                             result.bits.set(i);
                         }
@@ -311,8 +311,8 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
                     var result = Self{};
                     comptime var i: usize = 0;
                     inline while (i < Self.len) : (i += 1) {
-                        comptime const key = Indexer.keyForIndex(i);
-                        comptime const tag = @tagName(key);
+                        const key = comptime Indexer.keyForIndex(i);
+                        const tag = comptime @tagName(key);
                         if (@field(init_values, tag)) |*v| {
                             result.bits.set(i);
                             result.values[i] = v.*;
@@ -344,8 +344,8 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
                     };
                     comptime var i: usize = 0;
                     inline while (i < Self.len) : (i += 1) {
-                        comptime const key = Indexer.keyForIndex(i);
-                        comptime const tag = @tagName(key);
+                        const key = comptime Indexer.keyForIndex(i);
+                        const tag = comptime @tagName(key);
                         result.values[i] = @field(init_values, tag);
                     }
                     return result;
