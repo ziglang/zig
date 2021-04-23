@@ -34,6 +34,9 @@
 
  * sort compile errors before presenting them to eliminate nondeterministic error reporting
 
+ * when handling decls, catch the error and continue, so that
+   AstGen can report more than one compile error.
+
     const container_name_hash: Scope.NameHash = if (found_pkg) |pkg|
         pkg.namespace_hash
     else

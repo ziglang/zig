@@ -2455,9 +2455,16 @@ fn arrayType(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) !Z
     const astgen = gz.astgen;
     const tree = &astgen.file.tree;
     const node_datas = tree.nodes.items(.data);
+    const node_tags = tree.nodes.items(.tag);
+    const main_tokens = tree.nodes.items(.main_token);
 
-    // TODO check for [_]T
-    const len = try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].lhs);
+    const len_node = node_datas[node].lhs;
+    if (node_tags[len_node] == .identifier and
+        mem.eql(u8, tree.tokenSlice(main_tokens[len_node]), "_"))
+    {
+        return astgen.failNode(len_node, "unable to infer array size", .{});
+    }
+    const len = try expr(gz, scope, .{ .ty = .usize_type }, len_node);
     const elem_type = try typeExpr(gz, scope, node_datas[node].rhs);
 
     const result = try gz.addBin(.array_type, len, elem_type);
@@ -2468,9 +2475,17 @@ fn arrayTypeSentinel(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.I
     const astgen = gz.astgen;
     const tree = &astgen.file.tree;
     const node_datas = tree.nodes.items(.data);
+    const node_tags = tree.nodes.items(.tag);
+    const main_tokens = tree.nodes.items(.main_token);
     const extra = tree.extraData(node_datas[node].rhs, ast.Node.ArrayTypeSentinel);
 
-    const len = try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].lhs);
+    const len_node = node_datas[node].lhs;
+    if (node_tags[len_node] == .identifier and
+        mem.eql(u8, tree.tokenSlice(main_tokens[len_node]), "_"))
+    {
+        return astgen.failNode(len_node, "unable to infer array size", .{});
+    }
+    const len = try expr(gz, scope, .{ .ty = .usize_type }, len_node);
     const elem_type = try typeExpr(gz, scope, extra.elem_type);
     const sentinel = try expr(gz, scope, .{ .ty = elem_type }, extra.sentinel);
 
