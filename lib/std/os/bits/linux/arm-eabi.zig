@@ -15,7 +15,7 @@ const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
 const pid_t = linux.pid_t;
 
-pub const SYS = extern enum(usize) {
+pub const SYS = enum(usize) {
     restart_syscall = 0,
     exit = 1,
     fork = 2,

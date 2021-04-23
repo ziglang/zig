@@ -335,9 +335,6 @@ test "std.meta.containerLayout" {
     const E1 = enum {
         A,
     };
-    const E2 = packed enum {
-        A,
-    };
     const E3 = extern enum {
         A,
     };
@@ -355,7 +352,6 @@ test "std.meta.containerLayout" {
     };
 
     testing.expect(containerLayout(E1) == .Auto);
-    testing.expect(containerLayout(E2) == .Packed);
     testing.expect(containerLayout(E3) == .Extern);
     testing.expect(containerLayout(S1) == .Auto);
     testing.expect(containerLayout(S2) == .Packed);

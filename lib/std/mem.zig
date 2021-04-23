@@ -356,7 +356,7 @@ test "mem.zeroes" {
 /// If the field is present in the provided initial values, it will have that value instead.
 /// Structs are initialized recursively.
 pub fn zeroInit(comptime T: type, init: anytype) T {
-    comptime const Init = @TypeOf(init);
+    const Init = @TypeOf(init);
 
     switch (@typeInfo(T)) {
         .Struct => |struct_info| {

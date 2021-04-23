@@ -115,7 +115,7 @@ pub const StreamType = enum(u16) {
 
 /// Duplicate copy of SymbolRecordKind, but using the official CV names. Useful
 /// for reference purposes and when dealing with unknown record types.
-pub const SymbolKind = packed enum(u16) {
+pub const SymbolKind = enum(u16) {
     S_COMPILE = 1,
     S_REGISTER_16t = 2,
     S_CONSTANT_16t = 3,
@@ -426,7 +426,7 @@ pub const FileChecksumEntryHeader = packed struct {
     ChecksumKind: u8,
 };
 
-pub const DebugSubsectionKind = packed enum(u32) {
+pub const DebugSubsectionKind = enum(u32) {
     None = 0,
     Symbols = 0xf1,
     Lines = 0xf2,

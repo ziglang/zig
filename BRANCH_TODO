@@ -32,6 +32,8 @@
    compile error for a local shadowing a decl with Sema looking up the decl name.
    - this means LocalVal and LocalPtr should use the string table
 
+ * sort compile errors before presenting them to eliminate nondeterministic error reporting
+
     const container_name_hash: Scope.NameHash = if (found_pkg) |pkg|
         pkg.namespace_hash
     else

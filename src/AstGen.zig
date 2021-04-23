@@ -2658,7 +2658,9 @@ fn fnDecl(
             var i: usize = 0;
             var it = fn_proto.iterate(tree.*);
             while (it.next()) |param| : (i += 1) {
-                const name_token = param.name_token.?;
+                const name_token = param.name_token orelse {
+                    return astgen.failNode(param.type_expr, "missing parameter name", .{});
+                };
                 const param_name = try astgen.identifierTokenString(name_token);
                 const sub_scope = try astgen.arena.create(Scope.LocalVal);
                 sub_scope.* = .{

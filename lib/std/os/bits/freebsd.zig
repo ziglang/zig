@@ -1459,7 +1459,7 @@ pub const IPPROTO_RESERVED_253 = 253;
 /// Reserved
 pub const IPPROTO_RESERVED_254 = 254;
 
-pub const rlimit_resource = extern enum(c_int) {
+pub const rlimit_resource = enum(c_int) {
     CPU = 0,
     FSIZE = 1,
     DATA = 2,
@@ -1471,13 +1471,13 @@ pub const rlimit_resource = extern enum(c_int) {
     NOFILE = 8,
     SBSIZE = 9,
     VMEM = 10,
-    AS = 10,
     NPTS = 11,
     SWAP = 12,
     KQUEUES = 13,
     UMTXP = 14,
-
     _,
+
+    pub const AS: rlimit_resource = .VMEM;
 };
 
 pub const rlim_t = i64;

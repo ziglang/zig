@@ -187,7 +187,7 @@ pub fn format(
 
     comptime var i = 0;
     inline while (i < fmt.len) {
-        comptime const start_index = i;
+        const start_index = i;
 
         inline while (i < fmt.len) : (i += 1) {
             switch (fmt[i]) {
@@ -226,10 +226,10 @@ pub fn format(
         comptime assert(fmt[i] == '{');
         i += 1;
 
-        comptime const fmt_begin = i;
+        const fmt_begin = i;
         // Find the closing brace
         inline while (i < fmt.len and fmt[i] != '}') : (i += 1) {}
-        comptime const fmt_end = i;
+        const fmt_end = i;
 
         if (i >= fmt.len) {
             @compileError("Missing closing }");
@@ -246,23 +246,23 @@ pub fn format(
         parser.pos = 0;
 
         // Parse the positional argument number
-        comptime const opt_pos_arg = init: {
-            if (comptime parser.maybe('[')) {
-                comptime const arg_name = parser.until(']');
+        const opt_pos_arg = comptime init: {
+            if (parser.maybe('[')) {
+                const arg_name = parser.until(']');
 
-                if (!comptime parser.maybe(']')) {
+                if (!parser.maybe(']')) {
                     @compileError("Expected closing ]");
                 }
 
-                break :init comptime meta.fieldIndex(ArgsType, arg_name) orelse
+                break :init meta.fieldIndex(ArgsType, arg_name) orelse
                     @compileError("No argument with name '" ++ arg_name ++ "'");
             } else {
-                break :init comptime parser.number();
+                break :init parser.number();
             }
         };
 
         // Parse the format specifier
-        comptime const specifier_arg = comptime parser.until(':');
+        const specifier_arg = comptime parser.until(':');
 
         // Skip the colon, if present
         if (comptime parser.char()) |ch| {
@@ -302,13 +302,13 @@ pub fn format(
         // Parse the width parameter
         options.width = init: {
             if (comptime parser.maybe('[')) {
-                comptime const arg_name = parser.until(']');
+                const arg_name = parser.until(']');
 
                 if (!comptime parser.maybe(']')) {
                     @compileError("Expected closing ]");
                 }
 
-                comptime const index = meta.fieldIndex(ArgsType, arg_name) orelse
+                const index = meta.fieldIndex(ArgsType, arg_name) orelse
                     @compileError("No argument with name '" ++ arg_name ++ "'");
                 const arg_index = comptime arg_state.nextArg(index);
 
@@ -328,13 +328,13 @@ pub fn format(
         // Parse the precision parameter
         options.precision = init: {
             if (comptime parser.maybe('[')) {
-                comptime const arg_name = parser.until(']');
+                const arg_name = parser.until(']');
 
                 if (!comptime parser.maybe(']')) {
                     @compileError("Expected closing ]");
                 }
 
-                comptime const arg_i = meta.fieldIndex(ArgsType, arg_name) orelse
+                const arg_i = meta.fieldIndex(ArgsType, arg_name) orelse
                     @compileError("No argument with name '" ++ arg_name ++ "'");
                 const arg_to_use = comptime arg_state.nextArg(arg_i);
 

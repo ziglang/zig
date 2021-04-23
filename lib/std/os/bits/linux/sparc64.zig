@@ -12,7 +12,7 @@ const socklen_t = linux.socklen_t;
 const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
 
-pub const SYS = extern enum(usize) {
+pub const SYS = enum(usize) {
     restart_syscall = 0,
     exit = 1,
     fork = 2,

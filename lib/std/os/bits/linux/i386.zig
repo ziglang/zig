@@ -17,7 +17,7 @@ const pid_t = linux.pid_t;
 const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
 
-pub const SYS = extern enum(usize) {
+pub const SYS = enum(usize) {
     restart_syscall = 0,
     exit = 1,
     fork = 2,

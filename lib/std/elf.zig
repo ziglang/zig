@@ -311,7 +311,7 @@ pub const VER_FLG_BASE = 0x1;
 pub const VER_FLG_WEAK = 0x2;
 
 /// File types
-pub const ET = extern enum(u16) {
+pub const ET = enum(u16) {
     /// No file type
     NONE = 0,
 
@@ -991,7 +991,7 @@ pub const Half = switch (@sizeOf(usize)) {
 /// See current registered ELF machine architectures at:
 ///    http://www.uxsglobal.com/developers/gabi/latest/ch4.eheader.html
 /// The underscore prefix is because many of these start with numbers.
-pub const EM = extern enum(u16) {
+pub const EM = enum(u16) {
     /// No machine
     _NONE = 0,
 

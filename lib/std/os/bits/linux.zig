@@ -1487,7 +1487,7 @@ pub const io_uring_sqe = extern struct {
     __pad2: [2]u64,
 };
 
-pub const IOSQE_BIT = extern enum(u8) {
+pub const IOSQE_BIT = enum(u8) {
     FIXED_FILE,
     IO_DRAIN,
     IO_LINK,
@@ -1518,7 +1518,7 @@ pub const IOSQE_ASYNC = 1 << @enumToInt(IOSQE_BIT.ASYNC);
 /// select buffer from buf_group
 pub const IOSQE_BUFFER_SELECT = 1 << @enumToInt(IOSQE_BIT.BUFFER_SELECT);
 
-pub const IORING_OP = extern enum(u8) {
+pub const IORING_OP = enum(u8) {
     NOP,
     READV,
     WRITEV,
@@ -1587,7 +1587,7 @@ pub const IORING_ENTER_GETEVENTS = 1 << 0;
 pub const IORING_ENTER_SQ_WAKEUP = 1 << 1;
 
 // io_uring_register opcodes and arguments
-pub const IORING_REGISTER = extern enum(u8) {
+pub const IORING_REGISTER = enum(u8) {
     REGISTER_BUFFERS,
     UNREGISTER_BUFFERS,
     REGISTER_FILES,
@@ -1654,7 +1654,7 @@ pub const io_uring_restriction = extern struct {
 };
 
 /// io_uring_restriction->opcode values
-pub const IORING_RESTRICTION = extern enum(u8) {
+pub const IORING_RESTRICTION = enum(u8) {
     /// Allow an io_uring_register(2) opcode
     REGISTER_OP = 0,
 
@@ -1909,7 +1909,7 @@ pub const tcp_repair_window = extern struct {
     rcv_wup: u32,
 };
 
-pub const TcpRepairOption = extern enum {
+pub const TcpRepairOption = enum {
     TCP_NO_QUEUE,
     TCP_RECV_QUEUE,
     TCP_SEND_QUEUE,
@@ -1917,7 +1917,7 @@ pub const TcpRepairOption = extern enum {
 };
 
 /// why fastopen failed from client perspective
-pub const tcp_fastopen_client_fail = extern enum {
+pub const tcp_fastopen_client_fail = enum {
     /// catch-all
     TFO_STATUS_UNSPEC,
     /// if not in TFO_CLIENT_NO_COOKIE mode
@@ -2184,7 +2184,7 @@ pub const NOFLSH = 128;
 pub const TOSTOP = 256;
 pub const IEXTEN = 32768;
 
-pub const TCSA = extern enum(c_uint) {
+pub const TCSA = enum(c_uint) {
     NOW,
     DRAIN,
     FLUSH,
@@ -2235,7 +2235,7 @@ pub const ifreq = extern struct {
 };
 
 // doc comments copied from musl
-pub const rlimit_resource = extern enum(c_int) {
+pub const rlimit_resource = enum(c_int) {
     /// Per-process CPU limit, in seconds.
     CPU,
 

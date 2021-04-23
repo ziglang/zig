@@ -734,7 +734,7 @@ pub const Flock = extern struct {
     l_whence: c_short,
 };
 
-pub const rlimit_resource = extern enum(c_int) {
+pub const rlimit_resource = enum(c_int) {
     CPU = 0,
     FSIZE = 1,
     DATA = 2,
@@ -745,11 +745,11 @@ pub const rlimit_resource = extern enum(c_int) {
     NPROC = 7,
     NOFILE = 8,
     SBSIZE = 9,
-    AS = 10,
     VMEM = 10,
     POSIXLOCKS = 11,
-
     _,
+
+    pub const AS: rlimit_resource = .VMEM;
 };
 
 pub const rlim_t = i64;

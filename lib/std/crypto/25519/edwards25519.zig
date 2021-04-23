@@ -238,7 +238,7 @@ pub const Edwards25519 = struct {
     pub fn mul(p: Edwards25519, s: [32]u8) Error!Edwards25519 {
         const pc = if (p.is_base) basePointPc else pc: {
             const xpc = precompute(p, 15);
-            xpc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
+            xpc[4].rejectIdentity() catch return error.WeakPublicKey;
             break :pc xpc;
         };
         return pcMul16(pc, s, false);
@@ -251,7 +251,7 @@ pub const Edwards25519 = struct {
             return pcMul16(basePointPc, s, true);
         } else {
             const pc = precompute(p, 8);
-            pc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
+            pc[4].rejectIdentity() catch return error.WeakPublicKey;
             return pcMul(pc, s, true);
         }
     }
@@ -266,7 +266,7 @@ pub const Edwards25519 = struct {
                 pcs[i] = comptime precompute(Edwards25519.basePoint, 8);
             } else {
                 pcs[i] = precompute(p, 8);
-                pcs[i][4].rejectIdentity() catch |_| return error.WeakPublicKey;
+                pcs[i][4].rejectIdentity() catch return error.WeakPublicKey;
             }
         }
         var es: [count][2 * 32]i8 = undefined;

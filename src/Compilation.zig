@@ -3220,7 +3220,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) Alloc
         \\const std = @import("std");
         \\/// Zig version. When writing code that supports multiple versions of Zig, prefer
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
-        \\pub const zig_version = try std.SemanticVersion.parse("{s}");
+        \\pub const zig_version = std.SemanticVersion.parse("{s}") catch unreachable;
         \\/// Temporary until self-hosted is feature complete.
         \\pub const zig_is_stage2 = {};
         \\/// Temporary until self-hosted supports the `cpu.arch` value.

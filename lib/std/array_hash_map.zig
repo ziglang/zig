@@ -1310,7 +1310,7 @@ test "reIndex" {
 }
 
 test "fromOwnedArrayList" {
-    comptime const array_hash_map_type = AutoArrayHashMap(i32, i32);
+    const array_hash_map_type = AutoArrayHashMap(i32, i32);
     var al = std.ArrayListUnmanaged(array_hash_map_type.Entry){};
     const hash = getAutoHashFn(i32);
 
