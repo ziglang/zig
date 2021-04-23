@@ -52,6 +52,7 @@ pub fn getauxval(index: usize) usize {
 // Some architectures (and some syscalls) require 64bit parameters to be passed
 // in a even-aligned register pair.
 const require_aligned_register_pair =
+    std.Target.current.cpu.arch.isPPC() or
     std.Target.current.cpu.arch.isMIPS() or
     std.Target.current.cpu.arch.isARM() or
     std.Target.current.cpu.arch.isThumb();
