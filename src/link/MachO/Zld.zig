@@ -82,19 +82,11 @@ threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
 local_rebases: std.ArrayListUnmanaged(Pointer) = .{},
 stubs: std.StringArrayHashMapUnmanaged(u32) = .{},
 got_entries: std.StringArrayHashMapUnmanaged(GotEntry) = .{},
-cpp_initializers: std.StringArrayHashMapUnmanaged(CppStatic) = .{},
-cpp_finalizers: std.StringArrayHashMapUnmanaged(CppStatic) = .{},
 
 stub_helper_stubs_start_off: ?u64 = null,
 
 mappings: std.AutoHashMapUnmanaged(MappingKey, SectionMapping) = .{},
 unhandled_sections: std.AutoHashMapUnmanaged(MappingKey, u0) = .{},
-
-pub const CppStatic = struct {
-    index: u32,
-    target_addr: u64,
-    file: u16,
-};
 
 const GotEntry = struct {
     tag: enum {
@@ -142,16 +134,6 @@ pub fn deinit(self: *Zld) void {
         self.allocator.free(entry.key);
     }
     self.got_entries.deinit(self.allocator);
-
-    for (self.cpp_initializers.items()) |entry| {
-        self.allocator.free(entry.key);
-    }
-    self.cpp_initializers.deinit(self.allocator);
-
-    for (self.cpp_finalizers.items()) |entry| {
-        self.allocator.free(entry.key);
-    }
-    self.cpp_finalizers.deinit(self.allocator);
 
     for (self.load_commands.items) |*lc| {
         lc.deinit(self.allocator);
@@ -243,6 +225,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     self.allocateLinkeditSegment();
     try self.allocateSymbols();
     try self.allocateStubsAndGotEntries();
+    try self.allocateCppStatics();
     try self.writeStubHelperCommon();
     try self.resolveRelocsAndWriteSections();
     try self.flush();
@@ -1007,37 +990,20 @@ fn allocateStubsAndGotEntries(self: *Zld) !void {
             entry.value.target_addr,
         });
     }
+}
 
-    for (self.cpp_initializers.items()) |*entry| {
-        const object = self.objects.items[entry.value.file];
-        entry.value.target_addr = target_addr: {
-            if (object.locals.get(entry.key)) |local| {
-                break :target_addr local.address;
-            }
-            const global = self.symtab.get(entry.key) orelse unreachable;
-            break :target_addr global.address;
-        };
+fn allocateCppStatics(self: *Zld) !void {
+    for (self.objects.items) |*object| {
+        for (object.initializers.items) |*initializer| {
+            const sym = object.symtab.items[initializer.symbol];
+            const sym_name = object.getString(sym.n_strx);
+            initializer.target_addr = object.locals.get(sym_name).?.address;
 
-        log.debug("resolving C++ initializer '{s}' at 0x{x}", .{
-            entry.key,
-            entry.value.target_addr,
-        });
-    }
-
-    for (self.cpp_finalizers.items()) |*entry| {
-        const object = self.objects.items[entry.value.file];
-        entry.value.target_addr = target_addr: {
-            if (object.locals.get(entry.key)) |local| {
-                break :target_addr local.address;
-            }
-            const global = self.symtab.get(entry.key) orelse unreachable;
-            break :target_addr global.address;
-        };
-
-        log.debug("resolving C++ finalizer '{s}' at 0x{x}", .{
-            entry.key,
-            entry.value.target_addr,
-        });
+            log.debug("resolving C++ initializer '{s}' at 0x{x}", .{
+                sym_name,
+                initializer.target_addr,
+            });
+        }
     }
 }
 
@@ -1453,34 +1419,7 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
             const relocs = sect.relocs orelse continue;
             for (relocs) |rel| {
                 switch (rel.@"type") {
-                    .unsigned => {
-                        if (rel.target != .symbol) continue;
-
-                        const sym = object.symtab.items[rel.target.symbol];
-                        const sym_name = object.getString(sym.n_strx);
-
-                        if (sect.inner.flags == macho.S_MOD_INIT_FUNC_POINTERS) {
-                            if (self.cpp_initializers.contains(sym_name)) continue;
-
-                            var name = try self.allocator.dupe(u8, sym_name);
-                            const index = @intCast(u32, self.cpp_initializers.items().len);
-                            try self.cpp_initializers.putNoClobber(self.allocator, name, .{
-                                .index = index,
-                                .target_addr = 0,
-                                .file = @intCast(u16, object_id),
-                            });
-                        } else if (sect.inner.flags == macho.S_MOD_TERM_FUNC_POINTERS) {
-                            if (self.cpp_finalizers.contains(sym_name)) continue;
-
-                            var name = try self.allocator.dupe(u8, sym_name);
-                            const index = @intCast(u32, self.cpp_finalizers.items().len);
-                            try self.cpp_finalizers.putNoClobber(self.allocator, name, .{
-                                .index = index,
-                                .target_addr = 0,
-                                .file = @intCast(u16, object_id),
-                            });
-                        } else continue;
-                    },
+                    .unsigned => continue,
                     .got_page, .got_page_off, .got_load, .got => {
                         const sym = object.symtab.items[rel.target.symbol];
                         const sym_name = object.getString(sym.n_strx);
@@ -2194,36 +2133,18 @@ fn flush(self: *Zld) !void {
         const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
         const sect = &seg.sections.items[index];
 
-        var buffer = try self.allocator.alloc(u8, self.cpp_initializers.items().len * @sizeOf(u64));
-        defer self.allocator.free(buffer);
+        var initializers = std.ArrayList(u64).init(self.allocator);
+        defer initializers.deinit();
 
-        var stream = std.io.fixedBufferStream(buffer);
-        var writer = stream.writer();
-
-        for (self.cpp_initializers.items()) |entry| {
-            try writer.writeIntLittle(u64, entry.value.target_addr);
+        // TODO sort the initializers globally
+        for (self.objects.items) |object| {
+            for (object.initializers.items) |initializer| {
+                try initializers.append(initializer.target_addr);
+            }
         }
 
-        _ = try self.file.?.pwriteAll(buffer, sect.offset);
-        sect.size = @intCast(u32, buffer.len);
-    }
-
-    if (self.mod_term_func_section_index) |index| {
-        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-        const sect = &seg.sections.items[index];
-
-        var buffer = try self.allocator.alloc(u8, self.cpp_finalizers.items().len * @sizeOf(u64));
-        defer self.allocator.free(buffer);
-
-        var stream = std.io.fixedBufferStream(buffer);
-        var writer = stream.writer();
-
-        for (self.cpp_finalizers.items()) |entry| {
-            try writer.writeIntLittle(u64, entry.value.target_addr);
-        }
-
-        _ = try self.file.?.pwriteAll(buffer, sect.offset);
-        sect.size = @intCast(u32, buffer.len);
+        _ = try self.file.?.pwriteAll(mem.sliceAsBytes(initializers.items), sect.offset);
+        sect.size = @intCast(u32, initializers.items.len * @sizeOf(u64));
     }
 
     try self.writeGotEntries();
@@ -2328,26 +2249,15 @@ fn writeRebaseInfoTable(self: *Zld) !void {
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
 
-        for (self.cpp_initializers.items()) |entry| {
-            try pointers.append(.{
-                .offset = base_offset + entry.value.index * @sizeOf(u64),
-                .segment_id = segment_id,
-            });
-        }
-    }
-
-    if (self.mod_term_func_section_index) |idx| {
-        // TODO audit and investigate this.
-        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-        const sect = seg.sections.items[idx];
-        const base_offset = sect.addr - seg.inner.vmaddr;
-        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
-
-        for (self.cpp_finalizers.items()) |entry| {
-            try pointers.append(.{
-                .offset = base_offset + entry.value.index * @sizeOf(u64),
-                .segment_id = segment_id,
-            });
+        var index: u64 = 0;
+        for (self.objects.items) |object| {
+            for (object.initializers.items) |_| {
+                try pointers.append(.{
+                    .offset = base_offset + index * @sizeOf(u64),
+                    .segment_id = segment_id,
+                });
+                index += 1;
+            }
         }
     }
 

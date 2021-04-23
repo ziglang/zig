@@ -14,7 +14,6 @@ const Allocator = mem.Allocator;
 const Relocation = reloc.Relocation;
 const Symbol = @import("Symbol.zig");
 const parseName = @import("Zld.zig").parseName;
-const CppStatic = @import("Zld.zig").CppStatic;
 
 usingnamespace @import("commands.zig");
 
@@ -33,7 +32,9 @@ symtab_cmd_index: ?u16 = null,
 dysymtab_cmd_index: ?u16 = null,
 build_version_cmd_index: ?u16 = null,
 data_in_code_cmd_index: ?u16 = null,
+
 text_section_index: ?u16 = null,
+mod_init_func_section_index: ?u16 = null,
 
 // __DWARF segment sections
 dwarf_debug_info_index: ?u16 = null,
@@ -50,6 +51,7 @@ stabs: std.ArrayListUnmanaged(Stab) = .{},
 tu_path: ?[]const u8 = null,
 tu_mtime: ?u64 = null,
 
+initializers: std.ArrayListUnmanaged(CppStatic) = .{},
 data_in_code_entries: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
 pub const Section = struct {
@@ -67,6 +69,11 @@ pub const Section = struct {
             allocator.free(relocs);
         }
     }
+};
+
+const CppStatic = struct {
+    symbol: u32,
+    target_addr: u64,
 };
 
 const Stab = struct {
@@ -171,6 +178,7 @@ pub fn deinit(self: *Object) void {
     self.strtab.deinit(self.allocator);
     self.stabs.deinit(self.allocator);
     self.data_in_code_entries.deinit(self.allocator);
+    self.initializers.deinit(self.allocator);
 
     if (self.name) |n| {
         self.allocator.free(n);
@@ -252,6 +260,10 @@ pub fn readLoadCommands(self: *Object, reader: anytype) !void {
                         if (mem.eql(u8, sectname, "__text")) {
                             self.text_section_index = index;
                         }
+                    } else if (mem.eql(u8, segname, "__DATA")) {
+                        if (mem.eql(u8, sectname, "__mod_init_func")) {
+                            self.mod_init_func_section_index = index;
+                        }
                     }
 
                     sect.offset += offset;
@@ -323,16 +335,27 @@ pub fn parseSections(self: *Object) !void {
 }
 
 pub fn parseInitializers(self: *Object) !void {
-    for (self.sections.items) |section| {
-        if (section.inner.flags != macho.S_MOD_INIT_FUNC_POINTERS) continue;
-        log.warn("parsing initializers in {s}", .{self.name.?});
-        // Parse C++ initializers
-        const relocs = section.relocs orelse unreachable;
-        for (relocs) |rel| {
-            const sym = self.symtab.items[rel.target.symbol];
-            const sym_name = self.getString(sym.n_strx);
-            log.warn("    | {s}", .{sym_name});
-        }
+    const index = self.mod_init_func_section_index orelse return;
+    const section = self.sections.items[index];
+
+    log.debug("parsing initializers in {s}", .{self.name.?});
+
+    // Parse C++ initializers
+    const relocs = section.relocs orelse unreachable;
+    try self.initializers.ensureCapacity(self.allocator, relocs.len);
+    for (relocs) |rel| {
+        self.initializers.appendAssumeCapacity(.{
+            .symbol = rel.target.symbol,
+            .target_addr = undefined,
+        });
+    }
+
+    mem.reverse(CppStatic, self.initializers.items);
+
+    for (self.initializers.items) |initializer| {
+        const sym = self.symtab.items[initializer.symbol];
+        const sym_name = self.getString(sym.n_strx);
+        log.debug("    | {s}", .{sym_name});
     }
 }
 
