@@ -49,6 +49,12 @@ pip3 install s3cmd
 apk add util-linux rclone gdb
 lscpu
 
+# abort if Falkor
+if (lscpu | grep 'Model.*Falkor'); then
+    echo "--- ABORT: Falkor detected"
+    exit 1
+fi
+
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
 git config core.abbrev 9
