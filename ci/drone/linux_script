@@ -110,6 +110,40 @@ sync
 #./zig test ../lib/std/std.zig -mcpu=baseline
 #./zig test ../lib/std/std.zig
 
+# - run inside gdb and if it hangs we have a chance to force SEGV
+gdb --batch -ex "r" -ex "thread apply all bt" --args ./zig test ../test/stage1/behavior.zig -I ../test -lc > 'log.zig.txt' 2>&1 &
+
+# give time for background test.exe to build and launch
+sleep 120
+
+set +e
+
+PID_ZIG=$(pgrep -ox "zig")
+
+if [[ -n "$PID_ZIG" ]]; then
+    if (kill -SEGV "$PID_ZIG"); then
+        # give time for backtrace
+        sleep 30
+    fi
+fi
+
+rclone --config ../gdrive.conf copy 'log.zig.txt' "$GFOLDER"
+rclone --config ../gdrive.conf copy $(find ../test/stage1/zig-cache -name test) $GFOLDER
+rclone --config ../gdrive.conf copy zig $GFOLDER
+
+set -e
+
+echo "-----  ALL DONE -----"
+echo "-----  ALL DONE -----"
+echo "-----  ALL DONE -----"
+
+exit 0
+
+# following this point in script does not work out:
+# - it seems that test.exe is finishing so there's never a proc/core to get
+# - trying to gdb -p results in permission denied even though we are root
+# - probably a container thing
+
 ./zig test ../test/stage1/behavior.zig -I ../test -lc > 'log.zig' 2>&1 &
 PID_ZIG=$!
 
