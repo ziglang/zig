@@ -34,6 +34,8 @@ ls --full-time -ld ./foo.timestamp
 
 date
 
+cat /proc/sys/kernel/randomize_va_space
+
 set -e
 
 export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-cache"
