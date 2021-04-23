@@ -109,6 +109,8 @@ stage1_flags: packed struct {
 
 emit_h: ?Compilation.EmitLoc,
 
+job_queued_update_builtin_zig: bool = true,
+
 compile_log_text: ArrayListUnmanaged(u8) = .{},
 
 pub const ErrorInt = u32;

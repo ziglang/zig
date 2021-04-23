@@ -201,8 +201,6 @@ const Job = union(enum) {
     /// calls to, for example, memcpy and memset.
     zig_libc: void,
 
-    /// Generate builtin.zig source code and write it into the correct place.
-    generate_builtin_zig: void,
     /// Use stage1 C++ code to compile zig code into an object file.
     stage1_module: void,
 
@@ -1307,10 +1305,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     try comp.astgen_wait_group.init();
     errdefer comp.astgen_wait_group.deinit();
 
-    if (comp.bin_file.options.module) |mod| {
-        try comp.work_queue.writeItem(.{ .generate_builtin_zig = {} });
-    }
-
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureCapacity(gpa, options.c_source_files.len);
     for (options.c_source_files) |c_source_file| {
@@ -1764,6 +1758,15 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     defer main_progress_node.end();
     if (self.color == .off) progress.terminal = null;
 
+    // If we need to write out builtin.zig, it needs to be done before starting
+    // the AstGen tasks.
+    if (self.bin_file.options.module) |mod| {
+        if (mod.job_queued_update_builtin_zig) {
+            mod.job_queued_update_builtin_zig = false;
+            try self.updateBuiltinZigFile(mod);
+        }
+    }
+
     // Here we queue up all the AstGen tasks first, followed by C object compilation.
     // We wait until the AstGen tasks are all completed before proceeding to the
     // (at least for now) single-threaded main work queue. However, C object compilation
@@ -2085,10 +2088,6 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     .{@errorName(err)},
                 ),
             };
-        },
-        .generate_builtin_zig => {
-            // This Job is only queued up if there is a zig module.
-            try self.updateBuiltinZigFile(self.bin_file.options.module.?);
         },
         .stage1_module => {
             if (!build_options.is_stage1)
