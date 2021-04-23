@@ -1423,6 +1423,26 @@ pub const Scope = struct {
             });
         }
 
+        pub fn addIntBig(gz: *GenZir, limbs: []const std.math.big.Limb) !Zir.Inst.Ref {
+            const astgen = gz.astgen;
+            const gpa = astgen.gpa;
+            try gz.instructions.ensureUnusedCapacity(gpa, 1);
+            try astgen.instructions.ensureUnusedCapacity(gpa, 1);
+            try astgen.string_bytes.ensureUnusedCapacity(gpa, @sizeOf(std.math.big.Limb) * limbs.len);
+
+            const new_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
+            astgen.instructions.appendAssumeCapacity(.{
+                .tag = .int_big,
+                .data = .{ .str = .{
+                    .start = @intCast(u32, astgen.string_bytes.items.len),
+                    .len = @intCast(u32, limbs.len),
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+            astgen.string_bytes.appendSliceAssumeCapacity(mem.sliceAsBytes(limbs));
+            return gz.indexToRef(new_index);
+        }
+
         pub fn addFloat(gz: *GenZir, number: f32, src_node: ast.Node.Index) !Zir.Inst.Ref {
             return gz.add(.{
                 .tag = .float,
@@ -1681,22 +1701,6 @@ pub const Scope = struct {
             });
             gz.instructions.appendAssumeCapacity(new_index);
             return gz.indexToRef(new_index);
-        }
-
-        /// Asserts that `str` is 8 or fewer bytes.
-        pub fn addSmallStr(
-            gz: *GenZir,
-            tag: Zir.Inst.Tag,
-            str: []const u8,
-        ) !Zir.Inst.Ref {
-            var buf: [9]u8 = undefined;
-            mem.copy(u8, &buf, str);
-            buf[str.len] = 0;
-
-            return gz.add(.{
-                .tag = tag,
-                .data = .{ .small_str = .{ .bytes = buf[0..8].* } },
-            });
         }
 
         /// Note that this returns a `Zir.Inst.Index` not a ref.

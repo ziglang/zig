@@ -374,8 +374,10 @@ pub const Inst = struct {
         /// Implements the `@import` builtin.
         /// Uses the `str_tok` field.
         import,
-        /// Integer literal that fits in a u64. Uses the int union value.
+        /// Integer literal that fits in a u64. Uses the `int` union field.
         int,
+        /// Arbitrary sized integer literal. Uses the `str` union field.
+        int_big,
         /// A float literal that fits in a f32. Uses the float union value.
         float,
         /// A float literal that fits in a f128. Uses the `pl_node` union value.
@@ -540,10 +542,6 @@ pub const Inst = struct {
         /// Create an optional type '?T'
         /// Uses the `un_node` field.
         optional_type,
-        /// Create an optional type '?T'. The operand is a pointer value. The optional type will
-        /// be the type of the pointer element, wrapped in an optional.
-        /// Uses the `un_node` field.
-        optional_type_from_ptr_elem,
         /// ?T => T with safety.
         /// Given an optional value, returns the payload value, with a safety check that
         /// the value is non-null. Used for `orelse`, `if` and `while`.
@@ -1030,6 +1028,7 @@ pub const Inst = struct {
                 .func_inferred,
                 .has_decl,
                 .int,
+                .int_big,
                 .float,
                 .float128,
                 .intcast,
@@ -1061,7 +1060,6 @@ pub const Inst = struct {
                 .typeof_elem,
                 .xor,
                 .optional_type,
-                .optional_type_from_ptr_elem,
                 .optional_payload_safe,
                 .optional_payload_unsafe,
                 .optional_payload_safe_ptr,
@@ -1700,17 +1698,6 @@ pub const Inst = struct {
                 return code.string_bytes[self.start..][0..self.len];
             }
         },
-        /// Strings 8 or fewer bytes which may not contain null bytes.
-        small_str: struct {
-            bytes: [8]u8,
-
-            pub fn get(self: @This()) []const u8 {
-                const end = for (self.bytes) |byte, i| {
-                    if (byte == 0) break i;
-                } else self.bytes.len;
-                return self.bytes[0..end];
-            }
-        },
         str_tok: struct {
             /// Offset into `string_bytes`. Null-terminated.
             start: u32,
@@ -2324,7 +2311,6 @@ const Writer = struct {
             .ret_node,
             .resolve_inferred_alloc,
             .optional_type,
-            .optional_type_from_ptr_elem,
             .optional_payload_safe,
             .optional_payload_unsafe,
             .optional_payload_safe_ptr,
@@ -2405,6 +2391,7 @@ const Writer = struct {
             .ptr_type_simple => try self.writePtrTypeSimple(stream, inst),
             .ptr_type => try self.writePtrType(stream, inst),
             .int => try self.writeInt(stream, inst),
+            .int_big => try self.writeIntBig(stream, inst),
             .float => try self.writeFloat(stream, inst),
             .float128 => try self.writeFloat128(stream, inst),
             .str => try self.writeStr(stream, inst),
@@ -2710,13 +2697,28 @@ const Writer = struct {
         try stream.writeAll("TODO)");
     }
 
-    fn writeInt(
-        self: *Writer,
-        stream: anytype,
-        inst: Inst.Index,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+    fn writeInt(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].int;
         try stream.print("{d})", .{inst_data});
+    }
+
+    fn writeIntBig(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].str;
+        const byte_count = inst_data.len * @sizeOf(std.math.big.Limb);
+        const limb_bytes = self.code.string_bytes[inst_data.start..][0..byte_count];
+        // limb_bytes is not aligned properly; we must allocate and copy the bytes
+        // in order to accomplish this.
+        const limbs = try self.gpa.alloc(std.math.big.Limb, inst_data.len);
+        defer self.gpa.free(limbs);
+
+        mem.copy(u8, mem.sliceAsBytes(limbs), limb_bytes);
+        const big_int: std.math.big.int.Const = .{
+            .limbs = limbs,
+            .positive = true,
+        };
+        const as_string = try big_int.toStringAlloc(self.gpa, 10, false);
+        defer self.gpa.free(as_string);
+        try stream.print("{s})", .{as_string});
     }
 
     fn writeFloat(self: *Writer, stream: anytype, inst: Inst.Index) !void {

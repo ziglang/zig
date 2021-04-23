@@ -200,6 +200,7 @@ pub fn analyzeBody(
             .import                       => try sema.zirImport(block, inst),
             .indexable_ptr_len            => try sema.zirIndexablePtrLen(block, inst),
             .int                          => try sema.zirInt(block, inst),
+            .int_big                      => try sema.zirIntBig(block, inst),
             .float                        => try sema.zirFloat(block, inst),
             .float128                     => try sema.zirFloat128(block, inst),
             .int_type                     => try sema.zirIntType(block, inst),
@@ -219,7 +220,6 @@ pub fn analyzeBody(
             .optional_payload_unsafe      => try sema.zirOptionalPayload(block, inst, false),
             .optional_payload_unsafe_ptr  => try sema.zirOptionalPayloadPtr(block, inst, false),
             .optional_type                => try sema.zirOptionalType(block, inst),
-            .optional_type_from_ptr_elem  => try sema.zirOptionalTypeFromPtrElem(block, inst),
             .param_type                   => try sema.zirParamType(block, inst),
             .ptr_type                     => try sema.zirPtrType(block, inst),
             .ptr_type_simple              => try sema.zirPtrTypeSimple(block, inst),
@@ -1479,6 +1479,23 @@ fn zirInt(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*In
     return sema.mod.constIntUnsigned(sema.arena, .unneeded, Type.initTag(.comptime_int), int);
 }
 
+fn zirIntBig(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const arena = sema.arena;
+    const int = sema.code.instructions.items(.data)[inst].str;
+    const byte_count = int.len * @sizeOf(std.math.big.Limb);
+    const limb_bytes = sema.code.string_bytes[int.start..][0..byte_count];
+    const limbs = try arena.alloc(std.math.big.Limb, int.len);
+    mem.copy(u8, mem.sliceAsBytes(limbs), limb_bytes);
+
+    return sema.mod.constInst(arena, .unneeded, .{
+        .ty = Type.initTag(.comptime_int),
+        .val = try Value.Tag.int_big_positive.create(arena, limbs),
+    });
+}
+
 fn zirFloat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const arena = sema.arena;
     const inst_data = sema.code.instructions.items(.data)[inst].float;
@@ -2118,18 +2135,6 @@ fn zirOptionalType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inner
     const opt_type = try sema.mod.optionalType(sema.arena, child_type);
 
     return sema.mod.constType(sema.arena, src, opt_type);
-}
-
-fn zirOptionalTypeFromPtrElem(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const ptr = try sema.resolveInst(inst_data.operand);
-    const elem_ty = ptr.ty.elemType();
-    const opt_ty = try sema.mod.optionalType(sema.arena, elem_ty);
-
-    return sema.mod.constType(sema.arena, inst_data.src(), opt_ty);
 }
 
 fn zirElemType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {

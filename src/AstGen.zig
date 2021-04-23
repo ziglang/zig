@@ -1735,6 +1735,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .func,
             .func_inferred,
             .int,
+            .int_big,
             .float,
             .float128,
             .intcast,
@@ -1762,7 +1763,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .typeof_elem,
             .xor,
             .optional_type,
-            .optional_type_from_ptr_elem,
             .optional_payload_safe,
             .optional_payload_unsafe,
             .optional_payload_safe_ptr,
@@ -3874,18 +3874,9 @@ fn orelseCatchExpr(
     block_scope.setBreakResultLoc(rl);
     defer block_scope.instructions.deinit(astgen.gpa);
 
-    // TODO get rid of optional_type_from_ptr_elem
     const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
         .ref => .ref,
-        .discard, .none, .none_or_ref, .block_ptr, .inferred_ptr => .none,
-        .ty => |elem_ty| blk: {
-            const wrapped_ty = try block_scope.addUnNode(.optional_type, elem_ty, node);
-            break :blk .{ .ty = wrapped_ty };
-        },
-        .ptr => |ptr_ty| blk: {
-            const wrapped_ty = try block_scope.addUnNode(.optional_type_from_ptr_elem, ptr_ty, node);
-            break :blk .{ .ty = wrapped_ty };
-        },
+        else => .none,
     };
     block_scope.break_count += 1;
     // This could be a pointer or value depending on the `operand_rl` parameter.
@@ -5755,10 +5746,37 @@ fn integerLiteral(
             else => try gz.addInt(small_int),
         };
         return rvalue(gz, scope, rl, result, node);
-    } else |err| {
-        assert(err != error.InvalidCharacter);
-        return gz.astgen.failNode(node, "TODO implement int literals that don't fit in a u64", .{});
+    } else |err| switch (err) {
+        error.InvalidCharacter => unreachable, // Caught by the parser.
+        error.Overflow => {},
     }
+
+    var base: u8 = 10;
+    var non_prefixed: []const u8 = prefixed_bytes;
+    if (mem.startsWith(u8, prefixed_bytes, "0x")) {
+        base = 16;
+        non_prefixed = prefixed_bytes[2..];
+    } else if (mem.startsWith(u8, prefixed_bytes, "0o")) {
+        base = 8;
+        non_prefixed = prefixed_bytes[2..];
+    } else if (mem.startsWith(u8, prefixed_bytes, "0b")) {
+        base = 2;
+        non_prefixed = prefixed_bytes[2..];
+    }
+
+    const gpa = astgen.gpa;
+    var big_int = try std.math.big.int.Managed.init(gpa);
+    defer big_int.deinit();
+    big_int.setString(base, non_prefixed) catch |err| switch (err) {
+        error.InvalidCharacter => unreachable, // caught by parser
+        error.InvalidBase => unreachable, // we only pass 16, 8, 2, see above
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+
+    const limbs = big_int.limbs[0..big_int.len()];
+    assert(big_int.isPositive());
+    const result = try gz.addIntBig(limbs);
+    return rvalue(gz, scope, rl, result, node);
 }
 
 fn floatLiteral(
