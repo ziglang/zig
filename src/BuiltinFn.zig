@@ -506,7 +506,7 @@ pub const list = list: {
             "@intToFloat",
             .{
                 .tag = .int_to_float,
-                .param_count = 1,
+                .param_count = 2,
             },
         },
         .{

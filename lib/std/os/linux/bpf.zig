@@ -854,7 +854,7 @@ test "opcodes" {
     expect_opcode(0x95, Insn.exit());
 }
 
-pub const Cmd = extern enum(usize) {
+pub const Cmd = enum(usize) {
     /// Create  a map and return a file descriptor that refers to the map.  The
     /// close-on-exec file descriptor flag is automatically enabled for the new
     /// file descriptor.
@@ -977,7 +977,7 @@ pub const Cmd = extern enum(usize) {
     _,
 };
 
-pub const MapType = extern enum(u32) {
+pub const MapType = enum(u32) {
     unspec,
     hash,
     array,
@@ -1044,7 +1044,7 @@ pub const MapType = extern enum(u32) {
     _,
 };
 
-pub const ProgType = extern enum(u32) {
+pub const ProgType = enum(u32) {
     unspec,
 
     /// context type: __sk_buff
@@ -1139,7 +1139,7 @@ pub const ProgType = extern enum(u32) {
     _,
 };
 
-pub const AttachType = extern enum(u32) {
+pub const AttachType = enum(u32) {
     cgroup_inet_ingress,
     cgroup_inet_egress,
     cgroup_inet_sock_create,

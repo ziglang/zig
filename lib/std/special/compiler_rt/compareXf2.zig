@@ -10,18 +10,20 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const LE = extern enum(i32) {
+const LE = enum(i32) {
     Less = -1,
     Equal = 0,
     Greater = 1,
-    Unordered = 1,
+
+    const Unordered: LE = .Greater;
 };
 
-const GE = extern enum(i32) {
+const GE = enum(i32) {
     Less = -1,
     Equal = 0,
     Greater = 1,
-    Unordered = -1,
+
+    const Unordered: GE = .Less;
 };
 
 pub fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
@@ -43,7 +45,7 @@ pub fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
     const bAbs = @bitCast(rep_t, bInt) & absMask;
 
     // If either a or b is NaN, they are unordered.
-    if (aAbs > infRep or bAbs > infRep) return .Unordered;
+    if (aAbs > infRep or bAbs > infRep) return RT.Unordered;
 
     // If a and b are both zeros, they are equal.
     if ((aAbs | bAbs) == 0) return .Equal;

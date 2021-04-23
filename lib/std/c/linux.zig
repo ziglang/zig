@@ -39,7 +39,7 @@ pub const NI_NAMEREQD = 0x08;
 pub const NI_DGRAM = 0x10;
 pub const NI_NUMERICSCOPE = 0x100;
 
-pub const EAI = extern enum(c_int) {
+pub const EAI = enum(c_int) {
     BADFLAGS = -1,
     NONAME = -2,
     AGAIN = -3,

@@ -28,20 +28,20 @@ pub const HIIPopupProtocol = extern struct {
     };
 };
 
-pub const HIIPopupStyle = extern enum(u32) {
+pub const HIIPopupStyle = enum(u32) {
     Info,
     Warning,
     Error,
 };
 
-pub const HIIPopupType = extern enum(u32) {
+pub const HIIPopupType = enum(u32) {
     Ok,
     Cancel,
     YesNo,
     YesNoCancel,
 };
 
-pub const HIIPopupSelection = extern enum(u32) {
+pub const HIIPopupSelection = enum(u32) {
     Ok,
     Cancel,
     Yes,

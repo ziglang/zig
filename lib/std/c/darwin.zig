@@ -121,7 +121,7 @@ pub const AI_NUMERICHOST = 0x00000004;
 /// prevent service name resolution
 pub const AI_NUMERICSERV = 0x00001000;
 
-pub const EAI = extern enum(c_int) {
+pub const EAI = enum(c_int) {
     /// address family for hostname not supported
     ADDRFAMILY = 1,
 

@@ -900,7 +900,7 @@ pub fn formatBuf(
 ) !void {
     if (options.width) |min_width| {
         // In case of error assume the buffer content is ASCII-encoded
-        const width = unicode.utf8CountCodepoints(buf) catch |_| buf.len;
+        const width = unicode.utf8CountCodepoints(buf) catch buf.len;
         const padding = if (width < min_width) min_width - width else 0;
 
         if (padding == 0)

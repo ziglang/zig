@@ -57,7 +57,7 @@ pub const GraphicsOutputModeInformation = extern struct {
     pixels_per_scan_line: u32 = undefined,
 };
 
-pub const GraphicsPixelFormat = extern enum(u32) {
+pub const GraphicsPixelFormat = enum(u32) {
     PixelRedGreenBlueReserved8BitPerColor,
     PixelBlueGreenRedReserved8BitPerColor,
     PixelBitMask,
@@ -79,7 +79,7 @@ pub const GraphicsOutputBltPixel = extern struct {
     reserved: u8 = undefined,
 };
 
-pub const GraphicsOutputBltOperation = extern enum(u32) {
+pub const GraphicsOutputBltOperation = enum(u32) {
     BltVideoFill,
     BltVideoToBltBuffer,
     BltBufferToVideo,
