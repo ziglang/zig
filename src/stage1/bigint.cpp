@@ -1446,10 +1446,10 @@ void bigint_negate(BigInt *dest, const BigInt *op) {
     bigint_normalize(dest);
 }
 
-void bigint_negate_wrap(BigInt *dest, const BigInt *op, size_t bit_count) {
+void bigint_negate_wrap(BigInt *dest, const BigInt *op, size_t bit_count, bool is_signed) {
     BigInt zero;
     bigint_init_unsigned(&zero, 0);
-    bigint_sub_wrap(dest, &zero, op, bit_count, true);
+    bigint_sub_wrap(dest, &zero, op, bit_count, is_signed);
 }
 
 void bigint_not(BigInt *dest, const BigInt *op, size_t bit_count, bool is_signed) {

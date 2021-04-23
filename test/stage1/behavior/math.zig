@@ -229,14 +229,24 @@ fn testSignedWrappingEval(x: i32) void {
     expect(max_val == maxInt(i32));
 }
 
-test "negation wrapping" {
-    testNegationWrappingEval(minInt(i16));
-    comptime testNegationWrappingEval(minInt(i16));
+test "signed negation wrapping" {
+    testSignedNegationWrappingEval(minInt(i16));
+    comptime testSignedNegationWrappingEval(minInt(i16));
 }
-fn testNegationWrappingEval(x: i16) void {
+fn testSignedNegationWrappingEval(x: i16) void {
     expect(x == -32768);
     const neg = -%x;
     expect(neg == -32768);
+}
+
+test "unsigned negation wrapping" {
+    testUnsignedNegationWrappingEval(1);
+    comptime testUnsignedNegationWrappingEval(1);
+}
+fn testUnsignedNegationWrappingEval(x: u16) void {
+    expect(x == 1);
+    const neg = -%x;
+    expect(neg == maxInt(u16));
 }
 
 test "unsigned 64-bit division" {
