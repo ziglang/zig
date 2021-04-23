@@ -2482,11 +2482,14 @@ const WipDecls = struct {
     decl_index: usize = 0,
     cur_bit_bag: u32 = 0,
     bit_bag: ArrayListUnmanaged(u32) = .{},
-    name_and_value: ArrayListUnmanaged(u32) = .{},
+    payload: ArrayListUnmanaged(u32) = .{},
+
+    const bits_per_field = 4;
+    const fields_per_u32 = 32 / bits_per_field;
 
     fn deinit(wip_decls: *WipDecls, gpa: *Allocator) void {
         wip_decls.bit_bag.deinit(gpa);
-        wip_decls.name_and_value.deinit(gpa);
+        wip_decls.payload.deinit(gpa);
     }
 };
 
@@ -2501,6 +2504,15 @@ fn fnDecl(
     const tree = &astgen.file.tree;
     const token_tags = tree.tokens.items(.tag);
 
+    var decl_gz: GenZir = .{
+        .force_comptime = true,
+        .decl_node_index = fn_proto.ast.proto_node,
+        .parent = &gz.base,
+        .astgen = astgen,
+        .ref_start_index = @intCast(u32, Zir.Inst.Ref.typed_value_map.len),
+    };
+    defer decl_gz.instructions.deinit(gpa);
+
     const is_pub = fn_proto.visib_token != null;
     const is_export = blk: {
         const maybe_export_token = fn_proto.extern_export_token orelse break :blk false;
@@ -2510,13 +2522,22 @@ fn fnDecl(
         const maybe_extern_token = fn_proto.extern_export_token orelse break :blk false;
         break :blk token_tags[maybe_extern_token] == .keyword_extern;
     };
-    if (wip_decls.decl_index % 16 == 0 and wip_decls.decl_index != 0) {
+    const align_inst: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
+        break :inst try expr(&decl_gz, &decl_gz.base, align_rl, fn_proto.ast.align_expr);
+    };
+    const section_inst: Zir.Inst.Ref = if (fn_proto.ast.section_expr == 0) .none else inst: {
+        break :inst try comptimeExpr(&decl_gz, &decl_gz.base, .{ .ty = .const_slice_u8_type }, fn_proto.ast.section_expr);
+    };
+
+    if (wip_decls.decl_index % WipDecls.fields_per_u32 == 0 and wip_decls.decl_index != 0) {
         try wip_decls.bit_bag.append(gpa, wip_decls.cur_bit_bag);
         wip_decls.cur_bit_bag = 0;
     }
-    wip_decls.cur_bit_bag = (wip_decls.cur_bit_bag >> 2) |
-        (@as(u32, @boolToInt(is_pub)) << 30) |
-        (@as(u32, @boolToInt(is_export)) << 31);
+    wip_decls.cur_bit_bag = (wip_decls.cur_bit_bag >> WipDecls.bits_per_field) |
+        (@as(u32, @boolToInt(is_pub)) << 28) |
+        (@as(u32, @boolToInt(is_export)) << 29) |
+        (@as(u32, @boolToInt(align_inst != .none)) << 30) |
+        (@as(u32, @boolToInt(section_inst != .none)) << 31);
     wip_decls.decl_index += 1;
 
     // The AST params array does not contain anytype and ... parameters.
@@ -2536,15 +2557,6 @@ fn fnDecl(
     };
     const param_types = try gpa.alloc(Zir.Inst.Ref, param_count);
     defer gpa.free(param_types);
-
-    var decl_gz: GenZir = .{
-        .force_comptime = true,
-        .decl_node_index = fn_proto.ast.proto_node,
-        .parent = &gz.base,
-        .astgen = astgen,
-        .ref_start_index = @intCast(u32, Zir.Inst.Ref.typed_value_map.len),
-    };
-    defer decl_gz.instructions.deinit(gpa);
 
     var is_var_args = false;
     {
@@ -2576,21 +2588,6 @@ fn fnDecl(
         const lib_name_str = try decl_gz.strLitAsString(lib_name_token);
         break :blk lib_name_str.index;
     } else 0;
-
-    if (fn_proto.ast.align_expr != 0) {
-        return astgen.failNode(
-            fn_proto.ast.align_expr,
-            "TODO implement function align expression",
-            .{},
-        );
-    }
-    if (fn_proto.ast.section_expr != 0) {
-        return astgen.failNode(
-            fn_proto.ast.section_expr,
-            "TODO implement function section expression",
-            .{},
-        );
-    }
 
     const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
     const is_inferred_error = token_tags[maybe_bang] == .bang;
@@ -2713,9 +2710,15 @@ fn fnDecl(
     _ = try decl_gz.addBreak(.break_inline, block_inst, func_inst);
     try decl_gz.setBlockBody(block_inst);
 
-    try wip_decls.name_and_value.ensureCapacity(gpa, wip_decls.name_and_value.items.len + 2);
-    wip_decls.name_and_value.appendAssumeCapacity(fn_name_str_index);
-    wip_decls.name_and_value.appendAssumeCapacity(block_inst);
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 4);
+    wip_decls.payload.appendAssumeCapacity(fn_name_str_index);
+    wip_decls.payload.appendAssumeCapacity(block_inst);
+    if (align_inst != .none) {
+        wip_decls.payload.appendAssumeCapacity(@enumToInt(align_inst));
+    }
+    if (section_inst != .none) {
+        wip_decls.payload.appendAssumeCapacity(@enumToInt(section_inst));
+    }
 }
 
 fn globalVarDecl(
@@ -2730,6 +2733,14 @@ fn globalVarDecl(
     const tree = &astgen.file.tree;
     const token_tags = tree.tokens.items(.tag);
 
+    var block_scope: GenZir = .{
+        .parent = scope,
+        .decl_node_index = node,
+        .astgen = astgen,
+        .force_comptime = true,
+    };
+    defer block_scope.instructions.deinit(gpa);
+
     const is_pub = var_decl.visib_token != null;
     const is_export = blk: {
         const maybe_export_token = var_decl.extern_export_token orelse break :blk false;
@@ -2739,13 +2750,21 @@ fn globalVarDecl(
         const maybe_extern_token = var_decl.extern_export_token orelse break :blk false;
         break :blk token_tags[maybe_extern_token] == .keyword_extern;
     };
-    if (wip_decls.decl_index % 16 == 0 and wip_decls.decl_index != 0) {
+    const align_inst: Zir.Inst.Ref = if (var_decl.ast.align_node == 0) .none else inst: {
+        break :inst try expr(&block_scope, &block_scope.base, align_rl, var_decl.ast.align_node);
+    };
+    const section_inst: Zir.Inst.Ref = if (var_decl.ast.section_node == 0) .none else inst: {
+        break :inst try comptimeExpr(&block_scope, &block_scope.base, .{ .ty = .const_slice_u8_type }, var_decl.ast.section_node);
+    };
+    if (wip_decls.decl_index % WipDecls.fields_per_u32 == 0 and wip_decls.decl_index != 0) {
         try wip_decls.bit_bag.append(gpa, wip_decls.cur_bit_bag);
         wip_decls.cur_bit_bag = 0;
     }
-    wip_decls.cur_bit_bag = (wip_decls.cur_bit_bag >> 2) |
-        (@as(u32, @boolToInt(is_pub)) << 30) |
-        (@as(u32, @boolToInt(is_export)) << 31);
+    wip_decls.cur_bit_bag = (wip_decls.cur_bit_bag >> WipDecls.bits_per_field) |
+        (@as(u32, @boolToInt(is_pub)) << 28) |
+        (@as(u32, @boolToInt(is_export)) << 29) |
+        (@as(u32, @boolToInt(align_inst != .none)) << 30) |
+        (@as(u32, @boolToInt(section_inst != .none)) << 31);
     wip_decls.decl_index += 1;
 
     const is_mutable = token_tags[var_decl.ast.mut_token] == .keyword_var;
@@ -2762,12 +2781,6 @@ fn globalVarDecl(
     } else 0;
 
     assert(var_decl.comptime_token == null); // handled by parser
-    if (var_decl.ast.align_node != 0) {
-        return astgen.failNode(var_decl.ast.align_node, "TODO implement alignment on globals", .{});
-    }
-    if (var_decl.ast.section_node != 0) {
-        return astgen.failNode(var_decl.ast.section_node, "TODO linksection on globals", .{});
-    }
 
     const var_inst: Zir.Inst.Index = if (var_decl.ast.init_node != 0) vi: {
         if (is_extern) {
@@ -2777,14 +2790,6 @@ fn globalVarDecl(
                 .{},
             );
         }
-
-        var block_scope: GenZir = .{
-            .parent = scope,
-            .decl_node_index = node,
-            .astgen = astgen,
-            .force_comptime = true,
-        };
-        defer block_scope.instructions.deinit(gpa);
 
         const init_result_loc: AstGen.ResultLoc = if (var_decl.ast.type_node != 0) .{
             .ty = try expr(
@@ -2812,7 +2817,7 @@ fn globalVarDecl(
     } else if (var_decl.ast.type_node != 0) {
         // Extern variable which has an explicit type.
 
-        const type_inst = try typeExpr(gz, scope, var_decl.ast.type_node);
+        const type_inst = try typeExpr(&block_scope, &block_scope.base, var_decl.ast.type_node);
 
         return astgen.failNode(node, "TODO AstGen extern global variable", .{});
     } else {
@@ -2822,9 +2827,15 @@ fn globalVarDecl(
     const name_token = var_decl.ast.mut_token + 1;
     const name_str_index = try gz.identAsString(name_token);
 
-    try wip_decls.name_and_value.ensureCapacity(gpa, wip_decls.name_and_value.items.len + 2);
-    wip_decls.name_and_value.appendAssumeCapacity(name_str_index);
-    wip_decls.name_and_value.appendAssumeCapacity(var_inst);
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 4);
+    wip_decls.payload.appendAssumeCapacity(name_str_index);
+    wip_decls.payload.appendAssumeCapacity(var_inst);
+    if (align_inst != .none) {
+        wip_decls.payload.appendAssumeCapacity(@enumToInt(align_inst));
+    }
+    if (section_inst != .none) {
+        wip_decls.payload.appendAssumeCapacity(@enumToInt(section_inst));
+    }
 }
 
 fn comptimeDecl(
@@ -3080,7 +3091,7 @@ fn structDeclInner(
             (@as(u32, @boolToInt(have_value)) << 31);
 
         if (have_align) {
-            const align_inst = try expr(&block_scope, &block_scope.base, .{ .ty = .u32_type }, member.ast.align_expr);
+            const align_inst = try expr(&block_scope, &block_scope.base, align_rl, member.ast.align_expr);
             fields_data.appendAssumeCapacity(@enumToInt(align_inst));
         }
         if (have_value) {
@@ -3097,9 +3108,9 @@ fn structDeclInner(
         }
     }
     {
-        const empty_slot_count = 16 - (wip_decls.decl_index % 16);
-        if (empty_slot_count < 16) {
-            wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
+        const empty_slot_count = WipDecls.fields_per_u32 - (wip_decls.decl_index % WipDecls.fields_per_u32);
+        if (empty_slot_count < WipDecls.fields_per_u32) {
+            wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * WipDecls.bits_per_field);
         }
     }
 
@@ -3113,7 +3124,7 @@ fn structDeclInner(
         bit_bag.items.len + @boolToInt(field_index != 0) + fields_data.items.len +
         block_scope.instructions.items.len +
         wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
-        wip_decls.name_and_value.items.len);
+        wip_decls.payload.items.len);
     const zir_datas = astgen.instructions.items(.data);
     zir_datas[decl_inst].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.StructDecl{
         .body_len = @intCast(u32, block_scope.instructions.items.len),
@@ -3132,7 +3143,7 @@ fn structDeclInner(
     if (wip_decls.decl_index != 0) {
         astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
     }
-    astgen.extra.appendSliceAssumeCapacity(wip_decls.name_and_value.items);
+    astgen.extra.appendSliceAssumeCapacity(wip_decls.payload.items);
 
     return gz.indexToRef(decl_inst);
 }
@@ -3321,9 +3332,9 @@ fn unionDeclInner(
         }
     }
     {
-        const empty_slot_count = 16 - (wip_decls.decl_index % 16);
-        if (empty_slot_count < 16) {
-            wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
+        const empty_slot_count = WipDecls.fields_per_u32 - (wip_decls.decl_index % WipDecls.fields_per_u32);
+        if (empty_slot_count < WipDecls.fields_per_u32) {
+            wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * WipDecls.bits_per_field);
         }
     }
 
@@ -3337,7 +3348,7 @@ fn unionDeclInner(
         bit_bag.items.len + 1 + fields_data.items.len +
         block_scope.instructions.items.len +
         wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
-        wip_decls.name_and_value.items.len);
+        wip_decls.payload.items.len);
     const zir_datas = astgen.instructions.items(.data);
     zir_datas[decl_inst].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.UnionDecl{
         .tag_type = arg_inst,
@@ -3355,7 +3366,7 @@ fn unionDeclInner(
     if (wip_decls.decl_index != 0) {
         astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
     }
-    astgen.extra.appendSliceAssumeCapacity(wip_decls.name_and_value.items);
+    astgen.extra.appendSliceAssumeCapacity(wip_decls.payload.items);
 
     return gz.indexToRef(decl_inst);
 }
@@ -3653,9 +3664,9 @@ fn containerDecl(
                 }
             }
             {
-                const empty_slot_count = 16 - (wip_decls.decl_index % 16);
-                if (empty_slot_count < 16) {
-                    wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
+                const empty_slot_count = WipDecls.fields_per_u32 - (wip_decls.decl_index % WipDecls.fields_per_u32);
+                if (empty_slot_count < WipDecls.fields_per_u32) {
+                    wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * WipDecls.bits_per_field);
                 }
             }
 
@@ -3669,7 +3680,7 @@ fn containerDecl(
                 bit_bag.items.len + 1 + fields_data.items.len +
                 block_scope.instructions.items.len +
                 wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
-                wip_decls.name_and_value.items.len);
+                wip_decls.payload.items.len);
             const zir_datas = astgen.instructions.items(.data);
             zir_datas[decl_inst].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.EnumDecl{
                 .tag_type = arg_inst,
@@ -3686,7 +3697,7 @@ fn containerDecl(
             if (wip_decls.decl_index != 0) {
                 astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
             }
-            astgen.extra.appendSliceAssumeCapacity(wip_decls.name_and_value.items);
+            astgen.extra.appendSliceAssumeCapacity(wip_decls.payload.items);
 
             return rvalue(gz, scope, rl, gz.indexToRef(decl_inst), node);
         },

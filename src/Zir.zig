@@ -2021,13 +2021,17 @@ pub const Inst = struct {
     ///        align: Ref, // if corresponding bit is set
     ///        default_value: Ref, // if corresponding bit is set
     ///    }
-    /// 3. decl_bits: u32 // for every 16 decls
-    ///    - sets of 2 bits:
-    ///      0b0X: whether corresponding decl is pub
-    ///      0bX0: whether corresponding decl is exported
+    /// 3. decl_bits: u32 // for every 8 decls
+    ///    - sets of 4 bits:
+    ///      0b000X: whether corresponding decl is pub
+    ///      0b00X0: whether corresponding decl is exported
+    ///      0b0X00: whether corresponding decl has an align expression
+    ///      0bX000: whether corresponding decl has a linksection expression
     /// 4. decl: { // for every decls_len
     ///        name: u32, // null terminated string index
     ///        value: Index,
+    ///        align: Ref, // if corresponding bit is set
+    ///        link_section: Ref, // if corresponding bit is set
     ///    }
     pub const StructDecl = struct {
         body_len: u32,
@@ -2043,13 +2047,17 @@ pub const Inst = struct {
     ///        field_name: u32,
     ///        value: Ref, // if corresponding bit is set
     ///    }
-    /// 3. decl_bits: u32 // for every 16 decls
-    ///    - sets of 2 bits:
-    ///      0b0X: whether corresponding decl is pub
-    ///      0bX0: whether corresponding decl is exported
+    /// 3. decl_bits: u32 // for every 8 decls
+    ///    - sets of 4 bits:
+    ///      0b000X: whether corresponding decl is pub
+    ///      0b00X0: whether corresponding decl is exported
+    ///      0b0X00: whether corresponding decl has an align expression
+    ///      0bX000: whether corresponding decl has a linksection expression
     /// 4. decl: { // for every decls_len
     ///        name: u32, // null terminated string index
     ///        value: Index,
+    ///        align: Ref, // if corresponding bit is set
+    ///        link_section: Ref, // if corresponding bit is set
     ///    }
     pub const EnumDecl = struct {
         /// Can be `Ref.none`.
@@ -2077,13 +2085,17 @@ pub const Inst = struct {
     ///        align: Ref, // if corresponding bit is set
     ///        tag_value: Ref, // if corresponding bit is set
     ///    }
-    /// 3. decl_bits: u32 // for every 16 decls
-    ///    - sets of 2 bits:
-    ///      0b0X: whether corresponding decl is pub
-    ///      0bX0: whether corresponding decl is exported
+    /// 3. decl_bits: u32 // for every 8 decls
+    ///    - sets of 4 bits:
+    ///      0b000X: whether corresponding decl is pub
+    ///      0b00X0: whether corresponding decl is exported
+    ///      0b0X00: whether corresponding decl has an align expression
+    ///      0bX000: whether corresponding decl has a linksection expression
     /// 4. decl: { // for every decls_len
     ///        name: u32, // null terminated string index
     ///        value: Index,
+    ///        align: Ref, // if corresponding bit is set
+    ///        link_section: Ref, // if corresponding bit is set
     ///    }
     pub const UnionDecl = struct {
         /// Can be `Ref.none`.
@@ -3072,13 +3084,13 @@ const Writer = struct {
 
     fn writeDecls(self: *Writer, stream: anytype, decls_len: u32, extra_start: usize) !void {
         const parent_decl_node = self.parent_decl_node;
-        const bit_bags_count = std.math.divCeil(usize, decls_len, 16) catch unreachable;
+        const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
         var extra_index = extra_start + bit_bags_count;
         var bit_bag_index: usize = extra_start;
         var cur_bit_bag: u32 = undefined;
         var decl_i: u32 = 0;
         while (decl_i < decls_len) : (decl_i += 1) {
-            if (decl_i % 16 == 0) {
+            if (decl_i % 8 == 0) {
                 cur_bit_bag = self.code.extra[bit_bag_index];
                 bit_bag_index += 1;
             }
@@ -3086,19 +3098,44 @@ const Writer = struct {
             cur_bit_bag >>= 1;
             const is_exported = @truncate(u1, cur_bit_bag) != 0;
             cur_bit_bag >>= 1;
+            const has_align = @truncate(u1, cur_bit_bag) != 0;
+            cur_bit_bag >>= 1;
+            const has_section = @truncate(u1, cur_bit_bag) != 0;
+            cur_bit_bag >>= 1;
 
             const decl_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
             extra_index += 1;
             const decl_index = self.code.extra[extra_index];
             extra_index += 1;
+            const align_inst: Inst.Ref = if (!has_align) .none else inst: {
+                const inst = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
+                break :inst inst;
+            };
+            const section_inst: Inst.Ref = if (!has_section) .none else inst: {
+                const inst = @intToEnum(Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
+                break :inst inst;
+            };
 
             const tag = self.code.instructions.items(.tag)[decl_index];
             const pub_str = if (is_pub) "pub " else "";
             const export_str = if (is_exported) "export " else "";
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.print("{s}{s}{}: %{d} = {s}(", .{
-                pub_str, export_str, std.zig.fmtId(decl_name), decl_index, @tagName(tag),
+            try stream.print("{s}{s}{}", .{
+                pub_str, export_str, std.zig.fmtId(decl_name),
             });
+            if (align_inst != .none) {
+                try stream.writeAll(" align(");
+                try self.writeInstRef(stream, align_inst);
+                try stream.writeAll(")");
+            }
+            if (section_inst != .none) {
+                try stream.writeAll(" linksection(");
+                try self.writeInstRef(stream, section_inst);
+                try stream.writeAll(")");
+            }
+            try stream.print(": %{d} = {s}(", .{ decl_index, @tagName(tag) });
 
             const decl_block_inst_data = self.code.instructions.items(.data)[decl_index].pl_node;
             const sub_decl_node_off = decl_block_inst_data.src_node;
