@@ -959,7 +959,19 @@ pub fn awaitExpr(
     node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    return astgen.failNode(node, "TODO AstGen awaitExpr", .{});
+    const tree = &astgen.file.tree;
+    const node_datas = tree.nodes.items(.data);
+    const rhs_node = node_datas[node].lhs;
+
+    if (gz.suspend_node != 0) {
+        return astgen.failNodeNotes(node, "cannot await inside suspend block", .{}, &[_]u32{
+            try astgen.errNoteNode(gz.suspend_node, "suspend block here", .{}),
+        });
+    }
+    const operand = try expr(gz, scope, .none, rhs_node);
+    const tag: Zir.Inst.Tag = if (gz.nosuspend_node != 0) .await_nosuspend else .@"await";
+    const result = try gz.addUnNode(tag, operand, node);
+    return rvalue(gz, scope, rl, result, node);
 }
 
 pub fn resumeExpr(
@@ -969,7 +981,12 @@ pub fn resumeExpr(
     node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    return astgen.failNode(node, "TODO AstGen resumeExpr", .{});
+    const tree = &astgen.file.tree;
+    const node_datas = tree.nodes.items(.data);
+    const rhs_node = node_datas[node].lhs;
+    const operand = try expr(gz, scope, .none, rhs_node);
+    const result = try gz.addUnNode(.@"resume", operand, node);
+    return rvalue(gz, scope, rl, result, node);
 }
 
 pub fn fnProtoExpr(
@@ -2005,6 +2022,9 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .memset,
             .builtin_async_call,
             .c_import,
+            .@"resume",
+            .@"await",
+            .await_nosuspend,
             .extended,
             => break :b false,
 

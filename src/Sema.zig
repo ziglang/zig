@@ -317,6 +317,9 @@ pub fn analyzeBody(
             .memcpy                       => try sema.zirMemcpy(block, inst),
             .memset                       => try sema.zirMemset(block, inst),
             .builtin_async_call           => try sema.zirBuiltinAsyncCall(block, inst),
+            .@"resume"                    => try sema.zirResume(block, inst),
+            .@"await"                     => try sema.zirAwait(block, inst, false),
+            .await_nosuspend              => try sema.zirAwait(block, inst, true),
             .extended                     => try sema.zirExtended(block, inst),
 
             .sqrt  => try sema.zirUnaryMath(block, inst),
@@ -5411,6 +5414,23 @@ fn zirBuiltinAsyncCall(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) I
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirBuiltinAsyncCall", .{});
+}
+
+fn zirResume(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirResume", .{});
+}
+
+fn zirAwait(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: Zir.Inst.Index,
+    is_nosuspend: bool,
+) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirAwait", .{});
 }
 
 fn zirFuncExtended(

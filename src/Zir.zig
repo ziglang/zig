@@ -936,6 +936,10 @@ pub const Inst = struct {
         /// Uses the `un_node` field. The AST node is the var decl.
         resolve_inferred_alloc,
 
+        @"resume",
+        @"await",
+        await_nosuspend,
+
         /// The ZIR instruction tag is one of the `Extended` ones.
         /// Uses the `extended` union field.
         extended,
@@ -1185,6 +1189,9 @@ pub const Inst = struct {
                 .memset,
                 .builtin_async_call,
                 .c_import,
+                .@"resume",
+                .@"await",
+                .await_nosuspend,
                 .extended,
                 => false,
 
@@ -2416,6 +2423,9 @@ const Writer = struct {
             .byte_swap,
             .bit_reverse,
             .elem_type,
+            .@"resume",
+            .@"await",
+            .await_nosuspend,
             => try self.writeUnNode(stream, inst),
 
             .ref,
