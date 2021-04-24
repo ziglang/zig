@@ -161,6 +161,8 @@ pub fn analyzeBody(
             .call                         => try sema.zirCall(block, inst, .auto, false),
             .call_chkused                 => try sema.zirCall(block, inst, .auto, true),
             .call_compile_time            => try sema.zirCall(block, inst, .compile_time, false),
+            .call_nosuspend               => try sema.zirCall(block, inst, .no_async, false),
+            .call_async                   => try sema.zirCall(block, inst, .async_kw, false),
             .call_none                    => try sema.zirCallNone(block, inst, false),
             .call_none_chkused            => try sema.zirCallNone(block, inst, true),
             .cmp_eq                       => try sema.zirCmp(block, inst, .eq),
@@ -254,7 +256,6 @@ pub fn analyzeBody(
             .bit_size_of                  => try sema.zirBitSizeOf(block, inst),
             .typeof                       => try sema.zirTypeof(block, inst),
             .typeof_elem                  => try sema.zirTypeofElem(block, inst),
-            .typeof_peer                  => try sema.zirTypeofPeer(block, inst),
             .log2_int_type                => try sema.zirLog2IntType(block, inst),
             .typeof_log2_int_type         => try sema.zirTypeofLog2IntType(block, inst),
             .xor                          => try sema.zirBitwise(block, inst, .xor),
@@ -403,10 +404,6 @@ pub fn analyzeBody(
                 try sema.zirEnsureResultUsed(block, inst);
                 continue;
             },
-            .compile_log => {
-                try sema.zirCompileLog(block, inst);
-                continue;
-            },
             .set_eval_branch_quota => {
                 try sema.zirSetEvalBranchQuota(block, inst);
                 continue;
@@ -519,6 +516,8 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
         .alloc              => return sema.zirAllocExtended(   block, extended),
         .builtin_extern     => return sema.zirBuiltinExtern(   block, extended),
         .@"asm"             => return sema.zirAsm(             block, extended),
+        .typeof_peer        => return sema.zirTypeofPeer(      block, extended),
+        .compile_log        => return sema.zirCompileLog(      block, extended),
         .c_undef            => return sema.zirCUndef(          block, extended),
         .c_include          => return sema.zirCInclude(        block, extended),
         .c_define           => return sema.zirCDefine(         block, extended),
@@ -1533,14 +1532,18 @@ fn zirCompileError(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inner
     return sema.mod.fail(&block.base, src, "{s}", .{msg});
 }
 
-fn zirCompileLog(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!void {
+fn zirCompileLog(
+    sema: *Sema,
+    block: *Scope.Block,
+    extended: Zir.Inst.Extended.InstData,
+) InnerError!*Inst {
     var managed = sema.mod.compile_log_text.toManaged(sema.gpa);
     defer sema.mod.compile_log_text = managed.moveToUnmanaged();
     const writer = managed.writer();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
-    const args = sema.code.refSlice(extra.end, extra.data.operands_len);
+    const extra = sema.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
+    const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+    const args = sema.code.refSlice(extra.end, extended.small);
 
     for (args) |arg_ref, i| {
         if (i != 0) try writer.print(", ", .{});
@@ -1556,8 +1559,12 @@ fn zirCompileLog(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
 
     const gop = try sema.mod.compile_log_decls.getOrPut(sema.gpa, sema.owner_decl);
     if (!gop.found_existing) {
-        gop.entry.value = inst_data.src().toSrcLoc(&block.base);
+        gop.entry.value = src.toSrcLoc(&block.base);
     }
+    return sema.mod.constInst(sema.arena, src, .{
+        .ty = Type.initTag(.void),
+        .val = Value.initTag(.void_value),
+    });
 }
 
 fn zirRepeat(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!Zir.Inst.Index {
@@ -4680,16 +4687,19 @@ fn zirLog2IntType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerE
     return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirLog2IntType", .{});
 }
 
-fn zirTypeofPeer(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirTypeofPeer(
+    sema: *Sema,
+    block: *Scope.Block,
+    extended: Zir.Inst.Extended.InstData,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const extra = sema.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
-    const args = sema.code.refSlice(extra.end, extra.data.operands_len);
+    const extra = sema.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
+    const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+    const args = sema.code.refSlice(extra.end, extended.small);
 
-    const inst_list = try sema.gpa.alloc(*ir.Inst, extra.data.operands_len);
+    const inst_list = try sema.gpa.alloc(*ir.Inst, args.len);
     defer sema.gpa.free(inst_list);
 
     for (args) |arg_ref, i| {

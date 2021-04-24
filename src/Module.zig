@@ -1533,6 +1533,39 @@ pub const Scope = struct {
             return gz.indexToRef(new_index);
         }
 
+        pub fn addExtendedMultiOp(
+            gz: *GenZir,
+            opcode: Zir.Inst.Extended,
+            node: ast.Node.Index,
+            operands: []const Zir.Inst.Ref,
+        ) !Zir.Inst.Ref {
+            const astgen = gz.astgen;
+            const gpa = astgen.gpa;
+
+            try gz.instructions.ensureUnusedCapacity(gpa, 1);
+            try astgen.instructions.ensureUnusedCapacity(gpa, 1);
+            try astgen.extra.ensureUnusedCapacity(
+                gpa,
+                @typeInfo(Zir.Inst.NodeMultiOp).Struct.fields.len + operands.len,
+            );
+
+            const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.NodeMultiOp{
+                .src_node = gz.nodeIndexToRelative(node),
+            });
+            const new_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
+            astgen.instructions.appendAssumeCapacity(.{
+                .tag = .extended,
+                .data = .{ .extended = .{
+                    .opcode = opcode,
+                    .small = @intCast(u16, operands.len),
+                    .operand = payload_index,
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+            astgen.appendRefsAssumeCapacity(operands);
+            return gz.indexToRef(new_index);
+        }
+
         pub fn addArrayTypeSentinel(
             gz: *GenZir,
             len: Zir.Inst.Ref,

@@ -900,11 +900,6 @@ pub fn nosuspendExpr(
             try astgen.errNoteNode(gz.nosuspend_node, "other nosuspend block here", .{}),
         });
     }
-    if (gz.suspend_node != 0) {
-        return astgen.failNodeNotes(node, "inside a suspend block, nosuspend is implied", .{}, &[_]u32{
-            try astgen.errNoteNode(gz.suspend_node, "suspend block here", .{}),
-        });
-    }
     gz.nosuspend_node = node;
     const result = try expr(gz, scope, rl, body_node);
     gz.nosuspend_node = 0;
@@ -1803,6 +1798,8 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .bool_and,
             .bool_or,
             .call_compile_time,
+            .call_nosuspend,
+            .call_async,
             .cmp_lt,
             .cmp_lte,
             .cmp_eq,
@@ -1876,7 +1873,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .slice_end,
             .slice_sentinel,
             .import,
-            .typeof_peer,
             .switch_block,
             .switch_block_multi,
             .switch_block_else,
@@ -2001,7 +1997,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .ensure_result_non_error,
             .@"export",
             .set_eval_branch_quota,
-            .compile_log,
             .ensure_err_payload_void,
             .@"break",
             .break_inline,
@@ -6074,11 +6069,7 @@ fn typeOf(
         items[param_i] = try expr(gz, scope, .none, param);
     }
 
-    const result = try gz.addPlNode(.typeof_peer, node, Zir.Inst.MultiOp{
-        .operands_len = @intCast(u32, params.len),
-    });
-    try gz.astgen.appendRefs(items);
-
+    const result = try gz.addExtendedMultiOp(.typeof_peer, node, items);
     return rvalue(gz, scope, rl, result, node);
 }
 
@@ -6138,10 +6129,7 @@ fn builtinCall(
 
             for (params) |param, i| arg_refs[i] = try expr(gz, scope, .none, param);
 
-            const result = try gz.addPlNode(.compile_log, node, Zir.Inst.MultiOp{
-                .operands_len = @intCast(u32, params.len),
-            });
-            try gz.astgen.appendRefs(arg_refs);
+            const result = try gz.addExtendedMultiOp(.compile_log, node, arg_refs);
             return rvalue(gz, scope, rl, result, node);
         },
         .field => {
@@ -6745,9 +6733,6 @@ fn callExpr(
     call: ast.full.Call,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    if (call.async_token) |async_token| {
-        return astgen.failTok(async_token, "async and related features are not yet supported", .{});
-    }
     const lhs = try expr(gz, scope, .none, call.ast.fn_expr);
 
     const args = try astgen.gpa.alloc(Zir.Inst.Ref, call.ast.params.len);
@@ -6764,9 +6749,17 @@ fn callExpr(
         args[i] = try expr(gz, scope, .{ .ty = param_type }, param_node);
     }
 
-    const modifier: std.builtin.CallOptions.Modifier = switch (call.async_token != null) {
-        true => .async_kw,
-        false => .auto,
+    const modifier: std.builtin.CallOptions.Modifier = blk: {
+        if (gz.force_comptime) {
+            break :blk .compile_time;
+        }
+        if (call.async_token != null) {
+            break :blk .async_kw;
+        }
+        if (gz.nosuspend_node != 0) {
+            break :blk .no_async;
+        }
+        break :blk .auto;
     };
     const result: Zir.Inst.Ref = res: {
         const tag: Zir.Inst.Tag = switch (modifier) {
@@ -6774,10 +6767,10 @@ fn callExpr(
                 true => break :res try gz.addUnNode(.call_none, lhs, node),
                 false => .call,
             },
-            .async_kw => return astgen.failNode(node, "async and related features are not yet supported", .{}),
+            .async_kw => .call_async,
             .never_tail => unreachable,
             .never_inline => unreachable,
-            .no_async => return astgen.failNode(node, "async and related features are not yet supported", .{}),
+            .no_async => .call_nosuspend,
             .always_tail => unreachable,
             .always_inline => unreachable,
             .compile_time => .call_compile_time,

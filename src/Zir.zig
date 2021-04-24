@@ -238,6 +238,10 @@ pub const Inst = struct {
         call_chkused,
         /// Same as `call` but with modifier `.compile_time`.
         call_compile_time,
+        /// Same as `call` but with modifier `.no_suspend`.
+        call_nosuspend,
+        /// Same as `call` but with modifier `.async_kw`.
+        call_async,
         /// Function call with modifier `.auto`, empty parameter list.
         /// Uses the `un_node` field. Operand is callee. AST node is the function call.
         call_none,
@@ -266,10 +270,6 @@ pub const Inst = struct {
         /// Uses the `bin` union field.
         /// LHS is destination element type, RHS is result pointer.
         coerce_result_ptr,
-        /// Log compile time variables and emit an error message.
-        /// Uses the `pl_node` union field. The AST node is the compile log builtin call.
-        /// The payload is `MultiOp`.
-        compile_log,
         /// Conditional branch. Splits control flow based on a boolean condition value.
         /// Uses the `pl_node` union field. AST node is an if, while, for, etc.
         /// Payload is `CondBr`.
@@ -523,10 +523,6 @@ pub const Inst = struct {
         /// Given a value which is a pointer, returns the element type.
         /// Uses the `un_node` field.
         typeof_elem,
-        /// The builtin `@TypeOf` which returns the type after Peer Type Resolution
-        /// of one or more params.
-        /// Uses the `pl_node` field. AST node is the `@TypeOf` call. Payload is `MultiOp`.
-        typeof_peer,
         /// Given a value, look at the type of it, which must be an integer type.
         /// Returns the integer type for the RHS of a shift operation.
         /// Uses the `un_node` field.
@@ -990,6 +986,8 @@ pub const Inst = struct {
                 .call,
                 .call_chkused,
                 .call_compile_time,
+                .call_nosuspend,
+                .call_async,
                 .call_none,
                 .call_none_chkused,
                 .cmp_lt,
@@ -1085,12 +1083,10 @@ pub const Inst = struct {
                 .slice_end,
                 .slice_sentinel,
                 .import,
-                .typeof_peer,
                 .typeof_log2_int_type,
                 .log2_int_type,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
-                .compile_log,
                 .switch_capture,
                 .switch_capture_ref,
                 .switch_capture_multi,
@@ -1268,6 +1264,17 @@ pub const Inst = struct {
         ///  * 0bX0000000_00000000 - is volatile
         /// `operand` is payload index to `Asm`.
         @"asm",
+        /// Log compile time variables and emit an error message.
+        /// `operand` is payload index to `NodeMultiOp`.
+        /// `small` is `operands_len`.
+        /// The AST node is the compile log builtin call.
+        compile_log,
+        /// The builtin `@TypeOf` which returns the type after Peer Type Resolution
+        /// of one or more params.
+        /// `operand` is payload index to `NodeMultiOp`.
+        /// `small` is `operands_len`.
+        /// The AST node is the builtin call.
+        typeof_peer,
         /// `operand` is payload index to `UnNode`.
         c_undef,
         /// `operand` is payload index to `UnNode`.
@@ -1895,6 +1902,11 @@ pub const Inst = struct {
     /// Each operand is a `Ref`.
     pub const MultiOp = struct {
         operands_len: u32,
+    };
+
+    /// Trailing: operand: Ref, // for each `operands_len` (stored in `small`).
+    pub const NodeMultiOp = struct {
+        src_node: i32,
     };
 
     /// This data is stored inside extra, with trailing operands according to `body_len`.
@@ -2540,6 +2552,8 @@ const Writer = struct {
             .call,
             .call_chkused,
             .call_compile_time,
+            .call_nosuspend,
+            .call_async,
             => try self.writePlNodeCall(stream, inst),
 
             .block,
@@ -2583,10 +2597,6 @@ const Writer = struct {
             .switch_block_ref_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .none),
             .switch_block_ref_else_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .@"else"),
             .switch_block_ref_under_multi => try self.writePlNodeSwitchBlockMulti(stream, inst, .under),
-
-            .compile_log,
-            .typeof_peer,
-            => try self.writePlNodeMultiOp(stream, inst),
 
             .field_ptr,
             .field_val,
@@ -2645,6 +2655,10 @@ const Writer = struct {
 
             .@"asm" => try self.writeAsm(stream, extended),
             .func => try self.writeFuncExtended(stream, extended),
+
+            .compile_log,
+            .typeof_peer,
+            => try self.writeNodeMultiOp(stream, extended),
 
             .alloc,
             .builtin_extern,
@@ -2836,6 +2850,19 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
+    fn writeNodeMultiOp(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Inst.NodeMultiOp, extended.operand);
+        const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+        const operands = self.code.refSlice(extra.end, extended.small);
+
+        for (operands) |operand, i| {
+            if (i != 0) try stream.writeAll(", ");
+            try self.writeInstRef(stream, operand);
+        }
+        try stream.writeAll(")) ");
+        try self.writeSrc(stream, src);
+    }
+
     fn writeAsm(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Inst.Asm, extended.operand);
         const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
@@ -2902,7 +2929,7 @@ const Writer = struct {
                 }
             }
         }
-        try stream.writeAll(") ");
+        try stream.writeAll(")) ");
         try self.writeSrc(stream, src);
     }
 
@@ -3452,19 +3479,6 @@ const Writer = struct {
                 try stream.writeByteNTimes(' ', self.indent);
                 try stream.writeAll("}");
             }
-        }
-        try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
-    }
-
-    fn writePlNodeMultiOp(self: *Writer, stream: anytype, inst: Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Inst.MultiOp, inst_data.payload_index);
-        const operands = self.code.refSlice(extra.end, extra.data.operands_len);
-
-        for (operands) |operand, i| {
-            if (i != 0) try stream.writeAll(", ");
-            try self.writeInstRef(stream, operand);
         }
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());

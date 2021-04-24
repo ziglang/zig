@@ -37,7 +37,6 @@
  * when handling decls, catch the error and continue, so that
    AstGen can report more than one compile error.
 
- * AstGen: inside a nosuspend block, emit function calls as nosuspend calls
  * AstGen: add result location pointers to function calls
 
     const container_name_hash: Scope.NameHash = if (found_pkg) |pkg|
