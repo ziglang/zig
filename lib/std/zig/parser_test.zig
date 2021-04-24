@@ -2796,6 +2796,7 @@ test "zig fmt: precedence" {
         \\    a or b and c;
         \\    (a or b) and c;
         \\    (a or b) and c;
+        \\    a == b and c == d;
         \\}
         \\
     );
@@ -4857,6 +4858,16 @@ test "recovery: missing comma" {
         .expected_token,
         .invalid_and,
         .invalid_token,
+    });
+}
+
+test "recovery: non-associative operators" {
+    try testError(
+        \\const x = a == b == c;
+        \\const x = a == b != c;
+    , &[_]Error{
+        .expected_token,
+        .expected_token,
     });
 }
 
