@@ -163,8 +163,6 @@ pub fn analyzeBody(
             .call_compile_time            => try sema.zirCall(block, inst, .compile_time, false),
             .call_nosuspend               => try sema.zirCall(block, inst, .no_async, false),
             .call_async                   => try sema.zirCall(block, inst, .async_kw, false),
-            .call_none                    => try sema.zirCallNone(block, inst, false),
-            .call_none_chkused            => try sema.zirCallNone(block, inst, true),
             .cmp_eq                       => try sema.zirCmp(block, inst, .eq),
             .cmp_gt                       => try sema.zirCmp(block, inst, .gt),
             .cmp_gte                      => try sema.zirCmp(block, inst, .gte),
@@ -1935,21 +1933,6 @@ fn lookupIdentifier(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, name: []c
     };
     _ = try mod.declareDeclDependency(sema.owner_decl, decl);
     return decl;
-}
-
-fn zirCallNone(
-    sema: *Sema,
-    block: *Scope.Block,
-    inst: Zir.Inst.Index,
-    ensure_result_used: bool,
-) InnerError!*Inst {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const func_src: LazySrcLoc = .{ .node_offset_call_func = inst_data.src_node };
-
-    return sema.analyzeCall(block, inst_data.operand, func_src, inst_data.src(), .auto, ensure_result_used, &.{});
 }
 
 fn zirCall(

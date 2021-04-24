@@ -242,11 +242,6 @@ pub const Inst = struct {
         call_nosuspend,
         /// Same as `call` but with modifier `.async_kw`.
         call_async,
-        /// Function call with modifier `.auto`, empty parameter list.
-        /// Uses the `un_node` field. Operand is callee. AST node is the function call.
-        call_none,
-        /// Same as `call_none` but it also does `ensure_result_used` on the return value.
-        call_none_chkused,
         /// `<`
         /// Uses the `pl_node` union field. Payload is `Bin`.
         cmp_lt,
@@ -981,8 +976,6 @@ pub const Inst = struct {
                 .call_compile_time,
                 .call_nosuspend,
                 .call_async,
-                .call_none,
-                .call_none_chkused,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -2346,8 +2339,6 @@ const Writer = struct {
             .bool_not,
             .negate,
             .negate_wrap,
-            .call_none,
-            .call_none_chkused,
             .load,
             .ensure_result_used,
             .ensure_result_non_error,

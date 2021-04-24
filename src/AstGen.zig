@@ -1754,11 +1754,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
         switch (zir_tags[inst]) {
             // For some instructions, swap in a slightly different ZIR tag
             // so we can avoid a separate ensure_result_used instruction.
-            .call_none_chkused => unreachable,
-            .call_none => {
-                zir_tags[inst] = .call_none_chkused;
-                break :b true;
-            },
             .call_chkused => unreachable,
             .call => {
                 zir_tags[inst] = .call_chkused;
@@ -6760,10 +6755,7 @@ fn callExpr(
     };
     const result: Zir.Inst.Ref = res: {
         const tag: Zir.Inst.Tag = switch (modifier) {
-            .auto => switch (args.len == 0) {
-                true => break :res try gz.addUnNode(.call_none, lhs, node),
-                false => .call,
-            },
+            .auto => .call,
             .async_kw => .call_async,
             .never_tail => unreachable,
             .never_inline => unreachable,
