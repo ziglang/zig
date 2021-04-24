@@ -206,7 +206,6 @@ pub fn analyzeBody(
             .float                        => try sema.zirFloat(block, inst),
             .float128                     => try sema.zirFloat128(block, inst),
             .int_type                     => try sema.zirIntType(block, inst),
-            .intcast                      => try sema.zirIntcast(block, inst),
             .is_err                       => try sema.zirIsErr(block, inst),
             .is_err_ptr                   => try sema.zirIsErrPtr(block, inst),
             .is_non_null                  => try sema.zirIsNull(block, inst, true),
@@ -225,7 +224,6 @@ pub fn analyzeBody(
             .param_type                   => try sema.zirParamType(block, inst),
             .ptr_type                     => try sema.zirPtrType(block, inst),
             .ptr_type_simple              => try sema.zirPtrTypeSimple(block, inst),
-            .ptrtoint                     => try sema.zirPtrtoint(block, inst),
             .ref                          => try sema.zirRef(block, inst),
             .shl                          => try sema.zirShl(block, inst),
             .shr                          => try sema.zirShr(block, inst),
@@ -369,7 +367,6 @@ pub fn analyzeBody(
             .compile_error  => return sema.zirCompileError(block, inst),
             .ret_coerce     => return sema.zirRetTok(block, inst, true),
             .ret_node       => return sema.zirRetNode(block, inst),
-            .ret_tok        => return sema.zirRetTok(block, inst, false),
             .@"unreachable" => return sema.zirUnreachable(block, inst),
             .repeat         => return sema.zirRepeat(block, inst),
             .panic          => return sema.zirPanic(block, inst),
@@ -2860,7 +2857,7 @@ fn analyzeAs(
     return sema.coerce(block, dest_type, operand, src);
 }
 
-fn zirPtrtoint(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirPtrToInt(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2936,7 +2933,7 @@ fn zirFieldPtrNamed(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inne
     return sema.namedFieldPtr(block, src, object_ptr, field_name, field_name_src);
 }
 
-fn zirIntcast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirIntCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -5161,12 +5158,6 @@ fn zirFrameAddress(
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirFrameAddress", .{});
 }
 
-fn zirPtrToInt(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirPtrToInt", .{});
-}
-
 fn zirAlignOf(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
@@ -5243,12 +5234,6 @@ fn zirIntToPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirIntToPtr", .{});
-}
-
-fn zirIntCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirIntCast", .{});
 }
 
 fn zirErrSetCast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {

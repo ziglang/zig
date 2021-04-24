@@ -384,11 +384,6 @@ pub const Inst = struct {
         /// A float literal that fits in a f128. Uses the `pl_node` union value.
         /// Payload is `Float128`.
         float128,
-        /// Convert an integer value to another integer type, asserting that the destination type
-        /// can hold the same mathematical value.
-        /// Uses the `pl_node` field. AST is the `@intCast` syntax.
-        /// Payload is `Bin` with lhs as the dest type, rhs the operand.
-        intcast,
         /// Make an integer type out of signedness and bit count.
         /// Payload is `int_type`
         int_type,
@@ -445,9 +440,6 @@ pub const Inst = struct {
         /// is not in a position where it must create an invalid type.
         /// Uses the `param_type` union field.
         param_type,
-        /// Convert a pointer to a `usize` integer.
-        /// Uses the `un_node` field. The AST node is the builtin fn call node.
-        ptrtoint,
         /// Turns an R-Value into a const L-Value. In other words, it takes a value,
         /// stores it in a memory location, and returns a const pointer to it. If the value
         /// is `comptime`, the memory location is global static constant data. Otherwise,
@@ -464,9 +456,7 @@ pub const Inst = struct {
         /// Includes an operand as the return value.
         /// Includes a token source location.
         /// Uses the `un_tok` union field.
-        ret_tok,
-        /// Same as `ret_tok` except the operand needs to get coerced to the function's
-        /// return type.
+        /// The operand needs to get coerced to the function's return type.
         ret_coerce,
         /// Create a pointer type that does not have a sentinel, alignment, or bit range specified.
         /// Uses the `ptr_type_simple` union field.
@@ -712,6 +702,7 @@ pub const Inst = struct {
         shl_with_overflow,
 
         /// Implement builtin `@ptrToInt`. Uses `un_node`.
+        /// Convert a pointer to a `usize` integer.
         ptr_to_int,
         /// Implement builtin `@errToInt`. Uses `un_node`.
         error_to_int,
@@ -801,6 +792,8 @@ pub const Inst = struct {
         float_cast,
         /// Implements the `@intCast` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        /// Convert an integer value to another integer type, asserting that the destination type
+        /// can hold the same mathematical value.
         int_cast,
         /// Implements the `@errSetCast` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
@@ -1030,7 +1023,6 @@ pub const Inst = struct {
                 .int_big,
                 .float,
                 .float128,
-                .intcast,
                 .int_type,
                 .is_non_null,
                 .is_null,
@@ -1042,7 +1034,6 @@ pub const Inst = struct {
                 .mul,
                 .mulwrap,
                 .param_type,
-                .ptrtoint,
                 .ref,
                 .shl,
                 .shr,
@@ -1202,7 +1193,6 @@ pub const Inst = struct {
                 .condbr_inline,
                 .compile_error,
                 .ret_node,
-                .ret_tok,
                 .ret_coerce,
                 .@"unreachable",
                 .repeat,
@@ -2341,7 +2331,6 @@ const Writer = struct {
             .coerce_result_ptr,
             .elem_ptr,
             .elem_val,
-            .intcast,
             .store,
             .store_to_block_ptr,
             .store_to_inferred_ptr,
@@ -2362,7 +2351,6 @@ const Writer = struct {
             .load,
             .ensure_result_used,
             .ensure_result_non_error,
-            .ptrtoint,
             .ret_node,
             .resolve_inferred_alloc,
             .optional_type,
@@ -2432,7 +2420,6 @@ const Writer = struct {
             => try self.writeUnNode(stream, inst),
 
             .ref,
-            .ret_tok,
             .ret_coerce,
             .ensure_err_payload_void,
             => try self.writeUnTok(stream, inst),
