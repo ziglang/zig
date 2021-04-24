@@ -890,7 +890,25 @@ pub fn nosuspendExpr(
     node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    return astgen.failNode(node, "TODO AstGen nosuspendExpr", .{});
+    const gpa = astgen.gpa;
+    const tree = &astgen.file.tree;
+    const node_datas = tree.nodes.items(.data);
+    const body_node = node_datas[node].lhs;
+    assert(body_node != 0);
+    if (gz.nosuspend_node != 0) {
+        return astgen.failNodeNotes(node, "redundant nosuspend block", .{}, &[_]u32{
+            try astgen.errNoteNode(gz.nosuspend_node, "other nosuspend block here", .{}),
+        });
+    }
+    if (gz.suspend_node != 0) {
+        return astgen.failNodeNotes(node, "inside a suspend block, nosuspend is implied", .{}, &[_]u32{
+            try astgen.errNoteNode(gz.suspend_node, "suspend block here", .{}),
+        });
+    }
+    gz.nosuspend_node = node;
+    const result = try expr(gz, scope, rl, body_node);
+    gz.nosuspend_node = 0;
+    return rvalue(gz, scope, rl, result, node);
 }
 
 pub fn suspendExpr(

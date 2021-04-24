@@ -441,8 +441,37 @@ pub const AllErrors = struct {
             const item = file.zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
             extra_index = item.end;
 
+            var notes: []Message = &[0]Message{};
             if (item.data.notes != 0) {
-                @panic("TODO implement AllErrors for Zir notes");
+                const block = file.zir.extraData(Zir.Inst.Block, item.data.notes);
+                const body = file.zir.extra[block.end..][0..block.data.body_len];
+                notes = try arena.alloc(Message, body.len);
+                for (notes) |*note, i| {
+                    const note_item = file.zir.extraData(Zir.Inst.CompileErrors.Item, body[i]);
+                    const msg = file.zir.nullTerminatedString(note_item.data.msg);
+                    const byte_offset = blk: {
+                        const token_starts = file.tree.tokens.items(.start);
+                        if (note_item.data.node != 0) {
+                            const main_tokens = file.tree.nodes.items(.main_token);
+                            const main_token = main_tokens[note_item.data.node];
+                            break :blk token_starts[main_token];
+                        }
+                        break :blk token_starts[note_item.data.token] + note_item.data.byte_offset;
+                    };
+                    const loc = std.zig.findLineColumn(source, byte_offset);
+
+                    note.* = .{
+                        .src = .{
+                            .src_path = try arena.dupe(u8, file.sub_file_path),
+                            .msg = try arena.dupe(u8, msg),
+                            .byte_offset = byte_offset,
+                            .line = @intCast(u32, loc.line),
+                            .column = @intCast(u32, loc.column),
+                            .notes = &.{}, // TODO rework this function to be recursive
+                            .source_line = try arena.dupe(u8, loc.source_line),
+                        },
+                    };
+                }
             }
 
             const msg = file.zir.nullTerminatedString(item.data.msg);
@@ -464,7 +493,7 @@ pub const AllErrors = struct {
                     .byte_offset = byte_offset,
                     .line = @intCast(u32, loc.line),
                     .column = @intCast(u32, loc.column),
-                    .notes = &.{}, // TODO
+                    .notes = notes,
                     .source_line = try arena.dupe(u8, loc.source_line),
                 },
             });
