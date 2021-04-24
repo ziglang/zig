@@ -405,6 +405,14 @@ pub const AllErrors = struct {
                 },
             };
         }
+        if (module_err_msg.src_loc.lazy == .entire_file) {
+            try errors.append(.{
+                .plain = .{
+                    .msg = try arena.allocator.dupe(u8, module_err_msg.msg),
+                },
+            });
+            return;
+        }
         const source = try module_err_msg.src_loc.file_scope.getSource(module.gpa);
         const byte_offset = try module_err_msg.src_loc.byteOffset();
         const loc = std.zig.findLineColumn(source, byte_offset);
