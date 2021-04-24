@@ -928,13 +928,7 @@ pub fn suspendExpr(
             try astgen.errNoteNode(gz.suspend_node, "other suspend block here", .{}),
         });
     }
-    if (body_node == 0) {
-        // Accepted proposal to remove block-less suspend from the language:
-        // https://github.com/ziglang/zig/issues/8603
-        // TODO: simplify the parser and make this an assert instead of
-        // a compile error.
-        return astgen.failNode(node, "suspend without a block", .{});
-    }
+    assert(body_node != 0);
 
     const suspend_inst = try gz.addBlock(.suspend_block, node);
     try gz.instructions.append(gpa, suspend_inst);
