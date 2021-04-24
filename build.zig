@@ -44,6 +44,7 @@ pub fn build(b: *Builder) !void {
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
 
+    const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
@@ -237,8 +238,10 @@ pub fn build(b: *Builder) !void {
 
     var chosen_modes: [4]builtin.Mode = undefined;
     var chosen_mode_index: usize = 0;
-    chosen_modes[chosen_mode_index] = builtin.Mode.Debug;
-    chosen_mode_index += 1;
+    if (!skip_debug) {
+        chosen_modes[chosen_mode_index] = builtin.Mode.Debug;
+        chosen_mode_index += 1;
+    }
     if (!skip_release_safe) {
         chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseSafe;
         chosen_mode_index += 1;
