@@ -256,11 +256,13 @@ pub fn analyzeBody(
             .typeof_log2_int_type         => try sema.zirTypeofLog2IntType(block, inst),
             .xor                          => try sema.zirBitwise(block, inst, .xor),
             .struct_init_empty            => try sema.zirStructInitEmpty(block, inst),
-            .struct_init                  => try sema.zirStructInit(block, inst),
-            .struct_init_anon             => try sema.zirStructInitAnon(block, inst),
+            .struct_init                  => try sema.zirStructInit(block, inst, false),
+            .struct_init_ref              => try sema.zirStructInit(block, inst, true),
+            .struct_init_anon             => try sema.zirStructInitAnon(block, inst, false),
+            .struct_init_anon_ref         => try sema.zirStructInitAnon(block, inst, true),
             .array_init                   => try sema.zirArrayInit(block, inst, false),
-            .array_init_anon              => try sema.zirArrayInitAnon(block, inst, false),
             .array_init_ref               => try sema.zirArrayInit(block, inst, true),
+            .array_init_anon              => try sema.zirArrayInitAnon(block, inst, false),
             .array_init_anon_ref          => try sema.zirArrayInitAnon(block, inst, true),
             .union_init_ptr               => try sema.zirUnionInitPtr(block, inst),
             .field_type                   => try sema.zirFieldType(block, inst),
@@ -5078,13 +5080,13 @@ fn zirUnionInitPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inner
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirUnionInitPtr", .{});
 }
 
-fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirStructInit", .{});
 }
 
-fn zirStructInitAnon(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirStructInitAnon(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirStructInitAnon", .{});

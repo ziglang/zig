@@ -1300,45 +1300,68 @@ pub fn structInitExpr(
             }
             return Zir.Inst.Ref.void_value;
         },
+        .ref => {
+            if (struct_init.ast.type_expr != 0) {
+                const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
+                return structInitExprRlTy(gz, scope, rl, node, struct_init, ty_inst, .struct_init_ref);
+            } else {
+                return structInitExprRlNone(gz, scope, rl, node, struct_init, .struct_init_anon_ref);
+            }
+        },
         .none, .none_or_ref => {
             if (struct_init.ast.type_expr != 0) {
                 const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
-                return structInitExprRlTy(gz, scope, rl, node, struct_init, ty_inst);
+                return structInitExprRlTy(gz, scope, rl, node, struct_init, ty_inst, .struct_init);
+            } else {
+                return structInitExprRlNone(gz, scope, rl, node, struct_init, .struct_init_anon);
             }
-            const fields_list = try gpa.alloc(Zir.Inst.StructInitAnon.Item, struct_init.ast.fields.len);
-            defer gpa.free(fields_list);
-
-            for (struct_init.ast.fields) |field_init, i| {
-                const name_token = tree.firstToken(field_init) - 2;
-                const str_index = try gz.identAsString(name_token);
-
-                fields_list[i] = .{
-                    .field_name = str_index,
-                    .init = try expr(gz, scope, .none, field_init),
-                };
-            }
-            const init_inst = try gz.addPlNode(.struct_init_anon, node, Zir.Inst.StructInitAnon{
-                .fields_len = @intCast(u32, fields_list.len),
-            });
-            try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
-                fields_list.len * @typeInfo(Zir.Inst.StructInitAnon.Item).Struct.fields.len);
-            for (fields_list) |field| {
-                _ = gz.astgen.addExtraAssumeCapacity(field);
-            }
-            return init_inst;
         },
-        .ref => return astgen.failNode(node, "cannot take address of struct literal", .{}),
         .ty => |ty_inst| {
             if (struct_init.ast.type_expr == 0) {
-                return structInitExprRlTy(gz, scope, rl, node, struct_init, ty_inst);
+                return structInitExprRlTy(gz, scope, rl, node, struct_init, ty_inst, .struct_init);
             }
             const inner_ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
-            const result = try structInitExprRlTy(gz, scope, rl, node, struct_init, inner_ty_inst);
+            const result = try structInitExprRlTy(gz, scope, rl, node, struct_init, inner_ty_inst, .struct_init);
             return rvalue(gz, scope, rl, result, node);
         },
         .ptr, .inferred_ptr => |ptr_inst| return structInitExprRlPtr(gz, scope, rl, node, struct_init, ptr_inst),
         .block_ptr => |block_gz| return structInitExprRlPtr(gz, scope, rl, node, struct_init, block_gz.rl_ptr),
     }
+}
+
+pub fn structInitExprRlNone(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+    struct_init: ast.full.StructInit,
+    tag: Zir.Inst.Tag,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = &astgen.file.tree;
+
+    const fields_list = try gpa.alloc(Zir.Inst.StructInitAnon.Item, struct_init.ast.fields.len);
+    defer gpa.free(fields_list);
+
+    for (struct_init.ast.fields) |field_init, i| {
+        const name_token = tree.firstToken(field_init) - 2;
+        const str_index = try gz.identAsString(name_token);
+
+        fields_list[i] = .{
+            .field_name = str_index,
+            .init = try expr(gz, scope, .none, field_init),
+        };
+    }
+    const init_inst = try gz.addPlNode(tag, node, Zir.Inst.StructInitAnon{
+        .fields_len = @intCast(u32, fields_list.len),
+    });
+    try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
+        fields_list.len * @typeInfo(Zir.Inst.StructInitAnon.Item).Struct.fields.len);
+    for (fields_list) |field| {
+        _ = gz.astgen.addExtraAssumeCapacity(field);
+    }
+    return init_inst;
 }
 
 pub fn structInitExprRlPtr(
@@ -1380,6 +1403,7 @@ pub fn structInitExprRlTy(
     node: ast.Node.Index,
     struct_init: ast.full.StructInit,
     ty_inst: Zir.Inst.Ref,
+    tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
@@ -1401,7 +1425,7 @@ pub fn structInitExprRlTy(
             .init = try expr(gz, scope, .{ .ty = field_ty_inst }, field_init),
         };
     }
-    const init_inst = try gz.addPlNode(.struct_init, node, Zir.Inst.StructInit{
+    const init_inst = try gz.addPlNode(tag, node, Zir.Inst.StructInit{
         .fields_len = @intCast(u32, fields_list.len),
     });
     try astgen.extra.ensureCapacity(gpa, astgen.extra.items.len +
@@ -1886,7 +1910,9 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .switch_capture_else_ref,
             .struct_init_empty,
             .struct_init,
+            .struct_init_ref,
             .struct_init_anon,
+            .struct_init_anon_ref,
             .array_init,
             .array_init_anon,
             .array_init_ref,

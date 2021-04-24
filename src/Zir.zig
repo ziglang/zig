@@ -660,9 +660,15 @@ pub const Inst = struct {
         /// struct value.
         /// Uses the `pl_node` field. Payload is `StructInit`.
         struct_init,
+        /// Struct initialization syntax, make the result a pointer.
+        /// Uses the `pl_node` field. Payload is `StructInit`.
+        struct_init_ref,
         /// Struct initialization without a type.
         /// Uses the `pl_node` field. Payload is `StructInitAnon`.
         struct_init_anon,
+        /// Anonymous struct initialization syntax, make the result a pointer.
+        /// Uses the `pl_node` field. Payload is `StructInitAnon`.
+        struct_init_anon_ref,
         /// Array initialization syntax.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init,
@@ -1093,7 +1099,9 @@ pub const Inst = struct {
                 .validate_array_init_ptr,
                 .struct_init_empty,
                 .struct_init,
+                .struct_init_ref,
                 .struct_init_anon,
+                .struct_init_anon_ref,
                 .array_init,
                 .array_init_anon,
                 .array_init_ref,
@@ -2442,7 +2450,9 @@ const Writer = struct {
             .slice_end,
             .slice_sentinel,
             .struct_init,
+            .struct_init_ref,
             .struct_init_anon,
+            .struct_init_anon_ref,
             .array_init,
             .array_init_anon,
             .array_init_ref,
