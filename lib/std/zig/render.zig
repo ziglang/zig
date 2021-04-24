@@ -255,11 +255,27 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: ast.Tree, node: ast.Node.I
             try renderToken(ais, tree, defer_token, .space);
             return renderExpression(gpa, ais, tree, expr, space);
         },
-        .@"comptime", .@"suspend", .@"nosuspend" => {
+        .@"comptime", .@"nosuspend" => {
             const comptime_token = main_tokens[node];
             const block = datas[node].lhs;
             try renderToken(ais, tree, comptime_token, .space);
             return renderExpression(gpa, ais, tree, block, space);
+        },
+
+        .@"suspend" => {
+            const suspend_token = main_tokens[node];
+            const body = datas[node].lhs;
+            if (body != 0) {
+                try renderToken(ais, tree, suspend_token, .space);
+                return renderExpression(gpa, ais, tree, body, space);
+            } else {
+                // TODO remove this special case when 0.9.0 is released.
+                assert(space == .semicolon);
+                try renderToken(ais, tree, suspend_token, .space);
+                try ais.writer().writeAll("{}");
+                try ais.insertNewline();
+                return;
+            }
         },
 
         .@"catch" => {

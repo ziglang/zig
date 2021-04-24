@@ -40,6 +40,21 @@ test "zig fmt: rewrite inline functions as callconv(.Inline)" {
     );
 }
 
+// TODO Remove this after zig 0.9.0 is released.
+test "zig fmt: rewrite suspend without block expression" {
+    try testTransform(
+        \\fn foo() void {
+        \\    suspend;
+        \\}
+        \\
+    ,
+        \\fn foo() void {
+        \\    suspend {}
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: simple top level comptime block" {
     try testCanonical(
         \\// line comment
@@ -5023,6 +5038,9 @@ test "recovery: invalid comptime" {
 }
 
 test "recovery: missing block after suspend" {
+    // TODO Enable this after zig 0.9.0 is released.
+    if (true) return error.SkipZigTest;
+
     try testError(
         \\fn foo() void {
         \\    suspend;

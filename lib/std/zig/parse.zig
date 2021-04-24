@@ -891,11 +891,17 @@ const Parser = struct {
                 });
             },
             .keyword_suspend => {
+                const token = p.nextToken();
+                // TODO remove this special case when 0.9.0 is released.
+                const block_expr: Node.Index = if (p.eatToken(.semicolon) != null)
+                    0
+                else
+                    try p.expectBlockExprStatement();
                 return p.addNode(.{
                     .tag = .@"suspend",
-                    .main_token = p.nextToken(),
+                    .main_token = token,
                     .data = .{
-                        .lhs = try p.expectBlockExprStatement(),
+                        .lhs = block_expr,
                         .rhs = undefined,
                     },
                 });
