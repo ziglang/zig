@@ -39,18 +39,16 @@ comptime {
             }
         } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
             if (builtin.link_libc and @hasDecl(root, "main")) {
-                if (builtin.os.tag == .windows and 
+                if (builtin.os.tag == .windows and
                     builtin.subsystem == builtin.SubSystem.Windows and
-                    !@hasDecl(root, "wWinMain")) 
+                    !@hasDecl(root, "wWinMain"))
                 {
                     if (@hasDecl(root, "WinMain")) {
                         @compileError("WinMain not supported; declare wWinMain instead");
-                    }
-                    else {
+                    } else {
                         @export(WinStartup, .{ .name = "wWinMain" });
                     }
-                }
-                else if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
+                } else if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
                     @export(main, .{ .name = "main", .linkage = .Weak });
                 }
             } else if (builtin.os.tag == .windows) {
