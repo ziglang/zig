@@ -9,7 +9,10 @@ const mem = std.mem;
 const fmt = std.fmt;
 
 const Sha512 = crypto.hash.sha2.Sha512;
-const Error = crypto.Error;
+
+const EncodingError = crypto.errors.EncodingError;
+const IdentityElementError = crypto.errors.IdentityElementError;
+const WeakPublicKeyError = crypto.errors.WeakPublicKeyError;
 
 /// X25519 DH function.
 pub const X25519 = struct {
@@ -32,7 +35,7 @@ pub const X25519 = struct {
         secret_key: [secret_length]u8,
 
         /// Create a new key pair using an optional seed.
-        pub fn create(seed: ?[seed_length]u8) Error!KeyPair {
+        pub fn create(seed: ?[seed_length]u8) IdentityElementError!KeyPair {
             const sk = seed orelse sk: {
                 var random_seed: [seed_length]u8 = undefined;
                 crypto.random.bytes(&random_seed);
@@ -45,7 +48,7 @@ pub const X25519 = struct {
         }
 
         /// Create a key pair from an Ed25519 key pair
-        pub fn fromEd25519(ed25519_key_pair: crypto.sign.Ed25519.KeyPair) Error!KeyPair {
+        pub fn fromEd25519(ed25519_key_pair: crypto.sign.Ed25519.KeyPair) (IdentityElementError || EncodingError)!KeyPair {
             const seed = ed25519_key_pair.secret_key[0..32];
             var az: [Sha512.digest_length]u8 = undefined;
             Sha512.hash(seed, &az, .{});
@@ -60,13 +63,13 @@ pub const X25519 = struct {
     };
 
     /// Compute the public key for a given private key.
-    pub fn recoverPublicKey(secret_key: [secret_length]u8) Error![public_length]u8 {
+    pub fn recoverPublicKey(secret_key: [secret_length]u8) IdentityElementError![public_length]u8 {
         const q = try Curve.basePoint.clampedMul(secret_key);
         return q.toBytes();
     }
 
     /// Compute the X25519 equivalent to an Ed25519 public eky.
-    pub fn publicKeyFromEd25519(ed25519_public_key: [crypto.sign.Ed25519.public_length]u8) Error![public_length]u8 {
+    pub fn publicKeyFromEd25519(ed25519_public_key: [crypto.sign.Ed25519.public_length]u8) (IdentityElementError || EncodingError)![public_length]u8 {
         const pk_ed = try crypto.ecc.Edwards25519.fromBytes(ed25519_public_key);
         const pk = try Curve.fromEdwards25519(pk_ed);
         return pk.toBytes();
@@ -75,7 +78,7 @@ pub const X25519 = struct {
     /// Compute the scalar product of a public key and a secret scalar.
     /// Note that the output should not be used as a shared secret without
     /// hashing it first.
-    pub fn scalarmult(secret_key: [secret_length]u8, public_key: [public_length]u8) Error![shared_length]u8 {
+    pub fn scalarmult(secret_key: [secret_length]u8, public_key: [public_length]u8) IdentityElementError![shared_length]u8 {
         const q = try Curve.fromBytes(public_key).clampedMul(secret_key);
         return q.toBytes();
     }

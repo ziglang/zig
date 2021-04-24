@@ -72,6 +72,7 @@ tlv_bss_section_index: ?u16 = null,
 la_symbol_ptr_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
 bss_section_index: ?u16 = null,
+common_section_index: ?u16 = null,
 
 symtab: std.StringArrayHashMapUnmanaged(Symbol) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
@@ -224,6 +225,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     self.allocateLinkeditSegment();
     try self.allocateSymbols();
     try self.allocateStubsAndGotEntries();
+    try self.allocateCppStatics();
     try self.writeStubHelperCommon();
     try self.resolveRelocsAndWriteSections();
     try self.flush();
@@ -465,23 +467,43 @@ fn updateMetadata(self: *Zld) !void {
                 },
                 macho.S_ZEROFILL => {
                     if (!mem.eql(u8, segname, "__DATA")) continue;
-                    if (self.bss_section_index != null) continue;
+                    if (mem.eql(u8, sectname, "__common")) {
+                        if (self.common_section_index != null) continue;
 
-                    self.bss_section_index = @intCast(u16, data_seg.sections.items.len);
-                    try data_seg.addSection(self.allocator, .{
-                        .sectname = makeStaticString("__bss"),
-                        .segname = makeStaticString("__DATA"),
-                        .addr = 0,
-                        .size = 0,
-                        .offset = 0,
-                        .@"align" = 0,
-                        .reloff = 0,
-                        .nreloc = 0,
-                        .flags = macho.S_ZEROFILL,
-                        .reserved1 = 0,
-                        .reserved2 = 0,
-                        .reserved3 = 0,
-                    });
+                        self.common_section_index = @intCast(u16, data_seg.sections.items.len);
+                        try data_seg.addSection(self.allocator, .{
+                            .sectname = makeStaticString("__common"),
+                            .segname = makeStaticString("__DATA"),
+                            .addr = 0,
+                            .size = 0,
+                            .offset = 0,
+                            .@"align" = 0,
+                            .reloff = 0,
+                            .nreloc = 0,
+                            .flags = macho.S_ZEROFILL,
+                            .reserved1 = 0,
+                            .reserved2 = 0,
+                            .reserved3 = 0,
+                        });
+                    } else {
+                        if (self.bss_section_index != null) continue;
+
+                        self.bss_section_index = @intCast(u16, data_seg.sections.items.len);
+                        try data_seg.addSection(self.allocator, .{
+                            .sectname = makeStaticString("__bss"),
+                            .segname = makeStaticString("__DATA"),
+                            .addr = 0,
+                            .size = 0,
+                            .offset = 0,
+                            .@"align" = 0,
+                            .reloff = 0,
+                            .nreloc = 0,
+                            .flags = macho.S_ZEROFILL,
+                            .reserved1 = 0,
+                            .reserved2 = 0,
+                            .reserved3 = 0,
+                        });
+                    }
                 },
                 macho.S_THREAD_LOCAL_VARIABLES => {
                     if (!mem.eql(u8, segname, "__DATA")) continue;
@@ -568,7 +590,9 @@ fn updateMetadata(self: *Zld) !void {
 
             const segname = parseName(&source_sect.segname);
             const sectname = parseName(&source_sect.sectname);
+
             log.debug("section '{s}/{s}' will be unmapped", .{ segname, sectname });
+
             try self.unhandled_sections.putNoClobber(self.allocator, .{
                 .object_id = object_id,
                 .source_sect_id = source_sect_id,
@@ -585,6 +609,7 @@ const MatchingSection = struct {
 fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
     const segname = parseName(&section.segname);
     const sectname = parseName(&section.sectname);
+
     const res: ?MatchingSection = blk: {
         switch (section.flags) {
             macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
@@ -612,6 +637,12 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
                 };
             },
             macho.S_ZEROFILL => {
+                if (mem.eql(u8, sectname, "__common")) {
+                    break :blk .{
+                        .seg = self.data_segment_cmd_index.?,
+                        .sect = self.common_section_index.?,
+                    };
+                }
                 break :blk .{
                     .seg = self.data_segment_cmd_index.?,
                     .sect = self.bss_section_index.?,
@@ -667,6 +698,7 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
             },
         }
     };
+
     return res;
 }
 
@@ -737,11 +769,12 @@ fn sortSections(self: *Zld) !void {
         // __DATA segment
         const indices = &[_]*?u16{
             &self.la_symbol_ptr_section_index,
-            &self.tlv_section_index,
             &self.data_section_index,
+            &self.tlv_section_index,
             &self.tlv_data_section_index,
             &self.tlv_bss_section_index,
             &self.bss_section_index,
+            &self.common_section_index,
         };
         for (indices) |maybe_index| {
             const new_index: u16 = if (maybe_index.*) |index| blk: {
@@ -956,6 +989,21 @@ fn allocateStubsAndGotEntries(self: *Zld) !void {
             entry.key,
             entry.value.target_addr,
         });
+    }
+}
+
+fn allocateCppStatics(self: *Zld) !void {
+    for (self.objects.items) |*object| {
+        for (object.initializers.items) |*initializer| {
+            const sym = object.symtab.items[initializer.symbol];
+            const sym_name = object.getString(sym.n_strx);
+            initializer.target_addr = object.locals.get(sym_name).?.address;
+
+            log.debug("resolving C++ initializer '{s}' at 0x{x}", .{
+                sym_name,
+                initializer.target_addr,
+            });
+        }
     }
 }
 
@@ -1236,11 +1284,12 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
             continue;
         } else if (Symbol.isGlobal(sym)) {
             const sym_name = object.getString(sym.n_strx);
+            const is_weak = Symbol.isWeakDef(sym) or Symbol.isPext(sym);
             const global = self.symtab.getEntry(sym_name) orelse {
                 // Put new global symbol into the symbol table.
                 const name = try self.allocator.dupe(u8, sym_name);
                 try self.symtab.putNoClobber(self.allocator, name, .{
-                    .tag = if (Symbol.isWeakDef(sym)) .weak else .strong,
+                    .tag = if (is_weak) .weak else .strong,
                     .name = name,
                     .address = 0,
                     .section = 0,
@@ -1251,15 +1300,20 @@ fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
             };
 
             switch (global.value.tag) {
-                .weak => continue, // If symbol is weak, nothing to do.
+                .weak => {
+                    if (is_weak) continue; // Nothing to do for weak symbol.
+                },
                 .strong => {
-                    log.err("symbol '{s}' defined multiple times", .{sym_name});
-                    return error.MultipleSymbolDefinitions;
+                    if (!is_weak) {
+                        log.debug("strong symbol '{s}' defined multiple times", .{sym_name});
+                        return error.MultipleSymbolDefinitions;
+                    }
+                    continue;
                 },
                 else => {},
             }
 
-            global.value.tag = .strong;
+            global.value.tag = if (is_weak) .weak else .strong;
             global.value.file = object_id;
             global.value.index = @intCast(u32, sym_id);
         } else if (Symbol.isUndef(sym)) {
@@ -1340,6 +1394,21 @@ fn resolveSymbols(self: *Zld) !void {
         .section = 0,
         .file = 0,
     });
+
+    {
+        log.debug("symtab", .{});
+        for (self.symtab.items()) |sym| {
+            switch (sym.value.tag) {
+                .weak, .strong => {
+                    log.debug("    | {s} => {s}", .{ sym.key, self.objects.items[sym.value.file.?].name.? });
+                },
+                .import => {
+                    log.debug("    | {s} => libSystem.B.dylib", .{sym.key});
+                },
+                else => unreachable,
+            }
+        }
+    }
 }
 
 fn resolveStubsAndGotEntries(self: *Zld) !void {
@@ -1412,8 +1481,13 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
         log.debug("relocating object {s}", .{object.name});
 
         for (object.sections.items) |sect, source_sect_id| {
+            if (sect.inner.flags == macho.S_MOD_INIT_FUNC_POINTERS or
+                sect.inner.flags == macho.S_MOD_TERM_FUNC_POINTERS) continue;
+
             const segname = parseName(&sect.inner.segname);
             const sectname = parseName(&sect.inner.sectname);
+
+            log.debug("relocating section '{s},{s}'", .{ segname, sectname });
 
             // Get mapping
             const target_mapping = self.mappings.get(.{
@@ -1532,6 +1606,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                     target_sect_off,
                     target_sect_off + sect.code.len,
                 });
+
                 // Zero-out the space
                 var zeroes = try self.allocator.alloc(u8, sect.code.len);
                 defer self.allocator.free(zeroes);
@@ -1571,25 +1646,33 @@ fn relocTargetAddr(self: *Zld, object_id: u16, target: reloc.Relocation.Target) 
                     const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
                     const target_addr = target_sect.addr + target_mapping.offset;
                     break :blk sym.n_value - source_sect.addr + target_addr;
-                } else {
-                    if (self.stubs.get(sym_name)) |index| {
-                        log.debug("    | symbol stub '{s}'", .{sym_name});
-                        const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-                        const stubs = segment.sections.items[self.stubs_section_index.?];
-                        break :blk stubs.addr + index * stubs.reserved2;
-                    } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
-                        log.debug("    | symbol '__tlv_bootstrap'", .{});
-                        const segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-                        const tlv = segment.sections.items[self.tlv_section_index.?];
-                        break :blk tlv.addr;
-                    } else {
-                        const global = self.symtab.get(sym_name) orelse {
-                            log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
-                            return error.FailedToResolveRelocationTarget;
-                        };
-                        log.debug("    | global symbol '{s}'", .{sym_name});
-                        break :blk global.address;
+                } else if (self.symtab.get(sym_name)) |global| {
+                    switch (global.tag) {
+                        .weak, .strong => {
+                            log.debug("    | global symbol '{s}'", .{sym_name});
+                            break :blk global.address;
+                        },
+                        .import => {
+                            if (self.stubs.get(sym_name)) |index| {
+                                log.debug("    | symbol stub '{s}'", .{sym_name});
+                                const segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+                                const stubs = segment.sections.items[self.stubs_section_index.?];
+                                break :blk stubs.addr + index * stubs.reserved2;
+                            } else if (mem.eql(u8, sym_name, "__tlv_bootstrap")) {
+                                log.debug("    | symbol '__tlv_bootstrap'", .{});
+                                const segment = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+                                const tlv = segment.sections.items[self.tlv_section_index.?];
+                                break :blk tlv.addr;
+                            } else {
+                                log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
+                                return error.FailedToResolveRelocationTarget;
+                            }
+                        },
+                        else => unreachable,
                     }
+                } else {
+                    log.err("failed to resolve symbol '{s}' as a relocation target", .{sym_name});
+                    return error.FailedToResolveRelocationTarget;
                 }
             },
             .section => |sect_id| {
@@ -2008,6 +2091,12 @@ fn populateMetadata(self: *Zld) !void {
 }
 
 fn flush(self: *Zld) !void {
+    if (self.common_section_index) |index| {
+        const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const sect = &seg.sections.items[index];
+        sect.offset = 0;
+    }
+
     if (self.bss_section_index) |index| {
         const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         const sect = &seg.sections.items[index];
@@ -2038,6 +2127,24 @@ fn flush(self: *Zld) !void {
         }
 
         try self.file.?.pwriteAll(buffer, sect.offset);
+    }
+
+    if (self.mod_init_func_section_index) |index| {
+        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
+        const sect = &seg.sections.items[index];
+
+        var initializers = std.ArrayList(u64).init(self.allocator);
+        defer initializers.deinit();
+
+        // TODO sort the initializers globally
+        for (self.objects.items) |object| {
+            for (object.initializers.items) |initializer| {
+                try initializers.append(initializer.target_addr);
+            }
+        }
+
+        _ = try self.file.?.pwriteAll(mem.sliceAsBytes(initializers.items), sect.offset);
+        sect.size = @intCast(u32, initializers.items.len * @sizeOf(u64));
     }
 
     try self.writeGotEntries();
@@ -2139,35 +2246,18 @@ fn writeRebaseInfoTable(self: *Zld) !void {
         // TODO audit and investigate this.
         const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
         const sect = seg.sections.items[idx];
-        const npointers = sect.size * @sizeOf(u64);
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
 
-        try pointers.ensureCapacity(pointers.items.len + npointers);
-        var i: usize = 0;
-        while (i < npointers) : (i += 1) {
-            pointers.appendAssumeCapacity(.{
-                .offset = base_offset + i * @sizeOf(u64),
-                .segment_id = segment_id,
-            });
-        }
-    }
-
-    if (self.mod_term_func_section_index) |idx| {
-        // TODO audit and investigate this.
-        const seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-        const sect = seg.sections.items[idx];
-        const npointers = sect.size * @sizeOf(u64);
-        const base_offset = sect.addr - seg.inner.vmaddr;
-        const segment_id = @intCast(u16, self.data_const_segment_cmd_index.?);
-
-        try pointers.ensureCapacity(pointers.items.len + npointers);
-        var i: usize = 0;
-        while (i < npointers) : (i += 1) {
-            pointers.appendAssumeCapacity(.{
-                .offset = base_offset + i * @sizeOf(u64),
-                .segment_id = segment_id,
-            });
+        var index: u64 = 0;
+        for (self.objects.items) |object| {
+            for (object.initializers.items) |_| {
+                try pointers.append(.{
+                    .offset = base_offset + index * @sizeOf(u64),
+                    .segment_id = segment_id,
+                });
+                index += 1;
+            }
         }
     }
 
@@ -2447,7 +2537,7 @@ fn writeDebugInfo(self: *Zld) !void {
             .n_type = macho.N_OSO,
             .n_sect = 0,
             .n_desc = 1,
-            .n_value = tu_mtime,
+            .n_value = 0, //tu_mtime, TODO figure out why precalculated mtime value doesn't work
         });
 
         for (object.stabs.items) |stab| {

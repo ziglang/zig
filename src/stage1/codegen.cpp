@@ -7436,7 +7436,10 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
         case ZigTypeIdFloat:
             switch (type_entry->data.floating.bit_count) {
                 case 16:
-                    return LLVMConstReal(get_llvm_type(g, type_entry), zig_f16_to_double(const_val->data.x_f16));
+                    {
+                        LLVMValueRef as_int = LLVMConstInt(LLVMInt16Type(), const_val->data.x_f16.v, false);
+                        return LLVMConstBitCast(as_int, get_llvm_type(g, type_entry));
+                    }
                 case 32:
                     return LLVMConstReal(get_llvm_type(g, type_entry), const_val->data.x_f32);
                 case 64:

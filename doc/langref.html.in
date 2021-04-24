@@ -6509,7 +6509,7 @@ test "suspend with no resume" {
 
 fn func() void {
     x += 1;
-    suspend;
+    suspend {}
     // This line is never reached because the suspend has no matching resume.
     x += 1;
 }
@@ -6574,7 +6574,7 @@ fn testResumeFromSuspend(my_result: *i32) void {
         resume @frame();
     }
     my_result.* += 1;
-    suspend;
+    suspend {}
     my_result.* += 1;
 }
       {#code_end#}
@@ -6613,7 +6613,7 @@ fn amain() void {
 }
 
 fn func() void {
-    suspend;
+    suspend {}
 }
       {#code_end#}
       <p>
@@ -6915,7 +6915,7 @@ test "async fn pointer in a struct field" {
 fn func(y: *i32) void {
     defer y.* += 2;
     y.* += 1;
-    suspend;
+    suspend {}
 }
       {#code_end#}
       {#header_close#}
@@ -7498,13 +7498,13 @@ test "main" {
       {#header_close#}
 
       {#header_open|@export#}
-      <pre>{#syntax#}@export(target: anytype, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@export(identifier, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
       <p>
       Creates a symbol in the output object file.
       </p>
       <p>
       This function can be called from a {#link|comptime#} block to conditionally export symbols.
-      When {#syntax#}target{#endsyntax#} is a function with the C calling convention and
+      When {#syntax#}identifier{#endsyntax#} is a function with the C calling convention and
       {#syntax#}options.linkage{#endsyntax#} is {#syntax#}Strong{#endsyntax#}, this is equivalent to
       the {#syntax#}export{#endsyntax#} keyword used on a function:
       </p>
@@ -7529,6 +7529,14 @@ export fn @"A function name that is a complete sentence."() void {}
       </p>
       <pre><code>00000000000001f0 T A function name that is a complete sentence.</code></pre>
       {#see_also|Exporting a C Library#}
+      {#header_close#}
+
+      {#header_open|@extern#}
+      <pre>{#syntax#}@extern(T: type, comptime options: std.builtin.ExternOptions) *T{#endsyntax#}</pre>
+      <p>
+      Creates a reference to an external symbol in the output object file.
+      </p>
+      {#see_also|@export#}
       {#header_close#}
 
       {#header_open|@fence#}
@@ -7640,7 +7648,7 @@ test "heap allocated frame" {
 }
 
 fn func() void {
-    suspend;
+    suspend {}
 }
       {#code_end#}
       {#header_close#}

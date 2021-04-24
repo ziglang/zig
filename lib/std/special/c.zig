@@ -88,7 +88,7 @@ test "strncpy" {
     var s1: [9:0]u8 = undefined;
 
     s1[0] = 0;
-    _ = strncpy(&s1, "foobarbaz", 9);
+    _ = strncpy(&s1, "foobarbaz", @sizeOf(@TypeOf(s1)));
     std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
 }
 
@@ -242,7 +242,7 @@ export fn memcmp(vl: ?[*]const u8, vr: ?[*]const u8, n: usize) callconv(.C) isiz
     return 0;
 }
 
-test "test_memcmp" {
+test "memcmp" {
     const base_arr = &[_]u8{ 1, 1, 1 };
     const arr1 = &[_]u8{ 1, 1, 1 };
     const arr2 = &[_]u8{ 1, 0, 1 };
@@ -266,7 +266,7 @@ export fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) c
     return 0;
 }
 
-test "test_bcmp" {
+test "bcmp" {
     const base_arr = &[_]u8{ 1, 1, 1 };
     const arr1 = &[_]u8{ 1, 1, 1 };
     const arr2 = &[_]u8{ 1, 0, 1 };
@@ -862,6 +862,85 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     return @bitCast(T, ux);
 }
 
+test "fmod, fmodf" {
+    inline for ([_]type{ f32, f64 }) |T| {
+        const nan_val = math.nan(T);
+        const inf_val = math.inf(T);
+
+        std.testing.expect(isNan(generic_fmod(T, nan_val, 1.0)));
+        std.testing.expect(isNan(generic_fmod(T, 1.0, nan_val)));
+        std.testing.expect(isNan(generic_fmod(T, inf_val, 1.0)));
+        std.testing.expect(isNan(generic_fmod(T, 0.0, 0.0)));
+        std.testing.expect(isNan(generic_fmod(T, 1.0, 0.0)));
+
+        std.testing.expectEqual(@as(T, 0.0), generic_fmod(T, 0.0, 2.0));
+        std.testing.expectEqual(@as(T, -0.0), generic_fmod(T, -0.0, 2.0));
+
+        std.testing.expectEqual(@as(T, -2.0), generic_fmod(T, -32.0, 10.0));
+        std.testing.expectEqual(@as(T, -2.0), generic_fmod(T, -32.0, -10.0));
+        std.testing.expectEqual(@as(T, 2.0), generic_fmod(T, 32.0, 10.0));
+        std.testing.expectEqual(@as(T, 2.0), generic_fmod(T, 32.0, -10.0));
+    }
+}
+
+fn generic_fmin(comptime T: type, x: T, y: T) T {
+    if (isNan(x))
+        return y;
+    if (isNan(y))
+        return x;
+    return if (x < y) x else y;
+}
+
+export fn fminf(x: f32, y: f32) callconv(.C) f32 {
+    return generic_fmin(f32, x, y);
+}
+
+export fn fmin(x: f64, y: f64) callconv(.C) f64 {
+    return generic_fmin(f64, x, y);
+}
+
+test "fmin, fminf" {
+    inline for ([_]type{ f32, f64 }) |T| {
+        const nan_val = math.nan(T);
+
+        std.testing.expect(isNan(generic_fmin(T, nan_val, nan_val)));
+        std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, nan_val, 1.0));
+        std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, 1.0, nan_val));
+
+        std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, 1.0, 10.0));
+        std.testing.expectEqual(@as(T, -1.0), generic_fmin(T, 1.0, -1.0));
+    }
+}
+
+fn generic_fmax(comptime T: type, x: T, y: T) T {
+    if (isNan(x))
+        return y;
+    if (isNan(y))
+        return x;
+    return if (x < y) y else x;
+}
+
+export fn fmaxf(x: f32, y: f32) callconv(.C) f32 {
+    return generic_fmax(f32, x, y);
+}
+
+export fn fmax(x: f64, y: f64) callconv(.C) f64 {
+    return generic_fmax(f64, x, y);
+}
+
+test "fmax, fmaxf" {
+    inline for ([_]type{ f32, f64 }) |T| {
+        const nan_val = math.nan(T);
+
+        std.testing.expect(isNan(generic_fmax(T, nan_val, nan_val)));
+        std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, nan_val, 1.0));
+        std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, 1.0, nan_val));
+
+        std.testing.expectEqual(@as(T, 10.0), generic_fmax(T, 1.0, 10.0));
+        std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, 1.0, -1.0));
+    }
+}
+
 // NOTE: The original code is full of implicit signed -> unsigned assumptions and u32 wraparound
 // behaviour. Most intermediate i32 values are changed to u32 where appropriate but there are
 // potentially some edge cases remaining that are not handled in the same way.
@@ -996,25 +1075,32 @@ export fn sqrt(x: f64) f64 {
 }
 
 test "sqrt" {
-    const epsilon = 0.000001;
+    const V = [_]f64{
+        0.0,
+        4.089288054930154,
+        7.538757127071935,
+        8.97780793672623,
+        5.304443821913729,
+        5.682408965311888,
+        0.5846878579110049,
+        3.650338664297043,
+        0.3178091951800732,
+        7.1505232436382835,
+        3.6589165881946464,
+    };
 
-    std.testing.expect(sqrt(0.0) == 0.0);
-    std.testing.expect(std.math.approxEqAbs(f64, sqrt(2.0), 1.414214, epsilon));
-    std.testing.expect(std.math.approxEqAbs(f64, sqrt(3.6), 1.897367, epsilon));
-    std.testing.expect(sqrt(4.0) == 2.0);
-    std.testing.expect(std.math.approxEqAbs(f64, sqrt(7.539840), 2.745877, epsilon));
-    std.testing.expect(std.math.approxEqAbs(f64, sqrt(19.230934), 4.385309, epsilon));
-    std.testing.expect(sqrt(64.0) == 8.0);
-    std.testing.expect(std.math.approxEqAbs(f64, sqrt(64.1), 8.006248, epsilon));
-    std.testing.expect(std.math.approxEqAbs(f64, sqrt(8942.230469), 94.563367, epsilon));
+    // Note that @sqrt will either generate the sqrt opcode (if supported by the
+    // target ISA) or a call to `sqrtf` otherwise.
+    for (V) |val|
+        std.testing.expectEqual(@sqrt(val), sqrt(val));
 }
 
 test "sqrt special" {
     std.testing.expect(std.math.isPositiveInf(sqrt(std.math.inf(f64))));
     std.testing.expect(sqrt(0.0) == 0.0);
     std.testing.expect(sqrt(-0.0) == -0.0);
-    std.testing.expect(std.math.isNan(sqrt(-1.0)));
-    std.testing.expect(std.math.isNan(sqrt(std.math.nan(f64))));
+    std.testing.expect(isNan(sqrt(-1.0)));
+    std.testing.expect(isNan(sqrt(std.math.nan(f64))));
 }
 
 export fn sqrtf(x: f32) f32 {
@@ -1094,23 +1180,30 @@ export fn sqrtf(x: f32) f32 {
 }
 
 test "sqrtf" {
-    const epsilon = 0.000001;
+    const V = [_]f32{
+        0.0,
+        4.089288054930154,
+        7.538757127071935,
+        8.97780793672623,
+        5.304443821913729,
+        5.682408965311888,
+        0.5846878579110049,
+        3.650338664297043,
+        0.3178091951800732,
+        7.1505232436382835,
+        3.6589165881946464,
+    };
 
-    std.testing.expect(sqrtf(0.0) == 0.0);
-    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(2.0), 1.414214, epsilon));
-    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(3.6), 1.897367, epsilon));
-    std.testing.expect(sqrtf(4.0) == 2.0);
-    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(7.539840), 2.745877, epsilon));
-    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(19.230934), 4.385309, epsilon));
-    std.testing.expect(sqrtf(64.0) == 8.0);
-    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(64.1), 8.006248, epsilon));
-    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(8942.230469), 94.563370, epsilon));
+    // Note that @sqrt will either generate the sqrt opcode (if supported by the
+    // target ISA) or a call to `sqrtf` otherwise.
+    for (V) |val|
+        std.testing.expectEqual(@sqrt(val), sqrtf(val));
 }
 
 test "sqrtf special" {
     std.testing.expect(std.math.isPositiveInf(sqrtf(std.math.inf(f32))));
     std.testing.expect(sqrtf(0.0) == 0.0);
     std.testing.expect(sqrtf(-0.0) == -0.0);
-    std.testing.expect(std.math.isNan(sqrtf(-1.0)));
-    std.testing.expect(std.math.isNan(sqrtf(std.math.nan(f32))));
+    std.testing.expect(isNan(sqrtf(-1.0)));
+    std.testing.expect(isNan(sqrtf(std.math.nan(f32))));
 }

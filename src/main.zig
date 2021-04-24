@@ -355,6 +355,8 @@ const usage_build_generic =
     \\  -rpath [path]                  Add directory to the runtime library search path
     \\  -feach-lib-rpath               Ensure adding rpath for each used dynamic library
     \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
+    \\  -fallow-shlib-undefined        Allows undefined symbols in shared libraries
+    \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
     \\  -dynamic                       Force output to be dynamically linked
@@ -988,6 +990,10 @@ fn buildOutputType(
                         link_eh_frame_hdr = true;
                     } else if (mem.eql(u8, arg, "--emit-relocs")) {
                         link_emit_relocs = true;
+                    } else if (mem.eql(u8, arg, "-fallow-shlib-undefined")) {
+                        linker_allow_shlib_undefined = true;
+                    } else if (mem.eql(u8, arg, "-fno-allow-shlib-undefined")) {
+                        linker_allow_shlib_undefined = false;
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
                     } else if (mem.eql(u8, arg, "--verbose-link")) {

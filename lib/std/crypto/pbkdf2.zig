@@ -7,7 +7,8 @@
 const std = @import("std");
 const mem = std.mem;
 const maxInt = std.math.maxInt;
-const Error = std.crypto.Error;
+const OutputTooLongError = std.crypto.errors.OutputTooLongError;
+const WeakParametersError = std.crypto.errors.WeakParametersError;
 
 // RFC 2898 Section 5.2
 //
@@ -55,7 +56,7 @@ const Error = std.crypto.Error;
 ///         the dk. It is common to tune this parameter to achieve approximately 100ms.
 ///
 /// Prf: Pseudo-random function to use. A common choice is `std.crypto.auth.hmac.HmacSha256`.
-pub fn pbkdf2(dk: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Prf: type) Error!void {
+pub fn pbkdf2(dk: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Prf: type) (WeakParametersError || OutputTooLongError)!void {
     if (rounds < 1) return error.WeakParameters;
 
     const dk_len = dk.len;

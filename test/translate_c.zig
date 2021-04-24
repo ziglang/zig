@@ -3,6 +3,22 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("field access is grouped if necessary",
+        \\unsigned long foo(unsigned long x) {
+        \\    return ((union{unsigned long _x}){x})._x;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(arg_x: c_ulong) c_ulong {
+        \\    var x = arg_x;
+        \\    const union_unnamed_1 = extern union {
+        \\        _x: c_ulong,
+        \\    };
+        \\    return (union_unnamed_1{
+        \\        ._x = x,
+        \\    })._x;
+        \\}
+    });
+
     cases.add("unnamed child types of typedef receive typedef's name",
         \\typedef enum {
         \\    FooA,
@@ -111,7 +127,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    const A = @enumToInt(enum_Foo.A);
         \\    const B = @enumToInt(enum_Foo.B);
         \\    const C = @enumToInt(enum_Foo.C);
-        \\    var a: enum_Foo = @intToEnum(enum_Foo, B);
+        \\    var a: enum_Foo = @import("std").meta.cast(enum_Foo, B);
         \\    {
         \\        const enum_Foo = extern enum(c_int) {
         \\            A,
@@ -122,7 +138,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        const A_2 = @enumToInt(enum_Foo.A);
         \\        const B_3 = @enumToInt(enum_Foo.B);
         \\        const C_4 = @enumToInt(enum_Foo.C);
-        \\        var a_5: enum_Foo = @intToEnum(enum_Foo, B_3);
+        \\        var a_5: enum_Foo = @import("std").meta.cast(enum_Foo, B_3);
         \\    }
         \\}
     });
@@ -1676,7 +1692,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const e = @enumToInt(enum_unnamed_1.e);
         \\pub const f = @enumToInt(enum_unnamed_1.f);
         \\pub const g = @enumToInt(enum_unnamed_1.g);
-        \\pub export var h: enum_unnamed_1 = @intToEnum(enum_unnamed_1, e);
+        \\pub export var h: enum_unnamed_1 = @import("std").meta.cast(enum_unnamed_1, e);
         \\const enum_unnamed_2 = extern enum(c_int) {
         \\    i,
         \\    j,
@@ -2308,7 +2324,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a = arg_a;
         \\    var b = arg_b;
         \\    var c = arg_c;
-        \\    var d: enum_Foo = @intToEnum(enum_Foo, FooA);
+        \\    var d: enum_Foo = @import("std").meta.cast(enum_Foo, FooA);
         \\    var e: c_int = @boolToInt((a != 0) and (b != 0));
         \\    var f: c_int = @boolToInt((b != 0) and (c != null));
         \\    var g: c_int = @boolToInt((a != 0) and (c != null));

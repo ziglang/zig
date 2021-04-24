@@ -852,7 +852,7 @@ const Parser = struct {
     ///     <- KEYWORD_comptime? VarDecl
     ///      / KEYWORD_comptime BlockExprStatement
     ///      / KEYWORD_nosuspend BlockExprStatement
-    ///      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
+    ///      / KEYWORD_suspend BlockExprStatement
     ///      / KEYWORD_defer BlockExprStatement
     ///      / KEYWORD_errdefer Payload? BlockExprStatement
     ///      / IfStatement
@@ -892,6 +892,7 @@ const Parser = struct {
             },
             .keyword_suspend => {
                 const token = p.nextToken();
+                // TODO remove this special case when 0.9.0 is released.
                 const block_expr: Node.Index = if (p.eatToken(.semicolon) != null)
                     0
                 else

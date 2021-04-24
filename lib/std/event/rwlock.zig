@@ -264,7 +264,7 @@ var shared_test_data = [1]i32{0} ** 10;
 var shared_test_index: usize = 0;
 var shared_count: usize = 0;
 fn writeRunner(lock: *RwLock) callconv(.Async) void {
-    suspend; // resumed by onNextTick
+    suspend {} // resumed by onNextTick
 
     var i: usize = 0;
     while (i < shared_test_data.len) : (i += 1) {
@@ -281,7 +281,7 @@ fn writeRunner(lock: *RwLock) callconv(.Async) void {
     }
 }
 fn readRunner(lock: *RwLock) callconv(.Async) void {
-    suspend; // resumed by onNextTick
+    suspend {} // resumed by onNextTick
     std.time.sleep(1);
 
     var i: usize = 0;

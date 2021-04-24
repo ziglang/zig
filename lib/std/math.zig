@@ -1349,15 +1349,6 @@ pub fn boolMask(comptime MaskInt: type, value: bool) callconv(.Inline) MaskInt {
         return @bitCast(i1, @as(u1, @boolToInt(value)));
     }
 
-    // At comptime, -% is disallowed on unsigned values.
-    // So we need to jump through some hoops in that case.
-    // This is a workaround for #7951
-    if (@typeInfo(@TypeOf(.{value})).Struct.fields[0].is_comptime) {
-        // Since it's comptime, we don't need this to generate nice code.
-        // We can just do a branch here.
-        return if (value) ~@as(MaskInt, 0) else 0;
-    }
-
     return -%@intCast(MaskInt, @boolToInt(value));
 }
 

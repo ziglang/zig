@@ -28,7 +28,7 @@ pub const Bool = extern struct {
         return @atomicRmw(bool, &self.unprotected_value, .Xchg, operand, ordering);
     }
 
-    pub fn load(self: *Self, comptime ordering: std.builtin.AtomicOrder) bool {
+    pub fn load(self: *const Self, comptime ordering: std.builtin.AtomicOrder) bool {
         switch (ordering) {
             .Unordered, .Monotonic, .Acquire, .SeqCst => {},
             else => @compileError("Invalid ordering '" ++ @tagName(ordering) ++ "' for a load operation"),

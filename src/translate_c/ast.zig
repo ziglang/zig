@@ -1665,7 +1665,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .array_access => {
             const payload = node.castTag(.array_access).?.data;
-            const lhs = try renderNode(c, payload.lhs);
+            const lhs = try renderNodeGrouped(c, payload.lhs);
             const l_bracket = try c.addToken(.l_bracket, "[");
             const index_expr = try renderNode(c, payload.rhs);
             _ = try c.addToken(.r_bracket, "]");
@@ -1728,7 +1728,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .field_access => {
             const payload = node.castTag(.field_access).?.data;
-            const lhs = try renderNode(c, payload.lhs);
+            const lhs = try renderNodeGrouped(c, payload.lhs);
             return renderFieldAccess(c, lhs, payload.field_name);
         },
         .@"struct", .@"union" => return renderRecord(c, node),
@@ -2073,7 +2073,7 @@ fn renderNullSentinelArrayType(c: *Context, len: usize, elem_type: Node) !NodeIn
         .main_token = l_bracket,
         .data = .{
             .lhs = len_expr,
-            .rhs = try c.addExtra(std.zig.ast.Node.ArrayTypeSentinel {
+            .rhs = try c.addExtra(std.zig.ast.Node.ArrayTypeSentinel{
                 .sentinel = sentinel_expr,
                 .elem_type = elem_type_expr,
             }),

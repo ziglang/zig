@@ -1453,4 +1453,27 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Cast to enum from larger integral type. Issue #6011",
+        \\#include <stdint.h>
+        \\#include <stdlib.h>
+        \\enum Foo { A, B, C };
+        \\static inline enum Foo do_stuff(void) {
+        \\    int64_t i = 1;
+        \\    return (enum Foo)i;
+        \\}
+        \\int main(void) {
+        \\    if (do_stuff() != B) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Render array LHS as grouped node if necessary",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int arr[] = {40, 41, 42, 43};
+        \\    if ((arr + 1)[1] != 42) abort();
+        \\    return 0;
+        \\}
+    , "");
 }

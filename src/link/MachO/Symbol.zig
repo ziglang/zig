@@ -52,7 +52,7 @@ pub fn isUndf(sym: macho.nlist_64) bool {
 }
 
 pub fn isWeakDef(sym: macho.nlist_64) bool {
-    return sym.n_desc == macho.N_WEAK_DEF;
+    return (sym.n_desc & macho.N_WEAK_DEF) != 0;
 }
 
 /// Symbol is local if it is defined and not an extern.

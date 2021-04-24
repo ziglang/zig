@@ -154,7 +154,7 @@ pub const random = &@import("crypto/tlcsprng.zig").interface;
 
 const std = @import("std.zig");
 
-pub const Error = @import("crypto/error.zig").Error;
+pub const errors = @import("crypto/errors.zig");
 
 test "crypto" {
     const please_windows_dont_oom = std.Target.current.os.tag == .windows;

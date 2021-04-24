@@ -226,7 +226,9 @@ pub const Parser = struct {
                     try parser.parseTlvpLoadPageOff(rel);
                 },
                 .ARM64_RELOC_POINTER_TO_GOT => {
-                    return error.ToDoRelocPointerToGot;
+                    // TODO Handle pointer to GOT. This reloc seems to appear in
+                    // __LD,__compact_unwind section which we currently don't handle.
+                    log.debug("Unhandled relocation ARM64_RELOC_POINTER_TO_GOT", .{});
                 },
             }
         }

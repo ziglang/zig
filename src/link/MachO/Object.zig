@@ -32,7 +32,9 @@ symtab_cmd_index: ?u16 = null,
 dysymtab_cmd_index: ?u16 = null,
 build_version_cmd_index: ?u16 = null,
 data_in_code_cmd_index: ?u16 = null,
+
 text_section_index: ?u16 = null,
+mod_init_func_section_index: ?u16 = null,
 
 // __DWARF segment sections
 dwarf_debug_info_index: ?u16 = null,
@@ -49,6 +51,7 @@ stabs: std.ArrayListUnmanaged(Stab) = .{},
 tu_path: ?[]const u8 = null,
 tu_mtime: ?u64 = null,
 
+initializers: std.ArrayListUnmanaged(CppStatic) = .{},
 data_in_code_entries: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
 pub const Section = struct {
@@ -66,6 +69,11 @@ pub const Section = struct {
             allocator.free(relocs);
         }
     }
+};
+
+const CppStatic = struct {
+    symbol: u32,
+    target_addr: u64,
 };
 
 const Stab = struct {
@@ -170,6 +178,7 @@ pub fn deinit(self: *Object) void {
     self.strtab.deinit(self.allocator);
     self.stabs.deinit(self.allocator);
     self.data_in_code_entries.deinit(self.allocator);
+    self.initializers.deinit(self.allocator);
 
     if (self.name) |n| {
         self.allocator.free(n);
@@ -216,6 +225,7 @@ pub fn parse(self: *Object) !void {
     try self.parseSections();
     if (self.symtab_cmd_index != null) try self.parseSymtab();
     if (self.data_in_code_cmd_index != null) try self.readDataInCode();
+    try self.parseInitializers();
     try self.parseDebugInfo();
 }
 
@@ -249,6 +259,10 @@ pub fn readLoadCommands(self: *Object, reader: anytype) !void {
                     } else if (mem.eql(u8, segname, "__TEXT")) {
                         if (mem.eql(u8, sectname, "__text")) {
                             self.text_section_index = index;
+                        }
+                    } else if (mem.eql(u8, segname, "__DATA")) {
+                        if (mem.eql(u8, sectname, "__mod_init_func")) {
+                            self.mod_init_func_section_index = index;
                         }
                     }
 
@@ -298,25 +312,50 @@ pub fn parseSections(self: *Object) !void {
         var section = Section{
             .inner = sect,
             .code = code,
-            .relocs = undefined,
+            .relocs = null,
         };
 
         // Parse relocations
-        section.relocs = if (sect.nreloc > 0) relocs: {
+        if (sect.nreloc > 0) {
             var raw_relocs = try self.allocator.alloc(u8, @sizeOf(macho.relocation_info) * sect.nreloc);
             defer self.allocator.free(raw_relocs);
 
             _ = try self.file.?.preadAll(raw_relocs, sect.reloff);
 
-            break :relocs try reloc.parse(
+            section.relocs = try reloc.parse(
                 self.allocator,
                 self.arch.?,
                 section.code,
                 mem.bytesAsSlice(macho.relocation_info, raw_relocs),
             );
-        } else null;
+        }
 
         self.sections.appendAssumeCapacity(section);
+    }
+}
+
+pub fn parseInitializers(self: *Object) !void {
+    const index = self.mod_init_func_section_index orelse return;
+    const section = self.sections.items[index];
+
+    log.debug("parsing initializers in {s}", .{self.name.?});
+
+    // Parse C++ initializers
+    const relocs = section.relocs orelse unreachable;
+    try self.initializers.ensureCapacity(self.allocator, relocs.len);
+    for (relocs) |rel| {
+        self.initializers.appendAssumeCapacity(.{
+            .symbol = rel.target.symbol,
+            .target_addr = undefined,
+        });
+    }
+
+    mem.reverse(CppStatic, self.initializers.items);
+
+    for (self.initializers.items) |initializer| {
+        const sym = self.symtab.items[initializer.symbol];
+        const sym_name = self.getString(sym.n_strx);
+        log.debug("    | {s}", .{sym_name});
     }
 }
 

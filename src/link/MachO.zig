@@ -645,8 +645,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 break :blk true;
             }
 
-            if (self.base.options.link_libcpp or
-                self.base.options.output_mode == .Lib or
+            if (self.base.options.output_mode == .Lib or
                 self.base.options.linker_script != null)
             {
                 // Fallback to LLD in this handful of cases on x86_64 only.

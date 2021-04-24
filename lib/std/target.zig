@@ -800,6 +800,13 @@ pub const Target = struct {
                 };
             }
 
+            pub fn isPPC(arch: Arch) bool {
+                return switch (arch) {
+                    .powerpc, .powerpcle => true,
+                    else => false,
+                };
+            }
+
             pub fn isPPC64(arch: Arch) bool {
                 return switch (arch) {
                     .powerpc64, .powerpc64le => true,
@@ -1184,8 +1191,8 @@ pub const Target = struct {
                     .mips, .mipsel => &mips.cpu.mips32,
                     .mips64, .mips64el => &mips.cpu.mips64,
                     .msp430 => &msp430.cpu.generic,
-                    .powerpc => &powerpc.cpu.ppc32,
-                    .powerpcle => &powerpc.cpu.ppc32,
+                    .powerpc => &powerpc.cpu.ppc,
+                    .powerpcle => &powerpc.cpu.ppc,
                     .powerpc64 => &powerpc.cpu.ppc64,
                     .powerpc64le => &powerpc.cpu.ppc64le,
                     .amdgcn => &amdgpu.cpu.generic,

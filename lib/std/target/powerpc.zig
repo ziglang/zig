@@ -751,13 +751,6 @@ pub const cpu = struct {
             .hard_float,
         }),
     };
-    pub const ppc32 = CpuModel{
-        .name = "ppc32",
-        .llvm_name = "ppc32",
-        .features = featureSet(&[_]Feature{
-            .hard_float,
-        }),
-    };
     pub const ppc64 = CpuModel{
         .name = "ppc64",
         .llvm_name = "ppc64",
