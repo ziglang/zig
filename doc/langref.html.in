@@ -6528,7 +6528,7 @@ test "suspend with no resume" {
 
 fn func() void {
     x += 1;
-    suspend;
+    suspend {}
     // This line is never reached because the suspend has no matching resume.
     x += 1;
 }
@@ -6593,7 +6593,7 @@ fn testResumeFromSuspend(my_result: *i32) void {
         resume @frame();
     }
     my_result.* += 1;
-    suspend;
+    suspend {}
     my_result.* += 1;
 }
       {#code_end#}
@@ -6632,7 +6632,7 @@ fn amain() void {
 }
 
 fn func() void {
-    suspend;
+    suspend {}
 }
       {#code_end#}
       <p>
@@ -6934,7 +6934,7 @@ test "async fn pointer in a struct field" {
 fn func(y: *i32) void {
     defer y.* += 2;
     y.* += 1;
-    suspend;
+    suspend {}
 }
       {#code_end#}
       {#header_close#}
@@ -7667,7 +7667,7 @@ test "heap allocated frame" {
 }
 
 fn func() void {
-    suspend;
+    suspend {}
 }
       {#code_end#}
       {#header_close#}

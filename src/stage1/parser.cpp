@@ -946,10 +946,7 @@ static AstNode *ast_parse_statement(ParseContext *pc) {
 
     Token *suspend = eat_token_if(pc, TokenIdKeywordSuspend);
     if (suspend != nullptr) {
-        AstNode *statement = nullptr;
-        if (eat_token_if(pc, TokenIdSemicolon) == nullptr)
-            statement = ast_expect(pc, ast_parse_block_expr_statement);
-
+        AstNode *statement = ast_expect(pc, ast_parse_block_expr_statement);
         AstNode *res = ast_create_node(pc, NodeTypeSuspend, suspend);
         res->data.suspend.block = statement;
         return res;
