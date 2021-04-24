@@ -3665,9 +3665,9 @@ test "zig fmt: async functions" {
         \\fn simpleAsyncFn() void {
         \\    const a = async a.b();
         \\    x += 1;
-        \\    suspend;
+        \\    suspend {}
         \\    x += 1;
-        \\    suspend;
+        \\    suspend {}
         \\    const p: anyframe->void = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}
@@ -5022,6 +5022,18 @@ test "recovery: invalid comptime" {
     });
 }
 
+test "recovery: missing block after suspend" {
+    try testError(
+        \\fn foo() void {
+        \\    suspend;
+        \\    nosuspend;
+        \\}
+    , &[_]Error{
+        .expected_block_or_expr,
+        .expected_block_or_expr,
+    });
+}
+
 test "recovery: missing block after for/while loops" {
     try testError(
         \\test "" { while (foo) }
@@ -5165,7 +5177,7 @@ fn testError(source: []const u8, expected_errors: []const Error) !void {
     var tree = try std.zig.parse(std.testing.allocator, source);
     defer tree.deinit(std.testing.allocator);
 
-    std.testing.expect(tree.errors.len == expected_errors.len);
+    std.testing.expectEqual(expected_errors.len, tree.errors.len);
     for (expected_errors) |expected, i| {
         std.testing.expectEqual(expected, tree.errors[i].tag);
     }

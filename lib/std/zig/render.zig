@@ -255,22 +255,11 @@ fn renderExpression(gpa: *Allocator, ais: *Ais, tree: ast.Tree, node: ast.Node.I
             try renderToken(ais, tree, defer_token, .space);
             return renderExpression(gpa, ais, tree, expr, space);
         },
-        .@"comptime", .@"nosuspend" => {
+        .@"comptime", .@"suspend", .@"nosuspend" => {
             const comptime_token = main_tokens[node];
             const block = datas[node].lhs;
             try renderToken(ais, tree, comptime_token, .space);
             return renderExpression(gpa, ais, tree, block, space);
-        },
-
-        .@"suspend" => {
-            const suspend_token = main_tokens[node];
-            const body = datas[node].lhs;
-            if (body != 0) {
-                try renderToken(ais, tree, suspend_token, .space);
-                return renderExpression(gpa, ais, tree, body, space);
-            } else {
-                return renderToken(ais, tree, suspend_token, space);
-            }
         },
 
         .@"catch" => {

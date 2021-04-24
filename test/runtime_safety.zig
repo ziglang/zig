@@ -13,7 +13,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
 
         cases.addRuntimeSafety("switch on corrupted enum value",
             \\const std = @import("std");
-            ++ check_panic_msg ++
+        ++ check_panic_msg ++
             \\const E = enum(u32) {
             \\    X = 1,
             \\};
@@ -28,7 +28,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
 
         cases.addRuntimeSafety("switch on corrupted union value",
             \\const std = @import("std");
-            ++ check_panic_msg ++
+        ++ check_panic_msg ++
             \\const U = union(enum(u32)) {
             \\    X: u8,
             \\};
@@ -54,7 +54,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
 
         cases.addRuntimeSafety("@tagName on corrupted enum value",
             \\const std = @import("std");
-            ++ check_panic_msg ++
+        ++ check_panic_msg ++
             \\const E = enum(u32) {
             \\    X = 1,
             \\};
@@ -67,7 +67,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
 
         cases.addRuntimeSafety("@tagName on corrupted union value",
             \\const std = @import("std");
-            ++ check_panic_msg ++
+        ++ check_panic_msg ++
             \\const U = union(enum(u32)) {
             \\    X: u8,
             \\};
@@ -92,7 +92,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
 
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-            ++ check_panic_msg ++
+        ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf = [4]u8{'a','b','c',0};
             \\    const slice = buf[0..4 :0];
@@ -100,7 +100,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-            ++ check_panic_msg ++
+        ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf = [4]u8{'a','b','c',0};
             \\    const slice = buf[0..:0];
@@ -108,7 +108,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-            ++ check_panic_msg ++
+        ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf_zero = [0]u8{};
             \\    const slice = buf_zero[0..0 :0];
@@ -116,7 +116,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-            ++ check_panic_msg ++
+        ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf_zero = [0]u8{};
             \\    const slice = buf_zero[0..:0];
@@ -124,7 +124,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-            ++ check_panic_msg ++
+        ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf_sentinel = [2:0]u8{'a','b'};
             \\    @ptrCast(*[3]u8, &buf_sentinel)[2] = 0;
@@ -133,7 +133,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-            ++ check_panic_msg ++
+        ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf_slice: []const u8 = &[3]u8{ 'a', 'b', 0 };
             \\    const slice = buf_slice[0..3 :0];
@@ -141,7 +141,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-            ++ check_panic_msg ++
+        ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf_slice: []const u8 = &[3]u8{ 'a', 'b', 0 };
             \\    const slice = buf_slice[0.. :0];
@@ -367,7 +367,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
         \\fn add(a: i32, b: i32) i32 {
         \\    if (a > 100) {
-        \\        suspend;
+        \\        suspend {}
         \\    }
         \\    return a + b;
         \\}
@@ -407,7 +407,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    var frame = @asyncCall(&bytes, {}, ptr, .{});
         \\}
         \\fn other() callconv(.Async) void {
-        \\    suspend;
+        \\    suspend {}
         \\}
     );
 
@@ -424,7 +424,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    await frame;
         \\}
         \\fn other() void {
-        \\    suspend;
+        \\    suspend {}
         \\}
     );
 
@@ -440,7 +440,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    other();
         \\}
         \\fn other() void {
-        \\    suspend;
+        \\    suspend {}
         \\}
     );
 
@@ -454,7 +454,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    resume p; //bad
         \\}
         \\fn suspendOnce() void {
-        \\    suspend;
+        \\    suspend {}
         \\}
     );
 
@@ -1019,7 +1019,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
         \\
         \\fn failing() anyerror!void {
-        \\    suspend;
+        \\    suspend {}
         \\    return second();
         \\}
         \\

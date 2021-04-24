@@ -852,7 +852,7 @@ const Parser = struct {
     ///     <- KEYWORD_comptime? VarDecl
     ///      / KEYWORD_comptime BlockExprStatement
     ///      / KEYWORD_nosuspend BlockExprStatement
-    ///      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
+    ///      / KEYWORD_suspend BlockExprStatement
     ///      / KEYWORD_defer BlockExprStatement
     ///      / KEYWORD_errdefer Payload? BlockExprStatement
     ///      / IfStatement
@@ -891,16 +891,11 @@ const Parser = struct {
                 });
             },
             .keyword_suspend => {
-                const token = p.nextToken();
-                const block_expr: Node.Index = if (p.eatToken(.semicolon) != null)
-                    0
-                else
-                    try p.expectBlockExprStatement();
                 return p.addNode(.{
                     .tag = .@"suspend",
-                    .main_token = token,
+                    .main_token = p.nextToken(),
                     .data = .{
-                        .lhs = block_expr,
+                        .lhs = try p.expectBlockExprStatement(),
                         .rhs = undefined,
                     },
                 });
