@@ -1,0 +1,46 @@
+#!/bin/sh
+
+. ./ci/drone/linux_script_base
+
+if [ -n "$DRONE_PULL_REQUEST" ]; then
+  exit 0
+fi
+
+apk update
+apk add py3-pip xz perl-utils jq curl samurai
+pip3 install s3cmd
+
+cd build
+
+mv ../LICENSE "$DISTDIR/"
+# docs are disabled due to: https://github.com/ziglang/zig/issues/8597
+#mv ../zig-cache/langref.html "$DISTDIR/"
+mv "$DISTDIR/bin/zig" "$DISTDIR/"
+rmdir "$DISTDIR/bin"
+
+GITBRANCH="$DRONE_BRANCH"
+VERSION="$("$DISTDIR/zig" version)"
+DIRNAME="zig-linux-$TRIPLEARCH-$VERSION"
+TARBALL="$DIRNAME.tar.xz"
+mv "$DISTDIR" "$DIRNAME"
+tar cfJ "$TARBALL" "$DIRNAME"
+
+s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
+
+SHASUM=$(shasum -a 256 $TARBALL | cut '-d ' -f1)
+BYTESIZE=$(wc -c < $TARBALL)
+
+JSONFILE="tarball.json"
+touch $JSONFILE
+echo "{\"tarball\": \"$TARBALL\"," >>$JSONFILE
+echo "\"shasum\": \"$SHASUM\"," >>$JSONFILE
+echo "\"size\": \"$BYTESIZE\"}" >>$JSONFILE
+
+s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/$TRIPLEARCH-linux-$VERSION.json"
+if [ "$GITBRANCH" = "master" ]; then
+  # avoid leaking oauth token
+  set +x
+
+  cd "$DRONE_WORKSPACE"
+  ./ci/srht/on_master_success "$VERSION" "$SRHT_OAUTH_TOKEN"
+fi

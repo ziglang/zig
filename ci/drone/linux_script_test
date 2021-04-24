@@ -1,0 +1,44 @@
+#!/bin/sh
+
+. ./ci/drone/linux_script_base
+
+# only release-fast builds of test suite due to: https://github.com/ziglang/zig/issues/8597
+#
+# Some test suite components will be missing because they do not support
+# forcing -OReleaseFast
+#
+# see `zig build --help` for the full list of test-* components
+case "$1" in
+  1)
+    steps="\
+      test-stage2 \
+      test-fmt \
+      test-behavior"
+    ;;
+  2)
+    steps="test-std"
+    ;;
+  3)
+    steps="\
+      test-compiler-rt \
+      test-minilibc \
+      test-compare-output"
+    ;;
+  '')
+    echo "error: expecting test group argument"
+    exit 1
+    ;;
+  *)
+    echo "error: unknown test group: $1"
+    exit 1
+    ;;
+esac
+
+# only release-fast builds of test suite due to: https://github.com/ziglang/zig/issues/8597
+./build/zig build \
+  -Drelease \
+  -Dskip-debug \
+  -Dskip-release-small \
+  -Dskip-release-safe \
+  -Dskip-non-native \
+  $steps
