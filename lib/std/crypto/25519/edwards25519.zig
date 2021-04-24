@@ -238,6 +238,11 @@ pub const Edwards25519 = struct {
         break :pc precompute(Edwards25519.basePoint, 15);
     };
 
+    const basePointPc8 = comptime pc: {
+        @setEvalBranchQuota(10000);
+        break :pc precompute(Edwards25519.basePoint, 8);
+    };
+
     /// Multiply an Edwards25519 point by a scalar without clamping it.
     /// Return error.WeakPublicKey if the base generates a small-order group,
     /// and error.IdentityElement if the result is the identity element.
@@ -262,14 +267,50 @@ pub const Edwards25519 = struct {
         }
     }
 
+    /// Double-base multiplication of public parameters - Compute (p1*s1)+(p2*s2) *IN VARIABLE TIME*
+    /// This can be used for signature verification.
+    pub fn mulDoubleBasePublic(p1: Edwards25519, s1: [32]u8, p2: Edwards25519, s2: [32]u8) (IdentityElementError || WeakPublicKeyError)!Edwards25519 {
+        const pc1 = if (p1.is_base) basePointPc8 else pc: {
+            const xpc = precompute(p1, 8);
+            xpc[4].rejectIdentity() catch return error.WeakPublicKey;
+            break :pc xpc;
+        };
+        const pc2 = if (p2.is_base) basePointPc8 else pc: {
+            const xpc = precompute(p2, 8);
+            xpc[4].rejectIdentity() catch return error.WeakPublicKey;
+            break :pc xpc;
+        };
+        const e1 = nonAdjacentForm(s1);
+        const e2 = nonAdjacentForm(s2);
+        var q = Edwards25519.identityElement;
+        var pos: usize = 2 * 32 - 1;
+        while (true) : (pos -= 1) {
+            const slot1 = e1[pos];
+            if (slot1 > 0) {
+                q = q.add(pc1[@intCast(usize, slot1)]);
+            } else if (slot1 < 0) {
+                q = q.sub(pc1[@intCast(usize, -slot1)]);
+            }
+            const slot2 = e2[pos];
+            if (slot2 > 0) {
+                q = q.add(pc2[@intCast(usize, slot2)]);
+            } else if (slot2 < 0) {
+                q = q.sub(pc2[@intCast(usize, -slot2)]);
+            }
+            if (pos == 0) break;
+            q = q.dbl().dbl().dbl().dbl();
+        }
+        try q.rejectIdentity();
+        return q;
+    }
+
     /// Multiscalar multiplication *IN VARIABLE TIME* for public data
     /// Computes ps0*ss0 + ps1*ss1 + ps2*ss2... faster than doing many of these operations individually
     pub fn mulMulti(comptime count: usize, ps: [count]Edwards25519, ss: [count][32]u8) (IdentityElementError || WeakPublicKeyError)!Edwards25519 {
         var pcs: [count][9]Edwards25519 = undefined;
         for (ps) |p, i| {
             if (p.is_base) {
-                @setEvalBranchQuota(10000);
-                pcs[i] = comptime precompute(Edwards25519.basePoint, 8);
+                pcs[i] = basePointPc8;
             } else {
                 pcs[i] = precompute(p, 8);
                 pcs[i][4].rejectIdentity() catch |_| return error.WeakPublicKey;
