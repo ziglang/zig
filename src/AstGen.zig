@@ -827,10 +827,10 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
         .@"comptime" => return comptimeExpr(gz, scope, rl, node_datas[node].lhs),
         .@"switch", .switch_comma => return switchExpr(gz, scope, rl, node),
 
-        .@"nosuspend" => return astgen.failNode(node, "async and related features are not yet supported", .{}),
-        .@"suspend" => return astgen.failNode(node, "async and related features are not yet supported", .{}),
-        .@"await" => return astgen.failNode(node, "async and related features are not yet supported", .{}),
-        .@"resume" => return astgen.failNode(node, "async and related features are not yet supported", .{}),
+        .@"nosuspend" => return nosuspendExpr(gz, scope, rl, node),
+        .@"suspend" => return suspendExpr(gz, scope, rl, node),
+        .@"await" => return awaitExpr(gz, scope, rl, node),
+        .@"resume" => return resumeExpr(gz, scope, rl, node),
 
         .@"try" => return tryExpr(gz, scope, rl, node, node_datas[node].lhs),
 
@@ -881,6 +881,82 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
             return fnProtoExpr(gz, scope, rl, tree.fnProto(node));
         },
     }
+}
+
+pub fn nosuspendExpr(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    return astgen.failNode(node, "TODO AstGen nosuspendExpr", .{});
+}
+
+pub fn suspendExpr(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+    const tree = &astgen.file.tree;
+    const node_datas = tree.nodes.items(.data);
+    const body_node = node_datas[node].lhs;
+
+    if (gz.nosuspend_node != 0) {
+        return astgen.failNodeNotes(node, "suspend inside nosuspend block", .{}, &[_]u32{
+            try astgen.errNoteNode(gz.nosuspend_node, "nosuspend block here", .{}),
+        });
+    }
+    if (gz.suspend_node != 0) {
+        return astgen.failNodeNotes(node, "cannot suspend inside suspend block", .{}, &[_]u32{
+            try astgen.errNoteNode(gz.suspend_node, "other suspend block here", .{}),
+        });
+    }
+    if (body_node == 0) {
+        // Accepted proposal to remove block-less suspend from the language:
+        // https://github.com/ziglang/zig/issues/8603
+        // TODO: simplify the parser and make this an assert instead of
+        // a compile error.
+        return astgen.failNode(node, "suspend without a block", .{});
+    }
+
+    const suspend_inst = try gz.addBlock(.suspend_block, node);
+    try gz.instructions.append(gpa, suspend_inst);
+
+    var suspend_scope = gz.makeSubBlock(scope);
+    suspend_scope.suspend_node = node;
+    defer suspend_scope.instructions.deinit(gpa);
+
+    const body_result = try expr(&suspend_scope, &suspend_scope.base, .none, body_node);
+    if (!gz.refIsNoReturn(body_result)) {
+        _ = try suspend_scope.addBreak(.break_inline, suspend_inst, .void_value);
+    }
+    try suspend_scope.setBlockBody(suspend_inst);
+
+    return gz.indexToRef(suspend_inst);
+}
+
+pub fn awaitExpr(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    return astgen.failNode(node, "TODO AstGen awaitExpr", .{});
+}
+
+pub fn resumeExpr(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    return astgen.failNode(node, "TODO AstGen resumeExpr", .{});
 }
 
 pub fn fnProtoExpr(
@@ -1701,6 +1777,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .block,
             .block_inline,
             .block_inline_var,
+            .suspend_block,
             .loop,
             .bool_br_and,
             .bool_br_or,
@@ -4090,7 +4167,9 @@ fn boolBinOp(
     var rhs_scope = gz.makeSubBlock(scope);
     defer rhs_scope.instructions.deinit(gz.astgen.gpa);
     const rhs = try expr(&rhs_scope, &rhs_scope.base, bool_rl, node_datas[node].rhs);
-    _ = try rhs_scope.addBreak(.break_inline, bool_br, rhs);
+    if (!gz.refIsNoReturn(rhs)) {
+        _ = try rhs_scope.addBreak(.break_inline, bool_br, rhs);
+    }
     try rhs_scope.setBoolBrBody(bool_br);
 
     const block_ref = gz.indexToRef(bool_br);

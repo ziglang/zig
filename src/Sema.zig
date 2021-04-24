@@ -151,6 +151,7 @@ pub fn analyzeBody(
             .bitcast                      => try sema.zirBitcast(block, inst),
             .bitcast_result_ptr           => try sema.zirBitcastResultPtr(block, inst),
             .block                        => try sema.zirBlock(block, inst),
+            .suspend_block                => try sema.zirSuspendBlock(block, inst),
             .bool_not                     => try sema.zirBoolNot(block, inst),
             .bool_and                     => try sema.zirBoolOp(block, inst, false),
             .bool_or                      => try sema.zirBoolOp(block, inst, true),
@@ -1645,6 +1646,12 @@ fn zirCImport(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) Inn
     const src = inst_data.src();
 
     return sema.mod.fail(&parent_block.base, src, "TODO: implement Sema.zirCImport", .{});
+}
+
+fn zirSuspendBlock(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    return sema.mod.fail(&parent_block.base, src, "TODO: implement Sema.zirSuspendBlock", .{});
 }
 
 fn zirBlock(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {

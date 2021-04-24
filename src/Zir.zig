@@ -199,6 +199,9 @@ pub const Inst = struct {
         block_inline,
         /// Same as `block_inline` but it additionally marks a decl as being a variable.
         block_inline_var,
+        /// Implements `suspend {...}`.
+        /// Uses the `pl_node` union field. Payload is `Block`.
+        suspend_block,
         /// Boolean AND. See also `bit_and`.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         bool_and,
@@ -975,6 +978,7 @@ pub const Inst = struct {
                 .block,
                 .block_inline,
                 .block_inline_var,
+                .suspend_block,
                 .loop,
                 .bool_br_and,
                 .bool_br_or,
@@ -2541,6 +2545,7 @@ const Writer = struct {
             .block,
             .block_inline,
             .block_inline_var,
+            .suspend_block,
             .loop,
             .validate_struct_init_ptr,
             .validate_array_init_ptr,
