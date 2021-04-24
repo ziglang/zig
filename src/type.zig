@@ -95,6 +95,8 @@ pub const Type = extern union {
 
             .anyerror_void_error_union, .error_union => return .ErrorUnion,
 
+            .anyframe_T, .@"anyframe" => return .AnyFrame,
+
             .empty_struct,
             .empty_struct_literal,
             .@"struct",
@@ -620,6 +622,7 @@ pub const Type = extern union {
             .call_options,
             .export_options,
             .extern_options,
+            .@"anyframe",
             => unreachable,
 
             .array_u8,
@@ -637,6 +640,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .anyframe_T,
             => return self.copyPayloadShallow(allocator, Payload.ElemType),
 
             .int_signed,
@@ -754,6 +758,7 @@ pub const Type = extern union {
                 .void,
                 .type,
                 .anyerror,
+                .@"anyframe",
                 .comptime_int,
                 .comptime_float,
                 .noreturn,
@@ -820,6 +825,12 @@ pub const Type = extern union {
                     continue;
                 },
 
+                .anyframe_T => {
+                    const return_type = ty.castTag(.anyframe_T).?.data;
+                    try writer.print("anyframe->", .{});
+                    ty = return_type;
+                    continue;
+                },
                 .array_u8 => {
                     const len = ty.castTag(.array_u8).?.data;
                     return writer.print("[{d}]u8", .{len});
@@ -994,6 +1005,7 @@ pub const Type = extern union {
             .void => return Value.initTag(.void_type),
             .type => return Value.initTag(.type_type),
             .anyerror => return Value.initTag(.anyerror_type),
+            .@"anyframe" => return Value.initTag(.anyframe_type),
             .comptime_int => return Value.initTag(.comptime_int_type),
             .comptime_float => return Value.initTag(.comptime_float_type),
             .noreturn => return Value.initTag(.noreturn_type),
@@ -1075,6 +1087,8 @@ pub const Type = extern union {
             .call_options,
             .export_options,
             .extern_options,
+            .@"anyframe",
+            .anyframe_T,
             => true,
 
             .@"struct" => {
@@ -1223,6 +1237,8 @@ pub const Type = extern union {
             .pointer,
             .manyptr_u8,
             .manyptr_const_u8,
+            .@"anyframe",
+            .anyframe_T,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
             .c_short => return @divExact(CType.short.sizeInBits(target), 8),
@@ -1388,7 +1404,11 @@ pub const Type = extern union {
             .i64, .u64 => return 8,
             .u128, .i128 => return 16,
 
-            .isize, .usize => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
+            .isize,
+            .usize,
+            .@"anyframe",
+            .anyframe_T,
+            => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
             .const_slice,
             .mut_slice,
@@ -1536,7 +1556,11 @@ pub const Type = extern union {
             .i64, .u64, .f64 => 64,
             .u128, .i128, .f128 => 128,
 
-            .isize, .usize => target.cpu.arch.ptrBitWidth(),
+            .isize,
+            .usize,
+            .@"anyframe",
+            .anyframe_T,
+            => target.cpu.arch.ptrBitWidth(),
 
             .const_slice,
             .mut_slice,
@@ -2256,6 +2280,8 @@ pub const Type = extern union {
             .call_options,
             .export_options,
             .extern_options,
+            .@"anyframe",
+            .anyframe_T,
             => return null,
 
             .@"struct" => {
@@ -2666,9 +2692,10 @@ pub const Type = extern union {
         comptime_int,
         comptime_float,
         noreturn,
+        @"anyframe",
+        @"null",
+        @"undefined",
         enum_literal,
-        manyptr_u8,
-        manyptr_const_u8,
         atomic_ordering,
         atomic_rmw_op,
         calling_convention,
@@ -2677,15 +2704,15 @@ pub const Type = extern union {
         call_options,
         export_options,
         extern_options,
-        @"null",
-        @"undefined",
+        manyptr_u8,
+        manyptr_const_u8,
         fn_noreturn_no_args,
         fn_void_no_args,
         fn_naked_noreturn_no_args,
         fn_ccc_void_no_args,
         single_const_pointer_to_comptime_int,
-        anyerror_void_error_union,
         const_slice_u8,
+        anyerror_void_error_union,
         /// This is a special type for variadic parameters of a function call.
         /// Casts to it will validate that the type can be passed to a c calling convetion function.
         var_args_param,
@@ -2719,6 +2746,7 @@ pub const Type = extern union {
         optional_single_mut_pointer,
         optional_single_const_pointer,
         error_union,
+        anyframe_T,
         error_set,
         error_set_single,
         empty_struct,
@@ -2790,6 +2818,7 @@ pub const Type = extern union {
                 .call_options,
                 .export_options,
                 .extern_options,
+                .@"anyframe",
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .array_u8,
@@ -2807,6 +2836,7 @@ pub const Type = extern union {
                 .optional,
                 .optional_single_mut_pointer,
                 .optional_single_const_pointer,
+                .anyframe_T,
                 => Payload.ElemType,
 
                 .int_signed,

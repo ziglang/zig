@@ -60,7 +60,8 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
         @field(result, field.name) = switch (field.field_type) {
             u32 => code.extra[i],
             Inst.Ref => @intToEnum(Inst.Ref, code.extra[i]),
-            else => unreachable,
+            i32 => @bitCast(i32, code.extra[i]),
+            else => @compileError("bad field type"),
         };
         i += 1;
     }
@@ -165,18 +166,15 @@ pub const Inst = struct {
         /// error if the indexable object is not indexable.
         /// Uses the `un_node` field. The AST node is the for loop node.
         indexable_ptr_len,
+        /// Create a `anyframe->T` type.
+        /// Uses the `un_node` field.
+        anyframe_type,
         /// Type coercion. No source location attached.
         /// Uses the `bin` field.
         as,
         /// Type coercion to the function's return type.
         /// Uses the `pl_node` field. Payload is `As`. AST node could be many things.
         as_node,
-        /// Inline assembly. Non-volatile.
-        /// Uses the `pl_node` union field. Payload is `Asm`. AST node is the assembly node.
-        @"asm",
-        /// Inline assembly with the volatile attribute.
-        /// Uses the `pl_node` union field. Payload is `Asm`. AST node is the assembly node.
-        asm_volatile,
         /// Bitwise AND. `&`
         bit_and,
         /// Bitcast a value to a different type.
@@ -967,10 +965,9 @@ pub const Inst = struct {
                 .array_type_sentinel,
                 .elem_type,
                 .indexable_ptr_len,
+                .anyframe_type,
                 .as,
                 .as_node,
-                .@"asm",
-                .asm_volatile,
                 .bit_and,
                 .bitcast,
                 .bitcast_result_ptr,
@@ -1259,6 +1256,14 @@ pub const Inst = struct {
         /// The `@extern` builtin.
         /// `operand` is payload index to `BinNode`.
         builtin_extern,
+        /// Inline assembly.
+        /// `small`:
+        ///  * 0b00000000_000XXXXX - `outputs_len`.
+        ///  * 0b000000XX_XXX00000 - `inputs_len`.
+        ///  * 0b0XXXXX00_00000000 - `clobbers_len`.
+        ///  * 0bX0000000_00000000 - is volatile
+        /// `operand` is payload index to `Asm`.
+        @"asm",
         /// `operand` is payload index to `UnNode`.
         c_undef,
         /// `operand` is payload index to `UnNode`.
@@ -1313,6 +1318,8 @@ pub const Inst = struct {
         i32_type,
         u64_type,
         i64_type,
+        u128_type,
+        i128_type,
         usize_type,
         isize_type,
         c_short_type,
@@ -1336,17 +1343,10 @@ pub const Inst = struct {
         comptime_int_type,
         comptime_float_type,
         noreturn_type,
+        anyframe_type,
         null_type,
         undefined_type,
-        fn_noreturn_no_args_type,
-        fn_void_no_args_type,
-        fn_naked_noreturn_no_args_type,
-        fn_ccc_void_no_args_type,
-        single_const_pointer_to_comptime_int_type,
-        const_slice_u8_type,
         enum_literal_type,
-        manyptr_u8_type,
-        manyptr_const_u8_type,
         atomic_ordering_type,
         atomic_rmw_op_type,
         calling_convention_type,
@@ -1355,6 +1355,14 @@ pub const Inst = struct {
         call_options_type,
         export_options_type,
         extern_options_type,
+        manyptr_u8_type,
+        manyptr_const_u8_type,
+        fn_noreturn_no_args_type,
+        fn_void_no_args_type,
+        fn_naked_noreturn_no_args_type,
+        fn_ccc_void_no_args_type,
+        single_const_pointer_to_comptime_int_type,
+        const_slice_u8_type,
 
         /// `undefined` (untyped)
         undef,
@@ -1417,6 +1425,14 @@ pub const Inst = struct {
             .i64_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.i64_type),
+            },
+            .u128_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.u128_type),
+            },
+            .i128_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.i128_type),
             },
             .usize_type = .{
                 .ty = Type.initTag(.type),
@@ -1509,6 +1525,10 @@ pub const Inst = struct {
             .noreturn_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.noreturn_type),
+            },
+            .anyframe_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.anyframe_type),
             },
             .null_type = .{
                 .ty = Type.initTag(.type),
@@ -1806,17 +1826,35 @@ pub const Inst = struct {
         }
     };
 
-    /// Stored in extra. Trailing is:
-    /// * output_constraint: u32 // index into string_bytes (null terminated) if output is present
-    /// * arg: Ref // for every args_len.
-    /// * constraint: u32 // index into string_bytes (null terminated) for every args_len.
-    /// * clobber: u32 // index into string_bytes (null terminated) for every clobbers_len.
+    /// Trailing:
+    /// 0. Output for every outputs_len
+    /// 1. Input for every inputs_len
+    /// 2. clobber: u32 // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
+        src_node: i32,
         asm_source: Ref,
-        /// May be omitted.
-        output_type: Ref,
-        args_len: u32,
-        clobbers_len: u32,
+        /// 1 bit for each outputs_len: whether it uses `-> T` or not.
+        ///   0b0 - operand is a pointer to where to store the output.
+        ///   0b1 - operand is a type; asm expression has the output as the result.
+        /// 0b0X is the first output, 0bX0 is the second, etc.
+        output_type_bits: u32,
+
+        pub const Output = struct {
+            /// index into string_bytes (null terminated)
+            name: u32,
+            /// index into string_bytes (null terminated)
+            constraint: u32,
+            /// How to interpret this is determined by `output_type_bits`.
+            operand: Ref,
+        };
+
+        pub const Input = struct {
+            /// index into string_bytes (null terminated)
+            name: u32,
+            /// index into string_bytes (null terminated)
+            constraint: u32,
+            operand: Ref,
+        };
     };
 
     /// Trailing:
@@ -2298,6 +2336,7 @@ const Writer = struct {
             .alloc_mut,
             .alloc_comptime,
             .indexable_ptr_len,
+            .anyframe_type,
             .bit_not,
             .bool_not,
             .negate,
@@ -2429,10 +2468,6 @@ const Writer = struct {
             .memset,
             .builtin_async_call,
             => try self.writePlNode(stream, inst),
-
-            .@"asm",
-            .asm_volatile,
-            => try self.writePlNodeAsm(stream, inst),
 
             .error_set_decl => try self.writePlNodeErrorSetDecl(stream, inst),
 
@@ -2603,7 +2638,9 @@ const Writer = struct {
             .builtin_src,
             => try self.writeExtNode(stream, extended),
 
-            .func,
+            .@"asm" => try self.writeAsm(stream, extended),
+            .func => try self.writeFuncExtended(stream, extended),
+
             .alloc,
             .builtin_extern,
             .c_undef,
@@ -2794,49 +2831,74 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writePlNodeAsm(self: *Writer, stream: anytype, inst: Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Inst.Asm, inst_data.payload_index);
-        var extra_i: usize = extra.end;
+    fn writeAsm(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Inst.Asm, extended.operand);
+        const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+        const outputs_len = @truncate(u5, extended.small);
+        const inputs_len = @truncate(u5, extended.small >> 5);
+        const clobbers_len = @truncate(u5, extended.small >> 10);
+        const is_volatile = @truncate(u1, extended.small >> 15) != 0;
 
-        if (extra.data.output_type != .none) {
-            const constraint_str_index = self.code.extra[extra_i];
-            extra_i += 1;
-            const constraint = self.code.nullTerminatedString(constraint_str_index);
-            try stream.print("\"{}\"->", .{std.zig.fmtEscapes(constraint)});
-            try self.writeInstRef(stream, extra.data.output_type);
-            try stream.writeAll(", ");
-        }
+        try self.writeFlag(stream, "volatile, ", is_volatile);
+        try self.writeInstRef(stream, extra.data.asm_source);
+        try stream.writeAll(", ");
+
+        var extra_i: usize = extra.end;
+        var output_type_bits = extra.data.output_type_bits;
         {
             var i: usize = 0;
-            while (i < extra.data.args_len) : (i += 1) {
-                const arg = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_i]);
-                extra_i += 1;
-                try self.writeInstRef(stream, arg);
-                try stream.writeAll(", ");
+            while (i < outputs_len) : (i += 1) {
+                const output = self.code.extraData(Inst.Asm.Output, extra_i);
+                extra_i = output.end;
+
+                const is_type = @truncate(u1, output_type_bits) != 0;
+                output_type_bits >>= 1;
+
+                const name = self.code.nullTerminatedString(output.data.name);
+                const constraint = self.code.nullTerminatedString(output.data.constraint);
+                try stream.print("output({}, \"{}\", ", .{
+                    std.zig.fmtId(name), std.zig.fmtEscapes(constraint),
+                });
+                try self.writeFlag(stream, "->", is_type);
+                try self.writeInstRef(stream, output.data.operand);
+                try stream.writeAll(")");
+                if (i + 1 < outputs_len) {
+                    try stream.writeAll("), ");
+                }
             }
         }
         {
             var i: usize = 0;
-            while (i < extra.data.args_len) : (i += 1) {
-                const str_index = self.code.extra[extra_i];
-                extra_i += 1;
-                const constraint = self.code.nullTerminatedString(str_index);
-                try stream.print("\"{}\", ", .{std.zig.fmtEscapes(constraint)});
+            while (i < inputs_len) : (i += 1) {
+                const input = self.code.extraData(Inst.Asm.Input, extra_i);
+                extra_i = input.end;
+
+                const name = self.code.nullTerminatedString(input.data.name);
+                const constraint = self.code.nullTerminatedString(input.data.constraint);
+                try stream.print("input({}, \"{}\", ", .{
+                    std.zig.fmtId(name), std.zig.fmtEscapes(constraint),
+                });
+                try self.writeInstRef(stream, input.data.operand);
+                try stream.writeAll(")");
+                if (i + 1 < inputs_len) {
+                    try stream.writeAll(", ");
+                }
             }
         }
         {
             var i: usize = 0;
-            while (i < extra.data.clobbers_len) : (i += 1) {
+            while (i < clobbers_len) : (i += 1) {
                 const str_index = self.code.extra[extra_i];
                 extra_i += 1;
                 const clobber = self.code.nullTerminatedString(str_index);
-                try stream.print("{}, ", .{std.zig.fmtId(clobber)});
+                try stream.print("{}", .{std.zig.fmtId(clobber)});
+                if (i + 1 < clobbers_len) {
+                    try stream.writeAll(", ");
+                }
             }
         }
-        try self.writeInstRef(stream, extra.data.asm_source);
         try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
+        try self.writeSrc(stream, src);
     }
 
     fn writePlNodeOverflowArithmetic(self: *Writer, stream: anytype, inst: Inst.Index) !void {
@@ -3462,6 +3524,40 @@ const Writer = struct {
             inferred_error_set,
             false,
             .none,
+            body,
+            src,
+        );
+    }
+
+    fn writeFuncExtended(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Inst.ExtendedFunc, extended.operand);
+        const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+        const small = @bitCast(Inst.ExtendedFunc.Small, extended.small);
+
+        var extra_index: usize = extra.end;
+        if (small.has_lib_name) {
+            const lib_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
+            extra_index += 1;
+            try stream.print("lib_name=\"{}\", ", .{std.zig.fmtEscapes(lib_name)});
+        }
+        const cc: Inst.Ref = if (!small.has_cc) .none else blk: {
+            const cc = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+            extra_index += 1;
+            break :blk cc;
+        };
+
+        const param_types = self.code.refSlice(extra_index, extra.data.param_types_len);
+        extra_index += param_types.len;
+
+        const body = self.code.extra[extra_index..][0..extra.data.body_len];
+
+        return self.writeFuncCommon(
+            stream,
+            param_types,
+            extra.data.return_type,
+            small.is_inferred_error,
+            small.is_var_args,
+            cc,
             body,
             src,
         );

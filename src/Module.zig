@@ -1085,6 +1085,21 @@ pub const Scope = struct {
         /// a result location pointer.
         labeled_store_to_block_ptr_list: ArrayListUnmanaged(Zir.Inst.Index) = .{},
 
+        suspend_node: ast.Node.Index = 0,
+        nosuspend_node: ast.Node.Index = 0,
+
+        pub fn makeSubBlock(gz: *GenZir, scope: *Scope) GenZir {
+            return .{
+                .force_comptime = gz.force_comptime,
+                .ref_start_index = gz.ref_start_index,
+                .decl_node_index = gz.decl_node_index,
+                .parent = scope,
+                .astgen = gz.astgen,
+                .suspend_node = gz.suspend_node,
+                .nosuspend_node = gz.nosuspend_node,
+            };
+        }
+
         pub const Label = struct {
             token: ast.TokenIndex,
             block_inst: Zir.Inst.Index,
@@ -1674,9 +1689,9 @@ pub const Scope = struct {
                     @as(usize, @boolToInt(args.type_inst != .none)) +
                     @as(usize, @boolToInt(args.align_inst != .none)),
             );
-            const payload_index = gz.astgen.addExtra(Zir.Inst.AllocExtended{
+            const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.AllocExtended{
                 .src_node = gz.nodeIndexToRelative(args.node),
-            }) catch unreachable; // ensureUnusedCapacity above
+            });
             if (args.type_inst != .none) {
                 astgen.extra.appendAssumeCapacity(@enumToInt(args.type_inst));
             }
@@ -1695,6 +1710,64 @@ pub const Scope = struct {
                 .tag = .extended,
                 .data = .{ .extended = .{
                     .opcode = .alloc,
+                    .small = small,
+                    .operand = payload_index,
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+            return gz.indexToRef(new_index);
+        }
+
+        pub fn addAsm(
+            gz: *GenZir,
+            args: struct {
+                /// Absolute node index. This function does the conversion to offset from Decl.
+                node: ast.Node.Index,
+                asm_source: Zir.Inst.Ref,
+                output_type_bits: u32,
+                is_volatile: bool,
+                outputs: []const Zir.Inst.Asm.Output,
+                inputs: []const Zir.Inst.Asm.Input,
+                clobbers: []const u32,
+            },
+        ) !Zir.Inst.Ref {
+            const astgen = gz.astgen;
+            const gpa = astgen.gpa;
+
+            try gz.instructions.ensureUnusedCapacity(gpa, 1);
+            try astgen.instructions.ensureUnusedCapacity(gpa, 1);
+            try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Asm).Struct.fields.len +
+                args.outputs.len * @typeInfo(Zir.Inst.Asm.Output).Struct.fields.len +
+                args.inputs.len * @typeInfo(Zir.Inst.Asm.Input).Struct.fields.len +
+                args.clobbers.len);
+
+            const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Asm{
+                .src_node = gz.nodeIndexToRelative(args.node),
+                .asm_source = args.asm_source,
+                .output_type_bits = args.output_type_bits,
+            });
+            for (args.outputs) |output| {
+                _ = gz.astgen.addExtraAssumeCapacity(output);
+            }
+            for (args.inputs) |input| {
+                _ = gz.astgen.addExtraAssumeCapacity(input);
+            }
+            gz.astgen.extra.appendSliceAssumeCapacity(args.clobbers);
+
+            //  * 0b00000000_000XXXXX - `outputs_len`.
+            //  * 0b000000XX_XXX00000 - `inputs_len`.
+            //  * 0b0XXXXX00_00000000 - `clobbers_len`.
+            //  * 0bX0000000_00000000 - is volatile
+            const small: u16 = @intCast(u16, args.outputs.len) |
+                @intCast(u16, args.inputs.len << 5) |
+                @intCast(u16, args.clobbers.len << 10) |
+                (@as(u16, @boolToInt(args.is_volatile)) << 15);
+
+            const new_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
+            astgen.instructions.appendAssumeCapacity(.{
+                .tag = .extended,
+                .data = .{ .extended = .{
+                    .opcode = .@"asm",
                     .small = small,
                     .operand = payload_index,
                 } },
@@ -2209,6 +2282,18 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
+
+            .node_offset_anyframe_type => |node_off| {
+                const tree = src_loc.file_scope.tree;
+                const node_datas = tree.nodes.items(.data);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = node_datas[parent_node].rhs;
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[node];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
         }
     }
 };
@@ -2368,6 +2453,12 @@ pub const LazySrcLoc = union(enum) {
     /// the return type node.
     /// The Decl is determined contextually.
     node_offset_fn_type_ret_ty: i32,
+    /// The source location points to the type expression of an `anyframe->T`
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a `anyframe->T` expression AST node. Next, navigate
+    /// to the type expression.
+    /// The Decl is determined contextually.
+    node_offset_anyframe_type: i32,
 
     /// Upgrade to a `SrcLoc` based on the `Decl` or file in the provided scope.
     pub fn toSrcLoc(lazy: LazySrcLoc, scope: *Scope) SrcLoc {
@@ -2407,6 +2498,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_switch_range,
             .node_offset_fn_type_cc,
             .node_offset_fn_type_ret_ty,
+            .node_offset_anyframe_type,
             => .{
                 .file_scope = scope.getFileScope(),
                 .parent_decl_node = scope.srcDecl().?.src_node,
@@ -2453,6 +2545,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_switch_range,
             .node_offset_fn_type_cc,
             .node_offset_fn_type_ret_ty,
+            .node_offset_anyframe_type,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,

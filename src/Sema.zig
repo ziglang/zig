@@ -138,14 +138,13 @@ pub fn analyzeBody(
             .alloc_inferred_comptime      => try sema.zirAllocInferredComptime(block, inst),
             .alloc_mut                    => try sema.zirAllocMut(block, inst),
             .alloc_comptime               => try sema.zirAllocComptime(block, inst),
+            .anyframe_type                => try sema.zirAnyframeType(block, inst),
             .array_cat                    => try sema.zirArrayCat(block, inst),
             .array_mul                    => try sema.zirArrayMul(block, inst),
             .array_type                   => try sema.zirArrayType(block, inst),
             .array_type_sentinel          => try sema.zirArrayTypeSentinel(block, inst),
             .as                           => try sema.zirAs(block, inst),
             .as_node                      => try sema.zirAsNode(block, inst),
-            .@"asm"                       => try sema.zirAsm(block, inst, false),
-            .asm_volatile                 => try sema.zirAsm(block, inst, true),
             .bit_and                      => try sema.zirBitwise(block, inst, .bit_and),
             .bit_not                      => try sema.zirBitNot(block, inst),
             .bit_or                       => try sema.zirBitwise(block, inst, .bit_or),
@@ -518,6 +517,7 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
         .frame_address      => return sema.zirFrameAddress(    block, extended),
         .alloc              => return sema.zirAllocExtended(   block, extended),
         .builtin_extern     => return sema.zirBuiltinExtern(   block, extended),
+        .@"asm"             => return sema.zirAsm(             block, extended),
         .c_undef            => return sema.zirCUndef(          block, extended),
         .c_include          => return sema.zirCInclude(        block, extended),
         .c_define           => return sema.zirCDefine(         block, extended),
@@ -2171,6 +2171,19 @@ fn zirArrayTypeSentinel(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) 
     const array_ty = try sema.mod.arrayType(sema.arena, len.val.toUnsignedInt(), sentinel.val, elem_type);
 
     return sema.mod.constType(sema.arena, .unneeded, array_ty);
+}
+
+fn zirAnyframeType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_anyframe_type = inst_data.src_node };
+    const return_type = try sema.resolveType(block, operand_src, inst_data.operand);
+    const anyframe_type = try Type.Tag.anyframe_T.create(sema.arena, return_type);
+
+    return sema.mod.constType(sema.arena, src, anyframe_type);
 }
 
 fn zirErrorUnionType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
@@ -4394,42 +4407,62 @@ fn zirLoad(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*I
 fn zirAsm(
     sema: *Sema,
     block: *Scope.Block,
-    inst: Zir.Inst.Index,
-    is_volatile: bool,
+    extended: Zir.Inst.Extended.InstData,
 ) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const asm_source_src: LazySrcLoc = .{ .node_offset_asm_source = inst_data.src_node };
-    const ret_ty_src: LazySrcLoc = .{ .node_offset_asm_ret_ty = inst_data.src_node };
-    const extra = sema.code.extraData(Zir.Inst.Asm, inst_data.payload_index);
+    const extra = sema.code.extraData(Zir.Inst.Asm, extended.operand);
+    const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+    const asm_source_src: LazySrcLoc = .{ .node_offset_asm_source = extra.data.src_node };
+    const ret_ty_src: LazySrcLoc = .{ .node_offset_asm_ret_ty = extra.data.src_node };
     const asm_source = try sema.resolveConstString(block, asm_source_src, extra.data.asm_source);
+    const outputs_len = @truncate(u5, extended.small);
+    const inputs_len = @truncate(u5, extended.small >> 5);
+    const clobbers_len = @truncate(u5, extended.small >> 10);
+    const is_volatile = @truncate(u1, extended.small >> 15) != 0;
+
+    if (outputs_len > 1) {
+        return sema.mod.fail(&block.base, src, "TODO implement Sema for asm with more than 1 output", .{});
+    }
 
     var extra_i = extra.end;
+    var output_type_bits = extra.data.output_type_bits;
+
     const Output = struct { constraint: []const u8, ty: Type };
-    const output: ?Output = if (extra.data.output_type != .none) blk: {
-        const constraint = sema.code.nullTerminatedString(sema.code.extra[extra_i]);
-        extra_i += 1;
+    const output: ?Output = if (outputs_len == 0) null else blk: {
+        const output = sema.code.extraData(Zir.Inst.Asm.Output, extra_i);
+        extra_i = output.end;
+
+        const is_type = @truncate(u1, output_type_bits) != 0;
+        output_type_bits >>= 1;
+
+        if (!is_type) {
+            return sema.mod.fail(&block.base, src, "TODO implement Sema for asm with non `->` output", .{});
+        }
+
+        const constraint = sema.code.nullTerminatedString(output.data.constraint);
         break :blk Output{
             .constraint = constraint,
-            .ty = try sema.resolveType(block, ret_ty_src, extra.data.output_type),
+            .ty = try sema.resolveType(block, ret_ty_src, output.data.operand),
         };
-    } else null;
+    };
 
-    const args = try sema.arena.alloc(*Inst, extra.data.args_len);
-    const inputs = try sema.arena.alloc([]const u8, extra.data.args_len);
-    const clobbers = try sema.arena.alloc([]const u8, extra.data.clobbers_len);
+    const args = try sema.arena.alloc(*Inst, inputs_len);
+    const inputs = try sema.arena.alloc([]const u8, inputs_len);
 
-    for (args) |*arg| {
-        arg.* = try sema.resolveInst(@intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]));
-        extra_i += 1;
+    for (args) |*arg, arg_i| {
+        const input = sema.code.extraData(Zir.Inst.Asm.Input, extra_i);
+        extra_i = input.end;
+
+        const name = sema.code.nullTerminatedString(input.data.name);
+        _ = name; // TODO: use the name
+
+        arg.* = try sema.resolveInst(input.data.operand);
+        inputs[arg_i] = sema.code.nullTerminatedString(input.data.constraint);
     }
-    for (inputs) |*name| {
-        name.* = sema.code.nullTerminatedString(sema.code.extra[extra_i]);
-        extra_i += 1;
-    }
+
+    const clobbers = try sema.arena.alloc([]const u8, clobbers_len);
     for (clobbers) |*name| {
         name.* = sema.code.nullTerminatedString(sema.code.extra[extra_i]);
         extra_i += 1;
@@ -5408,7 +5441,7 @@ fn zirFuncExtended(
 
     var extra_index: usize = extra.end;
     if (small.has_lib_name) {
-        const lib_name = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        const lib_name = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
         extra_index += 1;
         return sema.mod.fail(&block.base, src, "TODO: implement Sema func lib name", .{});
     }
@@ -5428,7 +5461,7 @@ fn zirFuncExtended(
     } else .Unspecified;
 
     const param_types = sema.code.refSlice(extra_index, extra.data.param_types_len);
-    extra_index += 1;
+    extra_index += param_types.len;
 
     const body = sema.code.extra[extra_index..][0..extra.data.body_len];
 
