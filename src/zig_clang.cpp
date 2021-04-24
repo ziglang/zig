@@ -2528,6 +2528,11 @@ double ZigClangFloatingLiteral_getValueAsApproximateDouble(const ZigClangFloatin
     return casted->getValueAsApproximateDouble();
 }
 
+ZigClangAPFloatBase_Semantics ZigClangFloatingLiteral_getRawSemantics(const ZigClangFloatingLiteral *self) {
+    auto casted = reinterpret_cast<const clang::FloatingLiteral *>(self);
+    return static_cast<ZigClangAPFloatBase_Semantics>(casted->getRawSemantics());
+}
+
 enum ZigClangStringLiteral_StringKind ZigClangStringLiteral_getKind(const struct ZigClangStringLiteral *self) {
     auto casted = reinterpret_cast<const clang::StringLiteral *>(self);
     return (ZigClangStringLiteral_StringKind)casted->getKind();
