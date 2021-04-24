@@ -104,6 +104,16 @@ pub const APFloat = opaque {
     extern fn ZigClangAPFloat_toString(*const APFloat, precision: c_uint, maxPadding: c_uint, truncateZero: bool) [*:0]const u8;
 };
 
+pub const APFloatBaseSemantics = extern enum {
+    IEEEhalf,
+    BFloat,
+    IEEEsingle,
+    IEEEdouble,
+    x86DoubleExtended,
+    IEEEquad,
+    PPCDoubleDouble,
+};
+
 pub const APInt = opaque {
     pub const getLimitedValue = ZigClangAPInt_getLimitedValue;
     extern fn ZigClangAPInt_getLimitedValue(*const APInt, limit: u64) u64;
@@ -455,6 +465,12 @@ pub const FileID = opaque {};
 pub const FloatingLiteral = opaque {
     pub const getValueAsApproximateDouble = ZigClangFloatingLiteral_getValueAsApproximateDouble;
     extern fn ZigClangFloatingLiteral_getValueAsApproximateDouble(*const FloatingLiteral) f64;
+
+    pub const getBeginLoc = ZigClangIntegerLiteral_getBeginLoc;
+    extern fn ZigClangIntegerLiteral_getBeginLoc(*const FloatingLiteral) SourceLocation;
+
+    pub const getRawSemantics = ZigClangFloatingLiteral_getRawSemantics;
+    extern fn ZigClangFloatingLiteral_getRawSemantics(*const FloatingLiteral) APFloatBaseSemantics;
 };
 
 pub const ForStmt = opaque {

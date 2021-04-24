@@ -3547,9 +3547,22 @@ fn transCPtrCast(
     }
 }
 
-fn transFloatingLiteral(c: *Context, scope: *Scope, stmt: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
+fn transFloatingLiteral(c: *Context, scope: *Scope, expr: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
+    switch (expr.getRawSemantics()) {
+        .IEEEhalf, // f16
+        .IEEEsingle, // f32
+        .IEEEdouble, // f64
+        => {},
+        else => |format| return fail(
+            c,
+            error.UnsupportedTranslation,
+            expr.getBeginLoc(),
+            "unsupported floating point constant format {}",
+            .{format},
+        ),
+    }
     // TODO use something more accurate
-    var dbl = stmt.getValueAsApproximateDouble();
+    var dbl = expr.getValueAsApproximateDouble();
     const is_negative = dbl < 0;
     if (is_negative) dbl = -dbl;
     const str = if (dbl == std.math.floor(dbl))

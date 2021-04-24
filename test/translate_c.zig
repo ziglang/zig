@@ -3028,7 +3028,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void call() {
         \\    fn_int(3.0f);
         \\    fn_int(3.0);
-        \\    fn_int(3.0L);
         \\    fn_int('ABCD');
         \\    fn_f32(3);
         \\    fn_f64(3);
@@ -3051,7 +3050,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn fn_bool(x: bool) void;
         \\pub extern fn fn_ptr(x: ?*c_void) void;
         \\pub export fn call() void {
-        \\    fn_int(@floatToInt(c_int, 3.0));
         \\    fn_int(@floatToInt(c_int, 3.0));
         \\    fn_int(@floatToInt(c_int, 3.0));
         \\    fn_int(@as(c_int, 1094861636));
