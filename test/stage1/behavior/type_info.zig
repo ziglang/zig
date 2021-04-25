@@ -306,7 +306,7 @@ test "type info: function type info" {
 fn testFunction() void {
     const fn_info = @typeInfo(@TypeOf(foo));
     expect(fn_info == .Fn);
-    expect(fn_info.Fn.alignment == 0);
+    expect(fn_info.Fn.alignment > 0);
     expect(fn_info.Fn.calling_convention == .C);
     expect(!fn_info.Fn.is_generic);
     expect(fn_info.Fn.args.len == 2);

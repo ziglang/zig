@@ -26079,11 +26079,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 fields[0]->special = ConstValSpecialStatic;
                 fields[0]->type = get_builtin_type(ira->codegen, "CallingConvention");
                 bigint_init_unsigned(&fields[0]->data.x_enum_tag, type_entry->data.fn.fn_type_id.cc);
-                // alignment: u29
+                // alignment: comptime_int
                 ensure_field_index(result->type, "alignment", 1);
                 fields[1]->special = ConstValSpecialStatic;
                 fields[1]->type = ira->codegen->builtin_types.entry_num_lit_int;
-                bigint_init_unsigned(&fields[1]->data.x_bigint, type_entry->data.fn.fn_type_id.alignment);
+                bigint_init_unsigned(&fields[1]->data.x_bigint, get_ptr_align(ira->codegen, type_entry));
                 // is_generic: bool
                 ensure_field_index(result->type, "is_generic", 2);
                 bool is_generic = type_entry->data.fn.is_generic;
