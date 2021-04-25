@@ -1346,3 +1346,13 @@ test "shuffleVectorIndex" {
     testing.expect(shuffleVectorIndex(6, vector_len) == -3);
     testing.expect(shuffleVectorIndex(7, vector_len) == -4);
 }
+
+/// Returns whether `error_union` contains an error.
+pub fn isError(error_union: anytype) bool {
+    return if (error_union) |_| false else |_| true;
+}
+
+test "isError" {
+    std.testing.expect(isError(math.absInt(@as(i8, -128))));
+    std.testing.expect(!isError(math.absInt(@as(i8, -127))));
+}

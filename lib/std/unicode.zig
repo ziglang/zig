@@ -206,7 +206,7 @@ pub fn utf8ValidateSlice(s: []const u8) bool {
                 return false;
             }
 
-            if (utf8Decode(s[i .. i + cp_len])) |_| {} else |_| {
+            if (std.meta.isError(utf8Decode(s[i .. i + cp_len]))) {
                 return false;
             }
             i += cp_len;
