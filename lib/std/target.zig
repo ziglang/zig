@@ -1191,7 +1191,7 @@ pub const Target = struct {
                     .amdgcn => &amdgpu.cpu.generic,
                     .riscv32 => &riscv.cpu.generic_rv32,
                     .riscv64 => &riscv.cpu.generic_rv64,
-                    .sparc, .sparcel => &sparc.cpu.generic,
+                    .sparc, .sparcel => &sparc.cpu.v8,
                     .sparcv9 => &sparc.cpu.v9,
                     .s390x => &systemz.cpu.generic,
                     .i386 => &x86.cpu._i386,
@@ -1212,6 +1212,7 @@ pub const Target = struct {
                     .i386 => &x86.cpu.pentium4,
                     .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                     .sparc, .sparcel => &sparc.cpu.v8,
+                    .sparcv9 => &sparc.cpu.v9,
 
                     else => generic(arch),
                 };
