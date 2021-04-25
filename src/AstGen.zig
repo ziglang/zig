@@ -3830,7 +3830,7 @@ fn floatLiteral(
     // correct position of 0x is assumed to have been checked by tokenizer
     const float_number = if (std.mem.indexOf(u8, bytes, "0x")) |_|
         std.fmt.parseHexFloat(bytes) catch |e| switch (e) {
-            error.InvalidCharacter => unreachable,
+            error.Overflow, error.InvalidCharacter => unreachable,
         }
     else
         std.fmt.parseFloat(f128, bytes) catch |e| switch (e) {
