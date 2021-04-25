@@ -1946,10 +1946,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .type_info,
             .size_of,
             .bit_size_of,
-            .add_with_overflow,
-            .sub_with_overflow,
-            .mul_with_overflow,
-            .shl_with_overflow,
             .log2_int_type,
             .typeof_log2_int_type,
             .ptr_to_int,
@@ -6374,7 +6370,8 @@ fn builtinCall(
             const lhs = try expr(gz, scope, .{ .ty = int_type }, params[1]);
             const rhs = try expr(gz, scope, .{ .ty = log2_int_type }, params[2]);
             const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[3]);
-            const result = try gz.addPlNode(.shl_with_overflow, node, Zir.Inst.OverflowArithmetic{
+            const result = try gz.addExtendedPayload(.shl_with_overflow, Zir.Inst.OverflowArithmetic{
+                .node = gz.nodeIndexToRelative(node),
                 .lhs = lhs,
                 .rhs = rhs,
                 .ptr = ptr,
@@ -6734,7 +6731,7 @@ fn overflowArithmetic(
     rl: ResultLoc,
     node: ast.Node.Index,
     params: []const ast.Node.Index,
-    tag: Zir.Inst.Tag,
+    tag: Zir.Inst.Extended,
 ) InnerError!Zir.Inst.Ref {
     const int_type = try typeExpr(gz, scope, params[0]);
     const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
@@ -6749,7 +6746,8 @@ fn overflowArithmetic(
     const lhs = try expr(gz, scope, .{ .ty = int_type }, params[1]);
     const rhs = try expr(gz, scope, .{ .ty = int_type }, params[2]);
     const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[3]);
-    const result = try gz.addPlNode(tag, node, Zir.Inst.OverflowArithmetic{
+    const result = try gz.addExtendedPayload(tag, Zir.Inst.OverflowArithmetic{
+        .node = gz.nodeIndexToRelative(node),
         .lhs = lhs,
         .rhs = rhs,
         .ptr = ptr,

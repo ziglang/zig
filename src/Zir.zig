@@ -693,14 +693,6 @@ pub const Inst = struct {
         bit_size_of,
         /// Implements the `@fence` builtin. Uses `node`.
         fence,
-        /// Implements the `@addWithOverflow` builtin. Uses `pl_node` with `OverflowArithmetic`.
-        add_with_overflow,
-        /// Implements the `@subWithOverflow` builtin. Uses `pl_node` with `OverflowArithmetic`.
-        sub_with_overflow,
-        /// Implements the `@mulWithOverflow` builtin. Uses `pl_node` with `OverflowArithmetic`.
-        mul_with_overflow,
-        /// Implements the `@shlWithOverflow` builtin. Uses `pl_node` with `OverflowArithmetic`.
-        shl_with_overflow,
 
         /// Implement builtin `@ptrToInt`. Uses `un_node`.
         /// Convert a pointer to a `usize` integer.
@@ -1118,10 +1110,6 @@ pub const Inst = struct {
                 .type_info,
                 .size_of,
                 .bit_size_of,
-                .add_with_overflow,
-                .sub_with_overflow,
-                .mul_with_overflow,
-                .shl_with_overflow,
                 .ptr_to_int,
                 .align_of,
                 .bool_to_int,
@@ -1273,6 +1261,22 @@ pub const Inst = struct {
         /// `small` is `operands_len`.
         /// The AST node is the builtin call.
         typeof_peer,
+        /// Implements the `@addWithOverflow` builtin.
+        /// `operand` is payload index to `OverflowArithmetic`.
+        /// `small` is unused.
+        add_with_overflow,
+        /// Implements the `@subWithOverflow` builtin.
+        /// `operand` is payload index to `OverflowArithmetic`.
+        /// `small` is unused.
+        sub_with_overflow,
+        /// Implements the `@mulWithOverflow` builtin.
+        /// `operand` is payload index to `OverflowArithmetic`.
+        /// `small` is unused.
+        mul_with_overflow,
+        /// Implements the `@shlWithOverflow` builtin.
+        /// `operand` is payload index to `OverflowArithmetic`.
+        /// `small` is unused.
+        shl_with_overflow,
         /// `operand` is payload index to `UnNode`.
         c_undef,
         /// `operand` is payload index to `UnNode`.
@@ -2201,6 +2205,7 @@ pub const Inst = struct {
     };
 
     pub const OverflowArithmetic = struct {
+        node: i32,
         lhs: Ref,
         rhs: Ref,
         ptr: Ref,
@@ -2485,12 +2490,6 @@ const Writer = struct {
 
             .error_set_decl => try self.writePlNodeErrorSetDecl(stream, inst),
 
-            .add_with_overflow,
-            .sub_with_overflow,
-            .mul_with_overflow,
-            .shl_with_overflow,
-            => try self.writePlNodeOverflowArithmetic(stream, inst),
-
             .add,
             .addwrap,
             .array_cat,
@@ -2657,6 +2656,12 @@ const Writer = struct {
             .compile_log,
             .typeof_peer,
             => try self.writeNodeMultiOp(stream, extended),
+
+            .add_with_overflow,
+            .sub_with_overflow,
+            .mul_with_overflow,
+            .shl_with_overflow,
+            => try self.writeOverflowArithmetic(stream, extended),
 
             .alloc,
             .builtin_extern,
@@ -2931,16 +2936,17 @@ const Writer = struct {
         try self.writeSrc(stream, src);
     }
 
-    fn writePlNodeOverflowArithmetic(self: *Writer, stream: anytype, inst: Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Inst.OverflowArithmetic, inst_data.payload_index).data;
+    fn writeOverflowArithmetic(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.OverflowArithmetic, extended.operand).data;
+        const src: LazySrcLoc = .{ .node_offset = extra.node };
+
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.ptr);
-        try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
+        try stream.writeAll(")) ");
+        try self.writeSrc(stream, src);
     }
 
     fn writePlNodeCall(self: *Writer, stream: anytype, inst: Inst.Index) !void {

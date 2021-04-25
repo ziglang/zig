@@ -356,11 +356,6 @@ pub fn analyzeBody(
             .sub     => try sema.zirArithmetic(block, inst),
             .subwrap => try sema.zirArithmetic(block, inst),
 
-            .add_with_overflow => try sema.zirOverflowArithmetic(block, inst),
-            .sub_with_overflow => try sema.zirOverflowArithmetic(block, inst),
-            .mul_with_overflow => try sema.zirOverflowArithmetic(block, inst),
-            .shl_with_overflow => try sema.zirOverflowArithmetic(block, inst),
-
             // Instructions that we know to *always* be noreturn based solely on their tag.
             // These functions match the return type of analyzeBody so that we can
             // tail call them here.
@@ -504,25 +499,29 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
     const extended = sema.code.instructions.items(.data)[inst].extended;
     switch (extended.opcode) {
         // zig fmt: off
-        .func               => return sema.zirFuncExtended(    block, extended),
-        .ret_ptr            => return sema.zirRetPtr(          block, extended),
-        .ret_type           => return sema.zirRetType(         block, extended),
-        .this               => return sema.zirThis(            block, extended),
-        .ret_addr           => return sema.zirRetAddr(         block, extended),
-        .builtin_src        => return sema.zirBuiltinSrc(      block, extended),
-        .error_return_trace => return sema.zirErrorReturnTrace(block, extended),
-        .frame              => return sema.zirFrame(           block, extended),
-        .frame_address      => return sema.zirFrameAddress(    block, extended),
-        .alloc              => return sema.zirAllocExtended(   block, extended),
-        .builtin_extern     => return sema.zirBuiltinExtern(   block, extended),
-        .@"asm"             => return sema.zirAsm(             block, extended),
-        .typeof_peer        => return sema.zirTypeofPeer(      block, extended),
-        .compile_log        => return sema.zirCompileLog(      block, extended),
-        .c_undef            => return sema.zirCUndef(          block, extended),
-        .c_include          => return sema.zirCInclude(        block, extended),
-        .c_define           => return sema.zirCDefine(         block, extended),
-        .wasm_memory_size   => return sema.zirWasmMemorySize(  block, extended),
-        .wasm_memory_grow   => return sema.zirWasmMemoryGrow(  block, extended),
+        .func               => return sema.zirFuncExtended(      block, extended),
+        .ret_ptr            => return sema.zirRetPtr(            block, extended),
+        .ret_type           => return sema.zirRetType(           block, extended),
+        .this               => return sema.zirThis(              block, extended),
+        .ret_addr           => return sema.zirRetAddr(           block, extended),
+        .builtin_src        => return sema.zirBuiltinSrc(        block, extended),
+        .error_return_trace => return sema.zirErrorReturnTrace(  block, extended),
+        .frame              => return sema.zirFrame(             block, extended),
+        .frame_address      => return sema.zirFrameAddress(      block, extended),
+        .alloc              => return sema.zirAllocExtended(     block, extended),
+        .builtin_extern     => return sema.zirBuiltinExtern(     block, extended),
+        .@"asm"             => return sema.zirAsm(               block, extended),
+        .typeof_peer        => return sema.zirTypeofPeer(        block, extended),
+        .compile_log        => return sema.zirCompileLog(        block, extended),
+        .add_with_overflow  => return sema.zirOverflowArithmetic(block, extended),
+        .sub_with_overflow  => return sema.zirOverflowArithmetic(block, extended),
+        .mul_with_overflow  => return sema.zirOverflowArithmetic(block, extended),
+        .shl_with_overflow  => return sema.zirOverflowArithmetic(block, extended),
+        .c_undef            => return sema.zirCUndef(            block, extended),
+        .c_include          => return sema.zirCInclude(          block, extended),
+        .c_define           => return sema.zirCDefine(           block, extended),
+        .wasm_memory_size   => return sema.zirWasmMemorySize(    block, extended),
+        .wasm_memory_grow   => return sema.zirWasmMemoryGrow(    block, extended),
         // zig fmt: on
     }
 }
@@ -4272,12 +4271,16 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
     return sema.analyzeArithmetic(block, tag_override, lhs, rhs, src, lhs_src, rhs_src);
 }
 
-fn zirOverflowArithmetic(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirOverflowArithmetic(
+    sema: *Sema,
+    block: *Scope.Block,
+    extended: Zir.Inst.Extended.InstData,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.OverflowArithmetic, extended.operand).data;
+    const src: LazySrcLoc = .{ .node_offset = extra.node };
 
     return sema.mod.fail(&block.base, src, "TODO implement Sema.zirOverflowArithmetic", .{});
 }
