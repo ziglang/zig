@@ -440,7 +440,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         ,
         \\pub fn bar(x: anytype) callconv(.Inline) @TypeOf(baz(@as(c_int, 1), @as(c_int, 2))) {
         \\    return blk: {
-        \\        _ = &x;
+        \\        _ = @import("std").meta.optPtr(&x);
         \\        _ = @as(c_int, 3);
         \\        _ = @as(c_int, 4) == @as(c_int, 4);
         \\        _ = @as(c_int, 5) * @as(c_int, 6);
@@ -1487,7 +1487,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() c_int {
         \\    var x: c_int = 1234;
-        \\    var ptr: [*c]c_int = &x;
+        \\    var ptr: [*c]c_int = @import("std").meta.optPtr(&x);
         \\    return ptr.?.*;
         \\}
     });

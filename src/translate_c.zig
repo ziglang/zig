@@ -3242,7 +3242,9 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
             if (cIsFunctionDeclRef(op_expr)) {
                 return transExpr(c, scope, op_expr, used);
             }
-            return Tag.address_of.create(c.arena, try transExpr(c, scope, op_expr, used));
+            const addr_of = try Tag.address_of.create(c.arena, try transExpr(c, scope, op_expr, used));
+            // all pointers are assumed to be optional
+            return Tag.std_meta_optPtr.create(c.arena, addr_of);
         },
         .Deref => {
             const node = try transExpr(c, scope, op_expr, used);
@@ -5533,7 +5535,9 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         },
         .Ampersand => {
             const operand = try parseCUnaryExpr(c, m, scope);
-            return Tag.address_of.create(c.arena, operand);
+            const addr_of = try Tag.address_of.create(c.arena, operand);
+            // all pointers are assumed to be optional
+            return Tag.std_meta_optPtr.create(c.arena, addr_of);
         },
         .Keyword_sizeof => {
             const operand = if (m.peek().? == .LParen) blk: {

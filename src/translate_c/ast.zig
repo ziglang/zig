@@ -71,6 +71,7 @@ pub const Node = extern union {
         tuple,
         container_init,
         std_meta_cast,
+        std_meta_optPtr,
         /// _ = operand;
         discard,
 
@@ -346,6 +347,7 @@ pub const Node = extern union {
                 .tuple => Payload.TupleInit,
                 .container_init => Payload.ContainerInit,
                 .std_meta_cast => Payload.Infix,
+                .std_meta_optPtr => Payload.UnOp,
                 .std_meta_promoteIntLiteral => Payload.PromoteIntLiteral,
                 .block => Payload.Block,
                 .c_pointer, .single_pointer => Payload.Pointer,
@@ -870,6 +872,11 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.std_meta_cast).?.data;
             const import_node = try renderStdImport(c, "meta", "cast");
             return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
+        },
+        .std_meta_optPtr => {
+            const payload = node.castTag(.std_meta_optPtr).?.data;
+            const import_node = try renderStdImport(c, "meta", "optPtr");
+            return renderCall(c, import_node, &.{ payload });
         },
         .std_meta_promoteIntLiteral => {
             const payload = node.castTag(.std_meta_promoteIntLiteral).?.data;
@@ -2145,6 +2152,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .typeinfo,
         .std_meta_sizeof,
         .std_meta_cast,
+        .std_meta_optPtr,
         .std_meta_promoteIntLiteral,
         .std_meta_vector,
         .std_meta_shuffle_vector_index,

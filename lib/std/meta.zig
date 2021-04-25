@@ -1029,6 +1029,13 @@ test "std.meta.cast" {
     testing.expectEqual(cast(C_ENUM, @as(u64, 42)), @intToEnum(C_ENUM, 42));
 }
 
+/// Make a pointer optional.
+/// This is needed because in translate-c all pointers are assumed to be optional.
+/// This is for translate-c and is not intended for general use.
+pub fn optPtr(ptr: anytype) ?@TypeOf(ptr) {
+    return ptr;
+}
+
 /// Given a value returns its size as C's sizeof operator would.
 /// This is for translate-c and is not intended for general use.
 pub fn sizeof(target: anytype) usize {

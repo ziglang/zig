@@ -1476,4 +1476,14 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("dereference address of",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int i = 0;
+        \\    *&i = 42;
+        \\    if (i != 42) abort();
+        \\	  return 0;
+        \\}
+    , "");
 }
