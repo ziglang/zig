@@ -22,7 +22,9 @@ case "$1" in
     steps="\
       test-compiler-rt \
       test-minilibc \
-      test-compare-output"
+      test-compare-output \
+      test-translate-c \
+      test-run-translated-c"
     ;;
   '')
     echo "error: expecting test group argument"

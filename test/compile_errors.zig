@@ -2136,7 +2136,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn func() callconv(.Async) void {}
     , &[_][]const u8{
-        "tmp.zig:4:21: error: expected type '[]align(16) u8', found '*[64]u8'",
+        // Split the check in two as the alignment value is target dependent.
+        "tmp.zig:4:21: error: expected type '[]align(",
+        ") u8', found '*[64]u8'",
     });
 
     cases.add("atomic orderings of fence Acquire or stricter",

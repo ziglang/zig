@@ -1253,6 +1253,37 @@ bool target_is_ppc(const ZigTarget *target) {
         target->arch == ZigLLVM_ppc64le;
 }
 
+// Returns the minimum alignment for every function pointer on the given
+// architecture.
+unsigned target_fn_ptr_align(const ZigTarget *target) {
+    // TODO This is a pessimization but is always correct.
+    return 1;
+}
+
+// Returns the minimum alignment for every function on the given architecture.
 unsigned target_fn_align(const ZigTarget *target) {
-    return 16;
+    switch (target->arch) {
+        case ZigLLVM_riscv32:
+        case ZigLLVM_riscv64:
+            // TODO If the C extension is not present the value is 4.
+            return 2;
+        case ZigLLVM_ppc:
+        case ZigLLVM_ppcle:
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
+        case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
+        case ZigLLVM_aarch64_32:
+        case ZigLLVM_sparc:
+        case ZigLLVM_sparcel:
+        case ZigLLVM_sparcv9:
+        case ZigLLVM_mips:
+        case ZigLLVM_mipsel:
+        case ZigLLVM_mips64:
+        case ZigLLVM_mips64el:
+            return 4;
+
+        default:
+            return 1;
+    }
 }

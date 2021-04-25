@@ -3540,7 +3540,7 @@ fn transCPtrCast(
             expr
         else blk: {
             const child_type_node = try transQualType(c, scope, child_type, loc);
-            const alignof = try Tag.alignof.create(c.arena, child_type_node);
+            const alignof = try Tag.std_meta_alignment.create(c.arena, child_type_node);
             const align_cast = try Tag.align_cast.create(c.arena, .{ .lhs = alignof, .rhs = expr });
             break :blk align_cast;
         };

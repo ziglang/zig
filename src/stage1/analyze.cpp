@@ -4769,11 +4769,11 @@ Error type_is_nonnull_ptr2(CodeGen *g, ZigType *type, bool *result) {
     return ErrorNone;
 }
 
-static uint32_t get_async_frame_align_bytes(CodeGen *g) {
-    uint32_t a = g->pointer_size_bytes * 2;
-    // promises have at least alignment 8 so that we can have 3 extra bits when doing atomicrmw
-    if (a < 8) a = 8;
-    return a;
+uint32_t get_async_frame_align_bytes(CodeGen *g) {
+    // Due to how the frame structure is built the minimum alignment is the one
+    // of a usize (or pointer).
+    // label (grep this): [fn_frame_struct_layout]
+    return max(g->builtin_types.entry_usize->abi_align, target_fn_align(g->zig_target));
 }
 
 uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
@@ -4789,11 +4789,8 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
         return (ptr_type->data.pointer.explicit_alignment == 0) ?
             get_abi_alignment(g, ptr_type->data.pointer.child_type) : ptr_type->data.pointer.explicit_alignment;
     } else if (ptr_type->id == ZigTypeIdFn) {
-        // I tried making this use LLVMABIAlignmentOfType but it trips this assertion in LLVM:
-        // "Cannot getTypeInfo() on a type that is unsized!"
-        // when getting the alignment of `?fn() callconv(.C) void`.
-        // See http://lists.llvm.org/pipermail/llvm-dev/2018-September/126142.html
-        return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
+        return (ptr_type->data.fn.fn_type_id.alignment == 0) ?
+                target_fn_ptr_align(g->zig_target) : ptr_type->data.fn.fn_type_id.alignment;
     } else if (ptr_type->id == ZigTypeIdAnyFrame) {
         return get_async_frame_align_bytes(g);
     } else {
