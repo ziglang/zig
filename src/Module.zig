@@ -15,6 +15,7 @@ const ast = std.zig.ast;
 
 const Module = @This();
 const Compilation = @import("Compilation.zig");
+const Cache = @import("Cache.zig");
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
@@ -769,6 +770,15 @@ pub const Scope = struct {
             file.source = source;
             file.source_loaded = true;
             return source;
+        }
+
+        pub fn getTree(file: *File, gpa: *Allocator) !*const ast.Tree {
+            if (file.tree_loaded) return &file.tree;
+
+            const source = try file.getSource(gpa);
+            file.tree = try std.zig.parse(gpa, source);
+            file.tree_loaded = true;
+            return &file.tree;
         }
 
         pub fn destroy(file: *File, gpa: *Allocator) void {
@@ -2676,6 +2686,20 @@ fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
     gpa.free(export_list);
 }
 
+const data_has_safety_tag = @sizeOf(Zir.Inst.Data) != 8;
+// TODO This is taking advantage of matching stage1 debug union layout.
+// We need a better language feature for initializing a union with
+// a runtime known tag.
+const Stage1DataLayout = extern struct {
+    safety_tag: u8,
+    data: [8]u8 align(8),
+};
+comptime {
+    if (data_has_safety_tag) {
+        assert(@sizeOf(Stage1DataLayout) == @sizeOf(Zir.Inst.Data));
+    }
+}
+
 pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2684,15 +2708,166 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
     const gpa = mod.gpa;
 
     // In any case we need to examine the stat of the file to determine the course of action.
-    var f = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{});
-    defer f.close();
+    var source_file = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{});
+    defer source_file.close();
 
-    const stat = try f.stat();
+    const stat = try source_file.stat();
+
+    const want_local_cache = file.pkg == mod.root_pkg;
+    const digest = hash: {
+        var path_hash: Cache.HashHelper = .{};
+        if (!want_local_cache) {
+            path_hash.addOptionalBytes(file.pkg.root_src_directory.path);
+        }
+        path_hash.addBytes(file.sub_file_path);
+        break :hash path_hash.final();
+    };
+    const cache_directory = if (want_local_cache)
+        comp.local_cache_directory
+    else
+        comp.global_cache_directory;
+
+    var cache_file: ?std.fs.File = null;
+    defer if (cache_file) |f| f.close();
+
+    // TODO do this before spawning astgen workers
+    var zir_dir = try cache_directory.handle.makeOpenPath("z", .{});
+    defer zir_dir.close();
 
     // Determine whether we need to reload the file from disk and redo parsing and AstGen.
     switch (file.status) {
-        .never_loaded, .retryable_failure => {
-            log.debug("first-time AstGen: {s}", .{file.sub_file_path});
+        .never_loaded, .retryable_failure => cached: {
+            // First, load the cached ZIR code, if any.
+            log.debug("AstGen checking cache: {s} (local={}, digest={s})", .{
+                file.sub_file_path, want_local_cache, &digest,
+            });
+
+            // We ask for a lock in order to coordinate with other zig processes.
+            // If another process is already working on this file, we will get the cached
+            // version. Likewise if we're working on AstGen and another process asks for
+            // the cached file, they'll get it.
+            cache_file = zir_dir.openFile(&digest, .{ .lock = .Shared }) catch |err| switch (err) {
+                error.PathAlreadyExists => unreachable, // opening for reading
+                error.NoSpaceLeft => unreachable, // opening for reading
+                error.NotDir => unreachable, // no dir components
+                error.InvalidUtf8 => unreachable, // it's a hex encoded name
+                error.BadPathName => unreachable, // it's a hex encoded name
+                error.NameTooLong => unreachable, // it's a fixed size name
+                error.PipeBusy => unreachable, // it's not a pipe
+                error.WouldBlock => unreachable, // not asking for non-blocking I/O
+
+                error.SymLinkLoop,
+                error.FileNotFound,
+                error.Unexpected,
+                => break :cached,
+
+                else => |e| return e, // Retryable errors are handled at callsite.
+            };
+
+            // First we read the header to determine the lengths of arrays.
+            const header = cache_file.?.reader().readStruct(Zir.Header) catch |err| switch (err) {
+                // This can happen if Zig bails out of this function between creating
+                // the cached file and writing it.
+                error.EndOfStream => break :cached,
+                else => |e| return e,
+            };
+            const unchanged_metadata =
+                stat.size == header.stat_size and
+                stat.mtime == header.stat_mtime and
+                stat.inode == header.stat_inode;
+
+            if (!unchanged_metadata) {
+                log.debug("AstGen cache stale: {s}", .{file.sub_file_path});
+                break :cached;
+            }
+            log.debug("AstGen cache hit: {s}", .{file.sub_file_path});
+
+            var instructions: std.MultiArrayList(Zir.Inst) = .{};
+            defer instructions.deinit(gpa);
+
+            try instructions.resize(gpa, header.instructions_len);
+
+            var zir: Zir = .{
+                .instructions = instructions.toOwnedSlice(),
+                .string_bytes = &.{},
+                .extra = &.{},
+            };
+            var keep_zir = false;
+            defer if (!keep_zir) zir.deinit(gpa);
+
+            zir.string_bytes = try gpa.alloc(u8, header.string_bytes_len);
+            zir.extra = try gpa.alloc(u32, header.extra_len);
+
+            const safety_buffer = if (data_has_safety_tag)
+                try gpa.alloc([8]u8, header.instructions_len)
+            else
+                undefined;
+            defer if (data_has_safety_tag) gpa.free(safety_buffer);
+
+            const data_ptr = if (data_has_safety_tag)
+                @ptrCast([*]u8, safety_buffer.ptr)
+            else
+                @ptrCast([*]u8, zir.instructions.items(.data).ptr);
+
+            var iovecs = [_]std.os.iovec{
+                .{
+                    .iov_base = @ptrCast([*]u8, zir.instructions.items(.tag).ptr),
+                    .iov_len = header.instructions_len,
+                },
+                .{
+                    .iov_base = data_ptr,
+                    .iov_len = header.instructions_len * 8,
+                },
+                .{
+                    .iov_base = zir.string_bytes.ptr,
+                    .iov_len = header.string_bytes_len,
+                },
+                .{
+                    .iov_base = @ptrCast([*]u8, zir.extra.ptr),
+                    .iov_len = header.extra_len * 4,
+                },
+            };
+            const amt_read = try cache_file.?.readvAll(&iovecs);
+            const amt_expected = zir.instructions.len * 9 +
+                zir.string_bytes.len +
+                zir.extra.len * 4;
+            if (amt_read != amt_expected) {
+                log.warn("unexpected EOF reading cached ZIR for {s}", .{file.sub_file_path});
+                zir.deinit(gpa);
+                break :cached;
+            }
+            if (data_has_safety_tag) {
+                const tags = zir.instructions.items(.tag);
+                for (zir.instructions.items(.data)) |*data, i| {
+                    const union_tag = Zir.Inst.Tag.data_tags[@enumToInt(tags[i])];
+                    const as_struct = @ptrCast(*Stage1DataLayout, data);
+                    as_struct.* = .{
+                        .safety_tag = @enumToInt(union_tag),
+                        .data = safety_buffer[i],
+                    };
+                }
+            }
+
+            keep_zir = true;
+            file.zir = zir;
+            file.zir_loaded = true;
+            file.stat_size = header.stat_size;
+            file.stat_inode = header.stat_inode;
+            file.stat_mtime = header.stat_mtime;
+            file.status = .success;
+            log.debug("AstGen cached success: {s}", .{file.sub_file_path});
+
+            // TODO don't report compile errors until Sema @importFile
+            if (file.zir.hasCompileErrors()) {
+                {
+                    const lock = comp.mutex.acquire();
+                    defer lock.release();
+                    try mod.failed_files.putNoClobber(gpa, file, null);
+                }
+                file.status = .astgen_failure;
+                return error.AnalysisFail;
+            }
+            return;
         },
         .parse_failure, .astgen_failure, .success => {
             const unchanged_metadata =
@@ -2708,6 +2883,29 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
             log.debug("metadata changed: {s}", .{file.sub_file_path});
         },
     }
+    if (cache_file) |f| {
+        f.close();
+        cache_file = null;
+    }
+    cache_file = zir_dir.createFile(&digest, .{ .lock = .Exclusive }) catch |err| switch (err) {
+        error.NotDir => unreachable, // no dir components
+        error.InvalidUtf8 => unreachable, // it's a hex encoded name
+        error.BadPathName => unreachable, // it's a hex encoded name
+        error.NameTooLong => unreachable, // it's a fixed size name
+        error.PipeBusy => unreachable, // it's not a pipe
+        error.WouldBlock => unreachable, // not asking for non-blocking I/O
+        error.FileNotFound => unreachable, // no dir components
+
+        else => |e| {
+            const pkg_path = file.pkg.root_src_directory.path orelse ".";
+            const cache_path = cache_directory.path orelse ".";
+            log.warn("unable to save cached ZIR code for {s}/{s} to {s}/z/{s}: {s}", .{
+                pkg_path, file.sub_file_path, cache_path, &digest, @errorName(e),
+            });
+            return;
+        },
+    };
+
     // Clear compile error for this file.
     switch (file.status) {
         .success, .retryable_failure => {},
@@ -2726,7 +2924,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
 
     const source = try gpa.allocSentinel(u8, stat.size, 0);
     defer if (!file.source_loaded) gpa.free(source);
-    const amt = try f.readAll(source);
+    const amt = try source_file.readAll(source);
     if (amt != stat.size)
         return error.UnexpectedEndOfFile;
 
@@ -2770,7 +2968,67 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
 
     file.zir = try AstGen.generate(gpa, file);
     file.zir_loaded = true;
+    file.status = .success;
+    log.debug("AstGen fresh success: {s}", .{file.sub_file_path});
 
+    const safety_buffer = if (data_has_safety_tag)
+        try gpa.alloc([8]u8, file.zir.instructions.len)
+    else
+        undefined;
+    defer if (data_has_safety_tag) gpa.free(safety_buffer);
+    const data_ptr = if (data_has_safety_tag)
+        @ptrCast([*]const u8, safety_buffer.ptr)
+    else
+        @ptrCast([*]const u8, file.zir.instructions.items(.data).ptr);
+    if (data_has_safety_tag) {
+        // The `Data` union has a safety tag but in the file format we store it without.
+        const tags = file.zir.instructions.items(.tag);
+        for (file.zir.instructions.items(.data)) |*data, i| {
+            const as_struct = @ptrCast(*const Stage1DataLayout, data);
+            safety_buffer[i] = as_struct.data;
+        }
+    }
+
+    const header: Zir.Header = .{
+        .instructions_len = @intCast(u32, file.zir.instructions.len),
+        .string_bytes_len = @intCast(u32, file.zir.string_bytes.len),
+        .extra_len = @intCast(u32, file.zir.extra.len),
+
+        .stat_size = stat.size,
+        .stat_inode = stat.inode,
+        .stat_mtime = stat.mtime,
+    };
+    var iovecs = [_]std.os.iovec_const{
+        .{
+            .iov_base = @ptrCast([*]const u8, &header),
+            .iov_len = @sizeOf(Zir.Header),
+        },
+        .{
+            .iov_base = @ptrCast([*]const u8, file.zir.instructions.items(.tag).ptr),
+            .iov_len = file.zir.instructions.len,
+        },
+        .{
+            .iov_base = data_ptr,
+            .iov_len = file.zir.instructions.len * 8,
+        },
+        .{
+            .iov_base = file.zir.string_bytes.ptr,
+            .iov_len = file.zir.string_bytes.len,
+        },
+        .{
+            .iov_base = @ptrCast([*]const u8, file.zir.extra.ptr),
+            .iov_len = file.zir.extra.len * 4,
+        },
+    };
+    cache_file.?.writevAll(&iovecs) catch |err| {
+        const pkg_path = file.pkg.root_src_directory.path orelse ".";
+        const cache_path = cache_directory.path orelse ".";
+        log.warn("unable to write cached ZIR code for {s}/{s} to {s}/z/{s}: {s}", .{
+            pkg_path, file.sub_file_path, cache_path, &digest, @errorName(err),
+        });
+    };
+
+    // TODO don't report compile errors until Sema @importFile
     if (file.zir.hasCompileErrors()) {
         {
             const lock = comp.mutex.acquire();
@@ -2780,9 +3038,6 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
         file.status = .astgen_failure;
         return error.AnalysisFail;
     }
-
-    log.debug("AstGen success: {s}", .{file.sub_file_path});
-    file.status = .success;
 }
 
 pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {

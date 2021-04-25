@@ -1,15 +1,10 @@
- * nested function decl: how to refer to params?
- * look for cached zir code
- * save zir code to cache
  * keep track of file dependencies/dependants
  * unload files from memory when a dependency is dropped
- * implement zir error notes 
 
  * implement the new AstGen compile errors
 
  * get rid of failed_root_src_file
  * get rid of Scope.DeclRef
- * get rid of optional_type_from_ptr_elem
  * handle decl collision with usingnamespace
  * the decl doing the looking up needs to create a decl dependency
    on each usingnamespace decl
@@ -38,6 +33,9 @@
    AstGen can report more than one compile error.
 
  * AstGen: add result location pointers to function calls
+ * nested function decl: how to refer to params?
+
+ * detect when to put cached ZIR into the local cache instead of the global one
 
     const container_name_hash: Scope.NameHash = if (found_pkg) |pkg|
         pkg.namespace_hash

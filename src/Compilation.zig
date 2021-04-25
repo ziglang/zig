@@ -434,10 +434,10 @@ pub const AllErrors = struct {
         arena: *Allocator,
         errors: *std.ArrayList(Message),
         file: *Module.Scope.File,
-        source: []const u8,
     ) !void {
         assert(file.zir_loaded);
         assert(file.tree_loaded);
+        assert(file.source_loaded);
         const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
         assert(payload_index != 0);
 
@@ -466,7 +466,7 @@ pub const AllErrors = struct {
                         }
                         break :blk token_starts[note_item.data.token] + note_item.data.byte_offset;
                     };
-                    const loc = std.zig.findLineColumn(source, byte_offset);
+                    const loc = std.zig.findLineColumn(file.source, byte_offset);
 
                     note.* = .{
                         .src = .{
@@ -492,7 +492,7 @@ pub const AllErrors = struct {
                 }
                 break :blk token_starts[item.data.token] + item.data.byte_offset;
             };
-            const loc = std.zig.findLineColumn(source, byte_offset);
+            const loc = std.zig.findLineColumn(file.source, byte_offset);
 
             try errors.append(.{
                 .src = .{
@@ -1709,9 +1709,11 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             if (entry.value) |msg| {
                 try AllErrors.add(module, &arena, &errors, msg.*);
             } else {
-                // Must be ZIR errors.
-                const source = try entry.key.getSource(module.gpa);
-                try AllErrors.addZir(&arena.allocator, &errors, entry.key, source);
+                // Must be ZIR errors. In order for ZIR errors to exist, the parsing
+                // must have completed successfully.
+                const tree = try entry.key.getTree(module.gpa);
+                assert(tree.errors.len == 0);
+                try AllErrors.addZir(&arena.allocator, &errors, entry.key);
             }
         }
         for (module.failed_decls.items()) |entry| {

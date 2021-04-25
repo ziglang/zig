@@ -482,7 +482,7 @@ pub const File = struct {
     /// order to handle partial reads from the underlying OS layer.
     /// See https://github.com/ziglang/zig/issues/7699
     pub fn readvAll(self: File, iovecs: []os.iovec) ReadError!usize {
-        if (iovecs.len == 0) return;
+        if (iovecs.len == 0) return 0;
 
         var i: usize = 0;
         var off: usize = 0;

@@ -3606,7 +3606,7 @@ pub fn cmdAstgen(
 
     if (file.zir.hasCompileErrors()) {
         var errors = std.ArrayList(Compilation.AllErrors.Message).init(arena);
-        try Compilation.AllErrors.addZir(arena, &errors, &file, source);
+        try Compilation.AllErrors.addZir(arena, &errors, &file);
         const ttyconf = std.debug.detectTTYConfig();
         for (errors.items) |full_err_msg| {
             full_err_msg.renderToStdErr(ttyconf);
