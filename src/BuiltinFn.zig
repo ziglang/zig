@@ -104,6 +104,7 @@ pub const Tag = enum {
     type_name,
     TypeOf,
     union_init,
+    Vector,
 };
 
 tag: Tag,
@@ -846,6 +847,13 @@ pub const list = list: {
                 .tag = .union_init,
                 .needs_mem_loc = true,
                 .param_count = 3,
+            },
+        },
+        .{
+            "@Vector",
+            .{
+                .tag = .Vector,
+                .param_count = 2,
             },
         },
     });

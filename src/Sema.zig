@@ -143,6 +143,7 @@ pub fn analyzeBody(
             .array_mul                    => try sema.zirArrayMul(block, inst),
             .array_type                   => try sema.zirArrayType(block, inst),
             .array_type_sentinel          => try sema.zirArrayTypeSentinel(block, inst),
+            .vector_type                  => try sema.zirVectorType(block, inst),
             .as                           => try sema.zirAs(block, inst),
             .as_node                      => try sema.zirAsNode(block, inst),
             .bit_and                      => try sema.zirBitwise(block, inst, .bit_and),
@@ -2141,6 +2142,21 @@ fn zirElemType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
     const array_type = try sema.resolveType(block, src, inst_data.operand);
     const elem_type = array_type.elemType();
     return sema.mod.constType(sema.arena, src, elem_type);
+}
+
+fn zirVectorType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const elem_type_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const len_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const len = try sema.resolveAlreadyCoercedInt(block, len_src, extra.lhs, u32);
+    const elem_type = try sema.resolveType(block, elem_type_src, extra.rhs);
+    const vector_type = try Type.Tag.vector.create(sema.arena, .{
+        .len = len,
+        .elem_type = elem_type,
+    });
+    return sema.mod.constType(sema.arena, src, vector_type);
 }
 
 fn zirArrayType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {

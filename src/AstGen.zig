@@ -1808,6 +1808,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .array_mul,
             .array_type,
             .array_type_sentinel,
+            .vector_type,
             .elem_type,
             .indexable_ptr_len,
             .anyframe_type,
@@ -6510,6 +6511,14 @@ fn builtinCall(
             });
             return rvalue(gz, scope, rl, result, node);
         },
+        .Vector => {
+            const result = try gz.addPlNode(.vector_type, node, Zir.Inst.Bin{
+                .lhs = try comptimeExpr(gz, scope, .{.ty = .u32_type}, params[0]),
+                .rhs = try typeExpr(gz, scope, params[1]),
+            });
+            return rvalue(gz, scope, rl, result, node);
+        },
+
     }
     // zig fmt: on
 }

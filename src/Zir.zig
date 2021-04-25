@@ -158,6 +158,10 @@ pub const Inst = struct {
         /// `[N:S]T` syntax. No source location provided.
         /// Uses the `array_type_sentinel` field.
         array_type_sentinel,
+        /// `@Vector` builtin.
+        /// Uses the `pl_node` union field with `Bin` payload.
+        /// lhs is length, rhs is element type.
+        vector_type,
         /// Given an array type, returns the element type.
         /// Uses the `un_node` union field.
         elem_type,
@@ -952,6 +956,7 @@ pub const Inst = struct {
                 .array_mul,
                 .array_type,
                 .array_type_sentinel,
+                .vector_type,
                 .elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
@@ -2542,6 +2547,7 @@ const Writer = struct {
             .atomic_load,
             .bitcast,
             .bitcast_result_ptr,
+            .vector_type,
             => try self.writePlNodeBin(stream, inst),
 
             .@"export" => try self.writePlNodeExport(stream, inst),

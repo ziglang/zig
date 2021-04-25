@@ -69,7 +69,14 @@ pub const Type = extern union {
             .fn_ccc_void_no_args => return .Fn,
             .function => return .Fn,
 
-            .array, .array_u8_sentinel_0, .array_u8, .array_sentinel => return .Array,
+            .array,
+            .array_u8_sentinel_0,
+            .array_u8,
+            .array_sentinel,
+            => return .Array,
+
+            .vector => return .Vector,
+
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .single_const_pointer,
@@ -438,7 +445,7 @@ pub const Type = extern union {
                 const info_b = b.intInfo(@as(Target, undefined));
                 return info_a.signedness == info_b.signedness and info_a.bits == info_b.bits;
             },
-            .Array => {
+            .Array, .Vector => {
                 if (a.arrayLen() != b.arrayLen())
                     return false;
                 if (!a.elemType().eql(b.elemType()))
@@ -487,7 +494,6 @@ pub const Type = extern union {
             .BoundFn,
             .Opaque,
             .Frame,
-            .Vector,
             => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
         }
     }
@@ -522,7 +528,7 @@ pub const Type = extern union {
                     std.hash.autoHash(&hasher, info.bits);
                 }
             },
-            .Array => {
+            .Array, .Vector => {
                 std.hash.autoHash(&hasher, self.arrayLen());
                 std.hash.autoHash(&hasher, self.elemType().hash());
                 // TODO hash array sentinel
@@ -552,7 +558,6 @@ pub const Type = extern union {
             .Opaque,
             .Frame,
             .AnyFrame,
-            .Vector,
             .EnumLiteral,
             => {
                 // TODO implement more type hashing
@@ -647,6 +652,13 @@ pub const Type = extern union {
             .int_unsigned,
             => return self.copyPayloadShallow(allocator, Payload.Bits),
 
+            .vector => {
+                const payload = self.castTag(.vector).?.data;
+                return Tag.vector.create(allocator, .{
+                    .len = payload.len,
+                    .elem_type = try payload.elem_type.copy(allocator),
+                });
+            },
             .array => {
                 const payload = self.castTag(.array).?.data;
                 return Tag.array.create(allocator, .{
@@ -838,6 +850,12 @@ pub const Type = extern union {
                 .array_u8_sentinel_0 => {
                     const len = ty.castTag(.array_u8_sentinel_0).?.data;
                     return writer.print("[{d}:0]u8", .{len});
+                },
+                .vector => {
+                    const payload = ty.castTag(.vector).?.data;
+                    try writer.print("@Vector({d}, ", .{payload.len});
+                    try payload.elem_type.format("", .{}, writer);
+                    return writer.writeAll(")");
                 },
                 .array => {
                     const payload = ty.castTag(.array).?.data;
@@ -1116,7 +1134,7 @@ pub const Type = extern union {
             },
 
             // TODO lazy types
-            .array => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
+            .array, .vector => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
             .array_u8 => self.arrayLen() != 0,
             .array_sentinel, .single_const_pointer, .single_mut_pointer, .many_const_pointer, .many_mut_pointer, .c_const_pointer, .c_mut_pointer, .const_slice, .mut_slice, .pointer => self.elemType().hasCodeGenBits(),
             .int_signed, .int_unsigned => self.cast(Payload.Bits).?.data != 0,
@@ -1264,6 +1282,10 @@ pub const Type = extern union {
 
             .array, .array_sentinel => return self.elemType().abiAlignment(target),
 
+            // TODO audit this - is there any more complicated logic to determine
+            // ABI alignment of vectors?
+            .vector => return 16,
+
             .int_signed, .int_unsigned => {
                 const bits: u16 = self.cast(Payload.Bits).?.data;
                 return std.math.ceilPowerOfTwoPromote(u16, (bits + 7) / 8);
@@ -1386,8 +1408,8 @@ pub const Type = extern union {
 
             .array_u8 => self.castTag(.array_u8).?.data,
             .array_u8_sentinel_0 => self.castTag(.array_u8_sentinel_0).?.data + 1,
-            .array => {
-                const payload = self.castTag(.array).?.data;
+            .array, .vector => {
+                const payload = self.cast(Payload.Array).?.data;
                 const elem_size = std.math.max(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
                 return payload.len * elem_size;
             },
@@ -1534,6 +1556,11 @@ pub const Type = extern union {
 
             .bool => 1,
 
+            .vector => {
+                const payload = self.castTag(.vector).?.data;
+                const elem_bit_size = payload.elem_type.bitSize(target);
+                return elem_bit_size * payload.len;
+            },
             .array_u8 => 8 * self.castTag(.array_u8).?.data,
             .array_u8_sentinel_0 => 8 * (self.castTag(.array_u8_sentinel_0).?.data + 1),
             .array => {
@@ -1811,7 +1838,6 @@ pub const Type = extern union {
             .Enum,
             .Frame,
             .AnyFrame,
-            .Vector,
             => return true,
 
             .Opaque => return is_extern,
@@ -1830,7 +1856,7 @@ pub const Type = extern union {
                 var buf: Payload.ElemType = undefined;
                 return ty.optionalChild(&buf).isValidVarType(is_extern);
             },
-            .Pointer, .Array => ty = ty.elemType(),
+            .Pointer, .Array, .Vector => ty = ty.elemType(),
             .ErrorUnion => ty = ty.errorUnionChild(),
 
             .Fn => @panic("TODO fn isValidVarType"),
@@ -1846,6 +1872,7 @@ pub const Type = extern union {
     /// Asserts the type is a pointer or array type.
     pub fn elemType(self: Type) Type {
         return switch (self.tag()) {
+            .vector => self.castTag(.vector).?.data.elem_type,
             .array => self.castTag(.array).?.data.elem_type,
             .array_sentinel => self.castTag(.array_sentinel).?.data.elem_type,
             .single_const_pointer,
@@ -1936,6 +1963,7 @@ pub const Type = extern union {
     /// Asserts the type is an array or vector.
     pub fn arrayLen(self: Type) u64 {
         return switch (self.tag()) {
+            .vector => self.castTag(.vector).?.data.len,
             .array => self.castTag(.array).?.data.len,
             .array_sentinel => self.castTag(.array_sentinel).?.data.len,
             .array_u8 => self.castTag(.array_u8).?.data,
@@ -1955,6 +1983,7 @@ pub const Type = extern union {
             .c_const_pointer,
             .c_mut_pointer,
             .single_const_pointer_to_comptime_int,
+            .vector,
             .array,
             .array_u8,
             .manyptr_u8,
@@ -2325,7 +2354,7 @@ pub const Type = extern union {
                     return null;
                 }
             },
-            .array, .array_u8 => {
+            .vector, .array, .array_u8 => {
                 if (ty.arrayLen() == 0)
                     return Value.initTag(.empty_array);
                 ty = ty.elemType();
@@ -2730,6 +2759,7 @@ pub const Type = extern union {
         array_u8_sentinel_0,
         array,
         array_sentinel,
+        vector,
         pointer,
         single_const_pointer,
         single_mut_pointer,
@@ -2845,7 +2875,7 @@ pub const Type = extern union {
 
                 .error_set => Payload.ErrorSet,
 
-                .array => Payload.Array,
+                .array, .vector => Payload.Array,
                 .array_sentinel => Payload.ArraySentinel,
                 .pointer => Payload.Pointer,
                 .function => Payload.Function,
@@ -2888,9 +2918,7 @@ pub const Type = extern union {
         };
 
         pub const Array = struct {
-            pub const base_tag = Tag.array;
-
-            base: Payload = Payload{ .tag = base_tag },
+            base: Payload,
             data: struct {
                 len: u64,
                 elem_type: Type,
