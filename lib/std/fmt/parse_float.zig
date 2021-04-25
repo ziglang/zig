@@ -458,7 +458,6 @@ pub fn parseHexFloat(bytes: []const u8) !f128 {
     var leading_zeroes: usize = 0;
     for (decimal_str) |c| {
         if (c != '0') break;
-
         leading_zeroes += 1;
     }
 
