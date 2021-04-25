@@ -1138,6 +1138,23 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 try builtin_pkg.add(gpa, "builtin", builtin_pkg);
             }
 
+            // Pre-open the directory handles for cached ZIR code so that it does not need
+            // to redundantly happen for each AstGen operation.
+            const zir_sub_dir = "z";
+
+            var local_zir_dir = try options.local_cache_directory.handle.makeOpenPath(zir_sub_dir, .{});
+            errdefer local_zir_dir.close();
+            const local_zir_cache: Directory = .{
+                .handle = local_zir_dir,
+                .path = try options.local_cache_directory.join(arena, &[_][]const u8{zir_sub_dir}),
+            };
+            var global_zir_dir = try options.global_cache_directory.handle.makeOpenPath(zir_sub_dir, .{});
+            errdefer global_zir_dir.close();
+            const global_zir_cache: Directory = .{
+                .handle = global_zir_dir,
+                .path = try options.global_cache_directory.join(arena, &[_][]const u8{zir_sub_dir}),
+            };
+
             // TODO when we implement serialization and deserialization of incremental
             // compilation metadata, this is where we would load it. We have open a handle
             // to the directory where the output either already is, or will be.
@@ -1151,6 +1168,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 .comp = comp,
                 .root_pkg = root_pkg,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
+                .global_zir_cache = global_zir_cache,
+                .local_zir_cache = local_zir_cache,
                 .emit_h = options.emit_h,
                 .error_name_list = try std.ArrayListUnmanaged([]const u8).initCapacity(gpa, 1),
             };

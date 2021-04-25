@@ -36,6 +36,11 @@ comp: *Compilation,
 zig_cache_artifact_directory: Compilation.Directory,
 /// Pointer to externally managed resource. `null` if there is no zig file being compiled.
 root_pkg: *Package,
+
+/// Used by AstGen worker to load and store ZIR cache.
+global_zir_cache: Compilation.Directory,
+/// Used by AstGen worker to load and store ZIR cache.
+local_zir_cache: Compilation.Directory,
 /// It's rare for a decl to be exported, so we save memory by having a sparse map of
 /// Decl pointers to details about them being exported.
 /// The Export memory is owned by the `export_owners` table; the slice itself is owned by this table.
@@ -2620,6 +2625,8 @@ pub fn deinit(mod: *Module) void {
     mod.compile_log_text.deinit(gpa);
 
     mod.zig_cache_artifact_directory.handle.close();
+    mod.local_zir_cache.handle.close();
+    mod.global_zir_cache.handle.close();
 
     mod.deletion_set.deinit(gpa);
 
@@ -2722,17 +2729,11 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
         path_hash.addBytes(file.sub_file_path);
         break :hash path_hash.final();
     };
-    const cache_directory = if (want_local_cache)
-        comp.local_cache_directory
-    else
-        comp.global_cache_directory;
+    const cache_directory = if (want_local_cache) mod.local_zir_cache else mod.global_zir_cache;
+    const zir_dir = cache_directory.handle;
 
     var cache_file: ?std.fs.File = null;
     defer if (cache_file) |f| f.close();
-
-    // TODO do this before spawning astgen workers
-    var zir_dir = try cache_directory.handle.makeOpenPath("z", .{});
-    defer zir_dir.close();
 
     // Determine whether we need to reload the file from disk and redo parsing and AstGen.
     switch (file.status) {
@@ -2899,7 +2900,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
         else => |e| {
             const pkg_path = file.pkg.root_src_directory.path orelse ".";
             const cache_path = cache_directory.path orelse ".";
-            log.warn("unable to save cached ZIR code for {s}/{s} to {s}/z/{s}: {s}", .{
+            log.warn("unable to save cached ZIR code for {s}/{s} to {s}/{s}: {s}", .{
                 pkg_path, file.sub_file_path, cache_path, &digest, @errorName(e),
             });
             return;
@@ -3023,7 +3024,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
     cache_file.?.writevAll(&iovecs) catch |err| {
         const pkg_path = file.pkg.root_src_directory.path orelse ".";
         const cache_path = cache_directory.path orelse ".";
-        log.warn("unable to write cached ZIR code for {s}/{s} to {s}/z/{s}: {s}", .{
+        log.warn("unable to write cached ZIR code for {s}/{s} to {s}/{s}: {s}", .{
             pkg_path, file.sub_file_path, cache_path, &digest, @errorName(err),
         });
     };
