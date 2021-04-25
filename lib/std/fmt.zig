@@ -1505,7 +1505,9 @@ test "parseUnsigned" {
     std.testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "", 10));
 }
 
-pub usingnamespace @import("fmt/parse_float.zig");
+const parse_float = @import("fmt/parse_float.zig");
+pub const parseFloat = parse_float.parseFloat;
+pub const parseHexFloat = parse_float.parseHexFloat;
 
 test "parseFloat" {
     _ = @import("fmt/parse_float.zig");
