@@ -1876,7 +1876,11 @@ test "rotate" {
 
 /// Replace needle with replacement as many times as possible, writing to an output buffer which is assumed to be of
 /// appropriate size. Use replacementSize to calculate an appropriate buffer size.
+/// The needle must not be empty.
 pub fn replace(comptime T: type, input: []const T, needle: []const T, replacement: []const T, output: []T) usize {
+    // Empty needle will loop until output buffer overflows.
+    assert(needle.len > 0);
+
     var i: usize = 0;
     var slide: usize = 0;
     var replacements: usize = 0;
@@ -1899,22 +1903,48 @@ pub fn replace(comptime T: type, input: []const T, needle: []const T, replacemen
 test "replace" {
     var output: [29]u8 = undefined;
     var replacements = replace(u8, "All your base are belong to us", "base", "Zig", output[0..]);
+    var expected: []const u8 = "All your Zig are belong to us";
     testing.expect(replacements == 1);
-    testing.expect(eql(u8, output[0..], "All your Zig are belong to us"));
+    testing.expectEqualStrings(expected, output[0..expected.len]);
 
     replacements = replace(u8, "Favor reading code over writing code.", "code", "", output[0..]);
+    expected = "Favor reading  over writing .";
     testing.expect(replacements == 2);
-    testing.expect(eql(u8, output[0..], "Favor reading  over writing ."));
+    testing.expectEqualStrings(expected, output[0..expected.len]);
+
+    // Empty needle is not allowed but input may be empty.
+    replacements = replace(u8, "", "x", "y", output[0..0]);
+    expected = "";
+    testing.expect(replacements == 0);
+    testing.expectEqualStrings(expected, output[0..expected.len]);
+
+    // Adjacent replacements.
+
+    replacements = replace(u8, "\\n\\n", "\\n", "\n", output[0..]);
+    expected = "\n\n";
+    testing.expect(replacements == 2);
+    testing.expectEqualStrings(expected, output[0..expected.len]);
+
+    replacements = replace(u8, "abbba", "b", "cd", output[0..]);
+    expected = "acdcdcda";
+    testing.expect(replacements == 3);
+    testing.expectEqualStrings(expected, output[0..expected.len]);
 }
 
 /// Calculate the size needed in an output buffer to perform a replacement.
+/// The needle must not be empty.
 pub fn replacementSize(comptime T: type, input: []const T, needle: []const T, replacement: []const T) usize {
+    // Empty needle will loop forever.
+    assert(needle.len > 0);
+
     var i: usize = 0;
     var size: usize = input.len;
-    while (i < input.len) : (i += 1) {
+    while (i < input.len) {
         if (mem.indexOf(T, input[i..], needle) == @as(usize, 0)) {
             size = size - needle.len + replacement.len;
             i += needle.len;
+        } else {
+            i += 1;
         }
     }
 
@@ -1923,9 +1953,15 @@ pub fn replacementSize(comptime T: type, input: []const T, needle: []const T, re
 
 test "replacementSize" {
     testing.expect(replacementSize(u8, "All your base are belong to us", "base", "Zig") == 29);
-    testing.expect(replacementSize(u8, "", "", "") == 0);
     testing.expect(replacementSize(u8, "Favor reading code over writing code.", "code", "") == 29);
     testing.expect(replacementSize(u8, "Only one obvious way to do things.", "things.", "things in Zig.") == 41);
+
+    // Empty needle is not allowed but input may be empty.
+    testing.expect(replacementSize(u8, "", "x", "y") == 0);
+
+    // Adjacent replacements.
+    testing.expect(replacementSize(u8, "\\n\\n", "\\n", "\n") == 2);
+    testing.expect(replacementSize(u8, "abbba", "b", "cd") == 8);
 }
 
 /// Perform a replacement on an allocated buffer of pre-determined size. Caller must free returned memory.
