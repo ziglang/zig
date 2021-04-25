@@ -4769,7 +4769,7 @@ Error type_is_nonnull_ptr2(CodeGen *g, ZigType *type, bool *result) {
     return ErrorNone;
 }
 
-static uint32_t get_async_frame_align_bytes(CodeGen *g) {
+uint32_t get_async_frame_align_bytes(CodeGen *g) {
     // Due to how the frame structure is built the minimum alignment is the one
     // of a usize (or pointer).
     // label (grep this): [fn_frame_struct_layout]
