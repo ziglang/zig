@@ -3826,13 +3826,16 @@ fn floatLiteral(
 
     const main_token = main_tokens[node];
     const bytes = tree.tokenSlice(main_token);
-    if (bytes.len > 2 and bytes[1] == 'x') {
-        assert(bytes[0] == '0'); // validated by tokenizer
-        return gz.astgen.mod.failTok(scope, main_token, "TODO implement hex floats", .{});
-    }
-    const float_number = std.fmt.parseFloat(f128, bytes) catch |e| switch (e) {
-        error.InvalidCharacter => unreachable, // validated by tokenizer
-    };
+
+    // correct position of 0x is assumed to have been checked by tokenizer
+    const float_number = if (std.mem.indexOf(u8, bytes, "0x")) |_|
+        std.fmt.parseHexFloat(bytes) catch |e| switch (e) {
+            error.InvalidCharacter => unreachable,
+        }
+    else
+        std.fmt.parseFloat(f128, bytes) catch |e| switch (e) {
+            error.InvalidCharacter => unreachable, // validated by tokenizer
+        };
     // If the value fits into a f32 without losing any precision, store it that way.
     @setFloatMode(.Strict);
     const smaller_float = @floatCast(f32, float_number);

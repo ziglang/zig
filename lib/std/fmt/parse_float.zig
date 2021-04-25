@@ -417,3 +417,102 @@ test "fmt.parseFloat" {
         }
     }
 }
+
+const F128 = packed struct {
+    mantissa: u112,
+    exponent: u15,
+    sign: u1,
+};
+
+pub fn parseHexFloat(bytes: []const u8) !f128 {
+    if (bytes.len < 6)
+        return error.InvalidCharacter;
+
+    var start: usize = 0;
+    const sign: u1 = switch (bytes[0]) {
+        '+', '-' => |val| blk: {
+            start += 1;
+            break :blk if (val == '-') @as(u1, 1) else @as(u1, 0);
+        },
+        '0' => 0,
+        else => return error.InvalidCharacter,
+    };
+
+    if (!std.mem.startsWith(u8, bytes[start..], "0x"))
+        return error.InvalidCharacter;
+
+    start += 2;
+    var it = std.mem.split(bytes[start..], ".");
+    const whole_str = it.next() orelse return error.InvalidCharacter;
+    const tmp = it.next() orelse return error.InvalidCharacter;
+
+    if (it.next() != null) return error.InvalidCharacter;
+
+    it = std.mem.split(tmp, "p");
+    const decimal_str = it.next() orelse return error.InvalidCharacter;
+    const exp_str = it.next() orelse return error.InvalidCharacter;
+
+    if (it.next() != null) return error.InvalidCharacter;
+
+    // count leading zeros
+    var leading_zeroes: usize = 0;
+    for (decimal_str) |c| {
+        if (c != '0') break;
+
+        leading_zeroes += 1;
+    }
+
+    const whole = if (whole_str.len > 0)
+        try std.fmt.parseUnsigned(u113, whole_str, 16)
+    else
+        return error.InvalidCharacter;
+    const decimal = if (decimal_str.len > 0)
+        try std.fmt.parseUnsigned(u113, decimal_str, 16)
+    else
+        0;
+
+    // calculating mantissa might alter exp
+    var exp = try std.fmt.parseInt(i15, exp_str, 10);
+    const mantissa: u112 = if (whole > 0) blk: {
+        const leading_bits = @clz(u113, whole);
+        exp += 113 - leading_bits - 1;
+        break :blk @truncate(u112, whole << leading_bits) |
+            @truncate(u112, decimal << leading_bits - (@intCast(u7, decimal_str.len * 4)));
+    } else blk: {
+        const leading_bits = @clz(u113, decimal);
+        exp -= 1 +
+            (@intCast(i15, leading_zeroes) * 4) +
+            @clz(u4, @truncate(u4, try std.fmt.charToDigit(decimal_str[leading_zeroes], 16)));
+        break :blk @truncate(u112, decimal << leading_bits);
+    };
+
+    return @bitCast(f128, F128{
+        .sign = sign,
+        .exponent = @bitCast(u15, exp) +% 0x3fff,
+        .mantissa = mantissa,
+    });
+}
+
+test "fmt.parseHexFloat" {
+    const expectEqual = std.testing.expectEqual;
+
+    expectEqual(@as(f128, 0x1.p3), try parseHexFloat("0x1.p3"));
+    expectEqual(@as(f128, 0x1.fp3), try parseHexFloat("0x1.fp3"));
+    expectEqual(@as(f128, 0x3.fp3), try parseHexFloat("0x3.fp3"));
+    expectEqual(@as(f128, 0x0f0.0fp3), try parseHexFloat("0x0f0.0fp3"));
+
+    expectEqual(@as(f128, 0x1.p3), try parseHexFloat("+0x1.p3"));
+    expectEqual(@as(f128, 0x1.fp3), try parseHexFloat("+0x1.fp3"));
+    expectEqual(@as(f128, 0x3.fp3), try parseHexFloat("+0x3.fp3"));
+    expectEqual(@as(f128, 0x0f0.0fp3), try parseHexFloat("+0x0f0.0fp3"));
+
+    expectEqual(@as(f128, -0x1.p3), try parseHexFloat("-0x1.p3"));
+    expectEqual(@as(f128, -0x1.fp3), try parseHexFloat("-0x1.fp3"));
+    expectEqual(@as(f128, -0x3.fp3), try parseHexFloat("-0x3.fp3"));
+    expectEqual(@as(f128, -0x0f0.0fp3), try parseHexFloat("-0x0f0.0fp3"));
+
+    expectEqual(@as(f128, 0x1.p-3), try parseHexFloat("0x1.p-3"));
+    expectEqual(@as(f128, 0x1.fp-3), try parseHexFloat("0x1.fp-3"));
+    expectEqual(@as(f128, 0x3.fp-3), try parseHexFloat("0x3.fp-3"));
+    expectEqual(@as(f128, 0x0f0.0fp-3), try parseHexFloat("0x0f0.0fp-3"));
+}
