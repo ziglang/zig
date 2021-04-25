@@ -1336,45 +1336,41 @@ const Parser = struct {
     // A table of binary operator information. Higher precedence numbers are
     // stickier. All operators at the same precedence level should have the same
     // associativity.
-    fn operInfo(tag: Token.Tag) OperInfo {
-        return switch (tag) {
-            .keyword_or => .{ .prec = 10, .tag = .bool_or },
+    const operTable = std.enums.directEnumArrayDefault(Token.Tag, OperInfo, .{ .prec = -1, .tag = Node.Tag.root }, 0, .{
+        .keyword_or = .{ .prec = 10, .tag = .bool_or },
 
-            .keyword_and => .{ .prec = 20, .tag = .bool_and },
-            .invalid_ampersands => .{ .prec = 20, .tag = .bool_and },
+        .keyword_and = .{ .prec = 20, .tag = .bool_and },
+        .invalid_ampersands = .{ .prec = 20, .tag = .bool_and },
 
-            .equal_equal => .{ .prec = 30, .tag = .equal_equal, .assoc = Assoc.none },
-            .bang_equal => .{ .prec = 30, .tag = .bang_equal, .assoc = Assoc.none },
-            .angle_bracket_left => .{ .prec = 30, .tag = .less_than, .assoc = Assoc.none },
-            .angle_bracket_right => .{ .prec = 30, .tag = .greater_than, .assoc = Assoc.none },
-            .angle_bracket_left_equal => .{ .prec = 30, .tag = .less_or_equal, .assoc = Assoc.none },
-            .angle_bracket_right_equal => .{ .prec = 30, .tag = .greater_or_equal, .assoc = Assoc.none },
+        .equal_equal = .{ .prec = 30, .tag = .equal_equal, .assoc = Assoc.none },
+        .bang_equal = .{ .prec = 30, .tag = .bang_equal, .assoc = Assoc.none },
+        .angle_bracket_left = .{ .prec = 30, .tag = .less_than, .assoc = Assoc.none },
+        .angle_bracket_right = .{ .prec = 30, .tag = .greater_than, .assoc = Assoc.none },
+        .angle_bracket_left_equal = .{ .prec = 30, .tag = .less_or_equal, .assoc = Assoc.none },
+        .angle_bracket_right_equal = .{ .prec = 30, .tag = .greater_or_equal, .assoc = Assoc.none },
 
-            .ampersand => .{ .prec = 40, .tag = .bit_and },
-            .caret => .{ .prec = 40, .tag = .bit_xor },
-            .pipe => .{ .prec = 40, .tag = .bit_or },
-            .keyword_orelse => .{ .prec = 40, .tag = .@"orelse" },
-            .keyword_catch => .{ .prec = 40, .tag = .@"catch" },
+        .ampersand = .{ .prec = 40, .tag = .bit_and },
+        .caret = .{ .prec = 40, .tag = .bit_xor },
+        .pipe = .{ .prec = 40, .tag = .bit_or },
+        .keyword_orelse = .{ .prec = 40, .tag = .@"orelse" },
+        .keyword_catch = .{ .prec = 40, .tag = .@"catch" },
 
-            .angle_bracket_angle_bracket_left => .{ .prec = 50, .tag = .bit_shift_left },
-            .angle_bracket_angle_bracket_right => .{ .prec = 50, .tag = .bit_shift_right },
+        .angle_bracket_angle_bracket_left = .{ .prec = 50, .tag = .bit_shift_left },
+        .angle_bracket_angle_bracket_right = .{ .prec = 50, .tag = .bit_shift_right },
 
-            .plus => .{ .prec = 60, .tag = .add },
-            .minus => .{ .prec = 60, .tag = .sub },
-            .plus_plus => .{ .prec = 60, .tag = .array_cat },
-            .plus_percent => .{ .prec = 60, .tag = .add_wrap },
-            .minus_percent => .{ .prec = 60, .tag = .sub_wrap },
+        .plus = .{ .prec = 60, .tag = .add },
+        .minus = .{ .prec = 60, .tag = .sub },
+        .plus_plus = .{ .prec = 60, .tag = .array_cat },
+        .plus_percent = .{ .prec = 60, .tag = .add_wrap },
+        .minus_percent = .{ .prec = 60, .tag = .sub_wrap },
 
-            .pipe_pipe => .{ .prec = 70, .tag = .merge_error_sets },
-            .asterisk => .{ .prec = 70, .tag = .mul },
-            .slash => .{ .prec = 70, .tag = .div },
-            .percent => .{ .prec = 70, .tag = .mod },
-            .asterisk_asterisk => .{ .prec = 70, .tag = .array_mult },
-            .asterisk_percent => .{ .prec = 70, .tag = .mul_wrap },
-
-            else => .{ .prec = -1, .tag = ast.Node.Tag.root }, // irrelevant
-        };
-    }
+        .pipe_pipe = .{ .prec = 70, .tag = .merge_error_sets },
+        .asterisk = .{ .prec = 70, .tag = .mul },
+        .slash = .{ .prec = 70, .tag = .div },
+        .percent = .{ .prec = 70, .tag = .mod },
+        .asterisk_asterisk = .{ .prec = 70, .tag = .array_mult },
+        .asterisk_percent = .{ .prec = 70, .tag = .mul_wrap },
+    });
 
     fn parseExprPrecedence(p: *Parser, min_prec: i32) Error!Node.Index {
         var node = try p.parsePrefixExpr();
@@ -1386,7 +1382,7 @@ const Parser = struct {
 
         while (true) {
             const tok_tag = p.token_tags[p.tok_i];
-            const info = operInfo(tok_tag);
+            const info = operTable[@intCast(usize, @enumToInt(tok_tag))];
             if (info.prec < min_prec or info.prec == banned_prec) {
                 break;
             }
