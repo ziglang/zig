@@ -3254,6 +3254,12 @@ fn structDeclInner(
         .fields_len = @intCast(u32, field_index),
         .decls_len = @intCast(u32, wip_decls.decl_index),
     });
+    astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
+    if (wip_decls.decl_index != 0) {
+        astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
+    }
+    astgen.extra.appendSliceAssumeCapacity(wip_decls.payload.items);
+
     astgen.extra.appendSliceAssumeCapacity(block_scope.instructions.items);
 
     astgen.extra.appendSliceAssumeCapacity(bit_bag.items); // Likely empty.
@@ -3261,12 +3267,6 @@ fn structDeclInner(
         astgen.extra.appendAssumeCapacity(cur_bit_bag);
     }
     astgen.extra.appendSliceAssumeCapacity(fields_data.items);
-
-    astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
-    if (wip_decls.decl_index != 0) {
-        astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
-    }
-    astgen.extra.appendSliceAssumeCapacity(wip_decls.payload.items);
 
     return gz.indexToRef(decl_inst);
 }
@@ -3479,17 +3479,17 @@ fn unionDeclInner(
         .fields_len = @intCast(u32, field_index),
         .decls_len = @intCast(u32, wip_decls.decl_index),
     });
-    astgen.extra.appendSliceAssumeCapacity(block_scope.instructions.items);
-
-    astgen.extra.appendSliceAssumeCapacity(bit_bag.items); // Likely empty.
-    astgen.extra.appendAssumeCapacity(cur_bit_bag);
-    astgen.extra.appendSliceAssumeCapacity(fields_data.items);
-
     astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
     if (wip_decls.decl_index != 0) {
         astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
     }
     astgen.extra.appendSliceAssumeCapacity(wip_decls.payload.items);
+
+    astgen.extra.appendSliceAssumeCapacity(block_scope.instructions.items);
+
+    astgen.extra.appendSliceAssumeCapacity(bit_bag.items); // Likely empty.
+    astgen.extra.appendAssumeCapacity(cur_bit_bag);
+    astgen.extra.appendSliceAssumeCapacity(fields_data.items);
 
     return gz.indexToRef(decl_inst);
 }
@@ -3811,11 +3811,121 @@ fn containerDecl(
                 .fields_len = @intCast(u32, field_index),
                 .decls_len = @intCast(u32, wip_decls.decl_index),
             });
+            astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
+            if (wip_decls.decl_index != 0) {
+                astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
+            }
+            astgen.extra.appendSliceAssumeCapacity(wip_decls.payload.items);
+
             astgen.extra.appendSliceAssumeCapacity(block_scope.instructions.items);
             astgen.extra.appendSliceAssumeCapacity(bit_bag.items); // Likely empty.
             astgen.extra.appendAssumeCapacity(cur_bit_bag);
             astgen.extra.appendSliceAssumeCapacity(fields_data.items);
 
+            return rvalue(gz, scope, rl, gz.indexToRef(decl_inst), node);
+        },
+        .keyword_opaque => {
+            var wip_decls: WipDecls = .{};
+            defer wip_decls.deinit(gpa);
+
+            for (container_decl.ast.members) |member_node| {
+                const member = switch (node_tags[member_node]) {
+                    .container_field_init => tree.containerFieldInit(member_node),
+                    .container_field_align => tree.containerFieldAlign(member_node),
+                    .container_field => tree.containerField(member_node),
+
+                    .fn_decl => {
+                        const fn_proto = node_datas[member_node].lhs;
+                        const body = node_datas[member_node].rhs;
+                        switch (node_tags[fn_proto]) {
+                            .fn_proto_simple => {
+                                var params: [1]ast.Node.Index = undefined;
+                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoSimple(&params, fn_proto));
+                                continue;
+                            },
+                            .fn_proto_multi => {
+                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoMulti(fn_proto));
+                                continue;
+                            },
+                            .fn_proto_one => {
+                                var params: [1]ast.Node.Index = undefined;
+                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoOne(&params, fn_proto));
+                                continue;
+                            },
+                            .fn_proto => {
+                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProto(fn_proto));
+                                continue;
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    .fn_proto_simple => {
+                        var params: [1]ast.Node.Index = undefined;
+                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoSimple(&params, member_node));
+                        continue;
+                    },
+                    .fn_proto_multi => {
+                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoMulti(member_node));
+                        continue;
+                    },
+                    .fn_proto_one => {
+                        var params: [1]ast.Node.Index = undefined;
+                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoOne(&params, member_node));
+                        continue;
+                    },
+                    .fn_proto => {
+                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProto(member_node));
+                        continue;
+                    },
+
+                    .global_var_decl => {
+                        try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.globalVarDecl(member_node));
+                        continue;
+                    },
+                    .local_var_decl => {
+                        try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.localVarDecl(member_node));
+                        continue;
+                    },
+                    .simple_var_decl => {
+                        try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.simpleVarDecl(member_node));
+                        continue;
+                    },
+                    .aligned_var_decl => {
+                        try astgen.globalVarDecl(gz, scope, &wip_decls, member_node, tree.alignedVarDecl(member_node));
+                        continue;
+                    },
+
+                    .@"comptime" => {
+                        try astgen.comptimeDecl(gz, scope, member_node);
+                        continue;
+                    },
+                    .@"usingnamespace" => {
+                        try astgen.usingnamespaceDecl(gz, scope, member_node);
+                        continue;
+                    },
+                    .test_decl => {
+                        try astgen.testDecl(gz, scope, member_node);
+                        continue;
+                    },
+                    else => unreachable,
+                };
+            }
+            {
+                const empty_slot_count = WipDecls.fields_per_u32 - (wip_decls.decl_index % WipDecls.fields_per_u32);
+                if (empty_slot_count < WipDecls.fields_per_u32) {
+                    wip_decls.cur_bit_bag >>= @intCast(u5, empty_slot_count * WipDecls.bits_per_field);
+                }
+            }
+            const decl_inst = try gz.addBlock(.opaque_decl, node);
+            try gz.instructions.append(gpa, decl_inst);
+
+            try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.OpaqueDecl).Struct.fields.len +
+                wip_decls.bit_bag.items.len + @boolToInt(wip_decls.decl_index != 0) +
+                wip_decls.payload.items.len);
+            const zir_datas = astgen.instructions.items(.data);
+            zir_datas[decl_inst].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.OpaqueDecl{
+                .decls_len = @intCast(u32, wip_decls.decl_index),
+            });
             astgen.extra.appendSliceAssumeCapacity(wip_decls.bit_bag.items); // Likely empty.
             if (wip_decls.decl_index != 0) {
                 astgen.extra.appendAssumeCapacity(wip_decls.cur_bit_bag);
@@ -3823,10 +3933,6 @@ fn containerDecl(
             astgen.extra.appendSliceAssumeCapacity(wip_decls.payload.items);
 
             return rvalue(gz, scope, rl, gz.indexToRef(decl_inst), node);
-        },
-        .keyword_opaque => {
-            const result = try gz.addNode(.opaque_decl, node);
-            return rvalue(gz, scope, rl, result, node);
         },
         else => unreachable,
     }

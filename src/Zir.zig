@@ -312,7 +312,7 @@ pub const Inst = struct {
         /// Same as `enum_decl`, except the enum is non-exhaustive.
         enum_decl_nonexhaustive,
         /// An opaque type definition. Provides an AST node only.
-        /// Uses the `node` union field.
+        /// Uses the `pl_node` union field. Payload is `OpaqueDecl`.
         opaque_decl,
         /// An error set type definition. Contains a list of field names.
         /// Uses the `pl_node` union field. Payload is `ErrorSetDecl`.
@@ -2368,28 +2368,28 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. inst: Index // for every body_len
-    /// 1. has_bits: u32 // for every 16 fields
-    ///    - sets of 2 bits:
-    ///      0b0X: whether corresponding field has an align expression
-    ///      0bX0: whether corresponding field has a default expression
-    /// 2. fields: { // for every fields_len
-    ///        field_name: u32,
-    ///        field_type: Ref,
-    ///        align: Ref, // if corresponding bit is set
-    ///        default_value: Ref, // if corresponding bit is set
-    ///    }
-    /// 3. decl_bits: u32 // for every 8 decls
+    /// 0. decl_bits: u32 // for every 8 decls
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection expression
-    /// 4. decl: { // for every decls_len
+    /// 1. decl: { // for every decls_len
     ///        name: u32, // null terminated string index
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
+    ///    }
+    /// 2. inst: Index // for every body_len
+    /// 3. has_bits: u32 // for every 16 fields
+    ///    - sets of 2 bits:
+    ///      0b0X: whether corresponding field has an align expression
+    ///      0bX0: whether corresponding field has a default expression
+    /// 4. fields: { // for every fields_len
+    ///        field_name: u32,
+    ///        field_type: Ref,
+    ///        align: Ref, // if corresponding bit is set
+    ///        default_value: Ref, // if corresponding bit is set
     ///    }
     pub const StructDecl = struct {
         body_len: u32,
@@ -2398,24 +2398,24 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. inst: Index // for every body_len
-    /// 1. has_bits: u32 // for every 32 fields
-    ///    - the bit is whether corresponding field has an value expression
-    /// 2. fields: { // for every fields_len
-    ///        field_name: u32,
-    ///        value: Ref, // if corresponding bit is set
-    ///    }
-    /// 3. decl_bits: u32 // for every 8 decls
+    /// 0. decl_bits: u32 // for every 8 decls
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection expression
-    /// 4. decl: { // for every decls_len
+    /// 1. decl: { // for every decls_len
     ///        name: u32, // null terminated string index
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
+    ///    }
+    /// 2. inst: Index // for every body_len
+    /// 3. has_bits: u32 // for every 32 fields
+    ///    - the bit is whether corresponding field has an value expression
+    /// 4. fields: { // for every fields_len
+    ///        field_name: u32,
+    ///        value: Ref, // if corresponding bit is set
     ///    }
     pub const EnumDecl = struct {
         /// Can be `Ref.none`.
@@ -2426,8 +2426,20 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. inst: Index // for every body_len
-    /// 1. has_bits: u32 // for every 8 fields
+    /// 0. decl_bits: u32 // for every 8 decls
+    ///    - sets of 4 bits:
+    ///      0b000X: whether corresponding decl is pub
+    ///      0b00X0: whether corresponding decl is exported
+    ///      0b0X00: whether corresponding decl has an align expression
+    ///      0bX000: whether corresponding decl has a linksection expression
+    /// 1. decl: { // for every decls_len
+    ///        name: u32, // null terminated string index
+    ///        value: Index,
+    ///        align: Ref, // if corresponding bit is set
+    ///        link_section: Ref, // if corresponding bit is set
+    ///    }
+    /// 2. inst: Index // for every body_len
+    /// 3. has_bits: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has a type expression
     ///      0b00X0: whether corresponding field has a align expression
@@ -2437,29 +2449,34 @@ pub const Inst = struct {
     ///      to indicate whether auto enum tag is enabled.
     ///      0 = union(tag_type)
     ///      1 = union(enum(tag_type))
-    /// 2. fields: { // for every fields_len
+    /// 4. fields: { // for every fields_len
     ///        field_name: u32, // null terminated string index
     ///        field_type: Ref, // if corresponding bit is set
     ///        align: Ref, // if corresponding bit is set
     ///        tag_value: Ref, // if corresponding bit is set
-    ///    }
-    /// 3. decl_bits: u32 // for every 8 decls
-    ///    - sets of 4 bits:
-    ///      0b000X: whether corresponding decl is pub
-    ///      0b00X0: whether corresponding decl is exported
-    ///      0b0X00: whether corresponding decl has an align expression
-    ///      0bX000: whether corresponding decl has a linksection expression
-    /// 4. decl: { // for every decls_len
-    ///        name: u32, // null terminated string index
-    ///        value: Index,
-    ///        align: Ref, // if corresponding bit is set
-    ///        link_section: Ref, // if corresponding bit is set
     ///    }
     pub const UnionDecl = struct {
         /// Can be `Ref.none`.
         tag_type: Ref,
         body_len: u32,
         fields_len: u32,
+        decls_len: u32,
+    };
+
+    /// Trailing:
+    /// 0. decl_bits: u32 // for every 8 decls
+    ///    - sets of 4 bits:
+    ///      0b000X: whether corresponding decl is pub
+    ///      0b00X0: whether corresponding decl is exported
+    ///      0b0X00: whether corresponding decl has an align expression
+    ///      0bX000: whether corresponding decl has a linksection expression
+    /// 1. decl: { // for every decls_len
+    ///        name: u32, // null terminated string index
+    ///        value: Index,
+    ///        align: Ref, // if corresponding bit is set
+    ///        link_section: Ref, // if corresponding bit is set
+    ///    }
+    pub const OpaqueDecl = struct {
         decls_len: u32,
     };
 
@@ -2897,6 +2914,8 @@ const Writer = struct {
             .enum_decl_nonexhaustive,
             => try self.writeEnumDecl(stream, inst),
 
+            .opaque_decl => try self.writeOpaqueDecl(stream, inst),
+
             .switch_block => try self.writePlNodeSwitchBr(stream, inst, .none),
             .switch_block_else => try self.writePlNodeSwitchBr(stream, inst, .@"else"),
             .switch_block_under => try self.writePlNodeSwitchBr(stream, inst, .under),
@@ -2919,7 +2938,6 @@ const Writer = struct {
 
             .breakpoint,
             .fence,
-            .opaque_decl,
             .dbg_stmt_node,
             .repeat,
             .repeat_inline,
@@ -3321,27 +3339,45 @@ const Writer = struct {
     fn writeStructDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.StructDecl, inst_data.payload_index);
-        const body = self.code.extra[extra.end..][0..extra.data.body_len];
         const fields_len = extra.data.fields_len;
         const decls_len = extra.data.decls_len;
 
         var extra_index: usize = undefined;
+
+        if (decls_len == 0) {
+            try stream.writeAll("}) ");
+            extra_index = extra.end;
+        } else {
+            try stream.writeAll("\n");
+            self.indent += 2;
+            extra_index = try self.writeDecls(stream, decls_len, extra.end);
+            self.indent -= 2;
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.writeAll("}) ");
+        }
+
+        const body = self.code.extra[extra_index..][0..extra.data.body_len];
+        extra_index += body.len;
 
         if (fields_len == 0) {
             assert(body.len == 0);
             try stream.writeAll("{}, {}, {");
             extra_index = extra.end;
         } else {
-            try stream.writeAll("{\n");
             self.indent += 2;
-            try self.writeBody(stream, body);
+            if (body.len == 0) {
+                try stream.writeAll("{}, {\n");
+            } else {
+                try stream.writeAll("{\n");
+                try self.writeBody(stream, body);
 
-            try stream.writeByteNTimes(' ', self.indent - 2);
-            try stream.writeAll("}, {\n");
+                try stream.writeByteNTimes(' ', self.indent - 2);
+                try stream.writeAll("}, {\n");
+            }
 
             const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
-            const body_end = extra.end + body.len;
-            extra_index = body_end + bit_bags_count;
+            const body_end = extra_index;
+            extra_index += bit_bags_count;
             var bit_bag_index: usize = body_end;
             var cur_bit_bag: u32 = undefined;
             var field_i: u32 = 0;
@@ -3386,26 +3422,29 @@ const Writer = struct {
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("}, {");
         }
-        if (decls_len == 0) {
-            try stream.writeAll("}) ");
-        } else {
-            try stream.writeAll("\n");
-            self.indent += 2;
-            try self.writeDecls(stream, decls_len, extra_index);
-            self.indent -= 2;
-            try stream.writeByteNTimes(' ', self.indent);
-            try stream.writeAll("}) ");
-        }
         try self.writeSrc(stream, inst_data.src());
     }
 
     fn writeUnionDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.UnionDecl, inst_data.payload_index);
-        const body = self.code.extra[extra.end..][0..extra.data.body_len];
         const fields_len = extra.data.fields_len;
         const decls_len = extra.data.decls_len;
         const tag_type_ref = extra.data.tag_type;
+
+        var extra_index: usize = undefined;
+
+        if (decls_len == 0) {
+            try stream.writeAll("{}, ");
+            extra_index = extra.end;
+        } else {
+            try stream.writeAll("{\n");
+            self.indent += 2;
+            extra_index = try self.writeDecls(stream, decls_len, extra.end);
+            self.indent -= 2;
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.writeAll("}, ");
+        }
 
         assert(fields_len != 0);
         var first_has_auto_enum: ?bool = null;
@@ -3415,20 +3454,25 @@ const Writer = struct {
             try stream.writeAll(", ");
         }
 
-        var extra_index: usize = undefined;
+        const body = self.code.extra[extra_index..][0..extra.data.body_len];
+        extra_index += body.len;
 
-        try stream.writeAll("{\n");
         self.indent += 2;
-        try self.writeBody(stream, body);
+        if (body.len == 0) {
+            try stream.writeAll("{}, {\n");
+        } else {
+            try stream.writeAll("{\n");
+            try self.writeBody(stream, body);
 
-        try stream.writeByteNTimes(' ', self.indent - 2);
-        try stream.writeAll("}, {\n");
+            try stream.writeByteNTimes(' ', self.indent - 2);
+            try stream.writeAll("}, {\n");
+        }
 
         const bits_per_field = 4;
         const fields_per_u32 = 32 / bits_per_field;
         const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-        const body_end = extra.end + body.len;
-        extra_index = body_end + bit_bags_count;
+        const body_end = extra_index;
+        extra_index += bit_bags_count;
         var bit_bag_index: usize = body_end;
         var cur_bit_bag: u32 = undefined;
         var field_i: u32 = 0;
@@ -3482,23 +3526,13 @@ const Writer = struct {
 
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
-        try stream.writeAll("}, {");
-        if (decls_len == 0) {
-            try stream.writeAll("}");
-        } else {
-            try stream.writeAll("\n");
-            self.indent += 2;
-            try self.writeDecls(stream, decls_len, extra_index);
-            self.indent -= 2;
-            try stream.writeByteNTimes(' ', self.indent);
-            try stream.writeAll("}");
-        }
+        try stream.writeAll("}");
         try self.writeFlag(stream, ", autoenum", first_has_auto_enum.?);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeDecls(self: *Writer, stream: anytype, decls_len: u32, extra_start: usize) !void {
+    fn writeDecls(self: *Writer, stream: anytype, decls_len: u32, extra_start: usize) !usize {
         const parent_decl_node = self.parent_decl_node;
         const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
         var extra_index = extra_start + bit_bags_count;
@@ -3561,38 +3595,56 @@ const Writer = struct {
             try self.writeSrc(stream, decl_block_inst_data.src());
             try stream.writeAll("\n");
         }
+        return extra_index;
     }
 
     fn writeEnumDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.EnumDecl, inst_data.payload_index);
-        const body = self.code.extra[extra.end..][0..extra.data.body_len];
         const fields_len = extra.data.fields_len;
         const decls_len = extra.data.decls_len;
         const tag_type_ref = extra.data.tag_type;
+
+        var extra_index: usize = undefined;
+
+        if (decls_len == 0) {
+            try stream.writeAll("{}, ");
+            extra_index = extra.end;
+        } else {
+            try stream.writeAll("{\n");
+            self.indent += 2;
+            extra_index = try self.writeDecls(stream, decls_len, extra.end);
+            self.indent -= 2;
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.writeAll("}, ");
+        }
 
         if (tag_type_ref != .none) {
             try self.writeInstRef(stream, tag_type_ref);
             try stream.writeAll(", ");
         }
 
-        var extra_index: usize = undefined;
+        const body = self.code.extra[extra_index..][0..extra.data.body_len];
+        extra_index += body.len;
 
         if (fields_len == 0) {
             assert(body.len == 0);
-            try stream.writeAll("{}, {}, {");
-            extra_index = extra.end;
+            try stream.writeAll("{}, {}) ");
         } else {
-            try stream.writeAll("{\n");
             self.indent += 2;
-            try self.writeBody(stream, body);
+            if (body.len == 0) {
+                try stream.writeAll("{}, {\n");
+            } else {
+                try stream.writeAll("{\n");
+                try self.writeBody(stream, body);
 
-            try stream.writeByteNTimes(' ', self.indent - 2);
-            try stream.writeAll("}, {\n");
+                try stream.writeByteNTimes(' ', self.indent - 2);
+                try stream.writeAll("}, {\n");
+            }
 
             const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
-            const body_end = extra.end + body.len;
-            extra_index = body_end + bit_bags_count;
+            const body_end = extra_index;
+            extra_index += bit_bags_count;
             var bit_bag_index: usize = body_end;
             var cur_bit_bag: u32 = undefined;
             var field_i: u32 = 0;
@@ -3621,14 +3673,22 @@ const Writer = struct {
             }
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.writeAll("}, {");
+            try stream.writeAll("}) ");
         }
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeOpaqueDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.OpaqueDecl, inst_data.payload_index);
+        const decls_len = extra.data.decls_len;
+
         if (decls_len == 0) {
             try stream.writeAll("}) ");
         } else {
             try stream.writeAll("\n");
             self.indent += 2;
-            try self.writeDecls(stream, decls_len, extra_index);
+            _ = try self.writeDecls(stream, decls_len, extra.end);
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("}) ");
