@@ -75,15 +75,6 @@ pub const Edwards25519 = struct {
         .is_base = true,
     };
 
-    /// The edwards25519 neutral element.
-    pub const neutralElement = Edwards25519{
-        .x = Fe{ .limbs = .{ 2251799813685229, 2251799813685247, 2251799813685247, 2251799813685247, 2251799813685247 } },
-        .y = Fe{ .limbs = .{ 1507481815385608, 2223447444246085, 1083941587175919, 2059929906842505, 1581435440146976 } },
-        .z = Fe{ .limbs = .{ 1507481815385608, 2223447444246085, 1083941587175919, 2059929906842505, 1581435440146976 } },
-        .t = Fe{ .limbs = .{ 2251799813685229, 2251799813685247, 2251799813685247, 2251799813685247, 2251799813685247 } },
-        .is_base = false,
-    };
-
     const identityElement = Edwards25519{ .x = Fe.zero, .y = Fe.one, .z = Fe.one, .t = Fe.zero };
 
     /// Reject the neutral element.
@@ -160,9 +151,10 @@ pub const Edwards25519 = struct {
         return t;
     }
 
-    fn nonAdjacentForm(s: [32]u8) [2 * 32]i8 {
+    fn slide(s: [32]u8) [2 * 32]i8 {
+        const reduced = if ((s[s.len - 1] & 0x80) != 0) s else scalar.reduce(s);
         var e: [2 * 32]i8 = undefined;
-        for (s) |x, i| {
+        for (reduced) |x, i| {
             e[i * 2 + 0] = @as(i8, @truncate(u4, x));
             e[i * 2 + 1] = @as(i8, @truncate(u4, x >> 4));
         }
@@ -185,7 +177,7 @@ pub const Edwards25519 = struct {
     // avoid these to keep the standard library lightweight.
     fn pcMul(pc: [9]Edwards25519, s: [32]u8, comptime vartime: bool) IdentityElementError!Edwards25519 {
         std.debug.assert(vartime);
-        const e = nonAdjacentForm(s);
+        const e = slide(s);
         var q = Edwards25519.identityElement;
         var pos: usize = 2 * 32 - 1;
         while (true) : (pos -= 1) {
@@ -280,8 +272,8 @@ pub const Edwards25519 = struct {
             xpc[4].rejectIdentity() catch return error.WeakPublicKey;
             break :pc xpc;
         };
-        const e1 = nonAdjacentForm(s1);
-        const e2 = nonAdjacentForm(s2);
+        const e1 = slide(s1);
+        const e2 = slide(s2);
         var q = Edwards25519.identityElement;
         var pos: usize = 2 * 32 - 1;
         while (true) : (pos -= 1) {
@@ -318,7 +310,7 @@ pub const Edwards25519 = struct {
         }
         var es: [count][2 * 32]i8 = undefined;
         for (ss) |s, i| {
-            es[i] = nonAdjacentForm(s);
+            es[i] = slide(s);
         }
         var q = Edwards25519.identityElement;
         var pos: usize = 2 * 32 - 1;
