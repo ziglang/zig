@@ -53,10 +53,11 @@ const SparcCpuinfoImpl = struct {
         // At the moment we only support 64bit SPARC systems.
         assert(self.is_64bit);
 
+        const model = self.model orelse Target.Cpu.Model.generic(arch);
         return Target.Cpu{
             .arch = arch,
-            .model = self.model orelse Target.Cpu.Model.generic(arch),
-            .features = Target.Cpu.Feature.Set.empty,
+            .model = model,
+            .features = model.features,
         };
     }
 };
@@ -75,6 +76,7 @@ test "cpuinfo: SPARC" {
 
     const r = SparcCpuinfoParser.parse(.sparcv9, fbs.reader()) catch unreachable;
     testing.expectEqual(&Target.sparc.cpu.niagara2, r.?.model);
+    testing.expect(Target.sparc.cpu.niagara2.features.eql(r.?.features));
 }
 
 // The generic implementation of a /proc/cpuinfo parser.
