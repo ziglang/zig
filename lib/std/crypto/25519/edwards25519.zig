@@ -75,7 +75,8 @@ pub const Edwards25519 = struct {
         .is_base = true,
     };
 
-    const identityElement = Edwards25519{ .x = Fe.zero, .y = Fe.one, .z = Fe.one, .t = Fe.zero };
+    pub const neutralElement = @compileError("deprecated: use identityElement instead");
+    pub const identityElement = Edwards25519{ .x = Fe.zero, .y = Fe.one, .z = Fe.one, .t = Fe.zero };
 
     /// Reject the neutral element.
     pub fn rejectIdentity(p: Edwards25519) IdentityElementError!void {

@@ -355,7 +355,7 @@ pub const Fe = struct {
         return fe;
     }
 
-    /// Compute the inverse of a field element
+    /// Return the inverse of a field element, or 0 if a=0.
     pub fn invert(a: Fe) Fe {
         var t0 = a.sq();
         var t1 = t0.sqn(2).mul(a);

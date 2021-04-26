@@ -98,7 +98,7 @@ pub fn sub(a: [32]u8, b: [32]u8) [32]u8 {
     return add(a, neg(b));
 }
 
-/// A scalar in unpacked reprentation
+/// A scalar in unpacked representation
 pub const Scalar = struct {
     const Limbs = [5]u64;
     limbs: Limbs = undefined,
