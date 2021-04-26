@@ -279,20 +279,10 @@ pub const PROT_READ = 1;
 pub const PROT_WRITE = 2;
 pub const PROT_EXEC = 4;
 
-pub const CLOCK_REALTIME = 0;
-pub const CLOCK_VIRTUAL = 1;
-pub const CLOCK_PROF = 2;
-pub const CLOCK_MONOTONIC = 4;
-pub const CLOCK_UPTIME = 5;
-pub const CLOCK_UPTIME_PRECISE = 7;
-pub const CLOCK_UPTIME_FAST = 8;
-pub const CLOCK_REALTIME_PRECISE = 9;
-pub const CLOCK_REALTIME_FAST = 10;
-pub const CLOCK_MONOTONIC_PRECISE = 11;
-pub const CLOCK_MONOTONIC_FAST = 12;
-pub const CLOCK_SECOND = 13;
-pub const CLOCK_THREAD_CPUTIME_ID = 14;
-pub const CLOCK_PROCESS_CPUTIME_ID = 15;
+pub const CLOCK_MONOTONIC = 0;
+pub const CLOCK_REALTIME = -1;
+pub const CLOCK_PROCESS_CPUTIME_ID = -2;
+pub const CLOCK_THREAD_CPUTIME_ID = -3;
 
 pub const MAP_FAILED = @intToPtr(*c_void, maxInt(usize));
 pub const MAP_SHARED = 0x0001;
@@ -310,58 +300,59 @@ pub const MAP_NOCORE = 0x00020000;
 pub const MAP_PREFAULT_READ = 0x00040000;
 pub const MAP_32BIT = 0x00080000;
 
-pub const WNOHANG = 1;
-pub const WUNTRACED = 2;
-pub const WSTOPPED = WUNTRACED;
-pub const WCONTINUED = 4;
-pub const WNOWAIT = 8;
-pub const WEXITED = 16;
-pub const WTRAPPED = 32;
+pub const WNOHANG = 0x1;
+pub const WUNTRACED = 0x2;
+pub const WSTOPPED = 0x10;
+pub const WCONTINUED = 0x4;
+pub const WNOWAIT = 0x20;
+pub const WEXITED = 0x08;
 
-pub const SA_ONSTACK = 0x0001;
-pub const SA_RESTART = 0x0002;
-pub const SA_RESETHAND = 0x0004;
-pub const SA_NOCLDSTOP = 0x0008;
-pub const SA_NODEFER = 0x0010;
-pub const SA_NOCLDWAIT = 0x0020;
-pub const SA_SIGINFO = 0x0040;
+pub const SA_ONSTACK = 0x20;
+pub const SA_RESTART = 0x10;
+pub const SA_RESETHAND = 0x04;
+pub const SA_NOCLDSTOP = 0x01;
+pub const SA_NODEFER = 0x08;
+pub const SA_NOCLDWAIT = 0x02;
+pub const SA_SIGINFO = 0x40;
+pub const SA_NOMASK = SA_NODEFER;
+pub const SA_STACK = SA_ONSTACK;
+pub const SA_ONESHOT = SA_RESETHAND;
 
 pub const SIGHUP = 1;
 pub const SIGINT = 2;
 pub const SIGQUIT = 3;
 pub const SIGILL = 4;
-pub const SIGTRAP = 5;
+pub const SIGCHLD = 5;
 pub const SIGABRT = 6;
 pub const SIGIOT = SIGABRT;
-pub const SIGEMT = 7;
+pub const SIGPIPE = 7;
 pub const SIGFPE = 8;
 pub const SIGKILL = 9;
-pub const SIGBUS = 10;
+pub const SIGSTOP = 10;
 pub const SIGSEGV = 11;
-pub const SIGSYS = 12;
-pub const SIGPIPE = 13;
+pub const SIGCONT = 12;
+pub const SIGTSTP = 13;
 pub const SIGALRM = 14;
 pub const SIGTERM = 15;
-pub const SIGURG = 16;
-pub const SIGSTOP = 17;
-pub const SIGTSTP = 18;
-pub const SIGCONT = 19;
-pub const SIGCHLD = 20;
-pub const SIGTTIN = 21;
-pub const SIGTTOU = 22;
-pub const SIGIO = 23;
-pub const SIGXCPU = 24;
-pub const SIGXFSZ = 25;
-pub const SIGVTALRM = 26;
-pub const SIGPROF = 27;
-pub const SIGWINCH = 28;
-pub const SIGINFO = 29;
-pub const SIGUSR1 = 30;
-pub const SIGUSR2 = 31;
-pub const SIGTHR = 32;
-pub const SIGLWP = SIGTHR;
-pub const SIGLIBRT = 33;
+pub const SIGTTIN = 16;
+pub const SIGTTOU = 17;
+pub const SIGUSR1 = 18;
+pub const SIGUSR2 = 19;
+pub const SIGWINCH = 20;
+pub const SIGKILLTHR = 21;
+pub const SIGTRAP = 22;
+pub const SIGPOLL = 23;
+pub const SIGPROF = 24;
+pub const SIGSYS = 25;
+pub const SIGURG = 26;
+pub const SIGVTALRM = 27;
+pub const SIGXCPU = 28;
+pub const SIGXFSZ = 29;
+pub const SIGBUS = 30;
+pub const SIGRESERVED1 = 31;
+pub const SIGRESERVED2 = 32;
 
+// TODO: check
 pub const SIGRTMIN = 65;
 pub const SIGRTMAX = 126;
 
@@ -645,135 +636,51 @@ pub const EVFILT_SENDFILE = -12;
 
 pub const EVFILT_EMPTY = -13;
 
-/// On input, NOTE_TRIGGER causes the event to be triggered for output.
-pub const NOTE_TRIGGER = 0x01000000;
+pub const TCGETA = 0x8000;
+pub const TCSETA = 0x8001;
+pub const TCSETAW = 0x8004;
+pub const TCSETAF = 0x8003;
+pub const TCSBRK = 08005;
+pub const TCXONC = 0x8007;
+pub const TCFLSH = 0x8006;
 
-/// ignore input fflags
-pub const NOTE_FFNOP = 0x00000000;
-
-/// and fflags
-pub const NOTE_FFAND = 0x40000000;
-
-/// or fflags
-pub const NOTE_FFOR = 0x80000000;
-
-/// copy fflags
-pub const NOTE_FFCOPY = 0xc0000000;
-
-/// mask for operations
-pub const NOTE_FFCTRLMASK = 0xc0000000;
-pub const NOTE_FFLAGSMASK = 0x00ffffff;
-
-/// low water mark
-pub const NOTE_LOWAT = 0x00000001;
-
-/// behave like poll()
-pub const NOTE_FILE_POLL = 0x00000002;
-
-/// vnode was removed
-pub const NOTE_DELETE = 0x00000001;
-
-/// data contents changed
-pub const NOTE_WRITE = 0x00000002;
-
-/// size increased
-pub const NOTE_EXTEND = 0x00000004;
-
-/// attributes changed
-pub const NOTE_ATTRIB = 0x00000008;
-
-/// link count changed
-pub const NOTE_LINK = 0x00000010;
-
-/// vnode was renamed
-pub const NOTE_RENAME = 0x00000020;
-
-/// vnode access was revoked
-pub const NOTE_REVOKE = 0x00000040;
-
-/// vnode was opened
-pub const NOTE_OPEN = 0x00000080;
-
-/// file closed, fd did not allow write
-pub const NOTE_CLOSE = 0x00000100;
-
-/// file closed, fd did allow write
-pub const NOTE_CLOSE_WRITE = 0x00000200;
-
-/// file was read
-pub const NOTE_READ = 0x00000400;
-
-/// process exited
-pub const NOTE_EXIT = 0x80000000;
-
-/// process forked
-pub const NOTE_FORK = 0x40000000;
-
-/// process exec'd
-pub const NOTE_EXEC = 0x20000000;
-
-/// mask for signal & exit status
-pub const NOTE_PDATAMASK = 0x000fffff;
-pub const NOTE_PCTRLMASK = (~NOTE_PDATAMASK);
-
-/// data is seconds
-pub const NOTE_SECONDS = 0x00000001;
-
-/// data is milliseconds
-pub const NOTE_MSECONDS = 0x00000002;
-
-/// data is microseconds
-pub const NOTE_USECONDS = 0x00000004;
-
-/// data is nanoseconds
-pub const NOTE_NSECONDS = 0x00000008;
-
-/// timeout is absolute
-pub const NOTE_ABSTIME = 0x00000010;
-
-pub const TIOCEXCL = 0x2000740d;
-pub const TIOCNXCL = 0x2000740e;
-pub const TIOCSCTTY = 0x20007461;
-pub const TIOCGPGRP = 0x40047477;
-pub const TIOCSPGRP = 0x80047476;
-pub const TIOCOUTQ = 0x40047473;
-pub const TIOCSTI = 0x80017472;
-pub const TIOCGWINSZ = 0x40087468;
-pub const TIOCSWINSZ = 0x80087467;
-pub const TIOCMGET = 0x4004746a;
-pub const TIOCMBIS = 0x8004746c;
-pub const TIOCMBIC = 0x8004746b;
-pub const TIOCMSET = 0x8004746d;
-pub const FIONREAD = 0x4004667f;
-pub const TIOCCONS = 0x80047462;
-pub const TIOCPKT = 0x80047470;
-pub const FIONBIO = 0x8004667e;
-pub const TIOCNOTTY = 0x20007471;
-pub const TIOCSETD = 0x8004741b;
-pub const TIOCGETD = 0x4004741a;
-pub const TIOCSBRK = 0x2000747b;
-pub const TIOCCBRK = 0x2000747a;
-pub const TIOCGSID = 0x40047463;
-pub const TIOCGPTN = 0x4004740f;
-pub const TIOCSIG = 0x2004745f;
+pub const TIOCSCTTY = 0x8017;
+pub const TIOCGPGRP = 0x8015;
+pub const TIOCSPGRP = 0x8016;
+pub const TIOCGWINSZ = 0x8012;
+pub const TIOCSWINSZ = 0x8013;
+pub const TIOCMGET = 0x8018;
+pub const TIOCMBIS = 0x8022;
+pub const TIOCMBIC = 0x8023;
+pub const TIOCMSET = 0x8019;
+pub const FIONREAD = 0xbe000001;
+pub const FIONBIO = 0xbe000000;
+pub const TIOCSBRK = 0x8020;
+pub const TIOCCBRK = 0x8021;
+pub const TIOCGSID = 0x8024;
 
 pub fn WEXITSTATUS(s: u32) u32 {
-    return (s & 0xff00) >> 8;
+    return (s & 0xff);
 }
+
 pub fn WTERMSIG(s: u32) u32 {
-    return s & 0x7f;
+    return (s >> 8) & 0xff;
 }
+
 pub fn WSTOPSIG(s: u32) u32 {
     return WEXITSTATUS(s);
 }
+
 pub fn WIFEXITED(s: u32) bool {
     return WTERMSIG(s) == 0;
 }
+
 pub fn WIFSTOPPED(s: u32) bool {
-    return @intCast(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+    return ((s >> 16) & 0xff) != 0;
 }
+
 pub fn WIFSIGNALED(s: u32) bool {
-    return (s & 0xffff) -% 1 < 0xff;
+    return ((s >> 8) & 0xff) != 0;
 }
 
 pub const winsize = extern struct {
@@ -823,49 +730,47 @@ pub const sigset_t = extern struct {
     __bits: [_SIG_WORDS]u32,
 };
 
-pub const EPERM = 1; // Operation not permitted
-pub const ENOENT = 2; // No such file or directory
-pub const ESRCH = 3; // No such process
-pub const EINTR = 4; // Interrupted system call
-pub const EIO = 5; // Input/output error
-pub const ENXIO = 6; // Device not configured
-pub const E2BIG = 7; // Argument list too long
-pub const ENOEXEC = 8; // Exec format error
-pub const EBADF = 9; // Bad file descriptor
-pub const ECHILD = 10; // No child processes
-pub const EDEADLK = 11; // Resource deadlock avoided
-// 11 was EAGAIN
-pub const ENOMEM = 12; // Cannot allocate memory
-pub const EACCES = 13; // Permission denied
-pub const EFAULT = 14; // Bad address
-pub const ENOTBLK = 15; // Block device required
-pub const EBUSY = 16; // Device busy
-pub const EEXIST = 17; // File exists
-pub const EXDEV = 18; // Cross-device link
-pub const ENODEV = 19; // Operation not supported by device
-pub const ENOTDIR = 20; // Not a directory
-pub const EISDIR = 21; // Is a directory
-pub const EINVAL = 22; // Invalid argument
-pub const ENFILE = 23; // Too many open files in system
-pub const EMFILE = 24; // Too many open files
-pub const ENOTTY = 25; // Inappropriate ioctl for device
-pub const ETXTBSY = 26; // Text file busy
-pub const EFBIG = 27; // File too large
-pub const ENOSPC = 28; // No space left on device
-pub const ESPIPE = 29; // Illegal seek
-pub const EROFS = 30; // Read-only filesystem
-pub const EMLINK = 31; // Too many links
-pub const EPIPE = 32; // Broken pipe
+pub const EPERM = -0x7ffffff1; // Operation not permitted
+pub const ENOENT = -0x7fff9ffd; // No such file or directory
+pub const ESRCH = -0x7fff8ff3; // No such process
+pub const EINTR = -0x7ffffff6; // Interrupted system call
+pub const EIO = -0x7fffffff; // Input/output error
+pub const ENXIO = -0x7fff8ff5; // Device not configured
+pub const E2BIG = -0x7fff8fff; // Argument list too long
+pub const ENOEXEC = -0x7fffecfe; // Exec format error
+pub const ECHILD = -0x7fff8ffe; // No child processes
+pub const EDEADLK = -0x7fff8ffd; // Resource deadlock avoided
+pub const ENOMEM = -0x80000000; // Cannot allocate memory
+pub const EACCES = -0x7ffffffe; // Permission denied
+pub const EFAULT = -0x7fffecff; // Bad address
+pub const EBUSY = -0x7ffffff2; // Device busy
+pub const EEXIST = -0x7fff9ffe; // File exists
+pub const EXDEV = -0x7fff9ff5; // Cross-device link
+pub const ENODEV = -0x7fff8ff9; // Operation not supported by device
+pub const ENOTDIR = -0x7fff9ffb; // Not a directory
+pub const EISDIR = -0x7fff9ff7; // Is a directory
+pub const EINVAL = -0x7ffffffb; // Invalid argument
+pub const ENFILE = -0x7fff8ffa; // Too many open files in system
+pub const EMFILE = -0x7fff9ff6; // Too many open files
+pub const ENOTTY = -0x7fff8ff6; // Inappropriate ioctl for device
+pub const ETXTBSY = -0x7fff8fc5; // Text file busy
+pub const EFBIG = -0x7fff8ffc; // File too large
+pub const ENOSPC = -0x7fff9ff9; // No space left on device
+pub const ESPIPE = -0x7fff8ff4; // Illegal seek
+pub const EROFS = -0x7fff9ff8; // Read-only filesystem
+pub const EMLINK = -0x7fff8ffb; // Too many links
+pub const EPIPE = -0x7fff9ff3; // Broken pipe
+pub const EBADF = -0x7fffa000; // Bad file descriptor
 
 // math software
 pub const EDOM = 33; // Numerical argument out of domain
 pub const ERANGE = 34; // Result too large
 
 // non-blocking and interrupt i/o
-pub const EAGAIN = 35; // Resource temporarily unavailable
-pub const EWOULDBLOCK = EAGAIN; // Operation would block
-pub const EINPROGRESS = 36; // Operation now in progress
-pub const EALREADY = 37; // Operation already in progress
+pub const EAGAIN = -0x7ffffff5;
+pub const EWOULDBLOCK = -0x7ffffff5;
+pub const EINPROGRESS = -0x7fff8fdc;
+pub const EALREADY = -0x7fff8fdb;
 
 // ipc/network software -- argument errors
 pub const ENOTSOCK = 38; // Socket operation on non-socket
@@ -1446,4 +1351,21 @@ pub const directory_which = extern enum(c_int) {
     B_USER_SETTINGS_DIRECTORY = 0xbbe,
 
     _,
+};
+
+pub const cc_t = u8;
+pub const speed_t = u8;
+pub const tcflag_t = u32;
+
+pub const NCCS = 32;
+
+pub const termios = extern struct {
+    c_iflag: tcflag_t,
+    c_oflag: tcflag_t,
+    c_cflag: tcflag_t,
+    c_lflag: tcflag_t,
+    c_line: cc_t,
+    c_ispeed: speed_t,
+    c_ospeed: speed_t,
+    cc_t: [NCCS]cc_t,
 };
