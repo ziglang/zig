@@ -360,13 +360,15 @@ pub fn spawn(comptime startFn: anytype, context: SpawnContextType(@TypeOf(startF
             MainFuncs.posixThreadMain,
             thread_obj.data.memory.ptr,
         );
-        return switch (err) {
-            0 => thread_obj,
-            os.EAGAIN => error.SystemResources,
+        switch (err) {
+            0 => return thread_obj,
+            os.EAGAIN => return error.SystemResources,
             os.EPERM => unreachable,
             os.EINVAL => unreachable,
-            else => os.unexpectedErrno(err),
-        };
+            else => return os.unexpectedErrno(err),
+        }
+
+        return thread_obj;
     }
 
     var guard_end_offset: usize = undefined;
