@@ -1,5 +1,7 @@
 const std = @import("std");
 const DW = std.dwarf;
+const assert = std.debug.assert;
+const testing = std.testing;
 
 // TODO: this is only tagged to facilitate the monstrosity.
 // Once packed structs work make it packed.
@@ -110,7 +112,7 @@ pub const Instruction = union(enum) {
     // -- less burden on callsite, bonus semantic checking
     fn bType(op: u7, fn3: u3, r1: Register, r2: Register, imm: i13) Instruction {
         const umm = @bitCast(u13, imm);
-        if (umm % 2 != 0) @panic("Internal error: misaligned branch target");
+        assert(umm % 2 == 0); // misaligned branch target
 
         return Instruction{
             .B = .{
@@ -140,15 +142,15 @@ pub const Instruction = union(enum) {
     }
 
     fn jType(op: u7, rd: Register, imm: i21) Instruction {
-        const umm = @bitcast(u21, imm);
-        if (umm % 2 != 0) @panic("Internal error: misaligned jump target");
+        const umm = @bitCast(u21, imm);
+        assert(umm % 2 == 0); // misaligned jump target
 
         return Instruction{
             .J = .{
                 .opcode = op,
                 .rd = @enumToInt(rd),
                 .imm1_10 = @truncate(u10, umm >> 1),
-                .imm11 = @truncate(u1, umm >> 1),
+                .imm11 = @truncate(u1, umm >> 11),
                 .imm12_19 = @truncate(u8, umm >> 12),
                 .imm20 = @truncate(u1, umm >> 20),
             },
@@ -340,27 +342,27 @@ pub const Instruction = union(enum) {
 
     // Branch
 
-    pub fn beq(r1: Register, r2: Register, offset: u13) Instruction {
+    pub fn beq(r1: Register, r2: Register, offset: i13) Instruction {
         return bType(0b1100011, 0b000, r1, r2, offset);
     }
 
-    pub fn bne(r1: Register, r2: Register, offset: u13) Instruction {
+    pub fn bne(r1: Register, r2: Register, offset: i13) Instruction {
         return bType(0b1100011, 0b001, r1, r2, offset);
     }
 
-    pub fn blt(r1: Register, r2: Register, offset: u13) Instruction {
+    pub fn blt(r1: Register, r2: Register, offset: i13) Instruction {
         return bType(0b1100011, 0b100, r1, r2, offset);
     }
 
-    pub fn bge(r1: Register, r2: Register, offset: u13) Instruction {
+    pub fn bge(r1: Register, r2: Register, offset: i13) Instruction {
         return bType(0b1100011, 0b101, r1, r2, offset);
     }
 
-    pub fn bltu(r1: Register, r2: Register, offset: u13) Instruction {
+    pub fn bltu(r1: Register, r2: Register, offset: i13) Instruction {
         return bType(0b1100011, 0b110, r1, r2, offset);
     }
 
-    pub fn bgeu(r1: Register, r2: Register, offset: u13) Instruction {
+    pub fn bgeu(r1: Register, r2: Register, offset: i13) Instruction {
         return bType(0b1100011, 0b111, r1, r2, offset);
     }
 
@@ -431,3 +433,38 @@ pub const Register = enum(u5) {
 pub const callee_preserved_regs = [_]Register{
     .s0, .s1, .s2, .s3, .s4, .s5, .s6, .s7, .s8, .s9, .s10, .s11,
 };
+
+test "serialize instructions" {
+    const Testcase = struct {
+        inst: Instruction,
+        expected: u32,
+    };
+
+    const testcases = [_]Testcase{
+        .{ // add t6, zero, zero
+            .inst = Instruction.add(.t6, .zero, .zero),
+            .expected = 0b0000000_00000_00000_000_11111_0110011,
+        },
+        .{ // sd s0, 0x7f(s0)
+            .inst = Instruction.sd(.s0, 0x7f, .s0),
+            .expected = 0b0000011_01000_01000_011_11111_0100011,
+        },
+        .{ // bne s0, s1, 0x42
+            .inst = Instruction.bne(.s0, .s1, 0x42),
+            .expected = 0b0_000010_01001_01000_001_0001_0_1100011,
+        },
+        .{ // j 0x1a
+            .inst = Instruction.jal(.zero, 0x1a),
+            .expected = 0b0_0000001101_0_00000000_00000_1101111,
+        },
+        .{ // ebreak
+            .inst = Instruction.ebreak,
+            .expected = 0b000000000001_00000_000_00000_1110011,
+        },
+    };
+
+    for (testcases) |case| {
+        const actual = case.inst.toU32();
+        testing.expectEqual(case.expected, actual);
+    }
+}
