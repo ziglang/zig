@@ -3678,7 +3678,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     man.hash.add(comp.bin_file.options.emit != null);
     man.hash.add(mod.emit_h != null);
     if (mod.emit_h) |emit_h| {
-        man.hash.addEmitLoc(emit_h);
+        man.hash.addEmitLoc(emit_h.loc);
     }
     man.hash.addOptionalEmitLoc(comp.emit_asm);
     man.hash.addOptionalEmitLoc(comp.emit_llvm_ir);
@@ -3797,7 +3797,8 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     if (mod.emit_h != null) {
         log.warn("-femit-h is not available in the stage1 backend; no .h file will be produced", .{});
     }
-    const emit_h_path = try stage1LocPath(arena, mod.emit_h, directory);
+    const emit_h_loc: ?EmitLoc = if (mod.emit_h) |emit_h| emit_h.loc else null;
+    const emit_h_path = try stage1LocPath(arena, emit_h_loc, directory);
     const emit_asm_path = try stage1LocPath(arena, comp.emit_asm, directory);
     const emit_llvm_ir_path = try stage1LocPath(arena, comp.emit_llvm_ir, directory);
     const emit_analysis_path = try stage1LocPath(arena, comp.emit_analysis, directory);
