@@ -1,3 +1,6 @@
+ * reimplement semaDecl
+ * use a hash map for instructions because the array is too big
+
  * keep track of file dependencies/dependants
  * unload files from memory when a dependency is dropped
 
@@ -5,6 +8,7 @@
 
  * get rid of failed_root_src_file
  * get rid of Scope.DeclRef
+ * get rid of NameHash
  * handle decl collision with usingnamespace
  * the decl doing the looking up needs to create a decl dependency
    on each usingnamespace decl
@@ -34,58 +38,6 @@
 
  * AstGen: add result location pointers to function calls
  * nested function decl: how to refer to params?
-
- * detect when to put cached ZIR into the local cache instead of the global one
-
-    const container_name_hash: Scope.NameHash = if (found_pkg) |pkg|
-        pkg.namespace_hash
-    else
-        std.zig.hashName(cur_pkg.namespace_hash, "/", resolved_path);
-
-    file_scope.* = .{
-        .root_container = .{
-            .parent = null,
-            .file_scope = file_scope,
-            .decls = .{},
-            .ty = struct_ty,
-            .parent_name_hash = container_name_hash,
-        },
-    };
-    mod.analyzeContainer(&file_scope.root_container) catch |err| switch (err) {
-        error.AnalysisFail => {
-            assert(mod.comp.totalErrorCount() != 0);
-        },
-        else => |e| return e,
-    };
-    return file_scope;
-
-
-
-            // Until then we simulate a full cache miss. Source files could have been loaded
-            // for any reason; to force a refresh we unload now.
-            module.unloadFile(module.root_scope);
-            module.failed_root_src_file = null;
-            module.analyzeNamespace(&module.root_scope.root_container) catch |err| switch (err) {
-                error.AnalysisFail => {
-                    assert(self.totalErrorCount() != 0);
-                },
-                error.OutOfMemory => return error.OutOfMemory,
-                else => |e| {
-                    module.failed_root_src_file = e;
-                },
-            };
-
-            // TODO only analyze imports if they are still referenced
-            for (module.import_table.items()) |entry| {
-                module.unloadFile(entry.value);
-                module.analyzeNamespace(&entry.value.root_container) catch |err| switch (err) {
-                    error.AnalysisFail => {
-                        assert(self.totalErrorCount() != 0);
-                    },
-                    else => |e| return e,
-                };
-            }
-
 
 pub fn createContainerDecl(
     mod: *Module,
@@ -129,123 +81,6 @@ fn getAnonTypeName(mod: *Module, scope: *Scope, base_token: std.zig.ast.TokenInd
     const loc = tree.tokenLocation(0, base_token);
     return std.fmt.allocPrint(mod.gpa, "{s}:{d}:{d}", .{ base_name, loc.line, loc.column });
 }
-
-
-    const parent_name_hash: Scope.NameHash = if (found_pkg) |pkg|
-        pkg.namespace_hash
-    else
-        std.zig.hashName(cur_pkg.namespace_hash, "/", resolved_path);
-
-    // We need a Decl to pass to AstGen and collect dependencies. But ultimately we
-    // want to pass them on to the Decl for the struct that represents the file.
-    var tmp_namespace: Scope.Namespace = .{
-        .parent = null,
-        .file_scope = new_file,
-        .parent_name_hash = parent_name_hash,
-        .ty = Type.initTag(.type),
-    };
-
-    const tree = try mod.getAstTree(new_file);
-
-
-    const top_decl = try mod.createNewDecl(
-        &tmp_namespace,
-        resolved_path,
-        0,
-        parent_name_hash,
-        std.zig.hashSrc(tree.source),
-    );
-    defer {
-        mod.decl_table.removeAssertDiscard(parent_name_hash);
-        top_decl.destroy(mod);
-    }
-
-    var gen_scope_arena = std.heap.ArenaAllocator.init(gpa);
-    defer gen_scope_arena.deinit();
-
-    var astgen = try AstGen.init(mod, top_decl, &gen_scope_arena.allocator);
-    defer astgen.deinit();
-
-    var gen_scope: Scope.GenZir = .{
-        .force_comptime = true,
-        .parent = &new_file.base,
-        .astgen = &astgen,
-    };
-    defer gen_scope.instructions.deinit(gpa);
-
-    const container_decl: ast.full.ContainerDecl = .{
-        .layout_token = null,
-        .ast = .{
-            .main_token = undefined,
-            .enum_token = null,
-            .members = tree.rootDecls(),
-            .arg = 0,
-        },
-    };
-
-    const struct_decl_ref = try AstGen.structDeclInner(
-        &gen_scope,
-        &gen_scope.base,
-        0,
-        container_decl,
-        .struct_decl,
-    );
-    _ = try gen_scope.addBreak(.break_inline, 0, struct_decl_ref);
-
-    var code = try gen_scope.finish();
-    defer code.deinit(gpa);
-    if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-        code.dump(gpa, "import", &gen_scope.base, 0) catch {};
-    }
-
-    var sema: Sema = .{
-        .mod = mod,
-        .gpa = gpa,
-        .arena = &gen_scope_arena.allocator,
-        .code = code,
-        .inst_map = try gen_scope_arena.allocator.alloc(*ir.Inst, code.instructions.len),
-        .owner_decl = top_decl,
-        .namespace = top_decl.namespace,
-        .func = null,
-        .owner_func = null,
-        .param_inst_list = &.{},
-    };
-    var block_scope: Scope.Block = .{
-        .parent = null,
-        .sema = &sema,
-        .src_decl = top_decl,
-        .instructions = .{},
-        .inlining = null,
-        .is_comptime = true,
-    };
-    defer block_scope.instructions.deinit(gpa);
-
-    const init_inst_zir_ref = try sema.rootAsRef(&block_scope);
-    const analyzed_struct_inst = try sema.resolveInst(init_inst_zir_ref);
-    assert(analyzed_struct_inst.ty.zigTypeTag() == .Type);
-    const val = analyzed_struct_inst.value().?;
-    const struct_ty = try val.toType(&gen_scope_arena.allocator);
-    const struct_decl = struct_ty.getOwnerDecl();
-
-    struct_decl.contents_hash = top_decl.contents_hash;
-    new_file.namespace = struct_ty.getNamespace().?;
-    new_file.namespace.parent = null;
-    //new_file.namespace.parent_name_hash = tmp_namespace.parent_name_hash;
-
-    // Transfer the dependencies to `owner_decl`.
-    assert(top_decl.dependants.count() == 0);
-    for (top_decl.dependencies.items()) |entry| {
-        const dep = entry.key;
-        dep.removeDependant(top_decl);
-        if (dep == struct_decl) continue;
-        _ = try mod.declareDeclDependency(struct_decl, dep);
-    }
-
-    return new_file;
-
-
-
-
 
 
 pub fn analyzeFile(mod: *Module, file: *Scope.File) !void {
@@ -467,38 +302,6 @@ fn astgenAndSemaFn(
     }
     return type_changed or is_inline != prev_is_inline;
 }
-
-fn astgenAndSemaVarDecl(
-    mod: *Module,
-    decl: *Decl,
-    tree: ast.Tree,
-    var_decl: ast.full.VarDecl,
-) !bool {
-    const token_tags = tree.tokens.items(.tag);
-
-}
-
-
-    /// Asserts the scope is a child of a File and has an AST tree and returns the tree.
-    pub fn tree(scope: *Scope) *const ast.Tree {
-        switch (scope.tag) {
-            .file => return &scope.cast(File).?.tree,
-            .block => return &scope.cast(Block).?.src_decl.namespace.file_scope.tree,
-            .gen_zir => return scope.cast(GenZir).?.tree(),
-            .local_val => return &scope.cast(LocalVal).?.gen_zir.astgen.decl.namespace.file_scope.tree,
-            .local_ptr => return &scope.cast(LocalPtr).?.gen_zir.astgen.decl.namespace.file_scope.tree,
-            .namespace => return &scope.cast(Namespace).?.file_scope.tree,
-            .decl_ref => return &scope.cast(DeclRef).?.decl.namespace.file_scope.tree,
-        }
-    }
-
-
-        error.FileNotFound => {
-            return mod.fail(&block.base, src, "unable to find '{s}'", .{operand});
-        },
-
-
-
         log.debug("extern fn symbol expected in lib '{s}'", .{lib_name_str});
         mod.comp.stage1AddLinkLib(lib_name_str) catch |err| {
             return mod.failTok(
@@ -539,86 +342,6 @@ fn astgenAndSemaVarDecl(
                 .{ lib_name_str, lib_name_str },
             );
         }
-
-            if (counts.values == 0 and counts.decls == 0 and arg_inst == .none) {
-                // No explicitly provided tag values and no top level declarations! In this case,
-                // we can construct the enum type in AstGen and it will be correctly shared by all
-                // generic function instantiations and comptime function calls.
-                var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
-                errdefer new_decl_arena.deinit();
-                const arena = &new_decl_arena.allocator;
-
-                var fields_map: std.StringArrayHashMapUnmanaged(void) = .{};
-                try fields_map.ensureCapacity(arena, counts.total_fields);
-                for (container_decl.ast.members) |member_node| {
-                    if (member_node == counts.nonexhaustive_node)
-                        continue;
-                    const member = switch (node_tags[member_node]) {
-                        .container_field_init => tree.containerFieldInit(member_node),
-                        .container_field_align => tree.containerFieldAlign(member_node),
-                        .container_field => tree.containerField(member_node),
-                        else => unreachable, // We checked earlier.
-                    };
-                    const name_token = member.ast.name_token;
-                    const tag_name = try mod.identifierTokenStringTreeArena(
-                        scope,
-                        name_token,
-                        tree,
-                        arena,
-                    );
-                    const gop = fields_map.getOrPutAssumeCapacity(tag_name);
-                    if (gop.found_existing) {
-                        const msg = msg: {
-                            const msg = try mod.errMsg(
-                                scope,
-                                gz.tokSrcLoc(name_token),
-                                "duplicate enum tag",
-                                .{},
-                            );
-                            errdefer msg.destroy(gpa);
-                            // Iterate to find the other tag. We don't eagerly store it in a hash
-                            // map because in the hot path there will be no compile error and we
-                            // don't need to waste time with a hash map.
-                            const bad_node = for (container_decl.ast.members) |other_member_node| {
-                                const other_member = switch (node_tags[other_member_node]) {
-                                    .container_field_init => tree.containerFieldInit(other_member_node),
-                                    .container_field_align => tree.containerFieldAlign(other_member_node),
-                                    .container_field => tree.containerField(other_member_node),
-                                    else => unreachable, // We checked earlier.
-                                };
-                                const other_tag_name = try mod.identifierTokenStringTreeArena(
-                                    scope,
-                                    other_member.ast.name_token,
-                                    tree,
-                                    arena,
-                                );
-                                if (mem.eql(u8, tag_name, other_tag_name))
-                                    break other_member_node;
-                            } else unreachable;
-                            const other_src = gz.nodeSrcLoc(bad_node);
-                            try mod.errNote(scope, other_src, msg, "other tag here", .{});
-                            break :msg msg;
-                        };
-                        return mod.failWithOwnedErrorMsg(scope, msg);
-                    }
-                }
-                const enum_simple = try arena.create(Module.EnumSimple);
-                enum_simple.* = .{
-                    .owner_decl = astgen.decl,
-                    .node_offset = astgen.decl.nodeIndexToRelative(node),
-                    .fields = fields_map,
-                };
-                const enum_ty = try Type.Tag.enum_simple.create(arena, enum_simple);
-                const enum_val = try Value.Tag.ty.create(arena, enum_ty);
-                const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
-                    .ty = Type.initTag(.type),
-                    .val = enum_val,
-                });
-                const decl_index = try mod.declareDeclDependency(astgen.decl, new_decl);
-                const result = try gz.addDecl(.decl_val, decl_index, node);
-                return rvalue(gz, scope, rl, result, node);
-            }
-
 
     if (mod.lookupIdentifier(scope, ident_name)) |decl| {
         const msg = msg: {
@@ -687,29 +410,6 @@ fn astgenAndSemaVarDecl(
         }
     }
 
-    fn writeFuncExtra(
-        self: *Writer,
-        stream: anytype,
-        inst: Inst.Index,
-        var_args: bool,
-    ) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const src = inst_data.src();
-        const extra = self.code.extraData(Inst.FuncExtra, inst_data.payload_index);
-        const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
-        const cc = extra.data.cc;
-        const body = self.code.extra[extra.end + param_types.len ..][0..extra.data.body_len];
-        return self.writeFuncCommon(
-            stream,
-            param_types,
-            extra.data.return_type,
-            var_args,
-            cc,
-            body,
-            src,
-        );
-    }
-
 
     const error_set = try arena.create(Module.ErrorSet);
     error_set.* = .{
@@ -732,3 +432,54 @@ fn astgenAndSemaVarDecl(
 
         // when implementing this be sure to add test coverage for the asm return type
         // not resolving into a type (the node_offset_asm_ret_ty  field of LazySrcLoc)
+
+
+
+pub fn analyzeNamespace(
+    mod: *Module,
+    namespace: *Scope.Namespace,
+    decls: []const ast.Node.Index,
+) InnerError!void {
+    for (decls) |decl_node| switch (node_tags[decl_node]) {
+        .@"comptime" => {
+            const name_index = mod.getNextAnonNameIndex();
+            const name = try std.fmt.allocPrint(mod.gpa, "__comptime_{d}", .{name_index});
+            defer mod.gpa.free(name);
+
+            const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
+
+            const new_decl = try mod.createNewDecl(namespace, name, decl_node, name_hash, contents_hash);
+            namespace.decls.putAssumeCapacity(new_decl, {});
+            mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
+        },
+
+        // Container fields are handled in AstGen.
+        .container_field_init,
+        .container_field_align,
+        .container_field,
+        => continue,
+
+        .test_decl => {
+            if (mod.comp.bin_file.options.is_test) {
+                log.err("TODO: analyze test decl", .{});
+            }
+        },
+        .@"usingnamespace" => {
+            const name_index = mod.getNextAnonNameIndex();
+            const name = try std.fmt.allocPrint(mod.gpa, "__usingnamespace_{d}", .{name_index});
+            defer mod.gpa.free(name);
+
+            const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
+
+            const new_decl = try mod.createNewDecl(namespace, name, decl_node, name_hash, contents_hash);
+            namespace.decls.putAssumeCapacity(new_decl, {});
+
+            mod.ensureDeclAnalyzed(new_decl) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => continue,
+            };
+        },
+        else => unreachable,
+    };
+}
+

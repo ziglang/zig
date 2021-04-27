@@ -12,9 +12,6 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
-const Value = @import("value.zig").Value;
-const Type = @import("type.zig").Type;
-const TypedValue = @import("TypedValue.zig");
 const Zir = @import("Zir.zig");
 const Module = @import("Module.zig");
 const trace = @import("tracy.zig").trace;
@@ -2648,6 +2645,10 @@ fn fnDecl(
     const tree = &astgen.file.tree;
     const token_tags = tree.tokens.items(.tag);
 
+    // We insert this at the beginning so that its instruction index marks the
+    // start of the top level declaration.
+    const block_inst = try gz.addBlock(.block_inline, fn_proto.ast.proto_node);
+
     var decl_gz: GenZir = .{
         .force_comptime = true,
         .decl_node_index = fn_proto.ast.proto_node,
@@ -2843,7 +2844,8 @@ fn fnDecl(
     };
     const fn_name_str_index = try decl_gz.identAsString(fn_name_token);
 
-    const block_inst = try gz.addBlock(.block_inline, fn_proto.ast.proto_node);
+    // We add this at the end so that its instruction index marks the end range
+    // of the top level declaration.
     _ = try decl_gz.addBreak(.break_inline, block_inst, func_inst);
     try decl_gz.setBlockBody(block_inst);
 
@@ -2875,6 +2877,12 @@ fn globalVarDecl(
     const tree = &astgen.file.tree;
     const token_tags = tree.tokens.items(.tag);
 
+    const is_mutable = token_tags[var_decl.ast.mut_token] == .keyword_var;
+    const tag: Zir.Inst.Tag = if (is_mutable) .block_inline_var else .block_inline;
+    // We do this at the beginning so that the instruction index marks the range start
+    // of the top level declaration.
+    const block_inst = try gz.addBlock(tag, node);
+
     var block_scope: GenZir = .{
         .parent = scope,
         .decl_node_index = node,
@@ -2900,7 +2908,6 @@ fn globalVarDecl(
     };
     try wip_decls.next(gpa, is_pub, is_export, align_inst != .none, section_inst != .none);
 
-    const is_mutable = token_tags[var_decl.ast.mut_token] == .keyword_var;
     const is_threadlocal = if (var_decl.threadlocal_token) |tok| blk: {
         if (!is_mutable) {
             return astgen.failTok(tok, "threadlocal variable cannot be constant", .{});
@@ -2940,8 +2947,8 @@ fn globalVarDecl(
             var_decl.ast.init_node,
         );
 
-        const tag: Zir.Inst.Tag = if (is_mutable) .block_inline_var else .block_inline;
-        const block_inst = try gz.addBlock(tag, node);
+        // We do this at the end so that the instruction index marks the end
+        // range of a top level declaration.
         _ = try block_scope.addBreak(.break_inline, block_inst, init_inst);
         try block_scope.setBlockBody(block_inst);
         break :vi block_inst;

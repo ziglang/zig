@@ -54,8 +54,6 @@ symbol_exports: std.StringArrayHashMapUnmanaged(*Export) = .{},
 /// is performing the export of another Decl.
 /// This table owns the Export memory.
 export_owners: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
-/// Maps fully qualified namespaced names to the Decl struct for them.
-decl_table: std.ArrayHashMapUnmanaged(Scope.NameHash, *Decl, Scope.name_hash_hash, Scope.name_hash_eql, false) = .{},
 /// The set of all the files in the Module. We keep track of this in order to iterate
 /// over it and check which source files have been modified on the file system when
 /// an update is requested, as well as to cache `@import` results.
@@ -68,10 +66,6 @@ import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 /// Note that a Decl can succeed but the Fn it represents can fail. In this case,
 /// a Decl can have a failed_decls entry but have analysis status of success.
 failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ErrorMsg) = .{},
-/// When emit_h is non-null, each Decl gets one more compile error slot for
-/// emit-h failing for that Decl. This table is also how we tell if a Decl has
-/// failed emit-h or succeeded.
-emit_h_failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ErrorMsg) = .{},
 /// Keep track of one `@compileLog` callsite per owner Decl.
 compile_log_decls: std.AutoArrayHashMapUnmanaged(*Decl, SrcLoc) = .{},
 /// Using a map here for consistency with the other fields here.
@@ -113,11 +107,23 @@ stage1_flags: packed struct {
     reserved: u2 = 0,
 } = .{},
 
-emit_h: ?Compilation.EmitLoc,
-
 job_queued_update_builtin_zig: bool = true,
 
 compile_log_text: ArrayListUnmanaged(u8) = .{},
+
+emit_h: ?*GlobalEmitH,
+
+/// A `Module` has zero or one of these depending on whether `-femit-h` is enabled.
+pub const GlobalEmitH = struct {
+    /// Where to put the output.
+    loc: Compilation.EmitLoc,
+    /// When emit_h is non-null, each Decl gets one more compile error slot for
+    /// emit-h failing for that Decl. This table is also how we tell if a Decl has
+    /// failed emit-h or succeeded.
+    failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ErrorMsg) = .{},
+    /// Tracks all decls in order to iterate over them and emit .h code for them.
+    decl_table: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
+};
 
 pub const ErrorInt = u32;
 
@@ -293,10 +299,6 @@ pub const Decl = struct {
         return tree.tokens.items(.start)[decl.srcToken()];
     }
 
-    pub fn fullyQualifiedNameHash(decl: Decl) Scope.NameHash {
-        return decl.namespace.fullyQualifiedNameHash(mem.spanZ(decl.name));
-    }
-
     pub fn renderFullyQualifiedName(decl: Decl, writer: anytype) !void {
         const unqualified_name = mem.spanZ(decl.name);
         return decl.namespace.renderFullyQualifiedName(unqualified_name, writer);
@@ -316,6 +318,11 @@ pub const Decl = struct {
 
     pub fn value(decl: *Decl) error{AnalysisFail}!Value {
         return (try decl.typedValue()).val;
+    }
+
+    pub fn isFunction(decl: *Decl) !bool {
+        const tv = try decl.typedValue();
+        return tv.ty.zigTypeTag() == .Fn;
     }
 
     pub fn dump(decl: *Decl) void {
@@ -611,14 +618,6 @@ pub const Scope = struct {
         }
     }
 
-    fn name_hash_hash(x: NameHash) u32 {
-        return @truncate(u32, @bitCast(u128, x));
-    }
-
-    fn name_hash_eql(a: NameHash, b: NameHash) bool {
-        return @bitCast(u128, a) == @bitCast(u128, b);
-    }
-
     pub const Tag = enum {
         /// .zig source code.
         file,
@@ -643,28 +642,32 @@ pub const Scope = struct {
 
         parent: ?*Namespace,
         file_scope: *Scope.File,
-        parent_name_hash: NameHash,
         /// Will be a struct, enum, union, or opaque.
         ty: Type,
         /// Direct children of the namespace. Used during an update to detect
         /// which decls have been added/removed from source.
-        decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
-        usingnamespace_set: std.AutoHashMapUnmanaged(*Namespace, bool) = .{},
+        /// Declaration order is preserved via entry order.
+        /// Key memory references the string table of the containing `File` ZIR.
+        /// TODO save memory with https://github.com/ziglang/zig/issues/8619.
+        /// Does not contain anonymous decls.
+        decls: std.StringArrayHashMapUnmanaged(*Decl) = .{},
+        /// Names imported into the namespace via `usingnamespace`.
+        /// The key memory is owned by the ZIR of the `File` containing the `Namespace`.
+        usingnamespace_decls: std.StringArrayHashMapUnmanaged(*Namespace) = .{},
 
-        pub fn deinit(ns: *Namespace, gpa: *Allocator) void {
+        pub fn deinit(ns: *Namespace, mod: *Module) void {
+            const gpa = mod.gpa;
+
+            for (ns.decls.items()) |entry| {
+                entry.value.destroy(mod);
+            }
             ns.decls.deinit(gpa);
             ns.* = undefined;
         }
 
         pub fn removeDecl(ns: *Namespace, child: *Decl) void {
-            _ = ns.decls.swapRemove(child);
-        }
-
-        /// Must generate unique bytes with no collisions with other decls.
-        /// The point of hashing here is only to limit the number of bytes of
-        /// the unique identifier to a fixed size (16 bytes).
-        pub fn fullyQualifiedNameHash(ns: Namespace, name: []const u8) NameHash {
-            return std.zig.hashName(ns.parent_name_hash, ".", name);
+            // Preserve declaration order.
+            _ = ns.decls.orderedRemove(mem.spanZ(child.name));
         }
 
         pub fn renderFullyQualifiedName(ns: Namespace, name: []const u8, writer: anytype) !void {
@@ -738,7 +741,9 @@ pub const Scope = struct {
             }
         }
 
-        pub fn deinit(file: *File, gpa: *Allocator) void {
+        pub fn deinit(file: *File, mod: *Module) void {
+            const gpa = mod.gpa;
+            file.namespace.deinit(mod);
             gpa.free(file.sub_file_path);
             file.unload(gpa);
             file.* = undefined;
@@ -786,8 +791,9 @@ pub const Scope = struct {
             return &file.tree;
         }
 
-        pub fn destroy(file: *File, gpa: *Allocator) void {
-            file.deinit(gpa);
+        pub fn destroy(file: *File, mod: *Module) void {
+            const gpa = mod.gpa;
+            file.deinit(mod);
             gpa.destroy(file);
         }
 
@@ -798,7 +804,7 @@ pub const Scope = struct {
     };
 
     /// This is the context needed to semantically analyze ZIR instructions and
-    /// produce TZIR instructions.
+    /// produce AIR instructions.
     /// This is a temporary structure stored on the stack; references to it are valid only
     /// during semantic analysis of the block.
     pub const Block = struct {
@@ -818,7 +824,7 @@ pub const Scope = struct {
         is_comptime: bool,
 
         /// This `Block` maps a block ZIR instruction to the corresponding
-        /// TZIR instruction for break instruction analysis.
+        /// AIR instruction for break instruction analysis.
         pub const Label = struct {
             zir_block: Zir.Inst.Index,
             merges: Merges,
@@ -826,7 +832,7 @@ pub const Scope = struct {
 
         /// This `Block` indicates that an inline function call is happening
         /// and return instructions should be analyzed as a break instruction
-        /// to this TZIR block instruction.
+        /// to this AIR block instruction.
         /// It is shared among all the blocks in an inline or comptime called
         /// function.
         pub const Inlining = struct {
@@ -2632,20 +2638,19 @@ pub fn deinit(mod: *Module) void {
 
     mod.deletion_set.deinit(gpa);
 
-    for (mod.decl_table.items()) |entry| {
-        entry.value.destroy(mod);
-    }
-    mod.decl_table.deinit(gpa);
-
     for (mod.failed_decls.items()) |entry| {
         entry.value.destroy(gpa);
     }
     mod.failed_decls.deinit(gpa);
 
-    for (mod.emit_h_failed_decls.items()) |entry| {
-        entry.value.destroy(gpa);
+    if (mod.emit_h) |emit_h| {
+        for (emit_h.failed_decls.items()) |entry| {
+            entry.value.destroy(gpa);
+        }
+        emit_h.failed_decls.deinit(gpa);
+        emit_h.decl_table.deinit(gpa);
+        gpa.destroy(emit_h);
     }
-    mod.emit_h_failed_decls.deinit(gpa);
 
     for (mod.failed_files.items()) |entry| {
         if (entry.value) |msg| msg.destroy(gpa);
@@ -2682,7 +2687,7 @@ pub fn deinit(mod: *Module) void {
 
     for (mod.import_table.items()) |entry| {
         gpa.free(entry.key);
-        entry.value.destroy(gpa);
+        entry.value.destroy(mod);
     }
     mod.import_table.deinit(gpa);
 }
@@ -2700,8 +2705,8 @@ const data_has_safety_tag = @sizeOf(Zir.Inst.Data) != 8;
 // We need a better language feature for initializing a union with
 // a runtime known tag.
 const Stage1DataLayout = extern struct {
-    safety_tag: u8,
     data: [8]u8 align(8),
+    safety_tag: u8,
 };
 comptime {
     if (data_has_safety_tag) {
@@ -2783,12 +2788,15 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
                 log.debug("AstGen cache stale: {s}", .{file.sub_file_path});
                 break :cached;
             }
-            log.debug("AstGen cache hit: {s}", .{file.sub_file_path});
+            log.debug("AstGen cache hit: {s} instructions_len={d}", .{
+                file.sub_file_path, header.instructions_len,
+            });
 
             var instructions: std.MultiArrayList(Zir.Inst) = .{};
             defer instructions.deinit(gpa);
 
-            try instructions.resize(gpa, header.instructions_len);
+            try instructions.setCapacity(gpa, header.instructions_len);
+            instructions.len = header.instructions_len;
 
             var zir: Zir = .{
                 .instructions = instructions.toOwnedSlice(),
@@ -3126,6 +3134,88 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
     }
 }
 
+pub fn semaPkg(mod: *Module, pkg: *Package) !void {
+    const file = (try mod.importPkg(mod.root_pkg, pkg)).file;
+    return mod.semaFile(file);
+}
+
+pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    assert(file.zir_loaded);
+    assert(!file.zir.hasCompileErrors());
+
+    const gpa = mod.gpa;
+    var decl_arena = std.heap.ArenaAllocator.init(gpa);
+    defer decl_arena.deinit();
+
+    // We need a Decl to pass to Sema and collect dependencies. But ultimately we
+    // want to pass them on to the Decl for the struct that represents the file.
+    var tmp_namespace: Scope.Namespace = .{
+        .parent = null,
+        .file_scope = file,
+        .ty = Type.initTag(.type),
+    };
+    var top_decl: Decl = .{
+        .name = "",
+        .namespace = &tmp_namespace,
+        .generation = mod.generation,
+        .src_node = 0, // the root AST node for the file
+        .typed_value = .never_succeeded,
+        .analysis = .in_progress,
+        .deletion_flag = false,
+        .is_pub = true,
+        .link = undefined, // don't try to codegen this
+        .fn_link = undefined, // not a function
+        .contents_hash = undefined, // top-level struct has no contents hash
+    };
+    defer top_decl.dependencies.deinit(gpa);
+
+    var sema: Sema = .{
+        .mod = mod,
+        .gpa = gpa,
+        .arena = &decl_arena.allocator,
+        .code = file.zir,
+        // TODO use a map because this array is too big
+        .inst_map = try decl_arena.allocator.alloc(*ir.Inst, file.zir.instructions.len),
+        .owner_decl = &top_decl,
+        .namespace = &tmp_namespace,
+        .func = null,
+        .owner_func = null,
+        .param_inst_list = &.{},
+    };
+    var block_scope: Scope.Block = .{
+        .parent = null,
+        .sema = &sema,
+        .src_decl = &top_decl,
+        .instructions = .{},
+        .inlining = null,
+        .is_comptime = true,
+    };
+    defer block_scope.instructions.deinit(gpa);
+
+    const main_struct_inst = file.zir.extra[@enumToInt(Zir.ExtraIndex.main_struct)] -
+        @intCast(u32, Zir.Inst.Ref.typed_value_map.len);
+    const air_inst = try sema.zirStructDecl(&block_scope, main_struct_inst, .Auto);
+    assert(air_inst.ty.zigTypeTag() == .Type);
+    const val = air_inst.value().?;
+    const struct_ty = try val.toType(&decl_arena.allocator);
+    const struct_decl = struct_ty.getOwnerDecl();
+
+    file.namespace = struct_ty.getNamespace().?;
+    file.namespace.parent = null;
+
+    // Transfer the dependencies to `owner_decl`.
+    assert(top_decl.dependants.count() == 0);
+    for (top_decl.dependencies.items()) |entry| {
+        const dep = entry.key;
+        dep.removeDependant(&top_decl);
+        if (dep == struct_decl) continue;
+        _ = try mod.declareDeclDependency(struct_decl, dep);
+    }
+}
+
 /// Returns `true` if the Decl type changed.
 /// Returns `true` if this is the first time analyzing the Decl.
 /// Returns `false` otherwise.
@@ -3268,31 +3358,32 @@ pub fn importFile(
     };
 }
 
-pub fn analyzeNamespace(
+pub fn scanNamespace(
     mod: *Module,
     namespace: *Scope.Namespace,
-    decls: []const ast.Node.Index,
-) InnerError!void {
+    extra_start: usize,
+    decls_len: u32,
+    parent_decl: *Decl,
+) InnerError!usize {
     const tracy = trace(@src());
     defer tracy.end();
 
-    // We may be analyzing it for the first time, or this may be
-    // an incremental update. This code handles both cases.
-    assert(namespace.file_scope.tree_loaded); // Caller must ensure tree loaded.
-    const tree: *const ast.Tree = &namespace.file_scope.tree;
-    const node_tags = tree.nodes.items(.tag);
-    const node_datas = tree.nodes.items(.data);
+    const gpa = mod.gpa;
+    const zir = namespace.file_scope.zir;
 
-    try mod.comp.work_queue.ensureUnusedCapacity(decls.len);
-    try namespace.decls.ensureCapacity(mod.gpa, decls.len);
+    try mod.comp.work_queue.ensureUnusedCapacity(decls_len);
+    try namespace.decls.ensureCapacity(gpa, decls_len);
 
     // Keep track of the decls that we expect to see in this namespace so that
     // we know which ones have been deleted.
-    var deleted_decls = std.AutoArrayHashMap(*Decl, void).init(mod.gpa);
+    var deleted_decls = std.AutoArrayHashMap(*Decl, void).init(gpa);
     defer deleted_decls.deinit();
-    try deleted_decls.ensureCapacity(namespace.decls.items().len);
-    for (namespace.decls.items()) |entry| {
-        deleted_decls.putAssumeCapacityNoClobber(entry.key, {});
+    {
+        const namespace_decls = namespace.decls.items();
+        try deleted_decls.ensureCapacity(namespace_decls.len);
+        for (namespace_decls) |entry| {
+            deleted_decls.putAssumeCapacityNoClobber(entry.value, {});
+        }
     }
 
     // Keep track of decls that are invalidated from the update. Ultimately,
@@ -3300,177 +3391,61 @@ pub fn analyzeNamespace(
     // the outdated decls, but we cannot queue up the tasks until after
     // we find out which ones have been deleted, otherwise there would be
     // deleted Decl pointers in the work queue.
-    var outdated_decls = std.AutoArrayHashMap(*Decl, void).init(mod.gpa);
+    var outdated_decls = std.AutoArrayHashMap(*Decl, void).init(gpa);
     defer outdated_decls.deinit();
 
-    for (decls) |decl_node| switch (node_tags[decl_node]) {
-        .fn_decl => {
-            const fn_proto = node_datas[decl_node].lhs;
-            const body = node_datas[decl_node].rhs;
-            switch (node_tags[fn_proto]) {
-                .fn_proto_simple => {
-                    var params: [1]ast.Node.Index = undefined;
-                    try mod.semaContainerFn(
-                        namespace,
-                        &deleted_decls,
-                        &outdated_decls,
-                        decl_node,
-                        tree.*,
-                        body,
-                        tree.fnProtoSimple(&params, fn_proto),
-                    );
-                },
-                .fn_proto_multi => try mod.semaContainerFn(
-                    namespace,
-                    &deleted_decls,
-                    &outdated_decls,
-                    decl_node,
-                    tree.*,
-                    body,
-                    tree.fnProtoMulti(fn_proto),
-                ),
-                .fn_proto_one => {
-                    var params: [1]ast.Node.Index = undefined;
-                    try mod.semaContainerFn(
-                        namespace,
-                        &deleted_decls,
-                        &outdated_decls,
-                        decl_node,
-                        tree.*,
-                        body,
-                        tree.fnProtoOne(&params, fn_proto),
-                    );
-                },
-                .fn_proto => try mod.semaContainerFn(
-                    namespace,
-                    &deleted_decls,
-                    &outdated_decls,
-                    decl_node,
-                    tree.*,
-                    body,
-                    tree.fnProto(fn_proto),
-                ),
-                else => unreachable,
-            }
-        },
-        .fn_proto_simple => {
-            var params: [1]ast.Node.Index = undefined;
-            try mod.semaContainerFn(
-                namespace,
-                &deleted_decls,
-                &outdated_decls,
-                decl_node,
-                tree.*,
-                0,
-                tree.fnProtoSimple(&params, decl_node),
-            );
-        },
-        .fn_proto_multi => try mod.semaContainerFn(
+    const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
+    var extra_index = extra_start + bit_bags_count;
+    var bit_bag_index: usize = extra_start;
+    var cur_bit_bag: u32 = undefined;
+    var decl_i: u32 = 0;
+    while (decl_i < decls_len) : (decl_i += 1) {
+        if (decl_i % 8 == 0) {
+            cur_bit_bag = zir.extra[bit_bag_index];
+            bit_bag_index += 1;
+        }
+        const is_pub = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const is_exported = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const has_align = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const has_section = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+
+        const hash_u32s = zir.extra[extra_index..][0..4];
+        extra_index += 4;
+        const name_idx = zir.extra[extra_index];
+        extra_index += 1;
+        const decl_index = zir.extra[extra_index];
+        extra_index += 1;
+        const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
+            const inst = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+            extra_index += 1;
+            break :inst inst;
+        };
+        const section_inst: Zir.Inst.Ref = if (!has_section) .none else inst: {
+            const inst = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+            extra_index += 1;
+            break :inst inst;
+        };
+        const decl_name: ?[]const u8 = if (name_idx == 0) null else zir.nullTerminatedString(name_idx);
+        const contents_hash = @bitCast(std.zig.SrcHash, hash_u32s.*);
+
+        try mod.scanDecl(
             namespace,
             &deleted_decls,
             &outdated_decls,
-            decl_node,
-            tree.*,
-            0,
-            tree.fnProtoMulti(decl_node),
-        ),
-        .fn_proto_one => {
-            var params: [1]ast.Node.Index = undefined;
-            try mod.semaContainerFn(
-                namespace,
-                &deleted_decls,
-                &outdated_decls,
-                decl_node,
-                tree.*,
-                0,
-                tree.fnProtoOne(&params, decl_node),
-            );
-        },
-        .fn_proto => try mod.semaContainerFn(
-            namespace,
-            &deleted_decls,
-            &outdated_decls,
-            decl_node,
-            tree.*,
-            0,
-            tree.fnProto(decl_node),
-        ),
-
-        .global_var_decl => try mod.semaContainerVar(
-            namespace,
-            &deleted_decls,
-            &outdated_decls,
-            decl_node,
-            tree.*,
-            tree.globalVarDecl(decl_node),
-        ),
-        .local_var_decl => try mod.semaContainerVar(
-            namespace,
-            &deleted_decls,
-            &outdated_decls,
-            decl_node,
-            tree.*,
-            tree.localVarDecl(decl_node),
-        ),
-        .simple_var_decl => try mod.semaContainerVar(
-            namespace,
-            &deleted_decls,
-            &outdated_decls,
-            decl_node,
-            tree.*,
-            tree.simpleVarDecl(decl_node),
-        ),
-        .aligned_var_decl => try mod.semaContainerVar(
-            namespace,
-            &deleted_decls,
-            &outdated_decls,
-            decl_node,
-            tree.*,
-            tree.alignedVarDecl(decl_node),
-        ),
-
-        .@"comptime" => {
-            const name_index = mod.getNextAnonNameIndex();
-            const name = try std.fmt.allocPrint(mod.gpa, "__comptime_{d}", .{name_index});
-            defer mod.gpa.free(name);
-
-            const name_hash = namespace.fullyQualifiedNameHash(name);
-            const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
-
-            const new_decl = try mod.createNewDecl(namespace, name, decl_node, name_hash, contents_hash);
-            namespace.decls.putAssumeCapacity(new_decl, {});
-            mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
-        },
-
-        // Container fields are handled in AstGen.
-        .container_field_init,
-        .container_field_align,
-        .container_field,
-        => continue,
-
-        .test_decl => {
-            if (mod.comp.bin_file.options.is_test) {
-                log.err("TODO: analyze test decl", .{});
-            }
-        },
-        .@"usingnamespace" => {
-            const name_index = mod.getNextAnonNameIndex();
-            const name = try std.fmt.allocPrint(mod.gpa, "__usingnamespace_{d}", .{name_index});
-            defer mod.gpa.free(name);
-
-            const name_hash = namespace.fullyQualifiedNameHash(name);
-            const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
-
-            const new_decl = try mod.createNewDecl(namespace, name, decl_node, name_hash, contents_hash);
-            namespace.decls.putAssumeCapacity(new_decl, {});
-
-            mod.ensureDeclAnalyzed(new_decl) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => continue,
-            };
-        },
-        else => unreachable,
-    };
+            contents_hash,
+            decl_name,
+            decl_index,
+            is_pub,
+            is_exported,
+            align_inst,
+            section_inst,
+            parent_decl,
+        );
+    }
     // Handle explicitly deleted decls from the source code. This is one of two
     // places that Decl deletions happen. The other is in `Compilation`, after
     // `performAllTheWork`, where we iterate over `Module.deletion_set` and
@@ -3493,133 +3468,98 @@ pub fn analyzeNamespace(
     for (outdated_decls.items()) |entry| {
         try mod.markOutdatedDecl(entry.key);
     }
+    return extra_index;
 }
 
-fn semaContainerFn(
+fn scanDecl(
     mod: *Module,
     namespace: *Scope.Namespace,
     deleted_decls: *std.AutoArrayHashMap(*Decl, void),
     outdated_decls: *std.AutoArrayHashMap(*Decl, void),
-    decl_node: ast.Node.Index,
-    tree: ast.Tree,
-    body_node: ast.Node.Index,
-    fn_proto: ast.full.FnProto,
-) !void {
+    contents_hash: std.zig.SrcHash,
+    decl_name: ?[]const u8,
+    decl_index: Zir.Inst.Index,
+    is_pub: bool,
+    is_exported: bool,
+    align_inst: Zir.Inst.Ref,
+    section_inst: Zir.Inst.Ref,
+    parent_decl: *Decl,
+) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    // We will create a Decl for it regardless of analysis status.
-    const name_token = fn_proto.name_token orelse {
-        // This problem will go away with #1717.
-        @panic("TODO missing function name");
-    };
-    const name = tree.tokenSlice(name_token); // TODO use identifierTokenString
-    const name_hash = namespace.fullyQualifiedNameHash(name);
-    const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
-    if (mod.decl_table.get(name_hash)) |decl| {
-        // Update the AST node of the decl; even if its contents are unchanged, it may
-        // have been re-ordered.
-        const prev_src_node = decl.src_node;
-        decl.src_node = decl_node;
-        if (deleted_decls.swapRemove(decl) == null) {
-            decl.analysis = .sema_failure;
-            const msg = try ErrorMsg.create(mod.gpa, .{
-                .file_scope = namespace.file_scope,
-                .parent_decl_node = 0,
-                .lazy = .{ .token_abs = name_token },
-            }, "redeclaration of '{s}'", .{decl.name});
-            errdefer msg.destroy(mod.gpa);
-            const other_src_loc: SrcLoc = .{
-                .file_scope = namespace.file_scope,
-                .parent_decl_node = 0,
-                .lazy = .{ .node_abs = prev_src_node },
-            };
-            try mod.errNoteNonLazy(other_src_loc, msg, "previously declared here", .{});
-            try mod.failed_decls.putNoClobber(mod.gpa, decl, msg);
-        } else {
-            if (!srcHashEql(decl.contents_hash, contents_hash)) {
-                try outdated_decls.put(decl, {});
-                decl.contents_hash = contents_hash;
-            } else switch (mod.comp.bin_file.tag) {
-                .coff => {
-                    // TODO Implement for COFF
-                },
-                .elf => if (decl.fn_link.elf.len != 0) {
-                    // TODO Look into detecting when this would be unnecessary by storing enough state
-                    // in `Decl` to notice that the line number did not change.
-                    mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
-                },
-                .macho => if (decl.fn_link.macho.len != 0) {
-                    // TODO Look into detecting when this would be unnecessary by storing enough state
-                    // in `Decl` to notice that the line number did not change.
-                    mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
-                },
-                .c, .wasm, .spirv => {},
-            }
+    const gpa = mod.gpa;
+    const zir = namespace.file_scope.zir;
+    const decl_block_inst_data = zir.instructions.items(.data)[decl_index].pl_node;
+    const decl_node = parent_decl.relativeToNodeIndex(decl_block_inst_data.src_node);
+
+    // We create a Decl for it regardless of analysis status.
+    // Decls that have names are keyed in the namespace by the name. Decls without
+    // names are keyed by their contents hash. This way we can detect if, for example,
+    // a comptime decl gets moved around in the file.
+    const decl_key = decl_name orelse &contents_hash;
+    const gop = try namespace.decls.getOrPut(gpa, decl_key);
+    if (!gop.found_existing) {
+        if (align_inst != .none) {
+            return mod.fail(&namespace.base, .{ .node_abs = decl_node }, "TODO: implement decls with align()", .{});
         }
-    } else {
-        const new_decl = try mod.createNewDecl(namespace, name, decl_node, name_hash, contents_hash);
-        namespace.decls.putAssumeCapacity(new_decl, {});
-        if (fn_proto.extern_export_token) |maybe_export_token| {
-            const token_tags = tree.tokens.items(.tag);
-            if (token_tags[maybe_export_token] == .keyword_export) {
-                mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
-            }
+        if (section_inst != .none) {
+            return mod.fail(&namespace.base, .{ .node_abs = decl_node }, "TODO: implement decls with linksection()", .{});
         }
-        new_decl.is_pub = fn_proto.visib_token != null;
+        const new_decl = try mod.createNewDecl(namespace, decl_key, decl_node, contents_hash);
+        // Update the key reference to the longer-lived memory.
+        gop.entry.key = &new_decl.contents_hash;
+        gop.entry.value = new_decl;
+        // exported decls, comptime, test, and usingnamespace decls get analyzed.
+        if (decl_name == null or is_exported) {
+            mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
+        }
+        new_decl.is_pub = is_pub;
+        return;
     }
-}
-
-fn semaContainerVar(
-    mod: *Module,
-    namespace: *Scope.Namespace,
-    deleted_decls: *std.AutoArrayHashMap(*Decl, void),
-    outdated_decls: *std.AutoArrayHashMap(*Decl, void),
-    decl_node: ast.Node.Index,
-    tree: ast.Tree,
-    var_decl: ast.full.VarDecl,
-) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const name_token = var_decl.ast.mut_token + 1;
-    const name = tree.tokenSlice(name_token); // TODO identifierTokenString
-    const name_hash = namespace.fullyQualifiedNameHash(name);
-    const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
-    if (mod.decl_table.get(name_hash)) |decl| {
-        // Update the AST Node index of the decl, even if its contents are unchanged, it may
-        // have been re-ordered.
-        const prev_src_node = decl.src_node;
-        decl.src_node = decl_node;
-        if (deleted_decls.swapRemove(decl) == null) {
-            decl.analysis = .sema_failure;
-            const msg = try ErrorMsg.create(mod.gpa, .{
-                .file_scope = namespace.file_scope,
-                .parent_decl_node = 0,
-                .lazy = .{ .token_abs = name_token },
-            }, "redeclaration of '{s}'", .{decl.name});
-            errdefer msg.destroy(mod.gpa);
-            const other_src_loc: SrcLoc = .{
-                .file_scope = decl.namespace.file_scope,
-                .parent_decl_node = 0,
-                .lazy = .{ .node_abs = prev_src_node },
-            };
-            try mod.errNoteNonLazy(other_src_loc, msg, "previously declared here", .{});
-            try mod.failed_decls.putNoClobber(mod.gpa, decl, msg);
-        } else if (!srcHashEql(decl.contents_hash, contents_hash)) {
+    const decl = gop.entry.value;
+    // Update the AST node of the decl; even if its contents are unchanged, it may
+    // have been re-ordered.
+    const prev_src_node = decl.src_node;
+    decl.src_node = decl_node;
+    if (deleted_decls.swapRemove(decl) == null) {
+        if (true) {
+            @panic("TODO I think this code path is unreachable; should be caught by AstGen.");
+        }
+        decl.analysis = .sema_failure;
+        const msg = try ErrorMsg.create(gpa, .{
+            .file_scope = namespace.file_scope,
+            .parent_decl_node = 0,
+            .lazy = .{ .token_abs = name_token },
+        }, "redeclaration of '{s}'", .{decl.name});
+        errdefer msg.destroy(gpa);
+        const other_src_loc: SrcLoc = .{
+            .file_scope = namespace.file_scope,
+            .parent_decl_node = 0,
+            .lazy = .{ .node_abs = prev_src_node },
+        };
+        try mod.errNoteNonLazy(other_src_loc, msg, "previously declared here", .{});
+        try mod.failed_decls.putNoClobber(gpa, decl, msg);
+    } else {
+        if (!std.zig.srcHashEql(decl.contents_hash, contents_hash)) {
             try outdated_decls.put(decl, {});
             decl.contents_hash = contents_hash;
-        }
-    } else {
-        const new_decl = try mod.createNewDecl(namespace, name, decl_node, name_hash, contents_hash);
-        namespace.decls.putAssumeCapacity(new_decl, {});
-        if (var_decl.extern_export_token) |maybe_export_token| {
-            const token_tags = tree.tokens.items(.tag);
-            if (token_tags[maybe_export_token] == .keyword_export) {
-                mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
-            }
-        }
-        new_decl.is_pub = var_decl.visib_token != null;
+        } else if (try decl.isFunction()) switch (mod.comp.bin_file.tag) {
+            .coff => {
+                // TODO Implement for COFF
+            },
+            .elf => if (decl.fn_link.elf.len != 0) {
+                // TODO Look into detecting when this would be unnecessary by storing enough state
+                // in `Decl` to notice that the line number did not change.
+                mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
+            },
+            .macho => if (decl.fn_link.macho.len != 0) {
+                // TODO Look into detecting when this would be unnecessary by storing enough state
+                // in `Decl` to notice that the line number did not change.
+                mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
+            },
+            .c, .wasm, .spirv => {},
+        };
     }
 }
 
@@ -3644,8 +3584,6 @@ pub fn deleteDecl(
     // not be present in the set, and this does nothing.
     decl.namespace.removeDecl(decl);
 
-    const name_hash = decl.fullyQualifiedNameHash();
-    mod.decl_table.removeAssertDiscard(name_hash);
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
     for (decl.dependencies.items()) |entry| {
         const dep = entry.key;
@@ -3675,8 +3613,11 @@ pub fn deleteDecl(
     if (mod.failed_decls.swapRemove(decl)) |entry| {
         entry.value.destroy(mod.gpa);
     }
-    if (mod.emit_h_failed_decls.swapRemove(decl)) |entry| {
-        entry.value.destroy(mod.gpa);
+    if (mod.emit_h) |emit_h| {
+        if (emit_h.failed_decls.swapRemove(decl)) |entry| {
+            entry.value.destroy(mod.gpa);
+        }
+        emit_h.decl_table.removeAssertDiscard(decl);
     }
     _ = mod.compile_log_decls.swapRemove(decl);
     mod.deleteDeclExports(decl);
@@ -3776,7 +3717,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
     };
     defer inner_block.instructions.deinit(mod.gpa);
 
-    // TZIR currently requires the arg parameters to be the first N instructions
+    // AIR currently requires the arg parameters to be the first N instructions
     try inner_block.instructions.appendSlice(mod.gpa, param_inst_list);
 
     func.state = .in_progress;
@@ -3796,8 +3737,10 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     if (mod.failed_decls.swapRemove(decl)) |entry| {
         entry.value.destroy(mod.gpa);
     }
-    if (mod.emit_h_failed_decls.swapRemove(decl)) |entry| {
-        entry.value.destroy(mod.gpa);
+    if (mod.emit_h) |emit_h| {
+        if (emit_h.failed_decls.swapRemove(decl)) |entry| {
+            entry.value.destroy(mod.gpa);
+        }
     }
     _ = mod.compile_log_decls.swapRemove(decl);
     decl.analysis = .outdated;
@@ -3854,18 +3797,11 @@ fn createNewDecl(
     namespace: *Scope.Namespace,
     decl_name: []const u8,
     src_node: ast.Node.Index,
-    name_hash: Scope.NameHash,
     contents_hash: std.zig.SrcHash,
 ) !*Decl {
-    try mod.decl_table.ensureCapacity(mod.gpa, mod.decl_table.items().len + 1);
     const new_decl = try mod.allocateNewDecl(namespace, src_node, contents_hash);
     errdefer mod.gpa.destroy(new_decl);
     new_decl.name = try mem.dupeZ(mod.gpa, u8, decl_name);
-    log.debug("insert Decl {s} with hash {}", .{
-        new_decl.name,
-        std.fmt.fmtSliceHexLower(&name_hash),
-    });
-    mod.decl_table.putAssumeCapacityNoClobber(name_hash, new_decl);
     return new_decl;
 }
 
@@ -4074,9 +4010,8 @@ pub fn createAnonymousDecl(
     const name = try std.fmt.allocPrint(mod.gpa, "{s}__anon_{d}", .{ scope_decl.name, name_index });
     defer mod.gpa.free(name);
     const namespace = scope_decl.namespace;
-    const name_hash = namespace.fullyQualifiedNameHash(name);
     const src_hash: std.zig.SrcHash = undefined;
-    const new_decl = try mod.createNewDecl(namespace, name, scope_decl.src_node, name_hash, src_hash);
+    const new_decl = try mod.createNewDecl(namespace, name, scope_decl.src_node, src_hash);
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
     decl_arena_state.* = decl_arena.state;
@@ -4125,30 +4060,26 @@ pub fn lookupInNamespace(
     ident_name: []const u8,
     only_pub_usingnamespaces: bool,
 ) ?*Decl {
-    const name_hash = namespace.fullyQualifiedNameHash(ident_name);
-    log.debug("lookup Decl {s} with hash {}", .{
-        ident_name,
-        std.fmt.fmtSliceHexLower(&name_hash),
-    });
-    // TODO handle decl collision with usingnamespace
-    // TODO the decl doing the looking up needs to create a decl dependency
-    // on each usingnamespace decl here.
-    if (mod.decl_table.get(name_hash)) |decl| {
-        return decl;
-    }
-    {
-        var it = namespace.usingnamespace_set.iterator();
-        while (it.next()) |entry| {
-            const other_ns = entry.key;
-            const other_is_pub = entry.value;
-            if (only_pub_usingnamespaces and !other_is_pub) continue;
-            // TODO handle cycles
-            if (mod.lookupInNamespace(other_ns, ident_name, true)) |decl| {
-                return decl;
-            }
-        }
-    }
-    return null;
+    @panic("TODO lookupInNamespace");
+    //// TODO handle decl collision with usingnamespace
+    //// TODO the decl doing the looking up needs to create a decl dependency
+    //// on each usingnamespace decl here.
+    //if (mod.decl_table.get(name_hash)) |decl| {
+    //    return decl;
+    //}
+    //{
+    //    var it = namespace.usingnamespace_set.iterator();
+    //    while (it.next()) |entry| {
+    //        const other_ns = entry.key;
+    //        const other_is_pub = entry.value;
+    //        if (only_pub_usingnamespaces and !other_is_pub) continue;
+    //        // TODO handle cycles
+    //        if (mod.lookupInNamespace(other_ns, ident_name, true)) |decl| {
+    //            return decl;
+    //        }
+    //    }
+    //}
+    //return null;
 }
 
 pub fn makeIntType(arena: *Allocator, signedness: std.builtin.Signedness, bits: u16) !Type {
@@ -4272,10 +4203,6 @@ pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) In
         },
     }
     return error.AnalysisFail;
-}
-
-fn srcHashEql(a: std.zig.SrcHash, b: std.zig.SrcHash) bool {
-    return @bitCast(u128, a) == @bitCast(u128, b);
 }
 
 pub fn intAdd(allocator: *Allocator, lhs: Value, rhs: Value) !Value {

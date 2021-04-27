@@ -180,6 +180,8 @@ const Job = union(enum) {
     /// The source file containing the Decl has been updated, and so the
     /// Decl may need its line number information updated in the debug info.
     update_line_number: *Module.Decl,
+    /// The main source file for the package needs to be analyzed.
+    analyze_pkg: *Package,
 
     /// one of the glibc static objects
     glibc_crt_file: glibc.CRTFile,
@@ -278,6 +280,7 @@ pub const MiscTask = enum {
     compiler_rt,
     libssp,
     zig_libc,
+    analyze_pkg,
 };
 
 pub const MiscError = struct {
@@ -1155,6 +1158,13 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 .path = try options.global_cache_directory.join(arena, &[_][]const u8{zir_sub_dir}),
             };
 
+            const emit_h: ?*Module.GlobalEmitH = if (options.emit_h) |loc| eh: {
+                const eh = try gpa.create(Module.GlobalEmitH);
+                eh.* = .{ .loc = loc };
+                break :eh eh;
+            } else null;
+            errdefer if (emit_h) |eh| gpa.destroy(eh);
+
             // TODO when we implement serialization and deserialization of incremental
             // compilation metadata, this is where we would load it. We have open a handle
             // to the directory where the output either already is, or will be.
@@ -1170,7 +1180,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .global_zir_cache = global_zir_cache,
                 .local_zir_cache = local_zir_cache,
-                .emit_h = options.emit_h,
+                .emit_h = emit_h,
                 .error_name_list = try std.ArrayListUnmanaged([]const u8).initCapacity(gpa, 1),
             };
             module.error_name_list.appendAssumeCapacity("(no error)");
@@ -1595,6 +1605,8 @@ pub fn update(self: *Compilation) !void {
             for (module.import_table.items()) |entry| {
                 self.astgen_work_queue.writeItemAssumeCapacity(entry.value);
             }
+
+            try self.work_queue.writeItem(.{ .analyze_pkg = std_pkg });
         }
     }
 
@@ -1672,11 +1684,13 @@ pub fn totalErrorCount(self: *Compilation) usize {
             }
             total += 1;
         }
-        for (module.emit_h_failed_decls.items()) |entry| {
-            if (entry.key.namespace.file_scope.status == .parse_failure) {
-                continue;
+        if (module.emit_h) |emit_h| {
+            for (emit_h.failed_decls.items()) |entry| {
+                if (entry.key.namespace.file_scope.status == .parse_failure) {
+                    continue;
+                }
+                total += 1;
             }
-            total += 1;
         }
     }
 
@@ -1743,13 +1757,15 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             }
             try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
-        for (module.emit_h_failed_decls.items()) |entry| {
-            if (entry.key.namespace.file_scope.status == .parse_failure) {
-                // Skip errors for Decls within files that had a parse failure.
-                // We'll try again once parsing succeeds.
-                continue;
+        if (module.emit_h) |emit_h| {
+            for (emit_h.failed_decls.items()) |entry| {
+                if (entry.key.namespace.file_scope.status == .parse_failure) {
+                    // Skip errors for Decls within files that had a parse failure.
+                    // We'll try again once parsing succeeds.
+                    continue;
+                }
+                try AllErrors.add(module, &arena, &errors, entry.value.*);
             }
-            try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
         for (module.failed_exports.items()) |entry| {
             try AllErrors.add(module, &arena, &errors, entry.value.*);
@@ -1942,10 +1958,11 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 if (build_options.omit_stage2)
                     @panic("sadly stage2 is omitted from this build to save memory on the CI server");
                 const module = self.bin_file.options.module.?;
-                const emit_loc = module.emit_h.?;
+                const emit_h = module.emit_h.?;
+                _ = try emit_h.decl_table.getOrPut(module.gpa, decl);
                 const tv = decl.typed_value.most_recent.typed_value;
-                const emit_h = decl.getEmitH(module);
-                const fwd_decl = &emit_h.fwd_decl;
+                const decl_emit_h = decl.getEmitH(module);
+                const fwd_decl = &decl_emit_h.fwd_decl;
                 fwd_decl.shrinkRetainingCapacity(0);
 
                 var dg: c_codegen.DeclGen = .{
@@ -1960,7 +1977,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
 
                 c_codegen.genHeader(&dg) catch |err| switch (err) {
                     error.AnalysisFail => {
-                        try module.emit_h_failed_decls.put(module.gpa, decl, dg.error_msg.?);
+                        try emit_h.failed_decls.put(module.gpa, decl, dg.error_msg.?);
                         continue;
                     },
                     else => |e| return e,
@@ -1992,6 +2009,22 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     .{@errorName(err)},
                 ));
                 decl.analysis = .codegen_failure_retryable;
+            };
+        },
+        .analyze_pkg => |pkg| {
+            if (build_options.omit_stage2)
+                @panic("sadly stage2 is omitted from this build to save memory on the CI server");
+            const module = self.bin_file.options.module.?;
+            module.semaPkg(pkg) catch |err| switch (err) {
+                error.CurrentWorkingDirectoryUnlinked,
+                error.Unexpected,
+                => try self.setMiscFailure(
+                    .analyze_pkg,
+                    "unexpected problem analyzing package '{s}'",
+                    .{pkg.root_src_path},
+                ),
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => continue,
             };
         },
         .glibc_crt_file => |crt_file| {

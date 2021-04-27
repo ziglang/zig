@@ -37,8 +37,13 @@ pub const FnData = struct {
 
 base: link.File,
 
-// TODO: Does this file need to support multiple independent modules?
+/// TODO: Does this file need to support multiple independent modules?
 spirv_module: codegen.SPIRVModule,
+
+/// This linker backend does not try to incrementally link output SPIR-V code.
+/// Instead, it tracks all declarations in this table, and iterates over it
+/// in the flush function.
+decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
 
 pub fn createEmpty(gpa: *Allocator, options: link.Options) !*SpirV {
     const spirv = try gpa.create(SpirV);
@@ -88,12 +93,16 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 }
 
 pub fn deinit(self: *SpirV) void {
+    self.decl_table.deinit(self.base.allocator);
     self.spirv_module.deinit();
 }
 
 pub fn updateDecl(self: *SpirV, module: *Module, decl: *Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
+
+    // Keep track of all decls so we can iterate over them on flush().
+    _ = try self.decl_table.getOrPut(self.base.allocator, decl);
 
     const fn_data = &decl.fn_link.spirv;
     if (fn_data.id == null) {
@@ -164,12 +173,12 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     defer all_buffers.deinit();
 
     // Pre-allocate enough for the binary info + all functions
-    try all_buffers.ensureCapacity(module.decl_table.count() + 1);
+    try all_buffers.ensureCapacity(self.decl_table.count() + 1);
 
     all_buffers.appendAssumeCapacity(wordsToIovConst(binary.items));
 
-    for (module.decl_table.items()) |entry| {
-        const decl = entry.value;
+    for (self.decl_table.items()) |entry| {
+        const decl = entry.key;
         switch (decl.typed_value) {
             .most_recent => |tvm| {
                 const fn_data = &decl.fn_link.spirv;

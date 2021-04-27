@@ -655,7 +655,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) In
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirCoerceResultPtr", .{});
 }
 
-fn zirStructDecl(
+pub fn zirStructDecl(
     sema: *Sema,
     block: *Scope.Block,
     inst: Zir.Inst.Index,
@@ -668,8 +668,8 @@ fn zirStructDecl(
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.StructDecl, inst_data.payload_index);
-    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
     const fields_len = extra.data.fields_len;
+    const decls_len = extra.data.decls_len;
 
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
 
@@ -686,37 +686,19 @@ fn zirStructDecl(
         .node_offset = inst_data.src_node,
         .namespace = .{
             .parent = sema.owner_decl.namespace,
-            .parent_name_hash = new_decl.fullyQualifiedNameHash(),
             .ty = struct_ty,
             .file_scope = block.getFileScope(),
         },
     };
 
-    {
-        const ast = std.zig.ast;
-        const node = sema.owner_decl.relativeToNodeIndex(inst_data.src_node);
-        const tree: *const ast.Tree = &struct_obj.namespace.file_scope.tree;
-        const node_tags = tree.nodes.items(.tag);
-        var buf: [2]ast.Node.Index = undefined;
-        const members: []const ast.Node.Index = switch (node_tags[node]) {
-            .container_decl,
-            .container_decl_trailing,
-            => tree.containerDecl(node).ast.members,
+    var extra_index: usize = try sema.mod.scanNamespace(
+        &struct_obj.namespace,
+        extra.end,
+        decls_len,
+        new_decl,
+    );
 
-            .container_decl_two,
-            .container_decl_two_trailing,
-            => tree.containerDeclTwo(&buf, node).ast.members,
-
-            .container_decl_arg,
-            .container_decl_arg_trailing,
-            => tree.containerDeclArg(node).ast.members,
-
-            .root => tree.rootDecls(),
-            else => unreachable,
-        };
-        try sema.mod.analyzeNamespace(&struct_obj.namespace, members);
-    }
-
+    const body = sema.code.extra[extra_index..][0..extra.data.body_len];
     if (fields_len == 0) {
         assert(body.len == 0);
         return sema.analyzeDeclVal(block, src, new_decl);
@@ -760,8 +742,8 @@ fn zirStructDecl(
         sema.branch_quota = struct_sema.branch_quota;
     }
     const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
-    const body_end = extra.end + body.len;
-    var extra_index: usize = body_end + bit_bags_count;
+    const body_end = extra_index + body.len;
+    extra_index += bit_bags_count;
     var bit_bag_index: usize = body_end;
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
@@ -829,8 +811,8 @@ fn zirEnumDecl(
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.EnumDecl, inst_data.payload_index);
-    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
     const fields_len = extra.data.fields_len;
+    const decls_len = extra.data.decls_len;
 
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
 
@@ -865,44 +847,27 @@ fn zirEnumDecl(
         .node_offset = inst_data.src_node,
         .namespace = .{
             .parent = sema.owner_decl.namespace,
-            .parent_name_hash = new_decl.fullyQualifiedNameHash(),
             .ty = enum_ty,
             .file_scope = block.getFileScope(),
         },
     };
 
-    {
-        const ast = std.zig.ast;
-        const node = sema.owner_decl.relativeToNodeIndex(inst_data.src_node);
-        const tree: *const ast.Tree = &enum_obj.namespace.file_scope.tree;
-        const node_tags = tree.nodes.items(.tag);
-        var buf: [2]ast.Node.Index = undefined;
-        const members: []const ast.Node.Index = switch (node_tags[node]) {
-            .container_decl,
-            .container_decl_trailing,
-            => tree.containerDecl(node).ast.members,
+    var extra_index: usize = try sema.mod.scanNamespace(
+        &enum_obj.namespace,
+        extra.end,
+        decls_len,
+        new_decl,
+    );
 
-            .container_decl_two,
-            .container_decl_two_trailing,
-            => tree.containerDeclTwo(&buf, node).ast.members,
-
-            .container_decl_arg,
-            .container_decl_arg_trailing,
-            => tree.containerDeclArg(node).ast.members,
-
-            .root => tree.rootDecls(),
-            else => unreachable,
-        };
-        try sema.mod.analyzeNamespace(&enum_obj.namespace, members);
-    }
-
+    const body = sema.code.extra[extra_index..][0..extra.data.body_len];
     if (fields_len == 0) {
         assert(body.len == 0);
         return sema.analyzeDeclVal(block, src, new_decl);
     }
 
     const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
-    const body_end = extra.end + body.len;
+    const body_end = extra_index + body.len;
+    extra_index += bit_bags_count;
 
     try enum_obj.fields.ensureCapacity(&new_decl_arena.allocator, fields_len);
     const any_values = for (sema.code.extra[body_end..][0..bit_bags_count]) |bag| {
@@ -947,7 +912,6 @@ fn zirEnumDecl(
         sema.branch_count = enum_sema.branch_count;
         sema.branch_quota = enum_sema.branch_quota;
     }
-    var extra_index: usize = body_end + bit_bags_count;
     var bit_bag_index: usize = body_end;
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
