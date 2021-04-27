@@ -2201,7 +2201,8 @@ pub const Inst = struct {
             is_inferred_error: bool,
             has_lib_name: bool,
             has_cc: bool,
-            _: u12 = undefined,
+            is_test: bool,
+            _: u11 = undefined,
         };
     };
 
@@ -2375,7 +2376,10 @@ pub const Inst = struct {
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection expression
     /// 1. decl: { // for every decls_len
+    ///        src_hash: [4]u32, // hash of source bytes
     ///        name: u32, // null terminated string index
+    ///        - can be 0 for test decls. always 0 for comptime and usingnamespace decls.
+    ///        - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
@@ -2405,7 +2409,10 @@ pub const Inst = struct {
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection expression
     /// 1. decl: { // for every decls_len
+    ///        src_hash: [4]u32, // hash of source bytes
     ///        name: u32, // null terminated string index
+    ///        - can be 0 for test decls. always 0 for comptime and usingnamespace decls.
+    ///        - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
@@ -2433,7 +2440,10 @@ pub const Inst = struct {
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection expression
     /// 1. decl: { // for every decls_len
+    ///        src_hash: [4]u32, // hash of source bytes
     ///        name: u32, // null terminated string index
+    ///        - can be 0 for test decls. always 0 for comptime and usingnamespace decls.
+    ///        - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
@@ -2471,8 +2481,12 @@ pub const Inst = struct {
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection expression
     /// 1. decl: { // for every decls_len
+    ///        src_hash: [4]u32, // hash of source bytes
     ///        name: u32, // null terminated string index
+    ///        - can be 0 for test decls. always 0 for comptime and usingnamespace decls.
+    ///        - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        value: Index,
+    ///        - one of: block_inline, block_inline_var
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
     ///    }
@@ -3553,7 +3567,10 @@ const Writer = struct {
             const has_section = @truncate(u1, cur_bit_bag) != 0;
             cur_bit_bag >>= 1;
 
-            const decl_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
+            const hash_u32s = self.code.extra[extra_index..][0..4];
+            extra_index += 4;
+            const decl_name_index = self.code.extra[extra_index];
+            const decl_name = self.code.nullTerminatedString(decl_name_index);
             extra_index += 1;
             const decl_index = self.code.extra[extra_index];
             extra_index += 1;
@@ -3568,24 +3585,33 @@ const Writer = struct {
                 break :inst inst;
             };
 
-            const tag = self.code.instructions.items(.tag)[decl_index];
             const pub_str = if (is_pub) "pub " else "";
-            const export_str = if (is_exported) "export " else "";
+            const hash_bytes = @bitCast([16]u8, hash_u32s.*);
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.print("{s}{s}{}", .{
-                pub_str, export_str, std.zig.fmtId(decl_name),
+            if (decl_name_index == 0) {
+                const name = if (is_exported) "usingnamespace" else "comptime";
+                try stream.writeAll(pub_str);
+                try stream.writeAll(name);
+            } else {
+                const export_str = if (is_exported) "export " else "";
+                try stream.print("{s}{s}{}", .{
+                    pub_str, export_str, std.zig.fmtId(decl_name),
+                });
+                if (align_inst != .none) {
+                    try stream.writeAll(" align(");
+                    try self.writeInstRef(stream, align_inst);
+                    try stream.writeAll(")");
+                }
+                if (section_inst != .none) {
+                    try stream.writeAll(" linksection(");
+                    try self.writeInstRef(stream, section_inst);
+                    try stream.writeAll(")");
+                }
+            }
+            const tag = self.code.instructions.items(.tag)[decl_index];
+            try stream.print(" hash({}): %{d} = {s}(", .{
+                std.fmt.fmtSliceHexLower(&hash_bytes), decl_index, @tagName(tag),
             });
-            if (align_inst != .none) {
-                try stream.writeAll(" align(");
-                try self.writeInstRef(stream, align_inst);
-                try stream.writeAll(")");
-            }
-            if (section_inst != .none) {
-                try stream.writeAll(" linksection(");
-                try self.writeInstRef(stream, section_inst);
-                try stream.writeAll(")");
-            }
-            try stream.print(": %{d} = {s}(", .{ decl_index, @tagName(tag) });
 
             const decl_block_inst_data = self.code.instructions.items(.data)[decl_index].pl_node;
             const sub_decl_node_off = decl_block_inst_data.src_node;
@@ -3939,6 +3965,7 @@ const Writer = struct {
             extra_index += 1;
             try stream.print("lib_name=\"{}\", ", .{std.zig.fmtEscapes(lib_name)});
         }
+        try self.writeFlag(stream, "test, ", small.is_test);
         const cc: Inst.Ref = if (!small.has_cc) .none else blk: {
             const cc = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
             extra_index += 1;

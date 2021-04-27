@@ -35,10 +35,10 @@ string_bytes: ArrayListUnmanaged(u8) = .{},
 arena: *Allocator,
 string_table: std.StringHashMapUnmanaged(u32) = .{},
 compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
-/// String table indexes, keeps track of all `@import` operands.
-imports: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 /// The topmost block of the current function.
 fn_block: ?*GenZir = null,
+/// String table indexes, keeps track of all `@import` operands.
+imports: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 
 pub fn addExtra(astgen: *AstGen, extra: anytype) Allocator.Error!u32 {
     const fields = std.meta.fields(@TypeOf(extra));
@@ -1078,6 +1078,7 @@ pub fn fnProtoExpr(
         .lib_name = 0,
         .is_var_args = is_var_args,
         .is_inferred_error = false,
+        .is_test = false,
     });
     return rvalue(gz, scope, rl, result, fn_proto.ast.proto_node);
 }
@@ -2610,6 +2611,26 @@ const WipDecls = struct {
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
 
+    fn next(
+        wip_decls: *WipDecls,
+        gpa: *Allocator,
+        is_pub: bool,
+        is_export: bool,
+        has_align: bool,
+        has_section: bool,
+    ) Allocator.Error!void {
+        if (wip_decls.decl_index % fields_per_u32 == 0 and wip_decls.decl_index != 0) {
+            try wip_decls.bit_bag.append(gpa, wip_decls.cur_bit_bag);
+            wip_decls.cur_bit_bag = 0;
+        }
+        wip_decls.cur_bit_bag = (wip_decls.cur_bit_bag >> bits_per_field) |
+            (@as(u32, @boolToInt(is_pub)) << 28) |
+            (@as(u32, @boolToInt(is_export)) << 29) |
+            (@as(u32, @boolToInt(has_align)) << 30) |
+            (@as(u32, @boolToInt(has_section)) << 31);
+        wip_decls.decl_index += 1;
+    }
+
     fn deinit(wip_decls: *WipDecls, gpa: *Allocator) void {
         wip_decls.bit_bag.deinit(gpa);
         wip_decls.payload.deinit(gpa);
@@ -2652,16 +2673,7 @@ fn fnDecl(
         break :inst try comptimeExpr(&decl_gz, &decl_gz.base, .{ .ty = .const_slice_u8_type }, fn_proto.ast.section_expr);
     };
 
-    if (wip_decls.decl_index % WipDecls.fields_per_u32 == 0 and wip_decls.decl_index != 0) {
-        try wip_decls.bit_bag.append(gpa, wip_decls.cur_bit_bag);
-        wip_decls.cur_bit_bag = 0;
-    }
-    wip_decls.cur_bit_bag = (wip_decls.cur_bit_bag >> WipDecls.bits_per_field) |
-        (@as(u32, @boolToInt(is_pub)) << 28) |
-        (@as(u32, @boolToInt(is_export)) << 29) |
-        (@as(u32, @boolToInt(align_inst != .none)) << 30) |
-        (@as(u32, @boolToInt(section_inst != .none)) << 31);
-    wip_decls.decl_index += 1;
+    try wip_decls.next(gpa, is_pub, is_export, align_inst != .none, section_inst != .none);
 
     // The AST params array does not contain anytype and ... parameters.
     // We must iterate to count how many param types to allocate.
@@ -2750,6 +2762,7 @@ fn fnDecl(
             .lib_name = lib_name,
             .is_var_args = is_var_args,
             .is_inferred_error = false,
+            .is_test = false,
         });
     } else func: {
         if (is_var_args) {
@@ -2821,6 +2834,7 @@ fn fnDecl(
             .lib_name = lib_name,
             .is_var_args = is_var_args,
             .is_inferred_error = is_inferred_error,
+            .is_test = false,
         });
     };
 
@@ -2833,7 +2847,12 @@ fn fnDecl(
     _ = try decl_gz.addBreak(.break_inline, block_inst, func_inst);
     try decl_gz.setBlockBody(block_inst);
 
-    try wip_decls.payload.ensureUnusedCapacity(gpa, 4);
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 8);
+    {
+        const contents_hash = std.zig.hashSrc(tree.getNodeSource(fn_proto.ast.proto_node));
+        const casted = @bitCast([4]u32, contents_hash);
+        wip_decls.payload.appendSliceAssumeCapacity(&casted);
+    }
     wip_decls.payload.appendAssumeCapacity(fn_name_str_index);
     wip_decls.payload.appendAssumeCapacity(block_inst);
     if (align_inst != .none) {
@@ -2879,16 +2898,7 @@ fn globalVarDecl(
     const section_inst: Zir.Inst.Ref = if (var_decl.ast.section_node == 0) .none else inst: {
         break :inst try comptimeExpr(&block_scope, &block_scope.base, .{ .ty = .const_slice_u8_type }, var_decl.ast.section_node);
     };
-    if (wip_decls.decl_index % WipDecls.fields_per_u32 == 0 and wip_decls.decl_index != 0) {
-        try wip_decls.bit_bag.append(gpa, wip_decls.cur_bit_bag);
-        wip_decls.cur_bit_bag = 0;
-    }
-    wip_decls.cur_bit_bag = (wip_decls.cur_bit_bag >> WipDecls.bits_per_field) |
-        (@as(u32, @boolToInt(is_pub)) << 28) |
-        (@as(u32, @boolToInt(is_export)) << 29) |
-        (@as(u32, @boolToInt(align_inst != .none)) << 30) |
-        (@as(u32, @boolToInt(section_inst != .none)) << 31);
-    wip_decls.decl_index += 1;
+    try wip_decls.next(gpa, is_pub, is_export, align_inst != .none, section_inst != .none);
 
     const is_mutable = token_tags[var_decl.ast.mut_token] == .keyword_var;
     const is_threadlocal = if (var_decl.threadlocal_token) |tok| blk: {
@@ -2950,7 +2960,12 @@ fn globalVarDecl(
     const name_token = var_decl.ast.mut_token + 1;
     const name_str_index = try gz.identAsString(name_token);
 
-    try wip_decls.payload.ensureUnusedCapacity(gpa, 4);
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 8);
+    {
+        const contents_hash = std.zig.hashSrc(tree.getNodeSource(node));
+        const casted = @bitCast([4]u32, contents_hash);
+        wip_decls.payload.appendSliceAssumeCapacity(&casted);
+    }
     wip_decls.payload.appendAssumeCapacity(name_str_index);
     wip_decls.payload.appendAssumeCapacity(var_inst);
     if (align_inst != .none) {
@@ -2965,21 +2980,48 @@ fn comptimeDecl(
     astgen: *AstGen,
     gz: *GenZir,
     scope: *Scope,
+    wip_decls: *WipDecls,
     node: ast.Node.Index,
 ) InnerError!void {
+    const gpa = astgen.gpa;
     const tree = &astgen.file.tree;
     const node_datas = tree.nodes.items(.data);
-    const block_expr = node_datas[node].lhs;
-    // TODO probably we want to put these into a block and store a list of them
-    _ = try expr(gz, scope, .none, block_expr);
+    const body_node = node_datas[node].lhs;
+
+    // Up top so the ZIR instruction index marks the start range of this
+    // top-level declaration.
+    const block_inst = try gz.addBlock(.block_inline, node);
+    try wip_decls.next(gpa, false, false, false, false);
+
+    var decl_block: GenZir = .{
+        .force_comptime = true,
+        .decl_node_index = node,
+        .parent = scope,
+        .astgen = astgen,
+    };
+    defer decl_block.instructions.deinit(gpa);
+
+    _ = try expr(&decl_block, &decl_block.base, .none, body_node);
+    try decl_block.setBlockBody(block_inst);
+
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 6);
+    {
+        const contents_hash = std.zig.hashSrc(tree.getNodeSource(node));
+        const casted = @bitCast([4]u32, contents_hash);
+        wip_decls.payload.appendSliceAssumeCapacity(&casted);
+    }
+    wip_decls.payload.appendAssumeCapacity(0);
+    wip_decls.payload.appendAssumeCapacity(block_inst);
 }
 
 fn usingnamespaceDecl(
     astgen: *AstGen,
     gz: *GenZir,
     scope: *Scope,
+    wip_decls: *WipDecls,
     node: ast.Node.Index,
 ) InnerError!void {
+    const gpa = astgen.gpa;
     const tree = &astgen.file.tree;
     const node_datas = tree.nodes.items(.data);
 
@@ -2990,14 +3032,38 @@ fn usingnamespaceDecl(
         const main_token = main_tokens[node];
         break :blk (main_token > 0 and token_tags[main_token - 1] == .keyword_pub);
     };
-    // TODO probably we want to put these into a block and store a list of them
-    const namespace_inst = try expr(gz, scope, .{ .ty = .type_type }, type_expr);
+    // Up top so the ZIR instruction index marks the start range of this
+    // top-level declaration.
+    const block_inst = try gz.addBlock(.block_inline, node);
+    try wip_decls.next(gpa, is_pub, true, false, false);
+
+    var decl_block: GenZir = .{
+        .force_comptime = true,
+        .decl_node_index = node,
+        .parent = scope,
+        .astgen = astgen,
+    };
+    defer decl_block.instructions.deinit(gpa);
+
+    const namespace_inst = try typeExpr(&decl_block, &decl_block.base, type_expr);
+    _ = try decl_block.addBreak(.break_inline, block_inst, namespace_inst);
+    try decl_block.setBlockBody(block_inst);
+
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 6);
+    {
+        const contents_hash = std.zig.hashSrc(tree.getNodeSource(node));
+        const casted = @bitCast([4]u32, contents_hash);
+        wip_decls.payload.appendSliceAssumeCapacity(&casted);
+    }
+    wip_decls.payload.appendAssumeCapacity(0);
+    wip_decls.payload.appendAssumeCapacity(block_inst);
 }
 
 fn testDecl(
     astgen: *AstGen,
     gz: *GenZir,
     scope: *Scope,
+    wip_decls: *WipDecls,
     node: ast.Node.Index,
 ) InnerError!void {
     const gpa = astgen.gpa;
@@ -3005,10 +3071,16 @@ fn testDecl(
     const node_datas = tree.nodes.items(.data);
     const body_node = node_datas[node].rhs;
 
+    // Up top so the ZIR instruction index marks the start range of this
+    // top-level declaration.
+    const block_inst = try gz.addBlock(.block_inline, node);
+
+    try wip_decls.next(gpa, false, false, false, false);
+
     var decl_block: GenZir = .{
         .force_comptime = true,
         .decl_node_index = node,
-        .parent = &gz.base,
+        .parent = scope,
         .astgen = astgen,
     };
     defer decl_block.instructions.deinit(gpa);
@@ -3053,15 +3125,20 @@ fn testDecl(
         .lib_name = 0,
         .is_var_args = false,
         .is_inferred_error = true,
+        .is_test = true,
     });
 
-    const block_inst = try gz.addBlock(.block_inline, node);
     _ = try decl_block.addBreak(.break_inline, block_inst, func_inst);
     try decl_block.setBlockBody(block_inst);
 
-    // TODO collect these into a test decl list
-    _ = test_name;
-    _ = block_inst;
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 6);
+    {
+        const contents_hash = std.zig.hashSrc(tree.getNodeSource(node));
+        const casted = @bitCast([4]u32, contents_hash);
+        wip_decls.payload.appendSliceAssumeCapacity(&casted);
+    }
+    wip_decls.payload.appendAssumeCapacity(test_name);
+    wip_decls.payload.appendAssumeCapacity(block_inst);
 }
 
 fn structDeclInner(
@@ -3179,15 +3256,15 @@ fn structDeclInner(
             },
 
             .@"comptime" => {
-                try astgen.comptimeDecl(gz, scope, member_node);
+                try astgen.comptimeDecl(gz, scope, &wip_decls, member_node);
                 continue;
             },
             .@"usingnamespace" => {
-                try astgen.usingnamespaceDecl(gz, scope, member_node);
+                try astgen.usingnamespaceDecl(gz, scope, &wip_decls, member_node);
                 continue;
             },
             .test_decl => {
-                try astgen.testDecl(gz, scope, member_node);
+                try astgen.testDecl(gz, scope, &wip_decls, member_node);
                 continue;
             },
             else => unreachable,
@@ -3382,15 +3459,15 @@ fn unionDeclInner(
             },
 
             .@"comptime" => {
-                try astgen.comptimeDecl(gz, scope, member_node);
+                try astgen.comptimeDecl(gz, scope, &wip_decls, member_node);
                 continue;
             },
             .@"usingnamespace" => {
-                try astgen.usingnamespaceDecl(gz, scope, member_node);
+                try astgen.usingnamespaceDecl(gz, scope, &wip_decls, member_node);
                 continue;
             },
             .test_decl => {
-                try astgen.testDecl(gz, scope, member_node);
+                try astgen.testDecl(gz, scope, &wip_decls, member_node);
                 continue;
             },
             else => unreachable,
@@ -3731,15 +3808,15 @@ fn containerDecl(
                     },
 
                     .@"comptime" => {
-                        try astgen.comptimeDecl(gz, scope, member_node);
+                        try astgen.comptimeDecl(gz, scope, &wip_decls, member_node);
                         continue;
                     },
                     .@"usingnamespace" => {
-                        try astgen.usingnamespaceDecl(gz, scope, member_node);
+                        try astgen.usingnamespaceDecl(gz, scope, &wip_decls, member_node);
                         continue;
                     },
                     .test_decl => {
-                        try astgen.testDecl(gz, scope, member_node);
+                        try astgen.testDecl(gz, scope, &wip_decls, member_node);
                         continue;
                     },
                     else => unreachable,
@@ -3896,15 +3973,15 @@ fn containerDecl(
                     },
 
                     .@"comptime" => {
-                        try astgen.comptimeDecl(gz, scope, member_node);
+                        try astgen.comptimeDecl(gz, scope, &wip_decls, member_node);
                         continue;
                     },
                     .@"usingnamespace" => {
-                        try astgen.usingnamespaceDecl(gz, scope, member_node);
+                        try astgen.usingnamespaceDecl(gz, scope, &wip_decls, member_node);
                         continue;
                     },
                     .test_decl => {
-                        try astgen.testDecl(gz, scope, member_node);
+                        try astgen.testDecl(gz, scope, &wip_decls, member_node);
                         continue;
                     },
                     else => unreachable,

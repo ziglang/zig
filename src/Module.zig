@@ -1311,6 +1311,7 @@ pub const Scope = struct {
             lib_name: u32,
             is_var_args: bool,
             is_inferred_error: bool,
+            is_test: bool,
         }) !Zir.Inst.Ref {
             assert(args.src_node != 0);
             assert(args.ret_ty != .none);
@@ -1320,7 +1321,7 @@ pub const Scope = struct {
             try gz.instructions.ensureUnusedCapacity(gpa, 1);
             try astgen.instructions.ensureUnusedCapacity(gpa, 1);
 
-            if (args.cc != .none or args.lib_name != 0 or args.is_var_args) {
+            if (args.cc != .none or args.lib_name != 0 or args.is_var_args or args.is_test) {
                 try astgen.extra.ensureUnusedCapacity(
                     gpa,
                     @typeInfo(Zir.Inst.ExtendedFunc).Struct.fields.len +
@@ -1353,6 +1354,7 @@ pub const Scope = struct {
                             .is_inferred_error = args.is_inferred_error,
                             .has_lib_name = args.lib_name != 0,
                             .has_cc = args.cc != .none,
+                            .is_test = args.is_test,
                         }),
                         .operand = payload_index,
                     } },
