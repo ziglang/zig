@@ -16898,8 +16898,9 @@ static IrInstGen *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstSrc
     if (target_type->id == ZigTypeIdEnumLiteral) {
         IrInstGen *result = ir_const(ira, &instruction->base.base, nullptr);
         Buf *field_name = target->value->data.x_enum_literal;
-        ZigValue *array_val = create_const_str_lit(ira->codegen, field_name)->data.x_ptr.data.ref.pointee;
-        init_const_slice(ira->codegen, result->value, array_val, 0, buf_len(field_name), true);
+        result->value = create_sentineled_str_lit(
+            ira->codegen, field_name,
+            ira->codegen->intern.for_zero_byte());
         return result;
     }
 
@@ -16918,9 +16919,10 @@ static IrInstGen *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstSrc
 
     if (can_fold_enum_type(target_type)) {
         TypeEnumField *only_field = &target_type->data.enumeration.fields[0];
-        ZigValue *array_val = create_const_str_lit(ira->codegen, only_field->name)->data.x_ptr.data.ref.pointee;
         IrInstGen *result = ir_const(ira, &instruction->base.base, nullptr);
-        init_const_slice(ira->codegen, result->value, array_val, 0, buf_len(only_field->name), true);
+        result->value = create_sentineled_str_lit(
+            ira->codegen, only_field->name,
+            ira->codegen->intern.for_zero_byte());
         return result;
     }
 
@@ -16936,16 +16938,17 @@ static IrInstGen *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstSrc
                 buf_sprintf("no tag by value %s", buf_ptr(int_buf)));
             return ira->codegen->invalid_inst_gen;
         }
-        ZigValue *array_val = create_const_str_lit(ira->codegen, field->name)->data.x_ptr.data.ref.pointee;
         IrInstGen *result = ir_const(ira, &instruction->base.base, nullptr);
-        init_const_slice(ira->codegen, result->value, array_val, 0, buf_len(field->name), true);
+        result->value = create_sentineled_str_lit(
+            ira->codegen, field->name,
+            ira->codegen->intern.for_zero_byte());
         return result;
     }
 
-    ZigType *u8_ptr_type = get_pointer_to_type_extra(
+    ZigType *u8_ptr_type = get_pointer_to_type_extra2(
             ira->codegen, ira->codegen->builtin_types.entry_u8,
-            true, false, PtrLenUnknown,
-            0, 0, 0, false);
+            true, false, PtrLenUnknown, 0, 0, 0, false,
+            VECTOR_INDEX_NONE, nullptr, ira->codegen->intern.for_zero_byte());
     ZigType *result_type = get_slice_type(ira->codegen, u8_ptr_type);
     return ir_build_tag_name_gen(ira, &instruction->base.base, target, result_type);
 }
