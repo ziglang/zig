@@ -78,6 +78,9 @@ pub fn generate(gpa: *Allocator, file: *Scope.File) InnerError!Zir {
     };
     defer astgen.deinit(gpa);
 
+    // String table indexes 0 and 1 are reserved for special meaning.
+    try astgen.string_bytes.appendSlice(gpa, &[_]u8{ 0, 0 });
+
     // We expect at least as many ZIR instructions and extra data items
     // as AST nodes.
     try astgen.instructions.ensureTotalCapacity(gpa, file.tree.nodes.len);
@@ -3124,7 +3127,8 @@ fn testDecl(
         if (token_tags[str_lit_token] == .string_literal) {
             break :blk (try decl_block.strLitAsString(str_lit_token)).index;
         }
-        break :blk 0;
+        // String table index 1 has a special meaning here of test decl with no name.
+        break :blk 1;
     };
 
     var fn_block: GenZir = .{

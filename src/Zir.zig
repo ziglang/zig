@@ -32,6 +32,7 @@ instructions: std.MultiArrayList(Inst).Slice,
 /// is referencing the data here whether they want to store both index and length,
 /// thus allowing null bytes, or store only index, and use null-termination. The
 /// `string_bytes` array is agnostic to either usage.
+/// Indexes 0 and 1 are reserved for special cases.
 string_bytes: []u8,
 /// The meaning of this data is determined by `Inst.Tag` value.
 /// The first few indexes are reserved. See `ExtraIndex` for the values.
@@ -2378,8 +2379,9 @@ pub const Inst = struct {
     /// 1. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        name: u32, // null terminated string index
-    ///        - can be 0 for test decls. always 0 for comptime and usingnamespace decls.
-    ///        - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
+    ///        - 0 means comptime or usingnamespace decl.
+    ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
+    ///        - 1 means test decl with no name.
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
@@ -2411,8 +2413,9 @@ pub const Inst = struct {
     /// 1. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        name: u32, // null terminated string index
-    ///        - can be 0 for test decls. always 0 for comptime and usingnamespace decls.
-    ///        - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
+    ///        - 0 means comptime or usingnamespace decl.
+    ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
+    ///        - 1 means test decl with no name.
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
@@ -2442,8 +2445,9 @@ pub const Inst = struct {
     /// 1. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        name: u32, // null terminated string index
-    ///        - can be 0 for test decls. always 0 for comptime and usingnamespace decls.
-    ///        - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
+    ///        - 0 means comptime or usingnamespace decl.
+    ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
+    ///        - 1 means test decl with no name.
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
@@ -2483,8 +2487,9 @@ pub const Inst = struct {
     /// 1. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        name: u32, // null terminated string index
-    ///        - can be 0 for test decls. always 0 for comptime and usingnamespace decls.
-    ///        - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
+    ///        - 0 means comptime or usingnamespace decl.
+    ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
+    ///        - 1 means test decl with no name.
     ///        value: Index,
     ///        - one of: block_inline, block_inline_var
     ///        align: Ref, // if corresponding bit is set

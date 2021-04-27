@@ -3415,7 +3415,7 @@ pub fn scanNamespace(
 
         const hash_u32s = zir.extra[extra_index..][0..4];
         extra_index += 4;
-        const name_idx = zir.extra[extra_index];
+        const decl_name_index = zir.extra[extra_index];
         extra_index += 1;
         const decl_index = zir.extra[extra_index];
         extra_index += 1;
@@ -3429,7 +3429,6 @@ pub fn scanNamespace(
             extra_index += 1;
             break :inst inst;
         };
-        const decl_name: ?[]const u8 = if (name_idx == 0) null else zir.nullTerminatedString(name_idx);
         const contents_hash = @bitCast(std.zig.SrcHash, hash_u32s.*);
 
         try mod.scanDecl(
@@ -3437,7 +3436,7 @@ pub fn scanNamespace(
             &deleted_decls,
             &outdated_decls,
             contents_hash,
-            decl_name,
+            decl_name_index,
             decl_index,
             is_pub,
             is_exported,
@@ -3477,7 +3476,7 @@ fn scanDecl(
     deleted_decls: *std.AutoArrayHashMap(*Decl, void),
     outdated_decls: *std.AutoArrayHashMap(*Decl, void),
     contents_hash: std.zig.SrcHash,
-    decl_name: ?[]const u8,
+    decl_name_index: u32,
     decl_index: Zir.Inst.Index,
     is_pub: bool,
     is_exported: bool,
@@ -3492,6 +3491,11 @@ fn scanDecl(
     const zir = namespace.file_scope.zir;
     const decl_block_inst_data = zir.instructions.items(.data)[decl_index].pl_node;
     const decl_node = parent_decl.relativeToNodeIndex(decl_block_inst_data.src_node);
+
+    const decl_name: ?[]const u8 = if (decl_name_index > 1)
+        zir.nullTerminatedString(decl_name_index)
+    else
+        null;
 
     // We create a Decl for it regardless of analysis status.
     // Decls that have names are keyed in the namespace by the name. Decls without
@@ -3510,8 +3514,14 @@ fn scanDecl(
         // Update the key reference to the longer-lived memory.
         gop.entry.key = &new_decl.contents_hash;
         gop.entry.value = new_decl;
-        // exported decls, comptime, test, and usingnamespace decls get analyzed.
-        if (decl_name == null or is_exported) {
+        // Exported decls, comptime decls, usingnamespace decls, and
+        // test decls if in test mode, get analyzed.
+        const want_analysis = is_exported or switch (decl_name_index) {
+            0 => true, // comptime decl
+            1 => mod.comp.bin_file.options.is_test, // test decl
+            else => false,
+        };
+        if (want_analysis) {
             mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
         }
         new_decl.is_pub = is_pub;

@@ -39,34 +39,6 @@
  * AstGen: add result location pointers to function calls
  * nested function decl: how to refer to params?
 
-pub fn createContainerDecl(
-    mod: *Module,
-    scope: *Scope,
-    base_token: std.zig.ast.TokenIndex,
-    decl_arena: *std.heap.ArenaAllocator,
-    typed_value: TypedValue,
-) !*Decl {
-    const scope_decl = scope.ownerDecl().?;
-    const name = try mod.getAnonTypeName(scope, base_token);
-    defer mod.gpa.free(name);
-    const name_hash = scope.namespace().fullyQualifiedNameHash(name);
-    const src_hash: std.zig.SrcHash = undefined;
-    const new_decl = try mod.createNewDecl(scope, name, scope_decl.src_node, name_hash, src_hash);
-    const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
-
-    decl_arena_state.* = decl_arena.state;
-    new_decl.typed_value = .{
-        .most_recent = .{
-            .typed_value = typed_value,
-            .arena = decl_arena_state,
-        },
-    };
-    new_decl.analysis = .complete;
-    new_decl.generation = mod.generation;
-
-    return new_decl;
-}
-
 fn getAnonTypeName(mod: *Module, scope: *Scope, base_token: std.zig.ast.TokenIndex) ![]u8 {
     // TODO add namespaces, generic function signatrues
     const tree = scope.tree();
@@ -82,14 +54,6 @@ fn getAnonTypeName(mod: *Module, scope: *Scope, base_token: std.zig.ast.TokenInd
     return std.fmt.allocPrint(mod.gpa, "{s}:{d}:{d}", .{ base_name, loc.line, loc.column });
 }
 
-
-pub fn analyzeFile(mod: *Module, file: *Scope.File) !void {
-    // We call `getAstTree` here so that `analyzeFile` has the error set that includes
-    // file system operations, but `analyzeNamespace` does not.
-    const tree = try mod.getAstTree(file.namespace.file_scope);
-    const decls = tree.rootDecls();
-    return mod.analyzeNamespace(file.namespace, decls);
-}
 
 /// Returns `true` if the Decl type changed.
 /// Returns `true` if this is the first time analyzing the Decl.
@@ -142,29 +106,6 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
             // A comptime decl does not store any value so we can just deinit this arena after analysis is done.
             var analysis_arena = std.heap.ArenaAllocator.init(mod.gpa);
             defer analysis_arena.deinit();
-
-            var code: Zir = blk: {
-                var astgen = try AstGen.init(mod, decl, &analysis_arena.allocator);
-                defer astgen.deinit();
-
-                var gen_scope: Scope.GenZir = .{
-                    .force_comptime = true,
-                    .parent = &decl.namespace.base,
-                    .astgen = &astgen,
-                };
-                defer gen_scope.instructions.deinit(mod.gpa);
-
-                const block_expr = node_datas[decl_node].lhs;
-                _ = try AstGen.comptimeExpr(&gen_scope, &gen_scope.base, .none, block_expr);
-                _ = try gen_scope.addBreak(.break_inline, 0, .void_value);
-
-                const code = try gen_scope.finish();
-                if (std.builtin.mode == .Debug and mod.comp.verbose_ir) {
-                    code.dump(mod.gpa, "comptime_block", &gen_scope.base, 0) catch {};
-                }
-                break :blk code;
-            };
-            defer code.deinit(mod.gpa);
 
             var sema: Sema = .{
                 .mod = mod,
