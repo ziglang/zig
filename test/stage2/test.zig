@@ -11,11 +11,6 @@ const linux_x64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
-const linux_riscv64 = std.zig.CrossTarget{
-    .cpu_arch = .riscv64,
-    .os_tag = .linux,
-};
-
 pub fn addCases(ctx: *TestContext) !void {
     try @import("cbe.zig").addCases(ctx);
     try @import("spu-ii.zig").addCases(ctx);
@@ -24,6 +19,7 @@ pub fn addCases(ctx: *TestContext) !void {
     try @import("llvm.zig").addCases(ctx);
     try @import("wasm.zig").addCases(ctx);
     try @import("darwin.zig").addCases(ctx);
+    try @import("riscv64.zig").addCases(ctx);
 
     {
         var case = ctx.exe("hello world with updates", linux_x64);
@@ -134,42 +130,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
             \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
             \\
-        );
-    }
-
-    {
-        var case = ctx.exe("riscv64 hello world", linux_riscv64);
-        // Regular old hello world
-        case.addCompareOutput(
-            \\export fn _start() noreturn {
-            \\    print();
-            \\
-            \\    exit();
-            \\}
-            \\
-            \\fn print() void {
-            \\    asm volatile ("ecall"
-            \\        :
-            \\        : [number] "{a7}" (64),
-            \\          [arg1] "{a0}" (1),
-            \\          [arg2] "{a1}" (@ptrToInt("Hello, World!\n")),
-            \\          [arg3] "{a2}" ("Hello, World!\n".len)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    return;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("ecall"
-            \\        :
-            \\        : [number] "{a7}" (94),
-            \\          [arg1] "{a0}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
-        ,
-            "Hello, World!\n",
         );
     }
 
@@ -1048,7 +1008,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
         try case.files.append(.{
-            .src =
+            .src = 
             \\pub fn print() void {
             \\    asm volatile ("syscall"
             \\        :
@@ -1085,7 +1045,7 @@ pub fn addCases(ctx: *TestContext) !void {
             &.{":2:25: error: 'print' is private"},
         );
         try case.files.append(.{
-            .src =
+            .src = 
             \\fn print() void {
             \\    asm volatile ("syscall"
             \\        :
