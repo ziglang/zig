@@ -248,7 +248,7 @@ fn initTLS() void {
         tls_data = @intToPtr([*]u8, img_base + phdr.p_vaddr)[0..phdr.p_filesz];
         tls_data_alloc_size = phdr.p_memsz;
     } else {
-        tls_align_factor = @alignOf(*usize);
+        tls_align_factor = @alignOf(usize);
         tls_data = &[_]u8{};
         tls_data_alloc_size = 0;
     }
@@ -308,7 +308,7 @@ fn initTLS() void {
 }
 
 fn alignPtrCast(comptime T: type, ptr: [*]u8) callconv(.Inline) *T {
-    return @ptrCast(*T, @alignCast(@alignOf(*T), ptr));
+    return @ptrCast(*T, @alignCast(@alignOf(T), ptr));
 }
 
 /// Initializes all the fields of the static TLS area and returns the computed

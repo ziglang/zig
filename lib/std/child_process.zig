@@ -264,7 +264,7 @@ pub const ChildProcess = struct {
 
         // TODO collect output in a deadlock-avoiding way on Windows.
         // https://github.com/ziglang/zig/issues/6343
-        if (builtin.os.tag == .windows) {
+        if (builtin.os.tag == .windows or builtin.os.tag == .haiku) {
             const stdout_in = child.stdout.?.reader();
             const stderr_in = child.stderr.?.reader();
 

@@ -1,0 +1,18 @@
+#!/bin/sh
+
+. ./ci/drone/linux_script_base
+
+apk update
+apk add samurai
+
+# Make the `zig version` number consistent.
+# This will affect the cmake command below.
+git config core.abbrev 9
+git fetch --unshallow || true
+git fetch --tags
+
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON -DCMAKE_PREFIX_PATH=/deps/local -GNinja
+
+samu install

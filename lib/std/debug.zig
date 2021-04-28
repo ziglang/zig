@@ -339,6 +339,13 @@ pub const StackIterator = struct {
     fp: usize,
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
+        if (native_arch == .sparcv9) {
+            // Flush all the register windows on stack.
+            asm volatile (
+                \\ flushw
+                ::: "memory");
+        }
+
         return StackIterator{
             .first_address = first_address,
             .fp = fp orelse @frameAddress(),
@@ -346,18 +353,18 @@ pub const StackIterator = struct {
     }
 
     // Offset of the saved BP wrt the frame pointer.
-    const fp_offset = if (native_arch.isRISCV())
+    const fp_offset = if (comptime native_arch.isRISCV())
         // On RISC-V the frame pointer points to the top of the saved register
         // area, on pretty much every other architecture it points to the stack
         // slot where the previous frame pointer is saved.
         2 * @sizeOf(usize)
-    else if (native_arch.isSPARC())
+    else if (comptime native_arch.isSPARC())
         // On SPARC the previous frame pointer is stored at 14 slots past %fp+BIAS.
         14 * @sizeOf(usize)
     else
         0;
 
-    const fp_bias = if (native_arch.isSPARC())
+    const fp_bias = if (comptime native_arch.isSPARC())
         // On SPARC frame pointers are biased by a constant.
         2047
     else
@@ -383,7 +390,7 @@ pub const StackIterator = struct {
     }
 
     fn next_internal(self: *StackIterator) ?usize {
-        const fp = if (native_arch.isSPARC())
+        const fp = if (comptime native_arch.isSPARC())
             // On SPARC the offset is positive. (!)
             math.add(usize, self.fp, fp_offset) catch return null
         else

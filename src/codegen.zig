@@ -449,7 +449,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .rbrace_src = src_data.rbrace_src,
                 .source = src_data.source,
             };
-            defer function.register_manager.deinit(bin_file.allocator);
             defer function.stack.deinit(bin_file.allocator);
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
@@ -779,8 +778,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             branch.inst_table.putAssumeCapacity(inst, .dead);
             switch (prev_value) {
                 .register => |reg| {
-                    const canon_reg = toCanonicalReg(reg);
-                    self.register_manager.freeReg(canon_reg);
+                    // TODO separate architectures with registers from
+                    // stack-based architectures (spu_2)
+                    if (callee_preserved_regs.len > 0) {
+                        const canon_reg = toCanonicalReg(reg);
+                        self.register_manager.freeReg(canon_reg);
+                    }
                 },
                 else => {}, // TODO process stack allocation death
             }
@@ -920,9 +923,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 const ptr_bits = arch.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 if (abi_size <= ptr_bytes) {
-                    try self.register_manager.registers.ensureCapacity(self.gpa, self.register_manager.registers.count() + 1);
-                    if (self.register_manager.tryAllocReg(inst)) |reg| {
-                        return MCValue{ .register = registerAlias(reg, abi_size) };
+                    // TODO separate architectures with registers from
+                    // stack-based architectures (spu_2)
+                    if (callee_preserved_regs.len > 0) {
+                        if (self.register_manager.tryAllocReg(inst)) |reg| {
+                            return MCValue{ .register = registerAlias(reg, abi_size) };
+                        }
                     }
                 }
             }
@@ -952,8 +958,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// `reg_owner` is the instruction that gets associated with the register in the register table.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
         fn copyToNewRegister(self: *Self, reg_owner: *ir.Inst, mcv: MCValue) !MCValue {
-            try self.register_manager.registers.ensureCapacity(self.gpa, @intCast(u32, self.register_manager.registers.count() + 1));
-
             const reg = try self.register_manager.allocReg(reg_owner);
             try self.genSetReg(reg_owner.src, reg_owner.ty, reg, mcv);
             return MCValue{ .register = reg };
@@ -1240,10 +1244,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .register => |reg| {
                     // If it's in the registers table, need to associate the register with the
                     // new instruction.
-                    if (self.register_manager.registers.getEntry(toCanonicalReg(reg))) |entry| {
-                        entry.value = inst;
+                    // TODO separate architectures with registers from
+                    // stack-based architectures (spu_2)
+                    if (callee_preserved_regs.len > 0) {
+                        if (reg.allocIndex()) |index| {
+                            if (!self.register_manager.isRegFree(reg)) {
+                                self.register_manager.registers[index] = inst;
+                            }
+                        }
+                        log.debug("reusing {} => {*}", .{ reg, inst });
                     }
-                    log.debug("reusing {} => {*}", .{ reg, inst });
                 },
                 .stack_offset => |off| {
                     log.debug("reusing stack offset {} => {*}", .{ off, inst });
@@ -1738,6 +1748,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const arg_index = self.arg_index;
             self.arg_index += 1;
 
+            // TODO separate architectures with registers from
+            // stack-based architectures (spu_2)
             if (callee_preserved_regs.len == 0) {
                 return self.fail(inst.base.src, "TODO implement Register enum for {}", .{self.target.cpu.arch});
             }
@@ -1769,7 +1781,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             switch (mcv) {
                 .register => |reg| {
-                    try self.register_manager.registers.ensureCapacity(self.gpa, self.register_manager.registers.count() + 1);
                     self.register_manager.getRegAssumeFree(toCanonicalReg(reg), &inst.base);
                 },
                 else => {},
@@ -2075,7 +2086,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     switch (mc_arg) {
                         .none => continue,
                         .register => |reg| {
-                            try self.register_manager.getRegWithoutTracking(reg);
+                            // TODO prevent this macho if block to be generated for all archs
+                            switch (arch) {
+                                .x86_64, .aarch64 => try self.register_manager.getRegWithoutTracking(reg),
+                                else => unreachable,
+                            }
                             try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
                         },
                         .stack_offset => {
@@ -2397,8 +2412,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const parent_free_registers = self.register_manager.free_registers;
             var parent_stack = try self.stack.clone(self.gpa);
             defer parent_stack.deinit(self.gpa);
-            var parent_registers = try self.register_manager.registers.clone(self.gpa);
-            defer parent_registers.deinit(self.gpa);
+            const parent_registers = self.register_manager.registers;
 
             try self.branch_stack.append(.{});
 
@@ -2414,9 +2428,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             var saved_then_branch = self.branch_stack.pop();
             defer saved_then_branch.deinit(self.gpa);
 
-            self.register_manager.registers.deinit(self.gpa);
             self.register_manager.registers = parent_registers;
-            parent_registers = .{};
 
             self.stack.deinit(self.gpa);
             self.stack = parent_stack;

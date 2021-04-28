@@ -47,6 +47,7 @@ ZigType *get_test_fn_type(CodeGen *g);
 ZigType *get_any_frame_type(CodeGen *g, ZigType *result_type);
 bool handle_is_ptr(CodeGen *g, ZigType *type_entry);
 Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_node, CallingConvention cc);
+uint32_t get_async_frame_align_bytes(CodeGen *g);
 
 bool type_has_bits(CodeGen *g, ZigType *type_entry);
 Error type_has_bits2(CodeGen *g, ZigType *type_entry, bool *result);

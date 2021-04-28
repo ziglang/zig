@@ -120,8 +120,11 @@ pub const Node = extern union {
         std_math_Log2Int,
         /// @intCast(lhs, rhs)
         int_cast,
-        /// @rem(lhs, rhs)
+        /// @import("std").meta.promoteIntLiteral(value, type, radix)
         std_meta_promoteIntLiteral,
+        /// @import("std").meta.alignment(value)
+        std_meta_alignment,
+        /// @rem(lhs, rhs)
         rem,
         /// @divTrunc(lhs, rhs)
         div_trunc,
@@ -260,6 +263,7 @@ pub const Node = extern union {
                 .switch_else,
                 .block_single,
                 .std_meta_sizeof,
+                .std_meta_alignment,
                 .bool_to_int,
                 .sizeof,
                 .alignof,
@@ -875,6 +879,11 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.std_meta_promoteIntLiteral).?.data;
             const import_node = try renderStdImport(c, "meta", "promoteIntLiteral");
             return renderCall(c, import_node, &.{ payload.type, payload.value, payload.radix });
+        },
+        .std_meta_alignment => {
+            const payload = node.castTag(.std_meta_alignment).?.data;
+            const import_node = try renderStdImport(c, "meta", "alignment");
+            return renderCall(c, import_node, &.{payload});
         },
         .std_meta_sizeof => {
             const payload = node.castTag(.std_meta_sizeof).?.data;
@@ -2144,6 +2153,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .typeof,
         .typeinfo,
         .std_meta_sizeof,
+        .std_meta_alignment,
         .std_meta_cast,
         .std_meta_promoteIntLiteral,
         .std_meta_vector,

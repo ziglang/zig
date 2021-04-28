@@ -199,7 +199,8 @@ pub fn spawn(comptime startFn: anytype, context: SpawnContextType(@TypeOf(startF
                 inner: Context,
             };
             fn threadMain(raw_arg: windows.LPVOID) callconv(.C) windows.DWORD {
-                const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
+                const arg = if (@sizeOf(Context) == 0) undefined //
+                else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
 
                 switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                     .NoReturn => {
@@ -260,7 +261,8 @@ pub fn spawn(comptime startFn: anytype, context: SpawnContextType(@TypeOf(startF
 
     const MainFuncs = struct {
         fn linuxThreadMain(ctx_addr: usize) callconv(.C) u8 {
-            const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
+            const arg = if (@sizeOf(Context) == 0) undefined //
+            else @intToPtr(*Context, ctx_addr).*;
 
             switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                 .NoReturn => {
@@ -292,7 +294,8 @@ pub fn spawn(comptime startFn: anytype, context: SpawnContextType(@TypeOf(startF
             }
         }
         fn posixThreadMain(ctx: ?*c_void) callconv(.C) ?*c_void {
-            const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), ctx)).*;
+            const arg = if (@sizeOf(Context) == 0) undefined //
+            else @ptrCast(*Context, @alignCast(@alignOf(Context), ctx)).*;
 
             switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                 .NoReturn => {

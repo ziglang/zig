@@ -8,6 +8,7 @@ const ctok = std.c.tokenizer;
 const CToken = std.c.Token;
 const mem = std.mem;
 const math = std.math;
+const meta = std.meta;
 const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
 const Tag = Node.Tag;
@@ -1741,7 +1742,7 @@ fn transImplicitCastExpr(
 }
 
 fn isBuiltinDefined(name: []const u8) bool {
-    inline for (std.meta.declarations(c_builtins)) |decl| {
+    inline for (meta.declarations(c_builtins)) |decl| {
         if (std.mem.eql(u8, name, decl.name)) return true;
     }
     return false;
@@ -3157,7 +3158,7 @@ const ClangFunctionType = union(enum) {
     NoProto: *const clang.FunctionType,
 
     fn getReturnType(self: @This()) clang.QualType {
-        switch (@as(std.meta.Tag(@This()), self)) {
+        switch (@as(meta.Tag(@This()), self)) {
             .Proto => return self.Proto.getReturnType(),
             .NoProto => return self.NoProto.getReturnType(),
         }
@@ -3539,7 +3540,7 @@ fn transCPtrCast(
             expr
         else blk: {
             const child_type_node = try transQualType(c, scope, child_type, loc);
-            const alignof = try Tag.alignof.create(c.arena, child_type_node);
+            const alignof = try Tag.std_meta_alignment.create(c.arena, child_type_node);
             const align_cast = try Tag.align_cast.create(c.arena, .{ .lhs = alignof, .rhs = expr });
             break :blk align_cast;
         };
@@ -3547,9 +3548,22 @@ fn transCPtrCast(
     }
 }
 
-fn transFloatingLiteral(c: *Context, scope: *Scope, stmt: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
+fn transFloatingLiteral(c: *Context, scope: *Scope, expr: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
+    switch (expr.getRawSemantics()) {
+        .IEEEhalf, // f16
+        .IEEEsingle, // f32
+        .IEEEdouble, // f64
+        => {},
+        else => |format| return fail(
+            c,
+            error.UnsupportedTranslation,
+            expr.getBeginLoc(),
+            "unsupported floating point constant format {}",
+            .{format},
+        ),
+    }
     // TODO use something more accurate
-    var dbl = stmt.getValueAsApproximateDouble();
+    var dbl = expr.getValueAsApproximateDouble();
     const is_negative = dbl < 0;
     if (is_negative) dbl = -dbl;
     const str = if (dbl == std.math.floor(dbl))
@@ -4093,7 +4107,7 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
 }
 
 fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float }) !Node {
-    const fmt_s = if (comptime std.meta.trait.isNumber(@TypeOf(num))) "{d}" else "{s}";
+    const fmt_s = if (comptime meta.trait.isNumber(@TypeOf(num))) "{d}" else "{s}";
     const str = try std.fmt.allocPrint(c.arena, fmt_s, .{num});
     if (num_kind == .float)
         return Tag.float_literal.create(c.arena, str)
@@ -4402,6 +4416,7 @@ fn transCC(
         .X86ThisCall => return CallingConvention.Thiscall,
         .AAPCS => return CallingConvention.AAPCS,
         .AAPCS_VFP => return CallingConvention.AAPCSVFP,
+        .X86_64SysV => return CallingConvention.SysV,
         else => return fail(
             c,
             error.UnsupportedType,
@@ -4848,12 +4863,12 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
             // make the output less noisy by skipping promoteIntLiteral where
             // it's guaranteed to not be required because of C standard type constraints
             const guaranteed_to_fit = switch (suffix) {
-                .none => if (math.cast(i16, value)) |_| true else |_| false,
-                .u => if (math.cast(u16, value)) |_| true else |_| false,
-                .l => if (math.cast(i32, value)) |_| true else |_| false,
-                .lu => if (math.cast(u32, value)) |_| true else |_| false,
-                .ll => if (math.cast(i64, value)) |_| true else |_| false,
-                .llu => if (math.cast(u64, value)) |_| true else |_| false,
+                .none => !meta.isError(math.cast(i16, value)),
+                .u => !meta.isError(math.cast(u16, value)),
+                .l => !meta.isError(math.cast(i32, value)),
+                .lu => !meta.isError(math.cast(u32, value)),
+                .ll => !meta.isError(math.cast(i64, value)),
+                .llu => !meta.isError(math.cast(u64, value)),
                 .f => unreachable,
             };
 

@@ -881,6 +881,16 @@ enum ZigClangAPFloat_roundingMode {
     ZigClangAPFloat_roundingMode_Invalid = -1,
 };
 
+enum ZigClangAPFloatBase_Semantics {
+    ZigClangAPFloatBase_Semantics_IEEEhalf,
+    ZigClangAPFloatBase_Semantics_BFloat,
+    ZigClangAPFloatBase_Semantics_IEEEsingle,
+    ZigClangAPFloatBase_Semantics_IEEEdouble,
+    ZigClangAPFloatBase_Semantics_x87DoubleExtended,
+    ZigClangAPFloatBase_Semantics_IEEEquad,
+    ZigClangAPFloatBase_Semantics_PPCDoubleDouble,
+};
+
 enum ZigClangStringLiteral_StringKind {
     ZigClangStringLiteral_StringKind_Ascii,
     ZigClangStringLiteral_StringKind_Wide,
@@ -1142,6 +1152,7 @@ ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangDeclStmt_getBeginLoc(const st
 ZIG_EXTERN_C unsigned ZigClangAPFloat_convertToHexString(const struct ZigClangAPFloat *self, char *DST,
         unsigned HexDigits, bool UpperCase, enum ZigClangAPFloat_roundingMode RM);
 ZIG_EXTERN_C double ZigClangFloatingLiteral_getValueAsApproximateDouble(const ZigClangFloatingLiteral *self);
+ZIG_EXTERN_C ZigClangAPFloatBase_Semantics ZigClangFloatingLiteral_getRawSemantics(const ZigClangFloatingLiteral *self);
 
 ZIG_EXTERN_C enum ZigClangStringLiteral_StringKind ZigClangStringLiteral_getKind(const struct ZigClangStringLiteral *self);
 ZIG_EXTERN_C uint32_t ZigClangStringLiteral_getCodeUnit(const struct ZigClangStringLiteral *self, size_t i);

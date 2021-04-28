@@ -69,3 +69,51 @@ pub const pthread_rwlock_t = extern struct {
     writer_count: i32 = 0,
     waiters: [2]?*c_void = [_]?*c_void{ null, null },
 };
+
+pub const EAI = extern enum(c_int) {
+    /// address family for hostname not supported
+    ADDRFAMILY = 1,
+
+    /// name could not be resolved at this time
+    AGAIN = 2,
+
+    /// flags parameter had an invalid value
+    BADFLAGS = 3,
+
+    /// non-recoverable failure in name resolution
+    FAIL = 4,
+
+    /// address family not recognized
+    FAMILY = 5,
+
+    /// memory allocation failure
+    MEMORY = 6,
+
+    /// no address associated with hostname
+    NODATA = 7,
+
+    /// name does not resolve
+    NONAME = 8,
+
+    /// service not recognized for socket type
+    SERVICE = 9,
+
+    /// intended socket type was not recognized
+    SOCKTYPE = 10,
+
+    /// system error returned in errno
+    SYSTEM = 11,
+
+    /// invalid value for hints
+    BADHINTS = 12,
+
+    /// resolved protocol is unknown
+    PROTOCOL = 13,
+
+    /// argument buffer overflow
+    OVERFLOW = 14,
+
+    _,
+};
+
+pub const EAI_MAX = 15;
