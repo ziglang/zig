@@ -974,6 +974,7 @@ const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionAAPCS: return "AAPCS";
         case CallingConventionAAPCSVFP: return "AAPCSVFP";
         case CallingConventionInline: return "Inline";
+        case CallingConventionSysV: return "SysV";
     }
     zig_unreachable();
 }
@@ -995,6 +996,7 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionAPCS:
         case CallingConventionAAPCS:
         case CallingConventionAAPCSVFP:
+        case CallingConventionSysV:
             return false;
     }
     zig_unreachable();
@@ -1969,6 +1971,10 @@ Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_
         case CallingConventionAAPCSVFP:
             if (!target_is_arm(g->zig_target))
                 allowed_platforms = "ARM";
+            break;
+        case CallingConventionSysV:
+            if (g->zig_target->arch != ZigLLVM_x86_64)
+                allowed_platforms = "x86_64";
     }
     if (allowed_platforms != nullptr) {
         add_node_error(g, source_node, buf_sprintf(
@@ -3805,6 +3811,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 case CallingConventionAPCS:
                 case CallingConventionAAPCS:
                 case CallingConventionAAPCSVFP:
+                case CallingConventionSysV:
                     add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
                                   GlobalLinkageIdStrong, fn_cc);
                     break;

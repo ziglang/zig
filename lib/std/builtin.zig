@@ -165,6 +165,7 @@ pub const CallingConvention = enum {
     APCS,
     AAPCS,
     AAPCSVFP,
+    SysV
 };
 
 /// This data structure is used by the Zig language code generation and

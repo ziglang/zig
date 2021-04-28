@@ -84,6 +84,7 @@ enum CallingConvention {
     CallingConventionAPCS,
     CallingConventionAAPCS,
     CallingConventionAAPCSVFP,
+    CallingConventionSysV
 };
 
 // This one corresponds to the builtin.zig enum.

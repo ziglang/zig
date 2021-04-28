@@ -19216,6 +19216,7 @@ static IrInstGen *ir_analyze_instruction_export(IrAnalyze *ira, IrInstSrcExport 
                 case CallingConventionAPCS:
                 case CallingConventionAAPCS:
                 case CallingConventionAAPCSVFP:
+                case CallingConventionSysV:
                     add_fn_export(ira->codegen, fn_entry, buf_ptr(symbol_name), global_linkage_id, cc);
                     fn_entry->section_name = section_name;
                     break;

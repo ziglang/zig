@@ -4416,6 +4416,7 @@ fn transCC(
         .X86ThisCall => return CallingConvention.Thiscall,
         .AAPCS => return CallingConvention.AAPCS,
         .AAPCS_VFP => return CallingConvention.AAPCSVFP,
+        .X86_64SysV => return CallingConvention.SysV,
         else => return fail(
             c,
             error.UnsupportedType,

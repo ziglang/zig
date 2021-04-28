@@ -204,6 +204,9 @@ static ZigLLVM_CallingConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
         case CallingConventionSignal:
             assert(g->zig_target->arch == ZigLLVM_avr);
             return ZigLLVM_AVR_SIGNAL;
+        case CallingConventionSysV:
+            assert(g->zig_target->arch == ZigLLVM_x86_64);
+            return ZigLLVM_X86_64_SysV;
     }
     zig_unreachable();
 }
@@ -348,6 +351,7 @@ static bool cc_want_sret_attr(CallingConvention cc) {
         case CallingConventionAPCS:
         case CallingConventionAAPCS:
         case CallingConventionAAPCSVFP:
+        case CallingConventionSysV:
             return true;
         case CallingConventionAsync:
         case CallingConventionUnspecified:
@@ -9077,6 +9081,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     static_assert(CallingConventionAPCS == 11, "");
     static_assert(CallingConventionAAPCS == 12, "");
     static_assert(CallingConventionAAPCSVFP == 13, "");
+    static_assert(CallingConventionSysV == 14, "");
 
     static_assert(BuiltinPtrSizeOne == 0, "");
     static_assert(BuiltinPtrSizeMany == 1, "");
