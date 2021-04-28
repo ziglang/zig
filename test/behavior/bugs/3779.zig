@@ -19,3 +19,13 @@ test "@errorName() returns a string literal" {
     try std.testing.expectEqualStrings("TestErrorCode", error_name);
     try std.testing.expectEqualStrings("TestErrorCode", ptr_error_name[0..error_name.len]);
 }
+
+const TestType = struct {};
+const type_name = @typeName(TestType);
+const ptr_type_name: [*:0]const u8 = type_name;
+
+test "@typeName() returns a string literal" {
+    try std.testing.expectEqual(*const [type_name.len:0]u8, @TypeOf(type_name));
+    try std.testing.expectEqualStrings("TestType", type_name);
+    try std.testing.expectEqualStrings("TestType", ptr_type_name[0..type_name.len]);
+}

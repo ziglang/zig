@@ -8623,7 +8623,7 @@ test "integer truncation" {
       {#header_close#}
 
       {#header_open|@typeName#}
-      <pre>{#syntax#}@typeName(T: type) [N]u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@typeName(T: type) *const [N:0]u8{#endsyntax#}</pre>
       <p>
       This function returns the string representation of a type, as
       an array. It is equivalent to a string literal of the type name.
