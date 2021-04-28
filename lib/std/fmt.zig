@@ -1506,9 +1506,11 @@ test "parseUnsigned" {
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
+pub const parseHexFloat = @import("fmt/parse_hex_float.zig").parseHexFloat;
 
-test "parseFloat" {
+test {
     _ = @import("fmt/parse_float.zig");
+    _ = @import("fmt/parse_hex_float.zig");
 }
 
 pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
