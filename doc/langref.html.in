@@ -7447,7 +7447,7 @@ test "main" {
       {#see_also|@divFloor|@divExact#}
       {#header_close#}
       {#header_open|@embedFile#}
-      <pre>{#syntax#}@embedFile(comptime path: []const u8) *const [X:0]u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@embedFile(comptime path: []const u8) *const [N:0]u8{#endsyntax#}</pre>
       <p>
       This function returns a compile time constant pointer to null-terminated,
       fixed-size array with length equal to the byte count of the file given by

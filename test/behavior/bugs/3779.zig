@@ -29,3 +29,14 @@ test "@typeName() returns a string literal" {
     try std.testing.expectEqualStrings("TestType", type_name);
     try std.testing.expectEqualStrings("TestType", ptr_type_name[0..type_name.len]);
 }
+
+const actual_contents = @embedFile("3779_file_to_embed.txt");
+const ptr_actual_contents: [*:0]const u8 = actual_contents;
+const expected_contents = "hello zig\n";
+
+test "@embedFile() returns a string literal" {
+    try std.testing.expectEqual(*const [expected_contents.len:0]u8, @TypeOf(actual_contents));
+    try std.testing.expect(std.mem.eql(u8, expected_contents, actual_contents));
+    try std.testing.expectEqualStrings(expected_contents, actual_contents);
+    try std.testing.expectEqualStrings(expected_contents, ptr_actual_contents[0..actual_contents.len]);
+}
