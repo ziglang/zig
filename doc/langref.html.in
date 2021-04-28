@@ -7475,7 +7475,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorName#}
-      <pre>{#syntax#}@errorName(err: anyerror) []const u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@errorName(err: anyerror) [:0]const u8{#endsyntax#}</pre>
       <p>
       This function returns the string representation of an error. The string representation
       of {#syntax#}error.OutOfMem{#endsyntax#} is {#syntax#}"OutOfMem"{#endsyntax#}.

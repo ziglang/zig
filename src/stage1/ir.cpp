@@ -16864,26 +16864,27 @@ static IrInstGen *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstSrcErrNa
     if (type_is_invalid(casted_value->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    ZigType *u8_ptr_type = get_pointer_to_type_extra(ira->codegen, ira->codegen->builtin_types.entry_u8,
-            true, false, PtrLenUnknown, 0, 0, 0, false);
-    ZigType *str_type = get_slice_type(ira->codegen, u8_ptr_type);
     if (instr_is_comptime(casted_value)) {
         ZigValue *val = ir_resolve_const(ira, casted_value, UndefBad);
         if (val == nullptr)
             return ira->codegen->invalid_inst_gen;
         ErrorTableEntry *err = casted_value->value->data.x_err_set;
         if (!err->cached_error_name_val) {
-            ZigValue *array_val = create_const_str_lit(ira->codegen, &err->name)->data.x_ptr.data.ref.pointee;
-            err->cached_error_name_val = create_const_slice(ira->codegen, array_val, 0, buf_len(&err->name), true);
+            err->cached_error_name_val = create_sentineled_str_lit(
+                ira->codegen, &err->name,
+                ira->codegen->intern.for_zero_byte());
         }
         IrInstGen *result = ir_const(ira, &instruction->base.base, nullptr);
-        copy_const_val(ira->codegen, result->value, err->cached_error_name_val);
-        result->value->type = str_type;
+        result->value = err->cached_error_name_val;
         return result;
     }
 
     ira->codegen->generate_error_name_table = true;
 
+    ZigType *u8_ptr_type = get_pointer_to_type_extra2(ira->codegen, ira->codegen->builtin_types.entry_u8,
+            true, false, PtrLenUnknown, 0, 0, 0, false,
+            VECTOR_INDEX_NONE, nullptr, ira->codegen->intern.for_zero_byte());
+    ZigType *str_type = get_slice_type(ira->codegen, u8_ptr_type);
     return ir_build_err_name_gen(ira, &instruction->base.base, value, str_type);
 }
 
