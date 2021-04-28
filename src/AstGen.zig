@@ -247,7 +247,11 @@ pub const align_rl: ResultLoc = .{ .ty = .u16_type };
 pub const bool_rl: ResultLoc = .{ .ty = .bool_type };
 
 pub fn typeExpr(gz: *GenZir, scope: *Scope, type_node: ast.Node.Index) InnerError!Zir.Inst.Ref {
-    return expr(gz, scope, .{ .ty = .type_type }, type_node);
+    const prev_force_comptime = gz.force_comptime;
+    gz.force_comptime = true;
+    const e = expr(gz, scope, .{ .ty = .type_type }, type_node);
+    gz.force_comptime = prev_force_comptime;
+    return e;
 }
 
 fn lvalExpr(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -821,7 +825,8 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
         .char_literal => return charLiteral(gz, scope, rl, node),
         .error_set_decl => return errorSetDecl(gz, scope, rl, node),
         .array_access => return arrayAccess(gz, scope, rl, node),
-        .@"comptime" => return comptimeExpr(gz, scope, rl, node_datas[node].lhs),
+        // we use comptimeExprFromAst here as it is explicitly put there by the user, `comptimeExpr` can be used by the compiler, even in a comptime scope
+        .@"comptime" => return comptimeExprFromAst(gz, scope, rl, node_datas[node].lhs),
         .@"switch", .switch_comma => return switchExpr(gz, scope, rl, node),
 
         .@"nosuspend" => return nosuspendExpr(gz, scope, rl, node),
@@ -1455,6 +1460,22 @@ pub fn comptimeExpr(
     gz.force_comptime = true;
     const result = try expr(gz, scope, rl, node);
     gz.force_comptime = prev_force_comptime;
+    return result;
+}
+
+pub fn comptimeExprFromAst(
+    gz: *GenZir,
+    scope: *Scope,
+    rl: ResultLoc,
+    node: ast.Node.Index,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    if (gz.force_comptime) {
+        return astgen.failNode(node, "redundant comptime keyword in already comptime scope", .{});
+    }
+    gz.force_comptime = true;
+    const result = try expr(gz, scope, rl, node);
+    gz.force_comptime = false;
     return result;
 }
 

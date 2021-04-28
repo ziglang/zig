@@ -1048,7 +1048,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
         try case.files.append(.{
-            .src = 
+            .src =
             \\pub fn print() void {
             \\    asm volatile ("syscall"
             \\        :
@@ -1063,6 +1063,25 @@ pub fn addCases(ctx: *TestContext) !void {
             ,
             .path = "print.zig",
         });
+    }
+    {
+        var case = ctx.exe("redundant comptime", linux_x64);
+        case.addError(
+            \\export fn _start() void {
+            \\    var a: comptime u32 = 0;
+            \\}
+        ,
+            &.{":2:21: error: redundant comptime keyword in already comptime scope"},
+        );
+        case.addError(
+            \\export fn _start() void {
+            \\    comptime {
+            \\        var a: u32 = comptime 0;
+            \\    }
+            \\}
+        ,
+            &.{":3:31: error: redundant comptime keyword in already comptime scope"},
+        );
     }
     {
         var case = ctx.exe("import private", linux_x64);
@@ -1088,7 +1107,7 @@ pub fn addCases(ctx: *TestContext) !void {
             },
         );
         try case.files.append(.{
-            .src = 
+            .src =
             \\// dummy comment to make print be on line 2
             \\fn print() void {
             \\    asm volatile ("syscall"
