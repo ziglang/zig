@@ -1041,7 +1041,9 @@ pub fn fnProtoExpr(
         assert(param_type_i == param_count);
     }
 
-    assert(fn_proto.ast.align_expr == 0); // caught by the parser
+    if (fn_proto.ast.align_expr != 0) {
+        return astgen.failNode(fn_proto.ast.align_expr, "TODO: AstGen: implement function prototypes with alignment expressions", .{});
+    }
     assert(fn_proto.ast.section_expr == 0); // caught by the parser
 
     const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
