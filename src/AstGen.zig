@@ -5971,11 +5971,13 @@ fn floatLiteral(
 
     const main_token = main_tokens[node];
     const bytes = tree.tokenSlice(main_token);
-    if (bytes.len > 2 and bytes[1] == 'x') {
+    const float_number: f128 = if (bytes.len > 2 and bytes[1] == 'x') hex: {
         assert(bytes[0] == '0'); // validated by tokenizer
-        return astgen.failTok(main_token, "TODO implement hex floats", .{});
-    }
-    const float_number = std.fmt.parseFloat(f128, bytes) catch |e| switch (e) {
+        break :hex std.fmt.parseHexFloat(f128, bytes) catch |err| switch (err) {
+            error.InvalidCharacter => unreachable, // validated by tokenizer
+            error.Overflow => return astgen.failNode(node, "number literal cannot be represented in a 128-bit floating point", .{}),
+        };
+    } else std.fmt.parseFloat(f128, bytes) catch |err| switch (err) {
         error.InvalidCharacter => unreachable, // validated by tokenizer
     };
     // If the value fits into a f32 without losing any precision, store it that way.
