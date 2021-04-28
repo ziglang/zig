@@ -426,14 +426,6 @@ pub fn analyzeNamespace(
 ///     * C.FnBlock
 ///     * Wasm.FnData
 ///     * SpirV.FnData
-    /// This name is relative to the containing namespace of the decl.
-    /// The memory is owned by the containing File ZIR.
-    pub fn getName(decl: Decl) ?[:0]const u8 {
-        const zir = decl.namespace.file_scope.zir;
-        const name_index = zir.extra[decl.zir_decl_index + 4];
-        if (name_index <= 1) return null;
-        return zir.nullTerminatedString(name_index);
-    }
 
 
         extra_index += @boolToInt(has_align);

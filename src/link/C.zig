@@ -79,6 +79,7 @@ pub fn deinit(self: *C) void {
 pub fn allocateDeclIndexes(self: *C, decl: *Module.Decl) !void {}
 
 pub fn freeDecl(self: *C, decl: *Module.Decl) void {
+    self.decl_table.removeAssertDiscard(decl);
     decl.link.c.code.deinit(self.base.allocator);
     decl.fn_link.c.fwd_decl.deinit(self.base.allocator);
     var it = decl.fn_link.c.typedefs.iterator();

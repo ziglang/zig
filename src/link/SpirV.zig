@@ -127,6 +127,7 @@ pub fn updateDeclExports(
 ) !void {}
 
 pub fn freeDecl(self: *SpirV, decl: *Module.Decl) void {
+    self.decl_table.removeAssertDiscard(decl);
     var fn_data = decl.fn_link.spirv;
     fn_data.code.deinit(self.base.allocator);
     if (fn_data.id) |id| self.spirv_module.freeId(id);
