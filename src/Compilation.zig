@@ -1890,7 +1890,8 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 if (build_options.omit_stage2)
                     @panic("sadly stage2 is omitted from this build to save memory on the CI server");
                 const module = self.bin_file.options.module.?;
-                if (decl.typed_value.most_recent.typed_value.val.castTag(.function)) |payload| {
+                assert(decl.has_tv);
+                if (decl.val.castTag(.function)) |payload| {
                     const func = payload.data;
                     switch (func.state) {
                         .queued => module.analyzeFnBody(decl, func) catch |err| switch (err) {
@@ -1907,8 +1908,8 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                     }
                     // Here we tack on additional allocations to the Decl's arena. The allocations
                     // are lifetime annotations in the ZIR.
-                    var decl_arena = decl.typed_value.most_recent.arena.?.promote(module.gpa);
-                    defer decl.typed_value.most_recent.arena.?.* = decl_arena.state;
+                    var decl_arena = decl.value_arena.?.promote(module.gpa);
+                    defer decl.value_arena.?.* = decl_arena.state;
                     log.debug("analyze liveness of {s}", .{decl.name});
                     try liveness.analyze(module.gpa, &decl_arena.allocator, func.body);
 
@@ -1918,9 +1919,9 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 }
 
                 log.debug("calling updateDecl on '{s}', type={}", .{
-                    decl.name, decl.typed_value.most_recent.typed_value.ty,
+                    decl.name, decl.ty,
                 });
-                assert(decl.typed_value.most_recent.typed_value.ty.hasCodeGenBits());
+                assert(decl.ty.hasCodeGenBits());
 
                 self.bin_file.updateDecl(module, decl) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
@@ -1960,7 +1961,6 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 const module = self.bin_file.options.module.?;
                 const emit_h = module.emit_h.?;
                 _ = try emit_h.decl_table.getOrPut(module.gpa, decl);
-                const tv = decl.typed_value.most_recent.typed_value;
                 const decl_emit_h = decl.getEmitH(module);
                 const fwd_decl = &decl_emit_h.fwd_decl;
                 fwd_decl.shrinkRetainingCapacity(0);

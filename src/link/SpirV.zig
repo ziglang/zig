@@ -179,13 +179,9 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
 
     for (self.decl_table.items()) |entry| {
         const decl = entry.key;
-        switch (decl.typed_value) {
-            .most_recent => |tvm| {
-                const fn_data = &decl.fn_link.spirv;
-                all_buffers.appendAssumeCapacity(wordsToIovConst(fn_data.code.items));
-            },
-            .never_succeeded => continue,
-        }
+        if (!decl.has_tv) continue;
+        const fn_data = &decl.fn_link.spirv;
+        all_buffers.appendAssumeCapacity(wordsToIovConst(fn_data.code.items));
     }
 
     var file_size: u64 = 0;

@@ -154,17 +154,29 @@ pub const DeclPlusEmitH = struct {
 };
 
 pub const Decl = struct {
-    /// This name is relative to the containing namespace of the decl. It uses
-    /// null-termination to save bytes, since there can be a lot of decls in a
-    /// compilation. The null byte is not allowed in symbol names, because
-    /// executable file formats use null-terminated strings for symbol names.
+    /// This name is relative to the containing namespace of the decl.
     /// All Decls have names, even values that are not bound to a zig namespace.
     /// This is necessary for mapping them to an address in the output file.
-    /// Memory owned by this decl, using Module's allocator.
+    /// Memory is owned by this decl, using Module's allocator.
+    /// Note that this cannot be changed to reference ZIR memory because when
+    /// ZIR updates, it would change the Decl name, but we still need the previous
+    /// name to delete the Decl from the hash maps it has been inserted into.
     name: [*:0]const u8,
+    /// The most recent Type of the Decl after a successful semantic analysis.
+    /// Populated when `has_tv`.
+    ty: Type,
+    /// The most recent Value of the Decl after a successful semantic analysis.
+    /// Populated when `has_tv`.
+    val: Value,
+    /// Populated when `has_tv`.
+    align_val: Value,
+    /// Populated when `has_tv`.
+    linksection_val: Value,
+    /// The memory for ty, val, align_val, linksection_val.
+    /// If this is `null` then there is no memory management needed.
+    value_arena: ?*std.heap.ArenaAllocator.State = null,
     /// The direct parent namespace of the Decl.
     /// Reference to externally owned memory.
-    /// This is `null` for the Decl that represents a `File`.
     namespace: *Scope.Namespace,
 
     /// An integer that can be checked against the corresponding incrementing
@@ -174,12 +186,11 @@ pub const Decl = struct {
     /// The AST node index of this declaration.
     /// Must be recomputed when the corresponding source file is modified.
     src_node: ast.Node.Index,
+    /// Index to ZIR `extra` array to the block of ZIR code that encodes the Decl expression.
+    zir_block_index: Zir.Inst.Index,
+    zir_align_ref: Zir.Inst.Ref = .none,
+    zir_linksection_ref: Zir.Inst.Ref = .none,
 
-    /// The most recent value of the Decl after a successful semantic analysis.
-    typed_value: union(enum) {
-        never_succeeded: void,
-        most_recent: TypedValue.Managed,
-    },
     /// Represents the "shallow" analysis status. For example, for decls that are functions,
     /// the function type is analyzed with this set to `in_progress`, however, the semantic
     /// analysis of the function body is performed with this value set to `success`. Functions
@@ -214,11 +225,15 @@ pub const Decl = struct {
         /// to require re-analysis.
         outdated,
     },
+    /// Whether `typed_value`, `align_val`, and `linksection_val` are populated.
+    has_tv: bool,
     /// This flag is set when this Decl is added to `Module.deletion_set`, and cleared
     /// when removed.
     deletion_flag: bool,
     /// Whether the corresponding AST decl has a `pub` keyword.
     is_pub: bool,
+    /// Whether the corresponding AST decl has a `export` keyword.
+    is_exported: bool,
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
@@ -231,6 +246,9 @@ pub const Decl = struct {
     /// to save on memory usage.
     fn_link: link.File.LinkFn,
 
+    /// This is stored separately in addition to being available via `zir_decl_index`
+    /// because when the underlying ZIR code is updated, this field is used to find
+    /// out if anything changed.
     contents_hash: std.zig.SrcHash,
 
     /// The shallow set of other decls whose typed_value could possibly change if this Decl's
@@ -247,12 +265,12 @@ pub const Decl = struct {
     pub fn destroy(decl: *Decl, module: *Module) void {
         const gpa = module.gpa;
         gpa.free(mem.spanZ(decl.name));
-        if (decl.typedValueManaged()) |tvm| {
-            if (tvm.typed_value.val.castTag(.function)) |payload| {
+        if (decl.has_tv) {
+            if (decl.val.castTag(.function)) |payload| {
                 const func = payload.data;
                 func.deinit(gpa);
             }
-            tvm.deinit(gpa);
+            if (decl.value_arena) |a| a.promote(gpa).deinit();
         }
         decl.dependants.deinit(gpa);
         decl.dependencies.deinit(gpa);
@@ -311,9 +329,12 @@ pub const Decl = struct {
         return buffer.toOwnedSlice();
     }
 
-    pub fn typedValue(decl: *Decl) error{AnalysisFail}!TypedValue {
-        const tvm = decl.typedValueManaged() orelse return error.AnalysisFail;
-        return tvm.typed_value;
+    pub fn typedValue(decl: Decl) error{AnalysisFail}!TypedValue {
+        if (!decl.has_tv) return error.AnalysisFail;
+        return TypedValue{
+            .ty = decl.ty,
+            .val = decl.val,
+        };
     }
 
     pub fn value(decl: *Decl) error{AnalysisFail}!Value {
@@ -334,17 +355,10 @@ pub const Decl = struct {
             mem.spanZ(decl.name),
             @tagName(decl.analysis),
         });
-        if (decl.typedValueManaged()) |tvm| {
-            std.debug.print(" ty={} val={}", .{ tvm.typed_value.ty, tvm.typed_value.val });
+        if (decl.has_tv) {
+            std.debug.print(" ty={} val={}", .{ decl.ty, decl.val });
         }
         std.debug.print("\n", .{});
-    }
-
-    pub fn typedValueManaged(decl: *Decl) ?*TypedValue.Managed {
-        switch (decl.typed_value) {
-            .most_recent => |*x| return x,
-            .never_succeeded => return null,
-        }
     }
 
     pub fn getFileScope(decl: Decl) *Scope.File {
@@ -475,16 +489,6 @@ pub const EnumFull = struct {
 /// the `Decl` only, with a `Value` tag of `extern_fn`.
 pub const Fn = struct {
     owner_decl: *Decl,
-    /// Contains un-analyzed ZIR instructions generated from Zig source AST.
-    /// Even after we finish analysis, the ZIR is kept in memory, so that
-    /// comptime and inline function calls can happen.
-    /// Parameter names are stored here so that they may be referenced for debug info,
-    /// without having source code bytes loaded into memory.
-    /// The number of parameters is determined by referring to the type.
-    /// The first N elements of `extra` are indexes into `string_bytes` to
-    /// a null-terminated string.
-    /// This memory is managed with gpa, must be freed when the function is freed.
-    zir: Zir,
     /// undefined unless analysis state is `success`.
     body: ir.Body,
     state: Analysis,
@@ -508,9 +512,7 @@ pub const Fn = struct {
         ir.dumpFn(mod, func);
     }
 
-    pub fn deinit(func: *Fn, gpa: *Allocator) void {
-        func.zir.deinit(gpa);
-    }
+    pub fn deinit(func: *Fn, gpa: *Allocator) void {}
 };
 
 pub const Var = struct {
@@ -3111,7 +3113,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
     if (subsequent_analysis) {
         // We may need to chase the dependants and re-analyze them.
         // However, if the decl is a function, and the type is the same, we do not need to.
-        if (type_changed or decl.typed_value.most_recent.typed_value.val.tag() != .function) {
+        if (type_changed or decl.ty.zigTypeTag() != .Fn) {
             for (decl.dependants.items()) |entry| {
                 const dep = entry.key;
                 switch (dep.analysis) {
@@ -3162,13 +3164,20 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
         .namespace = &tmp_namespace,
         .generation = mod.generation,
         .src_node = 0, // the root AST node for the file
-        .typed_value = .never_succeeded,
         .analysis = .in_progress,
         .deletion_flag = false,
         .is_pub = true,
+        .is_exported = false,
         .link = undefined, // don't try to codegen this
         .fn_link = undefined, // not a function
         .contents_hash = undefined, // top-level struct has no contents hash
+        .zir_block_index = undefined,
+
+        .has_tv = false,
+        .ty = undefined,
+        .val = undefined,
+        .align_val = undefined,
+        .linksection_val = undefined,
     };
     defer top_decl.dependencies.deinit(gpa);
 
@@ -3223,7 +3232,56 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const tracy = trace(@src());
     defer tracy.end();
 
-    @panic("TODO implement semaDecl");
+    const gpa = mod.gpa;
+
+    decl.analysis = .in_progress;
+
+    var analysis_arena = std.heap.ArenaAllocator.init(gpa);
+    defer analysis_arena.deinit();
+
+    const zir = decl.namespace.file_scope.zir;
+
+    var sema: Sema = .{
+        .mod = mod,
+        .gpa = gpa,
+        .arena = &analysis_arena.allocator,
+        .code = zir,
+        .inst_map = try analysis_arena.allocator.alloc(*ir.Inst, zir.instructions.len),
+        .owner_decl = decl,
+        .namespace = decl.namespace,
+        .func = null,
+        .owner_func = null,
+        .param_inst_list = &.{},
+    };
+    var block_scope: Scope.Block = .{
+        .parent = null,
+        .sema = &sema,
+        .src_decl = decl,
+        .instructions = .{},
+        .inlining = null,
+        .is_comptime = true,
+    };
+    defer block_scope.instructions.deinit(gpa);
+
+    const inst_data = zir.instructions.items(.data)[decl.zir_block_index].pl_node;
+    const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
+    const body = zir.extra[extra.end..][0..extra.data.body_len];
+    const break_index = try sema.analyzeBody(&block_scope, body);
+
+    if (decl.zir_align_ref != .none) {
+        @panic("TODO implement decl align");
+    }
+    if (decl.zir_linksection_ref != .none) {
+        @panic("TODO implement decl linksection");
+    }
+
+    decl.analysis = .complete;
+    decl.generation = mod.generation;
+
+    // TODO inspect the type and return a proper type_changed result
+    @breakpoint();
+
+    return true;
 }
 
 /// Returns the depender's index of the dependee.
@@ -3489,6 +3547,7 @@ fn scanDecl(
 
     const gpa = mod.gpa;
     const zir = namespace.file_scope.zir;
+
     const decl_block_inst_data = zir.instructions.items(.data)[decl_index].pl_node;
     const decl_node = parent_decl.relativeToNodeIndex(decl_block_inst_data.src_node);
 
@@ -3504,13 +3563,9 @@ fn scanDecl(
     const decl_key = decl_name orelse &contents_hash;
     const gop = try namespace.decls.getOrPut(gpa, decl_key);
     if (!gop.found_existing) {
-        if (align_inst != .none) {
-            return mod.fail(&namespace.base, .{ .node_abs = decl_node }, "TODO: implement decls with align()", .{});
-        }
-        if (section_inst != .none) {
-            return mod.fail(&namespace.base, .{ .node_abs = decl_node }, "TODO: implement decls with linksection()", .{});
-        }
-        const new_decl = try mod.createNewDecl(namespace, decl_key, decl_node, contents_hash);
+        const new_decl = try mod.allocateNewDecl(namespace, decl_node);
+        new_decl.contents_hash = contents_hash;
+        new_decl.name = try gpa.dupeZ(u8, decl_key);
         // Update the key reference to the longer-lived memory.
         gop.entry.key = &new_decl.contents_hash;
         gop.entry.value = new_decl;
@@ -3524,7 +3579,11 @@ fn scanDecl(
         if (want_analysis) {
             mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
         }
+        new_decl.is_exported = is_exported;
         new_decl.is_pub = is_pub;
+        new_decl.zir_block_index = decl_index;
+        new_decl.zir_align_ref = align_inst;
+        new_decl.zir_linksection_ref = section_inst;
         return;
     }
     const decl = gop.entry.value;
@@ -3532,6 +3591,11 @@ fn scanDecl(
     // have been re-ordered.
     const prev_src_node = decl.src_node;
     decl.src_node = decl_node;
+    decl.is_pub = is_pub;
+    decl.is_exported = is_exported;
+    decl.zir_block_index = decl_index;
+    decl.zir_align_ref = align_inst;
+    decl.zir_linksection_ref = section_inst;
     if (deleted_decls.swapRemove(decl) == null) {
         if (true) {
             @panic("TODO I think this code path is unreachable; should be caught by AstGen.");
@@ -3681,64 +3745,70 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
     defer tracy.end();
 
     // Use the Decl's arena for function memory.
-    var arena = decl.typed_value.most_recent.arena.?.promote(mod.gpa);
-    defer decl.typed_value.most_recent.arena.?.* = arena.state;
+    var arena = decl.value_arena.?.promote(mod.gpa);
+    defer decl.value_arena.?.* = arena.state;
 
-    const fn_ty = decl.typed_value.most_recent.typed_value.ty;
+    const fn_ty = decl.ty;
     const param_inst_list = try mod.gpa.alloc(*ir.Inst, fn_ty.fnParamLen());
     defer mod.gpa.free(param_inst_list);
 
-    for (param_inst_list) |*param_inst, param_index| {
-        const param_type = fn_ty.fnParamType(param_index);
-        const name = func.zir.nullTerminatedString(func.zir.extra[param_index]);
-        const arg_inst = try arena.allocator.create(ir.Inst.Arg);
-        arg_inst.* = .{
-            .base = .{
-                .tag = .arg,
-                .ty = param_type,
-                .src = .unneeded,
-            },
-            .name = name,
-        };
-        param_inst.* = &arg_inst.base;
+    var f = false;
+    if (f) {
+        return error.AnalysisFail;
     }
+    @panic("TODO reimplement analyzeFnBody now that ZIR is whole-file");
 
-    var sema: Sema = .{
-        .mod = mod,
-        .gpa = mod.gpa,
-        .arena = &arena.allocator,
-        .code = func.zir,
-        .inst_map = try mod.gpa.alloc(*ir.Inst, func.zir.instructions.len),
-        .owner_decl = decl,
-        .namespace = decl.namespace,
-        .func = func,
-        .owner_func = func,
-        .param_inst_list = param_inst_list,
-    };
-    defer mod.gpa.free(sema.inst_map);
+    //for (param_inst_list) |*param_inst, param_index| {
+    //    const param_type = fn_ty.fnParamType(param_index);
+    //    const name = func.zir.nullTerminatedString(func.zir.extra[param_index]);
+    //    const arg_inst = try arena.allocator.create(ir.Inst.Arg);
+    //    arg_inst.* = .{
+    //        .base = .{
+    //            .tag = .arg,
+    //            .ty = param_type,
+    //            .src = .unneeded,
+    //        },
+    //        .name = name,
+    //    };
+    //    param_inst.* = &arg_inst.base;
+    //}
 
-    var inner_block: Scope.Block = .{
-        .parent = null,
-        .sema = &sema,
-        .src_decl = decl,
-        .instructions = .{},
-        .inlining = null,
-        .is_comptime = false,
-    };
-    defer inner_block.instructions.deinit(mod.gpa);
+    //var sema: Sema = .{
+    //    .mod = mod,
+    //    .gpa = mod.gpa,
+    //    .arena = &arena.allocator,
+    //    .code = func.zir,
+    //    .inst_map = try mod.gpa.alloc(*ir.Inst, func.zir.instructions.len),
+    //    .owner_decl = decl,
+    //    .namespace = decl.namespace,
+    //    .func = func,
+    //    .owner_func = func,
+    //    .param_inst_list = param_inst_list,
+    //};
+    //defer mod.gpa.free(sema.inst_map);
 
-    // AIR currently requires the arg parameters to be the first N instructions
-    try inner_block.instructions.appendSlice(mod.gpa, param_inst_list);
+    //var inner_block: Scope.Block = .{
+    //    .parent = null,
+    //    .sema = &sema,
+    //    .src_decl = decl,
+    //    .instructions = .{},
+    //    .inlining = null,
+    //    .is_comptime = false,
+    //};
+    //defer inner_block.instructions.deinit(mod.gpa);
 
-    func.state = .in_progress;
-    log.debug("set {s} to in_progress", .{decl.name});
+    //// AIR currently requires the arg parameters to be the first N instructions
+    //try inner_block.instructions.appendSlice(mod.gpa, param_inst_list);
 
-    _ = try sema.root(&inner_block);
+    //func.state = .in_progress;
+    //log.debug("set {s} to in_progress", .{decl.name});
 
-    const instructions = try arena.allocator.dupe(*ir.Inst, inner_block.instructions.items);
-    func.state = .success;
-    func.body = .{ .instructions = instructions };
-    log.debug("set {s} to success", .{decl.name});
+    //_ = try sema.root(&inner_block);
+
+    //const instructions = try arena.allocator.dupe(*ir.Inst, inner_block.instructions.items);
+    //func.state = .success;
+    //func.body = .{ .instructions = instructions };
+    //log.debug("set {s} to success", .{decl.name});
 }
 
 fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
@@ -3756,12 +3826,7 @@ fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     decl.analysis = .outdated;
 }
 
-fn allocateNewDecl(
-    mod: *Module,
-    namespace: *Scope.Namespace,
-    src_node: ast.Node.Index,
-    contents_hash: std.zig.SrcHash,
-) !*Decl {
+fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node.Index) !*Decl {
     // If we have emit-h then we must allocate a bigger structure to store the emit-h state.
     const new_decl: *Decl = if (mod.emit_h != null) blk: {
         const parent_struct = try mod.gpa.create(DeclPlusEmitH);
@@ -3776,10 +3841,15 @@ fn allocateNewDecl(
         .name = "",
         .namespace = namespace,
         .src_node = src_node,
-        .typed_value = .{ .never_succeeded = {} },
+        .has_tv = false,
+        .ty = undefined,
+        .val = undefined,
+        .align_val = undefined,
+        .linksection_val = undefined,
         .analysis = .unreferenced,
         .deletion_flag = false,
-        .contents_hash = contents_hash,
+        .contents_hash = undefined,
+        .zir_block_index = undefined,
         .link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = link.File.Coff.TextBlock.empty },
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
@@ -3798,20 +3868,8 @@ fn allocateNewDecl(
         },
         .generation = 0,
         .is_pub = false,
+        .is_exported = false,
     };
-    return new_decl;
-}
-
-fn createNewDecl(
-    mod: *Module,
-    namespace: *Scope.Namespace,
-    decl_name: []const u8,
-    src_node: ast.Node.Index,
-    contents_hash: std.zig.SrcHash,
-) !*Decl {
-    const new_decl = try mod.allocateNewDecl(namespace, src_node, contents_hash);
-    errdefer mod.gpa.destroy(new_decl);
-    new_decl.name = try mem.dupeZ(mod.gpa, u8, decl_name);
     return new_decl;
 }
 
@@ -3837,10 +3895,9 @@ pub fn analyzeExport(
     exported_decl: *Decl,
 ) !void {
     try mod.ensureDeclAnalyzed(exported_decl);
-    const typed_value = exported_decl.typed_value.most_recent.typed_value;
-    switch (typed_value.ty.zigTypeTag()) {
+    switch (exported_decl.ty.zigTypeTag()) {
         .Fn => {},
-        else => return mod.fail(scope, src, "unable to export type '{}'", .{typed_value.ty}),
+        else => return mod.fail(scope, src, "unable to export type '{}'", .{exported_decl.ty}),
     }
 
     try mod.decl_exports.ensureCapacity(mod.gpa, mod.decl_exports.items().len + 1);
@@ -4017,20 +4074,18 @@ pub fn createAnonymousDecl(
 ) !*Decl {
     const name_index = mod.getNextAnonNameIndex();
     const scope_decl = scope.ownerDecl().?;
-    const name = try std.fmt.allocPrint(mod.gpa, "{s}__anon_{d}", .{ scope_decl.name, name_index });
-    defer mod.gpa.free(name);
+    const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{ scope_decl.name, name_index });
+    errdefer mod.gpa.free(name);
     const namespace = scope_decl.namespace;
-    const src_hash: std.zig.SrcHash = undefined;
-    const new_decl = try mod.createNewDecl(namespace, name, scope_decl.src_node, src_hash);
+    const new_decl = try mod.allocateNewDecl(namespace, scope_decl.src_node);
+    new_decl.name = name;
+
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
     decl_arena_state.* = decl_arena.state;
-    new_decl.typed_value = .{
-        .most_recent = .{
-            .typed_value = typed_value,
-            .arena = decl_arena_state,
-        },
-    };
+    new_decl.ty = typed_value.ty;
+    new_decl.val = typed_value.val;
+    new_decl.has_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
 

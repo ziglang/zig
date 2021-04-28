@@ -2191,8 +2191,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     if (build_options.have_llvm)
         if (self.llvm_object) |llvm_object| return try llvm_object.updateDecl(module, decl);
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    if (typed_value.val.tag() == .extern_fn) {
+    if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
 
@@ -2214,7 +2213,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         dbg_info_type_relocs.deinit(self.base.allocator);
     }
 
-    const is_fn: bool = switch (typed_value.ty.zigTypeTag()) {
+    const is_fn: bool = switch (decl.ty.zigTypeTag()) {
         .Fn => true,
         else => false,
     };
@@ -2270,7 +2269,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
         try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 25 + decl_name_with_null.len);
 
-        const fn_ret_type = typed_value.ty.fnReturnType();
+        const fn_ret_type = decl.ty.fnReturnType();
         const fn_ret_has_bits = fn_ret_type.hasCodeGenBits();
         if (fn_ret_has_bits) {
             dbg_info_buffer.appendAssumeCapacity(abbrev_subprogram);
@@ -2299,7 +2298,10 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     } else {
         // TODO implement .debug_info for global variables
     }
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+        .ty = decl.ty,
+        .val = decl.val,
+    }, &code_buffer, .{
         .dwarf = .{
             .dbg_line = &dbg_line_buffer,
             .dbg_info = &dbg_info_buffer,
@@ -2316,7 +2318,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         },
     };
 
-    const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    const required_alignment = decl.ty.abiAlignment(self.base.options.target);
 
     const stt_bits: u8 = if (is_fn) elf.STT_FUNC else elf.STT_OBJECT;
 
@@ -2678,7 +2680,6 @@ pub fn updateDeclExports(
     defer tracy.end();
 
     try self.global_symbols.ensureCapacity(self.base.allocator, self.global_symbols.items.len + exports.len);
-    const typed_value = decl.typed_value.most_recent.typed_value;
     if (decl.link.elf.local_sym_index == 0) return;
     const decl_sym = self.local_symbols.items[decl.link.elf.local_sym_index];
 

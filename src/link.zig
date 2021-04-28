@@ -300,6 +300,7 @@ pub const File = struct {
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
+        assert(decl.has_tv);
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDecl(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
@@ -311,6 +312,7 @@ pub const File = struct {
     }
 
     pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) !void {
+        assert(decl.has_tv);
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
@@ -461,6 +463,7 @@ pub const File = struct {
         decl: *Module.Decl,
         exports: []const *Module.Export,
     ) !void {
+        assert(decl.has_tv);
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl, exports),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),

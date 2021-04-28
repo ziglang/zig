@@ -400,7 +400,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             const module_fn = typed_value.val.castTag(.function).?.data;
 
-            const fn_type = module_fn.owner_decl.typed_value.most_recent.typed_value.ty;
+            assert(module_fn.owner_decl.has_tv);
+            const fn_type = module_fn.owner_decl.ty;
 
             var branch_stack = std.ArrayList(Branch).init(bin_file.allocator);
             defer {
@@ -1925,7 +1926,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 else
                                     unreachable;
 
-                                const return_type = func.owner_decl.typed_value.most_recent.typed_value.ty.fnReturnType();
+                                assert(func.owner_decl.has_tv);
+                                const return_type = func.owner_decl.ty.fnReturnType();
                                 // First, push the return address, then jump; if noreturn, don't bother with the first step
                                 // TODO: implement packed struct -> u16 at comptime and move the bitcast here
                                 var instr = Instruction{ .condition = .always, .input0 = .immediate, .input1 = .zero, .modify_flags = false, .output = .jump, .command = .load16 };

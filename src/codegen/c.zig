@@ -190,8 +190,8 @@ pub const DeclGen = struct {
                     const decl = val.castTag(.decl_ref).?.data;
 
                     // Determine if we must pointer cast.
-                    const decl_tv = decl.typed_value.most_recent.typed_value;
-                    if (t.eql(decl_tv.ty)) {
+                    assert(decl.has_tv);
+                    if (t.eql(decl.ty)) {
                         try writer.print("&{s}", .{decl.name});
                     } else {
                         try writer.writeAll("(");
@@ -326,12 +326,11 @@ pub const DeclGen = struct {
         if (!is_global) {
             try w.writeAll("static ");
         }
-        const tv = dg.decl.typed_value.most_recent.typed_value;
-        try dg.renderType(w, tv.ty.fnReturnType());
+        try dg.renderType(w, dg.decl.ty.fnReturnType());
         const decl_name = mem.span(dg.decl.name);
         try w.print(" {s}(", .{decl_name});
-        const param_len = tv.ty.fnParamLen();
-        const is_var_args = tv.ty.fnIsVarArgs();
+        const param_len = dg.decl.ty.fnParamLen();
+        const is_var_args = dg.decl.ty.fnIsVarArgs();
         if (param_len == 0 and !is_var_args)
             try w.writeAll("void")
         else {
@@ -340,7 +339,7 @@ pub const DeclGen = struct {
                 if (index > 0) {
                     try w.writeAll(", ");
                 }
-                try dg.renderType(w, tv.ty.fnParamType(index));
+                try dg.renderType(w, dg.decl.ty.fnParamType(index));
                 try w.print(" a{d}", .{index});
             }
         }
@@ -545,8 +544,10 @@ pub fn genDecl(o: *Object) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const tv = o.dg.decl.typed_value.most_recent.typed_value;
-
+    const tv: TypedValue = .{
+        .ty = o.dg.decl.ty,
+        .val = o.dg.decl.val,
+    };
     if (tv.val.castTag(.function)) |func_payload| {
         const is_global = o.dg.functionIsGlobal(tv);
         const fwd_decl_writer = o.dg.fwd_decl.writer();
@@ -589,7 +590,10 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const tv = dg.decl.typed_value.most_recent.typed_value;
+    const tv: TypedValue = .{
+        .ty = dg.decl.ty,
+        .val = dg.decl.val,
+    };
     const writer = dg.fwd_decl.writer();
 
     switch (tv.ty.zigTypeTag()) {
@@ -842,7 +846,7 @@ fn genCall(o: *Object, inst: *Inst.Call) !CValue {
         else
             unreachable;
 
-        const fn_ty = fn_decl.typed_value.most_recent.typed_value.ty;
+        const fn_ty = fn_decl.ty;
         const ret_ty = fn_ty.fnReturnType();
         const unused_result = inst.base.isUnused();
         var result_local: CValue = .none;

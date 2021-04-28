@@ -64,28 +64,6 @@ const LazySrcLoc = Module.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
 const AstGen = @import("AstGen.zig");
 
-pub fn root(sema: *Sema, root_block: *Scope.Block) !Zir.Inst.Index {
-    const inst_data = sema.code.instructions.items(.data)[0].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
-    const root_body = sema.code.extra[extra.end..][0..extra.data.body_len];
-    return sema.analyzeBody(root_block, root_body);
-}
-
-pub fn rootAsRef(sema: *Sema, root_block: *Scope.Block) !Zir.Inst.Ref {
-    const break_inst = try sema.root(root_block);
-    return sema.code.instructions.items(.data)[break_inst].@"break".operand;
-}
-
-/// Assumes that `root_block` ends with `break_inline`.
-pub fn rootAsType(sema: *Sema, root_block: *Scope.Block) !Type {
-    assert(root_block.is_comptime);
-    const zir_inst_ref = try sema.rootAsRef(root_block);
-    // Source location is unneeded because resolveConstValue must have already
-    // been successfully called when coercing the value to a type, from the
-    // result location.
-    return sema.resolveType(root_block, .unneeded, zir_inst_ref);
-}
-
 /// Returns only the result from the body that is specified.
 /// Only appropriate to call when it is determined at comptime that this body
 /// has no peers.
@@ -997,7 +975,7 @@ fn zirRetPtr(
 
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
     try sema.requireFunctionBlock(block, src);
-    const fn_ty = sema.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
+    const fn_ty = sema.func.?.owner_decl.ty;
     const ret_type = fn_ty.fnReturnType();
     const ptr_type = try sema.mod.simplePtrType(sema.arena, ret_type, true, .One);
     return block.addNoOp(src, ptr_type, .alloc);
@@ -1022,7 +1000,7 @@ fn zirRetType(
 
     const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
     try sema.requireFunctionBlock(block, src);
-    const fn_ty = sema.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
+    const fn_ty = sema.func.?.owner_decl.ty;
     const ret_type = fn_ty.fnReturnType();
     return sema.mod.constType(sema.arena, src, ret_type);
 }
@@ -2022,6 +2000,9 @@ fn analyzeCall(
                 .block_inst = block_inst,
             },
         };
+        if (true) {
+            @panic("TODO reimplement inline fn call after whole-file astgen");
+        }
         var inline_sema: Sema = .{
             .mod = sema.mod,
             .gpa = sema.mod.gpa,
@@ -4949,7 +4930,7 @@ fn analyzeRet(
 
     if (need_coercion) {
         if (sema.func) |func| {
-            const fn_ty = func.owner_decl.typed_value.most_recent.typed_value.ty;
+            const fn_ty = func.owner_decl.ty;
             const fn_ret_ty = fn_ty.fnReturnType();
             const casted_operand = try sema.coerce(block, fn_ret_ty, operand, src);
             if (fn_ret_ty.zigTypeTag() == .Void)

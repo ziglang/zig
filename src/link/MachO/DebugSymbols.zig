@@ -946,8 +946,8 @@ pub fn initDeclDebugBuffers(
     var dbg_info_buffer = std.ArrayList(u8).init(allocator);
     var dbg_info_type_relocs: link.File.DbgInfoTypeRelocsTable = .{};
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    switch (typed_value.ty.zigTypeTag()) {
+    assert(decl.has_tv);
+    switch (decl.ty.zigTypeTag()) {
         .Fn => {
             // For functions we need to add a prologue to the debug line program.
             try dbg_line_buffer.ensureCapacity(26);
@@ -999,7 +999,7 @@ pub fn initDeclDebugBuffers(
             const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
             try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 27 + decl_name_with_null.len);
 
-            const fn_ret_type = typed_value.ty.fnReturnType();
+            const fn_ret_type = decl.ty.fnReturnType();
             const fn_ret_has_bits = fn_ret_type.hasCodeGenBits();
             if (fn_ret_has_bits) {
                 dbg_info_buffer.appendAssumeCapacity(abbrev_subprogram);
@@ -1058,8 +1058,8 @@ pub fn commitDeclDebugInfo(
     const symbol = self.base.locals.items[decl.link.macho.local_sym_index];
     const text_block = &decl.link.macho;
     // If the Decl is a function, we need to update the __debug_line program.
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    switch (typed_value.ty.zigTypeTag()) {
+    assert(decl.has_tv);
+    switch (decl.ty.zigTypeTag()) {
         .Fn => {
             // Perform the relocations based on vaddr.
             {

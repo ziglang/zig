@@ -1,5 +1,11 @@
+ * namespace decls table can't reference ZIR memory because it can get modified on updates
+   - change it for astgen worker to compare old and new ZIR, updating existing
+     namespaces & decls, and creating a changelist.
  * reimplement semaDecl
  * use a hash map for instructions because the array is too big
+   - no, actually modify the Zir.Inst.Ref strategy so that each decl gets
+     their indexes starting at 0 so that we can use an array to store Sema
+     results rather than a map.
 
  * keep track of file dependencies/dependants
  * unload files from memory when a dependency is dropped
@@ -101,39 +107,6 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
         .aligned_var_decl => return mod.astgenAndSemaVarDecl(decl, tree.*, tree.alignedVarDecl(decl_node)),
 
         .@"comptime" => {
-            decl.analysis = .in_progress;
-
-            // A comptime decl does not store any value so we can just deinit this arena after analysis is done.
-            var analysis_arena = std.heap.ArenaAllocator.init(mod.gpa);
-            defer analysis_arena.deinit();
-
-            var sema: Sema = .{
-                .mod = mod,
-                .gpa = mod.gpa,
-                .arena = &analysis_arena.allocator,
-                .code = code,
-                .inst_map = try analysis_arena.allocator.alloc(*ir.Inst, code.instructions.len),
-                .owner_decl = decl,
-                .namespace = decl.namespace,
-                .func = null,
-                .owner_func = null,
-                .param_inst_list = &.{},
-            };
-            var block_scope: Scope.Block = .{
-                .parent = null,
-                .sema = &sema,
-                .src_decl = decl,
-                .instructions = .{},
-                .inlining = null,
-                .is_comptime = true,
-            };
-            defer block_scope.instructions.deinit(mod.gpa);
-
-            _ = try sema.root(&block_scope);
-
-            decl.analysis = .complete;
-            decl.generation = mod.generation;
-            return true;
         },
         .@"usingnamespace" => {
             decl.analysis = .in_progress;
@@ -422,5 +395,80 @@ pub fn analyzeNamespace(
         },
         else => unreachable,
     };
+}
+
+        if (align_inst != .none) {
+            return mod.fail(&namespace.base, .{ .node_abs = decl_node }, "TODO: implement decls with align()", .{});
+        }
+        if (section_inst != .none) {
+            return mod.fail(&namespace.base, .{ .node_abs = decl_node }, "TODO: implement decls with linksection()", .{});
+        }
+
+
+/// Trailing:
+///  0. `EmitH` if `module.emit_h != null`.
+///  1. A per-Decl link object. Represents the position of the code in the output file.
+///     This is populated regardless of semantic analysis and code generation.
+///     Depending on the target, will be one of:
+///     * Elf.TextBlock
+///     * Coff.TextBlock
+///     * MachO.TextBlock
+///     * C.DeclBlock
+///     * Wasm.DeclBlock
+///     * void
+///  2. If it is a function, a per-Decl link function object. Represents the
+///     function in the linked output file, if the `Decl` is a function.
+///     This is stored here and not in `Fn` because `Decl` survives across updates but
+///     `Fn` does not. Depending on the target, will be one of:
+///     * Elf.SrcFn
+///     * Coff.SrcFn
+///     * MachO.SrcFn
+///     * C.FnBlock
+///     * Wasm.FnData
+///     * SpirV.FnData
+    /// This name is relative to the containing namespace of the decl.
+    /// The memory is owned by the containing File ZIR.
+    pub fn getName(decl: Decl) ?[:0]const u8 {
+        const zir = decl.namespace.file_scope.zir;
+        const name_index = zir.extra[decl.zir_decl_index + 4];
+        if (name_index <= 1) return null;
+        return zir.nullTerminatedString(name_index);
+    }
+
+
+        extra_index += @boolToInt(has_align);
+        extra_index += @boolToInt(has_section);
+
+    /// Contains un-analyzed ZIR instructions generated from Zig source AST.
+    /// Even after we finish analysis, the ZIR is kept in memory, so that
+    /// comptime and inline function calls can happen.
+    /// Parameter names are stored here so that they may be referenced for debug info,
+    /// without having source code bytes loaded into memory.
+    /// The number of parameters is determined by referring to the type.
+    /// The first N elements of `extra` are indexes into `string_bytes` to
+    /// a null-terminated string.
+    /// This memory is managed with gpa, must be freed when the function is freed.
+    zir: Zir,
+
+pub fn root(sema: *Sema, root_block: *Scope.Block) !Zir.Inst.Index {
+    const inst_data = sema.code.instructions.items(.data)[0].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
+    const root_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+    return sema.analyzeBody(root_block, root_body);
+}
+
+pub fn rootAsRef(sema: *Sema, root_block: *Scope.Block) !Zir.Inst.Ref {
+    const break_inst = try sema.root(root_block);
+    return sema.code.instructions.items(.data)[break_inst].@"break".operand;
+}
+
+/// Assumes that `root_block` ends with `break_inline`.
+pub fn rootAsType(sema: *Sema, root_block: *Scope.Block) !Type {
+    assert(root_block.is_comptime);
+    const zir_inst_ref = try sema.rootAsRef(root_block);
+    // Source location is unneeded because resolveConstValue must have already
+    // been successfully called when coercing the value to a type, from the
+    // result location.
+    return sema.resolveType(root_block, .unneeded, zir_inst_ref);
 }
 

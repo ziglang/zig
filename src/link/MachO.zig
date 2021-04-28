@@ -1138,8 +1138,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    if (typed_value.val.tag() == .extern_fn) {
+    if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
 
@@ -1160,7 +1159,10 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     }
 
     const res = if (debug_buffers) |*dbg|
-        try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl.val,
+        }, &code_buffer, .{
             .dwarf = .{
                 .dbg_line = &dbg.dbg_line_buffer,
                 .dbg_info = &dbg.dbg_info_buffer,
@@ -1168,7 +1170,10 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             },
         })
     else
-        try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none);
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl.val,
+        }, &code_buffer, .none);
 
     const code = switch (res) {
         .externally_managed => |x| x,
@@ -1184,7 +1189,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         },
     };
 
-    const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    const required_alignment = decl.ty.abiAlignment(self.base.options.target);
     assert(decl.link.macho.local_sym_index != 0); // Caller forgot to call allocateDeclIndexes()
     const symbol = &self.locals.items[decl.link.macho.local_sym_index];
 

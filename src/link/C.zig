@@ -206,34 +206,30 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     // generate, rather than querying here, be faster?
     for (self.decl_table.items()) |kv| {
         const decl = kv.key;
-        switch (decl.typed_value) {
-            .most_recent => |tvm| {
-                const buf = buf: {
-                    if (tvm.typed_value.val.castTag(.function)) |_| {
-                        var it = decl.fn_link.c.typedefs.iterator();
-                        while (it.next()) |new| {
-                            if (typedefs.get(new.key)) |previous| {
-                                try err_typedef_writer.print("typedef {s} {s};\n", .{ previous, new.value.name });
-                            } else {
-                                try typedefs.ensureCapacity(typedefs.capacity() + 1);
-                                try err_typedef_writer.writeAll(new.value.rendered);
-                                typedefs.putAssumeCapacityNoClobber(new.key, new.value.name);
-                            }
-                        }
-                        fn_count += 1;
-                        break :buf decl.fn_link.c.fwd_decl.items;
+        if (!decl.has_tv) continue;
+        const buf = buf: {
+            if (decl.val.castTag(.function)) |_| {
+                var it = decl.fn_link.c.typedefs.iterator();
+                while (it.next()) |new| {
+                    if (typedefs.get(new.key)) |previous| {
+                        try err_typedef_writer.print("typedef {s} {s};\n", .{ previous, new.value.name });
                     } else {
-                        break :buf decl.link.c.code.items;
+                        try typedefs.ensureCapacity(typedefs.capacity() + 1);
+                        try err_typedef_writer.writeAll(new.value.rendered);
+                        typedefs.putAssumeCapacityNoClobber(new.key, new.value.name);
                     }
-                };
-                all_buffers.appendAssumeCapacity(.{
-                    .iov_base = buf.ptr,
-                    .iov_len = buf.len,
-                });
-                file_size += buf.len;
-            },
-            .never_succeeded => continue,
-        }
+                }
+                fn_count += 1;
+                break :buf decl.fn_link.c.fwd_decl.items;
+            } else {
+                break :buf decl.link.c.code.items;
+            }
+        };
+        all_buffers.appendAssumeCapacity(.{
+            .iov_base = buf.ptr,
+            .iov_len = buf.len,
+        });
+        file_size += buf.len;
     }
 
     err_typedef_item.* = .{
@@ -246,18 +242,14 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     try all_buffers.ensureCapacity(all_buffers.items.len + fn_count);
     for (self.decl_table.items()) |kv| {
         const decl = kv.key;
-        switch (decl.typed_value) {
-            .most_recent => |tvm| {
-                if (tvm.typed_value.val.castTag(.function)) |_| {
-                    const buf = decl.link.c.code.items;
-                    all_buffers.appendAssumeCapacity(.{
-                        .iov_base = buf.ptr,
-                        .iov_len = buf.len,
-                    });
-                    file_size += buf.len;
-                }
-            },
-            .never_succeeded => continue,
+        if (!decl.has_tv) continue;
+        if (decl.val.castTag(.function)) |_| {
+            const buf = decl.link.c.code.items;
+            all_buffers.appendAssumeCapacity(.{
+                .iov_base = buf.ptr,
+                .iov_len = buf.len,
+            });
+            file_size += buf.len;
         }
     }
 
