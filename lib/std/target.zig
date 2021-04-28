@@ -211,8 +211,9 @@ pub const Target = struct {
         /// If neither of these cases apply, a runtime check should be used to determine if the
         /// target supports a given OS feature.
         ///
-        /// Binaries built with a given maximum version will continue to function on newer operating system
-        /// versions. However, such a binary may not take full advantage of the newer operating system APIs.
+        /// Binaries built with a given maximum version will continue to function on newer
+        /// operating system versions. However, such a binary may not take full advantage of the
+        /// newer operating system APIs.
         ///
         /// See `Os.isAtLeast`.
         pub const VersionRange = union {
@@ -260,7 +261,7 @@ pub const Target = struct {
                     .freebsd => return .{
                         .semver = Version.Range{
                             .min = .{ .major = 12, .minor = 0 },
-                            .max = .{ .major = 12, .minor = 1 },
+                            .max = .{ .major = 13, .minor = 0 },
                         },
                     },
                     .macos => return .{
