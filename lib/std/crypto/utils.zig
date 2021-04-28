@@ -50,7 +50,7 @@ pub fn timingSafeCompare(comptime T: type, a: []const T, b: []const T, endian: E
         .Int => |cinfo| if (cinfo.signedness != .unsigned) @compileError("Elements to be compared must be unsigned") else cinfo.bits,
         else => @compileError("Elements to be compared must be integers"),
     };
-    comptime const Cext = std.meta.Int(.unsigned, bits + 1);
+    const Cext = std.meta.Int(.unsigned, bits + 1);
     var gt: T = 0;
     var eq: T = 1;
     if (endian == .Little) {
