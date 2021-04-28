@@ -2638,6 +2638,7 @@ fn fnDecl(
     astgen: *AstGen,
     gz: *GenZir,
     wip_decls: *WipDecls,
+    decl_node: ast.Node.Index,
     body_node: ast.Node.Index,
     fn_proto: ast.full.FnProto,
 ) InnerError!void {
@@ -2851,7 +2852,7 @@ fn fnDecl(
 
     try wip_decls.payload.ensureUnusedCapacity(gpa, 8);
     {
-        const contents_hash = std.zig.hashSrc(tree.getNodeSource(fn_proto.ast.proto_node));
+        const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
         const casted = @bitCast([4]u32, contents_hash);
         wip_decls.payload.appendSliceAssumeCapacity(&casted);
     }
@@ -3207,20 +3208,20 @@ fn structDeclInner(
                 switch (node_tags[fn_proto]) {
                     .fn_proto_simple => {
                         var params: [1]ast.Node.Index = undefined;
-                        try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoSimple(&params, fn_proto));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProtoSimple(&params, fn_proto));
                         continue;
                     },
                     .fn_proto_multi => {
-                        try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoMulti(fn_proto));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProtoMulti(fn_proto));
                         continue;
                     },
                     .fn_proto_one => {
                         var params: [1]ast.Node.Index = undefined;
-                        try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoOne(&params, fn_proto));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProtoOne(&params, fn_proto));
                         continue;
                     },
                     .fn_proto => {
-                        try astgen.fnDecl(gz, &wip_decls, body, tree.fnProto(fn_proto));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProto(fn_proto));
                         continue;
                     },
                     else => unreachable,
@@ -3228,20 +3229,20 @@ fn structDeclInner(
             },
             .fn_proto_simple => {
                 var params: [1]ast.Node.Index = undefined;
-                try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoSimple(&params, member_node));
+                try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProtoSimple(&params, member_node));
                 continue;
             },
             .fn_proto_multi => {
-                try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoMulti(member_node));
+                try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProtoMulti(member_node));
                 continue;
             },
             .fn_proto_one => {
                 var params: [1]ast.Node.Index = undefined;
-                try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoOne(&params, member_node));
+                try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProtoOne(&params, member_node));
                 continue;
             },
             .fn_proto => {
-                try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProto(member_node));
+                try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProto(member_node));
                 continue;
             },
 
@@ -3410,20 +3411,20 @@ fn unionDeclInner(
                 switch (node_tags[fn_proto]) {
                     .fn_proto_simple => {
                         var params: [1]ast.Node.Index = undefined;
-                        try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoSimple(&params, fn_proto));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProtoSimple(&params, fn_proto));
                         continue;
                     },
                     .fn_proto_multi => {
-                        try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoMulti(fn_proto));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProtoMulti(fn_proto));
                         continue;
                     },
                     .fn_proto_one => {
                         var params: [1]ast.Node.Index = undefined;
-                        try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoOne(&params, fn_proto));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProtoOne(&params, fn_proto));
                         continue;
                     },
                     .fn_proto => {
-                        try astgen.fnDecl(gz, &wip_decls, body, tree.fnProto(fn_proto));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProto(fn_proto));
                         continue;
                     },
                     else => unreachable,
@@ -3431,20 +3432,20 @@ fn unionDeclInner(
             },
             .fn_proto_simple => {
                 var params: [1]ast.Node.Index = undefined;
-                try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoSimple(&params, member_node));
+                try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProtoSimple(&params, member_node));
                 continue;
             },
             .fn_proto_multi => {
-                try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoMulti(member_node));
+                try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProtoMulti(member_node));
                 continue;
             },
             .fn_proto_one => {
                 var params: [1]ast.Node.Index = undefined;
-                try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoOne(&params, member_node));
+                try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProtoOne(&params, member_node));
                 continue;
             },
             .fn_proto => {
-                try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProto(member_node));
+                try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProto(member_node));
                 continue;
             },
 
@@ -3759,20 +3760,20 @@ fn containerDecl(
                         switch (node_tags[fn_proto]) {
                             .fn_proto_simple => {
                                 var params: [1]ast.Node.Index = undefined;
-                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoSimple(&params, fn_proto));
+                                try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProtoSimple(&params, fn_proto));
                                 continue;
                             },
                             .fn_proto_multi => {
-                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoMulti(fn_proto));
+                                try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProtoMulti(fn_proto));
                                 continue;
                             },
                             .fn_proto_one => {
                                 var params: [1]ast.Node.Index = undefined;
-                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoOne(&params, fn_proto));
+                                try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProtoOne(&params, fn_proto));
                                 continue;
                             },
                             .fn_proto => {
-                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProto(fn_proto));
+                                try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProto(fn_proto));
                                 continue;
                             },
                             else => unreachable,
@@ -3780,20 +3781,20 @@ fn containerDecl(
                     },
                     .fn_proto_simple => {
                         var params: [1]ast.Node.Index = undefined;
-                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoSimple(&params, member_node));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProtoSimple(&params, member_node));
                         continue;
                     },
                     .fn_proto_multi => {
-                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoMulti(member_node));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProtoMulti(member_node));
                         continue;
                     },
                     .fn_proto_one => {
                         var params: [1]ast.Node.Index = undefined;
-                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoOne(&params, member_node));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProtoOne(&params, member_node));
                         continue;
                     },
                     .fn_proto => {
-                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProto(member_node));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProto(member_node));
                         continue;
                     },
 
@@ -3924,20 +3925,20 @@ fn containerDecl(
                         switch (node_tags[fn_proto]) {
                             .fn_proto_simple => {
                                 var params: [1]ast.Node.Index = undefined;
-                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoSimple(&params, fn_proto));
+                                try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProtoSimple(&params, fn_proto));
                                 continue;
                             },
                             .fn_proto_multi => {
-                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoMulti(fn_proto));
+                                try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProtoMulti(fn_proto));
                                 continue;
                             },
                             .fn_proto_one => {
                                 var params: [1]ast.Node.Index = undefined;
-                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProtoOne(&params, fn_proto));
+                                try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProtoOne(&params, fn_proto));
                                 continue;
                             },
                             .fn_proto => {
-                                try astgen.fnDecl(gz, &wip_decls, body, tree.fnProto(fn_proto));
+                                try astgen.fnDecl(gz, &wip_decls, member_node, body, tree.fnProto(fn_proto));
                                 continue;
                             },
                             else => unreachable,
@@ -3945,20 +3946,20 @@ fn containerDecl(
                     },
                     .fn_proto_simple => {
                         var params: [1]ast.Node.Index = undefined;
-                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoSimple(&params, member_node));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProtoSimple(&params, member_node));
                         continue;
                     },
                     .fn_proto_multi => {
-                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoMulti(member_node));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProtoMulti(member_node));
                         continue;
                     },
                     .fn_proto_one => {
                         var params: [1]ast.Node.Index = undefined;
-                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProtoOne(&params, member_node));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProtoOne(&params, member_node));
                         continue;
                     },
                     .fn_proto => {
-                        try astgen.fnDecl(gz, &wip_decls, 0, tree.fnProto(member_node));
+                        try astgen.fnDecl(gz, &wip_decls, member_node, 0, tree.fnProto(member_node));
                         continue;
                     },
 
