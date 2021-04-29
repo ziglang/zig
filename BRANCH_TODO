@@ -48,6 +48,10 @@
  * AstGen: add result location pointers to function calls
  * nested function decl: how to refer to params?
 
+ * fix the commented out behavior test regarding function alignment
+   - not sure why this happened, it's stage1 code??
+   - search the behavior test diff for "TODO"
+
 fn getAnonTypeName(mod: *Module, scope: *Scope, base_token: std.zig.ast.TokenIndex) ![]u8 {
     // TODO add namespaces, generic function signatrues
     const tree = scope.tree();

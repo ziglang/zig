@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const builtin = @import("builtin");
+const native_arch = builtin.target.cpu.arch;
 const maxInt = std.math.maxInt;
 
 const Foo = struct {
@@ -11,7 +12,7 @@ const Foo = struct {
 
 test "@alignOf(T) before referencing T" {
     comptime expect(@alignOf(Foo) != maxInt(usize));
-    if (builtin.arch == builtin.Arch.x86_64) {
+    if (native_arch == .x86_64) {
         comptime expect(@alignOf(Foo) == 4);
     }
 }

@@ -142,7 +142,7 @@ comptime {
         _ = @import("behavior/var_args.zig");
         _ = @import("behavior/vector.zig");
         _ = @import("behavior/void.zig");
-        if (builtin.arch == .wasm32) {
+        if (builtin.target.cpu.arch == .wasm32) {
             _ = @import("behavior/wasm.zig");
         }
         _ = @import("behavior/while.zig");

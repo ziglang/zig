@@ -349,7 +349,7 @@ test "vector division operators" {
 
         fn doTheTest() void {
             // https://github.com/ziglang/zig/issues/4952
-            if (std.builtin.os.tag != .windows) {
+            if (builtin.target.os.tag != .windows) {
                 doTheTestDiv(f16, [4]f16{ 4.0, -4.0, 4.0, -4.0 }, [4]f16{ 1.0, 2.0, -1.0, -2.0 });
             }
 
@@ -357,7 +357,7 @@ test "vector division operators" {
             doTheTestDiv(f64, [4]f64{ 4.0, -4.0, 4.0, -4.0 }, [4]f64{ 1.0, 2.0, -1.0, -2.0 });
 
             // https://github.com/ziglang/zig/issues/4952
-            if (std.builtin.os.tag != .windows) {
+            if (builtin.target.os.tag != .windows) {
                 doTheTestMod(f16, [4]f16{ 4.0, -4.0, 4.0, -4.0 }, [4]f16{ 1.0, 2.0, 0.5, 3.0 });
             }
             doTheTestMod(f32, [4]f32{ 4.0, -4.0, 4.0, -4.0 }, [4]f32{ 1.0, 2.0, 0.5, 3.0 });
@@ -416,7 +416,7 @@ test "vector bitwise not operator" {
 
 test "vector shift operators" {
     // TODO investigate why this fails when cross-compiled to wasm.
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.target.os.tag == .wasi) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTestShift(x: anytype, y: anytype) void {
@@ -477,7 +477,7 @@ test "vector shift operators" {
         }
     };
 
-    switch (std.builtin.arch) {
+    switch (builtin.target.cpu.arch) {
         .i386,
         .aarch64,
         .aarch64_be,
@@ -506,16 +506,18 @@ test "vector shift operators" {
 
 test "vector reduce operation" {
     const S = struct {
-        fn doTheTestReduce(comptime op: builtin.ReduceOp, x: anytype, expected: anytype) void {
+        fn doTheTestReduce(comptime op: std.builtin.ReduceOp, x: anytype, expected: anytype) void {
             const N = @typeInfo(@TypeOf(x)).Array.len;
             const TX = @typeInfo(@TypeOf(x)).Array.child;
 
             // wasmtime: unknown import: `env::fminf` has not been defined
             // https://github.com/ziglang/zig/issues/8131
-            switch (std.builtin.arch) {
+            switch (builtin.target.cpu.arch) {
                 .wasm32 => switch (@typeInfo(TX)) {
                     .Float => switch (op) {
-                        .Min, .Max, => return,
+                        .Min,
+                        .Max,
+                        => return,
                         else => {},
                     },
                     else => {},
@@ -566,7 +568,7 @@ test "vector reduce operation" {
 
             // LLVM 11 ERROR: Cannot select type
             // https://github.com/ziglang/zig/issues/7138
-            if (std.builtin.arch != .aarch64) {
+            if (builtin.target.cpu.arch != .aarch64) {
                 doTheTestReduce(.Min, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, -386));
                 doTheTestReduce(.Min, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 9));
             }
@@ -584,7 +586,7 @@ test "vector reduce operation" {
 
             // LLVM 11 ERROR: Cannot select type
             // https://github.com/ziglang/zig/issues/7138
-            if (std.builtin.arch != .aarch64) {
+            if (builtin.target.cpu.arch != .aarch64) {
                 doTheTestReduce(.Max, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, 1234567));
                 doTheTestReduce(.Max, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 99999));
             }

@@ -1,7 +1,6 @@
-const builtin = @import("builtin");
-const TypeInfo = builtin.TypeInfo;
-
 const std = @import("std");
+const builtin = @import("builtin");
+const TypeInfo = std.builtin.TypeInfo;
 const testing = std.testing;
 
 fn testTypes(comptime types: []const type) void {
@@ -131,7 +130,7 @@ test "Type.Null" {
     testTypes(&[_]type{@TypeOf(null)});
 }
 test "@Type create slice with null sentinel" {
-    const Slice = @Type(builtin.TypeInfo{
+    const Slice = @Type(TypeInfo{
         .Pointer = .{
             .size = .Slice,
             .is_const = true,
@@ -428,7 +427,7 @@ test "Type.Union from regular enum" {
 
 test "Type.Fn" {
     // wasm doesn't support align attributes on functions
-    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64) return error.SkipZigTest;
 
     const foo = struct {
         fn func(a: usize, b: bool) align(4) callconv(.C) usize {
@@ -441,7 +440,7 @@ test "Type.Fn" {
 
 test "Type.BoundFn" {
     // wasm doesn't support align attributes on functions
-    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64) return error.SkipZigTest;
 
     const TestStruct = packed struct {
         pub fn foo(self: *const @This()) align(4) callconv(.Unspecified) void {}

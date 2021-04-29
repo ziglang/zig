@@ -1,6 +1,7 @@
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const expect = std.testing.expect;
+const native_endian = builtin.target.cpu.arch.endian();
 
 test "reinterpret bytes as integer with nonzero offset" {
     testReinterpretBytesAsInteger();
@@ -9,9 +10,9 @@ test "reinterpret bytes as integer with nonzero offset" {
 
 fn testReinterpretBytesAsInteger() void {
     const bytes = "\x12\x34\x56\x78\xab";
-    const expected = switch (builtin.endian) {
-        builtin.Endian.Little => 0xab785634,
-        builtin.Endian.Big => 0x345678ab,
+    const expected = switch (native_endian) {
+        .Little => 0xab785634,
+        .Big => 0x345678ab,
     };
     expect(@ptrCast(*align(1) const u32, bytes[1..5]).* == expected);
 }
@@ -37,7 +38,7 @@ fn testReinterpretBytesAsExternStruct() void {
 
 test "reinterpret struct field at comptime" {
     const numNative = comptime Bytes.init(0x12345678);
-    if (builtin.endian != .Little) {
+    if (native_endian != .Little) {
         expect(std.mem.eql(u8, &[_]u8{ 0x12, 0x34, 0x56, 0x78 }, &numNative.bytes));
     } else {
         expect(std.mem.eql(u8, &[_]u8{ 0x78, 0x56, 0x34, 0x12 }, &numNative.bytes));
