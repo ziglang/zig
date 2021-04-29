@@ -20,6 +20,7 @@ pub fn copysign(comptime T: type, x: T, y: T) T {
         f16 => copysign16(x, y),
         f32 => copysign32(x, y),
         f64 => copysign64(x, y),
+        f128 => copysign128(x, y),
         else => @compileError("copysign not implemented for " ++ @typeName(T)),
     };
 }
@@ -51,10 +52,20 @@ fn copysign64(x: f64, y: f64) f64 {
     return @bitCast(f64, h1 | h2);
 }
 
+fn copysign128(x: f128, y: f128) f128 {
+    const ux = @bitCast(u128, x);
+    const uy = @bitCast(u128, y);
+
+    const h1 = ux & (maxInt(u128) / 2);
+    const h2 = uy & (@as(u128, 1) << 127);
+    return @bitCast(f128, h1 | h2);
+}
+
 test "math.copysign" {
     expect(copysign(f16, 1.0, 1.0) == copysign16(1.0, 1.0));
     expect(copysign(f32, 1.0, 1.0) == copysign32(1.0, 1.0));
     expect(copysign(f64, 1.0, 1.0) == copysign64(1.0, 1.0));
+    expect(copysign(f128, 1.0, 1.0) == copysign128(1.0, 1.0));
 }
 
 test "math.copysign16" {
@@ -76,4 +87,11 @@ test "math.copysign64" {
     expect(copysign64(5.0, -1.0) == -5.0);
     expect(copysign64(-5.0, -1.0) == -5.0);
     expect(copysign64(-5.0, 1.0) == 5.0);
+}
+
+test "math.copysign128" {
+    expect(copysign128(5.0, 1.0) == 5.0);
+    expect(copysign128(5.0, -1.0) == -5.0);
+    expect(copysign128(-5.0, -1.0) == -5.0);
+    expect(copysign128(-5.0, 1.0) == 5.0);
 }
