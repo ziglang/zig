@@ -3207,13 +3207,22 @@ pub fn semaPkg(mod: *Module, pkg: *Package) !void {
 }
 
 pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
-    if (file.status == .success_air) return;
-
     const tracy = trace(@src());
     defer tracy.end();
 
+    switch (file.status) {
+        .never_loaded => unreachable,
+
+        .retryable_failure,
+        .parse_failure,
+        .astgen_failure,
+        => return error.AnalysisFail,
+
+        .success_zir => {},
+        .success_air => return,
+    }
+
     assert(file.zir_loaded);
-    assert(file.status == .success_zir);
 
     const gpa = mod.gpa;
     var decl_arena = std.heap.ArenaAllocator.init(gpa);
@@ -3642,6 +3651,8 @@ pub fn scanNamespace(
             bit_bag_index += 1;
         }
         const flags = @truncate(u4, cur_bit_bag);
+        cur_bit_bag >>= 4;
+
         const decl_sub_index = extra_index;
         extra_index += 6;
         extra_index += @truncate(u1, flags >> 2);
@@ -3726,6 +3737,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
         },
         else => zir.nullTerminatedString(decl_name_index),
     };
+    log.debug("scan decl {s} is_pub={}", .{ decl_name, is_pub });
 
     // We create a Decl for it regardless of analysis status.
     const gop = try namespace.decls.getOrPut(gpa, decl_name);
