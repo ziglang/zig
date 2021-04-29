@@ -101,7 +101,6 @@ pub const SYS = enum(usize) {
     sync = 81,
     fsync = 82,
     fdatasync = 83,
-    sync_file_range2 = 84,
     sync_file_range = 84,
     timerfd_create = 85,
     timerfd_settime = 86,

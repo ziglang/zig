@@ -4,11 +4,13 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const debug = std.debug;
 const testing = std.testing;
+const native_endian = builtin.target.cpu.arch.endian();
+const Endian = std.builtin.Endian;
 
-pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
+pub fn PackedIntIo(comptime Int: type, comptime endian: Endian) type {
     //The general technique employed here is to cast bytes in the array to a container
     // integer (having bits % 8 == 0) large enough to contain the number of bits we want,
     // then we can retrieve or store the new value with a relative minimum of masking
@@ -71,7 +73,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             const value_ptr = @ptrCast(*align(1) const Container, &bytes[start_byte]);
             var value = value_ptr.*;
 
-            if (endian != builtin.endian) value = @byteSwap(Container, value);
+            if (endian != native_endian) value = @byteSwap(Container, value);
 
             switch (endian) {
                 .Big => {
@@ -119,7 +121,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             const target_ptr = @ptrCast(*align(1) Container, &bytes[start_byte]);
             var target = target_ptr.*;
 
-            if (endian != builtin.endian) target = @byteSwap(Container, target);
+            if (endian != native_endian) target = @byteSwap(Container, target);
 
             //zero the bits we want to replace in the existing bytes
             const inv_mask = @intCast(Container, std.math.maxInt(UnInt)) << keep_shift;
@@ -129,7 +131,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             //merge the new value
             target |= value;
 
-            if (endian != builtin.endian) target = @byteSwap(Container, target);
+            if (endian != native_endian) target = @byteSwap(Container, target);
 
             //save it back
             target_ptr.* = target;
@@ -151,7 +153,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             return new_slice;
         }
 
-        fn sliceCast(bytes: []u8, comptime NewInt: type, comptime new_endian: builtin.Endian, bit_offset: u3, old_len: usize) PackedIntSliceEndian(NewInt, new_endian) {
+        fn sliceCast(bytes: []u8, comptime NewInt: type, comptime new_endian: Endian, bit_offset: u3, old_len: usize) PackedIntSliceEndian(NewInt, new_endian) {
             const new_int_bits = comptime std.meta.bitCount(NewInt);
             const New = PackedIntSliceEndian(NewInt, new_endian);
 
@@ -172,13 +174,13 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
 /// are packed using native endianess and without storing any meta
 /// data. PackedIntArray(i3, 8) will occupy exactly 3 bytes of memory.
 pub fn PackedIntArray(comptime Int: type, comptime int_count: usize) type {
-    return PackedIntArrayEndian(Int, builtin.endian, int_count);
+    return PackedIntArrayEndian(Int, native_endian, int_count);
 }
 
 ///Creates a bit-packed array of integers of type Int. Bits
 /// are packed using specified endianess and without storing any meta
 /// data.
-pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian, comptime int_count: usize) type {
+pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: Endian, comptime int_count: usize) type {
     const int_bits = comptime std.meta.bitCount(Int);
     const total_bits = int_bits * int_count;
     const total_bytes = (total_bits + 7) / 8;
@@ -247,7 +249,7 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian,
         ///Create a PackedIntSlice of the array using NewInt as the bit width integer
         /// and new_endian as the new endianess. NewInt's bit width must fit evenly within
         /// the array's Int's total bits.
-        pub fn sliceCastEndian(self: *Self, comptime NewInt: type, comptime new_endian: builtin.Endian) PackedIntSliceEndian(NewInt, new_endian) {
+        pub fn sliceCastEndian(self: *Self, comptime NewInt: type, comptime new_endian: Endian) PackedIntSliceEndian(NewInt, new_endian) {
             return Io.sliceCast(&self.bytes, NewInt, new_endian, 0, int_count);
         }
     };
@@ -257,13 +259,13 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian,
 /// Bits are packed using native endianess and without storing any meta
 /// data.
 pub fn PackedIntSlice(comptime Int: type) type {
-    return PackedIntSliceEndian(Int, builtin.endian);
+    return PackedIntSliceEndian(Int, native_endian);
 }
 
 ///Uses a slice as a bit-packed block of int_count integers of type Int.
 /// Bits are packed using specified endianess and without storing any meta
 /// data.
-pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: builtin.Endian) type {
+pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: Endian) type {
     const int_bits = comptime std.meta.bitCount(Int);
     const Io = PackedIntIo(Int, endian);
 
@@ -328,7 +330,7 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: builtin.Endian)
         ///Create a PackedIntSlice of this slice using NewInt as the bit width integer
         /// and new_endian as the new endianess. NewInt's bit width must fit evenly within
         /// this slice's Int's total bits.
-        pub fn sliceCastEndian(self: Self, comptime NewInt: type, comptime new_endian: builtin.Endian) PackedIntSliceEndian(NewInt, new_endian) {
+        pub fn sliceCastEndian(self: Self, comptime NewInt: type, comptime new_endian: Endian) PackedIntSliceEndian(NewInt, new_endian) {
             return Io.sliceCast(self.bytes, NewInt, new_endian, self.bit_offset, self.int_count);
         }
     };
@@ -338,7 +340,7 @@ const we_are_testing_this_with_stage1_which_leaks_comptime_memory = true;
 
 test "PackedIntArray" {
     // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
-    if (builtin.arch == .wasm32) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
     if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
 
     @setEvalBranchQuota(10000);
@@ -348,7 +350,7 @@ test "PackedIntArray" {
     comptime var bits = 0;
     inline while (bits <= max_bits) : (bits += 1) {
         //alternate unsigned and signed
-        const sign: builtin.Signedness = if (bits % 2 == 0) .signed else .unsigned;
+        const sign: std.builtin.Signedness = if (bits % 2 == 0) .signed else .unsigned;
         const I = std.meta.Int(sign, bits);
 
         const PackedArray = PackedIntArray(I, int_count);
@@ -394,7 +396,7 @@ test "PackedIntArray initAllTo" {
 
 test "PackedIntSlice" {
     // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
-    if (builtin.arch == .wasm32) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
     if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
 
     @setEvalBranchQuota(10000);
@@ -408,7 +410,7 @@ test "PackedIntSlice" {
     comptime var bits = 0;
     inline while (bits <= max_bits) : (bits += 1) {
         //alternate unsigned and signed
-        const sign: builtin.Signedness = if (bits % 2 == 0) .signed else .unsigned;
+        const sign: std.builtin.Signedness = if (bits % 2 == 0) .signed else .unsigned;
         const I = std.meta.Int(sign, bits);
         const P = PackedIntSlice(I);
 
@@ -539,7 +541,7 @@ test "PackedInt(Array/Slice) sliceCast" {
 
     var i = @as(usize, 0);
     while (i < packed_slice_cast_2.len()) : (i += 1) {
-        const val = switch (builtin.endian) {
+        const val = switch (native_endian) {
             .Big => 0b01,
             .Little => 0b10,
         };
@@ -547,7 +549,7 @@ test "PackedInt(Array/Slice) sliceCast" {
     }
     i = 0;
     while (i < packed_slice_cast_4.len()) : (i += 1) {
-        const val = switch (builtin.endian) {
+        const val = switch (native_endian) {
             .Big => 0b0101,
             .Little => 0b1010,
         };
@@ -561,7 +563,7 @@ test "PackedInt(Array/Slice) sliceCast" {
     }
     i = 0;
     while (i < packed_slice_cast_3.len()) : (i += 1) {
-        const val = switch (builtin.endian) {
+        const val = switch (native_endian) {
             .Big => if (i % 2 == 0) @as(u3, 0b111) else @as(u3, 0b000),
             .Little => if (i % 2 == 0) @as(u3, 0b111) else @as(u3, 0b000),
         };
@@ -641,7 +643,7 @@ test "PackedInt(Array/Slice)Endian" {
 test "PackedIntArray at end of available memory" {
     if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
 
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .linux, .macos, .ios, .freebsd, .netbsd, .openbsd, .windows => {},
         else => return,
     }
@@ -662,7 +664,7 @@ test "PackedIntArray at end of available memory" {
 test "PackedIntSlice at end of available memory" {
     if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
 
-    switch (builtin.os.tag) {
+    switch (builtin.target.os.tag) {
         .linux, .macos, .ios, .freebsd, .netbsd, .openbsd, .windows => {},
         else => return,
     }
