@@ -2313,7 +2313,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genDbgStmt(self: *Self, inst: *ir.Inst.DbgStmt) !MCValue {
-            // TODO when reworking tzir memory layout, rework source locations here as
+            // TODO when reworking AIR memory layout, rework source locations here as
             // well to be more efficient, as well as support inlined function calls correctly.
             // For now we convert LazySrcLoc to absolute byte offset, to match what the
             // existing codegen code expects.

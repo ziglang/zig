@@ -607,7 +607,7 @@ fn resolveInt(
     return val.toUnsignedInt();
 }
 
-fn resolveInstConst(
+pub fn resolveInstConst(
     sema: *Sema,
     block: *Scope.Block,
     src: LazySrcLoc,
@@ -1850,7 +1850,9 @@ fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerE
     const src: LazySrcLoc = .{ .node_offset = src_node };
 
     const src_loc = src.toSrcLoc(&block.base);
-    const abs_byte_off = try src_loc.byteOffset();
+    const abs_byte_off = src_loc.byteOffset(sema.gpa) catch |err| {
+        return sema.mod.fail(&block.base, src, "TODO modify dbg_stmt ZIR instructions to have line/column rather than node indexes. {s}", .{@errorName(err)});
+    };
     _ = try block.addDbgStmt(src, abs_byte_off);
 }
 
@@ -2737,6 +2739,10 @@ fn funcCommon(
     const src: LazySrcLoc = .{ .node_offset = src_node_offset };
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
     const return_type = try sema.resolveType(block, ret_ty_src, zir_return_type);
+
+    if (body.len == 0) {
+        return sema.mod.fail(&block.base, src, "TODO: Sema: implement func with body", .{});
+    }
 
     // Hot path for some common function types.
     if (zir_param_types.len == 0 and !var_args) {
@@ -4098,6 +4104,7 @@ fn zirImport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
             return mod.fail(&block.base, src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
+    try mod.semaFile(result.file);
     return mod.constType(sema.arena, src, result.file.namespace.ty);
 }
 

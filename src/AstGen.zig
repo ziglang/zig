@@ -3035,7 +3035,10 @@ fn comptimeDecl(
     };
     defer decl_block.instructions.deinit(gpa);
 
-    _ = try expr(&decl_block, &decl_block.base, .none, body_node);
+    const block_result = try expr(&decl_block, &decl_block.base, .none, body_node);
+    if (decl_block.instructions.items.len == 0 or !decl_block.refIsNoReturn(block_result)) {
+        _ = try decl_block.addBreak(.break_inline, block_inst, .void_value);
+    }
     try decl_block.setBlockBody(block_inst);
 
     try wip_decls.payload.ensureUnusedCapacity(gpa, 6);

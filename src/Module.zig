@@ -271,7 +271,7 @@ pub const Decl = struct {
                 const func = payload.data;
                 func.deinit(gpa);
             }
-            if (decl.value_arena) |a| a.promote(gpa).deinit();
+            decl.clearValues(gpa);
         }
         decl.dependants.deinit(gpa);
         decl.dependencies.deinit(gpa);
@@ -281,6 +281,14 @@ pub const Decl = struct {
             gpa.destroy(decl_plus_emit_h);
         } else {
             gpa.destroy(decl);
+        }
+    }
+
+    pub fn clearValues(decl: *Decl, gpa: *Allocator) void {
+        if (decl.value_arena) |arena_state| {
+            arena_state.promote(gpa).deinit();
+            decl.value_arena = null;
+            decl.has_tv = false;
         }
     }
 
@@ -319,7 +327,7 @@ pub const Decl = struct {
         return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 6]);
     }
 
-    pub fn zirLinkSectionRef(decl: Decl) Zir.Inst.Ref {
+    pub fn zirLinksectionRef(decl: Decl) Zir.Inst.Ref {
         if (!decl.has_linksection) return .none;
         const zir = decl.namespace.file_scope.zir;
         const extra_index = decl.zir_decl_index + 6 + @boolToInt(decl.has_align);
@@ -727,10 +735,11 @@ pub const Scope = struct {
         base: Scope = Scope{ .tag = base_tag },
         status: enum {
             never_loaded,
+            retryable_failure,
             parse_failure,
             astgen_failure,
-            retryable_failure,
-            success,
+            success_zir,
+            success_air,
         },
         source_loaded: bool,
         tree_loaded: bool,
@@ -2043,7 +2052,7 @@ pub const SrcLoc = struct {
         return @bitCast(ast.Node.Index, offset + @bitCast(i32, src_loc.parent_decl_node));
     }
 
-    pub fn byteOffset(src_loc: SrcLoc) !u32 {
+    pub fn byteOffset(src_loc: SrcLoc, gpa: *Allocator) !u32 {
         switch (src_loc.lazy) {
             .unneeded => unreachable,
             .entire_file => return 0,
@@ -2051,30 +2060,31 @@ pub const SrcLoc = struct {
             .byte_abs => |byte_index| return byte_index,
 
             .token_abs => |tok_index| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_abs => |node| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const token_starts = tree.tokens.items(.start);
                 const tok_index = tree.firstToken(node);
                 return token_starts[tok_index];
             },
             .byte_offset => |byte_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[src_loc.declSrcToken()] + byte_off;
             },
             .token_offset => |tok_off| {
                 const tok_index = src_loc.declSrcToken() + tok_off;
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset, .node_offset_bin_op => |node_off| {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
+                assert(src_loc.file_scope.tree_loaded);
                 const main_tokens = tree.nodes.items(.main_token);
                 const tok_index = main_tokens[node];
                 const token_starts = tree.tokens.items(.start);
@@ -2082,14 +2092,14 @@ pub const SrcLoc = struct {
             },
             .node_offset_back2tok => |node_off| {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const tok_index = tree.firstToken(node) - 2;
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset_var_decl_ty => |node_off| {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
                 const full = switch (node_tags[node]) {
                     .global_var_decl => tree.globalVarDecl(node),
@@ -2108,7 +2118,7 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_builtin_call_arg0 => |node_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2123,7 +2133,7 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_builtin_call_arg1 => |node_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2138,7 +2148,7 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_array_access_index => |node_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2148,7 +2158,7 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_slice_sentinel => |node_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2164,7 +2174,7 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_call_func => |node_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2190,7 +2200,7 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_field_name => |node_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2202,7 +2212,7 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_deref_ptr => |node_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2211,7 +2221,7 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_asm_source => |node_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2226,7 +2236,7 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_asm_ret_ty => |node_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2243,7 +2253,7 @@ pub const SrcLoc = struct {
 
             .node_offset_for_cond, .node_offset_if_cond => |node_off| {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
                 const src_node = switch (node_tags[node]) {
                     .if_simple => tree.ifSimple(node).ast.cond_expr,
@@ -2262,7 +2272,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_bin_lhs => |node_off| {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const src_node = node_datas[node].lhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2272,7 +2282,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_bin_rhs => |node_off| {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const src_node = node_datas[node].rhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2283,7 +2293,7 @@ pub const SrcLoc = struct {
 
             .node_offset_switch_operand => |node_off| {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const src_node = node_datas[node].lhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2294,7 +2304,7 @@ pub const SrcLoc = struct {
 
             .node_offset_switch_special_prong => |node_off| {
                 const switch_node = src_loc.declRelativeToNodeIndex(node_off);
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2320,7 +2330,7 @@ pub const SrcLoc = struct {
 
             .node_offset_switch_range => |node_off| {
                 const switch_node = src_loc.declRelativeToNodeIndex(node_off);
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2349,7 +2359,7 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_fn_type_cc => |node_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2368,7 +2378,7 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_fn_type_ret_ty => |node_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2387,7 +2397,7 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_anyframe_type => |node_off| {
-                const tree = src_loc.file_scope.tree;
+                const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2912,7 +2922,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
             file.stat_size = header.stat_size;
             file.stat_inode = header.stat_inode;
             file.stat_mtime = header.stat_mtime;
-            file.status = .success;
+            file.status = .success_zir;
             log.debug("AstGen cached success: {s}", .{file.sub_file_path});
 
             // TODO don't report compile errors until Sema @importFile
@@ -2927,7 +2937,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
             }
             return;
         },
-        .parse_failure, .astgen_failure, .success => {
+        .parse_failure, .astgen_failure, .success_zir, .success_air => {
             const unchanged_metadata =
                 stat.size == file.stat_size and
                 stat.mtime == file.stat_mtime and
@@ -3024,7 +3034,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
 
     file.zir = try AstGen.generate(gpa, file);
     file.zir_loaded = true;
-    file.status = .success;
+    file.status = .success_zir;
     log.debug("AstGen fresh success: {s}", .{file.sub_file_path});
 
     const safety_buffer = if (data_has_safety_tag)
@@ -3197,11 +3207,13 @@ pub fn semaPkg(mod: *Module, pkg: *Package) !void {
 }
 
 pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
+    if (file.status == .success_air) return;
+
     const tracy = trace(@src());
     defer tracy.end();
 
     assert(file.zir_loaded);
-    assert(!file.zir.hasCompileErrors());
+    assert(file.status == .success_zir);
 
     const gpa = mod.gpa;
     var decl_arena = std.heap.ArenaAllocator.init(gpa);
@@ -3279,6 +3291,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
         if (dep == struct_decl) continue;
         _ = try mod.declareDeclDependency(struct_decl, dep);
     }
+    file.status = .success_air;
 }
 
 /// Returns `true` if the Decl type changed.
@@ -3319,26 +3332,128 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     };
     defer block_scope.instructions.deinit(gpa);
 
+    const zir_datas = zir.instructions.items(.data);
+    const zir_tags = zir.instructions.items(.tag);
+
     const zir_block_index = decl.zirBlockIndex();
-    const inst_data = zir.instructions.items(.data)[zir_block_index].pl_node;
+    const inst_data = zir_datas[zir_block_index].pl_node;
     const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
     const body = zir.extra[extra.end..][0..extra.data.body_len];
     const break_index = try sema.analyzeBody(&block_scope, body);
+    const result_ref = zir_datas[break_index].@"break".operand;
+    const decl_tv = try sema.resolveInstConst(&block_scope, inst_data.src(), result_ref);
+    const align_val = blk: {
+        const align_ref = decl.zirAlignRef();
+        if (align_ref == .none) break :blk Value.initTag(.null_value);
+        break :blk (try sema.resolveInstConst(&block_scope, inst_data.src(), align_ref)).val;
+    };
+    const linksection_val = blk: {
+        const linksection_ref = decl.zirLinksectionRef();
+        if (linksection_ref == .none) break :blk Value.initTag(.null_value);
+        break :blk (try sema.resolveInstConst(&block_scope, inst_data.src(), linksection_ref)).val;
+    };
 
-    if (decl.zirAlignRef() != .none) {
-        @panic("TODO implement decl align");
+    // We need the memory for the Type to go into the arena for the Decl
+    var decl_arena = std.heap.ArenaAllocator.init(gpa);
+    errdefer decl_arena.deinit();
+    const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
+
+    if (decl_tv.val.tag() == .function) {
+        var prev_type_has_bits = false;
+        var prev_is_inline = false;
+        var type_changed = true;
+
+        if (decl.has_tv) {
+            prev_type_has_bits = decl.ty.hasCodeGenBits();
+            type_changed = !decl.ty.eql(decl_tv.ty);
+            if (decl.val.castTag(.function)) |payload| {
+                const prev_func = payload.data;
+                prev_is_inline = prev_func.state == .inline_only;
+                prev_func.deinit(gpa);
+            }
+            decl.clearValues(gpa);
+        }
+
+        decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
+        decl.val = try decl_tv.val.copy(&decl_arena.allocator);
+        decl.align_val = try align_val.copy(&decl_arena.allocator);
+        decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
+        decl.has_tv = true;
+        decl_arena_state.* = decl_arena.state;
+        decl.value_arena = decl_arena_state;
+        decl.analysis = .complete;
+        decl.generation = mod.generation;
+
+        const is_inline = decl_tv.ty.fnCallingConvention() == .Inline;
+        if (!is_inline and decl_tv.ty.hasCodeGenBits()) {
+            // We don't fully codegen the decl until later, but we do need to reserve a global
+            // offset table index for it. This allows us to codegen decls out of dependency order,
+            // increasing how many computations can be done in parallel.
+            try mod.comp.bin_file.allocateDeclIndexes(decl);
+            try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
+            if (type_changed and mod.emit_h != null) {
+                try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
+            }
+        } else if (!prev_is_inline and prev_type_has_bits) {
+            mod.comp.bin_file.freeDecl(decl);
+        }
+
+        if (decl.is_exported) {
+            const export_src = inst_data.src(); // TODO make this point at `export` token
+            if (is_inline) {
+                return mod.fail(&block_scope.base, export_src, "export of inline function", .{});
+            }
+            // The scope needs to have the decl in it.
+            try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
+        }
+        return type_changed or is_inline != prev_is_inline;
+    } else {
+        const is_mutable = zir_tags[zir_block_index] == .block_inline_var;
+
+        var is_threadlocal = false; // TODO implement threadlocal variables
+        var is_extern = false; // TODO implement extern variables
+
+        if (is_mutable and !decl_tv.ty.isValidVarType(is_extern)) {
+            return mod.fail(
+                &block_scope.base,
+                inst_data.src(), // TODO point at the mut token
+                "variable of type '{}' must be const",
+                .{decl_tv.ty},
+            );
+        }
+
+        var type_changed = true;
+        if (decl.has_tv) {
+            type_changed = !decl.ty.eql(decl_tv.ty);
+            decl.clearValues(gpa);
+        }
+
+        const new_variable = try decl_arena.allocator.create(Var);
+        new_variable.* = .{
+            .owner_decl = decl,
+            .init = try decl_tv.val.copy(&decl_arena.allocator),
+            .is_extern = is_extern,
+            .is_mutable = is_mutable,
+            .is_threadlocal = is_threadlocal,
+        };
+
+        decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
+        decl.val = try Value.Tag.variable.create(&decl_arena.allocator, new_variable);
+        decl.align_val = try align_val.copy(&decl_arena.allocator);
+        decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
+        decl.has_tv = true;
+        decl_arena_state.* = decl_arena.state;
+        decl.value_arena = decl_arena_state;
+        decl.analysis = .complete;
+        decl.generation = mod.generation;
+
+        if (decl.is_exported) {
+            const export_src = inst_data.src(); // TODO point to the export token
+            // The scope needs to have the decl in it.
+            try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
+        }
+        return type_changed;
     }
-    if (decl.zirLinkSectionRef() != .none) {
-        @panic("TODO implement decl linksection");
-    }
-
-    decl.analysis = .complete;
-    decl.generation = mod.generation;
-
-    // TODO inspect the type and return a proper type_changed result
-    @breakpoint();
-
-    return true;
 }
 
 /// Returns the depender's index of the dependee.
@@ -4160,6 +4275,7 @@ fn getNextAnonNameIndex(mod: *Module) usize {
 
 /// This looks up a bare identifier in the given scope. This will walk up the tree of namespaces
 /// in scope and check each one for the identifier.
+/// TODO emit a compile error if more than one decl would be matched.
 pub fn lookupIdentifier(mod: *Module, scope: *Scope, ident_name: []const u8) ?*Decl {
     var namespace = scope.namespace();
     while (true) {
@@ -4179,13 +4295,14 @@ pub fn lookupInNamespace(
     ident_name: []const u8,
     only_pub_usingnamespaces: bool,
 ) ?*Decl {
-    @panic("TODO lookupInNamespace");
+    // TODO the decl doing the looking up needs to create a decl dependency
+    // TODO implement usingnamespace
+    if (namespace.decls.get(ident_name)) |decl| {
+        return decl;
+    }
+    return null;
     //// TODO handle decl collision with usingnamespace
-    //// TODO the decl doing the looking up needs to create a decl dependency
     //// on each usingnamespace decl here.
-    //if (mod.decl_table.get(name_hash)) |decl| {
-    //    return decl;
-    //}
     //{
     //    var it = namespace.usingnamespace_set.iterator();
     //    while (it.next()) |entry| {
@@ -4198,7 +4315,6 @@ pub fn lookupInNamespace(
     //        }
     //    }
     //}
-    //return null;
 }
 
 pub fn makeIntType(arena: *Allocator, signedness: std.builtin.Signedness, bits: u16) !Type {
@@ -4659,7 +4775,7 @@ pub fn optimizeMode(mod: Module) std.builtin.Mode {
 
 fn lockAndClearFileCompileError(mod: *Module, file: *Scope.File) void {
     switch (file.status) {
-        .success, .retryable_failure => {},
+        .success_zir, .success_air, .retryable_failure => {},
         .never_loaded, .parse_failure, .astgen_failure => {
             const lock = mod.comp.mutex.acquire();
             defer lock.release();

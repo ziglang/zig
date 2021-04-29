@@ -1,3 +1,6 @@
+ * modify dbg_stmt ZIR instructions to have line/column rather than node indexes
+ * AstGen threadlocal
+ * extern "foo" for vars and for functions
  * namespace decls table can't reference ZIR memory because it can get modified on updates
    - change it for astgen worker to compare old and new ZIR, updating existing
      namespaces & decls, and creating a changelist.
@@ -65,49 +68,7 @@ fn getAnonTypeName(mod: *Module, scope: *Scope, base_token: std.zig.ast.TokenInd
 /// Returns `true` if this is the first time analyzing the Decl.
 /// Returns `false` otherwise.
 fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const tree = try mod.getAstTree(decl.namespace.file_scope);
-    const node_tags = tree.nodes.items(.tag);
-    const node_datas = tree.nodes.items(.data);
-    const decl_node = decl.src_node;
     switch (node_tags[decl_node]) {
-        .fn_decl => {
-            const fn_proto = node_datas[decl_node].lhs;
-            const body = node_datas[decl_node].rhs;
-            switch (node_tags[fn_proto]) {
-                .fn_proto_simple => {
-                    var params: [1]ast.Node.Index = undefined;
-                    return mod.astgenAndSemaFn(decl, tree.*, body, tree.fnProtoSimple(&params, fn_proto));
-                },
-                .fn_proto_multi => return mod.astgenAndSemaFn(decl, tree.*, body, tree.fnProtoMulti(fn_proto)),
-                .fn_proto_one => {
-                    var params: [1]ast.Node.Index = undefined;
-                    return mod.astgenAndSemaFn(decl, tree.*, body, tree.fnProtoOne(&params, fn_proto));
-                },
-                .fn_proto => return mod.astgenAndSemaFn(decl, tree.*, body, tree.fnProto(fn_proto)),
-                else => unreachable,
-            }
-        },
-        .fn_proto_simple => {
-            var params: [1]ast.Node.Index = undefined;
-            return mod.astgenAndSemaFn(decl, tree.*, 0, tree.fnProtoSimple(&params, decl_node));
-        },
-        .fn_proto_multi => return mod.astgenAndSemaFn(decl, tree.*, 0, tree.fnProtoMulti(decl_node)),
-        .fn_proto_one => {
-            var params: [1]ast.Node.Index = undefined;
-            return mod.astgenAndSemaFn(decl, tree.*, 0, tree.fnProtoOne(&params, decl_node));
-        },
-        .fn_proto => return mod.astgenAndSemaFn(decl, tree.*, 0, tree.fnProto(decl_node)),
-
-        .global_var_decl => return mod.astgenAndSemaVarDecl(decl, tree.*, tree.globalVarDecl(decl_node)),
-        .local_var_decl => return mod.astgenAndSemaVarDecl(decl, tree.*, tree.localVarDecl(decl_node)),
-        .simple_var_decl => return mod.astgenAndSemaVarDecl(decl, tree.*, tree.simpleVarDecl(decl_node)),
-        .aligned_var_decl => return mod.astgenAndSemaVarDecl(decl, tree.*, tree.alignedVarDecl(decl_node)),
-
-        .@"comptime" => {
-        },
         .@"usingnamespace" => {
             decl.analysis = .in_progress;
 
@@ -135,128 +96,6 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
     }
 }
 
-fn astgenAndSemaFn(
-    mod: *Module,
-    decl: *Decl,
-    tree: ast.Tree,
-    body_node: ast.Node.Index,
-    fn_proto: ast.full.FnProto,
-) !bool {
-    const is_inline = fn_type.fnCallingConvention() == .Inline;
-    const anal_state: Fn.Analysis = if (is_inline) .inline_only else .queued;
-
-    new_func.* = .{
-        .state = anal_state,
-        .zir = fn_zir,
-        .body = undefined,
-        .owner_decl = decl,
-    };
-    fn_payload.* = .{
-        .base = .{ .tag = .function },
-        .data = new_func,
-    };
-
-    var prev_type_has_bits = false;
-    var prev_is_inline = false;
-    var type_changed = true;
-
-    if (decl.typedValueManaged()) |tvm| {
-        prev_type_has_bits = tvm.typed_value.ty.hasCodeGenBits();
-        type_changed = !tvm.typed_value.ty.eql(fn_type);
-        if (tvm.typed_value.val.castTag(.function)) |payload| {
-            const prev_func = payload.data;
-            prev_is_inline = prev_func.state == .inline_only;
-            prev_func.deinit(mod.gpa);
-        }
-
-        tvm.deinit(mod.gpa);
-    }
-
-    decl_arena_state.* = decl_arena.state;
-    decl.typed_value = .{
-        .most_recent = .{
-            .typed_value = .{
-                .ty = fn_type,
-                .val = Value.initPayload(&fn_payload.base),
-            },
-            .arena = decl_arena_state,
-        },
-    };
-    decl.analysis = .complete;
-    decl.generation = mod.generation;
-
-    if (!is_inline and fn_type.hasCodeGenBits()) {
-        // We don't fully codegen the decl until later, but we do need to reserve a global
-        // offset table index for it. This allows us to codegen decls out of dependency order,
-        // increasing how many computations can be done in parallel.
-        try mod.comp.bin_file.allocateDeclIndexes(decl);
-        try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
-        if (type_changed and mod.emit_h != null) {
-            try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
-        }
-    } else if (!prev_is_inline and prev_type_has_bits) {
-        mod.comp.bin_file.freeDecl(decl);
-    }
-
-    if (fn_proto.extern_export_token) |maybe_export_token| {
-        if (token_tags[maybe_export_token] == .keyword_export) {
-            if (is_inline) {
-                return mod.failTok(
-                    &block_scope.base,
-                    maybe_export_token,
-                    "export of inline function",
-                    .{},
-                );
-            }
-            const export_src = decl.tokSrcLoc(maybe_export_token);
-            const name = tree.tokenSlice(fn_proto.name_token.?); // TODO identifierTokenString
-            // The scope needs to have the decl in it.
-            try mod.analyzeExport(&block_scope.base, export_src, name, decl);
-        }
-    }
-    return type_changed or is_inline != prev_is_inline;
-}
-        log.debug("extern fn symbol expected in lib '{s}'", .{lib_name_str});
-        mod.comp.stage1AddLinkLib(lib_name_str) catch |err| {
-            return mod.failTok(
-                &fn_type_scope.base,
-                lib_name_token,
-                "unable to add link lib '{s}': {s}",
-                .{ lib_name_str, @errorName(err) },
-            );
-        };
-        const target = mod.comp.getTarget();
-        if (target_util.is_libc_lib_name(target, lib_name_str)) {
-            if (!mod.comp.bin_file.options.link_libc) {
-                return mod.failTok(
-                    &fn_type_scope.base,
-                    lib_name_token,
-                    "dependency on libc must be explicitly specified in the build command",
-                    .{},
-                );
-            }
-            break :blk;
-        }
-        if (target_util.is_libcpp_lib_name(target, lib_name_str)) {
-            if (!mod.comp.bin_file.options.link_libcpp) {
-                return mod.failTok(
-                    &fn_type_scope.base,
-                    lib_name_token,
-                    "dependency on libc++ must be explicitly specified in the build command",
-                    .{},
-                );
-            }
-            break :blk;
-        }
-        if (!target.isWasm() and !mod.comp.bin_file.options.pic) {
-            return mod.failTok(
-                &fn_type_scope.base,
-                lib_name_token,
-                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by `-l{s}` or `-fPIC`.",
-                .{ lib_name_str, lib_name_str },
-            );
-        }
-
     if (mod.lookupIdentifier(scope, ident_name)) |decl| {
         const msg = msg: {
             const msg = try mod.errMsg(
@@ -270,58 +109,6 @@ fn astgenAndSemaFn(
             break :msg msg;
         };
         return mod.failWithOwnedErrorMsg(scope, msg);
-    }
-
-
-    var type_changed = true;
-    if (decl.typedValueManaged()) |tvm| {
-        type_changed = !tvm.typed_value.ty.eql(var_info.ty);
-
-        tvm.deinit(mod.gpa);
-    }
-
-    const new_variable = try decl_arena.allocator.create(Var);
-    new_variable.* = .{
-        .owner_decl = decl,
-        .init = var_info.val orelse undefined,
-        .is_extern = is_extern,
-        .is_mutable = is_mutable,
-        .is_threadlocal = is_threadlocal,
-    };
-    const var_val = try Value.Tag.variable.create(&decl_arena.allocator, new_variable);
-
-    decl_arena_state.* = decl_arena.state;
-    decl.typed_value = .{
-        .most_recent = .{
-            .typed_value = .{
-                .ty = var_info.ty,
-                .val = var_val,
-            },
-            .arena = decl_arena_state,
-        },
-    };
-    decl.analysis = .complete;
-    decl.generation = mod.generation;
-
-
-
-    if (is_mutable and !var_info.ty.isValidVarType(is_extern)) {
-        return mod.failTok(
-            &decl_scope.base,
-            var_decl.ast.mut_token,
-            "variable of type '{}' must be const",
-            .{var_info.ty},
-        );
-    }
-
-    if (var_decl.extern_export_token) |maybe_export_token| {
-        if (token_tags[maybe_export_token] == .keyword_export) {
-            const export_src = decl.tokSrcLoc(maybe_export_token);
-            const name_token = var_decl.ast.mut_token + 1;
-            const name = tree.tokenSlice(name_token); // TODO identifierTokenString
-            // The scope needs to have the decl in it.
-            try mod.analyzeExport(&decl_scope.base, export_src, name, decl);
-        }
     }
 
 
@@ -397,14 +184,6 @@ pub fn analyzeNamespace(
     };
 }
 
-        if (align_inst != .none) {
-            return mod.fail(&namespace.base, .{ .node_abs = decl_node }, "TODO: implement decls with align()", .{});
-        }
-        if (section_inst != .none) {
-            return mod.fail(&namespace.base, .{ .node_abs = decl_node }, "TODO: implement decls with linksection()", .{});
-        }
-
-
 /// Trailing:
 ///  0. `EmitH` if `module.emit_h != null`.
 ///  1. A per-Decl link object. Represents the position of the code in the output file.
@@ -442,25 +221,61 @@ pub fn analyzeNamespace(
     /// This memory is managed with gpa, must be freed when the function is freed.
     zir: Zir,
 
-pub fn root(sema: *Sema, root_block: *Scope.Block) !Zir.Inst.Index {
-    const inst_data = sema.code.instructions.items(.data)[0].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
-    const root_body = sema.code.extra[extra.end..][0..extra.data.body_len];
-    return sema.analyzeBody(root_block, root_body);
-}
 
-pub fn rootAsRef(sema: *Sema, root_block: *Scope.Block) !Zir.Inst.Ref {
-    const break_inst = try sema.root(root_block);
-    return sema.code.instructions.items(.data)[break_inst].@"break".operand;
-}
+    if (fn_proto.lib_name) |lib_name_token| blk: {
+        log.debug("extern fn symbol expected in lib '{s}'", .{lib_name_str});
+        mod.comp.stage1AddLinkLib(lib_name_str) catch |err| {
+            return mod.failTok(
+                &fn_type_scope.base,
+                lib_name_token,
+                "unable to add link lib '{s}': {s}",
+                .{ lib_name_str, @errorName(err) },
+            );
+        };
+        const target = mod.comp.getTarget();
+        if (target_util.is_libc_lib_name(target, lib_name_str)) {
+            if (!mod.comp.bin_file.options.link_libc) {
+                return mod.failTok(
+                    &fn_type_scope.base,
+                    lib_name_token,
+                    "dependency on libc must be explicitly specified in the build command",
+                    .{},
+                );
+            }
+            break :blk;
+        }
+        if (target_util.is_libcpp_lib_name(target, lib_name_str)) {
+            if (!mod.comp.bin_file.options.link_libcpp) {
+                return mod.failTok(
+                    &fn_type_scope.base,
+                    lib_name_token,
+                    "dependency on libc++ must be explicitly specified in the build command",
+                    .{},
+                );
+            }
+            break :blk;
+        }
+        if (!target.isWasm() and !mod.comp.bin_file.options.pic) {
+            return mod.failTok(
+                &fn_type_scope.base,
+                lib_name_token,
+                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by `-l{s}` or `-fPIC`.",
+                .{ lib_name_str, lib_name_str },
+            );
+        }
+    }
 
-/// Assumes that `root_block` ends with `break_inline`.
-pub fn rootAsType(sema: *Sema, root_block: *Scope.Block) !Type {
-    assert(root_block.is_comptime);
-    const zir_inst_ref = try sema.rootAsRef(root_block);
-    // Source location is unneeded because resolveConstValue must have already
-    // been successfully called when coercing the value to a type, from the
-    // result location.
-    return sema.resolveType(root_block, .unneeded, zir_inst_ref);
-}
+        const is_inline = decl_tv.ty.fnCallingConvention() == .Inline;
+        const anal_state: Fn.Analysis = if (is_inline) .inline_only else .queued;
+
+        new_func.* = .{
+            .state = anal_state,
+            .zir = fn_zir,
+            .body = undefined,
+            .owner_decl = decl,
+        };
+        fn_payload.* = .{
+            .base = .{ .tag = .function },
+            .data = new_func,
+        };
 
