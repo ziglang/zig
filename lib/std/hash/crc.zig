@@ -28,7 +28,7 @@ pub const Crc32 = Crc32WithPoly(.IEEE);
 pub fn Crc32WithPoly(comptime poly: Polynomial) type {
     return struct {
         const Self = @This();
-        const lookup_tables = comptime block: {
+        const lookup_tables = block: {
             @setEvalBranchQuota(20000);
             var tables: [8][256]u32 = undefined;
 
@@ -128,7 +128,7 @@ test "crc32 castagnoli" {
 pub fn Crc32SmallWithPoly(comptime poly: Polynomial) type {
     return struct {
         const Self = @This();
-        const lookup_table = comptime block: {
+        const lookup_table = block: {
             var table: [16]u32 = undefined;
 
             for (table) |*e, i| {

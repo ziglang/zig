@@ -8,9 +8,9 @@ const std = @import("../std.zig");
 const testing = std.testing;
 const builtin = std.builtin;
 
-const has_aesni = comptime std.Target.x86.featureSetHas(std.Target.current.cpu.features, .aes);
-const has_avx = comptime std.Target.x86.featureSetHas(std.Target.current.cpu.features, .avx);
-const has_armaes = comptime std.Target.aarch64.featureSetHas(std.Target.current.cpu.features, .aes);
+const has_aesni = std.Target.x86.featureSetHas(std.Target.current.cpu.features, .aes);
+const has_avx = std.Target.x86.featureSetHas(std.Target.current.cpu.features, .avx);
+const has_armaes = std.Target.aarch64.featureSetHas(std.Target.current.cpu.features, .aes);
 const impl = if (std.Target.current.cpu.arch == .x86_64 and has_aesni and has_avx) impl: {
     break :impl @import("aes/aesni.zig");
 } else if (std.Target.current.cpu.arch == .aarch64 and has_armaes)

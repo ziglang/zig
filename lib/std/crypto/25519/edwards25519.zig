@@ -226,12 +226,12 @@ pub const Edwards25519 = struct {
         return pc;
     }
 
-    const basePointPc = comptime pc: {
+    const basePointPc = pc: {
         @setEvalBranchQuota(10000);
         break :pc precompute(Edwards25519.basePoint, 15);
     };
 
-    const basePointPc8 = comptime pc: {
+    const basePointPc8 = pc: {
         @setEvalBranchQuota(10000);
         break :pc precompute(Edwards25519.basePoint, 8);
     };
