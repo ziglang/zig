@@ -384,6 +384,8 @@ pub fn InflateStream(comptime ReaderType: type) type {
                         const last_length = lengths[i - 1];
                         const repeat = 3 + (try self.readBits(2));
                         const last_index = i + repeat;
+                        if (last_index > lengths.len)
+                            return error.InvalidLength;
                         while (i < last_index) : (i += 1) {
                             lengths[i] = last_length;
                         }
@@ -654,4 +656,20 @@ pub fn InflateStream(comptime ReaderType: type) type {
 
 pub fn inflateStream(reader: anytype, window_slice: []u8) InflateStream(@TypeOf(reader)) {
     return InflateStream(@TypeOf(reader)).init(reader, window_slice);
+}
+
+test "lengths overflow" {
+    // malformed final dynamic block, tries to write 321 code lengths (MAXCODES is 316)
+    // f dy  hlit hdist hclen 16  17  18   0 (18)    x138 (18)    x138 (18)     x39 (16) x6
+    // 1 10 11101 11101 0000 010 010 010 010 (11) 1111111 (11) 1111111 (11) 0011100 (01) 11
+    const stream = [_]u8{
+        0b11101101, 0b00011101, 0b00100100, 0b11101001, 0b11111111, 0b11111111, 0b00111001, 0b00001110
+    };
+
+    const reader = std.io.fixedBufferStream(&stream).reader();
+    var window: [0x8000]u8 = undefined;
+    var inflate = inflateStream(reader, &window);
+
+    var buf: [1]u8 = undefined;
+    std.testing.expectError(error.InvalidLength, inflate.read(&buf));    
 }
