@@ -52,6 +52,10 @@
    - not sure why this happened, it's stage1 code??
    - search the behavior test diff for "TODO"
 
+ * memory efficiency: add another representation for structs which use
+   natural alignment for fields and do not have any comptime fields. this
+   will save 16 bytes per struct field in the compilation.
+
 fn getAnonTypeName(mod: *Module, scope: *Scope, base_token: std.zig.ast.TokenIndex) ![]u8 {
     // TODO add namespaces, generic function signatrues
     const tree = scope.tree();

@@ -471,6 +471,7 @@ pub const Struct = struct {
         abi_align: Value,
         /// Uses `unreachable_value` to indicate no default.
         default_val: Value,
+        is_comptime: bool,
     };
 
     pub fn getFullyQualifiedName(s: *Struct, gpa: *Allocator) ![]u8 {

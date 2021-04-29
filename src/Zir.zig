@@ -2387,13 +2387,16 @@ pub const Inst = struct {
     ///        link_section: Ref, // if corresponding bit is set
     ///    }
     /// 2. inst: Index // for every body_len
-    /// 3. has_bits: u32 // for every 16 fields
-    ///    - sets of 2 bits:
-    ///      0b0X: whether corresponding field has an align expression
-    ///      0bX0: whether corresponding field has a default expression
+    /// 3. flags: u32 // for every 8 fields
+    ///    - sets of 4 bits:
+    ///      0b000X: whether corresponding field has an align expression
+    ///      0b00X0: whether corresponding field has a default expression
+    ///      0b0X00: whether corresponding field is comptime
+    ///      0bX000: unused
     /// 4. fields: { // for every fields_len
     ///        field_name: u32,
     ///        field_type: Ref,
+    ///        - if none, means `anytype`.
     ///        align: Ref, // if corresponding bit is set
     ///        default_value: Ref, // if corresponding bit is set
     ///    }
@@ -3394,14 +3397,16 @@ const Writer = struct {
                 try stream.writeAll("}, {\n");
             }
 
-            const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
+            const bits_per_field = 4;
+            const fields_per_u32 = 32 / bits_per_field;
+            const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
             const body_end = extra_index;
             extra_index += bit_bags_count;
             var bit_bag_index: usize = body_end;
             var cur_bit_bag: u32 = undefined;
             var field_i: u32 = 0;
             while (field_i < fields_len) : (field_i += 1) {
-                if (field_i % 16 == 0) {
+                if (field_i % fields_per_u32 == 0) {
                     cur_bit_bag = self.code.extra[bit_bag_index];
                     bit_bag_index += 1;
                 }
@@ -3409,6 +3414,12 @@ const Writer = struct {
                 cur_bit_bag >>= 1;
                 const has_default = @truncate(u1, cur_bit_bag) != 0;
                 cur_bit_bag >>= 1;
+                const is_comptime = @truncate(u1, cur_bit_bag) != 0;
+                cur_bit_bag >>= 1;
+                const unused = @truncate(u1, cur_bit_bag) != 0;
+                cur_bit_bag >>= 1;
+
+                _ = unused;
 
                 const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
                 extra_index += 1;
@@ -3416,6 +3427,7 @@ const Writer = struct {
                 extra_index += 1;
 
                 try stream.writeByteNTimes(' ', self.indent);
+                try self.writeFlag(stream, "comptime ", is_comptime);
                 try stream.print("{}: ", .{std.zig.fmtId(field_name)});
                 try self.writeInstRef(stream, field_type);
 

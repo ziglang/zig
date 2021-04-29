@@ -719,14 +719,16 @@ pub fn zirStructDecl(
         sema.branch_count = struct_sema.branch_count;
         sema.branch_quota = struct_sema.branch_quota;
     }
-    const bit_bags_count = std.math.divCeil(usize, fields_len, 16) catch unreachable;
+    const bits_per_field = 4;
+    const fields_per_u32 = 32 / bits_per_field;
+    const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
     const body_end = extra_index + body.len;
     extra_index += bit_bags_count;
     var bit_bag_index: usize = body_end;
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
     while (field_i < fields_len) : (field_i += 1) {
-        if (field_i % 16 == 0) {
+        if (field_i % fields_per_u32 == 0) {
             cur_bit_bag = sema.code.extra[bit_bag_index];
             bit_bag_index += 1;
         }
@@ -734,6 +736,12 @@ pub fn zirStructDecl(
         cur_bit_bag >>= 1;
         const has_default = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
+        const is_comptime = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const unused = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+
+        _ = unused;
 
         const field_name_zir = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
         extra_index += 1;
@@ -753,6 +761,7 @@ pub fn zirStructDecl(
             .ty = field_ty,
             .abi_align = Value.initTag(.abi_align_default),
             .default_val = Value.initTag(.unreachable_value),
+            .is_comptime = is_comptime,
         };
 
         if (has_align) {

@@ -3220,7 +3220,9 @@ fn structDeclInner(
     var fields_data = ArrayListUnmanaged(u32){};
     defer fields_data.deinit(gpa);
 
-    // We only need this if there are greater than 16 fields.
+    const bits_per_field = 4;
+    const fields_per_u32 = 32 / bits_per_field;
+    // We only need this if there are greater than fields_per_u32 fields.
     var bit_bag = ArrayListUnmanaged(u32){};
     defer bit_bag.deinit(gpa);
 
@@ -3307,12 +3309,9 @@ fn structDeclInner(
             },
             else => unreachable,
         };
-        if (field_index % 16 == 0 and field_index != 0) {
+        if (field_index % fields_per_u32 == 0 and field_index != 0) {
             try bit_bag.append(gpa, cur_bit_bag);
             cur_bit_bag = 0;
-        }
-        if (member.comptime_token) |comptime_token| {
-            return astgen.failTok(comptime_token, "TODO implement comptime struct fields", .{});
         }
         try fields_data.ensureUnusedCapacity(gpa, 4);
 
@@ -3324,9 +3323,13 @@ fn structDeclInner(
 
         const have_align = member.ast.align_expr != 0;
         const have_value = member.ast.value_expr != 0;
-        cur_bit_bag = (cur_bit_bag >> 2) |
-            (@as(u32, @boolToInt(have_align)) << 30) |
-            (@as(u32, @boolToInt(have_value)) << 31);
+        const is_comptime = member.comptime_token != null;
+        const unused = false;
+        cur_bit_bag = (cur_bit_bag >> bits_per_field) |
+            (@as(u32, @boolToInt(have_align)) << 28) |
+            (@as(u32, @boolToInt(have_value)) << 29) |
+            (@as(u32, @boolToInt(is_comptime)) << 30) |
+            (@as(u32, @boolToInt(unused)) << 31);
 
         if (have_align) {
             const align_inst = try expr(&block_scope, &block_scope.base, align_rl, member.ast.align_expr);
@@ -3335,14 +3338,16 @@ fn structDeclInner(
         if (have_value) {
             const default_inst = try expr(&block_scope, &block_scope.base, .{ .ty = field_type }, member.ast.value_expr);
             fields_data.appendAssumeCapacity(@enumToInt(default_inst));
+        } else if (member.comptime_token) |comptime_token| {
+            return astgen.failTok(comptime_token, "comptime field without default initialization value", .{});
         }
 
         field_index += 1;
     }
     {
-        const empty_slot_count = 16 - (field_index % 16);
-        if (empty_slot_count < 16) {
-            cur_bit_bag >>= @intCast(u5, empty_slot_count * 2);
+        const empty_slot_count = fields_per_u32 - (field_index % fields_per_u32);
+        if (empty_slot_count < fields_per_u32) {
+            cur_bit_bag >>= @intCast(u5, empty_slot_count * bits_per_field);
         }
     }
     {
