@@ -292,7 +292,7 @@ pub const Fe = struct {
         return _carry128(&r);
     }
 
-    fn _sq(a: Fe, double: comptime bool) callconv(.Inline) Fe {
+    fn _sq(a: Fe, comptime double: bool) callconv(.Inline) Fe {
         var ax: [5]u128 = undefined;
         var r: [5]u128 = undefined;
         comptime var i = 0;

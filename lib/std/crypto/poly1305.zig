@@ -39,7 +39,7 @@ pub const Poly1305 = struct {
         };
     }
 
-    fn blocks(st: *Poly1305, m: []const u8, last: comptime bool) void {
+    fn blocks(st: *Poly1305, m: []const u8, comptime last: bool) void {
         const hibit: u64 = if (last) 0 else 1 << 40;
         const r0 = st.r[0];
         const r1 = st.r[1];
