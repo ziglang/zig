@@ -19,6 +19,10 @@ var argc_argv_ptr: [*]usize = undefined;
 const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 
 comptime {
+    // No matter what, we import the root file, so that any export, test, comptime
+    // decls there get run.
+    _ = root;
+
     // The self-hosted compiler is not fully capable of handling all of this start.zig file.
     // Until then, we have simplified logic here for self-hosted. TODO remove this once
     // self-hosted is capable enough to handle all of the real start.zig logic.
