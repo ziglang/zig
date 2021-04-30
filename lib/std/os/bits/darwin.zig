@@ -832,6 +832,13 @@ pub const SO_RCVTIMEO = 0x1006;
 pub const SO_ERROR = 0x1007;
 pub const SO_TYPE = 0x1008;
 
+pub const SO_NREAD = 0x1020;
+pub const SO_NKE = 0x1021;
+pub const SO_NOSIGPIPE = 0x1022;
+pub const SO_NOADDRERR = 0x1023;
+pub const SO_NWRITE = 0x1024;
+pub const SO_REUSESHAREUID = 0x1025;
+
 fn wstatus(x: u32) u32 {
     return x & 0o177;
 }
