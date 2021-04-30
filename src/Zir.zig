@@ -3367,15 +3367,15 @@ const Writer = struct {
         var extra_index: usize = undefined;
 
         if (decls_len == 0) {
-            try stream.writeAll("}) ");
+            try stream.writeAll("{}, ");
             extra_index = extra.end;
         } else {
-            try stream.writeAll("\n");
+            try stream.writeAll("{\n");
             self.indent += 2;
             extra_index = try self.writeDecls(stream, decls_len, extra.end);
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.writeAll("}) ");
+            try stream.writeAll("}, ");
         }
 
         const body = self.code.extra[extra_index..][0..extra.data.body_len];
@@ -3383,7 +3383,7 @@ const Writer = struct {
 
         if (fields_len == 0) {
             assert(body.len == 0);
-            try stream.writeAll("{}, {}, {");
+            try stream.writeAll("{}, {}) ");
             extra_index = extra.end;
         } else {
             self.indent += 2;
@@ -3451,7 +3451,7 @@ const Writer = struct {
 
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.writeAll("}, {");
+            try stream.writeAll("}) ");
         }
         try self.writeSrc(stream, inst_data.src());
     }

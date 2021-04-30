@@ -467,6 +467,7 @@ pub const Struct = struct {
     node_offset: i32,
 
     pub const Field = struct {
+        /// Uses `noreturn` to indicate `anytype`.
         ty: Type,
         abi_align: Value,
         /// Uses `unreachable_value` to indicate no default.

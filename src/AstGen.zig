@@ -483,6 +483,8 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
         .asm_output => unreachable, // Handled in `asmExpr`.
         .asm_input => unreachable, // Handled in `asmExpr`.
 
+        .@"anytype" => unreachable, // Handled in `containerDecl`.
+
         .assign => {
             try assign(gz, scope, node);
             return rvalue(gz, scope, rl, .void_value, node);
@@ -868,8 +870,6 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
         .struct_init,
         .struct_init_comma,
         => return structInitExpr(gz, scope, rl, node, tree.structInit(node)),
-
-        .@"anytype" => return astgen.failNode(node, "TODO implement astgen.expr for .anytype", .{}),
 
         .fn_proto_simple => {
             var params: [1]ast.Node.Index = undefined;
@@ -3318,7 +3318,10 @@ fn structDeclInner(
         const field_name = try gz.identAsString(member.ast.name_token);
         fields_data.appendAssumeCapacity(field_name);
 
-        const field_type = try typeExpr(&block_scope, &block_scope.base, member.ast.type_expr);
+        const field_type: Zir.Inst.Ref = if (node_tags[member.ast.type_expr] == .@"anytype")
+            .none
+        else
+            try typeExpr(&block_scope, &block_scope.base, member.ast.type_expr);
         fields_data.appendAssumeCapacity(@enumToInt(field_type));
 
         const have_align = member.ast.align_expr != 0;
@@ -3336,7 +3339,9 @@ fn structDeclInner(
             fields_data.appendAssumeCapacity(@enumToInt(align_inst));
         }
         if (have_value) {
-            const default_inst = try expr(&block_scope, &block_scope.base, .{ .ty = field_type }, member.ast.value_expr);
+            const rl: ResultLoc = if (field_type == .none) .none else .{ .ty = field_type };
+
+            const default_inst = try expr(&block_scope, &block_scope.base, rl, member.ast.value_expr);
             fields_data.appendAssumeCapacity(@enumToInt(default_inst));
         } else if (member.comptime_token) |comptime_token| {
             return astgen.failTok(comptime_token, "comptime field without default initialization value", .{});

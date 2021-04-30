@@ -750,10 +750,16 @@ pub fn zirStructDecl(
 
         // This string needs to outlive the ZIR code.
         const field_name = try new_decl_arena.allocator.dupe(u8, field_name_zir);
-        // TODO: if we need to report an error here, use a source location
-        // that points to this type expression rather than the struct.
-        // But only resolve the source location if we need to emit a compile error.
-        const field_ty = try sema.resolveType(block, src, field_type_ref);
+        if (field_type_ref == .none) {
+            return sema.mod.fail(&block.base, src, "TODO: implement anytype struct field", .{});
+        }
+        const field_ty: Type = if (field_type_ref == .none)
+            Type.initTag(.noreturn)
+        else
+            // TODO: if we need to report an error here, use a source location
+            // that points to this type expression rather than the struct.
+            // But only resolve the source location if we need to emit a compile error.
+            try sema.resolveType(block, src, field_type_ref);
 
         const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
         assert(!gop.found_existing);
