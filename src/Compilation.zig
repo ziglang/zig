@@ -1646,10 +1646,15 @@ pub fn update(self: *Compilation) !void {
 
     // If there are any errors, we anticipate the source files being loaded
     // to report error messages. Otherwise we unload all source files to save memory.
+    // The ZIR needs to stay loaded in memory because (1) Decl objects contain references
+    // to it, and (2) generic instantiations, comptime calls, inline calls will need
+    // to reference the ZIR.
     if (self.totalErrorCount() == 0 and !self.keep_source_files_loaded) {
         if (self.bin_file.options.module) |module| {
             for (module.import_table.items()) |entry| {
-                entry.value.unload(self.gpa);
+                const file = entry.value;
+                file.unloadTree(self.gpa);
+                file.unloadSource(self.gpa);
             }
         }
     }

@@ -263,9 +263,20 @@ pub const Decl = struct {
         false,
     );
 
+    pub fn clearName(decl: *Decl, gpa: *Allocator) void {
+        // name could be allocated in the ZIR or it could be owned by gpa.
+        const file = decl.namespace.file_scope;
+        const string_table_start = @ptrToInt(file.zir.string_bytes.ptr);
+        const string_table_end = string_table_start + file.zir.string_bytes.len;
+        if (@ptrToInt(decl.name) < string_table_start or @ptrToInt(decl.name) >= string_table_end) {
+            gpa.free(mem.spanZ(decl.name));
+        }
+        decl.name = undefined;
+    }
+
     pub fn destroy(decl: *Decl, module: *Module) void {
         const gpa = module.gpa;
-        gpa.free(mem.spanZ(decl.name));
+        decl.clearName(gpa);
         if (decl.has_tv) {
             if (decl.val.castTag(.function)) |payload| {
                 const func = payload.data;
