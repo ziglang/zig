@@ -900,7 +900,9 @@ fn zirEnumDecl(
         };
         defer assert(enum_block.instructions.items.len == 0); // should all be comptime instructions
 
-        _ = try enum_sema.analyzeBody(&enum_block, body);
+        if (body.len != 0) {
+            _ = try enum_sema.analyzeBody(&enum_block, body);
+        }
 
         sema.branch_count = enum_sema.branch_count;
         sema.branch_quota = enum_sema.branch_quota;
