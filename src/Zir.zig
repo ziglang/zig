@@ -1496,6 +1496,10 @@ pub const Inst = struct {
         /// `operand` is payload index to `ExtendedFunc`.
         /// `small` is `ExtendedFunc.Small`.
         func,
+        /// Declares a global variable.
+        /// `operand` is payload index to `ExtendedVar`.
+        /// `small` is `ExtendedVar.Small`.
+        variable,
         /// Obtains a pointer to the return value.
         /// `operand` is `src_node: i32`.
         ret_ptr,
@@ -2206,6 +2210,23 @@ pub const Inst = struct {
             has_align: bool,
             is_test: bool,
             _: u10 = undefined,
+        };
+    };
+
+    /// Trailing:
+    /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
+    /// 1. align: Ref, // if has_align is set
+    /// 2. init: Ref // if has_init is set
+    /// The source node is obtained from the containing `block_inline`.
+    pub const ExtendedVar = struct {
+        var_type: Ref,
+
+        pub const Small = packed struct {
+            has_lib_name: bool,
+            has_align: bool,
+            has_init: bool,
+            is_extern: bool,
+            _: u12 = undefined,
         };
     };
 
@@ -3010,6 +3031,7 @@ const Writer = struct {
 
             .@"asm" => try self.writeAsm(stream, extended),
             .func => try self.writeFuncExtended(stream, extended),
+            .variable => try self.writeVarExtended(stream, extended),
 
             .compile_log,
             .typeof_peer,
@@ -4015,6 +4037,34 @@ const Writer = struct {
         );
     }
 
+    fn writeVarExtended(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Inst.ExtendedVar, extended.operand);
+        const small = @bitCast(Inst.ExtendedVar.Small, extended.small);
+
+        try self.writeInstRef(stream, extra.data.var_type);
+
+        var extra_index: usize = extra.end;
+        if (small.has_lib_name) {
+            const lib_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
+            extra_index += 1;
+            try stream.print(", lib_name=\"{}\"", .{std.zig.fmtEscapes(lib_name)});
+        }
+        const align_inst: Inst.Ref = if (!small.has_align) .none else blk: {
+            const align_inst = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+            extra_index += 1;
+            break :blk align_inst;
+        };
+        const init_inst: Inst.Ref = if (!small.has_init) .none else blk: {
+            const init_inst = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+            extra_index += 1;
+            break :blk init_inst;
+        };
+        try self.writeFlag(stream, ", is_extern", small.is_extern);
+        try self.writeOptionalInstRef(stream, ", align=", align_inst);
+        try self.writeOptionalInstRef(stream, ", init=", init_inst);
+        try stream.writeAll("))");
+    }
+
     fn writeBoolBr(self: *Writer, stream: anytype, inst: Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].bool_br;
         const extra = self.code.extraData(Inst.Block, inst_data.payload_index);
@@ -4078,15 +4128,19 @@ const Writer = struct {
         try self.writeFlag(stream, ", vargs", var_args);
         try self.writeFlag(stream, ", inferror", inferred_error_set);
 
-        try stream.writeAll(", {\n");
-        self.indent += 2;
-        const prev_param_count = self.param_count;
-        self.param_count = param_types.len;
-        try self.writeBody(stream, body);
-        self.param_count = prev_param_count;
-        self.indent -= 2;
-        try stream.writeByteNTimes(' ', self.indent);
-        try stream.writeAll("}) ");
+        if (body.len == 0) {
+            try stream.writeAll(", {}) ");
+        } else {
+            try stream.writeAll(", {\n");
+            self.indent += 2;
+            const prev_param_count = self.param_count;
+            self.param_count = param_types.len;
+            try self.writeBody(stream, body);
+            self.param_count = prev_param_count;
+            self.indent -= 2;
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.writeAll("}) ");
+        }
         try self.writeSrc(stream, src);
     }
 

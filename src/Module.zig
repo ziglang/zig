@@ -1462,6 +1462,57 @@ pub const Scope = struct {
             }
         }
 
+        pub fn addVar(gz: *GenZir, args: struct {
+            align_inst: Zir.Inst.Ref,
+            lib_name: u32,
+            var_type: Zir.Inst.Ref,
+            init: Zir.Inst.Ref,
+            is_extern: bool,
+        }) !Zir.Inst.Ref {
+            const astgen = gz.astgen;
+            const gpa = astgen.gpa;
+
+            try gz.instructions.ensureUnusedCapacity(gpa, 1);
+            try astgen.instructions.ensureUnusedCapacity(gpa, 1);
+
+            try astgen.extra.ensureUnusedCapacity(
+                gpa,
+                @typeInfo(Zir.Inst.ExtendedVar).Struct.fields.len +
+                    @boolToInt(args.lib_name != 0) +
+                    @boolToInt(args.align_inst != .none) +
+                    @boolToInt(args.init != .none),
+            );
+            const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.ExtendedVar{
+                .var_type = args.var_type,
+            });
+            if (args.lib_name != 0) {
+                astgen.extra.appendAssumeCapacity(args.lib_name);
+            }
+            if (args.align_inst != .none) {
+                astgen.extra.appendAssumeCapacity(@enumToInt(args.align_inst));
+            }
+            if (args.init != .none) {
+                astgen.extra.appendAssumeCapacity(@enumToInt(args.init));
+            }
+
+            const new_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
+            astgen.instructions.appendAssumeCapacity(.{
+                .tag = .extended,
+                .data = .{ .extended = .{
+                    .opcode = .variable,
+                    .small = @bitCast(u16, Zir.Inst.ExtendedVar.Small{
+                        .has_lib_name = args.lib_name != 0,
+                        .has_align = args.align_inst != .none,
+                        .has_init = args.init != .none,
+                        .is_extern = args.is_extern,
+                    }),
+                    .operand = payload_index,
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+            return gz.indexToRef(new_index);
+        }
+
         pub fn addCall(
             gz: *GenZir,
             tag: Zir.Inst.Tag,

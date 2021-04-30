@@ -479,6 +479,7 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
     switch (extended.opcode) {
         // zig fmt: off
         .func               => return sema.zirFuncExtended(      block, extended),
+        .variable           => return sema.zirVarExtended(       block, extended),
         .ret_ptr            => return sema.zirRetPtr(            block, extended),
         .ret_type           => return sema.zirRetType(           block, extended),
         .this               => return sema.zirThis(              block, extended),
@@ -5425,6 +5426,17 @@ fn zirAwait(
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirAwait", .{});
+}
+
+fn zirVarExtended(
+    sema: *Sema,
+    block: *Scope.Block,
+    extended: Zir.Inst.Extended.InstData,
+) InnerError!*Inst {
+    const extra = sema.code.extraData(Zir.Inst.ExtendedVar, extended.operand);
+    const src = sema.src;
+
+    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirVarExtended", .{});
 }
 
 fn zirFuncExtended(

@@ -2961,7 +2961,7 @@ fn globalVarDecl(
 
     assert(var_decl.comptime_token == null); // handled by parser
 
-    const var_inst: Zir.Inst.Index = if (var_decl.ast.init_node != 0) vi: {
+    if (var_decl.ast.init_node != 0) {
         if (is_extern) {
             return astgen.failNode(
                 var_decl.ast.init_node,
@@ -2989,19 +2989,25 @@ fn globalVarDecl(
         // We do this at the end so that the instruction index marks the end
         // range of a top level declaration.
         _ = try block_scope.addBreak(.break_inline, block_inst, init_inst);
-        try block_scope.setBlockBody(block_inst);
-        break :vi block_inst;
     } else if (!is_extern) {
         return astgen.failNode(node, "variables must be initialized", .{});
     } else if (var_decl.ast.type_node != 0) {
         // Extern variable which has an explicit type.
-
         const type_inst = try typeExpr(&block_scope, &block_scope.base, var_decl.ast.type_node);
 
-        return astgen.failNode(node, "TODO AstGen extern global variable", .{});
+        const var_inst = try block_scope.addVar(.{
+            .var_type = type_inst,
+            .lib_name = lib_name,
+            .align_inst = .none, // passed in the decls data
+            .init = .none,
+            .is_extern = true,
+        });
+
+        _ = try block_scope.addBreak(.break_inline, block_inst, var_inst);
     } else {
         return astgen.failNode(node, "unable to infer variable type", .{});
-    };
+    }
+    try block_scope.setBlockBody(block_inst);
 
     const name_token = var_decl.ast.mut_token + 1;
     const name_str_index = try gz.identAsString(name_token);
@@ -3013,7 +3019,7 @@ fn globalVarDecl(
         wip_decls.payload.appendSliceAssumeCapacity(&casted);
     }
     wip_decls.payload.appendAssumeCapacity(name_str_index);
-    wip_decls.payload.appendAssumeCapacity(var_inst);
+    wip_decls.payload.appendAssumeCapacity(block_inst);
     if (align_inst != .none) {
         wip_decls.payload.appendAssumeCapacity(@enumToInt(align_inst));
     }
