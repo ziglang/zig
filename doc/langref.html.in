@@ -10016,7 +10016,7 @@ pub fn build(b: *Builder) void {
       {#code_end#}
       <p class="file">terminal</p>
       <pre><code class="shell">$ zig build
-$ ./zig-cache/bin/test
+$ ./zig-out/bin/test
 all your base are belong to us</code></pre>
       {#see_also|Targets|Zig Build System#}
       {#header_close#}
