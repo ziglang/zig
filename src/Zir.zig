@@ -214,8 +214,6 @@ pub const Inst = struct {
         /// a noreturn instruction.
         /// Uses the `pl_node` union field. Payload is `Block`.
         block_inline,
-        /// Same as `block_inline` but it additionally marks a decl as being a variable.
-        block_inline_var,
         /// Implements `suspend {...}`.
         /// Uses the `pl_node` union field. Payload is `Block`.
         suspend_block,
@@ -982,7 +980,6 @@ pub const Inst = struct {
                 .bit_or,
                 .block,
                 .block_inline,
-                .block_inline_var,
                 .suspend_block,
                 .loop,
                 .bool_br_and,
@@ -1240,7 +1237,6 @@ pub const Inst = struct {
                 .bit_or = .pl_node,
                 .block = .pl_node,
                 .block_inline = .pl_node,
-                .block_inline_var = .pl_node,
                 .suspend_block = .pl_node,
                 .bool_and = .pl_node,
                 .bool_not = .un_node,
@@ -2517,7 +2513,7 @@ pub const Inst = struct {
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        - 1 means test decl with no name.
     ///        value: Index,
-    ///        - one of: block_inline, block_inline_var
+    ///        - one of: block_inline
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
     ///    }
@@ -2933,7 +2929,6 @@ const Writer = struct {
 
             .block,
             .block_inline,
-            .block_inline_var,
             .suspend_block,
             .loop,
             .validate_struct_init_ptr,

@@ -3478,7 +3478,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         }
         return type_changed or is_inline != prev_is_inline;
     } else {
-        const is_mutable = zir_tags[zir_block_index] == .block_inline_var;
+        const is_mutable = decl_tv.val.tag() == .variable;
 
         var is_threadlocal = false; // TODO implement threadlocal variables
         var is_extern = false; // TODO implement extern variables

@@ -1854,7 +1854,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .bit_or,
             .block,
             .block_inline,
-            .block_inline_var,
             .suspend_block,
             .loop,
             .bool_br_and,
@@ -2917,10 +2916,9 @@ fn globalVarDecl(
     const token_tags = tree.tokens.items(.tag);
 
     const is_mutable = token_tags[var_decl.ast.mut_token] == .keyword_var;
-    const tag: Zir.Inst.Tag = if (is_mutable) .block_inline_var else .block_inline;
     // We do this at the beginning so that the instruction index marks the range start
     // of the top level declaration.
-    const block_inst = try gz.addBlock(tag, node);
+    const block_inst = try gz.addBlock(.block_inline, node);
 
     var block_scope: GenZir = .{
         .parent = scope,
@@ -2961,7 +2959,7 @@ fn globalVarDecl(
 
     assert(var_decl.comptime_token == null); // handled by parser
 
-    if (var_decl.ast.init_node != 0) {
+    const var_inst: Zir.Inst.Ref = if (var_decl.ast.init_node != 0) vi: {
         if (is_extern) {
             return astgen.failNode(
                 var_decl.ast.init_node,
@@ -2970,43 +2968,55 @@ fn globalVarDecl(
             );
         }
 
-        const init_result_loc: AstGen.ResultLoc = if (var_decl.ast.type_node != 0) .{
-            .ty = try expr(
+        const type_inst: Zir.Inst.Ref = if (var_decl.ast.type_node != 0)
+            try expr(
                 &block_scope,
                 &block_scope.base,
                 .{ .ty = .type_type },
                 var_decl.ast.type_node,
-            ),
-        } else .none;
+            )
+        else
+            .none;
 
         const init_inst = try expr(
             &block_scope,
             &block_scope.base,
-            init_result_loc,
+            if (type_inst != .none) .{ .ty = type_inst } else .none,
             var_decl.ast.init_node,
         );
 
-        // We do this at the end so that the instruction index marks the end
-        // range of a top level declaration.
-        _ = try block_scope.addBreak(.break_inline, block_inst, init_inst);
+        if (is_mutable) {
+            const var_inst = try block_scope.addVar(.{
+                .var_type = type_inst,
+                .lib_name = 0,
+                .align_inst = .none, // passed via the decls data
+                .init = init_inst,
+                .is_extern = false,
+            });
+            break :vi var_inst;
+        } else {
+            break :vi init_inst;
+        }
     } else if (!is_extern) {
         return astgen.failNode(node, "variables must be initialized", .{});
-    } else if (var_decl.ast.type_node != 0) {
+    } else if (var_decl.ast.type_node != 0) vi: {
         // Extern variable which has an explicit type.
         const type_inst = try typeExpr(&block_scope, &block_scope.base, var_decl.ast.type_node);
 
         const var_inst = try block_scope.addVar(.{
             .var_type = type_inst,
             .lib_name = lib_name,
-            .align_inst = .none, // passed in the decls data
+            .align_inst = .none, // passed via the decls data
             .init = .none,
             .is_extern = true,
         });
-
-        _ = try block_scope.addBreak(.break_inline, block_inst, var_inst);
+        break :vi var_inst;
     } else {
         return astgen.failNode(node, "unable to infer variable type", .{});
-    }
+    };
+    // We do this at the end so that the instruction index marks the end
+    // range of a top level declaration.
+    _ = try block_scope.addBreak(.break_inline, block_inst, var_inst);
     try block_scope.setBlockBody(block_inst);
 
     const name_token = var_decl.ast.mut_token + 1;
