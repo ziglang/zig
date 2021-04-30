@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2021 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+
 const std = @import("../../std.zig");
 
 const os = std.os;
@@ -27,6 +33,12 @@ pub fn resolveScopeID(name: []const u8) !u32 {
 
 /// An IPv4 address comprised of 4 bytes.
 pub const IPv4 = extern struct {
+    /// A IPv4 host-port pair.
+    pub const Address = extern struct {
+        host: IPv4,
+        port: u16,
+    };
+
     /// Octets of a IPv4 address designating the local host.
     pub const localhost_octets = [_]u8{ 127, 0, 0, 1 };
 
@@ -200,6 +212,12 @@ pub const IPv4 = extern struct {
 /// An IPv6 address comprised of 16 bytes for an address, and 4 bytes
 /// for a scope ID; cumulatively summing to 20 bytes in total.
 pub const IPv6 = extern struct {
+    /// A IPv6 host-port pair.
+    pub const Address = extern struct {
+        host: IPv6,
+        port: u16,
+    };
+
     /// Octets of a IPv6 address designating the local host.
     pub const localhost_octets = [_]u8{0} ** 15 ++ [_]u8{0x01};
 

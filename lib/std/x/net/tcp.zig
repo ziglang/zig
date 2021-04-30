@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2021 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+
 const std = @import("../../std.zig");
 
 const os = std.os;
@@ -10,20 +16,76 @@ const IPv6 = std.x.os.IPv6;
 const Socket = std.x.os.Socket;
 
 /// A generic TCP socket abstraction.
-const TCP = @This();
+const tcp = @This();
+
+/// A union of all eligible types of socket addresses over TCP.
+pub const Address = union(enum) {
+    ipv4: IPv4.Address,
+    ipv6: IPv6.Address,
+
+    /// Instantiate a new address with a IPv4 host and port.
+    pub fn initIPv4(host: IPv4, port: u16) Address {
+        return .{ .ipv4 = .{ .host = host, .port = port } };
+    }
+
+    /// Instantiate a new address with a IPv6 host and port.
+    pub fn initIPv6(host: IPv6, port: u16) Address {
+        return .{ .ipv6 = .{ .host = host, .port = port } };
+    }
+
+    /// Re-interpret a generic socket address into a TCP socket address.
+    pub fn from(address: Socket.Address) tcp.Address {
+        return switch (address) {
+            .ipv4 => |ipv4_address| .{ .ipv4 = ipv4_address },
+            .ipv6 => |ipv6_address| .{ .ipv6 = ipv6_address },
+        };
+    }
+
+    /// Re-interpret a TCP socket address into a generic socket address.
+    pub fn into(self: tcp.Address) Socket.Address {
+        return switch (self) {
+            .ipv4 => |ipv4_address| .{ .ipv4 = ipv4_address },
+            .ipv6 => |ipv6_address| .{ .ipv6 = ipv6_address },
+        };
+    }
+
+    /// Implements the `std.fmt.format` API.
+    pub fn format(
+        self: tcp.Address,
+        comptime layout: []const u8,
+        opts: fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .ipv4 => |address| try fmt.format(writer, "{}:{}", .{ address.host, address.port }),
+            .ipv6 => |address| try fmt.format(writer, "{}:{}", .{ address.host, address.port }),
+        }
+    }
+};
 
 /// A TCP client-address pair.
 pub const Connection = struct {
-    client: TCP.Client,
-    address: TCP.Address,
+    client: tcp.Client,
+    address: tcp.Address,
 
     /// Enclose a TCP client and address into a client-address pair.
-    pub fn from(socket: Socket, address: TCP.Address) Connection {
-        return .{ .client = TCP.Client.from(socket), .address = address };
+    pub fn from(conn: Socket.Connection) tcp.Connection {
+        return .{
+            .client = tcp.Client.from(conn.socket),
+            .address = tcp.Address.from(conn.address),
+        };
+    }
+
+    /// Unravel a TCP client-address pair into a socket-address pair.
+    pub fn into(self: tcp.Connection) Socket.Connection {
+        return .{
+            .socket = self.client.socket,
+            .address = self.address.into(),
+        };
     }
 
     /// Closes the underlying client of the connection.
-    pub fn deinit(self: TCP.Connection) void {
+    pub fn deinit(self: tcp.Connection) void {
         self.client.deinit();
     }
 };
@@ -39,7 +101,7 @@ pub const Client = struct {
     socket: Socket,
 
     /// Opens a new client.
-    pub fn init(domain: TCP.Domain, flags: u32) !Client {
+    pub fn init(domain: tcp.Domain, flags: u32) !Client {
         return Client{
             .socket = try Socket.init(
                 @enumToInt(domain),
@@ -65,8 +127,8 @@ pub const Client = struct {
     }
 
     /// Have the client attempt to the connect to an address.
-    pub fn connect(self: Client, address: TCP.Address) !void {
-        return self.socket.connect(TCP.Address, address);
+    pub fn connect(self: Client, address: tcp.Address) !void {
+        return self.socket.connect(address.into());
     }
 
     /// Read data from the socket into the buffer provided. It returns the
@@ -122,8 +184,8 @@ pub const Client = struct {
     }
 
     /// Query the address that the client's socket is locally bounded to.
-    pub fn getLocalAddress(self: Client) !TCP.Address {
-        return self.socket.getLocalAddress(TCP.Address);
+    pub fn getLocalAddress(self: Client) !tcp.Address {
+        return tcp.Address.from(try self.socket.getLocalAddress());
     }
 
     /// Disable Nagle's algorithm on a TCP socket. It returns `error.UnsupportedSocketOption` if
@@ -167,7 +229,7 @@ pub const Listener = struct {
     socket: Socket,
 
     /// Opens a new listener.
-    pub fn init(domain: TCP.Domain, flags: u32) !Listener {
+    pub fn init(domain: tcp.Domain, flags: u32) !Listener {
         return Listener{
             .socket = try Socket.init(
                 @enumToInt(domain),
@@ -190,8 +252,8 @@ pub const Listener = struct {
     }
 
     /// Binds the listener's socket to an address.
-    pub fn bind(self: Listener, address: TCP.Address) !void {
-        return self.socket.bind(TCP.Address, address);
+    pub fn bind(self: Listener, address: tcp.Address) !void {
+        return self.socket.bind(address.into());
     }
 
     /// Start listening for incoming connections.
@@ -201,8 +263,8 @@ pub const Listener = struct {
 
     /// Accept a pending incoming connection queued to the kernel backlog
     /// of the listener's socket.
-    pub fn accept(self: Listener, flags: u32) !TCP.Connection {
-        return self.socket.accept(TCP.Connection, TCP.Address, flags);
+    pub fn accept(self: Listener, flags: u32) !tcp.Connection {
+        return tcp.Connection.from(try self.socket.accept(flags));
     }
 
     /// Query and return the latest cached error on the listener's underlying socket.
@@ -211,8 +273,8 @@ pub const Listener = struct {
     }
 
     /// Query the address that the listener's socket is locally bounded to.
-    pub fn getLocalAddress(self: Listener) !TCP.Address {
-        return self.socket.getLocalAddress(TCP.Address);
+    pub fn getLocalAddress(self: Listener) !tcp.Address {
+        return tcp.Address.from(try self.socket.getLocalAddress());
     }
 
     /// Allow multiple sockets on the same host to listen on the same address. It returns `error.UnsupportedSocketOption` if
@@ -253,147 +315,69 @@ pub const Listener = struct {
     }
 };
 
-/// A TCP socket address designated by a host IP and port. A TCP socket
-/// address comprises of 28 bytes. It may freely be used in place of
-/// `sockaddr` when working with socket syscalls.
-///
-/// It is not recommended to touch the fields of an `Address`, but to
-/// instead make use of its available accessor methods.
-pub const Address = extern struct {
-    family: u16,
-    port: u16,
-    host: extern union {
-        ipv4: extern struct {
-            address: IPv4,
-        },
-        ipv6: extern struct {
-            flow_info: u32 = 0,
-            address: IPv6,
-        },
-    },
-
-    /// Instantiate a new TCP address with a IPv4 host and port.
-    pub fn initIPv4(host: IPv4, port: u16) Address {
-        return Address{
-            .family = os.AF_INET,
-            .port = mem.nativeToBig(u16, port),
-            .host = .{
-                .ipv4 = .{
-                    .address = host,
-                },
-            },
-        };
-    }
-
-    /// Instantiate a new TCP address with a IPv6 host and port.
-    pub fn initIPv6(host: IPv6, port: u16) Address {
-        return Address{
-            .family = os.AF_INET6,
-            .port = mem.nativeToBig(u16, port),
-            .host = .{
-                .ipv6 = .{
-                    .address = host,
-                },
-            },
-        };
-    }
-
-    /// Extract the host of the address.
-    pub fn getHost(self: Address) union(enum) { v4: IPv4, v6: IPv6 } {
-        return switch (self.family) {
-            os.AF_INET => .{ .v4 = self.host.ipv4.address },
-            os.AF_INET6 => .{ .v6 = self.host.ipv6.address },
-            else => unreachable,
-        };
-    }
-
-    /// Extract the port of the address.
-    pub fn getPort(self: Address) u16 {
-        return mem.nativeToBig(u16, self.port);
-    }
-
-    /// Set the port of the address.
-    pub fn setPort(self: *Address, port: u16) void {
-        self.port = mem.nativeToBig(u16, port);
-    }
-
-    /// Implements the `std.fmt.format` API.
-    pub fn format(
-        self: Address,
-        comptime layout: []const u8,
-        opts: fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        switch (self.getHost()) {
-            .v4 => |host| try fmt.format(writer, "{}:{}", .{ host, self.getPort() }),
-            .v6 => |host| try fmt.format(writer, "{}:{}", .{ host, self.getPort() }),
-        }
-    }
-};
-
 test {
     testing.refAllDecls(@This());
 }
 
 test "tcp: create non-blocking pair" {
-    const a = try TCP.Listener.init(.ip, os.SOCK_NONBLOCK | os.SOCK_CLOEXEC);
-    defer a.deinit();
+    const listener = try tcp.Listener.init(.ip, os.SOCK_NONBLOCK | os.SOCK_CLOEXEC);
+    defer listener.deinit();
 
-    try a.bind(TCP.Address.initIPv4(IPv4.unspecified, 0));
-    try a.listen(128);
+    try listener.bind(tcp.Address.initIPv4(IPv4.unspecified, 0));
+    try listener.listen(128);
 
-    const binded_address = try a.getLocalAddress();
+    const binded_address = try listener.getLocalAddress();
 
-    const b = try TCP.Client.init(.ip, os.SOCK_NONBLOCK | os.SOCK_CLOEXEC);
-    defer b.deinit();
+    const client = try tcp.Client.init(.ip, os.SOCK_NONBLOCK | os.SOCK_CLOEXEC);
+    defer client.deinit();
 
-    testing.expectError(error.WouldBlock, b.connect(binded_address));
-    try b.getError();
+    testing.expectError(error.WouldBlock, client.connect(binded_address));
+    try client.getError();
 
-    const ab = try a.accept(os.SOCK_NONBLOCK | os.SOCK_CLOEXEC);
-    defer ab.deinit();
+    const conn = try listener.accept(os.SOCK_NONBLOCK | os.SOCK_CLOEXEC);
+    defer conn.deinit();
 }
 
 test "tcp/client: set read timeout of 1 millisecond on blocking client" {
-    const a = try TCP.Listener.init(.ip, os.SOCK_CLOEXEC);
-    defer a.deinit();
+    const listener = try tcp.Listener.init(.ip, os.SOCK_CLOEXEC);
+    defer listener.deinit();
 
-    try a.bind(TCP.Address.initIPv4(IPv4.unspecified, 0));
-    try a.listen(128);
+    try listener.bind(tcp.Address.initIPv4(IPv4.unspecified, 0));
+    try listener.listen(128);
 
-    const binded_address = try a.getLocalAddress();
+    const binded_address = try listener.getLocalAddress();
 
-    const b = try TCP.Client.init(.ip, os.SOCK_CLOEXEC);
-    defer b.deinit();
+    const client = try tcp.Client.init(.ip, os.SOCK_CLOEXEC);
+    defer client.deinit();
 
-    try b.connect(binded_address);
-    try b.setReadTimeout(1);
+    try client.connect(binded_address);
+    try client.setReadTimeout(1);
 
-    const ab = try a.accept(os.SOCK_CLOEXEC);
-    defer ab.deinit();
+    const conn = try listener.accept(os.SOCK_CLOEXEC);
+    defer conn.deinit();
 
     var buf: [1]u8 = undefined;
-    testing.expectError(error.WouldBlock, b.read(&buf));
+    testing.expectError(error.WouldBlock, client.read(&buf));
 }
 
 test "tcp/listener: bind to unspecified ipv4 address" {
-    const socket = try TCP.Listener.init(.ip, os.SOCK_CLOEXEC);
-    defer socket.deinit();
+    const listener = try tcp.Listener.init(.ip, os.SOCK_CLOEXEC);
+    defer listener.deinit();
 
-    try socket.bind(TCP.Address.initIPv4(IPv4.unspecified, 0));
-    try socket.listen(128);
+    try listener.bind(tcp.Address.initIPv4(IPv4.unspecified, 0));
+    try listener.listen(128);
 
-    const address = try socket.getLocalAddress();
-    testing.expect(address.getHost() == .v4);
+    const address = try listener.getLocalAddress();
+    testing.expect(address == .ipv4);
 }
 
 test "tcp/listener: bind to unspecified ipv6 address" {
-    const socket = try TCP.Listener.init(.ipv6, os.SOCK_CLOEXEC);
-    defer socket.deinit();
+    const listener = try tcp.Listener.init(.ipv6, os.SOCK_CLOEXEC);
+    defer listener.deinit();
 
-    try socket.bind(TCP.Address.initIPv6(IPv6.unspecified, 0));
-    try socket.listen(128);
+    try listener.bind(tcp.Address.initIPv6(IPv6.unspecified, 0));
+    try listener.listen(128);
 
-    const address = try socket.getLocalAddress();
-    testing.expect(address.getHost() == .v6);
+    const address = try listener.getLocalAddress();
+    testing.expect(address == .ipv6);
 }

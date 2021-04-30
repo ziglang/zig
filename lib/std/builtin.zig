@@ -150,23 +150,7 @@ pub const Mode = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const CallingConvention = enum {
-    Unspecified,
-    C,
-    Naked,
-    Async,
-    Inline,
-    Interrupt,
-    Signal,
-    Stdcall,
-    Fastcall,
-    Vectorcall,
-    Thiscall,
-    APCS,
-    AAPCS,
-    AAPCSVFP,
-    SysV
-};
+pub const CallingConvention = enum { Unspecified, C, Naked, Async, Inline, Interrupt, Signal, Stdcall, Fastcall, Vectorcall, Thiscall, APCS, AAPCS, AAPCSVFP, SysV };
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
