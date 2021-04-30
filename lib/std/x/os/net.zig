@@ -532,7 +532,6 @@ test "ipv6: parse & format" {
         "::1234:5678",
         "2001:db8::1234:5678",
         "::ffff:123.5.123.5",
-        "FF01::FB%lo",
     };
 
     const outputs = [_][]const u8{
@@ -544,6 +543,21 @@ test "ipv6: parse & format" {
         "::1234:5678",
         "2001:db8::1234:5678",
         "::ffff:123.5.123.5",
+    };
+
+    for (inputs) |input, i| {
+        try testing.expectFmt(outputs[i], "{}", .{try IPv6.parse(input)});
+    }
+}
+
+test "ipv6: parse & format addresses with scope ids" {
+    if (!@hasDecl(os, "IFNAMESIZE")) return error.SkipZigTest;
+
+    const inputs = [_][]const u8{
+        "FF01::FB%lo",
+    };
+
+    const outputs = [_][]const u8{
         "ff01::fb%1",
     };
 
