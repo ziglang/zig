@@ -26,20 +26,8 @@ cd %ZIGBUILDDIR%
 cmake.exe .. -Thost=x64 -G"Visual Studio 16 2019" -A x64 "-DCMAKE_INSTALL_PREFIX=%ZIGINSTALLDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release -DZIG_OMIT_STAGE2=ON || exit /b
 msbuild /maxcpucount /p:Configuration=Release INSTALL.vcxproj || exit /b
 
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-behavior -Dskip-non-native || exit /b
-REM Disabled to prevent OOM
-REM "%ZIGINSTALLDIR%\bin\zig.exe" build test-stage2 -Dskip-non-native || exit /b
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-fmt -Dskip-non-native || exit /b
+"%ZIGINSTALLDIR%\bin\zig.exe" build test-toolchain -Dskip-non-native -Dskip-stage2-tests || exit /b
 "%ZIGINSTALLDIR%\bin\zig.exe" build test-std -Dskip-non-native || exit /b
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-compiler-rt -Dskip-non-native || exit /b
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-compare-output -Dskip-non-native || exit /b
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-standalone -Dskip-non-native || exit /b
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-stack-traces -Dskip-non-native || exit /b
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-cli -Dskip-non-native || exit /b
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-asm-link -Dskip-non-native || exit /b
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-runtime-safety -Dskip-non-native || exit /b
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-translate-c -Dskip-non-native || exit /b
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-run-translated-c -Dskip-non-native || exit /b
 "%ZIGINSTALLDIR%\bin\zig.exe" build docs || exit /b
 
 set "PATH=%CD:~0,2%\msys64\usr\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem"

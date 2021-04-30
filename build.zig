@@ -36,7 +36,7 @@ pub fn build(b: *Builder) !void {
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
 
-    const test_step = b.step("test", "Run all the tests");
+    const toolchain_step = b.step("test-toolchain", "Run the tests for the toolchain");
 
     var test_stage2 = b.addTest("src/test.zig");
     test_stage2.setBuildMode(mode);
@@ -90,7 +90,7 @@ pub fn build(b: *Builder) !void {
     exe.install();
     exe.setBuildMode(mode);
     exe.setTarget(target);
-    test_step.dependOn(&exe.step);
+    toolchain_step.dependOn(&exe.step);
     b.default_step.dependOn(&exe.step);
 
     exe.addBuildOption(bool, "skip_non_native", skip_non_native);
@@ -233,7 +233,7 @@ pub fn build(b: *Builder) !void {
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
     test_stage2_step.dependOn(&test_stage2.step);
     if (!skip_stage2_tests) {
-        test_step.dependOn(test_stage2_step);
+        toolchain_step.dependOn(test_stage2_step);
     }
 
     var chosen_modes: [4]builtin.Mode = undefined;
@@ -257,33 +257,37 @@ pub fn build(b: *Builder) !void {
     const modes = chosen_modes[0..chosen_mode_index];
 
     // run stage1 `zig fmt` on this build.zig file just to make sure it works
-    test_step.dependOn(&fmt_build_zig.step);
+    toolchain_step.dependOn(&fmt_build_zig.step);
     const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
     fmt_step.dependOn(&fmt_build_zig.step);
 
     // TODO for the moment, skip wasm32-wasi until bugs are sorted out.
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
+    toolchain_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/std.zig", "std", "Run the standard library tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
+    toolchain_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
+    toolchain_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/special/c.zig", "minilibc", "Run the mini libc tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/special/c.zig", "minilibc", "Run the mini libc tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
-
-    test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
-    test_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));
-    test_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
-    test_step.dependOn(tests.addCliTests(b, test_filter, modes));
-    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
-    test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
-    test_step.dependOn(tests.addTranslateCTests(b, test_filter));
+    toolchain_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
+    toolchain_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));
+    toolchain_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
+    toolchain_step.dependOn(tests.addCliTests(b, test_filter, modes));
+    toolchain_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
+    toolchain_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
+    toolchain_step.dependOn(tests.addTranslateCTests(b, test_filter));
     if (!skip_run_translated_c) {
-        test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
+        toolchain_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
     }
     // tests for this feature are disabled until we have the self-hosted compiler available
-    // test_step.dependOn(tests.addGenHTests(b, test_filter));
+    // toolchain_step.dependOn(tests.addGenHTests(b, test_filter));
     if (!skip_compile_errors) {
-        test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
+        toolchain_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
     }
+
+    const std_step = tests.addPkgTests(b, test_filter, "lib/std/std.zig", "std", "Run the standard library tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir);
+
+    const test_step = b.step("test", "Run all the tests");
+    test_step.dependOn(toolchain_step);
+    test_step.dependOn(std_step);
     test_step.dependOn(docs_step);
 }
 

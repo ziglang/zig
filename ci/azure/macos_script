@@ -18,7 +18,7 @@ tar xf "$CACHE_BASENAME.tar.xz"
 
 ZIG="$PREFIX/bin/zig"
 NATIVE_LIBC_TXT="$HOME/native_libc.txt"
-$ZIG libc > "$NATIVE_LIBC_TXT"
+$ZIG libc >"$NATIVE_LIBC_TXT"
 export ZIG_LIBC="$NATIVE_LIBC_TXT"
 export CC="$ZIG cc"
 export CXX="$ZIG c++"
@@ -55,7 +55,17 @@ make $JOBS install
 cmake .. -DZIG_EXECUTABLE="$(pwd)/release/bin/zig" -DZIG_TARGET_MCPU="x86_64_v2"
 make $JOBS install
 
-release/bin/zig build test
+set +x
+LOG=$(mktemp)
+for step in test-toolchain test-std docs; do
+  echo "* Running step: [$step]"
+  if ! release/bin/zig build $step -Denable-qemu -Denable-wasmtime 2>"$LOG" >&2; then
+    cat "$LOG" >&2
+    exit 1
+  fi
+  echo "  Done."
+done
+set -x
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   mv ../LICENSE release/
