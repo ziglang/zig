@@ -565,6 +565,11 @@ pub const EnumFull = struct {
 /// the `Decl` only, with a `Value` tag of `extern_fn`.
 pub const Fn = struct {
     owner_decl: *Decl,
+    /// The ZIR instruction that is a function instruction. Use this to find
+    /// the body. We store this rather than the body directly so that when ZIR
+    /// is regenerated on update(), we can map this to the new corresponding
+    /// ZIR instruction.
+    zir_body_inst: Zir.Inst.Index,
     /// undefined unless analysis state is `success`.
     body: ir.Body,
     state: Analysis,

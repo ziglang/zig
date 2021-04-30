@@ -478,7 +478,7 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
     const extended = sema.code.instructions.items(.data)[inst].extended;
     switch (extended.opcode) {
         // zig fmt: off
-        .func               => return sema.zirFuncExtended(      block, extended),
+        .func               => return sema.zirFuncExtended(      block, extended, inst),
         .variable           => return sema.zirVarExtended(       block, extended),
         .ret_ptr            => return sema.zirRetPtr(            block, extended),
         .ret_type           => return sema.zirRetType(           block, extended),
@@ -2747,13 +2747,13 @@ fn zirFunc(
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Func, inst_data.payload_index);
     const param_types = sema.code.refSlice(extra.end, extra.data.param_types_len);
-    const body = sema.code.extra[extra.end + param_types.len ..][0..extra.data.body_len];
+    const body_inst = if (extra.data.body_len != 0) inst else 0;
 
     return sema.funcCommon(
         block,
         inst_data.src_node,
         param_types,
-        body,
+        body_inst,
         extra.data.return_type,
         .Unspecified,
         Value.initTag(.null_value),
@@ -2767,7 +2767,7 @@ fn funcCommon(
     block: *Scope.Block,
     src_node_offset: i32,
     zir_param_types: []const Zir.Inst.Ref,
-    body: []const Zir.Inst.Index,
+    body_inst: Zir.Inst.Index,
     zir_return_type: Zir.Inst.Ref,
     cc: std.builtin.CallingConvention,
     align_val: Value,
@@ -2778,49 +2778,77 @@ fn funcCommon(
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
     const return_type = try sema.resolveType(block, ret_ty_src, zir_return_type);
 
-    if (body.len == 0) {
-        return sema.mod.fail(&block.base, src, "TODO: Sema: implement func with body", .{});
-    }
+    const fn_ty: Type = fn_ty: {
+        // Hot path for some common function types.
+        if (zir_param_types.len == 0 and !var_args and align_val.tag() == .null_value) {
+            if (return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
+                break :fn_ty Type.initTag(.fn_noreturn_no_args);
+            }
 
-    // Hot path for some common function types.
-    if (zir_param_types.len == 0 and !var_args and align_val.tag() == .null_value) {
-        if (return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
-            return sema.mod.constType(sema.arena, src, Type.initTag(.fn_noreturn_no_args));
+            if (return_type.zigTypeTag() == .Void and cc == .Unspecified) {
+                break :fn_ty Type.initTag(.fn_void_no_args);
+            }
+
+            if (return_type.zigTypeTag() == .NoReturn and cc == .Naked) {
+                break :fn_ty Type.initTag(.fn_naked_noreturn_no_args);
+            }
+
+            if (return_type.zigTypeTag() == .Void and cc == .C) {
+                break :fn_ty Type.initTag(.fn_ccc_void_no_args);
+            }
         }
 
-        if (return_type.zigTypeTag() == .Void and cc == .Unspecified) {
-            return sema.mod.constType(sema.arena, src, Type.initTag(.fn_void_no_args));
+        const param_types = try sema.arena.alloc(Type, zir_param_types.len);
+        for (zir_param_types) |param_type, i| {
+            // TODO make a compile error from `resolveType` report the source location
+            // of the specific parameter. Will need to take a similar strategy as
+            // `resolveSwitchItemVal` to avoid resolving the source location unless
+            // we actually need to report an error.
+            param_types[i] = try sema.resolveType(block, src, param_type);
         }
 
-        if (return_type.zigTypeTag() == .NoReturn and cc == .Naked) {
-            return sema.mod.constType(sema.arena, src, Type.initTag(.fn_naked_noreturn_no_args));
+        if (align_val.tag() != .null_value) {
+            return sema.mod.fail(&block.base, src, "TODO implement support for function prototypes to have alignment specified", .{});
         }
 
-        if (return_type.zigTypeTag() == .Void and cc == .C) {
-            return sema.mod.constType(sema.arena, src, Type.initTag(.fn_ccc_void_no_args));
-        }
+        break :fn_ty try Type.Tag.function.create(sema.arena, .{
+            .param_types = param_types,
+            .return_type = return_type,
+            .cc = cc,
+            .is_var_args = var_args,
+        });
+    };
+
+    if (body_inst == 0) {
+        return sema.mod.constType(sema.arena, src, fn_ty);
     }
 
-    const param_types = try sema.arena.alloc(Type, zir_param_types.len);
-    for (zir_param_types) |param_type, i| {
-        // TODO make a compile error from `resolveType` report the source location
-        // of the specific parameter. Will need to take a similar strategy as
-        // `resolveSwitchItemVal` to avoid resolving the source location unless
-        // we actually need to report an error.
-        param_types[i] = try sema.resolveType(block, src, param_type);
-    }
+    const is_inline = fn_ty.fnCallingConvention() == .Inline;
+    const anal_state: Module.Fn.Analysis = if (is_inline) .inline_only else .queued;
 
-    if (align_val.tag() != .null_value) {
-        return sema.mod.fail(&block.base, src, "TODO implement support for function prototypes to have alignment specified", .{});
-    }
+    // Use the Decl's arena for function memory.
+    var fn_arena = std.heap.ArenaAllocator.init(sema.gpa);
+    errdefer fn_arena.deinit();
 
-    const fn_ty = try Type.Tag.function.create(sema.arena, .{
-        .param_types = param_types,
-        .return_type = return_type,
-        .cc = cc,
-        .is_var_args = var_args,
+    const new_func = try fn_arena.allocator.create(Module.Fn);
+    const fn_payload = try fn_arena.allocator.create(Value.Payload.Function);
+
+    new_func.* = .{
+        .state = anal_state,
+        .zir_body_inst = body_inst,
+        .owner_decl = sema.owner_decl,
+        .body = undefined,
+    };
+    fn_payload.* = .{
+        .base = .{ .tag = .function },
+        .data = new_func,
+    };
+    const result = try sema.mod.constInst(sema.arena, src, .{
+        .ty = fn_ty,
+        .val = Value.initPayload(&fn_payload.base),
     });
-    return sema.mod.constType(sema.arena, src, fn_ty);
+    try sema.owner_decl.finalizeNewArena(&fn_arena);
+    return result;
 }
 
 fn zirAs(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
@@ -5461,6 +5489,7 @@ fn zirFuncExtended(
     sema: *Sema,
     block: *Scope.Block,
     extended: Zir.Inst.Extended.InstData,
+    inst: Zir.Inst.Index,
 ) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
@@ -5502,13 +5531,13 @@ fn zirFuncExtended(
     const param_types = sema.code.refSlice(extra_index, extra.data.param_types_len);
     extra_index += param_types.len;
 
-    const body = sema.code.extra[extra_index..][0..extra.data.body_len];
+    const body_inst = if (extra.data.body_len != 0) inst else 0;
 
     return sema.funcCommon(
         block,
         extra.data.src_node,
         param_types,
-        body,
+        body_inst,
         extra.data.return_type,
         cc,
         align_val,

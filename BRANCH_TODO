@@ -274,17 +274,3 @@ pub fn analyzeNamespace(
         }
     }
 
-        const is_inline = decl_tv.ty.fnCallingConvention() == .Inline;
-        const anal_state: Fn.Analysis = if (is_inline) .inline_only else .queued;
-
-        new_func.* = .{
-            .state = anal_state,
-            .zir = fn_zir,
-            .body = undefined,
-            .owner_decl = decl,
-        };
-        fn_payload.* = .{
-            .base = .{ .tag = .function },
-            .data = new_func,
-        };
-
