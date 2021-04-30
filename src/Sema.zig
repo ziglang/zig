@@ -634,15 +634,19 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) In
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirCoerceResultPtr", .{});
 }
 
-pub fn zirStructDecl(
+pub fn analyzeStructDecl(
     sema: *Sema,
     block: *Scope.Block,
+    new_decl_arena: *std.heap.ArenaAllocator,
+    new_decl: *Decl,
     inst: Zir.Inst.Index,
     layout: std.builtin.TypeInfo.ContainerLayout,
-) InnerError!*Inst {
+    struct_obj: *Module.Struct,
+) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = sema.mod;
     const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
@@ -650,27 +654,7 @@ pub fn zirStructDecl(
     const fields_len = extra.data.fields_len;
     const decls_len = extra.data.decls_len;
 
-    var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
-
-    const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
-    const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
-    const struct_val = try Value.Tag.ty.create(&new_decl_arena.allocator, struct_ty);
-    const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
-        .ty = Type.initTag(.type),
-        .val = struct_val,
-    });
-    struct_obj.* = .{
-        .owner_decl = sema.owner_decl,
-        .fields = .{},
-        .node_offset = inst_data.src_node,
-        .namespace = .{
-            .parent = sema.owner_decl.namespace,
-            .ty = struct_ty,
-            .file_scope = block.getFileScope(),
-        },
-    };
-
-    var extra_index: usize = try sema.mod.scanNamespace(
+    var extra_index: usize = try mod.scanNamespace(
         &struct_obj.namespace,
         extra.end,
         decls_len,
@@ -680,7 +664,7 @@ pub fn zirStructDecl(
     const body = sema.code.extra[extra_index..][0..extra.data.body_len];
     if (fields_len == 0) {
         assert(body.len == 0);
-        return sema.analyzeDeclVal(block, src, new_decl);
+        return;
     }
 
     try struct_obj.fields.ensureCapacity(&new_decl_arena.allocator, fields_len);
@@ -691,7 +675,7 @@ pub fn zirStructDecl(
         // Within the field type, default value, and alignment expressions, the "owner decl"
         // should be the struct itself. Thus we need a new Sema.
         var struct_sema: Sema = .{
-            .mod = sema.mod,
+            .mod = mod,
             .gpa = gpa,
             .arena = &new_decl_arena.allocator,
             .code = sema.code,
@@ -752,7 +736,7 @@ pub fn zirStructDecl(
         // This string needs to outlive the ZIR code.
         const field_name = try new_decl_arena.allocator.dupe(u8, field_name_zir);
         if (field_type_ref == .none) {
-            return sema.mod.fail(&block.base, src, "TODO: implement anytype struct field", .{});
+            return mod.fail(&block.base, src, "TODO: implement anytype struct field", .{});
         }
         const field_ty: Type = if (field_type_ref == .none)
             Type.initTag(.noreturn)
@@ -788,7 +772,38 @@ pub fn zirStructDecl(
             gop.entry.value.default_val = (try sema.resolveInstConst(block, src, default_ref)).val;
         }
     }
+}
 
+fn zirStructDecl(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: Zir.Inst.Index,
+    layout: std.builtin.TypeInfo.ContainerLayout,
+) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+
+    var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+
+    const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
+    const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
+    const struct_val = try Value.Tag.ty.create(&new_decl_arena.allocator, struct_ty);
+    const new_decl = try sema.mod.createAnonymousDecl(&block.base, .{
+        .ty = Type.initTag(.type),
+        .val = struct_val,
+    });
+    struct_obj.* = .{
+        .owner_decl = sema.owner_decl,
+        .fields = .{},
+        .node_offset = inst_data.src_node,
+        .namespace = .{
+            .parent = sema.owner_decl.namespace,
+            .ty = struct_ty,
+            .file_scope = block.getFileScope(),
+        },
+    };
+    try sema.analyzeStructDecl(block, &new_decl_arena, new_decl, inst, layout, struct_obj);
+    try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
@@ -822,14 +837,14 @@ fn zirEnumDecl(
     };
 
     const enum_obj = try new_decl_arena.allocator.create(Module.EnumFull);
-    const enum_ty_payload = try gpa.create(Type.Payload.EnumFull);
+    const enum_ty_payload = try new_decl_arena.allocator.create(Type.Payload.EnumFull);
     enum_ty_payload.* = .{
         .base = .{ .tag = if (nonexhaustive) .enum_nonexhaustive else .enum_full },
         .data = enum_obj,
     };
     const enum_ty = Type.initPayload(&enum_ty_payload.base);
     const enum_val = try Value.Tag.ty.create(&new_decl_arena.allocator, enum_ty);
-    const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
+    const new_decl = try sema.mod.createAnonymousDecl(&block.base, .{
         .ty = Type.initTag(.type),
         .val = enum_val,
     });
@@ -856,6 +871,7 @@ fn zirEnumDecl(
     const body = sema.code.extra[extra_index..][0..extra.data.body_len];
     if (fields_len == 0) {
         assert(body.len == 0);
+        try new_decl.finalizeNewArena(&new_decl_arena);
         return sema.analyzeDeclVal(block, src, new_decl);
     }
 
@@ -942,6 +958,7 @@ fn zirEnumDecl(
         }
     }
 
+    try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
@@ -1424,10 +1441,11 @@ fn zirStr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*In
     const decl_ty = try Type.Tag.array_u8_sentinel_0.create(&new_decl_arena.allocator, bytes.len);
     const decl_val = try Value.Tag.bytes.create(&new_decl_arena.allocator, bytes);
 
-    const new_decl = try sema.mod.createAnonymousDecl(&block.base, &new_decl_arena, .{
+    const new_decl = try sema.mod.createAnonymousDecl(&block.base, .{
         .ty = decl_ty,
         .val = decl_val,
     });
+    try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclRef(block, .unneeded, new_decl);
 }
 

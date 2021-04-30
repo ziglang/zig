@@ -276,11 +276,16 @@ pub const Decl = struct {
 
     pub fn destroy(decl: *Decl, module: *Module) void {
         const gpa = module.gpa;
+        log.debug("destroy Decl {s}", .{decl.name});
         decl.clearName(gpa);
         if (decl.has_tv) {
             if (decl.val.castTag(.function)) |payload| {
                 const func = payload.data;
                 func.deinit(gpa);
+            } else if (decl.val.getTypeNamespace()) |namespace| {
+                if (namespace.getDecl() == decl) {
+                    namespace.clearDecls(module);
+                }
             }
             decl.clearValues(gpa);
         }
@@ -301,6 +306,13 @@ pub const Decl = struct {
             decl.value_arena = null;
             decl.has_tv = false;
         }
+    }
+
+    pub fn finalizeNewArena(decl: *Decl, arena: *std.heap.ArenaAllocator) !void {
+        assert(decl.value_arena == null);
+        const arena_state = try arena.allocator.create(std.heap.ArenaAllocator.State);
+        arena_state.* = arena.state;
+        decl.value_arena = arena_state;
     }
 
     /// This name is relative to the containing namespace of the decl.
@@ -719,13 +731,20 @@ pub const Scope = struct {
         decls: std.StringArrayHashMapUnmanaged(*Decl) = .{},
 
         pub fn deinit(ns: *Namespace, mod: *Module) void {
+            ns.clearDecls(mod);
+            ns.* = undefined;
+        }
+
+        pub fn clearDecls(ns: *Namespace, mod: *Module) void {
             const gpa = mod.gpa;
 
-            for (ns.decls.items()) |entry| {
+            var decls = ns.decls;
+            ns.decls = .{};
+
+            for (decls.items()) |entry| {
                 entry.value.destroy(mod);
             }
-            ns.decls.deinit(gpa);
-            ns.* = undefined;
+            decls.deinit(gpa);
         }
 
         pub fn removeDecl(ns: *Namespace, child: *Decl) void {
@@ -775,14 +794,9 @@ pub const Scope = struct {
         /// Package that this file is a part of, managed externally.
         pkg: *Package,
         /// The namespace of the struct that represents this file.
-        /// Populated only when status is success.
+        /// Populated only when status is `success_air`.
         /// Owned by its owner Decl Value.
         namespace: *Namespace,
-        /// All namespaces that this file contains. This is here so that
-        /// when a file is updated, and new ZIR code is generated, the
-        /// old and new ZIR code can be compared side by side and references
-        /// to old ZIR updated to new ZIR, and a changelist generated.
-        namespace_set: std.AutoArrayHashMapUnmanaged(*Namespace, void) = .{},
 
         pub fn unload(file: *File, gpa: *Allocator) void {
             file.unloadTree(gpa);
@@ -813,6 +827,10 @@ pub const Scope = struct {
 
         pub fn deinit(file: *File, mod: *Module) void {
             const gpa = mod.gpa;
+            log.debug("deinit File {s}", .{file.sub_file_path});
+            if (file.status == .success_air) {
+                file.namespace.getDecl().destroy(mod);
+            }
             gpa.free(file.sub_file_path);
             file.unload(gpa);
             file.* = undefined;
@@ -864,6 +882,18 @@ pub const Scope = struct {
             const gpa = mod.gpa;
             file.deinit(mod);
             gpa.destroy(file);
+        }
+
+        pub fn fullyQualifiedNameZ(file: File, gpa: *Allocator) ![:0]u8 {
+            // Convert all the slashes into dots and truncate the extension.
+            const ext = std.fs.path.extension(file.sub_file_path);
+            const noext = file.sub_file_path[0 .. file.sub_file_path.len - ext.len];
+            const duped = try gpa.dupeZ(u8, noext);
+            for (duped) |*byte| switch (byte.*) {
+                '/', '\\' => byte.* = '.',
+                else => continue,
+            };
+            return duped;
         }
 
         pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
@@ -3297,48 +3327,49 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
     assert(file.zir_loaded);
 
     const gpa = mod.gpa;
-    var decl_arena = std.heap.ArenaAllocator.init(gpa);
-    defer decl_arena.deinit();
+    var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+    errdefer new_decl_arena.deinit();
 
-    // We need a Decl to pass to Sema and collect dependencies. But ultimately we
-    // want to pass them on to the Decl for the struct that represents the file.
-    var tmp_namespace: Scope.Namespace = .{
-        .parent = null,
-        .file_scope = file,
-        .ty = Type.initTag(.type),
+    const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
+    const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
+    const struct_val = try Value.Tag.ty.create(&new_decl_arena.allocator, struct_ty);
+    struct_obj.* = .{
+        .owner_decl = undefined, // set below
+        .fields = .{},
+        .node_offset = 0, // it's the struct for the root file
+        .namespace = .{
+            .parent = null,
+            .ty = struct_ty,
+            .file_scope = file,
+        },
     };
-    var top_decl: Decl = .{
-        .name = "",
-        .namespace = &tmp_namespace,
-        .generation = mod.generation,
-        .src_node = 0, // the root AST node for the file
-        .analysis = .in_progress,
-        .deletion_flag = false,
-        .is_pub = true,
-        .is_exported = false,
-        .has_linksection = false,
-        .has_align = false,
-        .link = undefined, // don't try to codegen this
-        .fn_link = undefined, // not a function
-        .zir_decl_index = undefined,
+    file.namespace = &struct_obj.namespace;
+    const new_decl = try mod.allocateNewDecl(&struct_obj.namespace, 0);
+    struct_obj.owner_decl = new_decl;
+    new_decl.name = try file.fullyQualifiedNameZ(gpa);
+    new_decl.is_pub = true;
+    new_decl.is_exported = false;
+    new_decl.has_align = false;
+    new_decl.has_linksection = false;
+    new_decl.zir_decl_index = undefined;
+    new_decl.ty = struct_ty;
+    new_decl.val = struct_val;
+    new_decl.has_tv = true;
+    new_decl.analysis = .complete;
+    new_decl.generation = mod.generation;
 
-        .has_tv = false,
-        .ty = undefined,
-        .val = undefined,
-        .align_val = undefined,
-        .linksection_val = undefined,
-    };
-    defer top_decl.dependencies.deinit(gpa);
+    var sema_arena = std.heap.ArenaAllocator.init(gpa);
+    defer sema_arena.deinit();
 
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
-        .arena = &decl_arena.allocator,
+        .arena = &sema_arena.allocator,
         .code = file.zir,
         // TODO use a map because this array is too big
-        .inst_map = try decl_arena.allocator.alloc(*ir.Inst, file.zir.instructions.len),
-        .owner_decl = &top_decl,
-        .namespace = &tmp_namespace,
+        .inst_map = try sema_arena.allocator.alloc(*ir.Inst, file.zir.instructions.len),
+        .owner_decl = new_decl,
+        .namespace = &struct_obj.namespace,
         .func = null,
         .owner_func = null,
         .param_inst_list = &.{},
@@ -3346,7 +3377,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
     var block_scope: Scope.Block = .{
         .parent = null,
         .sema = &sema,
-        .src_decl = &top_decl,
+        .src_decl = new_decl,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -3355,23 +3386,9 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
 
     const main_struct_inst = file.zir.extra[@enumToInt(Zir.ExtraIndex.main_struct)] -
         @intCast(u32, Zir.Inst.Ref.typed_value_map.len);
-    const air_inst = try sema.zirStructDecl(&block_scope, main_struct_inst, .Auto);
-    assert(air_inst.ty.zigTypeTag() == .Type);
-    const val = air_inst.value().?;
-    const struct_ty = try val.toType(&decl_arena.allocator);
-    const struct_decl = struct_ty.getOwnerDecl();
+    try sema.analyzeStructDecl(&block_scope, &new_decl_arena, new_decl, main_struct_inst, .Auto, struct_obj);
+    try new_decl.finalizeNewArena(&new_decl_arena);
 
-    file.namespace = struct_ty.getNamespace().?;
-    file.namespace.parent = null;
-
-    // Transfer the dependencies to `owner_decl`.
-    assert(top_decl.dependants.count() == 0);
-    for (top_decl.dependencies.items()) |entry| {
-        const dep = entry.key;
-        dep.removeDependant(&top_decl);
-        if (dep == struct_decl) continue;
-        _ = try mod.declareDeclDependency(struct_decl, dep);
-    }
     file.status = .success_air;
 }
 
@@ -4319,23 +4336,17 @@ pub fn constIntBig(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, b
     }
 }
 
-pub fn createAnonymousDecl(
-    mod: *Module,
-    scope: *Scope,
-    decl_arena: *std.heap.ArenaAllocator,
-    typed_value: TypedValue,
-) !*Decl {
+pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
     const name_index = mod.getNextAnonNameIndex();
     const scope_decl = scope.ownerDecl().?;
+    const namespace = scope_decl.namespace;
+    try namespace.decls.ensureCapacity(mod.gpa, namespace.decls.count() + 1);
     const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{ scope_decl.name, name_index });
     errdefer mod.gpa.free(name);
-    const namespace = scope_decl.namespace;
     const new_decl = try mod.allocateNewDecl(namespace, scope_decl.src_node);
+    namespace.decls.putAssumeCapacityNoClobber(name, new_decl);
+
     new_decl.name = name;
-
-    const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
-
-    decl_arena_state.* = decl_arena.state;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
     new_decl.has_tv = true;
