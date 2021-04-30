@@ -776,6 +776,7 @@ pub const Scope = struct {
         pkg: *Package,
         /// The namespace of the struct that represents this file.
         /// Populated only when status is success.
+        /// Owned by its owner Decl Value.
         namespace: *Namespace,
         /// All namespaces that this file contains. This is here so that
         /// when a file is updated, and new ZIR code is generated, the
@@ -812,7 +813,6 @@ pub const Scope = struct {
 
         pub fn deinit(file: *File, mod: *Module) void {
             const gpa = mod.gpa;
-            file.namespace.deinit(mod);
             gpa.free(file.sub_file_path);
             file.unload(gpa);
             file.* = undefined;
