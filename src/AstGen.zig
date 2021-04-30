@@ -1048,10 +1048,12 @@ pub fn fnProtoExpr(
         assert(param_type_i == param_count);
     }
 
-    if (fn_proto.ast.align_expr != 0) {
-        return astgen.failNode(fn_proto.ast.align_expr, "TODO: AstGen: implement function prototypes with alignment expressions", .{});
+    const align_inst: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
+        break :inst try expr(gz, scope, align_rl, fn_proto.ast.align_expr);
+    };
+    if (fn_proto.ast.section_expr != 0) {
+        return astgen.failNode(fn_proto.ast.section_expr, "linksection not allowed on function prototypes", .{});
     }
-    assert(fn_proto.ast.section_expr == 0); // caught by the parser
 
     const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
     const is_inferred_error = token_tags[maybe_bang] == .bang;
@@ -1081,6 +1083,7 @@ pub fn fnProtoExpr(
         .param_types = param_types,
         .body = &[0]Zir.Inst.Index{},
         .cc = cc,
+        .align_inst = align_inst,
         .lib_name = 0,
         .is_var_args = is_var_args,
         .is_inferred_error = false,
@@ -2794,6 +2797,7 @@ fn fnDecl(
             .param_types = param_types,
             .body = &[0]Zir.Inst.Index{},
             .cc = cc,
+            .align_inst = .none, // passed in the per-decl data
             .lib_name = lib_name,
             .is_var_args = is_var_args,
             .is_inferred_error = false,
@@ -2866,6 +2870,7 @@ fn fnDecl(
             .param_types = param_types,
             .body = fn_gz.instructions.items,
             .cc = cc,
+            .align_inst = .none, // passed in the per-decl data
             .lib_name = lib_name,
             .is_var_args = is_var_args,
             .is_inferred_error = is_inferred_error,
@@ -3167,6 +3172,7 @@ fn testDecl(
         .param_types = &[0]Zir.Inst.Ref{},
         .body = fn_block.instructions.items,
         .cc = .none,
+        .align_inst = .none,
         .lib_name = 0,
         .is_var_args = false,
         .is_inferred_error = true,

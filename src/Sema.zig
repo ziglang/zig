@@ -2737,6 +2737,7 @@ fn zirFunc(
         body,
         extra.data.return_type,
         .Unspecified,
+        Value.initTag(.null_value),
         false,
         inferred_error_set,
     );
@@ -2750,6 +2751,7 @@ fn funcCommon(
     body: []const Zir.Inst.Index,
     zir_return_type: Zir.Inst.Ref,
     cc: std.builtin.CallingConvention,
+    align_val: Value,
     var_args: bool,
     inferred_error_set: bool,
 ) InnerError!*Inst {
@@ -2762,7 +2764,7 @@ fn funcCommon(
     }
 
     // Hot path for some common function types.
-    if (zir_param_types.len == 0 and !var_args) {
+    if (zir_param_types.len == 0 and !var_args and align_val.tag() == .null_value) {
         if (return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
             return sema.mod.constType(sema.arena, src, Type.initTag(.fn_noreturn_no_args));
         }
@@ -2787,6 +2789,10 @@ fn funcCommon(
         // `resolveSwitchItemVal` to avoid resolving the source location unless
         // we actually need to report an error.
         param_types[i] = try sema.resolveType(block, src, param_type);
+    }
+
+    if (align_val.tag() != .null_value) {
+        return sema.mod.fail(&block.base, src, "TODO implement support for function prototypes to have alignment specified", .{});
     }
 
     const fn_ty = try Type.Tag.function.create(sema.arena, .{
@@ -5432,6 +5438,7 @@ fn zirFuncExtended(
     const extra = sema.code.extraData(Zir.Inst.ExtendedFunc, extended.operand);
     const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
     const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = extra.data.src_node };
+    const align_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at align
     const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
 
     var extra_index: usize = extra.end;
@@ -5455,6 +5462,13 @@ fn zirFuncExtended(
         break :blk cc;
     } else .Unspecified;
 
+    const align_val: Value = if (small.has_align) blk: {
+        const align_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        const align_tv = try sema.resolveInstConst(block, align_src, align_ref);
+        break :blk align_tv.val;
+    } else Value.initTag(.null_value);
+
     const param_types = sema.code.refSlice(extra_index, extra.data.param_types_len);
     extra_index += param_types.len;
 
@@ -5467,6 +5481,7 @@ fn zirFuncExtended(
         body,
         extra.data.return_type,
         cc,
+        align_val,
         small.is_var_args,
         small.is_inferred_error,
     );

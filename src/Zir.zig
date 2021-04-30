@@ -2189,8 +2189,9 @@ pub const Inst = struct {
     /// Trailing:
     /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
     /// 1. cc: Ref, // if has_cc is set
-    /// 2. param_type: Ref // for each param_types_len
-    /// 3. body: Index // for each body_len
+    /// 2. align: Ref, // if has_align is set
+    /// 3. param_type: Ref // for each param_types_len
+    /// 4. body: Index // for each body_len
     pub const ExtendedFunc = struct {
         src_node: i32,
         return_type: Ref,
@@ -2202,8 +2203,9 @@ pub const Inst = struct {
             is_inferred_error: bool,
             has_lib_name: bool,
             has_cc: bool,
+            has_align: bool,
             is_test: bool,
-            _: u11 = undefined,
+            _: u10 = undefined,
         };
     };
 
@@ -3966,6 +3968,7 @@ const Writer = struct {
             inferred_error_set,
             false,
             .none,
+            .none,
             body,
             src,
         );
@@ -3988,6 +3991,11 @@ const Writer = struct {
             extra_index += 1;
             break :blk cc;
         };
+        const align_inst: Inst.Ref = if (!small.has_align) .none else blk: {
+            const align_inst = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+            extra_index += 1;
+            break :blk align_inst;
+        };
 
         const param_types = self.code.refSlice(extra_index, extra.data.param_types_len);
         extra_index += param_types.len;
@@ -4001,6 +4009,7 @@ const Writer = struct {
             small.is_inferred_error,
             small.is_var_args,
             cc,
+            align_inst,
             body,
             src,
         );
@@ -4053,6 +4062,7 @@ const Writer = struct {
         inferred_error_set: bool,
         var_args: bool,
         cc: Inst.Ref,
+        align_inst: Inst.Ref,
         body: []const Inst.Index,
         src: LazySrcLoc,
     ) !void {
@@ -4064,6 +4074,7 @@ const Writer = struct {
         try stream.writeAll("], ");
         try self.writeInstRef(stream, ret_ty);
         try self.writeOptionalInstRef(stream, ", cc=", cc);
+        try self.writeOptionalInstRef(stream, ", align=", align_inst);
         try self.writeFlag(stream, ", vargs", var_args);
         try self.writeFlag(stream, ", inferror", inferred_error_set);
 

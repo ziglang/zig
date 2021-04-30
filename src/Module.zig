@@ -1372,6 +1372,7 @@ pub const Scope = struct {
             body: []const Zir.Inst.Index,
             ret_ty: Zir.Inst.Ref,
             cc: Zir.Inst.Ref,
+            align_inst: Zir.Inst.Ref,
             lib_name: u32,
             is_var_args: bool,
             is_inferred_error: bool,
@@ -1385,12 +1386,15 @@ pub const Scope = struct {
             try gz.instructions.ensureUnusedCapacity(gpa, 1);
             try astgen.instructions.ensureUnusedCapacity(gpa, 1);
 
-            if (args.cc != .none or args.lib_name != 0 or args.is_var_args or args.is_test) {
+            if (args.cc != .none or args.lib_name != 0 or
+                args.is_var_args or args.is_test or args.align_inst != .none)
+            {
                 try astgen.extra.ensureUnusedCapacity(
                     gpa,
                     @typeInfo(Zir.Inst.ExtendedFunc).Struct.fields.len +
                         args.param_types.len + args.body.len +
                         @boolToInt(args.lib_name != 0) +
+                        @boolToInt(args.align_inst != .none) +
                         @boolToInt(args.cc != .none),
                 );
                 const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.ExtendedFunc{
@@ -1399,11 +1403,14 @@ pub const Scope = struct {
                     .param_types_len = @intCast(u32, args.param_types.len),
                     .body_len = @intCast(u32, args.body.len),
                 });
+                if (args.lib_name != 0) {
+                    astgen.extra.appendAssumeCapacity(args.lib_name);
+                }
                 if (args.cc != .none) {
                     astgen.extra.appendAssumeCapacity(@enumToInt(args.cc));
                 }
-                if (args.lib_name != 0) {
-                    astgen.extra.appendAssumeCapacity(args.lib_name);
+                if (args.align_inst != .none) {
+                    astgen.extra.appendAssumeCapacity(@enumToInt(args.align_inst));
                 }
                 astgen.appendRefsAssumeCapacity(args.param_types);
                 astgen.extra.appendSliceAssumeCapacity(args.body);
@@ -1418,6 +1425,7 @@ pub const Scope = struct {
                             .is_inferred_error = args.is_inferred_error,
                             .has_lib_name = args.lib_name != 0,
                             .has_cc = args.cc != .none,
+                            .has_align = args.align_inst != .none,
                             .is_test = args.is_test,
                         }),
                         .operand = payload_index,
