@@ -830,8 +830,7 @@ pub fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: ast.Node.Index) Inn
         .char_literal => return charLiteral(gz, scope, rl, node),
         .error_set_decl => return errorSetDecl(gz, scope, rl, node),
         .array_access => return arrayAccess(gz, scope, rl, node),
-        // we use comptimeExprFromAst here as it is explicitly put there by the user, `comptimeExpr` can be used by the compiler, even in a comptime scope
-        .@"comptime" => return comptimeExprFromAst(gz, scope, rl, node_datas[node].lhs),
+        .@"comptime" => return comptimeExprAst(gz, scope, rl, node),
         .@"switch", .switch_comma => return switchExpr(gz, scope, rl, node),
 
         .@"nosuspend" => return nosuspendExpr(gz, scope, rl, node),
@@ -1455,7 +1454,9 @@ pub fn structInitExprRlTy(
     return init_inst;
 }
 
-pub fn comptimeExpr(
+/// This calls expr in a comptime scope, and is intended to be called as a helper function.
+/// The one that corresponds to `comptime` expression syntax is `comptimeExprAst`.
+fn comptimeExpr(
     gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
@@ -1468,7 +1469,10 @@ pub fn comptimeExpr(
     return result;
 }
 
-pub fn comptimeExprFromAst(
+/// This one is for an actual `comptime` syntax, and will emit a compile error if
+/// the scope already has `force_comptime=true`.
+/// See `comptimeExpr` for the helper function for calling expr in a comptime scope.
+fn comptimeExprAst(
     gz: *GenZir,
     scope: *Scope,
     rl: ResultLoc,
@@ -1478,8 +1482,11 @@ pub fn comptimeExprFromAst(
     if (gz.force_comptime) {
         return astgen.failNode(node, "redundant comptime keyword in already comptime scope", .{});
     }
+    const tree = &astgen.file.tree;
+    const node_datas = tree.nodes.items(.data);
+    const body_node = node_datas[node].lhs;
     gz.force_comptime = true;
-    const result = try expr(gz, scope, rl, node);
+    const result = try expr(gz, scope, rl, body_node);
     gz.force_comptime = false;
     return result;
 }
