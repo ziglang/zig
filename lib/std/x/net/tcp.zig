@@ -9,6 +9,7 @@ const std = @import("../../std.zig");
 const os = std.os;
 const fmt = std.fmt;
 const mem = std.mem;
+const builtin = std.builtin;
 const testing = std.testing;
 
 const IPv4 = std.x.os.IPv4;
@@ -315,11 +316,9 @@ pub const Listener = struct {
     }
 };
 
-test {
-    testing.refAllDecls(@This());
-}
-
 test "tcp: create non-blocking pair" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const listener = try tcp.Listener.init(.ip, os.SOCK_NONBLOCK | os.SOCK_CLOEXEC);
     defer listener.deinit();
 
@@ -339,6 +338,8 @@ test "tcp: create non-blocking pair" {
 }
 
 test "tcp/client: set read timeout of 1 millisecond on blocking client" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const listener = try tcp.Listener.init(.ip, os.SOCK_CLOEXEC);
     defer listener.deinit();
 
@@ -361,6 +362,8 @@ test "tcp/client: set read timeout of 1 millisecond on blocking client" {
 }
 
 test "tcp/listener: bind to unspecified ipv4 address" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const listener = try tcp.Listener.init(.ip, os.SOCK_CLOEXEC);
     defer listener.deinit();
 
@@ -372,6 +375,8 @@ test "tcp/listener: bind to unspecified ipv4 address" {
 }
 
 test "tcp/listener: bind to unspecified ipv6 address" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const listener = try tcp.Listener.init(.ipv6, os.SOCK_CLOEXEC);
     defer listener.deinit();
 
