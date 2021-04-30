@@ -1,7 +1,7 @@
 //! Semantic analysis of ZIR instructions.
 //! Shared to every Block. Stored on the stack.
-//! State used for compiling a `Zir` into TZIR.
-//! Transforms untyped ZIR instructions into semantically-analyzed TZIR instructions.
+//! State used for compiling a `Zir` into AIR.
+//! Transforms untyped ZIR instructions into semantically-analyzed AIR instructions.
 //! Does type checking, comptime control flow, and safety-check generation.
 //! This is the the heart of the Zig compiler.
 
@@ -11,7 +11,7 @@ gpa: *Allocator,
 /// Points to the arena allocator of the Decl.
 arena: *Allocator,
 code: Zir,
-/// Maps ZIR to TZIR.
+/// Maps ZIR to AIR.
 inst_map: []*Inst,
 /// When analyzing an inline function call, owner_decl is the Decl of the caller
 /// and `src_decl` of `Scope.Block` is the `Decl` of the callee.
@@ -26,9 +26,9 @@ owner_func: ?*Module.Fn,
 /// This starts out the same as `owner_func` and then diverges in the case of
 /// an inline or comptime function call.
 func: ?*Module.Fn,
-/// For now, TZIR requires arg instructions to be the first N instructions in the
-/// TZIR code. We store references here for the purpose of `resolveInst`.
-/// This can get reworked with TZIR memory layout changes, into simply:
+/// For now, AIR requires arg instructions to be the first N instructions in the
+/// AIR code. We store references here for the purpose of `resolveInst`.
+/// This can get reworked with AIR memory layout changes, into simply:
 /// > Denormalized data to make `resolveInst` faster. This is 0 if not inside a function,
 /// > otherwise it is the number of parameters of the function.
 /// > param_count: u32
@@ -505,17 +505,17 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
     }
 }
 
-/// TODO when we rework TZIR memory layout, this function will no longer have a possible error.
+/// TODO when we rework AIR memory layout, this function will no longer have a possible error.
 pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) error{OutOfMemory}!*ir.Inst {
     var i: usize = @enumToInt(zir_ref);
 
     // First section of indexes correspond to a set number of constant values.
     if (i < Zir.Inst.Ref.typed_value_map.len) {
-        // TODO when we rework TZIR memory layout, this function can be as simple as:
+        // TODO when we rework AIR memory layout, this function can be as simple as:
         // if (zir_ref < Zir.const_inst_list.len + sema.param_count)
         //     return zir_ref;
         // Until then we allocate memory for a new, mutable `ir.Inst` to match what
-        // TZIR expects.
+        // AIR expects.
         return sema.mod.constInst(sema.arena, .unneeded, Zir.Inst.Ref.typed_value_map[i]);
     }
     i -= Zir.Inst.Ref.typed_value_map.len;
@@ -526,7 +526,7 @@ pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) error{OutOfMemory}!*ir.In
     }
     i -= sema.param_inst_list.len;
 
-    // Finally, the last section of indexes refers to the map of ZIR=>TZIR.
+    // Finally, the last section of indexes refers to the map of ZIR=>AIR.
     return sema.inst_map[i];
 }
 
@@ -536,17 +536,17 @@ fn resolveConstString(
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
 ) ![]u8 {
-    const tzir_inst = try sema.resolveInst(zir_ref);
+    const air_inst = try sema.resolveInst(zir_ref);
     const wanted_type = Type.initTag(.const_slice_u8);
-    const coerced_inst = try sema.coerce(block, wanted_type, tzir_inst, src);
+    const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
     const val = try sema.resolveConstValue(block, src, coerced_inst);
     return val.toAllocatedBytes(sema.arena);
 }
 
 fn resolveType(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, zir_ref: Zir.Inst.Ref) !Type {
-    const tzir_inst = try sema.resolveInst(zir_ref);
+    const air_inst = try sema.resolveInst(zir_ref);
     const wanted_type = Type.initTag(.@"type");
-    const coerced_inst = try sema.coerce(block, wanted_type, tzir_inst, src);
+    const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
     const val = try sema.resolveConstValue(block, src, coerced_inst);
     return val.toType(sema.arena);
 }
@@ -585,8 +585,8 @@ fn resolveAlreadyCoercedInt(
     comptime Int: type,
 ) !Int {
     comptime assert(@typeInfo(Int).Int.bits <= 64);
-    const tzir_inst = try sema.resolveInst(zir_ref);
-    const val = try sema.resolveConstValue(block, src, tzir_inst);
+    const air_inst = try sema.resolveInst(zir_ref);
+    const val = try sema.resolveConstValue(block, src, air_inst);
     switch (@typeInfo(Int).Int.signedness) {
         .signed => return @intCast(Int, val.toSignedInt()),
         .unsigned => return @intCast(Int, val.toUnsignedInt()),
@@ -600,8 +600,8 @@ fn resolveInt(
     zir_ref: Zir.Inst.Ref,
     dest_type: Type,
 ) !u64 {
-    const tzir_inst = try sema.resolveInst(zir_ref);
-    const coerced = try sema.coerce(block, dest_type, tzir_inst, src);
+    const air_inst = try sema.resolveInst(zir_ref);
+    const coerced = try sema.coerce(block, dest_type, air_inst, src);
     const val = try sema.resolveConstValue(block, src, coerced);
 
     return val.toUnsignedInt();
@@ -613,10 +613,10 @@ pub fn resolveInstConst(
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
 ) InnerError!TypedValue {
-    const tzir_inst = try sema.resolveInst(zir_ref);
-    const val = try sema.resolveConstValue(block, src, tzir_inst);
+    const air_inst = try sema.resolveInst(zir_ref);
+    const val = try sema.resolveConstValue(block, src, air_inst);
     return TypedValue{
-        .ty = tzir_inst.ty,
+        .ty = air_inst.ty,
         .val = val,
     };
 }
@@ -1552,7 +1552,7 @@ fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) InnerE
     const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
     const body = sema.code.extra[extra.end..][0..extra.data.body_len];
 
-    // TZIR expects a block outside the loop block too.
+    // AIR expects a block outside the loop block too.
     const block_inst = try sema.arena.create(Inst.Block);
     block_inst.* = .{
         .base = .{
@@ -3723,7 +3723,7 @@ fn analyzeSwitch(
     defer merges.results.deinit(gpa);
     defer merges.br_list.deinit(gpa);
 
-    // TODO when reworking TZIR memory layout make multi cases get generated as cases,
+    // TODO when reworking AIR memory layout make multi cases get generated as cases,
     // not as part of the "else" block.
     const cases = try sema.arena.alloc(Inst.SwitchBr.Case, scalar_cases_len);
 
@@ -4788,9 +4788,9 @@ fn zirBoolBr(
     const rhs_result = try sema.resolveBody(rhs_block, body);
     _ = try rhs_block.addBr(src, block_inst, rhs_result);
 
-    const tzir_then_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, then_block.instructions.items) };
-    const tzir_else_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, else_block.instructions.items) };
-    _ = try child_block.addCondBr(src, lhs, tzir_then_body, tzir_else_body);
+    const air_then_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, then_block.instructions.items) };
+    const air_else_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, else_block.instructions.items) };
+    _ = try child_block.addCondBr(src, lhs, air_then_body, air_else_body);
 
     block_inst.body = .{
         .instructions = try sema.arena.dupe(*Inst, child_block.instructions.items),
@@ -4879,18 +4879,18 @@ fn zirCondbr(
     defer sub_block.instructions.deinit(sema.gpa);
 
     _ = try sema.analyzeBody(&sub_block, then_body);
-    const tzir_then_body: ir.Body = .{
+    const air_then_body: ir.Body = .{
         .instructions = try sema.arena.dupe(*Inst, sub_block.instructions.items),
     };
 
     sub_block.instructions.shrinkRetainingCapacity(0);
 
     _ = try sema.analyzeBody(&sub_block, else_body);
-    const tzir_else_body: ir.Body = .{
+    const air_else_body: ir.Body = .{
         .instructions = try sema.arena.dupe(*Inst, sub_block.instructions.items),
     };
 
-    _ = try parent_block.addCondBr(src, cond, tzir_then_body, tzir_else_body);
+    _ = try parent_block.addCondBr(src, cond, air_then_body, air_else_body);
     return always_noreturn;
 }
 
