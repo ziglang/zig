@@ -3419,7 +3419,7 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
     }
 }
 
-pub const FStatAtError = FStatError || error{ NameTooLong, FileNotFound };
+pub const FStatAtError = FStatError || error{ NameTooLong, FileNotFound, SymLinkLoop };
 
 /// Similar to `fstat`, but returns stat of a resource pointed to by `pathname`
 /// which is relative to `dirfd` handle.
@@ -3466,8 +3466,10 @@ pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!S
         EBADF => unreachable, // Always a race condition.
         ENOMEM => return error.SystemResources,
         EACCES => return error.AccessDenied,
+        EPERM => return error.AccessDenied,
         EFAULT => unreachable,
         ENAMETOOLONG => return error.NameTooLong,
+        ELOOP => return error.SymLinkLoop,
         ENOENT => return error.FileNotFound,
         ENOTDIR => return error.FileNotFound,
         else => |err| return unexpectedErrno(err),
