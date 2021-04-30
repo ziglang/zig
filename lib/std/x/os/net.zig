@@ -17,18 +17,21 @@ const testing = std.testing;
 /// an error if either resolution fails, or if the interface name is
 /// too long.
 pub fn resolveScopeID(name: []const u8) !u32 {
-    if (name.len >= os.IFNAMESIZE - 1) return error.NameTooLong;
+    if (comptime @hasDecl(os, "IFNAMESIZE")) {
+        if (name.len >= os.IFNAMESIZE - 1) return error.NameTooLong;
 
-    const fd = try os.socket(os.AF_UNIX, os.SOCK_DGRAM, 0);
-    defer os.closeSocket(fd);
+        const fd = try os.socket(os.AF_UNIX, os.SOCK_DGRAM, 0);
+        defer os.closeSocket(fd);
 
-    var f: os.ifreq = undefined;
-    mem.copy(u8, &f.ifrn.name, name);
-    f.ifrn.name[name.len] = 0;
+        var f: os.ifreq = undefined;
+        mem.copy(u8, &f.ifrn.name, name);
+        f.ifrn.name[name.len] = 0;
 
-    try os.ioctl_SIOCGIFINDEX(fd, &f);
+        try os.ioctl_SIOCGIFINDEX(fd, &f);
 
-    return @bitCast(u32, f.ifru.ivalue);
+        return @bitCast(u32, f.ifru.ivalue);
+    }
+    return error.Unsupported;
 }
 
 /// An IPv4 address comprised of 4 bytes.

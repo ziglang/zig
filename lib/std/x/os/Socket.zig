@@ -273,8 +273,8 @@ pub fn setReadBufferSize(self: Socket, size: u32) !void {
 /// to the socket will thereafter return `error.WouldBlock` should the timeout be exceeded.
 pub fn setWriteTimeout(self: Socket, milliseconds: usize) !void {
     const timeout = os.timeval{
-        .tv_sec = @intCast(isize, milliseconds / time.ms_per_s),
-        .tv_usec = @intCast(isize, (milliseconds % time.ms_per_s) * time.us_per_ms),
+        .tv_sec = @intCast(i32, milliseconds / time.ms_per_s),
+        .tv_usec = @intCast(i32, (milliseconds % time.ms_per_s) * time.us_per_ms),
     };
 
     return os.setsockopt(self.fd, os.SOL_SOCKET, os.SO_SNDTIMEO, mem.asBytes(&timeout));
@@ -286,8 +286,8 @@ pub fn setWriteTimeout(self: Socket, milliseconds: usize) !void {
 /// exceeded.
 pub fn setReadTimeout(self: Socket, milliseconds: usize) !void {
     const timeout = os.timeval{
-        .tv_sec = @intCast(isize, milliseconds / time.ms_per_s),
-        .tv_usec = @intCast(isize, (milliseconds % time.ms_per_s) * time.us_per_ms),
+        .tv_sec = @intCast(i32, milliseconds / time.ms_per_s),
+        .tv_usec = @intCast(i32, (milliseconds % time.ms_per_s) * time.us_per_ms),
     };
 
     return os.setsockopt(self.fd, os.SOL_SOCKET, os.SO_RCVTIMEO, mem.asBytes(&timeout));
