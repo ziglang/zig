@@ -617,18 +617,18 @@ const Parser = struct {
                     return false;
                 };
                 switch (ty.id) {
-                    .Enum => |e| blk: {
+                    .Enum => |e| inner: {
                         if (e.name) |some|
                             if (!parser.tree.tokenEql(some, tok))
-                                break :blk;
+                                break :inner;
                         return parser.err(.{
                             .MustUseKwToRefer = .{ .kw = e.tok, .name = tok },
                         });
                     },
-                    .Record => |r| blk: {
+                    .Record => |r| inner: {
                         if (r.name) |some|
                             if (!parser.tree.tokenEql(some, tok))
-                                break :blk;
+                                break :inner;
                         return parser.err(.{
                             .MustUseKwToRefer = .{
                                 .kw = r.tok,

@@ -673,9 +673,6 @@ pub const Expr = struct {
         base: Expr = Expr{ .id = .Infix },
         lhs: *Expr,
         op_token: TokenIndex,
-        op: Op,
         rhs: *Expr,
-
-        pub const Op = enum {};
     };
 };

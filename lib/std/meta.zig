@@ -348,9 +348,6 @@ test "std.meta.containerLayout" {
     const E1 = enum {
         A,
     };
-    const E3 = extern enum {
-        A,
-    };
     const S1 = struct {};
     const S2 = packed struct {};
     const S3 = extern struct {};
@@ -365,7 +362,6 @@ test "std.meta.containerLayout" {
     };
 
     testing.expect(containerLayout(E1) == .Auto);
-    testing.expect(containerLayout(E3) == .Extern);
     testing.expect(containerLayout(S1) == .Auto);
     testing.expect(containerLayout(S2) == .Packed);
     testing.expect(containerLayout(S3) == .Extern);
@@ -1026,7 +1022,7 @@ test "std.meta.cast" {
 
     testing.expectEqual(@intToPtr(?*c_void, 2), cast(?*c_void, @intToPtr(*u8, 2)));
 
-    const C_ENUM = extern enum(c_int) {
+    const C_ENUM = enum(c_int) {
         A = 0,
         B,
         C,
@@ -1109,7 +1105,7 @@ pub fn sizeof(target: anytype) usize {
 }
 
 test "sizeof" {
-    const E = extern enum(c_int) { One, _ };
+    const E = enum(c_int) { One, _ };
     const S = extern struct { a: u32 };
 
     const ptr_size = @sizeOf(*c_void);
