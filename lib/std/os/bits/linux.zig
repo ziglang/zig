@@ -10,6 +10,7 @@ usingnamespace @import("../bits.zig");
 
 pub usingnamespace switch (builtin.arch) {
     .mips, .mipsel => @import("linux/errno-mips.zig"),
+    .sparc, .sparcel, .sparcv9 => @import("linux/errno-sparc.zig"),
     else => @import("linux/errno-generic.zig"),
 };
 
