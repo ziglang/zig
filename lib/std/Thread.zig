@@ -68,11 +68,28 @@ else switch (std.Target.current.os.tag) {
 };
 
 /// Signals the processor that it is inside a busy-wait spin-loop ("spin lock").
-pub fn spinLoopHint() void {
+pub fn spinLoopHint() callconv(.Inline) void {
     switch (std.Target.current.cpu.arch) {
-        .i386, .x86_64 => asm volatile ("pause" ::: "memory"),
-        .arm, .aarch64 => asm volatile ("yield" ::: "memory"),
-        else => {},
+        .i386, .x86_64 => {
+            asm volatile ("pause" ::: "memory");
+        },
+        .arm, .armeb, .thumb, .thumbeb => {
+            // `yield` was introduced in v6k but are also available on v6m.
+            const can_yield = comptime std.Target.arm.featureSetHas(std.Target.current.cpu.features, .has_v6m);
+            if (can_yield) asm volatile ("yield" ::: "memory");
+        },
+        .aarch64, .aarch64_be, .aarch64_32 => {
+            asm volatile ("isb" ::: "memory");
+        },
+        .powerpc64, .powerpc64le => {
+            // No-op that serves as `yield` hint.
+            asm volatile ("or 27, 27, 27" ::: "memory");
+        },
+        else => {
+            // Do nothing but prevent the compiler from optimizing away the
+            // spinning loop.
+            asm volatile ("" ::: "memory");
+        },
     }
 }
 

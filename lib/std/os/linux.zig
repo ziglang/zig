@@ -386,7 +386,7 @@ pub fn symlinkat(existing: [*:0]const u8, newfd: i32, newpath: [*:0]const u8) us
 }
 
 pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: u64) usize {
-    if (@hasField(SYS, "pread64")) {
+    if (@hasField(SYS, "pread64") and usize_bits < 64) {
         const offset_halves = splitValue64(offset);
         if (require_aligned_register_pair) {
             return syscall6(
@@ -409,8 +409,10 @@ pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: u64) usize {
             );
         }
     } else {
+        // Some architectures (eg. 64bit SPARC) pread is called pread64.
+        const S = if (!@hasField(SYS, "pread") and @hasField(SYS, "pread64")) .pread64 else .pread;
         return syscall4(
-            .pread,
+            S,
             @bitCast(usize, @as(isize, fd)),
             @ptrToInt(buf),
             count,
@@ -450,7 +452,7 @@ pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
 }
 
 pub fn ftruncate(fd: i32, length: u64) usize {
-    if (@hasField(SYS, "ftruncate64")) {
+    if (@hasField(SYS, "ftruncate64") and usize_bits < 64) {
         const length_halves = splitValue64(length);
         if (require_aligned_register_pair) {
             return syscall4(
@@ -478,7 +480,7 @@ pub fn ftruncate(fd: i32, length: u64) usize {
 }
 
 pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: u64) usize {
-    if (@hasField(SYS, "pwrite64")) {
+    if (@hasField(SYS, "pwrite64") and usize_bits < 64) {
         const offset_halves = splitValue64(offset);
 
         if (require_aligned_register_pair) {
@@ -502,8 +504,10 @@ pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: u64) usize {
             );
         }
     } else {
+        // Some architectures (eg. 64bit SPARC) pwrite is called pwrite64.
+        const S = if (!@hasField(SYS, "pwrite") and @hasField(SYS, "pwrite64")) .pwrite64 else .pwrite;
         return syscall4(
-            .pwrite,
+            S,
             @bitCast(usize, @as(isize, fd)),
             @ptrToInt(buf),
             count,

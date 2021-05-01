@@ -614,23 +614,24 @@ fn clone() callconv(.Naked) void {
                 \\ # Shuffle the arguments
                 \\ mov 217, %%g1
                 \\ mov %%i2, %%o0
-                \\ sub %%i1, 2047, %%o1
+                \\ # Add some extra space for the initial frame
+                \\ sub %%i1, 176 + 2047, %%o1
                 \\ mov %%i4, %%o2
                 \\ mov %%i5, %%o3
-                \\ ldx [%%fp + 192 - 2*8 + 2047], %%o4
+                \\ ldx [%%fp + 0x8af], %%o4
                 \\ t 0x6d
                 \\ bcs,pn %%xcc, 2f
                 \\ nop
-                \\ # sparc64 returns the child pid in o0 and a flag telling
-                \\ # whether the process is the child in o1
+                \\ # The child pid is returned in o0 while o1 tells if this
+                \\ # process is # the child (=1) or the parent (=0).
                 \\ brnz %%o1, 1f
                 \\ nop
-                \\ # This is the parent process, return the child pid
+                \\ # Parent process, return the child pid
                 \\ mov %%o0, %%i0
                 \\ ret
                 \\ restore
                 \\1:
-                \\ # This is the child process
+                \\ # Child process, call func(arg)
                 \\ mov %%g0, %%fp
                 \\ call %%g2
                 \\ mov %%g3, %%o0
