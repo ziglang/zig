@@ -46,6 +46,9 @@ pub const NativePaths = struct {
             var it = mem.tokenize(nix_cflags_compile, " ");
             while (true) {
                 const word = it.next() orelse break;
+                if (mem.startsWith(u8, word, "-frandom-seed=")) {
+                    continue;
+                }
                 if (mem.eql(u8, word, "-isystem")) {
                     const include_path = it.next() orelse {
                         try self.addWarning("Expected argument after -isystem in NIX_CFLAGS_COMPILE");
