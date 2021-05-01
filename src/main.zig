@@ -2172,7 +2172,7 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
     defer if (enable_cache) man.deinit();
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
-    _ = man.addFile(c_source_file.src_path, null) catch |err| {
+    man.hashCSource(c_source_file) catch |err| {
         fatal("unable to process '{s}': {s}", .{ c_source_file.src_path, @errorName(err) });
     };
 
@@ -2202,11 +2202,15 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
         }
 
         // Convert to null terminated args.
-        const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
-        new_argv_with_sentinel[argv.items.len] = null;
-        const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
+        const clang_args_len = argv.items.len + c_source_file.extra_flags.len;
+        const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, clang_args_len + 1);
+        new_argv_with_sentinel[clang_args_len] = null;
+        const new_argv = new_argv_with_sentinel[0..clang_args_len :null];
         for (argv.items) |arg, i| {
             new_argv[i] = try arena.dupeZ(u8, arg);
+        }
+        for (c_source_file.extra_flags) |arg, i| {
+            new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
         }
 
         const c_headers_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"include"});

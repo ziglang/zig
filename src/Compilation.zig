@@ -2260,23 +2260,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
 
     man.hash.add(comp.clang_preprocessor_mode);
 
-    _ = try man.addFile(c_object.src.src_path, null);
-    {
-        // Hash the extra flags, with special care to call addFile for file parameters.
-        // TODO this logic can likely be improved by utilizing clang_options_data.zig.
-        const file_args = [_][]const u8{"-include"};
-        var arg_i: usize = 0;
-        while (arg_i < c_object.src.extra_flags.len) : (arg_i += 1) {
-            const arg = c_object.src.extra_flags[arg_i];
-            man.hash.addBytes(arg);
-            for (file_args) |file_arg| {
-                if (mem.eql(u8, file_arg, arg) and arg_i + 1 < c_object.src.extra_flags.len) {
-                    arg_i += 1;
-                    _ = try man.addFile(c_object.src.extra_flags[arg_i], null);
-                }
-            }
-        }
-    }
+    try man.hashCSource(c_object.src);
 
     {
         const is_collision = blk: {
