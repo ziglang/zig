@@ -11,6 +11,7 @@ const testing = std.testing;
 const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
+const Compilation = @import("Compilation.zig");
 
 /// Be sure to call `Manifest.deinit` after successful initialization.
 pub fn obtain(cache: *const Cache) Manifest {
@@ -61,7 +62,7 @@ pub const File = struct {
 pub const HashHelper = struct {
     hasher: Hasher = hasher_init,
 
-    const EmitLoc = @import("Compilation.zig").EmitLoc;
+    const EmitLoc = Compilation.EmitLoc;
 
     /// Record a slice of bytes as an dependency of the process being cached
     pub fn addBytes(hh: *HashHelper, bytes: []const u8) void {
@@ -218,6 +219,24 @@ pub const Manifest = struct {
         self.hash.addBytes(resolved_path);
 
         return idx;
+    }
+
+    pub fn hashCSource(self: *Manifest, c_source: Compilation.CSourceFile) !void {
+        _ = try self.addFile(c_source.src_path, null);
+        // Hash the extra flags, with special care to call addFile for file parameters.
+        // TODO this logic can likely be improved by utilizing clang_options_data.zig.
+        const file_args = [_][]const u8{"-include"};
+        var arg_i: usize = 0;
+        while (arg_i < c_source.extra_flags.len) : (arg_i += 1) {
+            const arg = c_source.extra_flags[arg_i];
+            self.hash.addBytes(arg);
+            for (file_args) |file_arg| {
+                if (mem.eql(u8, file_arg, arg) and arg_i + 1 < c_source.extra_flags.len) {
+                    arg_i += 1;
+                    _ = try self.addFile(c_source.extra_flags[arg_i], null);
+                }
+            }
+        }
     }
 
     pub fn addOptionalFile(self: *Manifest, optional_file_path: ?[]const u8) !void {
