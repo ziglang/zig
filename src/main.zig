@@ -672,7 +672,7 @@ fn buildOutputType(
                         extra_cflags.shrinkRetainingCapacity(0);
                         while (true) {
                             i += 1;
-                            if (i + 1 >= args.len) fatal("expected -- after -cflags", .{});
+                            if (i >= args.len) fatal("expected -- after -cflags", .{});
                             if (mem.eql(u8, args[i], "--")) break;
                             try extra_cflags.append(args[i]);
                         }
