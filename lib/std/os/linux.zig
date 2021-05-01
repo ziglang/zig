@@ -504,7 +504,7 @@ pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: u64) usize {
             );
         }
     } else {
-        // Some architectures (eg. 64bit SPARC) pwrite is called pread64.
+        // Some architectures (eg. 64bit SPARC) pwrite is called pwrite64.
         const S = if (!@hasField(SYS, "pwrite") and @hasField(SYS, "pwrite64")) .pwrite64 else .pwrite;
         return syscall4(
             S,
