@@ -1367,7 +1367,7 @@ pub fn structInitExprRlNone(
 
     for (struct_init.ast.fields) |field_init, i| {
         const name_token = tree.firstToken(field_init) - 2;
-        const str_index = try gz.identAsString(name_token);
+        const str_index = try astgen.identAsString(name_token);
 
         fields_list[i] = .{
             .field_name = str_index,
@@ -1402,7 +1402,7 @@ pub fn structInitExprRlPtr(
 
     for (struct_init.ast.fields) |field_init, i| {
         const name_token = tree.firstToken(field_init) - 2;
-        const str_index = try gz.identAsString(name_token);
+        const str_index = try astgen.identAsString(name_token);
         const field_ptr = try gz.addPlNode(.field_ptr, field_init, Zir.Inst.Field{
             .lhs = result_ptr,
             .field_name_start = str_index,
@@ -1435,7 +1435,7 @@ pub fn structInitExprRlTy(
 
     for (struct_init.ast.fields) |field_init, i| {
         const name_token = tree.firstToken(field_init) - 2;
-        const str_index = try gz.identAsString(name_token);
+        const str_index = try astgen.identAsString(name_token);
 
         const field_ty_inst = try gz.addPlNode(.field_type, field_init, Zir.Inst.FieldType{
             .container_type = ty_inst,
@@ -1832,6 +1832,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             // ZIR instructions that might be a type other than `noreturn` or `void`.
             .add,
             .addwrap,
+            .arg,
             .alloc,
             .alloc_mut,
             .alloc_comptime,
@@ -2163,7 +2164,7 @@ fn varDecl(
     const token_tags = tree.tokens.items(.tag);
 
     const name_token = var_decl.ast.mut_token + 1;
-    const ident_name = try astgen.identifierTokenString(name_token);
+    const ident_name = try astgen.identAsString(name_token);
 
     // Local variables shadowing detection, including function parameters.
     {
@@ -2171,9 +2172,9 @@ fn varDecl(
         while (true) switch (s.tag) {
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
-                if (mem.eql(u8, local_val.name, ident_name)) {
+                if (local_val.name == ident_name) {
                     return astgen.failTokNotes(name_token, "redeclaration of '{s}'", .{
-                        ident_name,
+                        @ptrCast([*:0]const u8, astgen.string_bytes.items.ptr) + ident_name,
                     }, &[_]u32{
                         try astgen.errNoteTok(
                             local_val.token_src,
@@ -2186,9 +2187,9 @@ fn varDecl(
             },
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
-                if (mem.eql(u8, local_ptr.name, ident_name)) {
+                if (local_ptr.name == ident_name) {
                     return astgen.failTokNotes(name_token, "redeclaration of '{s}'", .{
-                        ident_name,
+                        @ptrCast([*:0]const u8, astgen.string_bytes.items.ptr) + ident_name,
                     }, &[_]u32{
                         try astgen.errNoteTok(
                             local_ptr.token_src,
@@ -2690,7 +2691,6 @@ fn fnDecl(
         .decl_node_index = fn_proto.ast.proto_node,
         .parent = &gz.base,
         .astgen = astgen,
-        .ref_start_index = @intCast(u32, Zir.Inst.Ref.typed_value_map.len),
     };
     defer decl_gz.instructions.deinit(gpa);
 
@@ -2757,7 +2757,7 @@ fn fnDecl(
     }
 
     const lib_name: u32 = if (fn_proto.lib_name) |lib_name_token| blk: {
-        const lib_name_str = try decl_gz.strLitAsString(lib_name_token);
+        const lib_name_str = try astgen.strLitAsString(lib_name_token);
         break :blk lib_name_str.index;
     } else 0;
 
@@ -2812,7 +2812,6 @@ fn fnDecl(
             .decl_node_index = fn_proto.ast.proto_node,
             .parent = &decl_gz.base,
             .astgen = astgen,
-            .ref_start_index = @intCast(u32, Zir.Inst.Ref.typed_value_map.len + param_count),
         };
         defer fn_gz.instructions.deinit(gpa);
 
@@ -2832,21 +2831,24 @@ fn fnDecl(
                 const name_token = param.name_token orelse {
                     return astgen.failNode(param.type_expr, "missing parameter name", .{});
                 };
-                const param_name = try astgen.identifierTokenString(name_token);
+                const param_name = try astgen.identAsString(name_token);
+                // Create an arg instruction. This is needed to emit a semantic analysis
+                // error for shadowing decls.
+                // TODO emit a compile error here for shadowing locals.
+                const arg_inst = try fn_gz.addStrTok(.arg, param_name, name_token);
                 const sub_scope = try astgen.arena.create(Scope.LocalVal);
                 sub_scope.* = .{
                     .parent = params_scope,
                     .gen_zir = &fn_gz,
                     .name = param_name,
-                    // Implicit const list first, then implicit arg list.
-                    .inst = @intToEnum(Zir.Inst.Ref, @intCast(u32, Zir.Inst.Ref.typed_value_map.len + i)),
+                    .inst = arg_inst,
                     .token_src = name_token,
                 };
                 params_scope = &sub_scope.base;
 
                 // Additionally put the param name into `string_bytes` and reference it with
                 // `extra` so that we have access to the data in codegen, for debug info.
-                const str_index = try fn_gz.identAsString(name_token);
+                const str_index = try astgen.identAsString(name_token);
                 astgen.extra.appendAssumeCapacity(str_index);
             }
 
@@ -2880,7 +2882,7 @@ fn fnDecl(
     const fn_name_token = fn_proto.name_token orelse {
         return astgen.failTok(fn_proto.ast.fn_token, "missing function name", .{});
     };
-    const fn_name_str_index = try decl_gz.identAsString(fn_name_token);
+    const fn_name_str_index = try astgen.identAsString(fn_name_token);
 
     // We add this at the end so that its instruction index marks the end range
     // of the top level declaration.
@@ -2953,7 +2955,7 @@ fn globalVarDecl(
     } else false;
 
     const lib_name: u32 = if (var_decl.lib_name) |lib_name_token| blk: {
-        const lib_name_str = try gz.strLitAsString(lib_name_token);
+        const lib_name_str = try astgen.strLitAsString(lib_name_token);
         break :blk lib_name_str.index;
     } else 0;
 
@@ -3020,7 +3022,7 @@ fn globalVarDecl(
     try block_scope.setBlockBody(block_inst);
 
     const name_token = var_decl.ast.mut_token + 1;
-    const name_str_index = try gz.identAsString(name_token);
+    const name_str_index = try astgen.identAsString(name_token);
 
     try wip_decls.payload.ensureUnusedCapacity(gpa, 8);
     {
@@ -3156,7 +3158,7 @@ fn testDecl(
         const test_token = main_tokens[node];
         const str_lit_token = test_token + 1;
         if (token_tags[str_lit_token] == .string_literal) {
-            break :blk (try decl_block.strLitAsString(str_lit_token)).index;
+            break :blk (try astgen.strLitAsString(str_lit_token)).index;
         }
         // String table index 1 has a special meaning here of test decl with no name.
         break :blk 1;
@@ -3344,7 +3346,7 @@ fn structDeclInner(
         }
         try fields_data.ensureUnusedCapacity(gpa, 4);
 
-        const field_name = try gz.identAsString(member.ast.name_token);
+        const field_name = try astgen.identAsString(member.ast.name_token);
         fields_data.appendAssumeCapacity(field_name);
 
         const field_type: Zir.Inst.Ref = if (node_tags[member.ast.type_expr] == .@"anytype")
@@ -3558,7 +3560,7 @@ fn unionDeclInner(
         }
         try fields_data.ensureUnusedCapacity(gpa, 4);
 
-        const field_name = try gz.identAsString(member.ast.name_token);
+        const field_name = try astgen.identAsString(member.ast.name_token);
         fields_data.appendAssumeCapacity(field_name);
 
         const have_type = member.ast.type_expr != 0;
@@ -3906,7 +3908,7 @@ fn containerDecl(
                 assert(member.ast.type_expr == 0);
                 assert(member.ast.align_expr == 0);
 
-                const field_name = try gz.identAsString(member.ast.name_token);
+                const field_name = try astgen.identAsString(member.ast.name_token);
                 fields_data.appendAssumeCapacity(field_name);
 
                 const have_value = member.ast.value_expr != 0;
@@ -4115,7 +4117,7 @@ fn errorSetDecl(
             switch (token_tags[tok_i]) {
                 .doc_comment, .comma => {},
                 .identifier => {
-                    const str_index = try gz.identAsString(tok_i);
+                    const str_index = try astgen.identAsString(tok_i);
                     try field_names.append(gpa, str_index);
                     field_i += 1;
                 },
@@ -4255,7 +4257,7 @@ fn orelseCatchExpr(
         if (mem.eql(u8, tree.tokenSlice(payload), "_")) {
             return astgen.failTok(payload, "discard of error capture; omit it instead", .{});
         }
-        const err_name = try astgen.identifierTokenString(payload);
+        const err_name = try astgen.identAsString(payload);
         err_val_scope = .{
             .parent = &then_scope.base,
             .gen_zir = &then_scope,
@@ -4386,7 +4388,7 @@ pub fn fieldAccess(
     const object_node = node_datas[node].lhs;
     const dot_token = main_tokens[node];
     const field_ident = dot_token + 1;
-    const str_index = try gz.identAsString(field_ident);
+    const str_index = try astgen.identAsString(field_ident);
     switch (rl) {
         .ref => return gz.addPlNode(.field_ptr, node, Zir.Inst.Field{
             .lhs = try expr(gz, scope, .ref, object_node),
@@ -4449,7 +4451,8 @@ fn simpleStrTok(
     node: ast.Node.Index,
     op_inst_tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    const str_index = try gz.identAsString(ident_token);
+    const astgen = gz.astgen;
+    const str_index = try astgen.identAsString(ident_token);
     const result = try gz.addStrTok(op_inst_tag, str_index, ident_token);
     return rvalue(gz, scope, rl, result, node);
 }
@@ -4545,7 +4548,7 @@ fn ifExpr(
             else
                 .err_union_payload_unsafe;
             const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
-            const ident_name = try astgen.identifierTokenString(error_token);
+            const ident_name = try astgen.identAsString(error_token);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
@@ -4561,7 +4564,7 @@ fn ifExpr(
             else
                 .optional_payload_unsafe;
             const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
-            const ident_name = try astgen.identifierTokenString(ident_token);
+            const ident_name = try astgen.identAsString(ident_token);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
@@ -4597,7 +4600,7 @@ fn ifExpr(
                 else
                     .err_union_code;
                 const payload_inst = try else_scope.addUnNode(tag, cond.inst, node);
-                const ident_name = try astgen.identifierTokenString(error_token);
+                const ident_name = try astgen.identAsString(error_token);
                 payload_val_scope = .{
                     .parent = &else_scope.base,
                     .gen_zir = &else_scope,
@@ -4804,7 +4807,7 @@ fn whileExpr(
             else
                 .err_union_payload_unsafe;
             const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
-            const ident_name = try astgen.identifierTokenString(error_token);
+            const ident_name = try astgen.identAsString(error_token);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
@@ -4820,7 +4823,7 @@ fn whileExpr(
             else
                 .optional_payload_unsafe;
             const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
-            const ident_name = try astgen.identifierTokenString(ident_token);
+            const ident_name = try astgen.identAsString(ident_token);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
@@ -4853,7 +4856,7 @@ fn whileExpr(
                 else
                     .err_union_code;
                 const payload_inst = try else_scope.addUnNode(tag, cond.inst, node);
-                const ident_name = try astgen.identifierTokenString(error_token);
+                const ident_name = try astgen.identAsString(error_token);
                 payload_val_scope = .{
                     .parent = &else_scope.base,
                     .gen_zir = &else_scope,
@@ -4988,12 +4991,13 @@ fn forExpr(
         const value_name = tree.tokenSlice(ident);
         var payload_sub_scope: *Scope = undefined;
         if (!mem.eql(u8, value_name, "_")) {
+            const name_str_index = try astgen.identAsString(ident);
             const tag: Zir.Inst.Tag = if (is_ptr) .elem_ptr else .elem_val;
             const payload_inst = try then_scope.addBin(tag, array_ptr, index);
             payload_val_scope = .{
                 .parent = &then_scope.base,
                 .gen_zir = &then_scope,
-                .name = value_name,
+                .name = name_str_index,
                 .inst = payload_inst,
                 .token_src = ident,
             };
@@ -5011,7 +5015,7 @@ fn forExpr(
         if (mem.eql(u8, tree.tokenSlice(index_token), "_")) {
             return astgen.failTok(index_token, "discard of index capture; omit it instead", .{});
         }
-        const index_name = try astgen.identifierTokenString(index_token);
+        const index_name = try astgen.identAsString(index_token);
         index_scope = .{
             .parent = payload_sub_scope,
             .gen_zir = &then_scope,
@@ -5364,7 +5368,7 @@ fn switchExpr(
                     .prong_index = undefined,
                 } },
             });
-            const capture_name = try astgen.identifierTokenString(payload_token);
+            const capture_name = try astgen.identAsString(payload_token);
             capture_val_scope = .{
                 .parent = &case_scope.base,
                 .gen_zir = &case_scope,
@@ -5456,7 +5460,7 @@ fn switchExpr(
                     .prong_index = capture_index,
                 } },
             });
-            const capture_name = try astgen.identifierTokenString(ident);
+            const capture_name = try astgen.identAsString(ident);
             capture_val_scope = .{
                 .parent = &case_scope.base,
                 .gen_zir = &case_scope,
@@ -5810,7 +5814,7 @@ fn identifier(
     const ident_token = main_tokens[ident];
     const ident_name = try astgen.identifierTokenString(ident_token);
     if (mem.eql(u8, ident_name, "_")) {
-        return astgen.failNode(ident, "TODO implement '_' identifier", .{});
+        return astgen.failNode(ident, "'_' may not be used as an identifier", .{});
     }
 
     if (simple_types.get(ident_name)) |zir_const_ref| {
@@ -5845,19 +5849,20 @@ fn identifier(
     }
 
     // Local variables, including function parameters.
+    const name_str_index = try astgen.identAsString(ident_token);
     {
         var s = scope;
         while (true) switch (s.tag) {
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
-                if (mem.eql(u8, local_val.name, ident_name)) {
+                if (local_val.name == name_str_index) {
                     return rvalue(gz, scope, rl, local_val.inst, ident);
                 }
                 s = local_val.parent;
             },
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
-                if (mem.eql(u8, local_ptr.name, ident_name)) {
+                if (local_ptr.name == name_str_index) {
                     switch (rl) {
                         .ref, .none_or_ref => return local_ptr.ptr,
                         else => {
@@ -5876,11 +5881,10 @@ fn identifier(
     // We can't look up Decls until Sema because the same ZIR code is supposed to be
     // used for multiple generic instantiations, and this may refer to a different Decl
     // depending on the scope, determined by the generic instantiation.
-    const str_index = try gz.identAsString(ident_token);
     switch (rl) {
-        .ref, .none_or_ref => return gz.addStrTok(.decl_ref, str_index, ident_token),
+        .ref, .none_or_ref => return gz.addStrTok(.decl_ref, name_str_index, ident_token),
         else => {
-            const result = try gz.addStrTok(.decl_val, str_index, ident_token);
+            const result = try gz.addStrTok(.decl_val, name_str_index, ident_token);
             return rvalue(gz, scope, rl, result, ident);
         },
     }
@@ -5892,10 +5896,11 @@ fn stringLiteral(
     rl: ResultLoc,
     node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
-    const tree = gz.astgen.file.tree;
+    const astgen = gz.astgen;
+    const tree = astgen.file.tree;
     const main_tokens = tree.nodes.items(.main_token);
     const str_lit_token = main_tokens[node];
-    const str = try gz.strLitAsString(str_lit_token);
+    const str = try astgen.strLitAsString(str_lit_token);
     const result = try gz.add(.{
         .tag = .str,
         .data = .{ .str = .{
@@ -6097,9 +6102,9 @@ fn asmExpr(
 
     for (full.outputs) |output_node, i| {
         const symbolic_name = main_tokens[output_node];
-        const name = try gz.identAsString(symbolic_name);
+        const name = try astgen.identAsString(symbolic_name);
         const constraint_token = symbolic_name + 2;
-        const constraint = (try gz.strLitAsString(constraint_token)).index;
+        const constraint = (try astgen.strLitAsString(constraint_token)).index;
         const has_arrow = token_tags[symbolic_name + 4] == .arrow;
         if (has_arrow) {
             output_type_bits |= @as(u32, 1) << @intCast(u5, i);
@@ -6112,7 +6117,7 @@ fn asmExpr(
             };
         } else {
             const ident_token = symbolic_name + 4;
-            const str_index = try gz.identAsString(ident_token);
+            const str_index = try astgen.identAsString(ident_token);
             // TODO this needs extra code for local variables. Have a look at #215 and related
             // issues and decide how to handle outputs. Do we want this to be identifiers?
             // Or maybe we want to force this to be expressions with a pointer type.
@@ -6134,9 +6139,9 @@ fn asmExpr(
 
     for (full.inputs) |input_node, i| {
         const symbolic_name = main_tokens[input_node];
-        const name = try gz.identAsString(symbolic_name);
+        const name = try astgen.identAsString(symbolic_name);
         const constraint_token = symbolic_name + 2;
-        const constraint = (try gz.strLitAsString(constraint_token)).index;
+        const constraint = (try astgen.strLitAsString(constraint_token)).index;
         const has_arrow = token_tags[symbolic_name + 4] == .arrow;
         const operand = try expr(gz, scope, .{ .ty = .usize_type }, node_datas[input_node].lhs);
         inputs[i] = .{
@@ -6156,7 +6161,7 @@ fn asmExpr(
             if (clobber_i >= clobbers_buffer.len) {
                 return astgen.failTok(tok_i, "too many asm clobbers", .{});
             }
-            clobbers_buffer[clobber_i] = (try gz.strLitAsString(tok_i)).index;
+            clobbers_buffer[clobber_i] = (try astgen.strLitAsString(tok_i)).index;
             clobber_i += 1;
             tok_i += 1;
             switch (token_tags[tok_i]) {
@@ -6409,7 +6414,7 @@ fn builtinCall(
                 return astgen.failNode(operand_node, "@import operand must be a string literal", .{});
             }
             const str_lit_token = main_tokens[operand_node];
-            const str = try gz.strLitAsString(str_lit_token);
+            const str = try astgen.strLitAsString(str_lit_token);
             try astgen.imports.put(astgen.gpa, str.index, {});
             const result = try gz.addStrTok(.import, str.index, str_lit_token);
             return rvalue(gz, scope, rl, result, node);
@@ -6451,7 +6456,7 @@ fn builtinCall(
                 return astgen.failNode(params[0], "the first @export parameter must be an identifier", .{});
             }
             const ident_token = main_tokens[params[0]];
-            const decl_name = try gz.identAsString(ident_token);
+            const decl_name = try astgen.identAsString(ident_token);
             // TODO look for local variables in scope matching `decl_name` and emit a compile
             // error. Only top-level declarations can be exported. Until this is done, the
             // compile error will end up being "use of undeclared identifier" in Sema.
@@ -7697,4 +7702,58 @@ pub fn errNoteNode(
         .byte_offset = 0,
         .notes = 0,
     });
+}
+
+fn identAsString(astgen: *AstGen, ident_token: ast.TokenIndex) !u32 {
+    const gpa = astgen.gpa;
+    const string_bytes = &astgen.string_bytes;
+    const str_index = @intCast(u32, string_bytes.items.len);
+    try astgen.appendIdentStr(ident_token, string_bytes);
+    const key = string_bytes.items[str_index..];
+    const gop = try astgen.string_table.getOrPut(gpa, key);
+    if (gop.found_existing) {
+        string_bytes.shrinkRetainingCapacity(str_index);
+        return gop.entry.value;
+    } else {
+        // We have to dupe the key into the arena, otherwise the memory
+        // becomes invalidated when string_bytes gets data appended.
+        // TODO https://github.com/ziglang/zig/issues/8528
+        gop.entry.key = try astgen.arena.dupe(u8, key);
+        gop.entry.value = str_index;
+        try string_bytes.append(gpa, 0);
+        return str_index;
+    }
+}
+
+const IndexSlice = struct { index: u32, len: u32 };
+
+fn strLitAsString(astgen: *AstGen, str_lit_token: ast.TokenIndex) !IndexSlice {
+    const gpa = astgen.gpa;
+    const string_bytes = &astgen.string_bytes;
+    const str_index = @intCast(u32, string_bytes.items.len);
+    const token_bytes = astgen.file.tree.tokenSlice(str_lit_token);
+    try astgen.parseStrLit(str_lit_token, string_bytes, token_bytes, 0);
+    const key = string_bytes.items[str_index..];
+    const gop = try astgen.string_table.getOrPut(gpa, key);
+    if (gop.found_existing) {
+        string_bytes.shrinkRetainingCapacity(str_index);
+        return IndexSlice{
+            .index = gop.entry.value,
+            .len = @intCast(u32, key.len),
+        };
+    } else {
+        // We have to dupe the key into the arena, otherwise the memory
+        // becomes invalidated when string_bytes gets data appended.
+        // TODO https://github.com/ziglang/zig/issues/8528
+        gop.entry.key = try astgen.arena.dupe(u8, key);
+        gop.entry.value = str_index;
+        // Still need a null byte because we are using the same table
+        // to lookup null terminated strings, so if we get a match, it has to
+        // be null terminated for that to work.
+        try string_bytes.append(gpa, 0);
+        return IndexSlice{
+            .index = str_index,
+            .len = @intCast(u32, key.len),
+        };
+    }
 }

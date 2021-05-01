@@ -1356,62 +1356,6 @@ pub const Scope = struct {
             }
         }
 
-        pub fn identAsString(gz: *GenZir, ident_token: ast.TokenIndex) !u32 {
-            const astgen = gz.astgen;
-            const gpa = astgen.gpa;
-            const string_bytes = &astgen.string_bytes;
-            const str_index = @intCast(u32, string_bytes.items.len);
-            try astgen.appendIdentStr(ident_token, string_bytes);
-            const key = string_bytes.items[str_index..];
-            const gop = try astgen.string_table.getOrPut(gpa, key);
-            if (gop.found_existing) {
-                string_bytes.shrinkRetainingCapacity(str_index);
-                return gop.entry.value;
-            } else {
-                // We have to dupe the key into the arena, otherwise the memory
-                // becomes invalidated when string_bytes gets data appended.
-                // TODO https://github.com/ziglang/zig/issues/8528
-                gop.entry.key = try astgen.arena.dupe(u8, key);
-                gop.entry.value = str_index;
-                try string_bytes.append(gpa, 0);
-                return str_index;
-            }
-        }
-
-        pub const IndexSlice = struct { index: u32, len: u32 };
-
-        pub fn strLitAsString(gz: *GenZir, str_lit_token: ast.TokenIndex) !IndexSlice {
-            const astgen = gz.astgen;
-            const gpa = astgen.gpa;
-            const string_bytes = &astgen.string_bytes;
-            const str_index = @intCast(u32, string_bytes.items.len);
-            const token_bytes = astgen.file.tree.tokenSlice(str_lit_token);
-            try astgen.parseStrLit(str_lit_token, string_bytes, token_bytes, 0);
-            const key = string_bytes.items[str_index..];
-            const gop = try astgen.string_table.getOrPut(gpa, key);
-            if (gop.found_existing) {
-                string_bytes.shrinkRetainingCapacity(str_index);
-                return IndexSlice{
-                    .index = gop.entry.value,
-                    .len = @intCast(u32, key.len),
-                };
-            } else {
-                // We have to dupe the key into the arena, otherwise the memory
-                // becomes invalidated when string_bytes gets data appended.
-                // TODO https://github.com/ziglang/zig/issues/8528
-                gop.entry.key = try astgen.arena.dupe(u8, key);
-                gop.entry.value = str_index;
-                // Still need a null byte because we are using the same table
-                // to lookup null terminated strings, so if we get a match, it has to
-                // be null terminated for that to work.
-                try string_bytes.append(gpa, 0);
-                return IndexSlice{
-                    .index = str_index,
-                    .len = @intCast(u32, key.len),
-                };
-            }
-        }
-
         pub fn addFunc(gz: *GenZir, args: struct {
             src_node: ast.Node.Index,
             param_types: []const Zir.Inst.Ref,
@@ -2053,10 +1997,11 @@ pub const Scope = struct {
         /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`.
         parent: *Scope,
         gen_zir: *GenZir,
-        name: []const u8,
         inst: Zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
         token_src: ast.TokenIndex,
+        /// String table index.
+        name: u32,
     };
 
     /// This could be a `const` or `var` local. It has a pointer instead of a value.
@@ -2068,10 +2013,11 @@ pub const Scope = struct {
         /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`.
         parent: *Scope,
         gen_zir: *GenZir,
-        name: []const u8,
         ptr: Zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
         token_src: ast.TokenIndex,
+        /// String table index.
+        name: u32,
     };
 
     pub const Defer = struct {
@@ -4026,26 +3972,25 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
     const param_inst_list = try mod.gpa.alloc(*ir.Inst, fn_ty.fnParamLen());
     defer mod.gpa.free(param_inst_list);
 
+    for (param_inst_list) |*param_inst, param_index| {
+        const param_type = fn_ty.fnParamType(param_index);
+        const arg_inst = try arena.allocator.create(ir.Inst.Arg);
+        arg_inst.* = .{
+            .base = .{
+                .tag = .arg,
+                .ty = param_type,
+                .src = .unneeded,
+            },
+            .name = undefined, // Set in the semantic analysis of the arg instruction.
+        };
+        param_inst.* = &arg_inst.base;
+    }
+
     var f = false;
     if (f) {
         return error.AnalysisFail;
     }
     @panic("TODO reimplement analyzeFnBody now that ZIR is whole-file");
-
-    //for (param_inst_list) |*param_inst, param_index| {
-    //    const param_type = fn_ty.fnParamType(param_index);
-    //    const name = func.zir.nullTerminatedString(func.zir.extra[param_index]);
-    //    const arg_inst = try arena.allocator.create(ir.Inst.Arg);
-    //    arg_inst.* = .{
-    //        .base = .{
-    //            .tag = .arg,
-    //            .ty = param_type,
-    //            .src = .unneeded,
-    //        },
-    //        .name = name,
-    //    };
-    //    param_inst.* = &arg_inst.base;
-    //}
 
     //var sema: Sema = .{
     //    .mod = mod,

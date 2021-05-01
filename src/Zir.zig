@@ -124,7 +124,6 @@ pub fn renderAsTextToFile(
         .code = scope_file.zir,
         .indent = 0,
         .parent_decl_node = 0,
-        .param_count = 0,
     };
 
     const main_struct_inst = scope_file.zir.extra[@enumToInt(ExtraIndex.main_struct)] -
@@ -159,6 +158,11 @@ pub const Inst = struct {
         /// Twos complement wrapping integer addition.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         addwrap,
+        /// Declares a parameter of the current function. Used for debug info and
+        /// for checking shadowing against declarations in the current namespace.
+        /// Uses the `str_tok` field. Token is the parameter name, string is the
+        /// parameter name.
+        arg,
         /// Array concatenation. `a ++ b`
         /// Uses the `pl_node` union field. Payload is `Bin`.
         array_cat,
@@ -956,6 +960,7 @@ pub const Inst = struct {
         /// Function calls do not count.
         pub fn isNoReturn(tag: Tag) bool {
             return switch (tag) {
+                .arg,
                 .add,
                 .addwrap,
                 .alloc,
@@ -1220,6 +1225,7 @@ pub const Inst = struct {
             break :list std.enums.directEnumArray(Tag, Data.FieldEnum, 0, .{
                 .add = .pl_node,
                 .addwrap = .pl_node,
+                .arg = .str_tok,
                 .array_cat = .pl_node,
                 .array_mul = .pl_node,
                 .array_type = .bin,
@@ -1587,20 +1593,15 @@ pub const Inst = struct {
     /// The position of a ZIR instruction within the `Zir` instructions array.
     pub const Index = u32;
 
-    /// A reference to a TypedValue, parameter of the current function,
-    /// or ZIR instruction.
+    /// A reference to a TypedValue or ZIR instruction.
     ///
     /// If the Ref has a tag in this enum, it refers to a TypedValue which may be
     /// retrieved with Ref.toTypedValue().
     ///
-    /// If the value of a Ref does not have a tag, it referes to either a parameter
-    /// of the current function or a ZIR instruction.
+    /// If the value of a Ref does not have a tag, it refers to a ZIR instruction.
     ///
-    /// The first values after the the last tag refer to parameters which may be
-    /// derived by subtracting typed_value_map.len.
-    ///
-    /// All further values refer to ZIR instructions which may be derived by
-    /// subtracting typed_value_map.len and the number of parameters.
+    /// The first values after the the last tag refer to ZIR instructions which may
+    /// be derived by subtracting `typed_value_map.len`.
     ///
     /// When adding a tag to this enum, consider adding a corresponding entry to
     /// `simple_types` in astgen.
@@ -2697,7 +2698,6 @@ const Writer = struct {
     code: Zir,
     indent: u32,
     parent_decl_node: u32,
-    param_count: usize,
 
     fn relativeToNodeIndex(self: *Writer, offset: i32) ast.Node.Index {
         return @bitCast(ast.Node.Index, offset + @bitCast(i32, self.parent_decl_node));
@@ -2991,6 +2991,7 @@ const Writer = struct {
             .decl_ref,
             .decl_val,
             .import,
+            .arg,
             => try self.writeStrTok(stream, inst),
 
             .func => try self.writeFunc(stream, inst, false),
@@ -4128,10 +4129,7 @@ const Writer = struct {
         } else {
             try stream.writeAll(", {\n");
             self.indent += 2;
-            const prev_param_count = self.param_count;
-            self.param_count = param_types.len;
             try self.writeBody(stream, body);
-            self.param_count = prev_param_count;
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("}) ");
@@ -4152,11 +4150,6 @@ const Writer = struct {
             return stream.print("@{}", .{ref});
         }
         i -= Inst.Ref.typed_value_map.len;
-
-        if (i < self.param_count) {
-            return stream.print("${d}", .{i});
-        }
-        i -= self.param_count;
 
         return self.writeInstIndex(stream, @intCast(Inst.Index, i));
     }

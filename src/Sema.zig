@@ -40,6 +40,7 @@ branch_count: u32 = 0,
 /// access to the source location set by the previous instruction which did
 /// contain a mapped source location.
 src: LazySrcLoc = .{ .token_offset = 0 },
+next_arg_index: usize = 0,
 
 const std = @import("std");
 const mem = std.mem;
@@ -110,6 +111,7 @@ pub fn analyzeBody(
         const inst = body[i];
         map[inst] = switch (tags[inst]) {
             // zig fmt: off
+            .arg                          => try sema.zirArg(block, inst),
             .alloc                        => try sema.zirAlloc(block, inst),
             .alloc_inferred               => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_const)),
             .alloc_inferred_mut           => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_mut)),
@@ -520,12 +522,6 @@ pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) error{OutOfMemory}!*ir.In
         return sema.mod.constInst(sema.arena, .unneeded, Zir.Inst.Ref.typed_value_map[i]);
     }
     i -= Zir.Inst.Ref.typed_value_map.len;
-
-    // Next section of indexes correspond to function parameters, if any.
-    if (i < sema.param_inst_list.len) {
-        return sema.param_inst_list[i];
-    }
-    i -= sema.param_inst_list.len;
 
     // Finally, the last section of indexes refers to the map of ZIR=>AIR.
     return sema.inst_map[i];
@@ -1108,6 +1104,25 @@ fn zirIndexablePtrLen(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) In
     }
     const result_ptr = try sema.namedFieldPtr(block, src, array_ptr, "len", src);
     return sema.analyzeLoad(block, src, result_ptr, result_ptr.src);
+}
+
+fn zirArg(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
+    const src = inst_data.src();
+    const arg_name = inst_data.get(sema.code);
+    const arg_index = sema.next_arg_index;
+    sema.next_arg_index += 1;
+
+    // TODO check if arg_name shadows a Decl
+
+    if (block.inlining) |inlining| {
+        return sema.param_inst_list[arg_index];
+    }
+
+    // Need to set the name of the Air.Arg instruction.
+    const air_arg = sema.param_inst_list[arg_index].castTag(.arg).?;
+    air_arg.name = arg_name;
+    return &air_arg.base;
 }
 
 fn zirAllocExtended(
@@ -2038,15 +2053,13 @@ fn analyzeCall(
                 .block_inst = block_inst,
             },
         };
-        if (true) {
-            @panic("TODO reimplement inline fn call after whole-file astgen");
-        }
+        const callee_zir = module_fn.owner_decl.namespace.file_scope.zir;
         var inline_sema: Sema = .{
             .mod = sema.mod,
             .gpa = sema.mod.gpa,
             .arena = sema.arena,
-            .code = module_fn.zir,
-            .inst_map = try sema.gpa.alloc(*ir.Inst, module_fn.zir.instructions.len),
+            .code = callee_zir,
+            .inst_map = try sema.gpa.alloc(*ir.Inst, callee_zir.instructions.len),
             .owner_decl = sema.owner_decl,
             .namespace = sema.owner_decl.namespace,
             .owner_func = sema.owner_func,
@@ -2074,6 +2087,8 @@ fn analyzeCall(
         defer merges.br_list.deinit(sema.gpa);
 
         try inline_sema.emitBackwardBranch(&child_block, call_src);
+
+        if (true) @panic("TODO re-implement inline function calls");
 
         // This will have return instructions analyzed as break instructions to
         // the block_inst above.
