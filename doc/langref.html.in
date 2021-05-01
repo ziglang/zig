@@ -2863,6 +2863,37 @@ fn dump(args: anytype) void {
     expect(args.s[1] == 'i');
 }
       {#code_end#}
+      <p>
+      Anonymous structs can be created without specifying field names, and are referred to as "tuples".
+      </p>
+      <p>
+      The fields are implicitly named using numbers starting from 0. Because their names are integers,
+      the {#syntax#}@"0"{#endsyntax#} syntax must be used to access them. Names inside {#syntax#}@""{#endsyntax#} are always recognised as identifiers.
+      </p>
+      <p>
+      Like arrays, tuples have a .len field, can be indexed and  work with the ++ and ** operators. They can also be iterated over with {#link|inline for#}.
+      </p>
+      {#code_begin|test|tuple#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+test "tuple" {
+    const values = .{
+        @as(u32, 1234),
+        @as(f64, 12.34),
+        true,
+        "hi",
+    } ++ .{false} ** 2;
+    expect(values[0] == 1234);
+    expect(values[4] == false);
+    inline for (values) |v, i| {
+        if (i != 2) continue;
+        expect(v);
+    }
+    expect(values.len == 6);
+    expect(values.@"3"[0] == 'h');
+}
+      {#code_end#}
       {#header_close#}
       {#see_also|comptime|@fieldParentPtr#}
       {#header_close#}
@@ -9997,7 +10028,7 @@ pub fn build(b: *Builder) void {
       {#code_end#}
       <p class="file">terminal</p>
       <pre><code class="shell">$ zig build
-$ ./zig-cache/bin/test
+$ ./zig-out/bin/test
 all your base are belong to us</code></pre>
       {#see_also|Targets|Zig Build System#}
       {#header_close#}

@@ -195,7 +195,8 @@ pub const Builder = struct {
             self.install_prefix = install_prefix orelse "/usr";
             self.install_path = fs.path.join(self.allocator, &[_][]const u8{ dest_dir, self.install_prefix }) catch unreachable;
         } else {
-            self.install_prefix = install_prefix orelse self.cache_root;
+            self.install_prefix = install_prefix orelse
+                (fs.path.join(self.allocator, &[_][]const u8{ self.build_root, "zig-out" }) catch unreachable);
             self.install_path = self.install_prefix;
         }
         self.lib_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "lib" }) catch unreachable;

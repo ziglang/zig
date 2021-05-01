@@ -1,5 +1,5 @@
- * decouple AstGen from Module, Compilation
  * modify dbg_stmt ZIR instructions to have line/column rather than node indexes
+ * decouple AstGen from Module, Compilation
  * AstGen threadlocal
  * extern "foo" for vars and for functions
  * namespace decls table can't reference ZIR memory because it can get modified on updates
