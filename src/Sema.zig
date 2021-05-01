@@ -65,6 +65,39 @@ const LazySrcLoc = Module.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
 const AstGen = @import("AstGen.zig");
 
+pub fn analyzeFnBody(
+    sema: *Sema,
+    block: *Scope.Block,
+    fn_body_inst: Zir.Inst.Index,
+) InnerError!void {
+    const tags = sema.code.instructions.items(.tag);
+    const datas = sema.code.instructions.items(.data);
+    const body: []const Zir.Inst.Index = switch (tags[fn_body_inst]) {
+        .func, .func_inferred => blk: {
+            const inst_data = datas[fn_body_inst].pl_node;
+            const extra = sema.code.extraData(Zir.Inst.Func, inst_data.payload_index);
+            const param_types_len = extra.data.param_types_len;
+            const body = sema.code.extra[extra.end + param_types_len ..][0..extra.data.body_len];
+            break :blk body;
+        },
+        .extended => blk: {
+            const extended = datas[fn_body_inst].extended;
+            assert(extended.opcode == .func);
+            const extra = sema.code.extraData(Zir.Inst.ExtendedFunc, extended.operand);
+            const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
+            var extra_index: usize = extra.end;
+            extra_index += @boolToInt(small.has_lib_name);
+            extra_index += @boolToInt(small.has_cc);
+            extra_index += @boolToInt(small.has_align);
+            extra_index += extra.data.param_types_len;
+            const body = sema.code.extra[extra_index..][0..extra.data.body_len];
+            break :blk body;
+        },
+        else => unreachable,
+    };
+    _ = try sema.analyzeBody(block, body);
+}
+
 /// Returns only the result from the body that is specified.
 /// Only appropriate to call when it is determined at comptime that this body
 /// has no peers.
@@ -2088,11 +2121,9 @@ fn analyzeCall(
 
         try inline_sema.emitBackwardBranch(&child_block, call_src);
 
-        if (true) @panic("TODO re-implement inline function calls");
-
         // This will have return instructions analyzed as break instructions to
         // the block_inst above.
-        _ = try inline_sema.root(&child_block);
+        try inline_sema.analyzeFnBody(&child_block, module_fn.zir_body_inst);
 
         const result = try inline_sema.analyzeBlockBody(block, call_src, &child_block, merges);
 

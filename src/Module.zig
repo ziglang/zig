@@ -3986,48 +3986,44 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
         param_inst.* = &arg_inst.base;
     }
 
-    var f = false;
-    if (f) {
-        return error.AnalysisFail;
-    }
-    @panic("TODO reimplement analyzeFnBody now that ZIR is whole-file");
+    const zir = decl.namespace.file_scope.zir;
 
-    //var sema: Sema = .{
-    //    .mod = mod,
-    //    .gpa = mod.gpa,
-    //    .arena = &arena.allocator,
-    //    .code = func.zir,
-    //    .inst_map = try mod.gpa.alloc(*ir.Inst, func.zir.instructions.len),
-    //    .owner_decl = decl,
-    //    .namespace = decl.namespace,
-    //    .func = func,
-    //    .owner_func = func,
-    //    .param_inst_list = param_inst_list,
-    //};
-    //defer mod.gpa.free(sema.inst_map);
+    var sema: Sema = .{
+        .mod = mod,
+        .gpa = mod.gpa,
+        .arena = &arena.allocator,
+        .code = zir,
+        .inst_map = try mod.gpa.alloc(*ir.Inst, zir.instructions.len),
+        .owner_decl = decl,
+        .namespace = decl.namespace,
+        .func = func,
+        .owner_func = func,
+        .param_inst_list = param_inst_list,
+    };
+    defer mod.gpa.free(sema.inst_map);
 
-    //var inner_block: Scope.Block = .{
-    //    .parent = null,
-    //    .sema = &sema,
-    //    .src_decl = decl,
-    //    .instructions = .{},
-    //    .inlining = null,
-    //    .is_comptime = false,
-    //};
-    //defer inner_block.instructions.deinit(mod.gpa);
+    var inner_block: Scope.Block = .{
+        .parent = null,
+        .sema = &sema,
+        .src_decl = decl,
+        .instructions = .{},
+        .inlining = null,
+        .is_comptime = false,
+    };
+    defer inner_block.instructions.deinit(mod.gpa);
 
-    //// AIR currently requires the arg parameters to be the first N instructions
-    //try inner_block.instructions.appendSlice(mod.gpa, param_inst_list);
+    // AIR currently requires the arg parameters to be the first N instructions
+    try inner_block.instructions.appendSlice(mod.gpa, param_inst_list);
 
-    //func.state = .in_progress;
-    //log.debug("set {s} to in_progress", .{decl.name});
+    func.state = .in_progress;
+    log.debug("set {s} to in_progress", .{decl.name});
 
-    //_ = try sema.root(&inner_block);
+    try sema.analyzeFnBody(&inner_block, func.zir_body_inst);
 
-    //const instructions = try arena.allocator.dupe(*ir.Inst, inner_block.instructions.items);
-    //func.state = .success;
-    //func.body = .{ .instructions = instructions };
-    //log.debug("set {s} to success", .{decl.name});
+    const instructions = try arena.allocator.dupe(*ir.Inst, inner_block.instructions.items);
+    func.state = .success;
+    func.body = .{ .instructions = instructions };
+    log.debug("set {s} to success", .{decl.name});
 }
 
 fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
