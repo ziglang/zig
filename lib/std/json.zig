@@ -2595,9 +2595,11 @@ pub fn stringify(
         .Enum => {
             if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
                 return value.jsonStringify(options, out_stream);
+            } else {
+                try out_stream.writeByte('"');
+                try out_stream.writeAll(@tagName(value));
+                return out_stream.writeByte('"');
             }
-
-            @compileError("Unable to stringify enum '" ++ @typeName(T) ++ "'");
         },
         .Union => {
             if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
@@ -2934,4 +2936,24 @@ test "stringify struct with custom stringifier" {
 
 test "stringify vector" {
     try teststringify("[1,1]", @splat(2, @as(u32, 1)), StringifyOptions{});
+}
+
+test "stringify enum by @tagName (inside struct)" {
+    const Bar = enum {
+        baz,
+        fizz,
+        buzz,
+    };
+    try teststringify("{\"foo\":\"baz\"}", struct {
+        foo: Bar,
+    }{ .foo = Bar.baz }, StringifyOptions{});
+}
+
+test "stringify enum by @tagName (standalone)" {
+    const Bar = enum {
+        baz,
+        fizz,
+        buzz,
+    };
+    try teststringify("\"fizz\"", Bar.fizz, StringifyOptions{});
 }
