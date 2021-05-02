@@ -1,3 +1,6 @@
+ * running build-exe with cached ZIR crashes
+ * implement lazy struct field resolution; don't resolve struct fields until
+   they are needed.
  * decouple AstGen from Module, Compilation
  * AstGen threadlocal
  * extern "foo" for vars and for functions

@@ -3197,7 +3197,7 @@ fn testDecl(
         const test_token = main_tokens[node];
         const str_lit_token = test_token + 1;
         if (token_tags[str_lit_token] == .string_literal) {
-            break :blk (try astgen.strLitAsString(str_lit_token)).index;
+            break :blk try astgen.testNameString(str_lit_token);
         }
         // String table index 1 has a special meaning here of test decl with no name.
         break :blk 1;
@@ -7805,4 +7805,15 @@ fn strLitAsString(astgen: *AstGen, str_lit_token: ast.TokenIndex) !IndexSlice {
             .len = @intCast(u32, key.len),
         };
     }
+}
+
+fn testNameString(astgen: *AstGen, str_lit_token: ast.TokenIndex) !u32 {
+    const gpa = astgen.gpa;
+    const string_bytes = &astgen.string_bytes;
+    const str_index = @intCast(u32, string_bytes.items.len);
+    const token_bytes = astgen.file.tree.tokenSlice(str_lit_token);
+    try string_bytes.append(gpa, 0); // Indicates this is a test.
+    try astgen.parseStrLit(str_lit_token, string_bytes, token_bytes, 0);
+    try string_bytes.append(gpa, 0);
+    return str_index;
 }

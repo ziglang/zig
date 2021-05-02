@@ -2421,6 +2421,8 @@ pub const Inst = struct {
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        - 1 means test decl with no name.
+    ///        - if there is a 0 byte at the position `name` indexes, it indicates
+    ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
@@ -2459,6 +2461,8 @@ pub const Inst = struct {
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        - 1 means test decl with no name.
+    ///        - if there is a 0 byte at the position `name` indexes, it indicates
+    ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
@@ -2492,6 +2496,8 @@ pub const Inst = struct {
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        - 1 means test decl with no name.
+    ///        - if there is a 0 byte at the position `name` indexes, it indicates
+    ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
@@ -2535,8 +2541,9 @@ pub const Inst = struct {
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        - 1 means test decl with no name.
+    ///        - if there is a 0 byte at the position `name` indexes, it indicates
+    ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
-    ///        - one of: block_inline
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
     ///    }
@@ -3631,7 +3638,6 @@ const Writer = struct {
             const line = self.code.extra[extra_index];
             extra_index += 1;
             const decl_name_index = self.code.extra[extra_index];
-            const decl_name = self.code.nullTerminatedString(decl_name_index);
             extra_index += 1;
             const decl_index = self.code.extra[extra_index];
             extra_index += 1;
@@ -3653,10 +3659,18 @@ const Writer = struct {
                 const name = if (is_exported) "usingnamespace" else "comptime";
                 try stream.writeAll(pub_str);
                 try stream.writeAll(name);
+            } else if (decl_name_index == 1) {
+                try stream.writeAll("test");
             } else {
+                const raw_decl_name = self.code.nullTerminatedString(decl_name_index);
+                const decl_name = if (raw_decl_name.len == 0)
+                    self.code.nullTerminatedString(decl_name_index + 1)
+                else
+                    raw_decl_name;
+                const test_str = if (raw_decl_name.len == 0) "test " else "";
                 const export_str = if (is_exported) "export " else "";
-                try stream.print("{s}{s}{}", .{
-                    pub_str, export_str, std.zig.fmtId(decl_name),
+                try stream.print("{s}{s}{s}{}", .{
+                    pub_str, test_str, export_str, std.zig.fmtId(decl_name),
                 });
                 if (align_inst != .none) {
                     try stream.writeAll(" align(");

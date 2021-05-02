@@ -3817,7 +3817,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
     const decl_node = iter.parent_decl.relativeToNodeIndex(decl_block_inst_data.src_node);
 
     // Every Decl needs a name.
-    const decl_name: [:0]const u8 = switch (decl_name_index) {
+    const raw_decl_name: [:0]const u8 = switch (decl_name_index) {
         0 => name: {
             if (is_exported) {
                 const i = iter.usingnamespace_index;
@@ -3836,6 +3836,10 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
         },
         else => zir.nullTerminatedString(decl_name_index),
     };
+    const decl_name = if (raw_decl_name.len != 0) raw_decl_name else name: {
+        const test_name = zir.nullTerminatedString(decl_name_index + 1);
+        break :name try std.fmt.allocPrintZ(gpa, "test.{s}", .{test_name});
+    };
     log.debug("scan decl {s} is_pub={}", .{ decl_name, is_pub });
 
     // We create a Decl for it regardless of analysis status.
@@ -3847,10 +3851,11 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
         gop.entry.value = new_decl;
         // Exported decls, comptime decls, usingnamespace decls, and
         // test decls if in test mode, get analyzed.
+        const is_named_test = raw_decl_name.len == 0;
         const want_analysis = is_exported or switch (decl_name_index) {
             0 => true, // comptime decl
             1 => mod.comp.bin_file.options.is_test, // test decl
-            else => false, // TODO set to true for named tests when testing
+            else => is_named_test and mod.comp.bin_file.options.is_test,
         };
         if (want_analysis) {
             mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
