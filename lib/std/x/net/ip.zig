@@ -1,9 +1,16 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2021 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+
 const std = @import("../../std.zig");
 
 const IPv4 = std.x.os.IPv4;
 const IPv6 = std.x.os.IPv6;
 const Socket = std.x.os.Socket;
 
+/// A generic IP abstraction.
 const ip = @This();
 
 /// A union of all eligible types of IP addresses.
