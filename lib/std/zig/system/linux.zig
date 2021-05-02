@@ -53,7 +53,7 @@ const SparcCpuinfoImpl = struct {
         // At the moment we only support 64bit SPARC systems.
         assert(self.is_64bit);
 
-        const model = self.model orelse Target.Cpu.Model.generic(arch);
+        const model = self.model orelse return null;
         return Target.Cpu{
             .arch = arch,
             .model = model,
@@ -65,7 +65,7 @@ const SparcCpuinfoImpl = struct {
 const SparcCpuinfoParser = CpuinfoParser(SparcCpuinfoImpl);
 
 test "cpuinfo: SPARC" {
-    try testParser(SparcCpuinfoParser, &Target.sparc.cpu.niagara2,
+    try testParser(SparcCpuinfoParser, .sparcv9, &Target.sparc.cpu.niagara2,
         \\cpu             : UltraSparc T2 (Niagara2)
         \\fpu             : UltraSparc T2 integrated FPU
         \\pmu             : niagara2
@@ -119,7 +119,7 @@ const PowerpcCpuinfoImpl = struct {
     }
 
     fn finalize(self: *const PowerpcCpuinfoImpl, arch: Target.Cpu.Arch) ?Target.Cpu {
-        const model = self.model orelse Target.Cpu.Model.generic(arch);
+        const model = self.model orelse return null;
         return Target.Cpu{
             .arch = arch,
             .model = model,
@@ -131,13 +131,13 @@ const PowerpcCpuinfoImpl = struct {
 const PowerpcCpuinfoParser = CpuinfoParser(PowerpcCpuinfoImpl);
 
 test "cpuinfo: PowerPC" {
-    try testParser(PowerpcCpuinfoParser, &Target.powerpc.cpu.@"970",
+    try testParser(PowerpcCpuinfoParser, .powerpc, &Target.powerpc.cpu.@"970",
         \\processor	: 0
         \\cpu		: PPC970MP, altivec supported
         \\clock		: 1250.000000MHz
         \\revision	: 1.1 (pvr 0044 0101)
     );
-    try testParser(PowerpcCpuinfoParser, &Target.powerpc.cpu.pwr8,
+    try testParser(PowerpcCpuinfoParser, .powerpc64le, &Target.powerpc.cpu.pwr8,
         \\processor	: 0
         \\cpu		: POWER8 (raw), altivec supported
         \\clock		: 2926.000000MHz
@@ -145,9 +145,218 @@ test "cpuinfo: PowerPC" {
     );
 }
 
-fn testParser(parser: anytype, expected_model: *const Target.Cpu.Model, input: []const u8) !void {
+const ArmCpuinfoImpl = struct {
+    cores: [4]CoreInfo = undefined,
+    core_no: usize = 0,
+    have_fields: usize = 0,
+
+    const CoreInfo = struct {
+        architecture: u8 = 0,
+        implementer: u8 = 0,
+        variant: u8 = 0,
+        part: u16 = 0,
+        is_really_v6: bool = false,
+    };
+
+    const cpu_models = struct {
+        // Shorthands to simplify the tables below.
+        const A32 = Target.arm.cpu;
+        const A64 = Target.aarch64.cpu;
+
+        // implementer = 0x41
+        const ARM = .{
+            .{ 0x926, &A32.arm926ej_s, null },
+            .{ 0xb02, &A32.mpcore, null },
+            .{ 0xb36, &A32.arm1136j_s, null },
+            .{ 0xb56, &A32.arm1156t2_s, null },
+            .{ 0xb76, &A32.arm1176jz_s, null },
+            .{ 0xc05, &A32.cortex_a5, null },
+            .{ 0xc07, &A32.cortex_a7, null },
+            .{ 0xc08, &A32.cortex_a8, null },
+            .{ 0xc09, &A32.cortex_a9, null },
+            .{ 0xc0d, &A32.cortex_a17, null },
+            .{ 0xc0f, &A32.cortex_a15, null },
+            .{ 0xc0e, &A32.cortex_a17, null },
+            .{ 0xc14, &A32.cortex_r4, null },
+            .{ 0xc15, &A32.cortex_r5, null },
+            .{ 0xc17, &A32.cortex_r7, null },
+            .{ 0xc18, &A32.cortex_r8, null },
+            .{ 0xc20, &A32.cortex_m0, null },
+            .{ 0xc21, &A32.cortex_m1, null },
+            .{ 0xc23, &A32.cortex_m3, null },
+            .{ 0xc24, &A32.cortex_m4, null },
+            .{ 0xc27, &A32.cortex_m7, null },
+            .{ 0xc60, &A32.cortex_m0plus, null },
+            .{ 0xd01, &A32.cortex_a32, null },
+            .{ 0xd03, &A32.cortex_a53, &A64.cortex_a53 },
+            .{ 0xd04, &A32.cortex_a35, &A64.cortex_a35 },
+            .{ 0xd05, &A32.cortex_a55, &A64.cortex_a55 },
+            .{ 0xd07, &A32.cortex_a57, &A64.cortex_a57 },
+            .{ 0xd08, &A32.cortex_a72, &A64.cortex_a72 },
+            .{ 0xd09, &A32.cortex_a73, &A64.cortex_a73 },
+            .{ 0xd0a, &A32.cortex_a75, &A64.cortex_a75 },
+            .{ 0xd0b, &A32.cortex_a76, &A64.cortex_a76 },
+            .{ 0xd0c, &A32.neoverse_n1, null },
+            .{ 0xd0d, &A32.cortex_a77, &A64.cortex_a77 },
+            .{ 0xd13, &A32.cortex_r52, null },
+            .{ 0xd20, &A32.cortex_m23, null },
+            .{ 0xd21, &A32.cortex_m33, null },
+            .{ 0xd41, &A32.cortex_a78, &A64.cortex_a78 },
+            .{ 0xd4b, &A32.cortex_a78c, &A64.cortex_a78c },
+            .{ 0xd44, &A32.cortex_x1, &A64.cortex_x1 },
+            .{ 0xd02, null, &A64.cortex_a34 },
+            .{ 0xd06, null, &A64.cortex_a65 },
+            .{ 0xd43, null, &A64.cortex_a65ae },
+        };
+
+        fn isKnown(implementer: u8, part: u16, is_64bit: bool) ?*const Target.Cpu.Model {
+            const models = switch (implementer) {
+                0x41 => ARM,
+                else => return null,
+            };
+
+            inline for (models) |model| {
+                if (model[0] == part)
+                    return if (is_64bit) model[2] else model[1];
+            }
+
+            return null;
+        }
+    };
+
+    fn addOne(self: *ArmCpuinfoImpl) void {
+        if (self.have_fields == 4 and self.core_no < self.cores.len) {
+            if (self.core_no > 0) {
+                // Deduplicate the core info.
+                for (self.cores[0..self.core_no]) |it| {
+                    if (std.meta.eql(it, self.cores[self.core_no]))
+                        return;
+                }
+            }
+            self.core_no += 1;
+        }
+    }
+
+    fn line_hook(self: *ArmCpuinfoImpl, key: []const u8, value: []const u8) !bool {
+        const info = &self.cores[self.core_no];
+
+        if (mem.eql(u8, key, "processor")) {
+            // Handle both old-style and new-style cpuinfo formats.
+            // The former prints a sequence of "processor: N" lines for each
+            // core and then the info for the core that's executing this code(!)
+            // while the latter prints the infos for each core right after the
+            // "processor" key.
+            self.have_fields = 0;
+            self.cores[self.core_no] = .{};
+        } else if (mem.eql(u8, key, "CPU implementer")) {
+            info.implementer = try fmt.parseInt(u8, value, 0);
+            self.have_fields += 1;
+        } else if (mem.eql(u8, key, "CPU architecture")) {
+            // "AArch64" on older kernels.
+            info.architecture = if (mem.startsWith(u8, value, "AArch64"))
+                8
+            else
+                try fmt.parseInt(u8, value, 0);
+            self.have_fields += 1;
+        } else if (mem.eql(u8, key, "CPU variant")) {
+            info.variant = try fmt.parseInt(u8, value, 0);
+            self.have_fields += 1;
+        } else if (mem.eql(u8, key, "CPU part")) {
+            info.part = try fmt.parseInt(u16, value, 0);
+            self.have_fields += 1;
+        } else if (mem.eql(u8, key, "model name")) {
+            // ARMv6 cores report "CPU architecture" equal to 7.
+            if (mem.indexOf(u8, value, "(v6l)")) |_| {
+                info.is_really_v6 = true;
+            }
+        } else if (mem.eql(u8, key, "CPU revision")) {
+            // This field is always the last one for each CPU section.
+            _ = self.addOne();
+        }
+
+        return true;
+    }
+
+    fn finalize(self: *ArmCpuinfoImpl, arch: Target.Cpu.Arch) ?Target.Cpu {
+        if (self.core_no == 0) return null;
+
+        const is_64bit = switch (arch) {
+            .aarch64, .aarch64_be, .aarch64_32 => true,
+            else => false,
+        };
+
+        var known_models: [self.cores.len]?*const Target.Cpu.Model = undefined;
+        for (self.cores[0..self.core_no]) |core, i| {
+            known_models[i] =
+                cpu_models.isKnown(core.implementer, core.part, is_64bit);
+        }
+
+        // XXX We pick the first core on big.LITTLE systems, hopefully the
+        // LITTLE one.
+        const model = known_models[0] orelse return null;
+        return Target.Cpu{
+            .arch = arch,
+            .model = model,
+            .features = model.features,
+        };
+    }
+};
+
+const ArmCpuinfoParser = CpuinfoParser(ArmCpuinfoImpl);
+
+test "cpuinfo: ARM" {
+    try testParser(ArmCpuinfoParser, .arm, &Target.arm.cpu.arm1176jz_s,
+        \\processor       : 0
+        \\model name      : ARMv6-compatible processor rev 7 (v6l)
+        \\BogoMIPS        : 997.08
+        \\Features        : half thumb fastmult vfp edsp java tls
+        \\CPU implementer : 0x41
+        \\CPU architecture: 7
+        \\CPU variant     : 0x0
+        \\CPU part        : 0xb76
+        \\CPU revision    : 7
+    );
+    try testParser(ArmCpuinfoParser, .arm, &Target.arm.cpu.cortex_a7,
+        \\processor	: 0
+        \\model name	: ARMv7 Processor rev 3 (v7l)
+        \\BogoMIPS	: 18.00
+        \\Features	: half thumb fastmult vfp edsp neon vfpv3 tls vfpv4 idiva idivt vfpd32 lpae
+        \\CPU implementer	: 0x41
+        \\CPU architecture: 7
+        \\CPU variant	: 0x0
+        \\CPU part	: 0xc07
+        \\CPU revision	: 3
+        \\
+        \\processor	: 4
+        \\model name	: ARMv7 Processor rev 3 (v7l)
+        \\BogoMIPS	: 90.00
+        \\Features	: half thumb fastmult vfp edsp neon vfpv3 tls vfpv4 idiva idivt vfpd32 lpae
+        \\CPU implementer	: 0x41
+        \\CPU architecture: 7
+        \\CPU variant	: 0x2
+        \\CPU part	: 0xc0f
+        \\CPU revision	: 3
+    );
+    try testParser(ArmCpuinfoParser, .aarch64, &Target.aarch64.cpu.cortex_a72,
+        \\processor       : 0
+        \\BogoMIPS        : 108.00
+        \\Features        : fp asimd evtstrm crc32 cpuid
+        \\CPU implementer : 0x41
+        \\CPU architecture: 8
+        \\CPU variant     : 0x0
+        \\CPU part        : 0xd08
+        \\CPU revision    : 3
+    );
+}
+
+fn testParser(
+    parser: anytype,
+    arch: Target.Cpu.Arch,
+    expected_model: *const Target.Cpu.Model,
+    input: []const u8,
+) !void {
     var fbs = io.fixedBufferStream(input);
-    const result = try parser.parse(.powerpc, fbs.reader());
+    const result = try parser.parse(arch, fbs.reader());
     testing.expectEqual(expected_model, result.?.model);
     testing.expect(expected_model.features.eql(result.?.features));
 }
@@ -186,6 +395,9 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
 
     const current_arch = std.Target.current.cpu.arch;
     switch (current_arch) {
+        .arm, .armeb, .thumb, .thumbeb, .aarch64, .aarch64_be, .aarch64_32 => {
+            return ArmCpuinfoParser.parse(current_arch, f.reader()) catch null;
+        },
         .sparcv9 => {
             return SparcCpuinfoParser.parse(current_arch, f.reader()) catch null;
         },
