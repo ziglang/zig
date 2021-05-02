@@ -6,32 +6,44 @@
 
 const std = @import("std");
 const builtin = std.builtin;
+const common = @import("../common.zig");
 const crypto = std.crypto;
 const debug = std.debug;
 const math = std.math;
 const mem = std.mem;
 
-const Fe = @import("field.zig").Fe;
+const Field = common.Field;
 
 const NonCanonicalError = std.crypto.errors.NonCanonicalError;
 const NotSquareError = std.crypto.errors.NotSquareError;
 
+/// Number of bytes required to encode a scalar.
+pub const encoded_length = 32;
+
 /// A compressed scalar, in canonical form.
-pub const CompressedScalar = [32]u8;
+pub const CompressedScalar = [encoded_length]u8;
+
+const Fe = Field(.{
+    .fiat = @import("p256_scalar_64.zig"),
+    .field_order = 115792089210356248762697446949407573529996955224135760342422259061068512044369,
+    .field_bits = 256,
+    .saturated_bits = 255,
+    .encoded_length = encoded_length,
+});
 
 /// Reject a scalar whose encoding is not canonical.
-pub fn rejectNonCanonical(s: CompressedScalar) NonCanonicalError!void {
-    return Fe.rejectNonCanonical(s);
+pub fn rejectNonCanonical(s: CompressedScalar, endian: builtin.Endian) NonCanonicalError!void {
+    return Fe.rejectNonCanonical(s, endian);
 }
 
 /// Reduce a 48-bytes scalar to the field size.
-pub fn reduce48(s: [48]u8) CompressedScalar {
-    return Scalar.fromBytes48(s).toBytes();
+pub fn reduce48(s: [48]u8, endian: builtin.Endian) CompressedScalar {
+    return Scalar.fromBytes48(s, endian).toBytes(endian);
 }
 
 /// Reduce a 64-bytes scalar to the field size.
-pub fn reduce64(s: [64]u8) CompressedScalar {
-    return ScalarDouble.fromBytes64(s).toBytes();
+pub fn reduce64(s: [64]u8, endian: builtin.Endian) CompressedScalar {
+    return ScalarDouble.fromBytes64(s, endian).toBytes(endian);
 }
 
 /// Return a*b (mod L)
@@ -183,19 +195,19 @@ const ScalarDouble = struct {
         }
         var t = ScalarDouble{ .x1 = undefined, .x2 = Fe.zero, .x3 = Fe.zero };
         {
-            var b = [_]u8{0} ** 32;
+            var b = [_]u8{0} ** encoded_length;
             const len = math.min(s.len, 24);
             mem.copy(u8, b[0..len], s[0..len]);
             t.x1 = Fe.fromBytes(b, .Little) catch unreachable;
         }
         if (s_.len >= 24) {
-            var b = [_]u8{0} ** 32;
+            var b = [_]u8{0} ** encoded_length;
             const len = math.min(s.len - 24, 24);
             mem.copy(u8, b[0..len], s[24..][0..len]);
             t.x2 = Fe.fromBytes(b, .Little) catch unreachable;
         }
         if (s_.len >= 48) {
-            var b = [_]u8{0} ** 32;
+            var b = [_]u8{0} ** encoded_length;
             const len = s.len - 48;
             mem.copy(u8, b[0..len], s[48..][0..len]);
             t.x3 = Fe.fromBytes(b, .Little) catch unreachable;
