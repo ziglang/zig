@@ -182,9 +182,12 @@ pub const Decl = struct {
     /// The AST node index of this declaration.
     /// Must be recomputed when the corresponding source file is modified.
     src_node: ast.Node.Index,
+    /// Line number corresponding to `src_node`. Stored separately so that source files
+    /// do not need to be loaded into memory in order to compute debug line numbers.
+    src_line: u32,
     /// Index to ZIR `extra` array to the entry in the parent's decl structure
     /// (the part that says "for every decls_len"). The first item at this index is
-    /// the contents hash, followed by the name.
+    /// the contents hash, followed by line, name, etc.
     zir_decl_index: Zir.Inst.Index,
 
     /// Represents the "shallow" analysis status. For example, for decls that are functions,
@@ -282,6 +285,7 @@ pub const Decl = struct {
             if (decl.val.castTag(.function)) |payload| {
                 const func = payload.data;
                 func.deinit(gpa);
+                gpa.destroy(func);
             } else if (decl.val.getTypeNamespace()) |namespace| {
                 if (namespace.getDecl() == decl) {
                     namespace.clearDecls(module);
@@ -323,7 +327,7 @@ pub const Decl = struct {
     }
 
     pub fn getNameZir(decl: Decl, zir: Zir) ?[:0]const u8 {
-        const name_index = zir.extra[decl.zir_decl_index + 4];
+        const name_index = zir.extra[decl.zir_decl_index + 5];
         if (name_index <= 1) return null;
         return zir.nullTerminatedString(name_index);
     }
@@ -341,7 +345,7 @@ pub const Decl = struct {
 
     pub fn zirBlockIndex(decl: Decl) Zir.Inst.Index {
         const zir = decl.namespace.file_scope.zir;
-        return zir.extra[decl.zir_decl_index + 5];
+        return zir.extra[decl.zir_decl_index + 6];
     }
 
     pub fn zirAlignRef(decl: Decl) Zir.Inst.Ref {
@@ -355,6 +359,10 @@ pub const Decl = struct {
         const zir = decl.namespace.file_scope.zir;
         const extra_index = decl.zir_decl_index + 6 + @boolToInt(decl.has_align);
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+    }
+
+    pub fn relativeToLine(decl: Decl, offset: u32) u32 {
+        return decl.src_line + offset;
     }
 
     pub fn relativeToNodeIndex(decl: Decl, offset: i32) ast.Node.Index {
@@ -565,13 +573,21 @@ pub const EnumFull = struct {
 /// the `Decl` only, with a `Value` tag of `extern_fn`.
 pub const Fn = struct {
     owner_decl: *Decl,
+    /// undefined unless analysis state is `success`.
+    body: ir.Body,
     /// The ZIR instruction that is a function instruction. Use this to find
     /// the body. We store this rather than the body directly so that when ZIR
     /// is regenerated on update(), we can map this to the new corresponding
     /// ZIR instruction.
     zir_body_inst: Zir.Inst.Index,
-    /// undefined unless analysis state is `success`.
-    body: ir.Body,
+
+    /// Relative to owner Decl.
+    lbrace_line: u32,
+    /// Relative to owner Decl.
+    rbrace_line: u32,
+    lbrace_column: u16,
+    rbrace_column: u16,
+
     state: Analysis,
 
     pub const Analysis = enum {
@@ -1130,7 +1146,7 @@ pub const Scope = struct {
             return &inst.base;
         }
 
-        pub fn addDbgStmt(block: *Scope.Block, src: LazySrcLoc, abs_byte_off: u32) !*ir.Inst {
+        pub fn addDbgStmt(block: *Scope.Block, src: LazySrcLoc, line: u32, column: u32) !*ir.Inst {
             const inst = try block.sema.arena.create(ir.Inst.DbgStmt);
             inst.* = .{
                 .base = .{
@@ -1138,7 +1154,8 @@ pub const Scope = struct {
                     .ty = Type.initTag(.void),
                     .src = src,
                 },
-                .byte_offset = abs_byte_off,
+                .line = line,
+                .column = column,
             };
             try block.instructions.append(block.sema.gpa, &inst.base);
             return &inst.base;
@@ -1177,6 +1194,8 @@ pub const Scope = struct {
         ref_start_index: u32 = Zir.Inst.Ref.typed_value_map.len,
         /// The containing decl AST node.
         decl_node_index: ast.Node.Index,
+        /// The containing decl line index, absolute.
+        decl_line: u32,
         /// Parents can be: `GenZir`, `File`
         parent: *Scope,
         /// All `GenZir` scopes for the same ZIR share this.
@@ -1218,6 +1237,7 @@ pub const Scope = struct {
                 .force_comptime = gz.force_comptime,
                 .ref_start_index = gz.ref_start_index,
                 .decl_node_index = gz.decl_node_index,
+                .decl_line = gz.decl_line,
                 .parent = scope,
                 .astgen = gz.astgen,
                 .suspend_node = gz.suspend_node,
@@ -1239,6 +1259,18 @@ pub const Scope = struct {
             return false;
         }
 
+        pub fn calcLine(gz: GenZir, node: ast.Node.Index) u32 {
+            const astgen = gz.astgen;
+            const tree = &astgen.file.tree;
+            const node_tags = tree.nodes.items(.tag);
+            const token_starts = tree.tokens.items(.start);
+            const decl_start = token_starts[tree.firstToken(gz.decl_node_index)];
+            const node_start = token_starts[tree.firstToken(node)];
+            const source = tree.source[decl_start..node_start];
+            const loc = std.zig.findLineColumn(source, source.len);
+            return @intCast(u32, gz.decl_line + loc.line);
+        }
+
         pub fn tokSrcLoc(gz: GenZir, token_index: ast.TokenIndex) LazySrcLoc {
             return .{ .token_offset = token_index - gz.srcToken() };
         }
@@ -1257,10 +1289,6 @@ pub const Scope = struct {
 
         pub fn srcToken(gz: GenZir) ast.TokenIndex {
             return gz.astgen.file.tree.firstToken(gz.decl_node_index);
-        }
-
-        pub fn tree(gz: *const GenZir) *const ast.Tree {
-            return &gz.astgen.file.tree;
         }
 
         pub fn indexToRef(gz: GenZir, inst: Zir.Inst.Index) Zir.Inst.Ref {
@@ -1376,13 +1404,40 @@ pub const Scope = struct {
             try gz.instructions.ensureUnusedCapacity(gpa, 1);
             try astgen.instructions.ensureUnusedCapacity(gpa, 1);
 
+            var src_locs_buffer: [3]u32 = undefined;
+            var src_locs: []u32 = src_locs_buffer[0..0];
+            if (args.body.len != 0) {
+                const tree = &astgen.file.tree;
+                const node_tags = tree.nodes.items(.tag);
+                const node_datas = tree.nodes.items(.data);
+                const token_starts = tree.tokens.items(.start);
+                const decl_start = token_starts[tree.firstToken(gz.decl_node_index)];
+                const fn_decl = args.src_node;
+                assert(node_tags[fn_decl] == .fn_decl or node_tags[fn_decl] == .test_decl);
+                const block = node_datas[fn_decl].rhs;
+                const lbrace_start = token_starts[tree.firstToken(block)];
+                const rbrace_start = token_starts[tree.lastToken(block)];
+                const lbrace_source = tree.source[decl_start..lbrace_start];
+                const lbrace_loc = std.zig.findLineColumn(lbrace_source, lbrace_source.len);
+                const rbrace_source = tree.source[lbrace_start..rbrace_start];
+                const rbrace_loc = std.zig.findLineColumn(rbrace_source, rbrace_source.len);
+                const lbrace_line = @intCast(u32, lbrace_loc.line);
+                const rbrace_line = lbrace_line + @intCast(u32, rbrace_loc.line);
+                const columns = @intCast(u32, lbrace_loc.column) |
+                    (@intCast(u32, rbrace_loc.column) << 16);
+                src_locs_buffer[0] = lbrace_line;
+                src_locs_buffer[1] = rbrace_line;
+                src_locs_buffer[2] = columns;
+                src_locs = &src_locs_buffer;
+            }
+
             if (args.cc != .none or args.lib_name != 0 or
                 args.is_var_args or args.is_test or args.align_inst != .none)
             {
                 try astgen.extra.ensureUnusedCapacity(
                     gpa,
                     @typeInfo(Zir.Inst.ExtendedFunc).Struct.fields.len +
-                        args.param_types.len + args.body.len +
+                        args.param_types.len + args.body.len + src_locs.len +
                         @boolToInt(args.lib_name != 0) +
                         @boolToInt(args.align_inst != .none) +
                         @boolToInt(args.cc != .none),
@@ -1404,6 +1459,7 @@ pub const Scope = struct {
                 }
                 astgen.appendRefsAssumeCapacity(args.param_types);
                 astgen.extra.appendSliceAssumeCapacity(args.body);
+                astgen.extra.appendSliceAssumeCapacity(src_locs);
 
                 const new_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
                 astgen.instructions.appendAssumeCapacity(.{
@@ -1427,7 +1483,7 @@ pub const Scope = struct {
                 try gz.astgen.extra.ensureUnusedCapacity(
                     gpa,
                     @typeInfo(Zir.Inst.Func).Struct.fields.len +
-                        args.param_types.len + args.body.len,
+                        args.param_types.len + args.body.len + src_locs.len,
                 );
 
                 const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Func{
@@ -1437,6 +1493,7 @@ pub const Scope = struct {
                 });
                 gz.astgen.appendRefsAssumeCapacity(args.param_types);
                 gz.astgen.extra.appendSliceAssumeCapacity(args.body);
+                gz.astgen.extra.appendSliceAssumeCapacity(src_locs);
 
                 const tag: Zir.Inst.Tag = if (args.is_inferred_error) .func_inferred else .func;
                 const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
@@ -3297,6 +3354,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
     file.namespace = &struct_obj.namespace;
     const new_decl = try mod.allocateNewDecl(&struct_obj.namespace, 0);
     struct_obj.owner_decl = new_decl;
+    new_decl.src_line = 0;
     new_decl.name = try file.fullyQualifiedNameZ(gpa);
     new_decl.is_pub = true;
     new_decl.is_exported = false;
@@ -3694,7 +3752,7 @@ pub fn scanNamespace(
         cur_bit_bag >>= 4;
 
         const decl_sub_index = extra_index;
-        extra_index += 6;
+        extra_index += 7; // src_hash(4) + line(1) + name(1) + value(1)
         extra_index += @truncate(u1, flags >> 2);
         extra_index += @truncate(u1, flags >> 3);
 
@@ -3752,8 +3810,9 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
     const has_linksection = (flags & 0b1000) != 0;
     // zig fmt: on
 
-    const decl_name_index = zir.extra[decl_sub_index + 4];
-    const decl_index = zir.extra[decl_sub_index + 5];
+    const line = iter.parent_decl.relativeToLine(zir.extra[decl_sub_index + 4]);
+    const decl_name_index = zir.extra[decl_sub_index + 5];
+    const decl_index = zir.extra[decl_sub_index + 6];
     const decl_block_inst_data = zir.instructions.items(.data)[decl_index].pl_node;
     const decl_node = iter.parent_decl.relativeToNodeIndex(decl_block_inst_data.src_node);
 
@@ -3783,6 +3842,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
     const gop = try namespace.decls.getOrPut(gpa, decl_name);
     if (!gop.found_existing) {
         const new_decl = try mod.allocateNewDecl(namespace, decl_node);
+        new_decl.src_line = line;
         new_decl.name = decl_name;
         gop.entry.value = new_decl;
         // Exported decls, comptime decls, usingnamespace decls, and
@@ -3807,6 +3867,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
     // have been re-ordered.
     const prev_src_node = decl.src_node;
     decl.src_node = decl_node;
+    decl.src_line = line;
 
     decl.is_pub = is_pub;
     decl.is_exported = is_exported;
@@ -4056,6 +4117,7 @@ fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node
         .name = "",
         .namespace = namespace,
         .src_node = src_node,
+        .src_line = undefined,
         .has_tv = false,
         .ty = undefined,
         .val = undefined,
@@ -4292,6 +4354,7 @@ pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue)
     const new_decl = try mod.allocateNewDecl(namespace, scope_decl.src_node);
     namespace.decls.putAssumeCapacityNoClobber(name, new_decl);
 
+    new_decl.src_line = scope_decl.src_line;
     new_decl.name = name;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;

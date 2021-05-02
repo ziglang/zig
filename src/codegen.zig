@@ -264,14 +264,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         src_loc: Module.SrcLoc,
         stack_align: u32,
 
-        /// Byte offset within the source file.
-        prev_di_src: usize,
+        prev_di_line: u32,
+        prev_di_column: u32,
+        /// Byte offset within the source file of the ending curly.
+        end_di_line: u32,
+        end_di_column: u32,
         /// Relative to the beginning of `code`.
         prev_di_pc: usize,
-        /// Used to find newlines and count line deltas.
-        source: []const u8,
-        /// Byte offset within the source file of the ending curly.
-        rbrace_src: usize,
 
         /// The value is an offset into the `Function` `code` from the beginning.
         /// To perform the reloc, write 32-bit signed little-endian integer
@@ -411,25 +410,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
             try branch_stack.append(.{});
 
-            const src_data: struct { lbrace_src: usize, rbrace_src: usize, source: []const u8 } = blk: {
-                const namespace = module_fn.owner_decl.namespace;
-                const tree = namespace.file_scope.tree;
-                const node_tags = tree.nodes.items(.tag);
-                const node_datas = tree.nodes.items(.data);
-                const token_starts = tree.tokens.items(.start);
-
-                const fn_decl = module_fn.owner_decl.src_node;
-                assert(node_tags[fn_decl] == .fn_decl);
-                const block = node_datas[fn_decl].rhs;
-                const lbrace_src = token_starts[tree.firstToken(block)];
-                const rbrace_src = token_starts[tree.lastToken(block)];
-                break :blk .{
-                    .lbrace_src = lbrace_src,
-                    .rbrace_src = rbrace_src,
-                    .source = tree.source,
-                };
-            };
-
             var function = Self{
                 .gpa = bin_file.allocator,
                 .target = &bin_file.options.target,
@@ -446,9 +426,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .src_loc = src_loc,
                 .stack_align = undefined,
                 .prev_di_pc = 0,
-                .prev_di_src = src_data.lbrace_src,
-                .rbrace_src = src_data.rbrace_src,
-                .source = src_data.source,
+                .prev_di_line = module_fn.lbrace_line,
+                .prev_di_column = module_fn.lbrace_column,
+                .end_di_line = module_fn.rbrace_line,
+                .end_di_column = module_fn.rbrace_column,
             };
             defer function.stack.deinit(bin_file.allocator);
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
@@ -701,7 +682,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
             }
             // Drop them off at the rbrace.
-            try self.dbgAdvancePCAndLine(self.rbrace_src);
+            try self.dbgAdvancePCAndLine(self.end_di_line, self.end_di_column);
         }
 
         fn genBody(self: *Self, body: ir.Body) InnerError!void {
@@ -727,7 +708,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
                     try dbg_out.dbg_line.append(DW.LNS_set_prologue_end);
-                    try self.dbgAdvancePCAndLine(self.prev_di_src);
+                    try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
                 },
                 .none => {},
             }
@@ -737,27 +718,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
                     try dbg_out.dbg_line.append(DW.LNS_set_epilogue_begin);
-                    try self.dbgAdvancePCAndLine(self.prev_di_src);
+                    try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
                 },
                 .none => {},
             }
         }
 
-        fn dbgAdvancePCAndLine(self: *Self, abs_byte_off: usize) InnerError!void {
-            self.prev_di_src = abs_byte_off;
-            self.prev_di_pc = self.code.items.len;
+        fn dbgAdvancePCAndLine(self: *Self, line: u32, column: u32) InnerError!void {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
-                    // TODO Look into improving the performance here by adding a token-index-to-line
-                    // lookup table, and changing ir.Inst from storing byte offset to token. Currently
-                    // this involves scanning over the source code for newlines
-                    // (but only from the previous byte offset to the new one).
-                    const delta_line = std.zig.lineDelta(self.source, self.prev_di_src, abs_byte_off);
+                    const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
                     const delta_pc = self.code.items.len - self.prev_di_pc;
-                    // TODO Look into using the DWARF special opcodes to compress this data. It lets you emit
-                    // single-byte opcodes that add different numbers to both the PC and the line number
-                    // at the same time.
-                    try dbg_out.dbg_line.ensureCapacity(dbg_out.dbg_line.items.len + 11);
+                    // TODO Look into using the DWARF special opcodes to compress this data.
+                    // It lets you emit single-byte opcodes that add different numbers to
+                    // both the PC and the line number at the same time.
+                    try dbg_out.dbg_line.ensureUnusedCapacity(11);
                     dbg_out.dbg_line.appendAssumeCapacity(DW.LNS_advance_pc);
                     leb128.writeULEB128(dbg_out.dbg_line.writer(), delta_pc) catch unreachable;
                     if (delta_line != 0) {
@@ -768,6 +743,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .none => {},
             }
+            self.prev_di_line = line;
+            self.prev_di_column = column;
+            self.prev_di_pc = self.code.items.len;
         }
 
         /// Asserts there is already capacity to insert into top branch inst_table.
@@ -2317,7 +2295,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // well to be more efficient, as well as support inlined function calls correctly.
             // For now we convert LazySrcLoc to absolute byte offset, to match what the
             // existing codegen code expects.
-            try self.dbgAdvancePCAndLine(inst.byte_offset);
+            try self.dbgAdvancePCAndLine(inst.line, inst.column);
             assert(inst.base.isUnused());
             return MCValue.dead;
         }

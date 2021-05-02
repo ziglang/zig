@@ -622,7 +622,8 @@ pub const Inst = struct {
         pub const base_tag = Tag.dbg_stmt;
 
         base: Inst,
-        byte_offset: u32,
+        line: u32,
+        column: u32,
 
         pub fn operandCount(self: *const DbgStmt) usize {
             return 0;

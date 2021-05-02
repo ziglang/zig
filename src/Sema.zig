@@ -397,8 +397,8 @@ pub fn analyzeBody(
                 try sema.zirFence(block, inst);
                 continue;
             },
-            .dbg_stmt_node => {
-                try sema.zirDbgStmtNode(block, inst);
+            .dbg_stmt => {
+                try sema.zirDbgStmt(block, inst);
                 continue;
             },
             .ensure_err_payload_void => {
@@ -1920,7 +1920,7 @@ fn zirBreak(sema: *Sema, start_block: *Scope.Block, inst: Zir.Inst.Index) InnerE
     }
 }
 
-fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!void {
+fn zirDbgStmt(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1930,14 +1930,8 @@ fn zirDbgStmtNode(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerE
     // instructions.
     if (block.is_comptime) return;
 
-    const src_node = sema.code.instructions.items(.data)[inst].node;
-    const src: LazySrcLoc = .{ .node_offset = src_node };
-
-    const src_loc = src.toSrcLoc(&block.base);
-    const abs_byte_off = src_loc.byteOffset(sema.gpa) catch |err| {
-        return sema.mod.fail(&block.base, src, "TODO modify dbg_stmt ZIR instructions to have line/column rather than node indexes. {s}", .{@errorName(err)});
-    };
-    _ = try block.addDbgStmt(src, abs_byte_off);
+    const inst_data = sema.code.instructions.items(.data)[inst].dbg_stmt;
+    _ = try block.addDbgStmt(.unneeded, inst_data.line, inst_data.column);
 }
 
 fn zirDeclRef(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
@@ -2793,7 +2787,14 @@ fn zirFunc(
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Func, inst_data.payload_index);
     const param_types = sema.code.refSlice(extra.end, extra.data.param_types_len);
-    const body_inst = if (extra.data.body_len != 0) inst else 0;
+
+    var body_inst: Zir.Inst.Index = 0;
+    var src_locs: Zir.Inst.Func.SrcLocs = undefined;
+    if (extra.data.body_len != 0) {
+        body_inst = inst;
+        const extra_index = extra.end + extra.data.param_types_len + extra.data.body_len;
+        src_locs = sema.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
+    }
 
     return sema.funcCommon(
         block,
@@ -2805,6 +2806,7 @@ fn zirFunc(
         Value.initTag(.null_value),
         false,
         inferred_error_set,
+        src_locs,
     );
 }
 
@@ -2819,6 +2821,7 @@ fn funcCommon(
     align_val: Value,
     var_args: bool,
     inferred_error_set: bool,
+    src_locs: Zir.Inst.Func.SrcLocs,
 ) InnerError!*Inst {
     const src: LazySrcLoc = .{ .node_offset = src_node_offset };
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
@@ -2872,18 +2875,17 @@ fn funcCommon(
     const is_inline = fn_ty.fnCallingConvention() == .Inline;
     const anal_state: Module.Fn.Analysis = if (is_inline) .inline_only else .queued;
 
-    // Use the Decl's arena for function memory.
-    var fn_arena = std.heap.ArenaAllocator.init(sema.gpa);
-    errdefer fn_arena.deinit();
-
-    const new_func = try fn_arena.allocator.create(Module.Fn);
-    const fn_payload = try fn_arena.allocator.create(Value.Payload.Function);
-
+    const fn_payload = try sema.arena.create(Value.Payload.Function);
+    const new_func = try sema.gpa.create(Module.Fn);
     new_func.* = .{
         .state = anal_state,
         .zir_body_inst = body_inst,
         .owner_decl = sema.owner_decl,
         .body = undefined,
+        .lbrace_line = src_locs.lbrace_line,
+        .rbrace_line = src_locs.rbrace_line,
+        .lbrace_column = @truncate(u16, src_locs.columns),
+        .rbrace_column = @truncate(u16, src_locs.columns >> 16),
     };
     fn_payload.* = .{
         .base = .{ .tag = .function },
@@ -2893,7 +2895,6 @@ fn funcCommon(
         .ty = fn_ty,
         .val = Value.initPayload(&fn_payload.base),
     });
-    try sema.owner_decl.finalizeNewArena(&fn_arena);
     return result;
 }
 
@@ -5577,7 +5578,13 @@ fn zirFuncExtended(
     const param_types = sema.code.refSlice(extra_index, extra.data.param_types_len);
     extra_index += param_types.len;
 
-    const body_inst = if (extra.data.body_len != 0) inst else 0;
+    var body_inst: Zir.Inst.Index = 0;
+    var src_locs: Zir.Inst.Func.SrcLocs = undefined;
+    if (extra.data.body_len != 0) {
+        body_inst = inst;
+        extra_index += extra.data.body_len;
+        src_locs = sema.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
+    }
 
     return sema.funcCommon(
         block,
@@ -5589,6 +5596,7 @@ fn zirFuncExtended(
         align_val,
         small.is_var_args,
         small.is_inferred_error,
+        src_locs,
     );
 }
 

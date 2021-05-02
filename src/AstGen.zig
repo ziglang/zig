@@ -94,6 +94,7 @@ pub fn generate(gpa: *Allocator, file: *Scope.File) InnerError!Zir {
         .force_comptime = true,
         .parent = &file.base,
         .decl_node_index = 0,
+        .decl_line = 0,
         .astgen = &astgen,
     };
     defer gen_scope.instructions.deinit(gpa);
@@ -2056,7 +2057,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             // ZIR instructions that are always either `noreturn` or `void`.
             .breakpoint,
             .fence,
-            .dbg_stmt_node,
+            .dbg_stmt,
             .ensure_result_used,
             .ensure_result_non_error,
             .@"export",
@@ -2395,9 +2396,25 @@ fn varDecl(
 }
 
 fn emitDbgNode(gz: *GenZir, node: ast.Node.Index) !void {
-    if (!gz.force_comptime) {
-        _ = try gz.addNode(.dbg_stmt_node, node);
-    }
+    // The instruction emitted here is for debugging runtime code.
+    // If the current block will be evaluated only during semantic analysis
+    // then no dbg_stmt ZIR instruction is needed.
+    if (gz.force_comptime) return;
+
+    const astgen = gz.astgen;
+    const tree = &astgen.file.tree;
+    const node_tags = tree.nodes.items(.tag);
+    const token_starts = tree.tokens.items(.start);
+    const decl_start = token_starts[tree.firstToken(gz.decl_node_index)];
+    const node_start = token_starts[tree.firstToken(node)];
+    const source = tree.source[decl_start..node_start];
+    const loc = std.zig.findLineColumn(source, source.len);
+    _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
+        .dbg_stmt = .{
+            .line = @intCast(u32, loc.line),
+            .column = @intCast(u32, loc.column),
+        },
+    } });
 }
 
 fn assign(gz: *GenZir, scope: *Scope, infix_node: ast.Node.Index) InnerError!void {
@@ -2689,6 +2706,7 @@ fn fnDecl(
     var decl_gz: GenZir = .{
         .force_comptime = true,
         .decl_node_index = fn_proto.ast.proto_node,
+        .decl_line = gz.calcLine(decl_node),
         .parent = &gz.base,
         .astgen = astgen,
     };
@@ -2791,7 +2809,7 @@ fn fnDecl(
             return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
         }
         break :func try decl_gz.addFunc(.{
-            .src_node = fn_proto.ast.proto_node,
+            .src_node = decl_node,
             .ret_ty = return_type_inst,
             .param_types = param_types,
             .body = &[0]Zir.Inst.Index{},
@@ -2810,6 +2828,7 @@ fn fnDecl(
         var fn_gz: GenZir = .{
             .force_comptime = false,
             .decl_node_index = fn_proto.ast.proto_node,
+            .decl_line = decl_gz.decl_line,
             .parent = &decl_gz.base,
             .astgen = astgen,
         };
@@ -2866,7 +2885,7 @@ fn fnDecl(
         astgen.fn_block = prev_fn_block;
 
         break :func try decl_gz.addFunc(.{
-            .src_node = fn_proto.ast.proto_node,
+            .src_node = decl_node,
             .ret_ty = return_type_inst,
             .param_types = param_types,
             .body = fn_gz.instructions.items,
@@ -2889,11 +2908,15 @@ fn fnDecl(
     _ = try decl_gz.addBreak(.break_inline, block_inst, func_inst);
     try decl_gz.setBlockBody(block_inst);
 
-    try wip_decls.payload.ensureUnusedCapacity(gpa, 8);
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 9);
     {
         const contents_hash = std.zig.hashSrc(tree.getNodeSource(decl_node));
         const casted = @bitCast([4]u32, contents_hash);
         wip_decls.payload.appendSliceAssumeCapacity(&casted);
+    }
+    {
+        const line_delta = decl_gz.decl_line - gz.decl_line;
+        wip_decls.payload.appendAssumeCapacity(line_delta);
     }
     wip_decls.payload.appendAssumeCapacity(fn_name_str_index);
     wip_decls.payload.appendAssumeCapacity(block_inst);
@@ -2925,6 +2948,7 @@ fn globalVarDecl(
     var block_scope: GenZir = .{
         .parent = scope,
         .decl_node_index = node,
+        .decl_line = gz.calcLine(node),
         .astgen = astgen,
         .force_comptime = true,
     };
@@ -3024,11 +3048,15 @@ fn globalVarDecl(
     const name_token = var_decl.ast.mut_token + 1;
     const name_str_index = try astgen.identAsString(name_token);
 
-    try wip_decls.payload.ensureUnusedCapacity(gpa, 8);
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 9);
     {
         const contents_hash = std.zig.hashSrc(tree.getNodeSource(node));
         const casted = @bitCast([4]u32, contents_hash);
         wip_decls.payload.appendSliceAssumeCapacity(&casted);
+    }
+    {
+        const line_delta = block_scope.decl_line - gz.decl_line;
+        wip_decls.payload.appendAssumeCapacity(line_delta);
     }
     wip_decls.payload.appendAssumeCapacity(name_str_index);
     wip_decls.payload.appendAssumeCapacity(block_inst);
@@ -3060,6 +3088,7 @@ fn comptimeDecl(
     var decl_block: GenZir = .{
         .force_comptime = true,
         .decl_node_index = node,
+        .decl_line = gz.calcLine(node),
         .parent = scope,
         .astgen = astgen,
     };
@@ -3071,11 +3100,15 @@ fn comptimeDecl(
     }
     try decl_block.setBlockBody(block_inst);
 
-    try wip_decls.payload.ensureUnusedCapacity(gpa, 6);
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 7);
     {
         const contents_hash = std.zig.hashSrc(tree.getNodeSource(node));
         const casted = @bitCast([4]u32, contents_hash);
         wip_decls.payload.appendSliceAssumeCapacity(&casted);
+    }
+    {
+        const line_delta = decl_block.decl_line - gz.decl_line;
+        wip_decls.payload.appendAssumeCapacity(line_delta);
     }
     wip_decls.payload.appendAssumeCapacity(0);
     wip_decls.payload.appendAssumeCapacity(block_inst);
@@ -3107,6 +3140,7 @@ fn usingnamespaceDecl(
     var decl_block: GenZir = .{
         .force_comptime = true,
         .decl_node_index = node,
+        .decl_line = gz.calcLine(node),
         .parent = scope,
         .astgen = astgen,
     };
@@ -3116,11 +3150,15 @@ fn usingnamespaceDecl(
     _ = try decl_block.addBreak(.break_inline, block_inst, namespace_inst);
     try decl_block.setBlockBody(block_inst);
 
-    try wip_decls.payload.ensureUnusedCapacity(gpa, 6);
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 7);
     {
         const contents_hash = std.zig.hashSrc(tree.getNodeSource(node));
         const casted = @bitCast([4]u32, contents_hash);
         wip_decls.payload.appendSliceAssumeCapacity(&casted);
+    }
+    {
+        const line_delta = decl_block.decl_line - gz.decl_line;
+        wip_decls.payload.appendAssumeCapacity(line_delta);
     }
     wip_decls.payload.appendAssumeCapacity(0);
     wip_decls.payload.appendAssumeCapacity(block_inst);
@@ -3147,6 +3185,7 @@ fn testDecl(
     var decl_block: GenZir = .{
         .force_comptime = true,
         .decl_node_index = node,
+        .decl_line = gz.calcLine(node),
         .parent = scope,
         .astgen = astgen,
     };
@@ -3167,6 +3206,7 @@ fn testDecl(
     var fn_block: GenZir = .{
         .force_comptime = false,
         .decl_node_index = node,
+        .decl_line = decl_block.decl_line,
         .parent = &decl_block.base,
         .astgen = astgen,
     };
@@ -3200,11 +3240,15 @@ fn testDecl(
     _ = try decl_block.addBreak(.break_inline, block_inst, func_inst);
     try decl_block.setBlockBody(block_inst);
 
-    try wip_decls.payload.ensureUnusedCapacity(gpa, 6);
+    try wip_decls.payload.ensureUnusedCapacity(gpa, 7);
     {
         const contents_hash = std.zig.hashSrc(tree.getNodeSource(node));
         const casted = @bitCast([4]u32, contents_hash);
         wip_decls.payload.appendSliceAssumeCapacity(&casted);
+    }
+    {
+        const line_delta = decl_block.decl_line - gz.decl_line;
+        wip_decls.payload.appendAssumeCapacity(line_delta);
     }
     wip_decls.payload.appendAssumeCapacity(test_name);
     wip_decls.payload.appendAssumeCapacity(block_inst);
@@ -3237,6 +3281,7 @@ fn structDeclInner(
     var block_scope: GenZir = .{
         .parent = scope,
         .decl_node_index = node,
+        .decl_line = gz.calcLine(node),
         .astgen = astgen,
         .force_comptime = true,
         .ref_start_index = gz.ref_start_index,
@@ -3448,6 +3493,7 @@ fn unionDeclInner(
     var block_scope: GenZir = .{
         .parent = scope,
         .decl_node_index = node,
+        .decl_line = gz.calcLine(node),
         .astgen = astgen,
         .force_comptime = true,
         .ref_start_index = gz.ref_start_index,
@@ -3797,6 +3843,7 @@ fn containerDecl(
             var block_scope: GenZir = .{
                 .parent = scope,
                 .decl_node_index = node,
+                .decl_line = gz.calcLine(node),
                 .astgen = astgen,
                 .force_comptime = true,
                 .ref_start_index = gz.ref_start_index,
@@ -4464,7 +4511,9 @@ fn boolBinOp(
     node: ast.Node.Index,
     zir_tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    const node_datas = gz.tree().nodes.items(.data);
+    const astgen = gz.astgen;
+    const tree = &astgen.file.tree;
+    const node_datas = tree.nodes.items(.data);
 
     const lhs = try expr(gz, scope, bool_rl, node_datas[node].lhs);
     const bool_br = try gz.addBoolBr(zir_tag, lhs);

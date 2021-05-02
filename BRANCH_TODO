@@ -1,4 +1,3 @@
- * modify dbg_stmt ZIR instructions to have line/column rather than node indexes
  * decouple AstGen from Module, Compilation
  * AstGen threadlocal
  * extern "foo" for vars and for functions

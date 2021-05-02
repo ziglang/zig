@@ -321,8 +321,9 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. Payload is `ErrorSetDecl`.
         error_set_decl,
         /// Declares the beginning of a statement. Used for debug info.
-        /// Uses the `node` union field.
-        dbg_stmt_node,
+        /// Uses the `dbg_stmt` union field. The line and column are offset
+        /// from the parent declaration.
+        dbg_stmt,
         /// Uses a name to identify a Decl and takes a pointer to it.
         /// Uses the `str_tok` union field.
         decl_ref,
@@ -1016,7 +1017,7 @@ pub const Inst = struct {
                 .enum_decl_nonexhaustive,
                 .opaque_decl,
                 .error_set_decl,
-                .dbg_stmt_node,
+                .dbg_stmt,
                 .decl_ref,
                 .decl_val,
                 .load,
@@ -1276,7 +1277,7 @@ pub const Inst = struct {
                 .enum_decl_nonexhaustive = .pl_node,
                 .opaque_decl = .pl_node,
                 .error_set_decl = .pl_node,
-                .dbg_stmt_node = .node,
+                .dbg_stmt = .dbg_stmt,
                 .decl_ref = .str_tok,
                 .decl_val = .str_tok,
                 .load = .un_node,
@@ -2118,6 +2119,10 @@ pub const Inst = struct {
             switch_inst: Index,
             prong_index: u32,
         },
+        dbg_stmt: struct {
+            line: u32,
+            column: u32,
+        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -2153,6 +2158,7 @@ pub const Inst = struct {
             @"unreachable",
             @"break",
             switch_capture,
+            dbg_stmt,
         };
     };
 
@@ -2193,6 +2199,7 @@ pub const Inst = struct {
     /// 2. align: Ref, // if has_align is set
     /// 3. param_type: Ref // for each param_types_len
     /// 4. body: Index // for each body_len
+    /// 5. src_locs: Func.SrcLocs // if body_len != 0
     pub const ExtendedFunc = struct {
         src_node: i32,
         return_type: Ref,
@@ -2231,10 +2238,21 @@ pub const Inst = struct {
     /// 0. param_type: Ref // for each param_types_len
     ///    - `none` indicates that the param type is `anytype`.
     /// 1. body: Index // for each body_len
+    /// 2. src_locs: SrcLocs // if body_len != 0
     pub const Func = struct {
         return_type: Ref,
         param_types_len: u32,
         body_len: u32,
+
+        pub const SrcLocs = struct {
+            /// Absolute line number in the source file.
+            lbrace_line: u32,
+            /// Absolute line number in the source file.
+            rbrace_line: u32,
+            /// lbrace_column is least significant bits u16
+            /// rbrace_column is most significant bits u16
+            columns: u32,
+        };
     };
 
     /// This data is stored inside extra, with trailing operands according to `operands_len`.
@@ -2398,6 +2416,7 @@ pub const Inst = struct {
     ///      0bX000: whether corresponding decl has a linksection expression
     /// 1. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
+    ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
@@ -2435,6 +2454,7 @@ pub const Inst = struct {
     ///      0bX000: whether corresponding decl has a linksection expression
     /// 1. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
+    ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
@@ -2467,6 +2487,7 @@ pub const Inst = struct {
     ///      0bX000: whether corresponding decl has a linksection expression
     /// 1. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
+    ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
@@ -2509,6 +2530,7 @@ pub const Inst = struct {
     ///      0bX000: whether corresponding decl has a linksection expression
     /// 1. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
+    ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
@@ -2978,7 +3000,6 @@ const Writer = struct {
 
             .breakpoint,
             .fence,
-            .dbg_stmt_node,
             .repeat,
             .repeat_inline,
             .alloc_inferred,
@@ -3006,6 +3027,8 @@ const Writer = struct {
             .switch_capture_else,
             .switch_capture_else_ref,
             => try self.writeSwitchCapture(stream, inst),
+
+            .dbg_stmt => try self.writeDbgStmt(stream, inst),
 
             .extended => try self.writeExtended(stream, inst),
         }
@@ -3606,6 +3629,8 @@ const Writer = struct {
 
             const hash_u32s = self.code.extra[extra_index..][0..4];
             extra_index += 4;
+            const line = self.code.extra[extra_index];
+            extra_index += 1;
             const decl_name_index = self.code.extra[extra_index];
             const decl_name = self.code.nullTerminatedString(decl_name_index);
             extra_index += 1;
@@ -3646,8 +3671,8 @@ const Writer = struct {
                 }
             }
             const tag = self.code.instructions.items(.tag)[decl_index];
-            try stream.print(" hash({}): %{d} = {s}(", .{
-                std.fmt.fmtSliceHexLower(&hash_bytes), decl_index, @tagName(tag),
+            try stream.print(" line({d}) hash({}): %{d} = {s}(", .{
+                line, std.fmt.fmtSliceHexLower(&hash_bytes), decl_index, @tagName(tag),
             });
 
             const decl_block_inst_data = self.code.instructions.items(.data)[decl_index].pl_node;
@@ -3979,6 +4004,11 @@ const Writer = struct {
         const extra = self.code.extraData(Inst.Func, inst_data.payload_index);
         const param_types = self.code.refSlice(extra.end, extra.data.param_types_len);
         const body = self.code.extra[extra.end + param_types.len ..][0..extra.data.body_len];
+        var src_locs: Zir.Inst.Func.SrcLocs = undefined;
+        if (body.len != 0) {
+            const extra_index = extra.end + param_types.len + body.len;
+            src_locs = self.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
+        }
         return self.writeFuncCommon(
             stream,
             param_types,
@@ -3989,6 +4019,7 @@ const Writer = struct {
             .none,
             body,
             src,
+            src_locs,
         );
     }
 
@@ -4019,7 +4050,12 @@ const Writer = struct {
         extra_index += param_types.len;
 
         const body = self.code.extra[extra_index..][0..extra.data.body_len];
+        extra_index += body.len;
 
+        var src_locs: Zir.Inst.Func.SrcLocs = undefined;
+        if (body.len != 0) {
+            src_locs = self.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
+        }
         return self.writeFuncCommon(
             stream,
             param_types,
@@ -4030,6 +4066,7 @@ const Writer = struct {
             align_inst,
             body,
             src,
+            src_locs,
         );
     }
 
@@ -4111,6 +4148,7 @@ const Writer = struct {
         align_inst: Inst.Ref,
         body: []const Inst.Index,
         src: LazySrcLoc,
+        src_locs: Zir.Inst.Func.SrcLocs,
     ) !void {
         try stream.writeAll("[");
         for (param_types) |param_type, i| {
@@ -4134,6 +4172,12 @@ const Writer = struct {
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("}) ");
         }
+        if (body.len != 0) {
+            try stream.print("(lbrace={d}:{d},rbrace={d}:{d}) ", .{
+                src_locs.lbrace_line, @truncate(u16, src_locs.columns),
+                src_locs.rbrace_line, @truncate(u16, src_locs.columns >> 16),
+            });
+        }
         try self.writeSrc(stream, src);
     }
 
@@ -4141,6 +4185,11 @@ const Writer = struct {
         const inst_data = self.code.instructions.items(.data)[inst].switch_capture;
         try self.writeInstIndex(stream, inst_data.switch_inst);
         try stream.print(", {d})", .{inst_data.prong_index});
+    }
+
+    fn writeDbgStmt(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].dbg_stmt;
+        try stream.print("{d}, {d})", .{ inst_data.line, inst_data.column });
     }
 
     fn writeInstRef(self: *Writer, stream: anytype, ref: Inst.Ref) !void {
