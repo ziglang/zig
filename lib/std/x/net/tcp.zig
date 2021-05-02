@@ -316,10 +316,10 @@ pub const Listener = struct {
     }
 };
 
-test "tcp: create non-blocking pair" {
+test "tcp: create client/listener pair" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    const listener = try tcp.Listener.init(.ip, os.SOCK_NONBLOCK | os.SOCK_CLOEXEC);
+    const listener = try tcp.Listener.init(.ip, os.SOCK_CLOEXEC);
     defer listener.deinit();
 
     try listener.bind(tcp.Address.initIPv4(IPv4.unspecified, 0));
@@ -327,13 +327,12 @@ test "tcp: create non-blocking pair" {
 
     const binded_address = try listener.getLocalAddress();
 
-    const client = try tcp.Client.init(.ip, os.SOCK_NONBLOCK | os.SOCK_CLOEXEC);
+    const client = try tcp.Client.init(.ip, os.SOCK_CLOEXEC);
     defer client.deinit();
 
-    testing.expectError(error.WouldBlock, client.connect(binded_address));
-    try client.getError();
+    try client.connect(binded_address);
 
-    const conn = try listener.accept(os.SOCK_NONBLOCK | os.SOCK_CLOEXEC);
+    const conn = try listener.accept(os.SOCK_CLOEXEC);
     defer conn.deinit();
 }
 
