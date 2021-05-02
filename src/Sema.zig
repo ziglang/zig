@@ -695,6 +695,7 @@ pub fn analyzeStructDecl(
         assert(body.len == 0);
         return;
     }
+    extra_index += body.len;
 
     try struct_obj.fields.ensureCapacity(&new_decl_arena.allocator, fields_len);
 
@@ -736,9 +737,8 @@ pub fn analyzeStructDecl(
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
     const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-    const body_end = extra_index + body.len;
+    var bit_bag_index: usize = extra_index;
     extra_index += bit_bags_count;
-    var bit_bag_index: usize = body_end;
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
     while (field_i < fields_len) : (field_i += 1) {
@@ -903,9 +903,10 @@ fn zirEnumDecl(
         try new_decl.finalizeNewArena(&new_decl_arena);
         return sema.analyzeDeclVal(block, src, new_decl);
     }
+    extra_index += body.len;
 
     const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
-    const body_end = extra_index + body.len;
+    const body_end = extra_index;
     extra_index += bit_bags_count;
 
     try enum_obj.fields.ensureCapacity(&new_decl_arena.allocator, fields_len);
