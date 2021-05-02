@@ -2186,14 +2186,14 @@ pub const SrcLoc = struct {
                 return token_starts[src_loc.declSrcToken()] + byte_off;
             },
             .token_offset => |tok_off| {
-                const tok_index = src_loc.declSrcToken() + tok_off;
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const tok_index = src_loc.declSrcToken() + tok_off;
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset, .node_offset_bin_op => |node_off| {
-                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 assert(src_loc.file_scope.tree_loaded);
                 const main_tokens = tree.nodes.items(.main_token);
                 const tok_index = main_tokens[node];
@@ -2201,15 +2201,15 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_back2tok => |node_off| {
-                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const tok_index = tree.firstToken(node) - 2;
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
             .node_offset_var_decl_ty => |node_off| {
-                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_tags = tree.nodes.items(.tag);
                 const full = switch (node_tags[node]) {
                     .global_var_decl => tree.globalVarDecl(node),
@@ -2362,8 +2362,8 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_for_cond, .node_offset_if_cond => |node_off| {
-                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_tags = tree.nodes.items(.tag);
                 const src_node = switch (node_tags[node]) {
                     .if_simple => tree.ifSimple(node).ast.cond_expr,
@@ -2381,8 +2381,8 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_bin_lhs => |node_off| {
-                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
                 const src_node = node_datas[node].lhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2391,8 +2391,8 @@ pub const SrcLoc = struct {
                 return token_starts[tok_index];
             },
             .node_offset_bin_rhs => |node_off| {
-                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
                 const src_node = node_datas[node].rhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2402,8 +2402,8 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_switch_operand => |node_off| {
-                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
                 const src_node = node_datas[node].lhs;
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2413,8 +2413,8 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_switch_special_prong => |node_off| {
-                const switch_node = src_loc.declRelativeToNodeIndex(node_off);
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const switch_node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
@@ -2439,8 +2439,8 @@ pub const SrcLoc = struct {
             },
 
             .node_offset_switch_range => |node_off| {
-                const switch_node = src_loc.declRelativeToNodeIndex(node_off);
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const switch_node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
