@@ -12,6 +12,7 @@ pub const os = struct {
 };
 
 pub const net = struct {
+    pub const ip = @import("x/net/ip.zig");
     pub const tcp = @import("x/net/tcp.zig");
 };
 
