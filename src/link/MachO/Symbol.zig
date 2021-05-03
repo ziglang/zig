@@ -97,6 +97,13 @@ pub fn cast(base: *Symbol, comptime T: type) ?*T {
     return @fieldParentPtr(T, "base", base);
 }
 
+pub fn getTopmostAlias(base: *Symbol) *Symbol {
+    if (base.alias) |alias| {
+        return alias.getTopmostAlias();
+    }
+    return base;
+}
+
 pub fn isStab(sym: macho.nlist_64) bool {
     return (macho.N_STAB & sym.n_type) != 0;
 }

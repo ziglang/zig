@@ -83,8 +83,8 @@ strtab_dir: std.StringHashMapUnmanaged(u32) = .{},
 
 threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
 local_rebases: std.ArrayListUnmanaged(Pointer) = .{},
-stubs: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
-got_entries: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
+stubs: std.ArrayListUnmanaged(*Symbol) = .{},
+got_entries: std.ArrayListUnmanaged(*Symbol) = .{},
 
 stub_helper_stubs_start_off: ?u64 = null,
 
@@ -200,9 +200,9 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.populateMetadata();
     try self.parseInputFiles(files);
     try self.resolveSymbols();
-    self.printSymbols();
+    // self.printSymbols();
+    try self.resolveStubsAndGotEntries();
     return error.Unfinished;
-    // try self.resolveStubsAndGotEntries();
     // try self.updateMetadata();
     // try self.sortSections();
     // try self.allocateTextSegment();
@@ -1413,8 +1413,8 @@ fn resolveSymbols(self: *Zld) !void {
 }
 
 fn resolveStubsAndGotEntries(self: *Zld) !void {
-    for (self.objects.items) |object, object_id| {
-        log.debug("resolving stubs and got entries from {s}", .{object.name});
+    for (self.objects.items) |object| {
+        log.warn("resolving stubs and got entries from {s}", .{object.name});
 
         for (object.sections.items) |sect| {
             const relocs = sect.relocs orelse continue;
@@ -1422,42 +1422,31 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
                 switch (rel.@"type") {
                     .unsigned => continue,
                     .got_page, .got_page_off, .got_load, .got => {
-                        const sym = object.symtab.items[rel.target.symbol];
-                        const sym_name = object.getString(sym.n_strx);
+                        const sym = rel.target.symbol.getTopmostAlias();
+                        if (sym.got_index != null) continue;
 
-                        if (self.got_entries.contains(sym_name)) continue;
+                        const index = @intCast(u32, self.got_entries.items.len);
+                        sym.got_index = index;
+                        try self.got_entries.append(self.allocator, sym);
 
-                        // TODO clean this up
-                        const is_import = self.symtab.get(sym_name).?.tag == .import;
-                        var name = try self.allocator.dupe(u8, sym_name);
-                        const index = @intCast(u32, self.got_entries.items().len);
-                        try self.got_entries.putNoClobber(self.allocator, name, .{
-                            .tag = if (is_import) .import else .local,
-                            .index = index,
-                            .target_addr = 0,
-                            .file = if (is_import) 0 else @intCast(u16, object_id),
-                        });
-
-                        log.debug("    | found GOT entry {s}: {}", .{ sym_name, self.got_entries.get(sym_name) });
+                        log.warn("    | found GOT entry {s}: {*}", .{ sym.name, sym });
                     },
                     else => {
                         if (rel.target != .symbol) continue;
 
-                        const sym = object.symtab.items[rel.target.symbol];
-                        const sym_name = object.getString(sym.n_strx);
+                        const sym = rel.target.symbol.getTopmostAlias();
+                        assert(sym.@"type" != .unresolved);
 
-                        if (!Symbol.isUndef(sym)) continue;
+                        if (sym.stubs_index != null) continue;
+                        if (sym.cast(Symbol.Regular)) |reg| {
+                            if (!reg.weak_ref) continue;
+                        }
 
-                        const in_globals = self.symtab.get(sym_name) orelse unreachable;
+                        const index = @intCast(u32, self.stubs.items.len);
+                        sym.stubs_index = index;
+                        try self.stubs.append(self.allocator, sym);
 
-                        if (in_globals.tag != .import) continue;
-                        if (self.stubs.contains(sym_name)) continue;
-
-                        var name = try self.allocator.dupe(u8, sym_name);
-                        const index = @intCast(u32, self.stubs.items().len);
-                        try self.stubs.putNoClobber(self.allocator, name, index);
-
-                        log.debug("    | found stub {s}: {}", .{ sym_name, self.stubs.get(sym_name) });
+                        log.warn("    | found stub {s}: {*}", .{ sym.name, sym });
                     },
                 }
             }
@@ -1465,16 +1454,12 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
     }
 
     // Finally, put dyld_stub_binder as the final GOT entry
-    var name = try self.allocator.dupe(u8, "dyld_stub_binder");
-    const index = @intCast(u32, self.got_entries.items().len);
-    try self.got_entries.putNoClobber(self.allocator, name, .{
-        .tag = .import,
-        .index = index,
-        .target_addr = 0,
-        .file = 0,
-    });
+    const sym = self.imports.get("dyld_stub_binder") orelse unreachable;
+    const index = @intCast(u32, self.got_entries.items.len);
+    sym.got_index = index;
+    try self.got_entries.append(self.allocator, sym);
 
-    log.debug("    | found GOT entry dyld_stub_binder: {}", .{self.got_entries.get("dyld_stub_binder")});
+    log.warn("    | found GOT entry {s}: {*}", .{ sym.name, sym });
 }
 
 fn resolveRelocsAndWriteSections(self: *Zld) !void {
