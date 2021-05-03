@@ -29,8 +29,8 @@ page_size: ?u16 = null,
 file: ?fs.File = null,
 out_path: ?[]const u8 = null,
 
-objects: std.ArrayListUnmanaged(Object) = .{},
-archives: std.ArrayListUnmanaged(Archive) = .{},
+objects: std.ArrayListUnmanaged(*Object) = .{},
+archives: std.ArrayListUnmanaged(*Archive) = .{},
 
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 
@@ -74,29 +74,22 @@ data_section_index: ?u16 = null,
 bss_section_index: ?u16 = null,
 common_section_index: ?u16 = null,
 
-symtab: std.StringArrayHashMapUnmanaged(Symbol) = .{},
+globals: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
+imports: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
+unresolved: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
+
 strtab: std.ArrayListUnmanaged(u8) = .{},
 strtab_dir: std.StringHashMapUnmanaged(u32) = .{},
 
 threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
 local_rebases: std.ArrayListUnmanaged(Pointer) = .{},
-stubs: std.StringArrayHashMapUnmanaged(u32) = .{},
-got_entries: std.StringArrayHashMapUnmanaged(GotEntry) = .{},
+stubs: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
+got_entries: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
 
 stub_helper_stubs_start_off: ?u64 = null,
 
 mappings: std.AutoHashMapUnmanaged(MappingKey, SectionMapping) = .{},
 unhandled_sections: std.AutoHashMapUnmanaged(MappingKey, u0) = .{},
-
-const GotEntry = struct {
-    tag: enum {
-        local,
-        import,
-    },
-    index: u32,
-    target_addr: u64,
-    file: u16,
-};
 
 const MappingKey = struct {
     object_id: u16,
@@ -124,15 +117,7 @@ pub fn init(allocator: *Allocator) Zld {
 pub fn deinit(self: *Zld) void {
     self.threadlocal_offsets.deinit(self.allocator);
     self.local_rebases.deinit(self.allocator);
-
-    for (self.stubs.items()) |entry| {
-        self.allocator.free(entry.key);
-    }
     self.stubs.deinit(self.allocator);
-
-    for (self.got_entries.items()) |entry| {
-        self.allocator.free(entry.key);
-    }
     self.got_entries.deinit(self.allocator);
 
     for (self.load_commands.items) |*lc| {
@@ -140,23 +125,22 @@ pub fn deinit(self: *Zld) void {
     }
     self.load_commands.deinit(self.allocator);
 
-    for (self.objects.items) |*object| {
+    for (self.objects.items) |object| {
         object.deinit();
+        self.allocator.destroy(object);
     }
     self.objects.deinit(self.allocator);
 
-    for (self.archives.items) |*archive| {
+    for (self.archives.items) |archive| {
         archive.deinit();
+        self.allocator.destroy(archive);
     }
     self.archives.deinit(self.allocator);
 
     self.mappings.deinit(self.allocator);
     self.unhandled_sections.deinit(self.allocator);
 
-    for (self.symtab.items()) |*entry| {
-        entry.value.deinit(self.allocator);
-    }
-    self.symtab.deinit(self.allocator);
+    self.globals.deinit(self.allocator);
     self.strtab.deinit(self.allocator);
 
     {
@@ -216,19 +200,21 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.populateMetadata();
     try self.parseInputFiles(files);
     try self.resolveSymbols();
-    try self.resolveStubsAndGotEntries();
-    try self.updateMetadata();
-    try self.sortSections();
-    try self.allocateTextSegment();
-    try self.allocateDataConstSegment();
-    try self.allocateDataSegment();
-    self.allocateLinkeditSegment();
-    try self.allocateSymbols();
-    try self.allocateStubsAndGotEntries();
-    try self.allocateCppStatics();
-    try self.writeStubHelperCommon();
-    try self.resolveRelocsAndWriteSections();
-    try self.flush();
+    self.printSymbols();
+    return error.Unfinished;
+    // try self.resolveStubsAndGotEntries();
+    // try self.updateMetadata();
+    // try self.sortSections();
+    // try self.allocateTextSegment();
+    // try self.allocateDataConstSegment();
+    // try self.allocateDataSegment();
+    // self.allocateLinkeditSegment();
+    // try self.allocateSymbols();
+    // try self.allocateStubsAndGotEntries();
+    // try self.allocateCppStatics();
+    // try self.writeStubHelperCommon();
+    // try self.resolveRelocsAndWriteSections();
+    // try self.flush();
 }
 
 fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
@@ -291,7 +277,10 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
     for (classified.items) |input| {
         switch (input.kind) {
             .object => {
-                var object = Object.init(self.allocator);
+                const object = try self.allocator.create(Object);
+                errdefer self.allocator.destroy(object);
+
+                object.* = Object.init(self.allocator);
                 object.arch = self.arch.?;
                 object.name = try self.allocator.dupe(u8, input.name);
                 object.file = input.file;
@@ -299,7 +288,10 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
                 try self.objects.append(self.allocator, object);
             },
             .archive => {
-                var archive = Archive.init(self.allocator);
+                const archive = try self.allocator.create(Archive);
+                errdefer self.allocator.destroy(archive);
+
+                archive.* = Archive.init(self.allocator);
                 archive.arch = self.arch.?;
                 archive.name = try self.allocator.dupe(u8, input.name);
                 archive.file = input.file;
@@ -1274,141 +1266,150 @@ fn writeStubInStubHelper(self: *Zld, index: u32) !void {
     try self.file.?.pwriteAll(code, stub_off);
 }
 
-fn resolveSymbolsInObject(self: *Zld, object_id: u16) !void {
-    const object = self.objects.items[object_id];
-    log.debug("resolving symbols in '{s}'", .{object.name});
+fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
+    log.warn("resolving symbols in '{s}'", .{object.name});
 
-    for (object.symtab.items) |sym, sym_id| {
-        if (Symbol.isLocal(sym)) {
-            // If symbol is local to CU, we don't put it in the global symbol table.
-            continue;
-        } else if (Symbol.isGlobal(sym)) {
-            const sym_name = object.getString(sym.n_strx);
-            const is_weak = Symbol.isWeakDef(sym) or Symbol.isPext(sym);
-            const global = self.symtab.getEntry(sym_name) orelse {
+    for (object.symbols.items) |sym| {
+        if (sym.cast(Symbol.Regular)) |reg| {
+            if (reg.linkage == .translation_unit) continue; // Symbol local to TU.
+
+            if (self.unresolved.swapRemove(sym.name)) |entry| {
+                // Create link to the global.
+                entry.value.alias = sym;
+            }
+            const entry = self.globals.getEntry(sym.name) orelse {
                 // Put new global symbol into the symbol table.
-                const name = try self.allocator.dupe(u8, sym_name);
-                try self.symtab.putNoClobber(self.allocator, name, .{
-                    .tag = if (is_weak) .weak else .strong,
-                    .name = name,
-                    .address = 0,
-                    .section = 0,
-                    .file = object_id,
-                    .index = @intCast(u32, sym_id),
-                });
+                try self.globals.putNoClobber(self.allocator, sym.name, sym);
                 continue;
             };
+            const g_sym = entry.value;
+            const g_reg = g_sym.cast(Symbol.Regular) orelse unreachable;
 
-            switch (global.value.tag) {
-                .weak => {
-                    if (is_weak) continue; // Nothing to do for weak symbol.
+            switch (g_reg.linkage) {
+                .translation_unit => unreachable,
+                .linkage_unit => {
+                    if (reg.linkage == .linkage_unit) {
+                        // Create link to the first encountered linkage_unit symbol.
+                        sym.alias = g_sym;
+                        continue;
+                    }
                 },
-                .strong => {
-                    if (!is_weak) {
-                        log.debug("strong symbol '{s}' defined multiple times", .{sym_name});
+                .global => {
+                    if (reg.linkage == .global) {
+                        log.warn("symbol '{s}' defined multiple times", .{reg.base.name});
                         return error.MultipleSymbolDefinitions;
                     }
+                    sym.alias = g_sym;
                     continue;
                 },
-                else => {},
             }
 
-            global.value.tag = if (is_weak) .weak else .strong;
-            global.value.file = object_id;
-            global.value.index = @intCast(u32, sym_id);
-        } else if (Symbol.isUndef(sym)) {
-            const sym_name = object.getString(sym.n_strx);
-            if (self.symtab.contains(sym_name)) continue; // Nothing to do if we already found a definition.
-
-            const name = try self.allocator.dupe(u8, sym_name);
-            try self.symtab.putNoClobber(self.allocator, name, .{
-                .tag = .undef,
-                .name = name,
-                .address = 0,
-                .section = 0,
-            });
+            g_sym.alias = sym;
+            entry.value = sym;
+        } else if (sym.cast(Symbol.Unresolved)) |und| {
+            if (self.globals.get(sym.name)) |g_sym| {
+                sym.alias = g_sym;
+                continue;
+            }
+            if (self.unresolved.get(sym.name)) |u_sym| {
+                sym.alias = u_sym;
+                continue;
+            }
+            try self.unresolved.putNoClobber(self.allocator, sym.name, sym);
         } else unreachable;
     }
 }
 
 fn resolveSymbols(self: *Zld) !void {
     // First pass, resolve symbols in provided objects.
-    for (self.objects.items) |object, object_id| {
-        try self.resolveSymbolsInObject(@intCast(u16, object_id));
+    for (self.objects.items) |object| {
+        try self.resolveSymbolsInObject(object);
     }
 
     // Second pass, resolve symbols in static libraries.
     var next_sym: usize = 0;
-    var nsyms: usize = self.symtab.items().len;
-    while (next_sym < nsyms) : (next_sym += 1) {
-        const sym = self.symtab.items()[next_sym];
-        if (sym.value.tag != .undef) continue;
+    while (true) {
+        if (next_sym == self.unresolved.count()) break;
 
-        const sym_name = sym.value.name;
+        const entry = self.unresolved.items()[next_sym];
+        const sym = entry.value;
+
+        var reset: bool = false;
         for (self.archives.items) |archive| {
             // Check if the entry exists in a static archive.
-            const offsets = archive.toc.get(sym_name) orelse {
+            const offsets = archive.toc.get(sym.name) orelse {
                 // No hit.
                 continue;
             };
             assert(offsets.items.len > 0);
 
-            const object = try archive.parseObject(offsets.items[0]);
-            const object_id = @intCast(u16, self.objects.items.len);
-            try self.objects.append(self.allocator, object);
-            try self.resolveSymbolsInObject(object_id);
+            const object = try self.allocator.create(Object);
+            errdefer self.allocator.destroy(object);
 
-            nsyms = self.symtab.items().len;
+            object.* = try archive.parseObject(offsets.items[0]);
+            try self.objects.append(self.allocator, object);
+            try self.resolveSymbolsInObject(object);
+
+            reset = true;
             break;
+        }
+
+        if (reset) {
+            next_sym = 0;
+        } else {
+            next_sym += 1;
         }
     }
 
     // Third pass, resolve symbols in dynamic libraries.
     // TODO Implement libSystem as a hard-coded library, or ship with
     // a libSystem.B.tbd definition file?
-    for (self.symtab.items()) |*entry| {
-        if (entry.value.tag != .undef) continue;
+    try self.imports.ensureCapacity(self.allocator, self.unresolved.count());
+    for (self.unresolved.items()) |entry| {
+        const proxy = try self.allocator.create(Symbol.Proxy);
+        errdefer self.allocator.destroy(proxy);
 
-        entry.value.tag = .import;
-        entry.value.file = 0;
+        proxy.* = .{
+            .base = .{
+                .@"type" = .proxy,
+                .name = try self.allocator.dupe(u8, entry.key),
+            },
+            .dylib = 0,
+        };
+
+        self.imports.putAssumeCapacityNoClobber(proxy.base.name, &proxy.base);
+        entry.value.alias = &proxy.base;
     }
+    self.unresolved.clearAndFree(self.allocator);
 
     // If there are any undefs left, flag an error.
-    var has_unresolved = false;
-    for (self.symtab.items()) |entry| {
-        if (entry.value.tag != .undef) continue;
-
-        has_unresolved = true;
-        log.err("undefined reference to symbol '{s}'", .{entry.value.name});
-    }
-    if (has_unresolved) {
+    if (self.unresolved.count() > 0) {
+        for (self.unresolved.items()) |entry| {
+            log.err("undefined reference to symbol '{s}'", .{entry.key});
+            log.err("    | referenced in {s}", .{
+                entry.value.cast(Symbol.Unresolved).?.file.name.?,
+            });
+        }
         return error.UndefinedSymbolReference;
     }
 
     // Finally put dyld_stub_binder as an Import
-    var name = try self.allocator.dupe(u8, "dyld_stub_binder");
-    try self.symtab.putNoClobber(self.allocator, name, .{
-        .tag = .import,
-        .name = name,
-        .address = 0,
-        .section = 0,
-        .file = 0,
-    });
+    const dyld_stub_binder = try self.allocator.create(Symbol.Proxy);
+    errdefer self.allocator.destroy(dyld_stub_binder);
 
-    {
-        log.debug("symtab", .{});
-        for (self.symtab.items()) |sym| {
-            switch (sym.value.tag) {
-                .weak, .strong => {
-                    log.debug("    | {s} => {s}", .{ sym.key, self.objects.items[sym.value.file.?].name.? });
-                },
-                .import => {
-                    log.debug("    | {s} => libSystem.B.dylib", .{sym.key});
-                },
-                else => unreachable,
-            }
-        }
-    }
+    dyld_stub_binder.* = .{
+        .base = .{
+            .@"type" = .proxy,
+            .name = try self.allocator.dupe(u8, "dyld_stub_binder"),
+        },
+        .dylib = 0,
+    };
+
+    try self.imports.putNoClobber(
+        self.allocator,
+        dyld_stub_binder.base.name,
+        &dyld_stub_binder.base,
+    );
 }
 
 fn resolveStubsAndGotEntries(self: *Zld) !void {
@@ -2978,4 +2979,34 @@ fn getString(self: *const Zld, str_off: u32) []const u8 {
 pub fn parseName(name: *const [16]u8) []const u8 {
     const len = mem.indexOfScalar(u8, name, @as(u8, 0)) orelse name.len;
     return name[0..len];
+}
+
+fn printSymbols(self: *Zld) void {
+    log.warn("globals", .{});
+    for (self.globals.items()) |entry| {
+        const sym = entry.value.cast(Symbol.Regular) orelse unreachable;
+        log.warn("    | {s} @ {*}", .{ sym.base.name, entry.value });
+        log.warn("      => alias of {*}", .{sym.base.alias});
+        log.warn("      => linkage {s}", .{sym.linkage});
+        log.warn("      => defined in {s}", .{sym.file.name.?});
+    }
+    for (self.objects.items) |object| {
+        log.warn("locals in {s}", .{object.name.?});
+        for (object.symbols.items) |sym| {
+            log.warn("    | {s} @ {*}", .{ sym.name, sym });
+            log.warn("      => alias of {*}", .{sym.alias});
+            if (sym.cast(Symbol.Regular)) |reg| {
+                log.warn("      => linkage {s}", .{reg.linkage});
+            } else {
+                log.warn("      => unresolved", .{});
+            }
+        }
+    }
+    log.warn("proxies", .{});
+    for (self.imports.items()) |entry| {
+        const sym = entry.value.cast(Symbol.Proxy) orelse unreachable;
+        log.warn("    | {s} @ {*}", .{ sym.base.name, entry.value });
+        log.warn("      => alias of {*}", .{sym.base.alias});
+        log.warn("      => defined in libSystem.B.dylib", .{});
+    }
 }

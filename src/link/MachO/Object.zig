@@ -365,7 +365,7 @@ pub fn parseSymbols(self: *Object) !void {
                         .@"type" = .regular,
                         .name = name,
                     },
-                    .linkage = .translation_unit,
+                    .linkage = linkage,
                     .address = sym.n_value,
                     .section = sym.n_sect - 1,
                     .weak_ref = Symbol.isWeakRef(sym),

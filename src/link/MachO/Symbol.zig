@@ -19,6 +19,15 @@ pub const Type = enum {
 /// Symbol name. Owned slice.
 name: []u8,
 
+/// Alias of.
+alias: ?*Symbol = null,
+
+/// Index in GOT table for indirection.
+got_index: ?u32 = null,
+
+/// Index in stubs table for late binding.
+stubs_index: ?u32 = null,
+
 pub const Regular = struct {
     base: Symbol,
 
@@ -70,9 +79,6 @@ pub const Proxy = struct {
 
 pub const Unresolved = struct {
     base: Symbol,
-
-    /// Alias of.
-    alias: ?*Symbol = null,
 
     /// File where this symbol was referenced.
     file: *Object,
