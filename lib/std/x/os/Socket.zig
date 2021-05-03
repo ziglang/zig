@@ -1,18 +1,109 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2021 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+
 const std = @import("../../std.zig");
+const net = @import("net.zig");
 
 const os = std.os;
 const mem = std.mem;
-const net = std.net;
 const time = std.time;
-const builtin = std.builtin;
-const testing = std.testing;
 
+/// A generic socket abstraction.
 const Socket = @This();
 
 /// A socket-address pair.
 pub const Connection = struct {
     socket: Socket,
-    address: net.Address,
+    address: Socket.Address,
+
+    /// Enclose a socket and address into a socket-address pair.
+    pub fn from(socket: Socket, address: Socket.Address) Socket.Connection {
+        return .{ .socket = socket, .address = address };
+    }
+};
+
+/// A generic socket address abstraction. It is safe to directly access and modify
+/// the fields of a `Socket.Address`.
+pub const Address = union(enum) {
+    ipv4: net.IPv4.Address,
+    ipv6: net.IPv6.Address,
+
+    /// Instantiate a new address with a IPv4 host and port.
+    pub fn initIPv4(host: net.IPv4, port: u16) Socket.Address {
+        return .{ .ipv4 = .{ .host = host, .port = port } };
+    }
+
+    /// Instantiate a new address with a IPv6 host and port.
+    pub fn initIPv6(host: net.IPv6, port: u16) Socket.Address {
+        return .{ .ipv6 = .{ .host = host, .port = port } };
+    }
+
+    /// Parses a `sockaddr` into a generic socket address.
+    pub fn fromNative(address: *align(4) const os.sockaddr) Socket.Address {
+        switch (address.family) {
+            os.AF_INET => {
+                const info = @ptrCast(*const os.sockaddr_in, address);
+                const host = net.IPv4{ .octets = @bitCast([4]u8, info.addr) };
+                const port = mem.bigToNative(u16, info.port);
+                return Socket.Address.initIPv4(host, port);
+            },
+            os.AF_INET6 => {
+                const info = @ptrCast(*const os.sockaddr_in6, address);
+                const host = net.IPv6{ .octets = info.addr, .scope_id = info.scope_id };
+                const port = mem.bigToNative(u16, info.port);
+                return Socket.Address.initIPv6(host, port);
+            },
+            else => unreachable,
+        }
+    }
+
+    /// Encodes a generic socket address into an extern union that may be reliably
+    /// casted into a `sockaddr` which may be passed into socket syscalls.
+    pub fn toNative(self: Socket.Address) extern union {
+        ipv4: os.sockaddr_in,
+        ipv6: os.sockaddr_in6,
+    } {
+        return switch (self) {
+            .ipv4 => |address| .{
+                .ipv4 = .{
+                    .addr = @bitCast(u32, address.host.octets),
+                    .port = mem.nativeToBig(u16, address.port),
+                },
+            },
+            .ipv6 => |address| .{
+                .ipv6 = .{
+                    .addr = address.host.octets,
+                    .port = mem.nativeToBig(u16, address.port),
+                    .scope_id = address.host.scope_id,
+                    .flowinfo = 0,
+                },
+            },
+        };
+    }
+
+    /// Returns the number of bytes that make up the `sockaddr` equivalent to the address. 
+    pub fn getNativeSize(self: Socket.Address) u32 {
+        return switch (self) {
+            .ipv4 => @sizeOf(os.sockaddr_in),
+            .ipv6 => @sizeOf(os.sockaddr_in6),
+        };
+    }
+
+    /// Implements the `std.fmt.format` API.
+    pub fn format(
+        self: Socket.Address,
+        comptime layout: []const u8,
+        opts: fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .ipv4 => |address| try fmt.format(writer, "{}:{}", .{ address.host, address.port }),
+            .ipv6 => |address| try fmt.format(writer, "{}:{}", .{ address.host, address.port }),
+        }
+    }
 };
 
 /// The underlying handle of a socket.
@@ -23,19 +114,24 @@ pub fn init(domain: u32, socket_type: u32, protocol: u32) !Socket {
     return Socket{ .fd = try os.socket(domain, socket_type, protocol) };
 }
 
+/// Enclose a socket abstraction over an existing socket file descriptor.
+pub fn from(fd: os.socket_t) Socket {
+    return Socket{ .fd = fd };
+}
+
 /// Closes the socket.
 pub fn deinit(self: Socket) void {
     os.closeSocket(self.fd);
 }
 
-/// Shutdown either the read side, or write side, or the entirety of a socket.
+/// Shutdown either the read side, write side, or all side of the socket.
 pub fn shutdown(self: Socket, how: os.ShutdownHow) !void {
     return os.shutdown(self.fd, how);
 }
 
 /// Binds the socket to an address.
-pub fn bind(self: Socket, address: net.Address) !void {
-    return os.bind(self.fd, &address.any, address.getOsSockLen());
+pub fn bind(self: Socket, address: Socket.Address) !void {
+    return os.bind(self.fd, @ptrCast(*const os.sockaddr, &address.toNative()), address.getNativeSize());
 }
 
 /// Start listening for incoming connections on the socket.
@@ -44,8 +140,8 @@ pub fn listen(self: Socket, max_backlog_size: u31) !void {
 }
 
 /// Have the socket attempt to the connect to an address.
-pub fn connect(self: Socket, address: net.Address) !void {
-    return os.connect(self.fd, &address.any, address.getOsSockLen());
+pub fn connect(self: Socket, address: Socket.Address) !void {
+    return os.connect(self.fd, @ptrCast(*const os.sockaddr, &address.toNative()), address.getNativeSize());
 }
 
 /// Accept a pending incoming connection queued to the kernel backlog
@@ -54,12 +150,10 @@ pub fn accept(self: Socket, flags: u32) !Socket.Connection {
     var address: os.sockaddr = undefined;
     var address_len: u32 = @sizeOf(os.sockaddr);
 
-    const fd = try os.accept(self.fd, &address, &address_len, flags);
+    const socket = Socket{ .fd = try os.accept(self.fd, &address, &address_len, flags) };
+    const socket_address = Socket.Address.fromNative(@alignCast(4, &address));
 
-    return Connection{
-        .socket = Socket{ .fd = fd },
-        .address = net.Address.initPosix(@alignCast(4, &address)),
-    };
+    return Socket.Connection.from(socket, socket_address);
 }
 
 /// Read data from the socket into the buffer provided. It returns the
@@ -100,11 +194,11 @@ pub fn sendmsg(self: Socket, msg: os.msghdr_const, flags: u32) !usize {
 }
 
 /// Query the address that the socket is locally bounded to.
-pub fn getLocalAddress(self: Socket) !net.Address {
+pub fn getLocalAddress(self: Socket) !Socket.Address {
     var address: os.sockaddr = undefined;
     var address_len: u32 = @sizeOf(os.sockaddr);
     try os.getsockname(self.fd, &address, &address_len);
-    return net.Address.initPosix(@alignCast(4, &address));
+    return Socket.Address.fromNative(@alignCast(4, &address));
 }
 
 /// Query and return the latest cached error on the socket.
@@ -164,33 +258,6 @@ pub fn setReusePort(self: Socket, enabled: bool) !void {
     return error.UnsupportedSocketOption;
 }
 
-/// Disable Nagle's algorithm on a TCP socket. It returns `error.UnsupportedSocketOption` if the host does not support
-/// sockets disabling Nagle's algorithm.
-pub fn setNoDelay(self: Socket, enabled: bool) !void {
-    if (comptime @hasDecl(os, "TCP_NODELAY")) {
-        return os.setsockopt(self.fd, os.IPPROTO_TCP, os.TCP_NODELAY, mem.asBytes(&@as(usize, @boolToInt(enabled))));
-    }
-    return error.UnsupportedSocketOption;
-}
-
-/// Enables TCP Fast Open (RFC 7413) on a TCP socket. It returns `error.UnsupportedSocketOption` if the host does not
-/// support TCP Fast Open.
-pub fn setFastOpen(self: Socket, enabled: bool) !void {
-    if (comptime @hasDecl(os, "TCP_FASTOPEN")) {
-        return os.setsockopt(self.fd, os.IPPROTO_TCP, os.TCP_FASTOPEN, mem.asBytes(&@as(usize, @boolToInt(enabled))));
-    }
-    return error.UnsupportedSocketOption;
-}
-
-/// Enables TCP Quick ACK on a TCP socket to immediately send rather than delay ACKs when necessary. It returns
-/// `error.UnsupportedSocketOption` if the host does not support TCP Quick ACK.
-pub fn setQuickACK(self: Socket, enabled: bool) !void {
-    if (comptime @hasDecl(os, "TCP_QUICKACK")) {
-        return os.setsockopt(self.fd, os.IPPROTO_TCP, os.TCP_QUICKACK, mem.asBytes(&@as(usize, @boolToInt(enabled))));
-    }
-    return error.UnsupportedSocketOption;
-}
-
 /// Set the write buffer size of the socket.
 pub fn setWriteBufferSize(self: Socket, size: u32) !void {
     return os.setsockopt(self.fd, os.SOL_SOCKET, os.SO_SNDBUF, mem.asBytes(&size));
@@ -206,8 +273,8 @@ pub fn setReadBufferSize(self: Socket, size: u32) !void {
 /// to the socket will thereafter return `error.WouldBlock` should the timeout be exceeded.
 pub fn setWriteTimeout(self: Socket, milliseconds: usize) !void {
     const timeout = os.timeval{
-        .tv_sec = @intCast(isize, milliseconds / time.ms_per_s),
-        .tv_usec = @intCast(isize, (milliseconds % time.ms_per_s) * time.us_per_ms),
+        .tv_sec = @intCast(i32, milliseconds / time.ms_per_s),
+        .tv_usec = @intCast(i32, (milliseconds % time.ms_per_s) * time.us_per_ms),
     };
 
     return os.setsockopt(self.fd, os.SOL_SOCKET, os.SO_SNDTIMEO, mem.asBytes(&timeout));
@@ -219,58 +286,9 @@ pub fn setWriteTimeout(self: Socket, milliseconds: usize) !void {
 /// exceeded.
 pub fn setReadTimeout(self: Socket, milliseconds: usize) !void {
     const timeout = os.timeval{
-        .tv_sec = @intCast(isize, milliseconds / time.ms_per_s),
-        .tv_usec = @intCast(isize, (milliseconds % time.ms_per_s) * time.us_per_ms),
+        .tv_sec = @intCast(i32, milliseconds / time.ms_per_s),
+        .tv_usec = @intCast(i32, (milliseconds % time.ms_per_s) * time.us_per_ms),
     };
 
     return os.setsockopt(self.fd, os.SOL_SOCKET, os.SO_RCVTIMEO, mem.asBytes(&timeout));
-}
-
-test {
-    testing.refAllDecls(@This());
-}
-
-test "socket/linux: set read timeout of 1 millisecond on blocking socket" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
-
-    const a = try Socket.init(os.AF_INET, os.SOCK_STREAM | os.SOCK_CLOEXEC, os.IPPROTO_TCP);
-    defer a.deinit();
-
-    try a.bind(net.Address.initIp4([_]u8{ 0, 0, 0, 0 }, 0));
-    try a.listen(128);
-
-    const binded_address = try a.getLocalAddress();
-
-    const b = try Socket.init(os.AF_INET, os.SOCK_STREAM | os.SOCK_CLOEXEC, os.IPPROTO_TCP);
-    defer b.deinit();
-
-    try b.connect(binded_address);
-    try b.setReadTimeout(1);
-
-    const ab = try a.accept(os.SOCK_CLOEXEC);
-    defer ab.socket.deinit();
-
-    var buf: [1]u8 = undefined;
-    testing.expectError(error.WouldBlock, b.read(&buf));
-}
-
-test "socket/linux: create non-blocking socket pair" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
-
-    const a = try Socket.init(os.AF_INET, os.SOCK_STREAM | os.SOCK_NONBLOCK | os.SOCK_CLOEXEC, os.IPPROTO_TCP);
-    defer a.deinit();
-
-    try a.bind(net.Address.initIp4([_]u8{ 0, 0, 0, 0 }, 0));
-    try a.listen(128);
-
-    const binded_address = try a.getLocalAddress();
-
-    const b = try Socket.init(os.AF_INET, os.SOCK_STREAM | os.SOCK_NONBLOCK | os.SOCK_CLOEXEC, os.IPPROTO_TCP);
-    defer b.deinit();
-
-    testing.expectError(error.WouldBlock, b.connect(binded_address));
-    try b.getError();
-
-    const ab = try a.accept(os.SOCK_NONBLOCK | os.SOCK_CLOEXEC);
-    defer ab.socket.deinit();
 }

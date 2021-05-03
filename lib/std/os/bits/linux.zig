@@ -32,6 +32,7 @@ pub usingnamespace @import("linux/prctl.zig");
 pub usingnamespace @import("linux/securebits.zig");
 
 const is_mips = builtin.arch.isMIPS();
+const is_ppc = builtin.arch.isPPC();
 const is_ppc64 = builtin.arch.isPPC64();
 const is_sparc = builtin.arch.isSPARC();
 
@@ -458,7 +459,39 @@ pub const AF_QIPCRTR = PF_QIPCRTR;
 pub const AF_SMC = PF_SMC;
 pub const AF_MAX = PF_MAX;
 
-pub usingnamespace if (!is_mips)
+pub usingnamespace if (is_mips)
+    struct {}
+else if (is_ppc or is_ppc64)
+    struct {
+        pub const SO_DEBUG = 1;
+        pub const SO_REUSEADDR = 2;
+        pub const SO_TYPE = 3;
+        pub const SO_ERROR = 4;
+        pub const SO_DONTROUTE = 5;
+        pub const SO_BROADCAST = 6;
+        pub const SO_SNDBUF = 7;
+        pub const SO_RCVBUF = 8;
+        pub const SO_KEEPALIVE = 9;
+        pub const SO_OOBINLINE = 10;
+        pub const SO_NO_CHECK = 11;
+        pub const SO_PRIORITY = 12;
+        pub const SO_LINGER = 13;
+        pub const SO_BSDCOMPAT = 14;
+        pub const SO_REUSEPORT = 15;
+        pub const SO_RCVLOWAT = 16;
+        pub const SO_SNDLOWAT = 17;
+        pub const SO_RCVTIMEO = 18;
+        pub const SO_SNDTIMEO = 19;
+        pub const SO_PASSCRED = 20;
+        pub const SO_PEERCRED = 21;
+        pub const SO_ACCEPTCONN = 30;
+        pub const SO_PEERSEC = 31;
+        pub const SO_SNDBUFFORCE = 32;
+        pub const SO_RCVBUFFORCE = 33;
+        pub const SO_PROTOCOL = 38;
+        pub const SO_DOMAIN = 39;
+    }
+else
     struct {
         pub const SO_DEBUG = 1;
         pub const SO_REUSEADDR = 2;
@@ -487,9 +520,7 @@ pub usingnamespace if (!is_mips)
         pub const SO_RCVBUFFORCE = 33;
         pub const SO_PROTOCOL = 38;
         pub const SO_DOMAIN = 39;
-    }
-else
-    struct {};
+    };
 
 pub const SO_SECURITY_AUTHENTICATION = 22;
 pub const SO_SECURITY_ENCRYPTION_TRANSPORT = 23;
