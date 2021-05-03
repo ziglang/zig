@@ -822,6 +822,13 @@ pub const Target = struct {
                 };
             }
 
+            pub fn isSPIRV(arch: Arch) bool {
+                return switch (arch) {
+                    .spirv32, .spirv64 => true,
+                    else => false,
+                };
+            }
+
             pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) !*const Cpu.Model {
                 for (arch.allCpuModels()) |cpu| {
                     if (mem.eql(u8, cpu_name, cpu.name)) {
@@ -1323,6 +1330,9 @@ pub const Target = struct {
         }
         if (cpu_arch.isWasm()) {
             return .wasm;
+        }
+        if (cpu_arch.isSPIRV()) {
+            return .spirv;
         }
         return .elf;
     }
