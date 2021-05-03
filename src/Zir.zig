@@ -2866,17 +2866,11 @@ const Writer = struct {
             .slice_start,
             .slice_end,
             .slice_sentinel,
-            .struct_init,
-            .struct_init_ref,
-            .struct_init_anon,
-            .struct_init_anon_ref,
             .array_init,
             .array_init_anon,
             .array_init_ref,
             .array_init_anon_ref,
             .union_init_ptr,
-            .field_type,
-            .field_type_ref,
             .cmpxchg_strong,
             .cmpxchg_weak,
             .shuffle,
@@ -2889,6 +2883,17 @@ const Writer = struct {
             .memset,
             .builtin_async_call,
             => try self.writePlNode(stream, inst),
+
+            .struct_init,
+            .struct_init_ref,
+            => try self.writeStructInit(stream, inst),
+
+            .struct_init_anon,
+            .struct_init_anon_ref,
+            => try self.writeStructInitAnon(stream, inst),
+
+            .field_type => try self.writeFieldType(stream, inst),
+            .field_type_ref => try self.writeFieldTypeRef(stream, inst),
 
             .error_set_decl => try self.writePlNodeErrorSetDecl(stream, inst),
 
@@ -3236,6 +3241,70 @@ const Writer = struct {
 
         try stream.print("{}, ", .{std.zig.fmtId(decl_name)});
         try self.writeInstRef(stream, extra.options);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeStructInit(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.StructInit, inst_data.payload_index);
+        var field_i: u32 = 0;
+        var extra_index = extra.end;
+
+        while (field_i < extra.data.fields_len) : (field_i += 1) {
+            const item = self.code.extraData(Inst.StructInit.Item, extra_index);
+            extra_index = item.end;
+
+            if (field_i != 0) {
+                try stream.writeAll(", [");
+            } else {
+                try stream.writeAll("[");
+            }
+            try self.writeInstIndex(stream, item.data.field_type);
+            try stream.writeAll(", ");
+            try self.writeInstRef(stream, item.data.init);
+            try stream.writeAll("]");
+        }
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeStructInitAnon(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.StructInitAnon, inst_data.payload_index);
+        var field_i: u32 = 0;
+        var extra_index = extra.end;
+
+        while (field_i < extra.data.fields_len) : (field_i += 1) {
+            const item = self.code.extraData(Inst.StructInitAnon.Item, extra_index);
+            extra_index = item.end;
+
+            const field_name = self.code.nullTerminatedString(item.data.field_name);
+
+            const prefix = if (field_i != 0) ", [" else "[";
+            try stream.print("{s}[{s}=", .{ prefix, field_name });
+            try self.writeInstRef(stream, item.data.init);
+            try stream.writeAll("]");
+        }
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeFieldType(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.FieldType, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.container_type);
+        const field_name = self.code.nullTerminatedString(extra.name_start);
+        try stream.print(", {s}) ", .{field_name});
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeFieldTypeRef(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.FieldTypeRef, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.container_type);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.field_name);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
