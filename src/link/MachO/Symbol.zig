@@ -66,6 +66,13 @@ pub const Regular = struct {
         linkage_unit,
         global,
     };
+
+    pub fn isTemp(regular: *Regular) bool {
+        if (regular.linkage == .translation_unit) {
+            return mem.startsWith(u8, regular.base.name, "l") or mem.startsWith(u8, regular.base.name, "L");
+        }
+        return false;
+    }
 };
 
 pub const Proxy = struct {
