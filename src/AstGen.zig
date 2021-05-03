@@ -1,8 +1,4 @@
-//! A Work-In-Progress `Zir`. This is a shared parent of all
-//! `GenZir` scopes. Once the `Zir` is produced, this struct
-//! is deinitialized.
-//! The `GenZir.finish` function converts this to a `Zir`.
-
+//! Ingests an AST and produces ZIR code.
 const AstGen = @This();
 
 const std = @import("std");
