@@ -202,16 +202,14 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.resolveSymbols();
     // self.printSymbols();
     try self.resolveStubsAndGotEntries();
+    try self.updateMetadata();
+    try self.sortSections();
+    try self.allocateTextSegment();
+    try self.allocateDataConstSegment();
+    try self.allocateDataSegment();
+    self.allocateLinkeditSegment();
+    try self.allocateSymbols();
     return error.Unfinished;
-    // try self.updateMetadata();
-    // try self.sortSections();
-    // try self.allocateTextSegment();
-    // try self.allocateDataConstSegment();
-    // try self.allocateDataSegment();
-    // self.allocateLinkeditSegment();
-    // try self.allocateSymbols();
-    // try self.allocateStubsAndGotEntries();
-    // try self.allocateCppStatics();
     // try self.writeStubHelperCommon();
     // try self.resolveRelocsAndWriteSections();
     // try self.flush();
@@ -797,7 +795,7 @@ fn sortSections(self: *Zld) !void {
 
 fn allocateTextSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const nstubs = @intCast(u32, self.stubs.items().len);
+    const nstubs = @intCast(u32, self.stubs.items.len);
 
     const base_vmaddr = self.load_commands.items[self.pagezero_segment_cmd_index.?].Segment.inner.vmsize;
     seg.inner.fileoff = 0;
@@ -848,7 +846,7 @@ fn allocateTextSegment(self: *Zld) !void {
 
 fn allocateDataConstSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
-    const nentries = @intCast(u32, self.got_entries.items().len);
+    const nentries = @intCast(u32, self.got_entries.items.len);
 
     const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     seg.inner.fileoff = text_seg.inner.fileoff + text_seg.inner.filesize;
@@ -863,7 +861,7 @@ fn allocateDataConstSegment(self: *Zld) !void {
 
 fn allocateDataSegment(self: *Zld) !void {
     const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-    const nstubs = @intCast(u32, self.stubs.items().len);
+    const nstubs = @intCast(u32, self.stubs.items.len);
 
     const data_const_seg = self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
     seg.inner.fileoff = data_const_seg.inner.fileoff + data_const_seg.inner.filesize;
@@ -906,95 +904,46 @@ fn allocateSegment(self: *Zld, index: u16, offset: u64) !void {
 }
 
 fn allocateSymbols(self: *Zld) !void {
-    for (self.objects.items) |*object, object_id| {
-        for (object.locals.items()) |*entry| {
-            const source_sym = object.symtab.items[entry.value.index.?];
-            const source_sect_id = source_sym.n_sect - 1;
+    for (self.objects.items) |object, object_id| {
+        for (object.symbols.items) |sym| {
+            const reg = sym.cast(Symbol.Regular) orelse continue;
 
             // TODO I am more and more convinced we should store the mapping as part of the Object struct.
             const target_mapping = self.mappings.get(.{
                 .object_id = @intCast(u16, object_id),
-                .source_sect_id = source_sect_id,
+                .source_sect_id = reg.section,
             }) orelse {
                 if (self.unhandled_sections.get(.{
                     .object_id = @intCast(u16, object_id),
-                    .source_sect_id = source_sect_id,
+                    .source_sect_id = reg.section,
                 }) != null) continue;
 
-                log.err("section not mapped for symbol '{s}'", .{entry.value.name});
+                log.err("section not mapped for symbol '{s}'", .{sym.name});
                 return error.SectionNotMappedForSymbol;
             };
 
             const source_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-            const source_sect = source_seg.sections.items[source_sect_id];
+            const source_sect = source_seg.sections.items[reg.section];
             const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
             const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
             const target_addr = target_sect.addr + target_mapping.offset;
-            const n_value = source_sym.n_value - source_sect.addr + target_addr;
+            const address = reg.address - source_sect.addr + target_addr;
 
-            log.debug("resolving local symbol '{s}' at 0x{x}", .{ entry.value.name, n_value });
+            log.warn("resolving symbol '{s}' at 0x{x}", .{ sym.name, address });
 
             // TODO there might be a more generic way of doing this.
-            var n_sect: u8 = 0;
+            var section: u8 = 0;
             for (self.load_commands.items) |cmd, cmd_id| {
                 if (cmd != .Segment) break;
                 if (cmd_id == target_mapping.target_seg_id) {
-                    n_sect += @intCast(u8, target_mapping.target_sect_id) + 1;
+                    section += @intCast(u8, target_mapping.target_sect_id) + 1;
                     break;
                 }
-                n_sect += @intCast(u8, cmd.Segment.sections.items.len);
+                section += @intCast(u8, cmd.Segment.sections.items.len);
             }
 
-            entry.value.address = n_value;
-            entry.value.section = n_sect;
-        }
-    }
-
-    for (self.symtab.items()) |*entry| {
-        if (entry.value.tag == .import) continue;
-
-        const object_id = entry.value.file orelse unreachable;
-        const object = self.objects.items[object_id];
-        const local = object.locals.get(entry.key) orelse unreachable;
-
-        log.debug("resolving {} symbol '{s}' at 0x{x}", .{ entry.value.tag, entry.key, local.address });
-
-        entry.value.address = local.address;
-        entry.value.section = local.section;
-    }
-}
-
-fn allocateStubsAndGotEntries(self: *Zld) !void {
-    for (self.got_entries.items()) |*entry| {
-        if (entry.value.tag == .import) continue;
-
-        const object = self.objects.items[entry.value.file];
-        entry.value.target_addr = target_addr: {
-            if (object.locals.get(entry.key)) |local| {
-                break :target_addr local.address;
-            }
-            const global = self.symtab.get(entry.key) orelse unreachable;
-            break :target_addr global.address;
-        };
-
-        log.debug("resolving GOT entry '{s}' at 0x{x}", .{
-            entry.key,
-            entry.value.target_addr,
-        });
-    }
-}
-
-fn allocateCppStatics(self: *Zld) !void {
-    for (self.objects.items) |*object| {
-        for (object.initializers.items) |*initializer| {
-            const sym = object.symtab.items[initializer.symbol];
-            const sym_name = object.getString(sym.n_strx);
-            initializer.target_addr = object.locals.get(sym_name).?.address;
-
-            log.debug("resolving C++ initializer '{s}' at 0x{x}", .{
-                sym_name,
-                initializer.target_addr,
-            });
+            reg.address = address;
+            reg.section = section;
         }
     }
 }
