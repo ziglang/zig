@@ -29,10 +29,10 @@ comptime {
     if (builtin.zig_is_stage2) {
         if (builtin.output_mode == .Exe) {
             if (builtin.link_libc or builtin.object_format == .c) {
-                @export(main2, "main");
+                @export(main2, .{ .name = "main" });
             } else {
                 if (!@hasDecl(root, "_start")) {
-                    @export(_start2, "_start");
+                    @export(_start2, .{ .name = "_start" });
                 }
             }
         }

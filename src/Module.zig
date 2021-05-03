@@ -497,12 +497,22 @@ pub const Struct = struct {
     /// Offset from `owner_decl`, points to the struct AST node.
     node_offset: i32,
 
+    layout: std.builtin.TypeInfo.ContainerLayout,
+    status: enum {
+        none,
+        have_field_types,
+        have_layout,
+    },
+
     pub const Field = struct {
         /// Uses `noreturn` to indicate `anytype`.
+        /// undefined until `status` is `have_field_types` or `have_layout`.
         ty: Type,
         abi_align: Value,
         /// Uses `unreachable_value` to indicate no default.
         default_val: Value,
+        /// undefined until `status` is `have_layout`.
+        offset: u32,
         is_comptime: bool,
     };
 
@@ -2408,6 +2418,8 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
         .owner_decl = undefined, // set below
         .fields = .{},
         .node_offset = 0, // it's the struct for the root file
+        .layout = .Auto,
+        .status = .none,
         .namespace = .{
             .parent = null,
             .ty = struct_ty,
@@ -2458,7 +2470,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
 
     const main_struct_inst = file.zir.extra[@enumToInt(Zir.ExtraIndex.main_struct)] -
         @intCast(u32, Zir.Inst.Ref.typed_value_map.len);
-    try sema.analyzeStructDecl(&block_scope, &new_decl_arena, new_decl, main_struct_inst, .Auto, struct_obj);
+    try sema.analyzeStructDecl(new_decl, main_struct_inst, struct_obj);
     try new_decl.finalizeNewArena(&new_decl_arena);
 
     file.status = .success_air;

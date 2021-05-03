@@ -664,12 +664,21 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) In
 
 pub fn analyzeStructDecl(
     sema: *Sema,
-    block: *Scope.Block,
-    new_decl_arena: *std.heap.ArenaAllocator,
     new_decl: *Decl,
     inst: Zir.Inst.Index,
-    layout: std.builtin.TypeInfo.ContainerLayout,
     struct_obj: *Module.Struct,
+) InnerError!void {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.StructDecl, inst_data.payload_index);
+    const decls_len = extra.data.decls_len;
+
+    _ = try sema.mod.scanNamespace(&struct_obj.namespace, extra.end, decls_len, new_decl);
+}
+
+pub fn analyzeStructFields(
+    sema: *Sema,
+    block: *Scope.Block,
+    new_decl_arena: *std.heap.ArenaAllocator,
 ) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -681,13 +690,6 @@ pub fn analyzeStructDecl(
     const extra = sema.code.extraData(Zir.Inst.StructDecl, inst_data.payload_index);
     const fields_len = extra.data.fields_len;
     const decls_len = extra.data.decls_len;
-
-    var extra_index: usize = try mod.scanNamespace(
-        &struct_obj.namespace,
-        extra.end,
-        decls_len,
-        new_decl,
-    );
 
     const body = sema.code.extra[extra_index..][0..extra.data.body_len];
     if (fields_len == 0) {
@@ -824,13 +826,15 @@ fn zirStructDecl(
         .owner_decl = sema.owner_decl,
         .fields = .{},
         .node_offset = inst_data.src_node,
+        .layout = layout,
+        .status = .none,
         .namespace = .{
             .parent = sema.owner_decl.namespace,
             .ty = struct_ty,
             .file_scope = block.getFileScope(),
         },
     };
-    try sema.analyzeStructDecl(block, &new_decl_arena, new_decl, inst, layout, struct_obj);
+    try sema.analyzeStructDecl(new_decl, inst, struct_obj);
     try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclVal(block, src, new_decl);
 }
