@@ -239,6 +239,11 @@ const ArmCpuinfoImpl = struct {
         const Nvidia = [_]E{
             E{ .part = 0x004, .m64 = &A64.carmel },
         };
+        // implementer = 0x50
+        const Ampere = [_]E{
+            E{ .part = 0x000, .variant = 3, .m64 = &A64.emag },
+            E{ .part = 0x000, .m64 = &A64.xgene1 },
+        };
         // implementer = 0x51
         const Qualcomm = [_]E{
             E{ .part = 0x06f, .m32 = &A32.krait },
@@ -262,6 +267,7 @@ const ArmCpuinfoImpl = struct {
                 0x43 => &Cavium,
                 0x46 => &Fujitsu,
                 0x48 => &HiSilicon,
+                0x50 => &Ampere,
                 0x51 => &Qualcomm,
                 else => return null,
             };
