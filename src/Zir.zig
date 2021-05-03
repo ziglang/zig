@@ -670,10 +670,10 @@ pub const Inst = struct {
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
-        /// Given a struct, union, enum, or opaque and a field name as a string index,
+        /// Given a struct, union, or enum, and a field name as a string index,
         /// returns the field type. Uses the `pl_node` field. Payload is `FieldType`.
         field_type,
-        /// Given a struct, union, enum, or opaque and a field name as a Ref,
+        /// Given a struct, union, or enum, and a field name as a Ref,
         /// returns the field type. Uses the `pl_node` field. Payload is `FieldTypeRef`.
         field_type_ref,
         /// Finalizes a typed struct initialization, performs validation, and returns the

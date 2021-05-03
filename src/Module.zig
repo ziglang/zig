@@ -493,9 +493,10 @@ pub const Struct = struct {
     fields: std.StringArrayHashMapUnmanaged(Field),
     /// Represents the declarations inside this struct.
     namespace: Scope.Namespace,
-
     /// Offset from `owner_decl`, points to the struct AST node.
     node_offset: i32,
+    /// Index of the struct_decl ZIR instruction.
+    zir_index: Zir.Inst.Index,
 
     layout: std.builtin.TypeInfo.ContainerLayout,
     status: enum {
@@ -2406,6 +2407,8 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
     }
 
     assert(file.zir_loaded);
+    const main_struct_inst = file.zir.extra[@enumToInt(Zir.ExtraIndex.main_struct)] -
+        @intCast(u32, Zir.Inst.Ref.typed_value_map.len);
 
     const gpa = mod.gpa;
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
@@ -2418,6 +2421,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
         .owner_decl = undefined, // set below
         .fields = .{},
         .node_offset = 0, // it's the struct for the root file
+        .zir_index = main_struct_inst,
         .layout = .Auto,
         .status = .none,
         .namespace = .{
@@ -2468,8 +2472,6 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
     };
     defer block_scope.instructions.deinit(gpa);
 
-    const main_struct_inst = file.zir.extra[@enumToInt(Zir.ExtraIndex.main_struct)] -
-        @intCast(u32, Zir.Inst.Ref.typed_value_map.len);
     try sema.analyzeStructDecl(new_decl, main_struct_inst, struct_obj);
     try new_decl.finalizeNewArena(&new_decl_arena);
 
@@ -4060,3 +4062,149 @@ pub const SwitchProngSrc = union(enum) {
         } else unreachable;
     }
 };
+
+pub fn analyzeStructFields(mod: *Module, struct_obj: *Module.Struct) InnerError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = mod.gpa;
+    const zir = struct_obj.owner_decl.namespace.file_scope.zir;
+    const inst_data = zir.instructions.items(.data)[struct_obj.zir_index].pl_node;
+    const src = inst_data.src();
+    const extra = zir.extraData(Zir.Inst.StructDecl, inst_data.payload_index);
+    const fields_len = extra.data.fields_len;
+    const decls_len = extra.data.decls_len;
+
+    // Skip over decls.
+    var extra_index = extra.end;
+    {
+        const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
+        var bit_bag_index: usize = extra_index;
+        extra_index += bit_bags_count;
+        var cur_bit_bag: u32 = undefined;
+        var decl_i: u32 = 0;
+        while (decl_i < decls_len) : (decl_i += 1) {
+            if (decl_i % 8 == 0) {
+                cur_bit_bag = zir.extra[bit_bag_index];
+                bit_bag_index += 1;
+            }
+            const flags = @truncate(u4, cur_bit_bag);
+            cur_bit_bag >>= 4;
+
+            extra_index += 7; // src_hash(4) + line(1) + name(1) + value(1)
+            extra_index += @truncate(u1, flags >> 2);
+            extra_index += @truncate(u1, flags >> 3);
+        }
+    }
+
+    const body = zir.extra[extra_index..][0..extra.data.body_len];
+    if (fields_len == 0) {
+        assert(body.len == 0);
+        return;
+    }
+    extra_index += body.len;
+
+    var decl_arena = struct_obj.owner_decl.value_arena.?.promote(gpa);
+    defer struct_obj.owner_decl.value_arena.?.* = decl_arena.state;
+
+    try struct_obj.fields.ensureCapacity(&decl_arena.allocator, fields_len);
+
+    // We create a block for the field type instructions because they
+    // may need to reference Decls from inside the struct namespace.
+    // Within the field type, default value, and alignment expressions, the "owner decl"
+    // should be the struct itself. Thus we need a new Sema.
+    var sema: Sema = .{
+        .mod = mod,
+        .gpa = gpa,
+        .arena = &decl_arena.allocator,
+        .code = zir,
+        .inst_map = try gpa.alloc(*ir.Inst, zir.instructions.len),
+        .owner_decl = struct_obj.owner_decl,
+        .namespace = &struct_obj.namespace,
+        .owner_func = null,
+        .func = null,
+        .param_inst_list = &.{},
+    };
+    defer gpa.free(sema.inst_map);
+
+    var block: Scope.Block = .{
+        .parent = null,
+        .sema = &sema,
+        .src_decl = struct_obj.owner_decl,
+        .instructions = .{},
+        .inlining = null,
+        .is_comptime = true,
+    };
+    defer assert(block.instructions.items.len == 0); // should all be comptime instructions
+
+    _ = try sema.analyzeBody(&block, body);
+
+    const bits_per_field = 4;
+    const fields_per_u32 = 32 / bits_per_field;
+    const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
+    var bit_bag_index: usize = extra_index;
+    extra_index += bit_bags_count;
+    var cur_bit_bag: u32 = undefined;
+    var field_i: u32 = 0;
+    while (field_i < fields_len) : (field_i += 1) {
+        if (field_i % fields_per_u32 == 0) {
+            cur_bit_bag = zir.extra[bit_bag_index];
+            bit_bag_index += 1;
+        }
+        const has_align = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const has_default = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const is_comptime = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const unused = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+
+        _ = unused;
+
+        const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
+        extra_index += 1;
+        const field_type_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+        extra_index += 1;
+
+        // This string needs to outlive the ZIR code.
+        const field_name = try decl_arena.allocator.dupe(u8, field_name_zir);
+        if (field_type_ref == .none) {
+            return mod.fail(&block.base, src, "TODO: implement anytype struct field", .{});
+        }
+        const field_ty: Type = if (field_type_ref == .none)
+            Type.initTag(.noreturn)
+        else
+            // TODO: if we need to report an error here, use a source location
+            // that points to this type expression rather than the struct.
+            // But only resolve the source location if we need to emit a compile error.
+            try sema.resolveType(&block, src, field_type_ref);
+
+        const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
+        assert(!gop.found_existing);
+        gop.entry.value = .{
+            .ty = field_ty,
+            .abi_align = Value.initTag(.abi_align_default),
+            .default_val = Value.initTag(.unreachable_value),
+            .is_comptime = is_comptime,
+            .offset = undefined,
+        };
+
+        if (has_align) {
+            const align_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+            extra_index += 1;
+            // TODO: if we need to report an error here, use a source location
+            // that points to this alignment expression rather than the struct.
+            // But only resolve the source location if we need to emit a compile error.
+            gop.entry.value.abi_align = (try sema.resolveInstConst(&block, src, align_ref)).val;
+        }
+        if (has_default) {
+            const default_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+            extra_index += 1;
+            // TODO: if we need to report an error here, use a source location
+            // that points to this default value expression rather than the struct.
+            // But only resolve the source location if we need to emit a compile error.
+            gop.entry.value.default_val = (try sema.resolveInstConst(&block, src, default_ref)).val;
+        }
+    }
+}
