@@ -2,7 +2,7 @@ const std = @import("std");
 const Order = std.math.Order;
 const Value = @import("value.zig").Value;
 const RangeSet = @This();
-const SwitchProngSrc = @import("AstGen.zig").SwitchProngSrc;
+const SwitchProngSrc = @import("Module.zig").SwitchProngSrc;
 
 ranges: std.ArrayList(Range),
 

@@ -3562,7 +3562,7 @@ pub fn cmdAstgen(
         process.exit(1);
     }
 
-    file.zir = try AstGen.generate(gpa, &file);
+    file.zir = try AstGen.generate(gpa, file.tree);
     file.zir_loaded = true;
     defer file.zir.deinit(gpa);
 

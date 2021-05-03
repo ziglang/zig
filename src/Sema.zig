@@ -63,7 +63,6 @@ const InnerError = Module.InnerError;
 const Decl = Module.Decl;
 const LazySrcLoc = Module.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
-const AstGen = @import("AstGen.zig");
 
 pub fn analyzeFnBody(
     sema: *Sema,
@@ -3361,10 +3360,10 @@ fn analyzeSwitch(
     // Validate for duplicate items, missing else prong, and invalid range.
     switch (operand.ty.zigTypeTag()) {
         .Enum => {
-            var seen_fields = try gpa.alloc(?AstGen.SwitchProngSrc, operand.ty.enumFieldCount());
+            var seen_fields = try gpa.alloc(?Module.SwitchProngSrc, operand.ty.enumFieldCount());
             defer gpa.free(seen_fields);
 
-            mem.set(?AstGen.SwitchProngSrc, seen_fields, null);
+            mem.set(?Module.SwitchProngSrc, seen_fields, null);
 
             var extra_index: usize = special.end;
             {
@@ -3989,8 +3988,8 @@ fn resolveSwitchItemVal(
     block: *Scope.Block,
     item_ref: Zir.Inst.Ref,
     switch_node_offset: i32,
-    switch_prong_src: AstGen.SwitchProngSrc,
-    range_expand: AstGen.SwitchProngSrc.RangeExpand,
+    switch_prong_src: Module.SwitchProngSrc,
+    range_expand: Module.SwitchProngSrc.RangeExpand,
 ) InnerError!TypedValue {
     const item = try sema.resolveInst(item_ref);
     // We have to avoid the other helper functions here because we cannot construct a LazySrcLoc
@@ -4014,7 +4013,7 @@ fn validateSwitchRange(
     first_ref: Zir.Inst.Ref,
     last_ref: Zir.Inst.Ref,
     src_node_offset: i32,
-    switch_prong_src: AstGen.SwitchProngSrc,
+    switch_prong_src: Module.SwitchProngSrc,
 ) InnerError!void {
     const first_val = (try sema.resolveSwitchItemVal(block, first_ref, src_node_offset, switch_prong_src, .first)).val;
     const last_val = (try sema.resolveSwitchItemVal(block, last_ref, src_node_offset, switch_prong_src, .last)).val;
@@ -4028,7 +4027,7 @@ fn validateSwitchItem(
     range_set: *RangeSet,
     item_ref: Zir.Inst.Ref,
     src_node_offset: i32,
-    switch_prong_src: AstGen.SwitchProngSrc,
+    switch_prong_src: Module.SwitchProngSrc,
 ) InnerError!void {
     const item_val = (try sema.resolveSwitchItemVal(block, item_ref, src_node_offset, switch_prong_src, .none)).val;
     const maybe_prev_src = try range_set.add(item_val, item_val, switch_prong_src);
@@ -4038,10 +4037,10 @@ fn validateSwitchItem(
 fn validateSwitchItemEnum(
     sema: *Sema,
     block: *Scope.Block,
-    seen_fields: []?AstGen.SwitchProngSrc,
+    seen_fields: []?Module.SwitchProngSrc,
     item_ref: Zir.Inst.Ref,
     src_node_offset: i32,
-    switch_prong_src: AstGen.SwitchProngSrc,
+    switch_prong_src: Module.SwitchProngSrc,
 ) InnerError!void {
     const mod = sema.mod;
     const item_tv = try sema.resolveSwitchItemVal(block, item_ref, src_node_offset, switch_prong_src, .none);
@@ -4073,8 +4072,8 @@ fn validateSwitchItemEnum(
 fn validateSwitchDupe(
     sema: *Sema,
     block: *Scope.Block,
-    maybe_prev_src: ?AstGen.SwitchProngSrc,
-    switch_prong_src: AstGen.SwitchProngSrc,
+    maybe_prev_src: ?Module.SwitchProngSrc,
+    switch_prong_src: Module.SwitchProngSrc,
     src_node_offset: i32,
 ) InnerError!void {
     const prev_prong_src = maybe_prev_src orelse return;
@@ -4108,7 +4107,7 @@ fn validateSwitchItemBool(
     false_count: *u8,
     item_ref: Zir.Inst.Ref,
     src_node_offset: i32,
-    switch_prong_src: AstGen.SwitchProngSrc,
+    switch_prong_src: Module.SwitchProngSrc,
 ) InnerError!void {
     const item_val = (try sema.resolveSwitchItemVal(block, item_ref, src_node_offset, switch_prong_src, .none)).val;
     if (item_val.toBool()) {
@@ -4122,7 +4121,7 @@ fn validateSwitchItemBool(
     }
 }
 
-const ValueSrcMap = std.HashMap(Value, AstGen.SwitchProngSrc, Value.hash, Value.eql, std.hash_map.DefaultMaxLoadPercentage);
+const ValueSrcMap = std.HashMap(Value, Module.SwitchProngSrc, Value.hash, Value.eql, std.hash_map.DefaultMaxLoadPercentage);
 
 fn validateSwitchItemSparse(
     sema: *Sema,
@@ -4130,7 +4129,7 @@ fn validateSwitchItemSparse(
     seen_values: *ValueSrcMap,
     item_ref: Zir.Inst.Ref,
     src_node_offset: i32,
-    switch_prong_src: AstGen.SwitchProngSrc,
+    switch_prong_src: Module.SwitchProngSrc,
 ) InnerError!void {
     const item_val = (try sema.resolveSwitchItemVal(block, item_ref, src_node_offset, switch_prong_src, .none)).val;
     const entry = (try seen_values.fetchPut(item_val, switch_prong_src)) orelse return;
