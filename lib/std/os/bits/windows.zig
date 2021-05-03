@@ -22,6 +22,11 @@ pub const timespec = extern struct {
     tv_nsec: c_long,
 };
 
+pub const timeval = extern struct {
+    tv_sec: c_long,
+    tv_usec: c_long,
+};
+
 pub const sig_atomic_t = c_int;
 
 /// maximum signal number + 1
