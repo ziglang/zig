@@ -4880,6 +4880,9 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, IrExecutableGen *executable, I
                 type_ref = get_llvm_type(g, wider_type);
                 value_ref = gen_widen_or_shorten(g, false, type, wider_type, value_ref);
             }
+        } else if (handle_is_ptr(g, type)) {
+            ZigType *gen_type = get_pointer_to_type(g, type, true);
+            type_ref = get_llvm_type(g, gen_type);
         }
 
         param_types[param_index] = type_ref;
@@ -9295,7 +9298,6 @@ static void init(CodeGen *g) {
 
     char *layout_str = LLVMCopyStringRepOfTargetData(g->target_data_ref);
     LLVMSetDataLayout(g->module, layout_str);
-
 
     assert(g->pointer_size_bytes == LLVMPointerSize(g->target_data_ref));
     g->is_big_endian = (LLVMByteOrder(g->target_data_ref) == LLVMBigEndian);
