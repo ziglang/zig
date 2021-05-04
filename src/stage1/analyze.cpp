@@ -2125,18 +2125,6 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             return g->builtin_types.entry_invalid;
     }
 
-    if (fn_proto->return_anytype_token != nullptr) {
-        if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-            add_node_error(g, fn_proto->return_type,
-                buf_sprintf("return type 'anytype' not allowed in function with calling convention '%s'",
-                calling_convention_name(fn_type_id.cc)));
-            return g->builtin_types.entry_invalid;
-        }
-        add_node_error(g, proto_node,
-            buf_sprintf("TODO implement inferred return types https://github.com/ziglang/zig/issues/447"));
-        return g->builtin_types.entry_invalid;
-    }
-
     ZigType *specified_return_type = analyze_type_expr(g, child_scope, fn_proto->return_type);
     if (type_is_invalid(specified_return_type)) {
         fn_type_id.return_type = g->builtin_types.entry_invalid;
@@ -10220,4 +10208,3 @@ const char *float_op_to_name(BuiltinFnId op) {
         zig_unreachable();
     }
 }
-

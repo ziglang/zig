@@ -10104,19 +10104,12 @@ static IrInstSrc *ir_gen_fn_proto(IrBuilderSrc *irb, Scope *parent_scope, AstNod
     }
 
     IrInstSrc *return_type;
-    if (node->data.fn_proto.return_anytype_token == nullptr) {
-        if (node->data.fn_proto.return_type == nullptr) {
-            return_type = ir_build_const_type(irb, parent_scope, node, irb->codegen->builtin_types.entry_void);
-        } else {
-            return_type = ir_gen_node(irb, node->data.fn_proto.return_type, parent_scope);
-            if (return_type == irb->codegen->invalid_inst_src)
-                return irb->codegen->invalid_inst_src;
-        }
+    if (node->data.fn_proto.return_type == nullptr) {
+        return_type = ir_build_const_type(irb, parent_scope, node, irb->codegen->builtin_types.entry_void);
     } else {
-        add_node_error(irb->codegen, node,
-            buf_sprintf("TODO implement inferred return types https://github.com/ziglang/zig/issues/447"));
-        return irb->codegen->invalid_inst_src;
-        //return_type = nullptr;
+        return_type = ir_gen_node(irb, node->data.fn_proto.return_type, parent_scope);
+        if (return_type == irb->codegen->invalid_inst_src)
+            return irb->codegen->invalid_inst_src;
     }
 
     return ir_build_fn_proto(irb, parent_scope, node, param_types, align_value, callconv_value, return_type, is_var_args);
@@ -14978,7 +14971,7 @@ static IrInstGen *ir_analyze_struct_literal_to_array(IrAnalyze *ira, IrInst* sou
 
     if ((err = type_resolve(ira->codegen, wanted_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_inst_gen;
-    
+
     size_t array_len = wanted_type->data.array.len;
     size_t instr_field_count = actual_type->data.structure.src_field_count;
     assert(array_len == instr_field_count);
@@ -20953,44 +20946,42 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             inst_fn_type_id.alignment = align_bytes;
         }
 
-        if (fn_proto_node->data.fn_proto.return_anytype_token == nullptr) {
-            AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
-            ZigType *specified_return_type = ir_analyze_type_expr(ira, impl_fn->child_scope, return_type_node);
-            if (type_is_invalid(specified_return_type))
-                return ira->codegen->invalid_inst_gen;
+        AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
+        ZigType *specified_return_type = ir_analyze_type_expr(ira, impl_fn->child_scope, return_type_node);
+        if (type_is_invalid(specified_return_type))
+            return ira->codegen->invalid_inst_gen;
 
-            if(!is_valid_return_type(specified_return_type)){
-                ErrorMsg *msg = ir_add_error(ira, source_instr,
-                    buf_sprintf("call to generic function with %s return type '%s' not allowed", type_id_name(specified_return_type->id), buf_ptr(&specified_return_type->name)));
-                add_error_note(ira->codegen, msg, fn_proto_node, buf_sprintf("function declared here"));
+        if(!is_valid_return_type(specified_return_type)){
+            ErrorMsg *msg = ir_add_error(ira, source_instr,
+                buf_sprintf("call to generic function with %s return type '%s' not allowed", type_id_name(specified_return_type->id), buf_ptr(&specified_return_type->name)));
+            add_error_note(ira->codegen, msg, fn_proto_node, buf_sprintf("function declared here"));
 
-                Tld *tld = find_decl(ira->codegen, &fn_entry->fndef_scope->base, &specified_return_type->name);
-                if (tld != nullptr) {
-                    add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("type declared here"));
-                }
-                return ira->codegen->invalid_inst_gen;
+            Tld *tld = find_decl(ira->codegen, &fn_entry->fndef_scope->base, &specified_return_type->name);
+            if (tld != nullptr) {
+                add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("type declared here"));
             }
+            return ira->codegen->invalid_inst_gen;
+        }
 
-            if (fn_proto_node->data.fn_proto.auto_err_set) {
-                ZigType *inferred_err_set_type = get_auto_err_set_type(ira->codegen, impl_fn);
-                if ((err = type_resolve(ira->codegen, specified_return_type, ResolveStatusSizeKnown)))
-                    return ira->codegen->invalid_inst_gen;
-                inst_fn_type_id.return_type = get_error_union_type(ira->codegen, inferred_err_set_type, specified_return_type);
-            } else {
-                inst_fn_type_id.return_type = specified_return_type;
-            }
-
-            switch (type_requires_comptime(ira->codegen, specified_return_type)) {
-            case ReqCompTimeYes:
-                // Throw out our work and call the function as if it were comptime.
-                return ir_analyze_fn_call(ira, source_instr, fn_entry, fn_type, fn_ref, first_arg_ptr,
-                        first_arg_ptr_src, CallModifierCompileTime, new_stack, new_stack_src, is_async_call_builtin,
-                        args_ptr, args_len, ret_ptr, call_result_loc);
-            case ReqCompTimeInvalid:
+        if (fn_proto_node->data.fn_proto.auto_err_set) {
+            ZigType *inferred_err_set_type = get_auto_err_set_type(ira->codegen, impl_fn);
+            if ((err = type_resolve(ira->codegen, specified_return_type, ResolveStatusSizeKnown)))
                 return ira->codegen->invalid_inst_gen;
-            case ReqCompTimeNo:
-                break;
-            }
+            inst_fn_type_id.return_type = get_error_union_type(ira->codegen, inferred_err_set_type, specified_return_type);
+        } else {
+            inst_fn_type_id.return_type = specified_return_type;
+        }
+
+        switch (type_requires_comptime(ira->codegen, specified_return_type)) {
+        case ReqCompTimeYes:
+            // Throw out our work and call the function as if it were comptime.
+            return ir_analyze_fn_call(ira, source_instr, fn_entry, fn_type, fn_ref, first_arg_ptr,
+                    first_arg_ptr_src, CallModifierCompileTime, new_stack, new_stack_src, is_async_call_builtin,
+                    args_ptr, args_len, ret_ptr, call_result_loc);
+        case ReqCompTimeInvalid:
+            return ira->codegen->invalid_inst_gen;
+        case ReqCompTimeNo:
+            break;
         }
 
         auto existing_entry = ira->codegen->generic_table.put_unique(generic_id, impl_fn);
