@@ -319,7 +319,7 @@ test "siphash64-2-4 sanity" {
 
         var out: [siphash.mac_length]u8 = undefined;
         siphash.create(&out, buffer[0..i], test_key);
-        testing.expectEqual(out, vector);
+        try testing.expectEqual(out, vector);
     }
 }
 
@@ -399,7 +399,7 @@ test "siphash128-2-4 sanity" {
 
         var out: [siphash.mac_length]u8 = undefined;
         siphash.create(&out, buffer[0..i], test_key[0..]);
-        testing.expectEqual(out, vector);
+        try testing.expectEqual(out, vector);
     }
 }
 
@@ -423,6 +423,6 @@ test "iterative non-divisible update" {
         }
         const iterative_hash = siphash.finalInt();
 
-        std.testing.expectEqual(iterative_hash, non_iterative_hash);
+        try std.testing.expectEqual(iterative_hash, non_iterative_hash);
     }
 }

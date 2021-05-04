@@ -414,8 +414,8 @@ fn testParser(
 ) !void {
     var fbs = io.fixedBufferStream(input);
     const result = try parser.parse(arch, fbs.reader());
-    testing.expectEqual(expected_model, result.?.model);
-    testing.expect(expected_model.features.eql(result.?.features));
+    try testing.expectEqual(expected_model, result.?.model);
+    try testing.expect(expected_model.features.eql(result.?.features));
 }
 
 // The generic implementation of a /proc/cpuinfo parser.

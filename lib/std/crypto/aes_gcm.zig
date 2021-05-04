@@ -118,7 +118,7 @@ test "Aes256Gcm - Empty message and no associated data" {
     var tag: [Aes256Gcm.tag_length]u8 = undefined;
 
     Aes256Gcm.encrypt(&c, &tag, m, ad, nonce, key);
-    htest.assertEqual("6b6ff610a16fa4cd59f1fb7903154e92", &tag);
+    try htest.assertEqual("6b6ff610a16fa4cd59f1fb7903154e92", &tag);
 }
 
 test "Aes256Gcm - Associated data only" {
@@ -130,7 +130,7 @@ test "Aes256Gcm - Associated data only" {
     var tag: [Aes256Gcm.tag_length]u8 = undefined;
 
     Aes256Gcm.encrypt(&c, &tag, m, ad, nonce, key);
-    htest.assertEqual("262ed164c2dfb26e080a9d108dd9dd4c", &tag);
+    try htest.assertEqual("262ed164c2dfb26e080a9d108dd9dd4c", &tag);
 }
 
 test "Aes256Gcm - Message only" {
@@ -144,10 +144,10 @@ test "Aes256Gcm - Message only" {
 
     Aes256Gcm.encrypt(&c, &tag, m, ad, nonce, key);
     try Aes256Gcm.decrypt(&m2, &c, tag, ad, nonce, key);
-    testing.expectEqualSlices(u8, m[0..], m2[0..]);
+    try testing.expectEqualSlices(u8, m[0..], m2[0..]);
 
-    htest.assertEqual("5ca1642d90009fea33d01f78cf6eefaf01d539472f7c", &c);
-    htest.assertEqual("07cd7fc9103e2f9e9bf2dfaa319caff4", &tag);
+    try htest.assertEqual("5ca1642d90009fea33d01f78cf6eefaf01d539472f7c", &c);
+    try htest.assertEqual("07cd7fc9103e2f9e9bf2dfaa319caff4", &tag);
 }
 
 test "Aes256Gcm - Message and associated data" {
@@ -161,8 +161,8 @@ test "Aes256Gcm - Message and associated data" {
 
     Aes256Gcm.encrypt(&c, &tag, m, ad, nonce, key);
     try Aes256Gcm.decrypt(&m2, &c, tag, ad, nonce, key);
-    testing.expectEqualSlices(u8, m[0..], m2[0..]);
+    try testing.expectEqualSlices(u8, m[0..], m2[0..]);
 
-    htest.assertEqual("5ca1642d90009fea33d01f78cf6eefaf01", &c);
-    htest.assertEqual("64accec679d444e2373bd9f6796c0d2c", &tag);
+    try htest.assertEqual("5ca1642d90009fea33d01f78cf6eefaf01", &c);
+    try htest.assertEqual("64accec679d444e2373bd9f6796c0d2c", &tag);
 }

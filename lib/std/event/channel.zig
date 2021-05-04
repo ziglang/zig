@@ -310,25 +310,25 @@ test "std.event.Channel wraparound" {
     // the buffer wraps around, make sure it doesn't crash.
     var result: i32 = undefined;
     channel.put(5);
-    testing.expectEqual(@as(i32, 5), channel.get());
+    try testing.expectEqual(@as(i32, 5), channel.get());
     channel.put(6);
-    testing.expectEqual(@as(i32, 6), channel.get());
+    try testing.expectEqual(@as(i32, 6), channel.get());
     channel.put(7);
-    testing.expectEqual(@as(i32, 7), channel.get());
+    try testing.expectEqual(@as(i32, 7), channel.get());
 }
 fn testChannelGetter(channel: *Channel(i32)) callconv(.Async) void {
     const value1 = channel.get();
-    testing.expect(value1 == 1234);
+    try testing.expect(value1 == 1234);
 
     const value2 = channel.get();
-    testing.expect(value2 == 4567);
+    try testing.expect(value2 == 4567);
 
     const value3 = channel.getOrNull();
-    testing.expect(value3 == null);
+    try testing.expect(value3 == null);
 
     var last_put = async testPut(channel, 4444);
     const value4 = channel.getOrNull();
-    testing.expect(value4.? == 4444);
+    try testing.expect(value4.? == 4444);
     await last_put;
 }
 fn testChannelPutter(channel: *Channel(i32)) callconv(.Async) void {

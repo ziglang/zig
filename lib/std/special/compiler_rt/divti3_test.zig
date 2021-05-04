@@ -8,7 +8,7 @@ const testing = @import("std").testing;
 
 fn test__divti3(a: i128, b: i128, expected: i128) void {
     const x = __divti3(a, b);
-    testing.expect(x == expected);
+    try testing.expect(x == expected);
 }
 
 test "divti3" {

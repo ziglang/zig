@@ -23,6 +23,6 @@ test "complex.csin" {
     const a = Complex(f32).new(5, 3);
     const c = sin(a);
 
-    testing.expect(math.approxEqAbs(f32, c.re, -9.654126, epsilon));
-    testing.expect(math.approxEqAbs(f32, c.im, 2.841692, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.re, -9.654126, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.im, 2.841692, epsilon));
 }

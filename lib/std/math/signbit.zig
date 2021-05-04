@@ -40,28 +40,28 @@ fn signbit128(x: f128) bool {
 }
 
 test "math.signbit" {
-    expect(signbit(@as(f16, 4.0)) == signbit16(4.0));
-    expect(signbit(@as(f32, 4.0)) == signbit32(4.0));
-    expect(signbit(@as(f64, 4.0)) == signbit64(4.0));
-    expect(signbit(@as(f128, 4.0)) == signbit128(4.0));
+    try expect(signbit(@as(f16, 4.0)) == signbit16(4.0));
+    try expect(signbit(@as(f32, 4.0)) == signbit32(4.0));
+    try expect(signbit(@as(f64, 4.0)) == signbit64(4.0));
+    try expect(signbit(@as(f128, 4.0)) == signbit128(4.0));
 }
 
 test "math.signbit16" {
-    expect(!signbit16(4.0));
-    expect(signbit16(-3.0));
+    try expect(!signbit16(4.0));
+    try expect(signbit16(-3.0));
 }
 
 test "math.signbit32" {
-    expect(!signbit32(4.0));
-    expect(signbit32(-3.0));
+    try expect(!signbit32(4.0));
+    try expect(signbit32(-3.0));
 }
 
 test "math.signbit64" {
-    expect(!signbit64(4.0));
-    expect(signbit64(-3.0));
+    try expect(!signbit64(4.0));
+    try expect(signbit64(-3.0));
 }
 
 test "math.signbit128" {
-    expect(!signbit128(4.0));
-    expect(signbit128(-3.0));
+    try expect(!signbit128(4.0));
+    try expect(signbit128(-3.0));
 }

@@ -8,7 +8,7 @@ const testing = @import("std").testing;
 
 fn test__fixunstfsi(a: f128, expected: u32) void {
     const x = __fixunstfsi(a);
-    testing.expect(x == expected);
+    try testing.expect(x == expected);
 }
 
 const inf128 = @bitCast(f128, @as(u128, 0x7fff0000000000000000000000000000));

@@ -1655,7 +1655,7 @@ fn testEventLoop() i32 {
 
 fn testEventLoop2(h: anyframe->i32, did_it: *bool) void {
     const value = await h;
-    testing.expect(value == 1234);
+    try testing.expect(value == 1234);
     did_it.* = true;
 }
 
@@ -1682,7 +1682,7 @@ test "std.event.Loop - runDetached" {
     // with the previous runDetached.
     loop.run();
 
-    testing.expect(testRunDetachedData == 1);
+    try testing.expect(testRunDetachedData == 1);
 }
 
 fn testRunDetached() void {
@@ -1705,7 +1705,7 @@ test "std.event.Loop - sleep" {
     for (frames) |*frame|
         await frame;
 
-    testing.expect(sleep_count == frames.len);
+    try testing.expect(sleep_count == frames.len);
 }
 
 fn testSleep(wait_ns: u64, sleep_count: *usize) void {

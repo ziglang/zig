@@ -73,9 +73,9 @@ test "BufSet" {
     defer bufset.deinit();
 
     try bufset.put("x");
-    testing.expect(bufset.count() == 1);
+    try testing.expect(bufset.count() == 1);
     bufset.delete("x");
-    testing.expect(bufset.count() == 0);
+    try testing.expect(bufset.count() == 0);
 
     try bufset.put("x");
     try bufset.put("y");

@@ -18,7 +18,7 @@ test "fallocate" {
     defer file.close();
     defer fs.cwd().deleteFile(path) catch {};
 
-    expect((try file.stat()).size == 0);
+    try expect((try file.stat()).size == 0);
 
     const len: u64 = 65536;
     switch (linux.getErrno(linux.fallocate(file.handle, 0, 0, len))) {
@@ -28,20 +28,20 @@ test "fallocate" {
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
 
-    expect((try file.stat()).size == len);
+    try expect((try file.stat()).size == len);
 }
 
 test "getpid" {
-    expect(linux.getpid() != 0);
+    try expect(linux.getpid() != 0);
 }
 
 test "timer" {
     const epoll_fd = linux.epoll_create();
     var err: usize = linux.getErrno(epoll_fd);
-    expect(err == 0);
+    try expect(err == 0);
 
     const timer_fd = linux.timerfd_create(linux.CLOCK_MONOTONIC, 0);
-    expect(linux.getErrno(timer_fd) == 0);
+    try expect(linux.getErrno(timer_fd) == 0);
 
     const time_interval = linux.timespec{
         .tv_sec = 0,
@@ -54,7 +54,7 @@ test "timer" {
     };
 
     err = linux.timerfd_settime(@intCast(i32, timer_fd), 0, &new_time, null);
-    expect(err == 0);
+    try expect(err == 0);
 
     var event = linux.epoll_event{
         .events = linux.EPOLLIN | linux.EPOLLOUT | linux.EPOLLET,
@@ -62,7 +62,7 @@ test "timer" {
     };
 
     err = linux.epoll_ctl(@intCast(i32, epoll_fd), linux.EPOLL_CTL_ADD, @intCast(i32, timer_fd), &event);
-    expect(err == 0);
+    try expect(err == 0);
 
     const events_one: linux.epoll_event = undefined;
     var events = [_]linux.epoll_event{events_one} ** 8;
@@ -93,18 +93,18 @@ test "statx" {
         else => unreachable,
     }
 
-    expect(stat_buf.mode == statx_buf.mode);
-    expect(@bitCast(u32, stat_buf.uid) == statx_buf.uid);
-    expect(@bitCast(u32, stat_buf.gid) == statx_buf.gid);
-    expect(@bitCast(u64, @as(i64, stat_buf.size)) == statx_buf.size);
-    expect(@bitCast(u64, @as(i64, stat_buf.blksize)) == statx_buf.blksize);
-    expect(@bitCast(u64, @as(i64, stat_buf.blocks)) == statx_buf.blocks);
+    try expect(stat_buf.mode == statx_buf.mode);
+    try expect(@bitCast(u32, stat_buf.uid) == statx_buf.uid);
+    try expect(@bitCast(u32, stat_buf.gid) == statx_buf.gid);
+    try expect(@bitCast(u64, @as(i64, stat_buf.size)) == statx_buf.size);
+    try expect(@bitCast(u64, @as(i64, stat_buf.blksize)) == statx_buf.blksize);
+    try expect(@bitCast(u64, @as(i64, stat_buf.blocks)) == statx_buf.blocks);
 }
 
 test "user and group ids" {
     if (builtin.link_libc) return error.SkipZigTest;
-    expectEqual(linux.getauxval(elf.AT_UID), linux.getuid());
-    expectEqual(linux.getauxval(elf.AT_GID), linux.getgid());
-    expectEqual(linux.getauxval(elf.AT_EUID), linux.geteuid());
-    expectEqual(linux.getauxval(elf.AT_EGID), linux.getegid());
+    try expectEqual(linux.getauxval(elf.AT_UID), linux.getuid());
+    try expectEqual(linux.getauxval(elf.AT_GID), linux.getgid());
+    try expectEqual(linux.getauxval(elf.AT_EUID), linux.geteuid());
+    try expectEqual(linux.getauxval(elf.AT_EGID), linux.getegid());
 }

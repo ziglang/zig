@@ -64,7 +64,7 @@ test "test_divdi3" {
 
 fn test_one_divdi3(a: i64, b: i64, expected_q: i64) void {
     const q: i64 = __divdi3(a, b);
-    testing.expect(q == expected_q);
+    try testing.expect(q == expected_q);
 }
 
 pub fn __moddi3(a: i64, b: i64) callconv(.C) i64 {
@@ -104,7 +104,7 @@ test "test_moddi3" {
 
 fn test_one_moddi3(a: i64, b: i64, expected_r: i64) void {
     const r: i64 = __moddi3(a, b);
-    testing.expect(r == expected_r);
+    try testing.expect(r == expected_r);
 }
 
 pub fn __udivdi3(a: u64, b: u64) callconv(.C) u64 {
@@ -130,7 +130,7 @@ test "test_umoddi3" {
 
 fn test_one_umoddi3(a: u64, b: u64, expected_r: u64) void {
     const r = __umoddi3(a, b);
-    testing.expect(r == expected_r);
+    try testing.expect(r == expected_r);
 }
 
 pub fn __divmodsi4(a: i32, b: i32, rem: *i32) callconv(.C) i32 {
@@ -166,7 +166,7 @@ test "test_divmodsi4" {
 fn test_one_divmodsi4(a: i32, b: i32, expected_q: i32, expected_r: i32) void {
     var r: i32 = undefined;
     const q: i32 = __divmodsi4(a, b, &r);
-    testing.expect(q == expected_q and r == expected_r);
+    try testing.expect(q == expected_q and r == expected_r);
 }
 
 pub fn __udivmodsi4(a: u32, b: u32, rem: *u32) callconv(.C) u32 {
@@ -213,7 +213,7 @@ test "test_divsi3" {
 
 fn test_one_divsi3(a: i32, b: i32, expected_q: i32) void {
     const q: i32 = __divsi3(a, b);
-    testing.expect(q == expected_q);
+    try testing.expect(q == expected_q);
 }
 
 pub fn __udivsi3(n: u32, d: u32) callconv(.C) u32 {
@@ -400,7 +400,7 @@ test "test_udivsi3" {
 
 fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) void {
     const q: u32 = __udivsi3(a, b);
-    testing.expect(q == expected_q);
+    try testing.expect(q == expected_q);
 }
 
 pub fn __modsi3(n: i32, d: i32) callconv(.C) i32 {
@@ -431,7 +431,7 @@ test "test_modsi3" {
 
 fn test_one_modsi3(a: i32, b: i32, expected_r: i32) void {
     const r: i32 = __modsi3(a, b);
-    testing.expect(r == expected_r);
+    try testing.expect(r == expected_r);
 }
 
 pub fn __umodsi3(n: u32, d: u32) callconv(.C) u32 {
@@ -583,7 +583,7 @@ test "test_umodsi3" {
 
 fn test_one_umodsi3(a: u32, b: u32, expected_r: u32) void {
     const r: u32 = __umodsi3(a, b);
-    testing.expect(r == expected_r);
+    try testing.expect(r == expected_r);
 }
 
 pub fn __mulsi3(a: i32, b: i32) callconv(.C) i32 {

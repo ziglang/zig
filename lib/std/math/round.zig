@@ -130,52 +130,52 @@ fn round128(x_: f128) f128 {
 }
 
 test "math.round" {
-    expect(round(@as(f32, 1.3)) == round32(1.3));
-    expect(round(@as(f64, 1.3)) == round64(1.3));
-    expect(round(@as(f128, 1.3)) == round128(1.3));
+    try expect(round(@as(f32, 1.3)) == round32(1.3));
+    try expect(round(@as(f64, 1.3)) == round64(1.3));
+    try expect(round(@as(f128, 1.3)) == round128(1.3));
 }
 
 test "math.round32" {
-    expect(round32(1.3) == 1.0);
-    expect(round32(-1.3) == -1.0);
-    expect(round32(0.2) == 0.0);
-    expect(round32(1.8) == 2.0);
+    try expect(round32(1.3) == 1.0);
+    try expect(round32(-1.3) == -1.0);
+    try expect(round32(0.2) == 0.0);
+    try expect(round32(1.8) == 2.0);
 }
 
 test "math.round64" {
-    expect(round64(1.3) == 1.0);
-    expect(round64(-1.3) == -1.0);
-    expect(round64(0.2) == 0.0);
-    expect(round64(1.8) == 2.0);
+    try expect(round64(1.3) == 1.0);
+    try expect(round64(-1.3) == -1.0);
+    try expect(round64(0.2) == 0.0);
+    try expect(round64(1.8) == 2.0);
 }
 
 test "math.round128" {
-    expect(round128(1.3) == 1.0);
-    expect(round128(-1.3) == -1.0);
-    expect(round128(0.2) == 0.0);
-    expect(round128(1.8) == 2.0);
+    try expect(round128(1.3) == 1.0);
+    try expect(round128(-1.3) == -1.0);
+    try expect(round128(0.2) == 0.0);
+    try expect(round128(1.8) == 2.0);
 }
 
 test "math.round32.special" {
-    expect(round32(0.0) == 0.0);
-    expect(round32(-0.0) == -0.0);
-    expect(math.isPositiveInf(round32(math.inf(f32))));
-    expect(math.isNegativeInf(round32(-math.inf(f32))));
-    expect(math.isNan(round32(math.nan(f32))));
+    try expect(round32(0.0) == 0.0);
+    try expect(round32(-0.0) == -0.0);
+    try expect(math.isPositiveInf(round32(math.inf(f32))));
+    try expect(math.isNegativeInf(round32(-math.inf(f32))));
+    try expect(math.isNan(round32(math.nan(f32))));
 }
 
 test "math.round64.special" {
-    expect(round64(0.0) == 0.0);
-    expect(round64(-0.0) == -0.0);
-    expect(math.isPositiveInf(round64(math.inf(f64))));
-    expect(math.isNegativeInf(round64(-math.inf(f64))));
-    expect(math.isNan(round64(math.nan(f64))));
+    try expect(round64(0.0) == 0.0);
+    try expect(round64(-0.0) == -0.0);
+    try expect(math.isPositiveInf(round64(math.inf(f64))));
+    try expect(math.isNegativeInf(round64(-math.inf(f64))));
+    try expect(math.isNan(round64(math.nan(f64))));
 }
 
 test "math.round128.special" {
-    expect(round128(0.0) == 0.0);
-    expect(round128(-0.0) == -0.0);
-    expect(math.isPositiveInf(round128(math.inf(f128))));
-    expect(math.isNegativeInf(round128(-math.inf(f128))));
-    expect(math.isNan(round128(math.nan(f128))));
+    try expect(round128(0.0) == 0.0);
+    try expect(round128(-0.0) == -0.0);
+    try expect(math.isPositiveInf(round128(math.inf(f128))));
+    try expect(math.isNegativeInf(round128(-math.inf(f128))));
+    try expect(math.isNan(round128(math.nan(f128))));
 }

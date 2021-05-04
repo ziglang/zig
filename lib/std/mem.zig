@@ -142,8 +142,8 @@ fn failAllocatorAlloc(self: *Allocator, n: usize, alignment: u29, len_align: u29
 }
 
 test "mem.Allocator basics" {
-    testing.expectError(error.OutOfMemory, failAllocator.alloc(u8, 1));
-    testing.expectError(error.OutOfMemory, failAllocator.allocSentinel(u8, 1, 0));
+    try testing.expectError(error.OutOfMemory, failAllocator.alloc(u8, 1));
+    try testing.expectError(error.OutOfMemory, failAllocator.allocSentinel(u8, 1, 0));
 }
 
 /// Copy all of source into dest at position 0.
@@ -276,8 +276,8 @@ test "mem.zeroes" {
     var a = zeroes(C_struct);
     a.y += 10;
 
-    testing.expect(a.x == 0);
-    testing.expect(a.y == 10);
+    try testing.expect(a.x == 0);
+    try testing.expect(a.y == 10);
 
     const ZigStruct = struct {
         integral_types: struct {
@@ -314,32 +314,32 @@ test "mem.zeroes" {
     };
 
     const b = zeroes(ZigStruct);
-    testing.expectEqual(@as(i8, 0), b.integral_types.integer_0);
-    testing.expectEqual(@as(i8, 0), b.integral_types.integer_8);
-    testing.expectEqual(@as(i16, 0), b.integral_types.integer_16);
-    testing.expectEqual(@as(i32, 0), b.integral_types.integer_32);
-    testing.expectEqual(@as(i64, 0), b.integral_types.integer_64);
-    testing.expectEqual(@as(i128, 0), b.integral_types.integer_128);
-    testing.expectEqual(@as(u8, 0), b.integral_types.unsigned_0);
-    testing.expectEqual(@as(u8, 0), b.integral_types.unsigned_8);
-    testing.expectEqual(@as(u16, 0), b.integral_types.unsigned_16);
-    testing.expectEqual(@as(u32, 0), b.integral_types.unsigned_32);
-    testing.expectEqual(@as(u64, 0), b.integral_types.unsigned_64);
-    testing.expectEqual(@as(u128, 0), b.integral_types.unsigned_128);
-    testing.expectEqual(@as(f32, 0), b.integral_types.float_32);
-    testing.expectEqual(@as(f64, 0), b.integral_types.float_64);
-    testing.expectEqual(@as(?*u8, null), b.pointers.optional);
-    testing.expectEqual(@as([*c]u8, null), b.pointers.c_pointer);
-    testing.expectEqual(@as([]u8, &[_]u8{}), b.pointers.slice);
+    try testing.expectEqual(@as(i8, 0), b.integral_types.integer_0);
+    try testing.expectEqual(@as(i8, 0), b.integral_types.integer_8);
+    try testing.expectEqual(@as(i16, 0), b.integral_types.integer_16);
+    try testing.expectEqual(@as(i32, 0), b.integral_types.integer_32);
+    try testing.expectEqual(@as(i64, 0), b.integral_types.integer_64);
+    try testing.expectEqual(@as(i128, 0), b.integral_types.integer_128);
+    try testing.expectEqual(@as(u8, 0), b.integral_types.unsigned_0);
+    try testing.expectEqual(@as(u8, 0), b.integral_types.unsigned_8);
+    try testing.expectEqual(@as(u16, 0), b.integral_types.unsigned_16);
+    try testing.expectEqual(@as(u32, 0), b.integral_types.unsigned_32);
+    try testing.expectEqual(@as(u64, 0), b.integral_types.unsigned_64);
+    try testing.expectEqual(@as(u128, 0), b.integral_types.unsigned_128);
+    try testing.expectEqual(@as(f32, 0), b.integral_types.float_32);
+    try testing.expectEqual(@as(f64, 0), b.integral_types.float_64);
+    try testing.expectEqual(@as(?*u8, null), b.pointers.optional);
+    try testing.expectEqual(@as([*c]u8, null), b.pointers.c_pointer);
+    try testing.expectEqual(@as([]u8, &[_]u8{}), b.pointers.slice);
     for (b.array) |e| {
-        testing.expectEqual(@as(u32, 0), e);
+        try testing.expectEqual(@as(u32, 0), e);
     }
-    testing.expectEqual(@splat(2, @as(u32, 0)), b.vector_u32);
-    testing.expectEqual(@splat(2, @as(f32, 0.0)), b.vector_f32);
-    testing.expectEqual(@splat(2, @as(bool, false)), b.vector_bool);
-    testing.expectEqual(@as(?u8, null), b.optional_int);
+    try testing.expectEqual(@splat(2, @as(u32, 0)), b.vector_u32);
+    try testing.expectEqual(@splat(2, @as(f32, 0.0)), b.vector_f32);
+    try testing.expectEqual(@splat(2, @as(bool, false)), b.vector_bool);
+    try testing.expectEqual(@as(?u8, null), b.optional_int);
     for (b.sentinel) |e| {
-        testing.expectEqual(@as(u8, 0), e);
+        try testing.expectEqual(@as(u8, 0), e);
     }
 
     const C_union = extern union {
@@ -348,7 +348,7 @@ test "mem.zeroes" {
     };
 
     var c = zeroes(C_union);
-    testing.expectEqual(@as(u8, 0), c.a);
+    try testing.expectEqual(@as(u8, 0), c.a);
 }
 
 /// Initializes all fields of the struct with their default value, or zero values if no default value is present.
@@ -421,7 +421,7 @@ test "zeroInit" {
         .a = 42,
     });
 
-    testing.expectEqual(S{
+    try testing.expectEqual(S{
         .a = 42,
         .b = null,
         .c = .{
@@ -439,7 +439,7 @@ test "zeroInit" {
     };
 
     const c = zeroInit(Color, .{ 255, 255 });
-    testing.expectEqual(Color{
+    try testing.expectEqual(Color{
         .r = 255,
         .g = 255,
         .b = 0,
@@ -462,11 +462,11 @@ pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
 }
 
 test "order" {
-    testing.expect(order(u8, "abcd", "bee") == .lt);
-    testing.expect(order(u8, "abc", "abc") == .eq);
-    testing.expect(order(u8, "abc", "abc0") == .lt);
-    testing.expect(order(u8, "", "") == .eq);
-    testing.expect(order(u8, "", "a") == .lt);
+    try testing.expect(order(u8, "abcd", "bee") == .lt);
+    try testing.expect(order(u8, "abc", "abc") == .eq);
+    try testing.expect(order(u8, "abc", "abc0") == .lt);
+    try testing.expect(order(u8, "", "") == .eq);
+    try testing.expect(order(u8, "", "a") == .lt);
 }
 
 /// Returns true if lhs < rhs, false otherwise
@@ -475,11 +475,11 @@ pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) bool {
 }
 
 test "mem.lessThan" {
-    testing.expect(lessThan(u8, "abcd", "bee"));
-    testing.expect(!lessThan(u8, "abc", "abc"));
-    testing.expect(lessThan(u8, "abc", "abc0"));
-    testing.expect(!lessThan(u8, "", ""));
-    testing.expect(lessThan(u8, "", "a"));
+    try testing.expect(lessThan(u8, "abcd", "bee"));
+    try testing.expect(!lessThan(u8, "abc", "abc"));
+    try testing.expect(lessThan(u8, "abc", "abc0"));
+    try testing.expect(!lessThan(u8, "", ""));
+    try testing.expect(lessThan(u8, "", "a"));
 }
 
 /// Compares two slices and returns whether they are equal.
@@ -504,11 +504,11 @@ pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
 }
 
 test "indexOfDiff" {
-    testing.expectEqual(indexOfDiff(u8, "one", "one"), null);
-    testing.expectEqual(indexOfDiff(u8, "one two", "one"), 3);
-    testing.expectEqual(indexOfDiff(u8, "one", "one two"), 3);
-    testing.expectEqual(indexOfDiff(u8, "one twx", "one two"), 6);
-    testing.expectEqual(indexOfDiff(u8, "xne", "one"), 0);
+    try testing.expectEqual(indexOfDiff(u8, "one", "one"), null);
+    try testing.expectEqual(indexOfDiff(u8, "one two", "one"), 3);
+    try testing.expectEqual(indexOfDiff(u8, "one", "one two"), 3);
+    try testing.expectEqual(indexOfDiff(u8, "one twx", "one two"), 6);
+    try testing.expectEqual(indexOfDiff(u8, "xne", "one"), 0);
 }
 
 pub const toSliceConst = @compileError("deprecated; use std.mem.spanZ");
@@ -548,26 +548,26 @@ pub fn Span(comptime T: type) type {
 }
 
 test "Span" {
-    testing.expect(Span(*[5]u16) == []u16);
-    testing.expect(Span(?*[5]u16) == ?[]u16);
-    testing.expect(Span(*const [5]u16) == []const u16);
-    testing.expect(Span(?*const [5]u16) == ?[]const u16);
-    testing.expect(Span([]u16) == []u16);
-    testing.expect(Span(?[]u16) == ?[]u16);
-    testing.expect(Span([]const u8) == []const u8);
-    testing.expect(Span(?[]const u8) == ?[]const u8);
-    testing.expect(Span([:1]u16) == [:1]u16);
-    testing.expect(Span(?[:1]u16) == ?[:1]u16);
-    testing.expect(Span([:1]const u8) == [:1]const u8);
-    testing.expect(Span(?[:1]const u8) == ?[:1]const u8);
-    testing.expect(Span([*:1]u16) == [:1]u16);
-    testing.expect(Span(?[*:1]u16) == ?[:1]u16);
-    testing.expect(Span([*:1]const u8) == [:1]const u8);
-    testing.expect(Span(?[*:1]const u8) == ?[:1]const u8);
-    testing.expect(Span([*c]u16) == [:0]u16);
-    testing.expect(Span(?[*c]u16) == ?[:0]u16);
-    testing.expect(Span([*c]const u8) == [:0]const u8);
-    testing.expect(Span(?[*c]const u8) == ?[:0]const u8);
+    try testing.expect(Span(*[5]u16) == []u16);
+    try testing.expect(Span(?*[5]u16) == ?[]u16);
+    try testing.expect(Span(*const [5]u16) == []const u16);
+    try testing.expect(Span(?*const [5]u16) == ?[]const u16);
+    try testing.expect(Span([]u16) == []u16);
+    try testing.expect(Span(?[]u16) == ?[]u16);
+    try testing.expect(Span([]const u8) == []const u8);
+    try testing.expect(Span(?[]const u8) == ?[]const u8);
+    try testing.expect(Span([:1]u16) == [:1]u16);
+    try testing.expect(Span(?[:1]u16) == ?[:1]u16);
+    try testing.expect(Span([:1]const u8) == [:1]const u8);
+    try testing.expect(Span(?[:1]const u8) == ?[:1]const u8);
+    try testing.expect(Span([*:1]u16) == [:1]u16);
+    try testing.expect(Span(?[*:1]u16) == ?[:1]u16);
+    try testing.expect(Span([*:1]const u8) == [:1]const u8);
+    try testing.expect(Span(?[*:1]const u8) == ?[:1]const u8);
+    try testing.expect(Span([*c]u16) == [:0]u16);
+    try testing.expect(Span(?[*c]u16) == ?[:0]u16);
+    try testing.expect(Span([*c]const u8) == [:0]const u8);
+    try testing.expect(Span(?[*c]const u8) == ?[:0]const u8);
 }
 
 /// Takes a pointer to an array, a sentinel-terminated pointer, or a slice, and
@@ -597,9 +597,9 @@ pub fn span(ptr: anytype) Span(@TypeOf(ptr)) {
 test "span" {
     var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
     const ptr = @as([*:3]u16, array[0..2 :3]);
-    testing.expect(eql(u16, span(ptr), &[_]u16{ 1, 2 }));
-    testing.expect(eql(u16, span(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
-    testing.expectEqual(@as(?[:0]u16, null), span(@as(?[*:0]u16, null)));
+    try testing.expect(eql(u16, span(ptr), &[_]u16{ 1, 2 }));
+    try testing.expect(eql(u16, span(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
+    try testing.expectEqual(@as(?[:0]u16, null), span(@as(?[*:0]u16, null)));
 }
 
 /// Same as `span`, except when there is both a sentinel and an array
@@ -625,9 +625,9 @@ pub fn spanZ(ptr: anytype) Span(@TypeOf(ptr)) {
 test "spanZ" {
     var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
     const ptr = @as([*:3]u16, array[0..2 :3]);
-    testing.expect(eql(u16, spanZ(ptr), &[_]u16{ 1, 2 }));
-    testing.expect(eql(u16, spanZ(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
-    testing.expectEqual(@as(?[:0]u16, null), spanZ(@as(?[*:0]u16, null)));
+    try testing.expect(eql(u16, spanZ(ptr), &[_]u16{ 1, 2 }));
+    try testing.expect(eql(u16, spanZ(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
+    try testing.expectEqual(@as(?[:0]u16, null), spanZ(@as(?[*:0]u16, null)));
 }
 
 /// Takes a pointer to an array, an array, a vector, a sentinel-terminated pointer,
@@ -661,30 +661,30 @@ pub fn len(value: anytype) usize {
 }
 
 test "len" {
-    testing.expect(len("aoeu") == 4);
+    try testing.expect(len("aoeu") == 4);
 
     {
         var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
-        testing.expect(len(&array) == 5);
-        testing.expect(len(array[0..3]) == 3);
+        try testing.expect(len(&array) == 5);
+        try testing.expect(len(array[0..3]) == 3);
         array[2] = 0;
         const ptr = @as([*:0]u16, array[0..2 :0]);
-        testing.expect(len(ptr) == 2);
+        try testing.expect(len(ptr) == 2);
     }
     {
         var array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
-        testing.expect(len(&array) == 5);
+        try testing.expect(len(&array) == 5);
         array[2] = 0;
-        testing.expect(len(&array) == 5);
+        try testing.expect(len(&array) == 5);
     }
     {
         const vector: meta.Vector(2, u32) = [2]u32{ 1, 2 };
-        testing.expect(len(vector) == 2);
+        try testing.expect(len(vector) == 2);
     }
     {
         const tuple = .{ 1, 2 };
-        testing.expect(len(tuple) == 2);
-        testing.expect(tuple[0] == 1);
+        try testing.expect(len(tuple) == 2);
+        try testing.expect(tuple[0] == 1);
     }
 }
 
@@ -725,21 +725,21 @@ pub fn lenZ(ptr: anytype) usize {
 }
 
 test "lenZ" {
-    testing.expect(lenZ("aoeu") == 4);
+    try testing.expect(lenZ("aoeu") == 4);
 
     {
         var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
-        testing.expect(lenZ(&array) == 5);
-        testing.expect(lenZ(array[0..3]) == 3);
+        try testing.expect(lenZ(&array) == 5);
+        try testing.expect(lenZ(array[0..3]) == 3);
         array[2] = 0;
         const ptr = @as([*:0]u16, array[0..2 :0]);
-        testing.expect(lenZ(ptr) == 2);
+        try testing.expect(lenZ(ptr) == 2);
     }
     {
         var array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
-        testing.expect(lenZ(&array) == 5);
+        try testing.expect(lenZ(&array) == 5);
         array[2] = 0;
-        testing.expect(lenZ(&array) == 2);
+        try testing.expect(lenZ(&array) == 2);
     }
 }
 
@@ -793,10 +793,10 @@ pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []co
 }
 
 test "mem.trim" {
-    testing.expectEqualSlices(u8, "foo\n ", trimLeft(u8, " foo\n ", " \n"));
-    testing.expectEqualSlices(u8, " foo", trimRight(u8, " foo\n ", " \n"));
-    testing.expectEqualSlices(u8, "foo", trim(u8, " foo\n ", " \n"));
-    testing.expectEqualSlices(u8, "foo", trim(u8, "foo", " \n"));
+    try testing.expectEqualSlices(u8, "foo\n ", trimLeft(u8, " foo\n ", " \n"));
+    try testing.expectEqualSlices(u8, " foo", trimRight(u8, " foo\n ", " \n"));
+    try testing.expectEqualSlices(u8, "foo", trim(u8, " foo\n ", " \n"));
+    try testing.expectEqualSlices(u8, "foo", trim(u8, "foo", " \n"));
 }
 
 /// Linear search for the index of a scalar value inside a slice.
@@ -951,28 +951,28 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
 }
 
 test "mem.indexOf" {
-    testing.expect(indexOf(u8, "one two three four five six seven eight nine ten eleven", "three four").? == 8);
-    testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten eleven", "three four").? == 8);
-    testing.expect(indexOf(u8, "one two three four five six seven eight nine ten eleven", "two two") == null);
-    testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten eleven", "two two") == null);
+    try testing.expect(indexOf(u8, "one two three four five six seven eight nine ten eleven", "three four").? == 8);
+    try testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten eleven", "three four").? == 8);
+    try testing.expect(indexOf(u8, "one two three four five six seven eight nine ten eleven", "two two") == null);
+    try testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten eleven", "two two") == null);
 
-    testing.expect(indexOf(u8, "one two three four five six seven eight nine ten", "").? == 0);
-    testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten", "").? == 48);
+    try testing.expect(indexOf(u8, "one two three four five six seven eight nine ten", "").? == 0);
+    try testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten", "").? == 48);
 
-    testing.expect(indexOf(u8, "one two three four", "four").? == 14);
-    testing.expect(lastIndexOf(u8, "one two three two four", "two").? == 14);
-    testing.expect(indexOf(u8, "one two three four", "gour") == null);
-    testing.expect(lastIndexOf(u8, "one two three four", "gour") == null);
-    testing.expect(indexOf(u8, "foo", "foo").? == 0);
-    testing.expect(lastIndexOf(u8, "foo", "foo").? == 0);
-    testing.expect(indexOf(u8, "foo", "fool") == null);
-    testing.expect(lastIndexOf(u8, "foo", "lfoo") == null);
-    testing.expect(lastIndexOf(u8, "foo", "fool") == null);
+    try testing.expect(indexOf(u8, "one two three four", "four").? == 14);
+    try testing.expect(lastIndexOf(u8, "one two three two four", "two").? == 14);
+    try testing.expect(indexOf(u8, "one two three four", "gour") == null);
+    try testing.expect(lastIndexOf(u8, "one two three four", "gour") == null);
+    try testing.expect(indexOf(u8, "foo", "foo").? == 0);
+    try testing.expect(lastIndexOf(u8, "foo", "foo").? == 0);
+    try testing.expect(indexOf(u8, "foo", "fool") == null);
+    try testing.expect(lastIndexOf(u8, "foo", "lfoo") == null);
+    try testing.expect(lastIndexOf(u8, "foo", "fool") == null);
 
-    testing.expect(indexOf(u8, "foo foo", "foo").? == 0);
-    testing.expect(lastIndexOf(u8, "foo foo", "foo").? == 4);
-    testing.expect(lastIndexOfAny(u8, "boo, cat", "abo").? == 6);
-    testing.expect(lastIndexOfScalar(u8, "boo", 'o').? == 2);
+    try testing.expect(indexOf(u8, "foo foo", "foo").? == 0);
+    try testing.expect(lastIndexOf(u8, "foo foo", "foo").? == 4);
+    try testing.expect(lastIndexOfAny(u8, "boo, cat", "abo").? == 6);
+    try testing.expect(lastIndexOfScalar(u8, "boo", 'o').? == 2);
 }
 
 /// Returns the number of needles inside the haystack
@@ -992,17 +992,17 @@ pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
 }
 
 test "mem.count" {
-    testing.expect(count(u8, "", "h") == 0);
-    testing.expect(count(u8, "h", "h") == 1);
-    testing.expect(count(u8, "hh", "h") == 2);
-    testing.expect(count(u8, "world!", "hello") == 0);
-    testing.expect(count(u8, "hello world!", "hello") == 1);
-    testing.expect(count(u8, "   abcabc   abc", "abc") == 3);
-    testing.expect(count(u8, "udexdcbvbruhasdrw", "bruh") == 1);
-    testing.expect(count(u8, "foo bar", "o bar") == 1);
-    testing.expect(count(u8, "foofoofoo", "foo") == 3);
-    testing.expect(count(u8, "fffffff", "ff") == 3);
-    testing.expect(count(u8, "owowowu", "owowu") == 1);
+    try testing.expect(count(u8, "", "h") == 0);
+    try testing.expect(count(u8, "h", "h") == 1);
+    try testing.expect(count(u8, "hh", "h") == 2);
+    try testing.expect(count(u8, "world!", "hello") == 0);
+    try testing.expect(count(u8, "hello world!", "hello") == 1);
+    try testing.expect(count(u8, "   abcabc   abc", "abc") == 3);
+    try testing.expect(count(u8, "udexdcbvbruhasdrw", "bruh") == 1);
+    try testing.expect(count(u8, "foo bar", "o bar") == 1);
+    try testing.expect(count(u8, "foofoofoo", "foo") == 3);
+    try testing.expect(count(u8, "fffffff", "ff") == 3);
+    try testing.expect(count(u8, "owowowu", "owowu") == 1);
 }
 
 /// Returns true if the haystack contains expected_count or more needles
@@ -1024,19 +1024,19 @@ pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: us
 }
 
 test "mem.containsAtLeast" {
-    testing.expect(containsAtLeast(u8, "aa", 0, "a"));
-    testing.expect(containsAtLeast(u8, "aa", 1, "a"));
-    testing.expect(containsAtLeast(u8, "aa", 2, "a"));
-    testing.expect(!containsAtLeast(u8, "aa", 3, "a"));
+    try testing.expect(containsAtLeast(u8, "aa", 0, "a"));
+    try testing.expect(containsAtLeast(u8, "aa", 1, "a"));
+    try testing.expect(containsAtLeast(u8, "aa", 2, "a"));
+    try testing.expect(!containsAtLeast(u8, "aa", 3, "a"));
 
-    testing.expect(containsAtLeast(u8, "radaradar", 1, "radar"));
-    testing.expect(!containsAtLeast(u8, "radaradar", 2, "radar"));
+    try testing.expect(containsAtLeast(u8, "radaradar", 1, "radar"));
+    try testing.expect(!containsAtLeast(u8, "radaradar", 2, "radar"));
 
-    testing.expect(containsAtLeast(u8, "radarradaradarradar", 3, "radar"));
-    testing.expect(!containsAtLeast(u8, "radarradaradarradar", 4, "radar"));
+    try testing.expect(containsAtLeast(u8, "radarradaradarradar", 3, "radar"));
+    try testing.expect(!containsAtLeast(u8, "radarradaradarradar", 4, "radar"));
 
-    testing.expect(containsAtLeast(u8, "   radar      radar   ", 2, "radar"));
-    testing.expect(!containsAtLeast(u8, "   radar      radar   ", 3, "radar"));
+    try testing.expect(containsAtLeast(u8, "   radar      radar   ", 2, "radar"));
+    try testing.expect(!containsAtLeast(u8, "   radar      radar   ", 3, "radar"));
 }
 
 /// Reads an integer from memory with size equal to bytes.len.
@@ -1141,34 +1141,34 @@ test "comptime read/write int" {
         var bytes: [2]u8 = undefined;
         writeIntLittle(u16, &bytes, 0x1234);
         const result = readIntBig(u16, &bytes);
-        testing.expect(result == 0x3412);
+        try testing.expect(result == 0x3412);
     }
     comptime {
         var bytes: [2]u8 = undefined;
         writeIntBig(u16, &bytes, 0x1234);
         const result = readIntLittle(u16, &bytes);
-        testing.expect(result == 0x3412);
+        try testing.expect(result == 0x3412);
     }
 }
 
 test "readIntBig and readIntLittle" {
-    testing.expect(readIntSliceBig(u0, &[_]u8{}) == 0x0);
-    testing.expect(readIntSliceLittle(u0, &[_]u8{}) == 0x0);
+    try testing.expect(readIntSliceBig(u0, &[_]u8{}) == 0x0);
+    try testing.expect(readIntSliceLittle(u0, &[_]u8{}) == 0x0);
 
-    testing.expect(readIntSliceBig(u8, &[_]u8{0x32}) == 0x32);
-    testing.expect(readIntSliceLittle(u8, &[_]u8{0x12}) == 0x12);
+    try testing.expect(readIntSliceBig(u8, &[_]u8{0x32}) == 0x32);
+    try testing.expect(readIntSliceLittle(u8, &[_]u8{0x12}) == 0x12);
 
-    testing.expect(readIntSliceBig(u16, &[_]u8{ 0x12, 0x34 }) == 0x1234);
-    testing.expect(readIntSliceLittle(u16, &[_]u8{ 0x12, 0x34 }) == 0x3412);
+    try testing.expect(readIntSliceBig(u16, &[_]u8{ 0x12, 0x34 }) == 0x1234);
+    try testing.expect(readIntSliceLittle(u16, &[_]u8{ 0x12, 0x34 }) == 0x3412);
 
-    testing.expect(readIntSliceBig(u72, &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }) == 0x123456789abcdef024);
-    testing.expect(readIntSliceLittle(u72, &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }) == 0xfedcba9876543210ec);
+    try testing.expect(readIntSliceBig(u72, &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }) == 0x123456789abcdef024);
+    try testing.expect(readIntSliceLittle(u72, &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }) == 0xfedcba9876543210ec);
 
-    testing.expect(readIntSliceBig(i8, &[_]u8{0xff}) == -1);
-    testing.expect(readIntSliceLittle(i8, &[_]u8{0xfe}) == -2);
+    try testing.expect(readIntSliceBig(i8, &[_]u8{0xff}) == -1);
+    try testing.expect(readIntSliceLittle(i8, &[_]u8{0xfe}) == -2);
 
-    testing.expect(readIntSliceBig(i16, &[_]u8{ 0xff, 0xfd }) == -3);
-    testing.expect(readIntSliceLittle(i16, &[_]u8{ 0xfc, 0xff }) == -4);
+    try testing.expect(readIntSliceBig(i16, &[_]u8{ 0xff, 0xfd }) == -3);
+    try testing.expect(readIntSliceLittle(i16, &[_]u8{ 0xfc, 0xff }) == -4);
 }
 
 /// Writes an integer to memory, storing it in twos-complement.
@@ -1283,34 +1283,34 @@ test "writeIntBig and writeIntLittle" {
     var buf9: [9]u8 = undefined;
 
     writeIntBig(u0, &buf0, 0x0);
-    testing.expect(eql(u8, buf0[0..], &[_]u8{}));
+    try testing.expect(eql(u8, buf0[0..], &[_]u8{}));
     writeIntLittle(u0, &buf0, 0x0);
-    testing.expect(eql(u8, buf0[0..], &[_]u8{}));
+    try testing.expect(eql(u8, buf0[0..], &[_]u8{}));
 
     writeIntBig(u8, &buf1, 0x12);
-    testing.expect(eql(u8, buf1[0..], &[_]u8{0x12}));
+    try testing.expect(eql(u8, buf1[0..], &[_]u8{0x12}));
     writeIntLittle(u8, &buf1, 0x34);
-    testing.expect(eql(u8, buf1[0..], &[_]u8{0x34}));
+    try testing.expect(eql(u8, buf1[0..], &[_]u8{0x34}));
 
     writeIntBig(u16, &buf2, 0x1234);
-    testing.expect(eql(u8, buf2[0..], &[_]u8{ 0x12, 0x34 }));
+    try testing.expect(eql(u8, buf2[0..], &[_]u8{ 0x12, 0x34 }));
     writeIntLittle(u16, &buf2, 0x5678);
-    testing.expect(eql(u8, buf2[0..], &[_]u8{ 0x78, 0x56 }));
+    try testing.expect(eql(u8, buf2[0..], &[_]u8{ 0x78, 0x56 }));
 
     writeIntBig(u72, &buf9, 0x123456789abcdef024);
-    testing.expect(eql(u8, buf9[0..], &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }));
+    try testing.expect(eql(u8, buf9[0..], &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }));
     writeIntLittle(u72, &buf9, 0xfedcba9876543210ec);
-    testing.expect(eql(u8, buf9[0..], &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }));
+    try testing.expect(eql(u8, buf9[0..], &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }));
 
     writeIntBig(i8, &buf1, -1);
-    testing.expect(eql(u8, buf1[0..], &[_]u8{0xff}));
+    try testing.expect(eql(u8, buf1[0..], &[_]u8{0xff}));
     writeIntLittle(i8, &buf1, -2);
-    testing.expect(eql(u8, buf1[0..], &[_]u8{0xfe}));
+    try testing.expect(eql(u8, buf1[0..], &[_]u8{0xfe}));
 
     writeIntBig(i16, &buf2, -3);
-    testing.expect(eql(u8, buf2[0..], &[_]u8{ 0xff, 0xfd }));
+    try testing.expect(eql(u8, buf2[0..], &[_]u8{ 0xff, 0xfd }));
     writeIntLittle(i16, &buf2, -4);
-    testing.expect(eql(u8, buf2[0..], &[_]u8{ 0xfc, 0xff }));
+    try testing.expect(eql(u8, buf2[0..], &[_]u8{ 0xfc, 0xff }));
 }
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
@@ -1331,60 +1331,60 @@ pub fn tokenize(buffer: []const u8, delimiter_bytes: []const u8) TokenIterator {
 
 test "mem.tokenize" {
     var it = tokenize("   abc def   ghi  ", " ");
-    testing.expect(eql(u8, it.next().?, "abc"));
-    testing.expect(eql(u8, it.next().?, "def"));
-    testing.expect(eql(u8, it.next().?, "ghi"));
-    testing.expect(it.next() == null);
+    try testing.expect(eql(u8, it.next().?, "abc"));
+    try testing.expect(eql(u8, it.next().?, "def"));
+    try testing.expect(eql(u8, it.next().?, "ghi"));
+    try testing.expect(it.next() == null);
 
     it = tokenize("..\\bob", "\\");
-    testing.expect(eql(u8, it.next().?, ".."));
-    testing.expect(eql(u8, "..", "..\\bob"[0..it.index]));
-    testing.expect(eql(u8, it.next().?, "bob"));
-    testing.expect(it.next() == null);
+    try testing.expect(eql(u8, it.next().?, ".."));
+    try testing.expect(eql(u8, "..", "..\\bob"[0..it.index]));
+    try testing.expect(eql(u8, it.next().?, "bob"));
+    try testing.expect(it.next() == null);
 
     it = tokenize("//a/b", "/");
-    testing.expect(eql(u8, it.next().?, "a"));
-    testing.expect(eql(u8, it.next().?, "b"));
-    testing.expect(eql(u8, "//a/b", "//a/b"[0..it.index]));
-    testing.expect(it.next() == null);
+    try testing.expect(eql(u8, it.next().?, "a"));
+    try testing.expect(eql(u8, it.next().?, "b"));
+    try testing.expect(eql(u8, "//a/b", "//a/b"[0..it.index]));
+    try testing.expect(it.next() == null);
 
     it = tokenize("|", "|");
-    testing.expect(it.next() == null);
+    try testing.expect(it.next() == null);
 
     it = tokenize("", "|");
-    testing.expect(it.next() == null);
+    try testing.expect(it.next() == null);
 
     it = tokenize("hello", "");
-    testing.expect(eql(u8, it.next().?, "hello"));
-    testing.expect(it.next() == null);
+    try testing.expect(eql(u8, it.next().?, "hello"));
+    try testing.expect(it.next() == null);
 
     it = tokenize("hello", " ");
-    testing.expect(eql(u8, it.next().?, "hello"));
-    testing.expect(it.next() == null);
+    try testing.expect(eql(u8, it.next().?, "hello"));
+    try testing.expect(it.next() == null);
 }
 
 test "mem.tokenize (multibyte)" {
     var it = tokenize("a|b,c/d e", " /,|");
-    testing.expect(eql(u8, it.next().?, "a"));
-    testing.expect(eql(u8, it.next().?, "b"));
-    testing.expect(eql(u8, it.next().?, "c"));
-    testing.expect(eql(u8, it.next().?, "d"));
-    testing.expect(eql(u8, it.next().?, "e"));
-    testing.expect(it.next() == null);
+    try testing.expect(eql(u8, it.next().?, "a"));
+    try testing.expect(eql(u8, it.next().?, "b"));
+    try testing.expect(eql(u8, it.next().?, "c"));
+    try testing.expect(eql(u8, it.next().?, "d"));
+    try testing.expect(eql(u8, it.next().?, "e"));
+    try testing.expect(it.next() == null);
 }
 
 test "mem.tokenize (reset)" {
     var it = tokenize("   abc def   ghi  ", " ");
-    testing.expect(eql(u8, it.next().?, "abc"));
-    testing.expect(eql(u8, it.next().?, "def"));
-    testing.expect(eql(u8, it.next().?, "ghi"));
+    try testing.expect(eql(u8, it.next().?, "abc"));
+    try testing.expect(eql(u8, it.next().?, "def"));
+    try testing.expect(eql(u8, it.next().?, "ghi"));
 
     it.reset();
 
-    testing.expect(eql(u8, it.next().?, "abc"));
-    testing.expect(eql(u8, it.next().?, "def"));
-    testing.expect(eql(u8, it.next().?, "ghi"));
-    testing.expect(it.next() == null);
+    try testing.expect(eql(u8, it.next().?, "abc"));
+    try testing.expect(eql(u8, it.next().?, "def"));
+    try testing.expect(eql(u8, it.next().?, "ghi"));
+    try testing.expect(it.next() == null);
 }
 
 /// Returns an iterator that iterates over the slices of `buffer` that
@@ -1408,34 +1408,34 @@ pub const separate = @compileError("deprecated: renamed to split (behavior remai
 
 test "mem.split" {
     var it = split("abc|def||ghi", "|");
-    testing.expect(eql(u8, it.next().?, "abc"));
-    testing.expect(eql(u8, it.next().?, "def"));
-    testing.expect(eql(u8, it.next().?, ""));
-    testing.expect(eql(u8, it.next().?, "ghi"));
-    testing.expect(it.next() == null);
+    try testing.expect(eql(u8, it.next().?, "abc"));
+    try testing.expect(eql(u8, it.next().?, "def"));
+    try testing.expect(eql(u8, it.next().?, ""));
+    try testing.expect(eql(u8, it.next().?, "ghi"));
+    try testing.expect(it.next() == null);
 
     it = split("", "|");
-    testing.expect(eql(u8, it.next().?, ""));
-    testing.expect(it.next() == null);
+    try testing.expect(eql(u8, it.next().?, ""));
+    try testing.expect(it.next() == null);
 
     it = split("|", "|");
-    testing.expect(eql(u8, it.next().?, ""));
-    testing.expect(eql(u8, it.next().?, ""));
-    testing.expect(it.next() == null);
+    try testing.expect(eql(u8, it.next().?, ""));
+    try testing.expect(eql(u8, it.next().?, ""));
+    try testing.expect(it.next() == null);
 
     it = split("hello", " ");
-    testing.expect(eql(u8, it.next().?, "hello"));
-    testing.expect(it.next() == null);
+    try testing.expect(eql(u8, it.next().?, "hello"));
+    try testing.expect(it.next() == null);
 }
 
 test "mem.split (multibyte)" {
     var it = split("a, b ,, c, d, e", ", ");
-    testing.expect(eql(u8, it.next().?, "a"));
-    testing.expect(eql(u8, it.next().?, "b ,"));
-    testing.expect(eql(u8, it.next().?, "c"));
-    testing.expect(eql(u8, it.next().?, "d"));
-    testing.expect(eql(u8, it.next().?, "e"));
-    testing.expect(it.next() == null);
+    try testing.expect(eql(u8, it.next().?, "a"));
+    try testing.expect(eql(u8, it.next().?, "b ,"));
+    try testing.expect(eql(u8, it.next().?, "c"));
+    try testing.expect(eql(u8, it.next().?, "d"));
+    try testing.expect(eql(u8, it.next().?, "e"));
+    try testing.expect(it.next() == null);
 }
 
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
@@ -1443,8 +1443,8 @@ pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool
 }
 
 test "mem.startsWith" {
-    testing.expect(startsWith(u8, "Bob", "Bo"));
-    testing.expect(!startsWith(u8, "Needle in haystack", "haystack"));
+    try testing.expect(startsWith(u8, "Bob", "Bo"));
+    try testing.expect(!startsWith(u8, "Needle in haystack", "haystack"));
 }
 
 pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
@@ -1452,8 +1452,8 @@ pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
 }
 
 test "mem.endsWith" {
-    testing.expect(endsWith(u8, "Needle in haystack", "haystack"));
-    testing.expect(!endsWith(u8, "Bob", "Bo"));
+    try testing.expect(endsWith(u8, "Needle in haystack", "haystack"));
+    try testing.expect(!endsWith(u8, "Bob", "Bo"));
 }
 
 pub const TokenIterator = struct {
@@ -1571,22 +1571,22 @@ test "mem.join" {
     {
         const str = try join(testing.allocator, ",", &[_][]const u8{});
         defer testing.allocator.free(str);
-        testing.expect(eql(u8, str, ""));
+        try testing.expect(eql(u8, str, ""));
     }
     {
         const str = try join(testing.allocator, ",", &[_][]const u8{ "a", "b", "c" });
         defer testing.allocator.free(str);
-        testing.expect(eql(u8, str, "a,b,c"));
+        try testing.expect(eql(u8, str, "a,b,c"));
     }
     {
         const str = try join(testing.allocator, ",", &[_][]const u8{"a"});
         defer testing.allocator.free(str);
-        testing.expect(eql(u8, str, "a"));
+        try testing.expect(eql(u8, str, "a"));
     }
     {
         const str = try join(testing.allocator, ",", &[_][]const u8{ "a", "", "b", "", "c" });
         defer testing.allocator.free(str);
-        testing.expect(eql(u8, str, "a,,b,,c"));
+        try testing.expect(eql(u8, str, "a,,b,,c"));
     }
 }
 
@@ -1594,26 +1594,26 @@ test "mem.joinZ" {
     {
         const str = try joinZ(testing.allocator, ",", &[_][]const u8{});
         defer testing.allocator.free(str);
-        testing.expect(eql(u8, str, ""));
-        testing.expectEqual(str[str.len], 0);
+        try testing.expect(eql(u8, str, ""));
+        try testing.expectEqual(str[str.len], 0);
     }
     {
         const str = try joinZ(testing.allocator, ",", &[_][]const u8{ "a", "b", "c" });
         defer testing.allocator.free(str);
-        testing.expect(eql(u8, str, "a,b,c"));
-        testing.expectEqual(str[str.len], 0);
+        try testing.expect(eql(u8, str, "a,b,c"));
+        try testing.expectEqual(str[str.len], 0);
     }
     {
         const str = try joinZ(testing.allocator, ",", &[_][]const u8{"a"});
         defer testing.allocator.free(str);
-        testing.expect(eql(u8, str, "a"));
-        testing.expectEqual(str[str.len], 0);
+        try testing.expect(eql(u8, str, "a"));
+        try testing.expectEqual(str[str.len], 0);
     }
     {
         const str = try joinZ(testing.allocator, ",", &[_][]const u8{ "a", "", "b", "", "c" });
         defer testing.allocator.free(str);
-        testing.expect(eql(u8, str, "a,,b,,c"));
-        testing.expectEqual(str[str.len], 0);
+        try testing.expect(eql(u8, str, "a,,b,,c"));
+        try testing.expectEqual(str[str.len], 0);
     }
 }
 
@@ -1646,7 +1646,7 @@ test "concat" {
     {
         const str = try concat(testing.allocator, u8, &[_][]const u8{ "abc", "def", "ghi" });
         defer testing.allocator.free(str);
-        testing.expect(eql(u8, str, "abcdefghi"));
+        try testing.expect(eql(u8, str, "abcdefghi"));
     }
     {
         const str = try concat(testing.allocator, u32, &[_][]const u32{
@@ -1656,21 +1656,21 @@ test "concat" {
             &[_]u32{5},
         });
         defer testing.allocator.free(str);
-        testing.expect(eql(u32, str, &[_]u32{ 0, 1, 2, 3, 4, 5 }));
+        try testing.expect(eql(u32, str, &[_]u32{ 0, 1, 2, 3, 4, 5 }));
     }
 }
 
 test "testStringEquality" {
-    testing.expect(eql(u8, "abcd", "abcd"));
-    testing.expect(!eql(u8, "abcdef", "abZdef"));
-    testing.expect(!eql(u8, "abcdefg", "abcdef"));
+    try testing.expect(eql(u8, "abcd", "abcd"));
+    try testing.expect(!eql(u8, "abcdef", "abZdef"));
+    try testing.expect(!eql(u8, "abcdefg", "abcdef"));
 }
 
 test "testReadInt" {
-    testReadIntImpl();
-    comptime testReadIntImpl();
+    try testReadIntImpl();
+    comptime try testReadIntImpl();
 }
-fn testReadIntImpl() void {
+fn testReadIntImpl() !void {
     {
         const bytes = [_]u8{
             0x12,
@@ -1678,12 +1678,12 @@ fn testReadIntImpl() void {
             0x56,
             0x78,
         };
-        testing.expect(readInt(u32, &bytes, builtin.Endian.Big) == 0x12345678);
-        testing.expect(readIntBig(u32, &bytes) == 0x12345678);
-        testing.expect(readIntBig(i32, &bytes) == 0x12345678);
-        testing.expect(readInt(u32, &bytes, builtin.Endian.Little) == 0x78563412);
-        testing.expect(readIntLittle(u32, &bytes) == 0x78563412);
-        testing.expect(readIntLittle(i32, &bytes) == 0x78563412);
+        try testing.expect(readInt(u32, &bytes, builtin.Endian.Big) == 0x12345678);
+        try testing.expect(readIntBig(u32, &bytes) == 0x12345678);
+        try testing.expect(readIntBig(i32, &bytes) == 0x12345678);
+        try testing.expect(readInt(u32, &bytes, builtin.Endian.Little) == 0x78563412);
+        try testing.expect(readIntLittle(u32, &bytes) == 0x78563412);
+        try testing.expect(readIntLittle(i32, &bytes) == 0x78563412);
     }
     {
         const buf = [_]u8{
@@ -1693,7 +1693,7 @@ fn testReadIntImpl() void {
             0x34,
         };
         const answer = readInt(u32, &buf, builtin.Endian.Big);
-        testing.expect(answer == 0x00001234);
+        try testing.expect(answer == 0x00001234);
     }
     {
         const buf = [_]u8{
@@ -1703,41 +1703,41 @@ fn testReadIntImpl() void {
             0x00,
         };
         const answer = readInt(u32, &buf, builtin.Endian.Little);
-        testing.expect(answer == 0x00003412);
+        try testing.expect(answer == 0x00003412);
     }
     {
         const bytes = [_]u8{
             0xff,
             0xfe,
         };
-        testing.expect(readIntBig(u16, &bytes) == 0xfffe);
-        testing.expect(readIntBig(i16, &bytes) == -0x0002);
-        testing.expect(readIntLittle(u16, &bytes) == 0xfeff);
-        testing.expect(readIntLittle(i16, &bytes) == -0x0101);
+        try testing.expect(readIntBig(u16, &bytes) == 0xfffe);
+        try testing.expect(readIntBig(i16, &bytes) == -0x0002);
+        try testing.expect(readIntLittle(u16, &bytes) == 0xfeff);
+        try testing.expect(readIntLittle(i16, &bytes) == -0x0101);
     }
 }
 
 test "writeIntSlice" {
-    testWriteIntImpl();
-    comptime testWriteIntImpl();
+    try testWriteIntImpl();
+    comptime try testWriteIntImpl();
 }
-fn testWriteIntImpl() void {
+fn testWriteIntImpl() !void {
     var bytes: [8]u8 = undefined;
 
     writeIntSlice(u0, bytes[0..], 0, builtin.Endian.Big);
-    testing.expect(eql(u8, &bytes, &[_]u8{
+    try testing.expect(eql(u8, &bytes, &[_]u8{
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
     }));
 
     writeIntSlice(u0, bytes[0..], 0, builtin.Endian.Little);
-    testing.expect(eql(u8, &bytes, &[_]u8{
+    try testing.expect(eql(u8, &bytes, &[_]u8{
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
     }));
 
     writeIntSlice(u64, bytes[0..], 0x12345678CAFEBABE, builtin.Endian.Big);
-    testing.expect(eql(u8, &bytes, &[_]u8{
+    try testing.expect(eql(u8, &bytes, &[_]u8{
         0x12,
         0x34,
         0x56,
@@ -1749,7 +1749,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u64, bytes[0..], 0xBEBAFECA78563412, builtin.Endian.Little);
-    testing.expect(eql(u8, &bytes, &[_]u8{
+    try testing.expect(eql(u8, &bytes, &[_]u8{
         0x12,
         0x34,
         0x56,
@@ -1761,7 +1761,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u32, bytes[0..], 0x12345678, builtin.Endian.Big);
-    testing.expect(eql(u8, &bytes, &[_]u8{
+    try testing.expect(eql(u8, &bytes, &[_]u8{
         0x00,
         0x00,
         0x00,
@@ -1773,7 +1773,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u32, bytes[0..], 0x78563412, builtin.Endian.Little);
-    testing.expect(eql(u8, &bytes, &[_]u8{
+    try testing.expect(eql(u8, &bytes, &[_]u8{
         0x12,
         0x34,
         0x56,
@@ -1785,7 +1785,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u16, bytes[0..], 0x1234, builtin.Endian.Big);
-    testing.expect(eql(u8, &bytes, &[_]u8{
+    try testing.expect(eql(u8, &bytes, &[_]u8{
         0x00,
         0x00,
         0x00,
@@ -1797,7 +1797,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u16, bytes[0..], 0x1234, builtin.Endian.Little);
-    testing.expect(eql(u8, &bytes, &[_]u8{
+    try testing.expect(eql(u8, &bytes, &[_]u8{
         0x34,
         0x12,
         0x00,
@@ -1820,7 +1820,7 @@ pub fn min(comptime T: type, slice: []const T) T {
 }
 
 test "mem.min" {
-    testing.expect(min(u8, "abcdefg") == 'a');
+    try testing.expect(min(u8, "abcdefg") == 'a');
 }
 
 /// Returns the largest number in a slice. O(n).
@@ -1834,7 +1834,7 @@ pub fn max(comptime T: type, slice: []const T) T {
 }
 
 test "mem.max" {
-    testing.expect(max(u8, "abcdefg") == 'g');
+    try testing.expect(max(u8, "abcdefg") == 'g');
 }
 
 pub fn swap(comptime T: type, a: *T, b: *T) void {
@@ -1856,7 +1856,7 @@ test "reverse" {
     var arr = [_]i32{ 5, 3, 1, 2, 4 };
     reverse(i32, arr[0..]);
 
-    testing.expect(eql(i32, &arr, &[_]i32{ 4, 2, 1, 3, 5 }));
+    try testing.expect(eql(i32, &arr, &[_]i32{ 4, 2, 1, 3, 5 }));
 }
 
 /// In-place rotation of the values in an array ([0 1 2 3] becomes [1 2 3 0] if we rotate by 1)
@@ -1871,7 +1871,7 @@ test "rotate" {
     var arr = [_]i32{ 5, 3, 1, 2, 4 };
     rotate(i32, arr[0..], 2);
 
-    testing.expect(eql(i32, &arr, &[_]i32{ 1, 2, 4, 5, 3 }));
+    try testing.expect(eql(i32, &arr, &[_]i32{ 1, 2, 4, 5, 3 }));
 }
 
 /// Replace needle with replacement as many times as possible, writing to an output buffer which is assumed to be of
@@ -1904,31 +1904,31 @@ test "replace" {
     var output: [29]u8 = undefined;
     var replacements = replace(u8, "All your base are belong to us", "base", "Zig", output[0..]);
     var expected: []const u8 = "All your Zig are belong to us";
-    testing.expect(replacements == 1);
-    testing.expectEqualStrings(expected, output[0..expected.len]);
+    try testing.expect(replacements == 1);
+    try testing.expectEqualStrings(expected, output[0..expected.len]);
 
     replacements = replace(u8, "Favor reading code over writing code.", "code", "", output[0..]);
     expected = "Favor reading  over writing .";
-    testing.expect(replacements == 2);
-    testing.expectEqualStrings(expected, output[0..expected.len]);
+    try testing.expect(replacements == 2);
+    try testing.expectEqualStrings(expected, output[0..expected.len]);
 
     // Empty needle is not allowed but input may be empty.
     replacements = replace(u8, "", "x", "y", output[0..0]);
     expected = "";
-    testing.expect(replacements == 0);
-    testing.expectEqualStrings(expected, output[0..expected.len]);
+    try testing.expect(replacements == 0);
+    try testing.expectEqualStrings(expected, output[0..expected.len]);
 
     // Adjacent replacements.
 
     replacements = replace(u8, "\\n\\n", "\\n", "\n", output[0..]);
     expected = "\n\n";
-    testing.expect(replacements == 2);
-    testing.expectEqualStrings(expected, output[0..expected.len]);
+    try testing.expect(replacements == 2);
+    try testing.expectEqualStrings(expected, output[0..expected.len]);
 
     replacements = replace(u8, "abbba", "b", "cd", output[0..]);
     expected = "acdcdcda";
-    testing.expect(replacements == 3);
-    testing.expectEqualStrings(expected, output[0..expected.len]);
+    try testing.expect(replacements == 3);
+    try testing.expectEqualStrings(expected, output[0..expected.len]);
 }
 
 /// Calculate the size needed in an output buffer to perform a replacement.
@@ -1952,16 +1952,16 @@ pub fn replacementSize(comptime T: type, input: []const T, needle: []const T, re
 }
 
 test "replacementSize" {
-    testing.expect(replacementSize(u8, "All your base are belong to us", "base", "Zig") == 29);
-    testing.expect(replacementSize(u8, "Favor reading code over writing code.", "code", "") == 29);
-    testing.expect(replacementSize(u8, "Only one obvious way to do things.", "things.", "things in Zig.") == 41);
+    try testing.expect(replacementSize(u8, "All your base are belong to us", "base", "Zig") == 29);
+    try testing.expect(replacementSize(u8, "Favor reading code over writing code.", "code", "") == 29);
+    try testing.expect(replacementSize(u8, "Only one obvious way to do things.", "things.", "things in Zig.") == 41);
 
     // Empty needle is not allowed but input may be empty.
-    testing.expect(replacementSize(u8, "", "x", "y") == 0);
+    try testing.expect(replacementSize(u8, "", "x", "y") == 0);
 
     // Adjacent replacements.
-    testing.expect(replacementSize(u8, "\\n\\n", "\\n", "\n") == 2);
-    testing.expect(replacementSize(u8, "abbba", "b", "cd") == 8);
+    try testing.expect(replacementSize(u8, "\\n\\n", "\\n", "\n") == 2);
+    try testing.expect(replacementSize(u8, "abbba", "b", "cd") == 8);
 }
 
 /// Perform a replacement on an allocated buffer of pre-determined size. Caller must free returned memory.
@@ -1976,11 +1976,11 @@ test "replaceOwned" {
 
     const base_replace = replaceOwned(u8, allocator, "All your base are belong to us", "base", "Zig") catch unreachable;
     defer allocator.free(base_replace);
-    testing.expect(eql(u8, base_replace, "All your Zig are belong to us"));
+    try testing.expect(eql(u8, base_replace, "All your Zig are belong to us"));
 
     const zen_replace = replaceOwned(u8, allocator, "Favor reading code over writing code.", " code", "") catch unreachable;
     defer allocator.free(zen_replace);
-    testing.expect(eql(u8, zen_replace, "Favor reading over writing."));
+    try testing.expect(eql(u8, zen_replace, "Favor reading over writing."));
 }
 
 /// Converts a little-endian integer to host endianness.
@@ -2068,12 +2068,12 @@ test "asBytes" {
         .Little => "\xEF\xBE\xAD\xDE",
     };
 
-    testing.expect(eql(u8, asBytes(&deadbeef), deadbeef_bytes));
+    try testing.expect(eql(u8, asBytes(&deadbeef), deadbeef_bytes));
 
     var codeface = @as(u32, 0xC0DEFACE);
     for (asBytes(&codeface).*) |*b|
         b.* = 0;
-    testing.expect(codeface == 0);
+    try testing.expect(codeface == 0);
 
     const S = packed struct {
         a: u8,
@@ -2088,11 +2088,11 @@ test "asBytes" {
         .c = 0xDE,
         .d = 0xA1,
     };
-    testing.expect(eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
+    try testing.expect(eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
 
     const ZST = struct {};
     const zero = ZST{};
-    testing.expect(eql(u8, asBytes(&zero), ""));
+    try testing.expect(eql(u8, asBytes(&zero), ""));
 }
 
 test "asBytes preserves pointer attributes" {
@@ -2103,10 +2103,10 @@ test "asBytes preserves pointer attributes" {
     const in = @typeInfo(@TypeOf(inPtr)).Pointer;
     const out = @typeInfo(@TypeOf(outSlice)).Pointer;
 
-    testing.expectEqual(in.is_const, out.is_const);
-    testing.expectEqual(in.is_volatile, out.is_volatile);
-    testing.expectEqual(in.is_allowzero, out.is_allowzero);
-    testing.expectEqual(in.alignment, out.alignment);
+    try testing.expectEqual(in.is_const, out.is_const);
+    try testing.expectEqual(in.is_volatile, out.is_volatile);
+    try testing.expectEqual(in.is_allowzero, out.is_allowzero);
+    try testing.expectEqual(in.alignment, out.alignment);
 }
 
 /// Given any value, returns a copy of its bytes in an array.
@@ -2117,14 +2117,14 @@ pub fn toBytes(value: anytype) [@sizeOf(@TypeOf(value))]u8 {
 test "toBytes" {
     var my_bytes = toBytes(@as(u32, 0x12345678));
     switch (builtin.endian) {
-        .Big => testing.expect(eql(u8, &my_bytes, "\x12\x34\x56\x78")),
-        .Little => testing.expect(eql(u8, &my_bytes, "\x78\x56\x34\x12")),
+        .Big => try testing.expect(eql(u8, &my_bytes, "\x12\x34\x56\x78")),
+        .Little => try testing.expect(eql(u8, &my_bytes, "\x78\x56\x34\x12")),
     }
 
     my_bytes[0] = '\x99';
     switch (builtin.endian) {
-        .Big => testing.expect(eql(u8, &my_bytes, "\x99\x34\x56\x78")),
-        .Little => testing.expect(eql(u8, &my_bytes, "\x99\x56\x34\x12")),
+        .Big => try testing.expect(eql(u8, &my_bytes, "\x99\x34\x56\x78")),
+        .Little => try testing.expect(eql(u8, &my_bytes, "\x99\x56\x34\x12")),
     }
 }
 
@@ -2154,17 +2154,17 @@ test "bytesAsValue" {
         .Little => "\xEF\xBE\xAD\xDE",
     };
 
-    testing.expect(deadbeef == bytesAsValue(u32, deadbeef_bytes).*);
+    try testing.expect(deadbeef == bytesAsValue(u32, deadbeef_bytes).*);
 
     var codeface_bytes: [4]u8 = switch (builtin.endian) {
         .Big => "\xC0\xDE\xFA\xCE",
         .Little => "\xCE\xFA\xDE\xC0",
     }.*;
     var codeface = bytesAsValue(u32, &codeface_bytes);
-    testing.expect(codeface.* == 0xC0DEFACE);
+    try testing.expect(codeface.* == 0xC0DEFACE);
     codeface.* = 0;
     for (codeface_bytes) |b|
-        testing.expect(b == 0);
+        try testing.expect(b == 0);
 
     const S = packed struct {
         a: u8,
@@ -2181,7 +2181,7 @@ test "bytesAsValue" {
     };
     const inst_bytes = "\xBE\xEF\xDE\xA1";
     const inst2 = bytesAsValue(S, inst_bytes);
-    testing.expect(meta.eql(inst, inst2.*));
+    try testing.expect(meta.eql(inst, inst2.*));
 }
 
 test "bytesAsValue preserves pointer attributes" {
@@ -2192,10 +2192,10 @@ test "bytesAsValue preserves pointer attributes" {
     const in = @typeInfo(@TypeOf(inSlice)).Pointer;
     const out = @typeInfo(@TypeOf(outPtr)).Pointer;
 
-    testing.expectEqual(in.is_const, out.is_const);
-    testing.expectEqual(in.is_volatile, out.is_volatile);
-    testing.expectEqual(in.is_allowzero, out.is_allowzero);
-    testing.expectEqual(in.alignment, out.alignment);
+    try testing.expectEqual(in.is_const, out.is_const);
+    try testing.expectEqual(in.is_volatile, out.is_volatile);
+    try testing.expectEqual(in.is_allowzero, out.is_allowzero);
+    try testing.expectEqual(in.alignment, out.alignment);
 }
 
 /// Given a pointer to an array of bytes, returns a value of the specified type backed by a
@@ -2210,7 +2210,7 @@ test "bytesToValue" {
     };
 
     const deadbeef = bytesToValue(u32, deadbeef_bytes);
-    testing.expect(deadbeef == @as(u32, 0xDEADBEEF));
+    try testing.expect(deadbeef == @as(u32, 0xDEADBEEF));
 }
 
 fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
@@ -2243,17 +2243,17 @@ test "bytesAsSlice" {
     {
         const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
         const slice = bytesAsSlice(u16, bytes[0..]);
-        testing.expect(slice.len == 2);
-        testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
-        testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+        try testing.expect(slice.len == 2);
+        try testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
+        try testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
     }
     {
         const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
         var runtime_zero: usize = 0;
         const slice = bytesAsSlice(u16, bytes[runtime_zero..]);
-        testing.expect(slice.len == 2);
-        testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
-        testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+        try testing.expect(slice.len == 2);
+        try testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
+        try testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
     }
 }
 
@@ -2261,13 +2261,13 @@ test "bytesAsSlice keeps pointer alignment" {
     {
         var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
         const numbers = bytesAsSlice(u32, bytes[0..]);
-        comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+        comptime try testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
     }
     {
         var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
         var runtime_zero: usize = 0;
         const numbers = bytesAsSlice(u32, bytes[runtime_zero..]);
-        comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+        comptime try testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
     }
 }
 
@@ -2278,7 +2278,7 @@ test "bytesAsSlice on a packed struct" {
 
     var b = [1]u8{9};
     var f = bytesAsSlice(F, &b);
-    testing.expect(f[0].a == 9);
+    try testing.expect(f[0].a == 9);
 }
 
 test "bytesAsSlice with specified alignment" {
@@ -2289,7 +2289,7 @@ test "bytesAsSlice with specified alignment" {
         0x33,
     };
     const slice: []u32 = std.mem.bytesAsSlice(u32, bytes[0..]);
-    testing.expect(slice[0] == 0x33333333);
+    try testing.expect(slice[0] == 0x33333333);
 }
 
 test "bytesAsSlice preserves pointer attributes" {
@@ -2300,10 +2300,10 @@ test "bytesAsSlice preserves pointer attributes" {
     const in = @typeInfo(@TypeOf(inSlice)).Pointer;
     const out = @typeInfo(@TypeOf(outSlice)).Pointer;
 
-    testing.expectEqual(in.is_const, out.is_const);
-    testing.expectEqual(in.is_volatile, out.is_volatile);
-    testing.expectEqual(in.is_allowzero, out.is_allowzero);
-    testing.expectEqual(in.alignment, out.alignment);
+    try testing.expectEqual(in.is_const, out.is_const);
+    try testing.expectEqual(in.is_volatile, out.is_volatile);
+    try testing.expectEqual(in.is_allowzero, out.is_allowzero);
+    try testing.expectEqual(in.alignment, out.alignment);
 }
 
 fn SliceAsBytesReturnType(comptime sliceType: type) type {
@@ -2332,8 +2332,8 @@ pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
 test "sliceAsBytes" {
     const bytes = [_]u16{ 0xDEAD, 0xBEEF };
     const slice = sliceAsBytes(bytes[0..]);
-    testing.expect(slice.len == 4);
-    testing.expect(eql(u8, slice, switch (builtin.endian) {
+    try testing.expect(slice.len == 4);
+    try testing.expect(eql(u8, slice, switch (builtin.endian) {
         .Big => "\xDE\xAD\xBE\xEF",
         .Little => "\xAD\xDE\xEF\xBE",
     }));
@@ -2342,7 +2342,7 @@ test "sliceAsBytes" {
 test "sliceAsBytes with sentinel slice" {
     const empty_string: [:0]const u8 = "";
     const bytes = sliceAsBytes(empty_string);
-    testing.expect(bytes.len == 0);
+    try testing.expect(bytes.len == 0);
 }
 
 test "sliceAsBytes packed struct at runtime and comptime" {
@@ -2351,49 +2351,49 @@ test "sliceAsBytes packed struct at runtime and comptime" {
         b: u4,
     };
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var foo: Foo = undefined;
             var slice = sliceAsBytes(@as(*[1]Foo, &foo)[0..1]);
             slice[0] = 0x13;
             switch (builtin.endian) {
                 .Big => {
-                    testing.expect(foo.a == 0x1);
-                    testing.expect(foo.b == 0x3);
+                    try testing.expect(foo.a == 0x1);
+                    try testing.expect(foo.b == 0x3);
                 },
                 .Little => {
-                    testing.expect(foo.a == 0x3);
-                    testing.expect(foo.b == 0x1);
+                    try testing.expect(foo.a == 0x3);
+                    try testing.expect(foo.b == 0x1);
                 },
             }
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "sliceAsBytes and bytesAsSlice back" {
-    testing.expect(@sizeOf(i32) == 4);
+    try testing.expect(@sizeOf(i32) == 4);
 
     var big_thing_array = [_]i32{ 1, 2, 3, 4 };
     const big_thing_slice: []i32 = big_thing_array[0..];
 
     const bytes = sliceAsBytes(big_thing_slice);
-    testing.expect(bytes.len == 4 * 4);
+    try testing.expect(bytes.len == 4 * 4);
 
     bytes[4] = 0;
     bytes[5] = 0;
     bytes[6] = 0;
     bytes[7] = 0;
-    testing.expect(big_thing_slice[1] == 0);
+    try testing.expect(big_thing_slice[1] == 0);
 
     const big_thing_again = bytesAsSlice(i32, bytes);
-    testing.expect(big_thing_again[2] == 3);
+    try testing.expect(big_thing_again[2] == 3);
 
     big_thing_again[2] = -1;
-    testing.expect(bytes[8] == math.maxInt(u8));
-    testing.expect(bytes[9] == math.maxInt(u8));
-    testing.expect(bytes[10] == math.maxInt(u8));
-    testing.expect(bytes[11] == math.maxInt(u8));
+    try testing.expect(bytes[8] == math.maxInt(u8));
+    try testing.expect(bytes[9] == math.maxInt(u8));
+    try testing.expect(bytes[10] == math.maxInt(u8));
+    try testing.expect(bytes[11] == math.maxInt(u8));
 }
 
 test "sliceAsBytes preserves pointer attributes" {
@@ -2404,10 +2404,10 @@ test "sliceAsBytes preserves pointer attributes" {
     const in = @typeInfo(@TypeOf(inSlice)).Pointer;
     const out = @typeInfo(@TypeOf(outSlice)).Pointer;
 
-    testing.expectEqual(in.is_const, out.is_const);
-    testing.expectEqual(in.is_volatile, out.is_volatile);
-    testing.expectEqual(in.is_allowzero, out.is_allowzero);
-    testing.expectEqual(in.alignment, out.alignment);
+    try testing.expectEqual(in.is_const, out.is_const);
+    try testing.expectEqual(in.is_volatile, out.is_volatile);
+    try testing.expectEqual(in.is_allowzero, out.is_allowzero);
+    try testing.expectEqual(in.alignment, out.alignment);
 }
 
 /// Round an address up to the nearest aligned address
@@ -2434,18 +2434,18 @@ pub fn doNotOptimizeAway(val: anytype) void {
 }
 
 test "alignForward" {
-    testing.expect(alignForward(1, 1) == 1);
-    testing.expect(alignForward(2, 1) == 2);
-    testing.expect(alignForward(1, 2) == 2);
-    testing.expect(alignForward(2, 2) == 2);
-    testing.expect(alignForward(3, 2) == 4);
-    testing.expect(alignForward(4, 2) == 4);
-    testing.expect(alignForward(7, 8) == 8);
-    testing.expect(alignForward(8, 8) == 8);
-    testing.expect(alignForward(9, 8) == 16);
-    testing.expect(alignForward(15, 8) == 16);
-    testing.expect(alignForward(16, 8) == 16);
-    testing.expect(alignForward(17, 8) == 24);
+    try testing.expect(alignForward(1, 1) == 1);
+    try testing.expect(alignForward(2, 1) == 2);
+    try testing.expect(alignForward(1, 2) == 2);
+    try testing.expect(alignForward(2, 2) == 2);
+    try testing.expect(alignForward(3, 2) == 4);
+    try testing.expect(alignForward(4, 2) == 4);
+    try testing.expect(alignForward(7, 8) == 8);
+    try testing.expect(alignForward(8, 8) == 8);
+    try testing.expect(alignForward(9, 8) == 16);
+    try testing.expect(alignForward(15, 8) == 16);
+    try testing.expect(alignForward(16, 8) == 16);
+    try testing.expect(alignForward(17, 8) == 24);
 }
 
 /// Round an address up to the previous aligned address
@@ -2497,19 +2497,19 @@ pub fn isAlignedGeneric(comptime T: type, addr: T, alignment: T) bool {
 }
 
 test "isAligned" {
-    testing.expect(isAligned(0, 4));
-    testing.expect(isAligned(1, 1));
-    testing.expect(isAligned(2, 1));
-    testing.expect(isAligned(2, 2));
-    testing.expect(!isAligned(2, 4));
-    testing.expect(isAligned(3, 1));
-    testing.expect(!isAligned(3, 2));
-    testing.expect(!isAligned(3, 4));
-    testing.expect(isAligned(4, 4));
-    testing.expect(isAligned(4, 2));
-    testing.expect(isAligned(4, 1));
-    testing.expect(!isAligned(4, 8));
-    testing.expect(!isAligned(4, 16));
+    try testing.expect(isAligned(0, 4));
+    try testing.expect(isAligned(1, 1));
+    try testing.expect(isAligned(2, 1));
+    try testing.expect(isAligned(2, 2));
+    try testing.expect(!isAligned(2, 4));
+    try testing.expect(isAligned(3, 1));
+    try testing.expect(!isAligned(3, 2));
+    try testing.expect(!isAligned(3, 4));
+    try testing.expect(isAligned(4, 4));
+    try testing.expect(isAligned(4, 2));
+    try testing.expect(isAligned(4, 1));
+    try testing.expect(!isAligned(4, 8));
+    try testing.expect(!isAligned(4, 16));
 }
 
 test "freeing empty string with null-terminated sentinel" {

@@ -546,7 +546,7 @@ pub fn testVersionParse() !void {
     const f = struct {
         fn eql(text: []const u8, v1: u32, v2: u32, v3: u32) !void {
             const v = try Version.parse(text);
-            std.testing.expect(v.major == v1 and v.minor == v2 and v.patch == v3);
+            try std.testing.expect(v.major == v1 and v.minor == v2 and v.patch == v3);
         }
 
         fn err(text: []const u8, expected_err: anyerror) !void {

@@ -303,7 +303,7 @@ test "basic usage" {
     var list = MultiArrayList(Foo){};
     defer list.deinit(ally);
 
-    testing.expectEqual(@as(usize, 0), list.items(.a).len);
+    try testing.expectEqual(@as(usize, 0), list.items(.a).len);
 
     try list.ensureCapacity(ally, 2);
 
@@ -319,12 +319,12 @@ test "basic usage" {
         .c = 'b',
     });
 
-    testing.expectEqualSlices(u32, list.items(.a), &[_]u32{ 1, 2 });
-    testing.expectEqualSlices(u8, list.items(.c), &[_]u8{ 'a', 'b' });
+    try testing.expectEqualSlices(u32, list.items(.a), &[_]u32{ 1, 2 });
+    try testing.expectEqualSlices(u8, list.items(.c), &[_]u8{ 'a', 'b' });
 
-    testing.expectEqual(@as(usize, 2), list.items(.b).len);
-    testing.expectEqualStrings("foobar", list.items(.b)[0]);
-    testing.expectEqualStrings("zigzag", list.items(.b)[1]);
+    try testing.expectEqual(@as(usize, 2), list.items(.b).len);
+    try testing.expectEqualStrings("foobar", list.items(.b)[0]);
+    try testing.expectEqualStrings("zigzag", list.items(.b)[1]);
 
     try list.append(ally, .{
         .a = 3,
@@ -332,13 +332,13 @@ test "basic usage" {
         .c = 'c',
     });
 
-    testing.expectEqualSlices(u32, list.items(.a), &[_]u32{ 1, 2, 3 });
-    testing.expectEqualSlices(u8, list.items(.c), &[_]u8{ 'a', 'b', 'c' });
+    try testing.expectEqualSlices(u32, list.items(.a), &[_]u32{ 1, 2, 3 });
+    try testing.expectEqualSlices(u8, list.items(.c), &[_]u8{ 'a', 'b', 'c' });
 
-    testing.expectEqual(@as(usize, 3), list.items(.b).len);
-    testing.expectEqualStrings("foobar", list.items(.b)[0]);
-    testing.expectEqualStrings("zigzag", list.items(.b)[1]);
-    testing.expectEqualStrings("fizzbuzz", list.items(.b)[2]);
+    try testing.expectEqual(@as(usize, 3), list.items(.b).len);
+    try testing.expectEqualStrings("foobar", list.items(.b)[0]);
+    try testing.expectEqualStrings("zigzag", list.items(.b)[1]);
+    try testing.expectEqualStrings("fizzbuzz", list.items(.b)[2]);
 
     // Add 6 more things to force a capacity increase.
     var i: usize = 0;
@@ -350,12 +350,12 @@ test "basic usage" {
         });
     }
 
-    testing.expectEqualSlices(
+    try testing.expectEqualSlices(
         u32,
         &[_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9 },
         list.items(.a),
     );
-    testing.expectEqualSlices(
+    try testing.expectEqualSlices(
         u8,
         &[_]u8{ 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i' },
         list.items(.c),
@@ -363,13 +363,13 @@ test "basic usage" {
 
     list.shrinkAndFree(ally, 3);
 
-    testing.expectEqualSlices(u32, list.items(.a), &[_]u32{ 1, 2, 3 });
-    testing.expectEqualSlices(u8, list.items(.c), &[_]u8{ 'a', 'b', 'c' });
+    try testing.expectEqualSlices(u32, list.items(.a), &[_]u32{ 1, 2, 3 });
+    try testing.expectEqualSlices(u8, list.items(.c), &[_]u8{ 'a', 'b', 'c' });
 
-    testing.expectEqual(@as(usize, 3), list.items(.b).len);
-    testing.expectEqualStrings("foobar", list.items(.b)[0]);
-    testing.expectEqualStrings("zigzag", list.items(.b)[1]);
-    testing.expectEqualStrings("fizzbuzz", list.items(.b)[2]);
+    try testing.expectEqual(@as(usize, 3), list.items(.b).len);
+    try testing.expectEqualStrings("foobar", list.items(.b)[0]);
+    try testing.expectEqualStrings("zigzag", list.items(.b)[1]);
+    try testing.expectEqualStrings("fizzbuzz", list.items(.b)[2]);
 }
 
 // This was observed to fail on aarch64 with LLVM 11, when the capacityInBytes
@@ -418,37 +418,37 @@ test "regression test for @reduce bug" {
     try list.append(ally, .{ .tag = .eof, .start = 123 });
 
     const tags = list.items(.tag);
-    testing.expectEqual(tags[1], .identifier);
-    testing.expectEqual(tags[2], .equal);
-    testing.expectEqual(tags[3], .builtin);
-    testing.expectEqual(tags[4], .l_paren);
-    testing.expectEqual(tags[5], .string_literal);
-    testing.expectEqual(tags[6], .r_paren);
-    testing.expectEqual(tags[7], .semicolon);
-    testing.expectEqual(tags[8], .keyword_pub);
-    testing.expectEqual(tags[9], .keyword_fn);
-    testing.expectEqual(tags[10], .identifier);
-    testing.expectEqual(tags[11], .l_paren);
-    testing.expectEqual(tags[12], .r_paren);
-    testing.expectEqual(tags[13], .identifier);
-    testing.expectEqual(tags[14], .bang);
-    testing.expectEqual(tags[15], .identifier);
-    testing.expectEqual(tags[16], .l_brace);
-    testing.expectEqual(tags[17], .identifier);
-    testing.expectEqual(tags[18], .period);
-    testing.expectEqual(tags[19], .identifier);
-    testing.expectEqual(tags[20], .period);
-    testing.expectEqual(tags[21], .identifier);
-    testing.expectEqual(tags[22], .l_paren);
-    testing.expectEqual(tags[23], .string_literal);
-    testing.expectEqual(tags[24], .comma);
-    testing.expectEqual(tags[25], .period);
-    testing.expectEqual(tags[26], .l_brace);
-    testing.expectEqual(tags[27], .r_brace);
-    testing.expectEqual(tags[28], .r_paren);
-    testing.expectEqual(tags[29], .semicolon);
-    testing.expectEqual(tags[30], .r_brace);
-    testing.expectEqual(tags[31], .eof);
+    try testing.expectEqual(tags[1], .identifier);
+    try testing.expectEqual(tags[2], .equal);
+    try testing.expectEqual(tags[3], .builtin);
+    try testing.expectEqual(tags[4], .l_paren);
+    try testing.expectEqual(tags[5], .string_literal);
+    try testing.expectEqual(tags[6], .r_paren);
+    try testing.expectEqual(tags[7], .semicolon);
+    try testing.expectEqual(tags[8], .keyword_pub);
+    try testing.expectEqual(tags[9], .keyword_fn);
+    try testing.expectEqual(tags[10], .identifier);
+    try testing.expectEqual(tags[11], .l_paren);
+    try testing.expectEqual(tags[12], .r_paren);
+    try testing.expectEqual(tags[13], .identifier);
+    try testing.expectEqual(tags[14], .bang);
+    try testing.expectEqual(tags[15], .identifier);
+    try testing.expectEqual(tags[16], .l_brace);
+    try testing.expectEqual(tags[17], .identifier);
+    try testing.expectEqual(tags[18], .period);
+    try testing.expectEqual(tags[19], .identifier);
+    try testing.expectEqual(tags[20], .period);
+    try testing.expectEqual(tags[21], .identifier);
+    try testing.expectEqual(tags[22], .l_paren);
+    try testing.expectEqual(tags[23], .string_literal);
+    try testing.expectEqual(tags[24], .comma);
+    try testing.expectEqual(tags[25], .period);
+    try testing.expectEqual(tags[26], .l_brace);
+    try testing.expectEqual(tags[27], .r_brace);
+    try testing.expectEqual(tags[28], .r_paren);
+    try testing.expectEqual(tags[29], .semicolon);
+    try testing.expectEqual(tags[30], .r_brace);
+    try testing.expectEqual(tags[31], .eof);
 }
 
 test "ensure capacity on empty list" {
@@ -466,15 +466,15 @@ test "ensure capacity on empty list" {
     list.appendAssumeCapacity(.{ .a = 1, .b = 2 });
     list.appendAssumeCapacity(.{ .a = 3, .b = 4 });
 
-    testing.expectEqualSlices(u32, &[_]u32{ 1, 3 }, list.items(.a));
-    testing.expectEqualSlices(u8, &[_]u8{ 2, 4 }, list.items(.b));
+    try testing.expectEqualSlices(u32, &[_]u32{ 1, 3 }, list.items(.a));
+    try testing.expectEqualSlices(u8, &[_]u8{ 2, 4 }, list.items(.b));
 
     list.len = 0;
     list.appendAssumeCapacity(.{ .a = 5, .b = 6 });
     list.appendAssumeCapacity(.{ .a = 7, .b = 8 });
 
-    testing.expectEqualSlices(u32, &[_]u32{ 5, 7 }, list.items(.a));
-    testing.expectEqualSlices(u8, &[_]u8{ 6, 8 }, list.items(.b));
+    try testing.expectEqualSlices(u32, &[_]u32{ 5, 7 }, list.items(.a));
+    try testing.expectEqualSlices(u8, &[_]u8{ 6, 8 }, list.items(.b));
 
     list.len = 0;
     try list.ensureCapacity(ally, 16);
@@ -482,6 +482,6 @@ test "ensure capacity on empty list" {
     list.appendAssumeCapacity(.{ .a = 9, .b = 10 });
     list.appendAssumeCapacity(.{ .a = 11, .b = 12 });
 
-    testing.expectEqualSlices(u32, &[_]u32{ 9, 11 }, list.items(.a));
-    testing.expectEqualSlices(u8, &[_]u8{ 10, 12 }, list.items(.b));
+    try testing.expectEqualSlices(u32, &[_]u32{ 9, 11 }, list.items(.a));
+    try testing.expectEqualSlices(u8, &[_]u8{ 10, 12 }, list.items(.b));
 }

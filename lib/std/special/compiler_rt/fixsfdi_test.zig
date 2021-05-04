@@ -12,7 +12,7 @@ const warn = std.debug.warn;
 fn test__fixsfdi(a: f32, expected: i64) void {
     const x = __fixsfdi(a);
     //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u32, {x})\n", .{a, @bitCast(u32, a), x, x, expected, expected, @bitCast(u64, expected)});
-    testing.expect(x == expected);
+    try testing.expect(x == expected);
 }
 
 test "fixsfdi" {

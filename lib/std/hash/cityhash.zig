@@ -381,14 +381,14 @@ fn CityHash32hashIgnoreSeed(str: []const u8, seed: u32) u32 {
 
 test "cityhash32" {
     const Test = struct {
-        fn doTest() void {
+        fn doTest() !void {
             // Note: SMHasher doesn't provide a 32bit version of the algorithm.
             // Note: The implementation was verified against the Google Abseil version.
-            std.testing.expectEqual(SMHasherTest(CityHash32hashIgnoreSeed), 0x68254F81);
-            std.testing.expectEqual(SMHasherTest(CityHash32hashIgnoreSeed), 0x68254F81);
+            try std.testing.expectEqual(SMHasherTest(CityHash32hashIgnoreSeed), 0x68254F81);
+            try std.testing.expectEqual(SMHasherTest(CityHash32hashIgnoreSeed), 0x68254F81);
         }
     };
-    Test.doTest();
+    try Test.doTest();
     // TODO This is uncommented to prevent OOM on the CI server. Re-enable this test
     // case once we ship stage2.
     //@setEvalBranchQuota(50000);
@@ -397,13 +397,13 @@ test "cityhash32" {
 
 test "cityhash64" {
     const Test = struct {
-        fn doTest() void {
+        fn doTest() !void {
             // Note: This is not compliant with the SMHasher implementation of CityHash64!
             // Note: The implementation was verified against the Google Abseil version.
-            std.testing.expectEqual(SMHasherTest(CityHash64.hashWithSeed), 0x5FABC5C5);
+            try std.testing.expectEqual(SMHasherTest(CityHash64.hashWithSeed), 0x5FABC5C5);
         }
     };
-    Test.doTest();
+    try Test.doTest();
     // TODO This is uncommented to prevent OOM on the CI server. Re-enable this test
     // case once we ship stage2.
     //@setEvalBranchQuota(50000);

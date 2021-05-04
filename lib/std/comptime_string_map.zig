@@ -95,7 +95,7 @@ test "ComptimeStringMap list literal of list literals" {
         .{ "samelen", .E },
     });
 
-    testMap(map);
+    try testMap(map);
 }
 
 test "ComptimeStringMap array of structs" {
@@ -111,7 +111,7 @@ test "ComptimeStringMap array of structs" {
         .{ .@"0" = "samelen", .@"1" = .E },
     });
 
-    testMap(map);
+    try testMap(map);
 }
 
 test "ComptimeStringMap slice of structs" {
@@ -128,18 +128,18 @@ test "ComptimeStringMap slice of structs" {
     };
     const map = ComptimeStringMap(TestEnum, slice);
 
-    testMap(map);
+    try testMap(map);
 }
 
-fn testMap(comptime map: anytype) void {
-    std.testing.expectEqual(TestEnum.A, map.get("have").?);
-    std.testing.expectEqual(TestEnum.B, map.get("nothing").?);
-    std.testing.expect(null == map.get("missing"));
-    std.testing.expectEqual(TestEnum.D, map.get("these").?);
-    std.testing.expectEqual(TestEnum.E, map.get("samelen").?);
+fn testMap(comptime map: anytype) !void {
+    try std.testing.expectEqual(TestEnum.A, map.get("have").?);
+    try std.testing.expectEqual(TestEnum.B, map.get("nothing").?);
+    try std.testing.expect(null == map.get("missing"));
+    try std.testing.expectEqual(TestEnum.D, map.get("these").?);
+    try std.testing.expectEqual(TestEnum.E, map.get("samelen").?);
 
-    std.testing.expect(!map.has("missing"));
-    std.testing.expect(map.has("these"));
+    try std.testing.expect(!map.has("missing"));
+    try std.testing.expect(map.has("these"));
 }
 
 test "ComptimeStringMap void value type, slice of structs" {
@@ -155,7 +155,7 @@ test "ComptimeStringMap void value type, slice of structs" {
     };
     const map = ComptimeStringMap(void, slice);
 
-    testSet(map);
+    try testSet(map);
 }
 
 test "ComptimeStringMap void value type, list literal of list literals" {
@@ -167,16 +167,16 @@ test "ComptimeStringMap void value type, list literal of list literals" {
         .{"samelen"},
     });
 
-    testSet(map);
+    try testSet(map);
 }
 
-fn testSet(comptime map: anytype) void {
-    std.testing.expectEqual({}, map.get("have").?);
-    std.testing.expectEqual({}, map.get("nothing").?);
-    std.testing.expect(null == map.get("missing"));
-    std.testing.expectEqual({}, map.get("these").?);
-    std.testing.expectEqual({}, map.get("samelen").?);
+fn testSet(comptime map: anytype) !void {
+    try std.testing.expectEqual({}, map.get("have").?);
+    try std.testing.expectEqual({}, map.get("nothing").?);
+    try std.testing.expect(null == map.get("missing"));
+    try std.testing.expectEqual({}, map.get("these").?);
+    try std.testing.expectEqual({}, map.get("samelen").?);
 
-    std.testing.expect(!map.has("missing"));
-    std.testing.expect(map.has("these"));
+    try std.testing.expect(!map.has("missing"));
+    try std.testing.expect(map.has("these"));
 }

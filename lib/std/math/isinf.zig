@@ -79,58 +79,58 @@ pub fn isNegativeInf(x: anytype) bool {
 }
 
 test "math.isInf" {
-    expect(!isInf(@as(f16, 0.0)));
-    expect(!isInf(@as(f16, -0.0)));
-    expect(!isInf(@as(f32, 0.0)));
-    expect(!isInf(@as(f32, -0.0)));
-    expect(!isInf(@as(f64, 0.0)));
-    expect(!isInf(@as(f64, -0.0)));
-    expect(!isInf(@as(f128, 0.0)));
-    expect(!isInf(@as(f128, -0.0)));
-    expect(isInf(math.inf(f16)));
-    expect(isInf(-math.inf(f16)));
-    expect(isInf(math.inf(f32)));
-    expect(isInf(-math.inf(f32)));
-    expect(isInf(math.inf(f64)));
-    expect(isInf(-math.inf(f64)));
-    expect(isInf(math.inf(f128)));
-    expect(isInf(-math.inf(f128)));
+    try expect(!isInf(@as(f16, 0.0)));
+    try expect(!isInf(@as(f16, -0.0)));
+    try expect(!isInf(@as(f32, 0.0)));
+    try expect(!isInf(@as(f32, -0.0)));
+    try expect(!isInf(@as(f64, 0.0)));
+    try expect(!isInf(@as(f64, -0.0)));
+    try expect(!isInf(@as(f128, 0.0)));
+    try expect(!isInf(@as(f128, -0.0)));
+    try expect(isInf(math.inf(f16)));
+    try expect(isInf(-math.inf(f16)));
+    try expect(isInf(math.inf(f32)));
+    try expect(isInf(-math.inf(f32)));
+    try expect(isInf(math.inf(f64)));
+    try expect(isInf(-math.inf(f64)));
+    try expect(isInf(math.inf(f128)));
+    try expect(isInf(-math.inf(f128)));
 }
 
 test "math.isPositiveInf" {
-    expect(!isPositiveInf(@as(f16, 0.0)));
-    expect(!isPositiveInf(@as(f16, -0.0)));
-    expect(!isPositiveInf(@as(f32, 0.0)));
-    expect(!isPositiveInf(@as(f32, -0.0)));
-    expect(!isPositiveInf(@as(f64, 0.0)));
-    expect(!isPositiveInf(@as(f64, -0.0)));
-    expect(!isPositiveInf(@as(f128, 0.0)));
-    expect(!isPositiveInf(@as(f128, -0.0)));
-    expect(isPositiveInf(math.inf(f16)));
-    expect(!isPositiveInf(-math.inf(f16)));
-    expect(isPositiveInf(math.inf(f32)));
-    expect(!isPositiveInf(-math.inf(f32)));
-    expect(isPositiveInf(math.inf(f64)));
-    expect(!isPositiveInf(-math.inf(f64)));
-    expect(isPositiveInf(math.inf(f128)));
-    expect(!isPositiveInf(-math.inf(f128)));
+    try expect(!isPositiveInf(@as(f16, 0.0)));
+    try expect(!isPositiveInf(@as(f16, -0.0)));
+    try expect(!isPositiveInf(@as(f32, 0.0)));
+    try expect(!isPositiveInf(@as(f32, -0.0)));
+    try expect(!isPositiveInf(@as(f64, 0.0)));
+    try expect(!isPositiveInf(@as(f64, -0.0)));
+    try expect(!isPositiveInf(@as(f128, 0.0)));
+    try expect(!isPositiveInf(@as(f128, -0.0)));
+    try expect(isPositiveInf(math.inf(f16)));
+    try expect(!isPositiveInf(-math.inf(f16)));
+    try expect(isPositiveInf(math.inf(f32)));
+    try expect(!isPositiveInf(-math.inf(f32)));
+    try expect(isPositiveInf(math.inf(f64)));
+    try expect(!isPositiveInf(-math.inf(f64)));
+    try expect(isPositiveInf(math.inf(f128)));
+    try expect(!isPositiveInf(-math.inf(f128)));
 }
 
 test "math.isNegativeInf" {
-    expect(!isNegativeInf(@as(f16, 0.0)));
-    expect(!isNegativeInf(@as(f16, -0.0)));
-    expect(!isNegativeInf(@as(f32, 0.0)));
-    expect(!isNegativeInf(@as(f32, -0.0)));
-    expect(!isNegativeInf(@as(f64, 0.0)));
-    expect(!isNegativeInf(@as(f64, -0.0)));
-    expect(!isNegativeInf(@as(f128, 0.0)));
-    expect(!isNegativeInf(@as(f128, -0.0)));
-    expect(!isNegativeInf(math.inf(f16)));
-    expect(isNegativeInf(-math.inf(f16)));
-    expect(!isNegativeInf(math.inf(f32)));
-    expect(isNegativeInf(-math.inf(f32)));
-    expect(!isNegativeInf(math.inf(f64)));
-    expect(isNegativeInf(-math.inf(f64)));
-    expect(!isNegativeInf(math.inf(f128)));
-    expect(isNegativeInf(-math.inf(f128)));
+    try expect(!isNegativeInf(@as(f16, 0.0)));
+    try expect(!isNegativeInf(@as(f16, -0.0)));
+    try expect(!isNegativeInf(@as(f32, 0.0)));
+    try expect(!isNegativeInf(@as(f32, -0.0)));
+    try expect(!isNegativeInf(@as(f64, 0.0)));
+    try expect(!isNegativeInf(@as(f64, -0.0)));
+    try expect(!isNegativeInf(@as(f128, 0.0)));
+    try expect(!isNegativeInf(@as(f128, -0.0)));
+    try expect(!isNegativeInf(math.inf(f16)));
+    try expect(isNegativeInf(-math.inf(f16)));
+    try expect(!isNegativeInf(math.inf(f32)));
+    try expect(isNegativeInf(-math.inf(f32)));
+    try expect(!isNegativeInf(math.inf(f64)));
+    try expect(isNegativeInf(-math.inf(f64)));
+    try expect(!isNegativeInf(math.inf(f128)));
+    try expect(isNegativeInf(-math.inf(f128)));
 }

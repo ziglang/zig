@@ -8,7 +8,7 @@ const testing = @import("std").testing;
 
 fn test__floatuntisf(a: u128, expected: f32) void {
     const x = __floatuntisf(a);
-    testing.expect(x == expected);
+    try testing.expect(x == expected);
 }
 
 test "floatuntisf" {

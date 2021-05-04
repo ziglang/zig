@@ -140,14 +140,14 @@ fn testGroup(allocator: *Allocator) callconv(.Async) void {
     var increase_by_ten_frame = async increaseByTen(&count);
     group.add(&increase_by_ten_frame) catch @panic("memory");
     group.wait();
-    testing.expect(count == 11);
+    try testing.expect(count == 11);
 
     var another = Group(anyerror!void).init(allocator);
     var something_else_frame = async somethingElse();
     another.add(&something_else_frame) catch @panic("memory");
     var something_that_fails_frame = async doSomethingThatFails();
     another.add(&something_that_fails_frame) catch @panic("memory");
-    testing.expectError(error.ItBroke, another.wait());
+    try testing.expectError(error.ItBroke, another.wait());
 }
 fn sleepALittle(count: *usize) callconv(.Async) void {
     std.time.sleep(1 * std.time.ns_per_ms);

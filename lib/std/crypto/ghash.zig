@@ -326,11 +326,11 @@ test "ghash" {
     st.update(&m);
     var out: [16]u8 = undefined;
     st.final(&out);
-    htest.assertEqual("889295fa746e8b174bf4ec80a65dea41", &out);
+    try htest.assertEqual("889295fa746e8b174bf4ec80a65dea41", &out);
 
     st = Ghash.init(&key);
     st.update(m[0..100]);
     st.update(m[100..]);
     st.final(&out);
-    htest.assertEqual("889295fa746e8b174bf4ec80a65dea41", &out);
+    try htest.assertEqual("889295fa746e8b174bf4ec80a65dea41", &out);
 }

@@ -12,7 +12,7 @@ const warn = std.debug.warn;
 fn test__fixtfti(a: f128, expected: i128) void {
     const x = __fixtfti(a);
     //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u128, {x})\n", .{a, @bitCast(u128, a), x, x, expected, expected, @bitCast(u128, expected)});
-    testing.expect(x == expected);
+    try testing.expect(x == expected);
 }
 
 test "fixtfti" {

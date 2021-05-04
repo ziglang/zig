@@ -30,7 +30,7 @@ fn compareResultD(result: f64, expected: u64) bool {
 fn test__divdf3(a: f64, b: f64, expected: u64) void {
     const x = __divdf3(a, b);
     const ret = compareResultD(x, expected);
-    testing.expect(ret == true);
+    try testing.expect(ret == true);
 }
 
 test "divdf3" {

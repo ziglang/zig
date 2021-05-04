@@ -26,5 +26,5 @@ test "complex.cproj" {
     const a = Complex(f32).new(5, 3);
     const c = proj(a);
 
-    testing.expect(c.re == 5 and c.im == 3);
+    try testing.expect(c.re == 5 and c.im == 3);
 }

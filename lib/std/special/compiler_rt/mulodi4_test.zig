@@ -9,7 +9,7 @@ const testing = @import("std").testing;
 fn test__mulodi4(a: i64, b: i64, expected: i64, expected_overflow: c_int) void {
     var overflow: c_int = undefined;
     const x = __mulodi4(a, b, &overflow);
-    testing.expect(overflow == expected_overflow and (expected_overflow != 0 or x == expected));
+    try testing.expect(overflow == expected_overflow and (expected_overflow != 0 or x == expected));
 }
 
 test "mulodi4" {

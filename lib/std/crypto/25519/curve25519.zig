@@ -120,13 +120,13 @@ test "curve25519" {
     const p = try Curve25519.basePoint.clampedMul(s);
     try p.rejectIdentity();
     var buf: [128]u8 = undefined;
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&p.toBytes())}), "E6F2A4D1C28EE5C7AD0329268255A468AD407D2672824C0C0EB30EA6EF450145");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&p.toBytes())}), "E6F2A4D1C28EE5C7AD0329268255A468AD407D2672824C0C0EB30EA6EF450145");
     const q = try p.clampedMul(s);
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&q.toBytes())}), "3614E119FFE55EC55B87D6B19971A9F4CBC78EFE80BEC55B96392BABCC712537");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&q.toBytes())}), "3614E119FFE55EC55B87D6B19971A9F4CBC78EFE80BEC55B96392BABCC712537");
 
     try Curve25519.rejectNonCanonical(s);
     s[31] |= 0x80;
-    std.testing.expectError(error.NonCanonical, Curve25519.rejectNonCanonical(s));
+    try std.testing.expectError(error.NonCanonical, Curve25519.rejectNonCanonical(s));
 }
 
 test "curve25519 small order check" {
@@ -155,13 +155,13 @@ test "curve25519 small order check" {
         },
     };
     for (small_order_ss) |small_order_s| {
-        std.testing.expectError(error.WeakPublicKey, Curve25519.fromBytes(small_order_s).mul(s));
+        try std.testing.expectError(error.WeakPublicKey, Curve25519.fromBytes(small_order_s).mul(s));
         var extra = small_order_s;
         extra[31] ^= 0x80;
-        std.testing.expectError(error.WeakPublicKey, Curve25519.fromBytes(extra).mul(s));
+        try std.testing.expectError(error.WeakPublicKey, Curve25519.fromBytes(extra).mul(s));
         var valid = small_order_s;
         valid[31] = 0x40;
         s[0] = 0;
-        std.testing.expectError(error.IdentityElement, Curve25519.fromBytes(valid).mul(s));
+        try std.testing.expectError(error.IdentityElement, Curve25519.fromBytes(valid).mul(s));
     }
 }

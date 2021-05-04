@@ -998,9 +998,9 @@ fn BitSetIterator(comptime MaskInt: type, comptime options: IteratorOptions) typ
 
 const testing = std.testing;
 
-fn testBitSet(a: anytype, b: anytype, len: usize) void {
-    testing.expectEqual(len, a.capacity());
-    testing.expectEqual(len, b.capacity());
+fn testBitSet(a: anytype, b: anytype, len: usize) !void {
+    try testing.expectEqual(len, a.capacity());
+    try testing.expectEqual(len, b.capacity());
 
     {
         var i: usize = 0;
@@ -1010,50 +1010,50 @@ fn testBitSet(a: anytype, b: anytype, len: usize) void {
         }
     }
 
-    testing.expectEqual((len + 1) / 2, a.count());
-    testing.expectEqual((len + 3) / 4 + (len + 2) / 4, b.count());
+    try testing.expectEqual((len + 1) / 2, a.count());
+    try testing.expectEqual((len + 3) / 4 + (len + 2) / 4, b.count());
 
     {
         var iter = a.iterator(.{});
         var i: usize = 0;
         while (i < len) : (i += 2) {
-            testing.expectEqual(@as(?usize, i), iter.next());
+            try testing.expectEqual(@as(?usize, i), iter.next());
         }
-        testing.expectEqual(@as(?usize, null), iter.next());
-        testing.expectEqual(@as(?usize, null), iter.next());
-        testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
     }
     a.toggleAll();
     {
         var iter = a.iterator(.{});
         var i: usize = 1;
         while (i < len) : (i += 2) {
-            testing.expectEqual(@as(?usize, i), iter.next());
+            try testing.expectEqual(@as(?usize, i), iter.next());
         }
-        testing.expectEqual(@as(?usize, null), iter.next());
-        testing.expectEqual(@as(?usize, null), iter.next());
-        testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
     }
 
     {
         var iter = b.iterator(.{ .kind = .unset });
         var i: usize = 2;
         while (i < len) : (i += 4) {
-            testing.expectEqual(@as(?usize, i), iter.next());
+            try testing.expectEqual(@as(?usize, i), iter.next());
             if (i + 1 < len) {
-                testing.expectEqual(@as(?usize, i + 1), iter.next());
+                try testing.expectEqual(@as(?usize, i + 1), iter.next());
             }
         }
-        testing.expectEqual(@as(?usize, null), iter.next());
-        testing.expectEqual(@as(?usize, null), iter.next());
-        testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
     }
 
     {
         var i: usize = 0;
         while (i < len) : (i += 1) {
-            testing.expectEqual(i & 1 != 0, a.isSet(i));
-            testing.expectEqual(i & 2 == 0, b.isSet(i));
+            try testing.expectEqual(i & 1 != 0, a.isSet(i));
+            try testing.expectEqual(i & 2 == 0, b.isSet(i));
         }
     }
 
@@ -1061,8 +1061,8 @@ fn testBitSet(a: anytype, b: anytype, len: usize) void {
     {
         var i: usize = 0;
         while (i < len) : (i += 1) {
-            testing.expectEqual(i & 1 != 0 or i & 2 == 0, a.isSet(i));
-            testing.expectEqual(i & 2 == 0, b.isSet(i));
+            try testing.expectEqual(i & 1 != 0 or i & 2 == 0, a.isSet(i));
+            try testing.expectEqual(i & 2 == 0, b.isSet(i));
         }
 
         i = len;
@@ -1071,27 +1071,27 @@ fn testBitSet(a: anytype, b: anytype, len: usize) void {
         while (i > 0) {
             i -= 1;
             if (i & 1 != 0 or i & 2 == 0) {
-                testing.expectEqual(@as(?usize, i), set.next());
+                try testing.expectEqual(@as(?usize, i), set.next());
             } else {
-                testing.expectEqual(@as(?usize, i), unset.next());
+                try testing.expectEqual(@as(?usize, i), unset.next());
             }
         }
-        testing.expectEqual(@as(?usize, null), set.next());
-        testing.expectEqual(@as(?usize, null), set.next());
-        testing.expectEqual(@as(?usize, null), set.next());
-        testing.expectEqual(@as(?usize, null), unset.next());
-        testing.expectEqual(@as(?usize, null), unset.next());
-        testing.expectEqual(@as(?usize, null), unset.next());
+        try testing.expectEqual(@as(?usize, null), set.next());
+        try testing.expectEqual(@as(?usize, null), set.next());
+        try testing.expectEqual(@as(?usize, null), set.next());
+        try testing.expectEqual(@as(?usize, null), unset.next());
+        try testing.expectEqual(@as(?usize, null), unset.next());
+        try testing.expectEqual(@as(?usize, null), unset.next());
     }
 
     a.toggleSet(b.*);
     {
-        testing.expectEqual(len / 4, a.count());
+        try testing.expectEqual(len / 4, a.count());
 
         var i: usize = 0;
         while (i < len) : (i += 1) {
-            testing.expectEqual(i & 1 != 0 and i & 2 != 0, a.isSet(i));
-            testing.expectEqual(i & 2 == 0, b.isSet(i));
+            try testing.expectEqual(i & 1 != 0 and i & 2 != 0, a.isSet(i));
+            try testing.expectEqual(i & 2 == 0, b.isSet(i));
             if (i & 1 == 0) {
                 a.set(i);
             } else {
@@ -1102,29 +1102,29 @@ fn testBitSet(a: anytype, b: anytype, len: usize) void {
 
     a.setIntersection(b.*);
     {
-        testing.expectEqual((len + 3) / 4, a.count());
+        try testing.expectEqual((len + 3) / 4, a.count());
 
         var i: usize = 0;
         while (i < len) : (i += 1) {
-            testing.expectEqual(i & 1 == 0 and i & 2 == 0, a.isSet(i));
-            testing.expectEqual(i & 2 == 0, b.isSet(i));
+            try testing.expectEqual(i & 1 == 0 and i & 2 == 0, a.isSet(i));
+            try testing.expectEqual(i & 2 == 0, b.isSet(i));
         }
     }
 
     a.toggleSet(a.*);
     {
         var iter = a.iterator(.{});
-        testing.expectEqual(@as(?usize, null), iter.next());
-        testing.expectEqual(@as(?usize, null), iter.next());
-        testing.expectEqual(@as(?usize, null), iter.next());
-        testing.expectEqual(@as(usize, 0), a.count());
+        try testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(usize, 0), a.count());
     }
     {
         var iter = a.iterator(.{ .direction = .reverse });
-        testing.expectEqual(@as(?usize, null), iter.next());
-        testing.expectEqual(@as(?usize, null), iter.next());
-        testing.expectEqual(@as(?usize, null), iter.next());
-        testing.expectEqual(@as(usize, 0), a.count());
+        try testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(?usize, null), iter.next());
+        try testing.expectEqual(@as(usize, 0), a.count());
     }
 
     const test_bits = [_]usize{
@@ -1139,51 +1139,51 @@ fn testBitSet(a: anytype, b: anytype, len: usize) void {
 
     for (test_bits) |i| {
         if (i < a.capacity()) {
-            testing.expectEqual(@as(?usize, i), a.findFirstSet());
-            testing.expectEqual(@as(?usize, i), a.toggleFirstSet());
+            try testing.expectEqual(@as(?usize, i), a.findFirstSet());
+            try testing.expectEqual(@as(?usize, i), a.toggleFirstSet());
         }
     }
-    testing.expectEqual(@as(?usize, null), a.findFirstSet());
-    testing.expectEqual(@as(?usize, null), a.toggleFirstSet());
-    testing.expectEqual(@as(?usize, null), a.findFirstSet());
-    testing.expectEqual(@as(?usize, null), a.toggleFirstSet());
-    testing.expectEqual(@as(usize, 0), a.count());
+    try testing.expectEqual(@as(?usize, null), a.findFirstSet());
+    try testing.expectEqual(@as(?usize, null), a.toggleFirstSet());
+    try testing.expectEqual(@as(?usize, null), a.findFirstSet());
+    try testing.expectEqual(@as(?usize, null), a.toggleFirstSet());
+    try testing.expectEqual(@as(usize, 0), a.count());
 }
 
-fn testStaticBitSet(comptime Set: type) void {
+fn testStaticBitSet(comptime Set: type) !void {
     var a = Set.initEmpty();
     var b = Set.initFull();
-    testing.expectEqual(@as(usize, 0), a.count());
-    testing.expectEqual(@as(usize, Set.bit_length), b.count());
+    try testing.expectEqual(@as(usize, 0), a.count());
+    try testing.expectEqual(@as(usize, Set.bit_length), b.count());
 
-    testBitSet(&a, &b, Set.bit_length);
+    try testBitSet(&a, &b, Set.bit_length);
 }
 
 test "IntegerBitSet" {
-    testStaticBitSet(IntegerBitSet(0));
-    testStaticBitSet(IntegerBitSet(1));
-    testStaticBitSet(IntegerBitSet(2));
-    testStaticBitSet(IntegerBitSet(5));
-    testStaticBitSet(IntegerBitSet(8));
-    testStaticBitSet(IntegerBitSet(32));
-    testStaticBitSet(IntegerBitSet(64));
-    testStaticBitSet(IntegerBitSet(127));
+    try testStaticBitSet(IntegerBitSet(0));
+    try testStaticBitSet(IntegerBitSet(1));
+    try testStaticBitSet(IntegerBitSet(2));
+    try testStaticBitSet(IntegerBitSet(5));
+    try testStaticBitSet(IntegerBitSet(8));
+    try testStaticBitSet(IntegerBitSet(32));
+    try testStaticBitSet(IntegerBitSet(64));
+    try testStaticBitSet(IntegerBitSet(127));
 }
 
 test "ArrayBitSet" {
     inline for (.{ 0, 1, 2, 31, 32, 33, 63, 64, 65, 254, 500, 3000 }) |size| {
-        testStaticBitSet(ArrayBitSet(u8, size));
-        testStaticBitSet(ArrayBitSet(u16, size));
-        testStaticBitSet(ArrayBitSet(u32, size));
-        testStaticBitSet(ArrayBitSet(u64, size));
-        testStaticBitSet(ArrayBitSet(u128, size));
+        try testStaticBitSet(ArrayBitSet(u8, size));
+        try testStaticBitSet(ArrayBitSet(u16, size));
+        try testStaticBitSet(ArrayBitSet(u32, size));
+        try testStaticBitSet(ArrayBitSet(u64, size));
+        try testStaticBitSet(ArrayBitSet(u128, size));
     }
 }
 
 test "DynamicBitSetUnmanaged" {
     const allocator = std.testing.allocator;
     var a = try DynamicBitSetUnmanaged.initEmpty(300, allocator);
-    testing.expectEqual(@as(usize, 0), a.count());
+    try testing.expectEqual(@as(usize, 0), a.count());
     a.deinit(allocator);
 
     a = try DynamicBitSetUnmanaged.initEmpty(0, allocator);
@@ -1193,10 +1193,10 @@ test "DynamicBitSetUnmanaged" {
 
         var tmp = try a.clone(allocator);
         defer tmp.deinit(allocator);
-        testing.expectEqual(old_len, tmp.capacity());
+        try testing.expectEqual(old_len, tmp.capacity());
         var i: usize = 0;
         while (i < old_len) : (i += 1) {
-            testing.expectEqual(a.isSet(i), tmp.isSet(i));
+            try testing.expectEqual(a.isSet(i), tmp.isSet(i));
         }
 
         a.toggleSet(a); // zero a
@@ -1206,24 +1206,24 @@ test "DynamicBitSetUnmanaged" {
         try tmp.resize(size, false, allocator);
 
         if (size > old_len) {
-            testing.expectEqual(size - old_len, a.count());
+            try testing.expectEqual(size - old_len, a.count());
         } else {
-            testing.expectEqual(@as(usize, 0), a.count());
+            try testing.expectEqual(@as(usize, 0), a.count());
         }
-        testing.expectEqual(@as(usize, 0), tmp.count());
+        try testing.expectEqual(@as(usize, 0), tmp.count());
 
         var b = try DynamicBitSetUnmanaged.initFull(size, allocator);
         defer b.deinit(allocator);
-        testing.expectEqual(@as(usize, size), b.count());
+        try testing.expectEqual(@as(usize, size), b.count());
 
-        testBitSet(&a, &b, size);
+        try testBitSet(&a, &b, size);
     }
 }
 
 test "DynamicBitSet" {
     const allocator = std.testing.allocator;
     var a = try DynamicBitSet.initEmpty(300, allocator);
-    testing.expectEqual(@as(usize, 0), a.count());
+    try testing.expectEqual(@as(usize, 0), a.count());
     a.deinit();
 
     a = try DynamicBitSet.initEmpty(0, allocator);
@@ -1233,10 +1233,10 @@ test "DynamicBitSet" {
 
         var tmp = try a.clone(allocator);
         defer tmp.deinit();
-        testing.expectEqual(old_len, tmp.capacity());
+        try testing.expectEqual(old_len, tmp.capacity());
         var i: usize = 0;
         while (i < old_len) : (i += 1) {
-            testing.expectEqual(a.isSet(i), tmp.isSet(i));
+            try testing.expectEqual(a.isSet(i), tmp.isSet(i));
         }
 
         a.toggleSet(a); // zero a
@@ -1246,24 +1246,24 @@ test "DynamicBitSet" {
         try tmp.resize(size, false);
 
         if (size > old_len) {
-            testing.expectEqual(size - old_len, a.count());
+            try testing.expectEqual(size - old_len, a.count());
         } else {
-            testing.expectEqual(@as(usize, 0), a.count());
+            try testing.expectEqual(@as(usize, 0), a.count());
         }
-        testing.expectEqual(@as(usize, 0), tmp.count());
+        try testing.expectEqual(@as(usize, 0), tmp.count());
 
         var b = try DynamicBitSet.initFull(size, allocator);
         defer b.deinit();
-        testing.expectEqual(@as(usize, size), b.count());
+        try testing.expectEqual(@as(usize, size), b.count());
 
-        testBitSet(&a, &b, size);
+        try testBitSet(&a, &b, size);
     }
 }
 
 test "StaticBitSet" {
-    testing.expectEqual(IntegerBitSet(0), StaticBitSet(0));
-    testing.expectEqual(IntegerBitSet(5), StaticBitSet(5));
-    testing.expectEqual(IntegerBitSet(@bitSizeOf(usize)), StaticBitSet(@bitSizeOf(usize)));
-    testing.expectEqual(ArrayBitSet(usize, @bitSizeOf(usize) + 1), StaticBitSet(@bitSizeOf(usize) + 1));
-    testing.expectEqual(ArrayBitSet(usize, 500), StaticBitSet(500));
+    try testing.expectEqual(IntegerBitSet(0), StaticBitSet(0));
+    try testing.expectEqual(IntegerBitSet(5), StaticBitSet(5));
+    try testing.expectEqual(IntegerBitSet(@bitSizeOf(usize)), StaticBitSet(@bitSizeOf(usize)));
+    try testing.expectEqual(ArrayBitSet(usize, @bitSizeOf(usize) + 1), StaticBitSet(@bitSizeOf(usize) + 1));
+    try testing.expectEqual(ArrayBitSet(usize, 500), StaticBitSet(500));
 }

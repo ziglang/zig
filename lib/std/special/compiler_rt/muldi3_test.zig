@@ -8,7 +8,7 @@ const testing = @import("std").testing;
 
 fn test__muldi3(a: i64, b: i64, expected: i64) void {
     const x = __muldi3(a, b);
-    testing.expect(x == expected);
+    try testing.expect(x == expected);
 }
 
 test "muldi3" {

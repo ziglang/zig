@@ -88,42 +88,42 @@ fn cos_(comptime T: type, x_: T) T {
 }
 
 test "math.cos" {
-    expect(cos(@as(f32, 0.0)) == cos_(f32, 0.0));
-    expect(cos(@as(f64, 0.0)) == cos_(f64, 0.0));
+    try expect(cos(@as(f32, 0.0)) == cos_(f32, 0.0));
+    try expect(cos(@as(f64, 0.0)) == cos_(f64, 0.0));
 }
 
 test "math.cos32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f32, cos_(f32, 0.0), 1.0, epsilon));
-    expect(math.approxEqAbs(f32, cos_(f32, 0.2), 0.980067, epsilon));
-    expect(math.approxEqAbs(f32, cos_(f32, 0.8923), 0.627623, epsilon));
-    expect(math.approxEqAbs(f32, cos_(f32, 1.5), 0.070737, epsilon));
-    expect(math.approxEqAbs(f32, cos_(f32, -1.5), 0.070737, epsilon));
-    expect(math.approxEqAbs(f32, cos_(f32, 37.45), 0.969132, epsilon));
-    expect(math.approxEqAbs(f32, cos_(f32, 89.123), 0.400798, epsilon));
+    try expect(math.approxEqAbs(f32, cos_(f32, 0.0), 1.0, epsilon));
+    try expect(math.approxEqAbs(f32, cos_(f32, 0.2), 0.980067, epsilon));
+    try expect(math.approxEqAbs(f32, cos_(f32, 0.8923), 0.627623, epsilon));
+    try expect(math.approxEqAbs(f32, cos_(f32, 1.5), 0.070737, epsilon));
+    try expect(math.approxEqAbs(f32, cos_(f32, -1.5), 0.070737, epsilon));
+    try expect(math.approxEqAbs(f32, cos_(f32, 37.45), 0.969132, epsilon));
+    try expect(math.approxEqAbs(f32, cos_(f32, 89.123), 0.400798, epsilon));
 }
 
 test "math.cos64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f64, cos_(f64, 0.0), 1.0, epsilon));
-    expect(math.approxEqAbs(f64, cos_(f64, 0.2), 0.980067, epsilon));
-    expect(math.approxEqAbs(f64, cos_(f64, 0.8923), 0.627623, epsilon));
-    expect(math.approxEqAbs(f64, cos_(f64, 1.5), 0.070737, epsilon));
-    expect(math.approxEqAbs(f64, cos_(f64, -1.5), 0.070737, epsilon));
-    expect(math.approxEqAbs(f64, cos_(f64, 37.45), 0.969132, epsilon));
-    expect(math.approxEqAbs(f64, cos_(f64, 89.123), 0.40080, epsilon));
+    try expect(math.approxEqAbs(f64, cos_(f64, 0.0), 1.0, epsilon));
+    try expect(math.approxEqAbs(f64, cos_(f64, 0.2), 0.980067, epsilon));
+    try expect(math.approxEqAbs(f64, cos_(f64, 0.8923), 0.627623, epsilon));
+    try expect(math.approxEqAbs(f64, cos_(f64, 1.5), 0.070737, epsilon));
+    try expect(math.approxEqAbs(f64, cos_(f64, -1.5), 0.070737, epsilon));
+    try expect(math.approxEqAbs(f64, cos_(f64, 37.45), 0.969132, epsilon));
+    try expect(math.approxEqAbs(f64, cos_(f64, 89.123), 0.40080, epsilon));
 }
 
 test "math.cos32.special" {
-    expect(math.isNan(cos_(f32, math.inf(f32))));
-    expect(math.isNan(cos_(f32, -math.inf(f32))));
-    expect(math.isNan(cos_(f32, math.nan(f32))));
+    try expect(math.isNan(cos_(f32, math.inf(f32))));
+    try expect(math.isNan(cos_(f32, -math.inf(f32))));
+    try expect(math.isNan(cos_(f32, math.nan(f32))));
 }
 
 test "math.cos64.special" {
-    expect(math.isNan(cos_(f64, math.inf(f64))));
-    expect(math.isNan(cos_(f64, -math.inf(f64))));
-    expect(math.isNan(cos_(f64, math.nan(f64))));
+    try expect(math.isNan(cos_(f64, math.inf(f64))));
+    try expect(math.isNan(cos_(f64, -math.inf(f64))));
+    try expect(math.isNan(cos_(f64, math.nan(f64))));
 }

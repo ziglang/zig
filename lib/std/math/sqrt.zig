@@ -69,14 +69,14 @@ fn sqrt_int(comptime T: type, value: T) Sqrt(T) {
 }
 
 test "math.sqrt_int" {
-    expect(sqrt_int(u0, 0) == 0);
-    expect(sqrt_int(u1, 1) == 1);
-    expect(sqrt_int(u32, 3) == 1);
-    expect(sqrt_int(u32, 4) == 2);
-    expect(sqrt_int(u32, 5) == 2);
-    expect(sqrt_int(u32, 8) == 2);
-    expect(sqrt_int(u32, 9) == 3);
-    expect(sqrt_int(u32, 10) == 3);
+    try expect(sqrt_int(u0, 0) == 0);
+    try expect(sqrt_int(u1, 1) == 1);
+    try expect(sqrt_int(u32, 3) == 1);
+    try expect(sqrt_int(u32, 4) == 2);
+    try expect(sqrt_int(u32, 5) == 2);
+    try expect(sqrt_int(u32, 8) == 2);
+    try expect(sqrt_int(u32, 9) == 3);
+    try expect(sqrt_int(u32, 10) == 3);
 }
 
 /// Returns the return type `sqrt` will return given an operand of type `T`.

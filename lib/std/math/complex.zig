@@ -114,7 +114,7 @@ test "complex.add" {
     const b = Complex(f32).new(2, 7);
     const c = a.add(b);
 
-    testing.expect(c.re == 7 and c.im == 10);
+    try testing.expect(c.re == 7 and c.im == 10);
 }
 
 test "complex.sub" {
@@ -122,7 +122,7 @@ test "complex.sub" {
     const b = Complex(f32).new(2, 7);
     const c = a.sub(b);
 
-    testing.expect(c.re == 3 and c.im == -4);
+    try testing.expect(c.re == 3 and c.im == -4);
 }
 
 test "complex.mul" {
@@ -130,7 +130,7 @@ test "complex.mul" {
     const b = Complex(f32).new(2, 7);
     const c = a.mul(b);
 
-    testing.expect(c.re == -11 and c.im == 41);
+    try testing.expect(c.re == -11 and c.im == 41);
 }
 
 test "complex.div" {
@@ -138,7 +138,7 @@ test "complex.div" {
     const b = Complex(f32).new(2, 7);
     const c = a.div(b);
 
-    testing.expect(math.approxEqAbs(f32, c.re, @as(f32, 31) / 53, epsilon) and
+    try testing.expect(math.approxEqAbs(f32, c.re, @as(f32, 31) / 53, epsilon) and
         math.approxEqAbs(f32, c.im, @as(f32, -29) / 53, epsilon));
 }
 
@@ -146,14 +146,14 @@ test "complex.conjugate" {
     const a = Complex(f32).new(5, 3);
     const c = a.conjugate();
 
-    testing.expect(c.re == 5 and c.im == -3);
+    try testing.expect(c.re == 5 and c.im == -3);
 }
 
 test "complex.reciprocal" {
     const a = Complex(f32).new(5, 3);
     const c = a.reciprocal();
 
-    testing.expect(math.approxEqAbs(f32, c.re, @as(f32, 5) / 34, epsilon) and
+    try testing.expect(math.approxEqAbs(f32, c.re, @as(f32, 5) / 34, epsilon) and
         math.approxEqAbs(f32, c.im, @as(f32, -3) / 34, epsilon));
 }
 
@@ -161,7 +161,7 @@ test "complex.magnitude" {
     const a = Complex(f32).new(5, 3);
     const c = a.magnitude();
 
-    testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));
 }
 
 test "complex.cmath" {

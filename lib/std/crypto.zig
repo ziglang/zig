@@ -188,7 +188,7 @@ test "CSPRNG" {
     const a = random.int(u64);
     const b = random.int(u64);
     const c = random.int(u64);
-    std.testing.expect(a ^ b ^ c != 0);
+    try std.testing.expect(a ^ b ^ c != 0);
 }
 
 test "issue #4532: no index out of bounds" {
@@ -226,6 +226,6 @@ test "issue #4532: no index out of bounds" {
         h.update(block[1..]);
         h.final(&out2);
 
-        std.testing.expectEqual(out1, out2);
+        try std.testing.expectEqual(out1, out2);
     }
 }

@@ -228,7 +228,7 @@ test "std.event.RwLock" {
     const handle = testLock(std.heap.page_allocator, &lock);
 
     const expected_result = [1]i32{shared_it_count * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
-    testing.expectEqualSlices(i32, expected_result, shared_test_data);
+    try testing.expectEqualSlices(i32, expected_result, shared_test_data);
 }
 fn testLock(allocator: *Allocator, lock: *RwLock) callconv(.Async) void {
     var read_nodes: [100]Loop.NextTickNode = undefined;
@@ -290,7 +290,7 @@ fn readRunner(lock: *RwLock) callconv(.Async) void {
         const handle = await lock_promise;
         defer handle.release();
 
-        testing.expect(shared_test_index == 0);
-        testing.expect(shared_test_data[i] == @intCast(i32, shared_count));
+        try testing.expect(shared_test_index == 0);
+        try testing.expect(shared_test_data[i] == @intCast(i32, shared_count));
     }
 }

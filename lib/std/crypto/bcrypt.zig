@@ -281,13 +281,13 @@ test "bcrypt codec" {
     Codec.encode(salt_str[0..], salt[0..]);
     var salt2: [salt_length]u8 = undefined;
     try Codec.decode(salt2[0..], salt_str[0..]);
-    testing.expectEqualSlices(u8, salt[0..], salt2[0..]);
+    try testing.expectEqualSlices(u8, salt[0..], salt2[0..]);
 }
 
 test "bcrypt" {
     const s = try strHash("password", 5);
     try strVerify(s, "password");
-    testing.expectError(error.PasswordVerificationFailed, strVerify(s, "invalid password"));
+    try testing.expectError(error.PasswordVerificationFailed, strVerify(s, "invalid password"));
 
     const long_s = try strHash("password" ** 100, 5);
     try strVerify(long_s, "password" ** 100);

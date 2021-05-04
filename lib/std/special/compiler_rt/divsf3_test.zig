@@ -30,7 +30,7 @@ fn compareResultF(result: f32, expected: u32) bool {
 fn test__divsf3(a: f32, b: f32, expected: u32) void {
     const x = __divsf3(a, b);
     const ret = compareResultF(x, expected);
-    testing.expect(ret == true);
+    try testing.expect(ret == true);
 }
 
 test "divsf3" {

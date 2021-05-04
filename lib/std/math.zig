@@ -177,20 +177,20 @@ test "approxEqAbs and approxEqRel" {
             else => unreachable,
         };
 
-        testing.expect(approxEqAbs(T, 0.0, 0.0, eps_value));
-        testing.expect(approxEqAbs(T, -0.0, -0.0, eps_value));
-        testing.expect(approxEqAbs(T, 0.0, -0.0, eps_value));
-        testing.expect(approxEqRel(T, 1.0, 1.0, sqrt_eps_value));
-        testing.expect(!approxEqRel(T, 1.0, 0.0, sqrt_eps_value));
-        testing.expect(!approxEqAbs(T, 1.0 + 2 * epsilon(T), 1.0, eps_value));
-        testing.expect(approxEqAbs(T, 1.0 + 1 * epsilon(T), 1.0, eps_value));
-        testing.expect(!approxEqRel(T, 1.0, nan_value, sqrt_eps_value));
-        testing.expect(!approxEqRel(T, nan_value, nan_value, sqrt_eps_value));
-        testing.expect(approxEqRel(T, inf_value, inf_value, sqrt_eps_value));
-        testing.expect(approxEqRel(T, min_value, min_value, sqrt_eps_value));
-        testing.expect(approxEqRel(T, -min_value, -min_value, sqrt_eps_value));
-        testing.expect(approxEqAbs(T, min_value, 0.0, eps_value * 2));
-        testing.expect(approxEqAbs(T, -min_value, 0.0, eps_value * 2));
+        try testing.expect(approxEqAbs(T, 0.0, 0.0, eps_value));
+        try testing.expect(approxEqAbs(T, -0.0, -0.0, eps_value));
+        try testing.expect(approxEqAbs(T, 0.0, -0.0, eps_value));
+        try testing.expect(approxEqRel(T, 1.0, 1.0, sqrt_eps_value));
+        try testing.expect(!approxEqRel(T, 1.0, 0.0, sqrt_eps_value));
+        try testing.expect(!approxEqAbs(T, 1.0 + 2 * epsilon(T), 1.0, eps_value));
+        try testing.expect(approxEqAbs(T, 1.0 + 1 * epsilon(T), 1.0, eps_value));
+        try testing.expect(!approxEqRel(T, 1.0, nan_value, sqrt_eps_value));
+        try testing.expect(!approxEqRel(T, nan_value, nan_value, sqrt_eps_value));
+        try testing.expect(approxEqRel(T, inf_value, inf_value, sqrt_eps_value));
+        try testing.expect(approxEqRel(T, min_value, min_value, sqrt_eps_value));
+        try testing.expect(approxEqRel(T, -min_value, -min_value, sqrt_eps_value));
+        try testing.expect(approxEqAbs(T, min_value, 0.0, eps_value * 2));
+        try testing.expect(approxEqAbs(T, -min_value, 0.0, eps_value * 2));
     }
 }
 
@@ -349,34 +349,34 @@ pub fn min(x: anytype, y: anytype) Min(@TypeOf(x), @TypeOf(y)) {
 }
 
 test "math.min" {
-    testing.expect(min(@as(i32, -1), @as(i32, 2)) == -1);
+    try testing.expect(min(@as(i32, -1), @as(i32, 2)) == -1);
     {
         var a: u16 = 999;
         var b: u32 = 10;
         var result = min(a, b);
-        testing.expect(@TypeOf(result) == u16);
-        testing.expect(result == 10);
+        try testing.expect(@TypeOf(result) == u16);
+        try testing.expect(result == 10);
     }
     {
         var a: f64 = 10.34;
         var b: f32 = 999.12;
         var result = min(a, b);
-        testing.expect(@TypeOf(result) == f64);
-        testing.expect(result == 10.34);
+        try testing.expect(@TypeOf(result) == f64);
+        try testing.expect(result == 10.34);
     }
     {
         var a: i8 = -127;
         var b: i16 = -200;
         var result = min(a, b);
-        testing.expect(@TypeOf(result) == i16);
-        testing.expect(result == -200);
+        try testing.expect(@TypeOf(result) == i16);
+        try testing.expect(result == -200);
     }
     {
         const a = 10.34;
         var b: f32 = 999.12;
         var result = min(a, b);
-        testing.expect(@TypeOf(result) == f32);
-        testing.expect(result == 10.34);
+        try testing.expect(@TypeOf(result) == f32);
+        try testing.expect(result == 10.34);
     }
 }
 
@@ -385,7 +385,7 @@ pub fn max(x: anytype, y: anytype) @TypeOf(x, y) {
 }
 
 test "math.max" {
-    testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
+    try testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
 }
 
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
@@ -394,19 +394,19 @@ pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, u
 }
 test "math.clamp" {
     // Within range
-    testing.expect(std.math.clamp(@as(i32, -1), @as(i32, -4), @as(i32, 7)) == -1);
+    try testing.expect(std.math.clamp(@as(i32, -1), @as(i32, -4), @as(i32, 7)) == -1);
     // Below
-    testing.expect(std.math.clamp(@as(i32, -5), @as(i32, -4), @as(i32, 7)) == -4);
+    try testing.expect(std.math.clamp(@as(i32, -5), @as(i32, -4), @as(i32, 7)) == -4);
     // Above
-    testing.expect(std.math.clamp(@as(i32, 8), @as(i32, -4), @as(i32, 7)) == 7);
+    try testing.expect(std.math.clamp(@as(i32, 8), @as(i32, -4), @as(i32, 7)) == 7);
 
     // Floating point
-    testing.expect(std.math.clamp(@as(f32, 1.1), @as(f32, 0.0), @as(f32, 1.0)) == 1.0);
-    testing.expect(std.math.clamp(@as(f32, -127.5), @as(f32, -200), @as(f32, -100)) == -127.5);
+    try testing.expect(std.math.clamp(@as(f32, 1.1), @as(f32, 0.0), @as(f32, 1.0)) == 1.0);
+    try testing.expect(std.math.clamp(@as(f32, -127.5), @as(f32, -200), @as(f32, -100)) == -127.5);
 
     // Mix of comptime and non-comptime
     var i: i32 = 1;
-    testing.expect(std.math.clamp(i, 0, 1) == 1);
+    try testing.expect(std.math.clamp(i, 0, 1) == 1);
 }
 
 pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
@@ -461,17 +461,17 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "math.shl" {
-    testing.expect(shl(u8, 0b11111111, @as(usize, 3)) == 0b11111000);
-    testing.expect(shl(u8, 0b11111111, @as(usize, 8)) == 0);
-    testing.expect(shl(u8, 0b11111111, @as(usize, 9)) == 0);
-    testing.expect(shl(u8, 0b11111111, @as(isize, -2)) == 0b00111111);
-    testing.expect(shl(u8, 0b11111111, 3) == 0b11111000);
-    testing.expect(shl(u8, 0b11111111, 8) == 0);
-    testing.expect(shl(u8, 0b11111111, 9) == 0);
-    testing.expect(shl(u8, 0b11111111, -2) == 0b00111111);
-    testing.expect(shl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) << 1);
-    testing.expect(shl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) >> 1);
-    testing.expect(shl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, 33)[0] == 0);
+    try testing.expect(shl(u8, 0b11111111, @as(usize, 3)) == 0b11111000);
+    try testing.expect(shl(u8, 0b11111111, @as(usize, 8)) == 0);
+    try testing.expect(shl(u8, 0b11111111, @as(usize, 9)) == 0);
+    try testing.expect(shl(u8, 0b11111111, @as(isize, -2)) == 0b00111111);
+    try testing.expect(shl(u8, 0b11111111, 3) == 0b11111000);
+    try testing.expect(shl(u8, 0b11111111, 8) == 0);
+    try testing.expect(shl(u8, 0b11111111, 9) == 0);
+    try testing.expect(shl(u8, 0b11111111, -2) == 0b00111111);
+    try testing.expect(shl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) << 1);
+    try testing.expect(shl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) >> 1);
+    try testing.expect(shl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, 33)[0] == 0);
 }
 
 /// Shifts right. Overflowed bits are truncated.
@@ -501,17 +501,17 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "math.shr" {
-    testing.expect(shr(u8, 0b11111111, @as(usize, 3)) == 0b00011111);
-    testing.expect(shr(u8, 0b11111111, @as(usize, 8)) == 0);
-    testing.expect(shr(u8, 0b11111111, @as(usize, 9)) == 0);
-    testing.expect(shr(u8, 0b11111111, @as(isize, -2)) == 0b11111100);
-    testing.expect(shr(u8, 0b11111111, 3) == 0b00011111);
-    testing.expect(shr(u8, 0b11111111, 8) == 0);
-    testing.expect(shr(u8, 0b11111111, 9) == 0);
-    testing.expect(shr(u8, 0b11111111, -2) == 0b11111100);
-    testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) >> 1);
-    testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) << 1);
-    testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, 33)[0] == 0);
+    try testing.expect(shr(u8, 0b11111111, @as(usize, 3)) == 0b00011111);
+    try testing.expect(shr(u8, 0b11111111, @as(usize, 8)) == 0);
+    try testing.expect(shr(u8, 0b11111111, @as(usize, 9)) == 0);
+    try testing.expect(shr(u8, 0b11111111, @as(isize, -2)) == 0b11111100);
+    try testing.expect(shr(u8, 0b11111111, 3) == 0b00011111);
+    try testing.expect(shr(u8, 0b11111111, 8) == 0);
+    try testing.expect(shr(u8, 0b11111111, 9) == 0);
+    try testing.expect(shr(u8, 0b11111111, -2) == 0b11111100);
+    try testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) >> 1);
+    try testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) << 1);
+    try testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, 33)[0] == 0);
 }
 
 /// Rotates right. Only unsigned values can be rotated.
@@ -533,13 +533,13 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
 }
 
 test "math.rotr" {
-    testing.expect(rotr(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
-    testing.expect(rotr(u8, 0b00000001, @as(usize, 9)) == 0b10000000);
-    testing.expect(rotr(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
-    testing.expect(rotr(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
-    testing.expect(rotr(u8, 0b00000001, @as(isize, -1)) == 0b00000010);
-    testing.expect(rotr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1}, @as(usize, 1))[0] == @as(u32, 1) << 31);
-    testing.expect(rotr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1}, @as(isize, -1))[0] == @as(u32, 1) << 1);
+    try testing.expect(rotr(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
+    try testing.expect(rotr(u8, 0b00000001, @as(usize, 9)) == 0b10000000);
+    try testing.expect(rotr(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
+    try testing.expect(rotr(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
+    try testing.expect(rotr(u8, 0b00000001, @as(isize, -1)) == 0b00000010);
+    try testing.expect(rotr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1}, @as(usize, 1))[0] == @as(u32, 1) << 31);
+    try testing.expect(rotr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1}, @as(isize, -1))[0] == @as(u32, 1) << 1);
 }
 
 /// Rotates left. Only unsigned values can be rotated.
@@ -561,13 +561,13 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
 }
 
 test "math.rotl" {
-    testing.expect(rotl(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
-    testing.expect(rotl(u8, 0b00000001, @as(usize, 9)) == 0b00000010);
-    testing.expect(rotl(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
-    testing.expect(rotl(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
-    testing.expect(rotl(u8, 0b00000001, @as(isize, -1)) == 0b10000000);
-    testing.expect(rotl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1 << 31}, @as(usize, 1))[0] == 1);
-    testing.expect(rotl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1 << 31}, @as(isize, -1))[0] == @as(u32, 1) << 30);
+    try testing.expect(rotl(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
+    try testing.expect(rotl(u8, 0b00000001, @as(usize, 9)) == 0b00000010);
+    try testing.expect(rotl(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
+    try testing.expect(rotl(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
+    try testing.expect(rotl(u8, 0b00000001, @as(isize, -1)) == 0b10000000);
+    try testing.expect(rotl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1 << 31}, @as(usize, 1))[0] == 1);
+    try testing.expect(rotl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1 << 31}, @as(isize, -1))[0] == @as(u32, 1) << 30);
 }
 
 pub fn Log2Int(comptime T: type) type {
@@ -598,62 +598,62 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
 }
 
 test "math.IntFittingRange" {
-    testing.expect(IntFittingRange(0, 0) == u0);
-    testing.expect(IntFittingRange(0, 1) == u1);
-    testing.expect(IntFittingRange(0, 2) == u2);
-    testing.expect(IntFittingRange(0, 3) == u2);
-    testing.expect(IntFittingRange(0, 4) == u3);
-    testing.expect(IntFittingRange(0, 7) == u3);
-    testing.expect(IntFittingRange(0, 8) == u4);
-    testing.expect(IntFittingRange(0, 9) == u4);
-    testing.expect(IntFittingRange(0, 15) == u4);
-    testing.expect(IntFittingRange(0, 16) == u5);
-    testing.expect(IntFittingRange(0, 17) == u5);
-    testing.expect(IntFittingRange(0, 4095) == u12);
-    testing.expect(IntFittingRange(2000, 4095) == u12);
-    testing.expect(IntFittingRange(0, 4096) == u13);
-    testing.expect(IntFittingRange(2000, 4096) == u13);
-    testing.expect(IntFittingRange(0, 4097) == u13);
-    testing.expect(IntFittingRange(2000, 4097) == u13);
-    testing.expect(IntFittingRange(0, 123456789123456798123456789) == u87);
-    testing.expect(IntFittingRange(0, 123456789123456798123456789123456789123456798123456789) == u177);
+    try testing.expect(IntFittingRange(0, 0) == u0);
+    try testing.expect(IntFittingRange(0, 1) == u1);
+    try testing.expect(IntFittingRange(0, 2) == u2);
+    try testing.expect(IntFittingRange(0, 3) == u2);
+    try testing.expect(IntFittingRange(0, 4) == u3);
+    try testing.expect(IntFittingRange(0, 7) == u3);
+    try testing.expect(IntFittingRange(0, 8) == u4);
+    try testing.expect(IntFittingRange(0, 9) == u4);
+    try testing.expect(IntFittingRange(0, 15) == u4);
+    try testing.expect(IntFittingRange(0, 16) == u5);
+    try testing.expect(IntFittingRange(0, 17) == u5);
+    try testing.expect(IntFittingRange(0, 4095) == u12);
+    try testing.expect(IntFittingRange(2000, 4095) == u12);
+    try testing.expect(IntFittingRange(0, 4096) == u13);
+    try testing.expect(IntFittingRange(2000, 4096) == u13);
+    try testing.expect(IntFittingRange(0, 4097) == u13);
+    try testing.expect(IntFittingRange(2000, 4097) == u13);
+    try testing.expect(IntFittingRange(0, 123456789123456798123456789) == u87);
+    try testing.expect(IntFittingRange(0, 123456789123456798123456789123456789123456798123456789) == u177);
 
-    testing.expect(IntFittingRange(-1, -1) == i1);
-    testing.expect(IntFittingRange(-1, 0) == i1);
-    testing.expect(IntFittingRange(-1, 1) == i2);
-    testing.expect(IntFittingRange(-2, -2) == i2);
-    testing.expect(IntFittingRange(-2, -1) == i2);
-    testing.expect(IntFittingRange(-2, 0) == i2);
-    testing.expect(IntFittingRange(-2, 1) == i2);
-    testing.expect(IntFittingRange(-2, 2) == i3);
-    testing.expect(IntFittingRange(-1, 2) == i3);
-    testing.expect(IntFittingRange(-1, 3) == i3);
-    testing.expect(IntFittingRange(-1, 4) == i4);
-    testing.expect(IntFittingRange(-1, 7) == i4);
-    testing.expect(IntFittingRange(-1, 8) == i5);
-    testing.expect(IntFittingRange(-1, 9) == i5);
-    testing.expect(IntFittingRange(-1, 15) == i5);
-    testing.expect(IntFittingRange(-1, 16) == i6);
-    testing.expect(IntFittingRange(-1, 17) == i6);
-    testing.expect(IntFittingRange(-1, 4095) == i13);
-    testing.expect(IntFittingRange(-4096, 4095) == i13);
-    testing.expect(IntFittingRange(-1, 4096) == i14);
-    testing.expect(IntFittingRange(-4097, 4095) == i14);
-    testing.expect(IntFittingRange(-1, 4097) == i14);
-    testing.expect(IntFittingRange(-1, 123456789123456798123456789) == i88);
-    testing.expect(IntFittingRange(-1, 123456789123456798123456789123456789123456798123456789) == i178);
+    try testing.expect(IntFittingRange(-1, -1) == i1);
+    try testing.expect(IntFittingRange(-1, 0) == i1);
+    try testing.expect(IntFittingRange(-1, 1) == i2);
+    try testing.expect(IntFittingRange(-2, -2) == i2);
+    try testing.expect(IntFittingRange(-2, -1) == i2);
+    try testing.expect(IntFittingRange(-2, 0) == i2);
+    try testing.expect(IntFittingRange(-2, 1) == i2);
+    try testing.expect(IntFittingRange(-2, 2) == i3);
+    try testing.expect(IntFittingRange(-1, 2) == i3);
+    try testing.expect(IntFittingRange(-1, 3) == i3);
+    try testing.expect(IntFittingRange(-1, 4) == i4);
+    try testing.expect(IntFittingRange(-1, 7) == i4);
+    try testing.expect(IntFittingRange(-1, 8) == i5);
+    try testing.expect(IntFittingRange(-1, 9) == i5);
+    try testing.expect(IntFittingRange(-1, 15) == i5);
+    try testing.expect(IntFittingRange(-1, 16) == i6);
+    try testing.expect(IntFittingRange(-1, 17) == i6);
+    try testing.expect(IntFittingRange(-1, 4095) == i13);
+    try testing.expect(IntFittingRange(-4096, 4095) == i13);
+    try testing.expect(IntFittingRange(-1, 4096) == i14);
+    try testing.expect(IntFittingRange(-4097, 4095) == i14);
+    try testing.expect(IntFittingRange(-1, 4097) == i14);
+    try testing.expect(IntFittingRange(-1, 123456789123456798123456789) == i88);
+    try testing.expect(IntFittingRange(-1, 123456789123456798123456789123456789123456798123456789) == i178);
 }
 
 test "math overflow functions" {
-    testOverflow();
-    comptime testOverflow();
+    try testOverflow();
+    comptime try testOverflow();
 }
 
-fn testOverflow() void {
-    testing.expect((mul(i32, 3, 4) catch unreachable) == 12);
-    testing.expect((add(i32, 3, 4) catch unreachable) == 7);
-    testing.expect((sub(i32, 3, 4) catch unreachable) == -1);
-    testing.expect((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
+fn testOverflow() !void {
+    try testing.expect((mul(i32, 3, 4) catch unreachable) == 12);
+    try testing.expect((add(i32, 3, 4) catch unreachable) == 7);
+    try testing.expect((sub(i32, 3, 4) catch unreachable) == -1);
+    try testing.expect((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
 pub fn absInt(x: anytype) !@TypeOf(x) {
@@ -670,23 +670,23 @@ pub fn absInt(x: anytype) !@TypeOf(x) {
 }
 
 test "math.absInt" {
-    testAbsInt();
-    comptime testAbsInt();
+    try testAbsInt();
+    comptime try testAbsInt();
 }
-fn testAbsInt() void {
-    testing.expect((absInt(@as(i32, -10)) catch unreachable) == 10);
-    testing.expect((absInt(@as(i32, 10)) catch unreachable) == 10);
+fn testAbsInt() !void {
+    try testing.expect((absInt(@as(i32, -10)) catch unreachable) == 10);
+    try testing.expect((absInt(@as(i32, 10)) catch unreachable) == 10);
 }
 
 pub const absFloat = fabs;
 
 test "math.absFloat" {
-    testAbsFloat();
-    comptime testAbsFloat();
+    try testAbsFloat();
+    comptime try testAbsFloat();
 }
-fn testAbsFloat() void {
-    testing.expect(absFloat(@as(f32, -10.05)) == 10.05);
-    testing.expect(absFloat(@as(f32, 10.05)) == 10.05);
+fn testAbsFloat() !void {
+    try testing.expect(absFloat(@as(f32, -10.05)) == 10.05);
+    try testing.expect(absFloat(@as(f32, 10.05)) == 10.05);
 }
 
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
@@ -697,17 +697,17 @@ pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "math.divTrunc" {
-    testDivTrunc();
-    comptime testDivTrunc();
+    try testDivTrunc();
+    comptime try testDivTrunc();
 }
-fn testDivTrunc() void {
-    testing.expect((divTrunc(i32, 5, 3) catch unreachable) == 1);
-    testing.expect((divTrunc(i32, -5, 3) catch unreachable) == -1);
-    testing.expectError(error.DivisionByZero, divTrunc(i8, -5, 0));
-    testing.expectError(error.Overflow, divTrunc(i8, -128, -1));
+fn testDivTrunc() !void {
+    try testing.expect((divTrunc(i32, 5, 3) catch unreachable) == 1);
+    try testing.expect((divTrunc(i32, -5, 3) catch unreachable) == -1);
+    try testing.expectError(error.DivisionByZero, divTrunc(i8, -5, 0));
+    try testing.expectError(error.Overflow, divTrunc(i8, -128, -1));
 
-    testing.expect((divTrunc(f32, 5.0, 3.0) catch unreachable) == 1.0);
-    testing.expect((divTrunc(f32, -5.0, 3.0) catch unreachable) == -1.0);
+    try testing.expect((divTrunc(f32, 5.0, 3.0) catch unreachable) == 1.0);
+    try testing.expect((divTrunc(f32, -5.0, 3.0) catch unreachable) == -1.0);
 }
 
 pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
@@ -718,17 +718,17 @@ pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "math.divFloor" {
-    testDivFloor();
-    comptime testDivFloor();
+    try testDivFloor();
+    comptime try testDivFloor();
 }
-fn testDivFloor() void {
-    testing.expect((divFloor(i32, 5, 3) catch unreachable) == 1);
-    testing.expect((divFloor(i32, -5, 3) catch unreachable) == -2);
-    testing.expectError(error.DivisionByZero, divFloor(i8, -5, 0));
-    testing.expectError(error.Overflow, divFloor(i8, -128, -1));
+fn testDivFloor() !void {
+    try testing.expect((divFloor(i32, 5, 3) catch unreachable) == 1);
+    try testing.expect((divFloor(i32, -5, 3) catch unreachable) == -2);
+    try testing.expectError(error.DivisionByZero, divFloor(i8, -5, 0));
+    try testing.expectError(error.Overflow, divFloor(i8, -128, -1));
 
-    testing.expect((divFloor(f32, 5.0, 3.0) catch unreachable) == 1.0);
-    testing.expect((divFloor(f32, -5.0, 3.0) catch unreachable) == -2.0);
+    try testing.expect((divFloor(f32, 5.0, 3.0) catch unreachable) == 1.0);
+    try testing.expect((divFloor(f32, -5.0, 3.0) catch unreachable) == -2.0);
 }
 
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
@@ -752,36 +752,36 @@ pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "math.divCeil" {
-    testDivCeil();
-    comptime testDivCeil();
+    try testDivCeil();
+    comptime try testDivCeil();
 }
-fn testDivCeil() void {
-    testing.expectEqual(@as(i32, 2), divCeil(i32, 5, 3) catch unreachable);
-    testing.expectEqual(@as(i32, -1), divCeil(i32, -5, 3) catch unreachable);
-    testing.expectEqual(@as(i32, -1), divCeil(i32, 5, -3) catch unreachable);
-    testing.expectEqual(@as(i32, 2), divCeil(i32, -5, -3) catch unreachable);
-    testing.expectEqual(@as(i32, 0), divCeil(i32, 0, 5) catch unreachable);
-    testing.expectEqual(@as(u32, 0), divCeil(u32, 0, 5) catch unreachable);
-    testing.expectError(error.DivisionByZero, divCeil(i8, -5, 0));
-    testing.expectError(error.Overflow, divCeil(i8, -128, -1));
+fn testDivCeil() !void {
+    try testing.expectEqual(@as(i32, 2), divCeil(i32, 5, 3) catch unreachable);
+    try testing.expectEqual(@as(i32, -1), divCeil(i32, -5, 3) catch unreachable);
+    try testing.expectEqual(@as(i32, -1), divCeil(i32, 5, -3) catch unreachable);
+    try testing.expectEqual(@as(i32, 2), divCeil(i32, -5, -3) catch unreachable);
+    try testing.expectEqual(@as(i32, 0), divCeil(i32, 0, 5) catch unreachable);
+    try testing.expectEqual(@as(u32, 0), divCeil(u32, 0, 5) catch unreachable);
+    try testing.expectError(error.DivisionByZero, divCeil(i8, -5, 0));
+    try testing.expectError(error.Overflow, divCeil(i8, -128, -1));
 
-    testing.expectEqual(@as(f32, 0.0), divCeil(f32, 0.0, 5.0) catch unreachable);
-    testing.expectEqual(@as(f32, 2.0), divCeil(f32, 5.0, 3.0) catch unreachable);
-    testing.expectEqual(@as(f32, -1.0), divCeil(f32, -5.0, 3.0) catch unreachable);
-    testing.expectEqual(@as(f32, -1.0), divCeil(f32, 5.0, -3.0) catch unreachable);
-    testing.expectEqual(@as(f32, 2.0), divCeil(f32, -5.0, -3.0) catch unreachable);
+    try testing.expectEqual(@as(f32, 0.0), divCeil(f32, 0.0, 5.0) catch unreachable);
+    try testing.expectEqual(@as(f32, 2.0), divCeil(f32, 5.0, 3.0) catch unreachable);
+    try testing.expectEqual(@as(f32, -1.0), divCeil(f32, -5.0, 3.0) catch unreachable);
+    try testing.expectEqual(@as(f32, -1.0), divCeil(f32, 5.0, -3.0) catch unreachable);
+    try testing.expectEqual(@as(f32, 2.0), divCeil(f32, -5.0, -3.0) catch unreachable);
 
-    testing.expectEqual(6, divCeil(comptime_int, 23, 4) catch unreachable);
-    testing.expectEqual(-5, divCeil(comptime_int, -23, 4) catch unreachable);
-    testing.expectEqual(-5, divCeil(comptime_int, 23, -4) catch unreachable);
-    testing.expectEqual(6, divCeil(comptime_int, -23, -4) catch unreachable);
-    testing.expectError(error.DivisionByZero, divCeil(comptime_int, 23, 0));
+    try testing.expectEqual(6, divCeil(comptime_int, 23, 4) catch unreachable);
+    try testing.expectEqual(-5, divCeil(comptime_int, -23, 4) catch unreachable);
+    try testing.expectEqual(-5, divCeil(comptime_int, 23, -4) catch unreachable);
+    try testing.expectEqual(6, divCeil(comptime_int, -23, -4) catch unreachable);
+    try testing.expectError(error.DivisionByZero, divCeil(comptime_int, 23, 0));
 
-    testing.expectEqual(6.0, divCeil(comptime_float, 23.0, 4.0) catch unreachable);
-    testing.expectEqual(-5.0, divCeil(comptime_float, -23.0, 4.0) catch unreachable);
-    testing.expectEqual(-5.0, divCeil(comptime_float, 23.0, -4.0) catch unreachable);
-    testing.expectEqual(6.0, divCeil(comptime_float, -23.0, -4.0) catch unreachable);
-    testing.expectError(error.DivisionByZero, divCeil(comptime_float, 23.0, 0.0));
+    try testing.expectEqual(6.0, divCeil(comptime_float, 23.0, 4.0) catch unreachable);
+    try testing.expectEqual(-5.0, divCeil(comptime_float, -23.0, 4.0) catch unreachable);
+    try testing.expectEqual(-5.0, divCeil(comptime_float, 23.0, -4.0) catch unreachable);
+    try testing.expectEqual(6.0, divCeil(comptime_float, -23.0, -4.0) catch unreachable);
+    try testing.expectError(error.DivisionByZero, divCeil(comptime_float, 23.0, 0.0));
 }
 
 pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
@@ -794,19 +794,19 @@ pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "math.divExact" {
-    testDivExact();
-    comptime testDivExact();
+    try testDivExact();
+    comptime try testDivExact();
 }
-fn testDivExact() void {
-    testing.expect((divExact(i32, 10, 5) catch unreachable) == 2);
-    testing.expect((divExact(i32, -10, 5) catch unreachable) == -2);
-    testing.expectError(error.DivisionByZero, divExact(i8, -5, 0));
-    testing.expectError(error.Overflow, divExact(i8, -128, -1));
-    testing.expectError(error.UnexpectedRemainder, divExact(i32, 5, 2));
+fn testDivExact() !void {
+    try testing.expect((divExact(i32, 10, 5) catch unreachable) == 2);
+    try testing.expect((divExact(i32, -10, 5) catch unreachable) == -2);
+    try testing.expectError(error.DivisionByZero, divExact(i8, -5, 0));
+    try testing.expectError(error.Overflow, divExact(i8, -128, -1));
+    try testing.expectError(error.UnexpectedRemainder, divExact(i32, 5, 2));
 
-    testing.expect((divExact(f32, 10.0, 5.0) catch unreachable) == 2.0);
-    testing.expect((divExact(f32, -10.0, 5.0) catch unreachable) == -2.0);
-    testing.expectError(error.UnexpectedRemainder, divExact(f32, 5.0, 2.0));
+    try testing.expect((divExact(f32, 10.0, 5.0) catch unreachable) == 2.0);
+    try testing.expect((divExact(f32, -10.0, 5.0) catch unreachable) == -2.0);
+    try testing.expectError(error.UnexpectedRemainder, divExact(f32, 5.0, 2.0));
 }
 
 pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
@@ -817,19 +817,19 @@ pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "math.mod" {
-    testMod();
-    comptime testMod();
+    try testMod();
+    comptime try testMod();
 }
-fn testMod() void {
-    testing.expect((mod(i32, -5, 3) catch unreachable) == 1);
-    testing.expect((mod(i32, 5, 3) catch unreachable) == 2);
-    testing.expectError(error.NegativeDenominator, mod(i32, 10, -1));
-    testing.expectError(error.DivisionByZero, mod(i32, 10, 0));
+fn testMod() !void {
+    try testing.expect((mod(i32, -5, 3) catch unreachable) == 1);
+    try testing.expect((mod(i32, 5, 3) catch unreachable) == 2);
+    try testing.expectError(error.NegativeDenominator, mod(i32, 10, -1));
+    try testing.expectError(error.DivisionByZero, mod(i32, 10, 0));
 
-    testing.expect((mod(f32, -5, 3) catch unreachable) == 1);
-    testing.expect((mod(f32, 5, 3) catch unreachable) == 2);
-    testing.expectError(error.NegativeDenominator, mod(f32, 10, -1));
-    testing.expectError(error.DivisionByZero, mod(f32, 10, 0));
+    try testing.expect((mod(f32, -5, 3) catch unreachable) == 1);
+    try testing.expect((mod(f32, 5, 3) catch unreachable) == 2);
+    try testing.expectError(error.NegativeDenominator, mod(f32, 10, -1));
+    try testing.expectError(error.DivisionByZero, mod(f32, 10, 0));
 }
 
 pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
@@ -840,19 +840,19 @@ pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "math.rem" {
-    testRem();
-    comptime testRem();
+    try testRem();
+    comptime try testRem();
 }
-fn testRem() void {
-    testing.expect((rem(i32, -5, 3) catch unreachable) == -2);
-    testing.expect((rem(i32, 5, 3) catch unreachable) == 2);
-    testing.expectError(error.NegativeDenominator, rem(i32, 10, -1));
-    testing.expectError(error.DivisionByZero, rem(i32, 10, 0));
+fn testRem() !void {
+    try testing.expect((rem(i32, -5, 3) catch unreachable) == -2);
+    try testing.expect((rem(i32, 5, 3) catch unreachable) == 2);
+    try testing.expectError(error.NegativeDenominator, rem(i32, 10, -1));
+    try testing.expectError(error.DivisionByZero, rem(i32, 10, 0));
 
-    testing.expect((rem(f32, -5, 3) catch unreachable) == -2);
-    testing.expect((rem(f32, 5, 3) catch unreachable) == 2);
-    testing.expectError(error.NegativeDenominator, rem(f32, 10, -1));
-    testing.expectError(error.DivisionByZero, rem(f32, 10, 0));
+    try testing.expect((rem(f32, -5, 3) catch unreachable) == -2);
+    try testing.expect((rem(f32, 5, 3) catch unreachable) == 2);
+    try testing.expectError(error.NegativeDenominator, rem(f32, 10, -1));
+    try testing.expectError(error.DivisionByZero, rem(f32, 10, 0));
 }
 
 /// Returns the absolute value of the integer parameter.
@@ -883,11 +883,11 @@ pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
 }
 
 test "math.absCast" {
-    testing.expectEqual(@as(u1, 1), absCast(@as(i1, -1)));
-    testing.expectEqual(@as(u32, 999), absCast(@as(i32, -999)));
-    testing.expectEqual(@as(u32, 999), absCast(@as(i32, 999)));
-    testing.expectEqual(@as(u32, -minInt(i32)), absCast(@as(i32, minInt(i32))));
-    testing.expectEqual(999, absCast(-999));
+    try testing.expectEqual(@as(u1, 1), absCast(@as(i1, -1)));
+    try testing.expectEqual(@as(u32, 999), absCast(@as(i32, -999)));
+    try testing.expectEqual(@as(u32, 999), absCast(@as(i32, 999)));
+    try testing.expectEqual(@as(u32, -minInt(i32)), absCast(@as(i32, minInt(i32))));
+    try testing.expectEqual(999, absCast(-999));
 }
 
 /// Returns the negation of the integer parameter.
@@ -904,13 +904,13 @@ pub fn negateCast(x: anytype) !std.meta.Int(.signed, std.meta.bitCount(@TypeOf(x
 }
 
 test "math.negateCast" {
-    testing.expect((negateCast(@as(u32, 999)) catch unreachable) == -999);
-    testing.expect(@TypeOf(negateCast(@as(u32, 999)) catch unreachable) == i32);
+    try testing.expect((negateCast(@as(u32, 999)) catch unreachable) == -999);
+    try testing.expect(@TypeOf(negateCast(@as(u32, 999)) catch unreachable) == i32);
 
-    testing.expect((negateCast(@as(u32, -minInt(i32))) catch unreachable) == minInt(i32));
-    testing.expect(@TypeOf(negateCast(@as(u32, -minInt(i32))) catch unreachable) == i32);
+    try testing.expect((negateCast(@as(u32, -minInt(i32))) catch unreachable) == minInt(i32));
+    try testing.expect(@TypeOf(negateCast(@as(u32, -minInt(i32))) catch unreachable) == i32);
 
-    testing.expectError(error.Overflow, negateCast(@as(u32, maxInt(i32) + 10)));
+    try testing.expectError(error.Overflow, negateCast(@as(u32, maxInt(i32) + 10)));
 }
 
 /// Cast an integer to a different integer type. If the value doesn't fit,
@@ -929,13 +929,13 @@ pub fn cast(comptime T: type, x: anytype) (error{Overflow}!T) {
 }
 
 test "math.cast" {
-    testing.expectError(error.Overflow, cast(u8, @as(u32, 300)));
-    testing.expectError(error.Overflow, cast(i8, @as(i32, -200)));
-    testing.expectError(error.Overflow, cast(u8, @as(i8, -1)));
-    testing.expectError(error.Overflow, cast(u64, @as(i8, -1)));
+    try testing.expectError(error.Overflow, cast(u8, @as(u32, 300)));
+    try testing.expectError(error.Overflow, cast(i8, @as(i32, -200)));
+    try testing.expectError(error.Overflow, cast(u8, @as(i8, -1)));
+    try testing.expectError(error.Overflow, cast(u64, @as(i8, -1)));
 
-    testing.expect((try cast(u8, @as(u32, 255))) == @as(u8, 255));
-    testing.expect(@TypeOf(try cast(u8, @as(u32, 255))) == u8);
+    try testing.expect((try cast(u8, @as(u32, 255))) == @as(u8, 255));
+    try testing.expect(@TypeOf(try cast(u8, @as(u32, 255))) == u8);
 }
 
 pub const AlignCastError = error{UnalignedMemory};
@@ -966,17 +966,17 @@ pub fn floorPowerOfTwo(comptime T: type, value: T) T {
 }
 
 test "math.floorPowerOfTwo" {
-    testFloorPowerOfTwo();
-    comptime testFloorPowerOfTwo();
+    try testFloorPowerOfTwo();
+    comptime try testFloorPowerOfTwo();
 }
 
-fn testFloorPowerOfTwo() void {
-    testing.expect(floorPowerOfTwo(u32, 63) == 32);
-    testing.expect(floorPowerOfTwo(u32, 64) == 64);
-    testing.expect(floorPowerOfTwo(u32, 65) == 64);
-    testing.expect(floorPowerOfTwo(u4, 7) == 4);
-    testing.expect(floorPowerOfTwo(u4, 8) == 8);
-    testing.expect(floorPowerOfTwo(u4, 9) == 8);
+fn testFloorPowerOfTwo() !void {
+    try testing.expect(floorPowerOfTwo(u32, 63) == 32);
+    try testing.expect(floorPowerOfTwo(u32, 64) == 64);
+    try testing.expect(floorPowerOfTwo(u32, 65) == 64);
+    try testing.expect(floorPowerOfTwo(u4, 7) == 4);
+    try testing.expect(floorPowerOfTwo(u4, 8) == 8);
+    try testing.expect(floorPowerOfTwo(u4, 9) == 8);
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
@@ -1012,20 +1012,20 @@ pub fn ceilPowerOfTwoAssert(comptime T: type, value: T) T {
 }
 
 test "math.ceilPowerOfTwoPromote" {
-    testCeilPowerOfTwoPromote();
-    comptime testCeilPowerOfTwoPromote();
+    try testCeilPowerOfTwoPromote();
+    comptime try testCeilPowerOfTwoPromote();
 }
 
-fn testCeilPowerOfTwoPromote() void {
-    testing.expectEqual(@as(u33, 1), ceilPowerOfTwoPromote(u32, 1));
-    testing.expectEqual(@as(u33, 2), ceilPowerOfTwoPromote(u32, 2));
-    testing.expectEqual(@as(u33, 64), ceilPowerOfTwoPromote(u32, 63));
-    testing.expectEqual(@as(u33, 64), ceilPowerOfTwoPromote(u32, 64));
-    testing.expectEqual(@as(u33, 128), ceilPowerOfTwoPromote(u32, 65));
-    testing.expectEqual(@as(u6, 8), ceilPowerOfTwoPromote(u5, 7));
-    testing.expectEqual(@as(u6, 8), ceilPowerOfTwoPromote(u5, 8));
-    testing.expectEqual(@as(u6, 16), ceilPowerOfTwoPromote(u5, 9));
-    testing.expectEqual(@as(u5, 16), ceilPowerOfTwoPromote(u4, 9));
+fn testCeilPowerOfTwoPromote() !void {
+    try testing.expectEqual(@as(u33, 1), ceilPowerOfTwoPromote(u32, 1));
+    try testing.expectEqual(@as(u33, 2), ceilPowerOfTwoPromote(u32, 2));
+    try testing.expectEqual(@as(u33, 64), ceilPowerOfTwoPromote(u32, 63));
+    try testing.expectEqual(@as(u33, 64), ceilPowerOfTwoPromote(u32, 64));
+    try testing.expectEqual(@as(u33, 128), ceilPowerOfTwoPromote(u32, 65));
+    try testing.expectEqual(@as(u6, 8), ceilPowerOfTwoPromote(u5, 7));
+    try testing.expectEqual(@as(u6, 8), ceilPowerOfTwoPromote(u5, 8));
+    try testing.expectEqual(@as(u6, 16), ceilPowerOfTwoPromote(u5, 9));
+    try testing.expectEqual(@as(u5, 16), ceilPowerOfTwoPromote(u4, 9));
 }
 
 test "math.ceilPowerOfTwo" {
@@ -1034,15 +1034,15 @@ test "math.ceilPowerOfTwo" {
 }
 
 fn testCeilPowerOfTwo() !void {
-    testing.expectEqual(@as(u32, 1), try ceilPowerOfTwo(u32, 1));
-    testing.expectEqual(@as(u32, 2), try ceilPowerOfTwo(u32, 2));
-    testing.expectEqual(@as(u32, 64), try ceilPowerOfTwo(u32, 63));
-    testing.expectEqual(@as(u32, 64), try ceilPowerOfTwo(u32, 64));
-    testing.expectEqual(@as(u32, 128), try ceilPowerOfTwo(u32, 65));
-    testing.expectEqual(@as(u5, 8), try ceilPowerOfTwo(u5, 7));
-    testing.expectEqual(@as(u5, 8), try ceilPowerOfTwo(u5, 8));
-    testing.expectEqual(@as(u5, 16), try ceilPowerOfTwo(u5, 9));
-    testing.expectError(error.Overflow, ceilPowerOfTwo(u4, 9));
+    try testing.expectEqual(@as(u32, 1), try ceilPowerOfTwo(u32, 1));
+    try testing.expectEqual(@as(u32, 2), try ceilPowerOfTwo(u32, 2));
+    try testing.expectEqual(@as(u32, 64), try ceilPowerOfTwo(u32, 63));
+    try testing.expectEqual(@as(u32, 64), try ceilPowerOfTwo(u32, 64));
+    try testing.expectEqual(@as(u32, 128), try ceilPowerOfTwo(u32, 65));
+    try testing.expectEqual(@as(u5, 8), try ceilPowerOfTwo(u5, 7));
+    try testing.expectEqual(@as(u5, 8), try ceilPowerOfTwo(u5, 8));
+    try testing.expectEqual(@as(u5, 16), try ceilPowerOfTwo(u5, 9));
+    try testing.expectError(error.Overflow, ceilPowerOfTwo(u4, 9));
 }
 
 pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
@@ -1059,16 +1059,16 @@ pub fn log2_int_ceil(comptime T: type, x: T) Log2Int(T) {
 }
 
 test "std.math.log2_int_ceil" {
-    testing.expect(log2_int_ceil(u32, 1) == 0);
-    testing.expect(log2_int_ceil(u32, 2) == 1);
-    testing.expect(log2_int_ceil(u32, 3) == 2);
-    testing.expect(log2_int_ceil(u32, 4) == 2);
-    testing.expect(log2_int_ceil(u32, 5) == 3);
-    testing.expect(log2_int_ceil(u32, 6) == 3);
-    testing.expect(log2_int_ceil(u32, 7) == 3);
-    testing.expect(log2_int_ceil(u32, 8) == 3);
-    testing.expect(log2_int_ceil(u32, 9) == 4);
-    testing.expect(log2_int_ceil(u32, 10) == 4);
+    try testing.expect(log2_int_ceil(u32, 1) == 0);
+    try testing.expect(log2_int_ceil(u32, 2) == 1);
+    try testing.expect(log2_int_ceil(u32, 3) == 2);
+    try testing.expect(log2_int_ceil(u32, 4) == 2);
+    try testing.expect(log2_int_ceil(u32, 5) == 3);
+    try testing.expect(log2_int_ceil(u32, 6) == 3);
+    try testing.expect(log2_int_ceil(u32, 7) == 3);
+    try testing.expect(log2_int_ceil(u32, 8) == 3);
+    try testing.expect(log2_int_ceil(u32, 9) == 4);
+    try testing.expect(log2_int_ceil(u32, 10) == 4);
 }
 
 ///Cast a value to a different type. If the value doesn't fit in, or can't be perfectly represented by,
@@ -1112,15 +1112,15 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
 }
 
 test "math.lossyCast" {
-    testing.expect(lossyCast(i16, 70000.0) == @as(i16, 32767));
-    testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
-    testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
+    try testing.expect(lossyCast(i16, 70000.0) == @as(i16, 32767));
+    try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
+    try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
 }
 
 test "math.f64_min" {
     const f64_min_u64 = 0x0010000000000000;
     const fmin: f64 = f64_min;
-    testing.expect(@bitCast(u64, fmin) == f64_min_u64);
+    try testing.expect(@bitCast(u64, fmin) == f64_min_u64);
 }
 
 pub fn maxInt(comptime T: type) comptime_int {
@@ -1139,45 +1139,45 @@ pub fn minInt(comptime T: type) comptime_int {
 }
 
 test "minInt and maxInt" {
-    testing.expect(maxInt(u0) == 0);
-    testing.expect(maxInt(u1) == 1);
-    testing.expect(maxInt(u8) == 255);
-    testing.expect(maxInt(u16) == 65535);
-    testing.expect(maxInt(u32) == 4294967295);
-    testing.expect(maxInt(u64) == 18446744073709551615);
-    testing.expect(maxInt(u128) == 340282366920938463463374607431768211455);
+    try testing.expect(maxInt(u0) == 0);
+    try testing.expect(maxInt(u1) == 1);
+    try testing.expect(maxInt(u8) == 255);
+    try testing.expect(maxInt(u16) == 65535);
+    try testing.expect(maxInt(u32) == 4294967295);
+    try testing.expect(maxInt(u64) == 18446744073709551615);
+    try testing.expect(maxInt(u128) == 340282366920938463463374607431768211455);
 
-    testing.expect(maxInt(i0) == 0);
-    testing.expect(maxInt(i1) == 0);
-    testing.expect(maxInt(i8) == 127);
-    testing.expect(maxInt(i16) == 32767);
-    testing.expect(maxInt(i32) == 2147483647);
-    testing.expect(maxInt(i63) == 4611686018427387903);
-    testing.expect(maxInt(i64) == 9223372036854775807);
-    testing.expect(maxInt(i128) == 170141183460469231731687303715884105727);
+    try testing.expect(maxInt(i0) == 0);
+    try testing.expect(maxInt(i1) == 0);
+    try testing.expect(maxInt(i8) == 127);
+    try testing.expect(maxInt(i16) == 32767);
+    try testing.expect(maxInt(i32) == 2147483647);
+    try testing.expect(maxInt(i63) == 4611686018427387903);
+    try testing.expect(maxInt(i64) == 9223372036854775807);
+    try testing.expect(maxInt(i128) == 170141183460469231731687303715884105727);
 
-    testing.expect(minInt(u0) == 0);
-    testing.expect(minInt(u1) == 0);
-    testing.expect(minInt(u8) == 0);
-    testing.expect(minInt(u16) == 0);
-    testing.expect(minInt(u32) == 0);
-    testing.expect(minInt(u63) == 0);
-    testing.expect(minInt(u64) == 0);
-    testing.expect(minInt(u128) == 0);
+    try testing.expect(minInt(u0) == 0);
+    try testing.expect(minInt(u1) == 0);
+    try testing.expect(minInt(u8) == 0);
+    try testing.expect(minInt(u16) == 0);
+    try testing.expect(minInt(u32) == 0);
+    try testing.expect(minInt(u63) == 0);
+    try testing.expect(minInt(u64) == 0);
+    try testing.expect(minInt(u128) == 0);
 
-    testing.expect(minInt(i0) == 0);
-    testing.expect(minInt(i1) == -1);
-    testing.expect(minInt(i8) == -128);
-    testing.expect(minInt(i16) == -32768);
-    testing.expect(minInt(i32) == -2147483648);
-    testing.expect(minInt(i63) == -4611686018427387904);
-    testing.expect(minInt(i64) == -9223372036854775808);
-    testing.expect(minInt(i128) == -170141183460469231731687303715884105728);
+    try testing.expect(minInt(i0) == 0);
+    try testing.expect(minInt(i1) == -1);
+    try testing.expect(minInt(i8) == -128);
+    try testing.expect(minInt(i16) == -32768);
+    try testing.expect(minInt(i32) == -2147483648);
+    try testing.expect(minInt(i63) == -4611686018427387904);
+    try testing.expect(minInt(i64) == -9223372036854775808);
+    try testing.expect(minInt(i128) == -170141183460469231731687303715884105728);
 }
 
 test "max value type" {
     const x: u32 = maxInt(i32);
-    testing.expect(x == 2147483647);
+    try testing.expect(x == 2147483647);
 }
 
 pub fn mulWide(comptime T: type, a: T, b: T) std.meta.Int(@typeInfo(T).Int.signedness, @typeInfo(T).Int.bits * 2) {
@@ -1186,9 +1186,9 @@ pub fn mulWide(comptime T: type, a: T, b: T) std.meta.Int(@typeInfo(T).Int.signe
 }
 
 test "math.mulWide" {
-    testing.expect(mulWide(u8, 5, 5) == 25);
-    testing.expect(mulWide(i8, 5, -5) == -25);
-    testing.expect(mulWide(u8, 100, 100) == 10000);
+    try testing.expect(mulWide(u8, 5, 5) == 25);
+    try testing.expect(mulWide(i8, 5, -5) == -25);
+    try testing.expect(mulWide(u8, 100, 100) == 10000);
 }
 
 /// See also `CompareOperator`.
@@ -1284,51 +1284,51 @@ pub fn compare(a: anytype, op: CompareOperator, b: anytype) bool {
 }
 
 test "compare between signed and unsigned" {
-    testing.expect(compare(@as(i8, -1), .lt, @as(u8, 255)));
-    testing.expect(compare(@as(i8, 2), .gt, @as(u8, 1)));
-    testing.expect(!compare(@as(i8, -1), .gte, @as(u8, 255)));
-    testing.expect(compare(@as(u8, 255), .gt, @as(i8, -1)));
-    testing.expect(!compare(@as(u8, 255), .lte, @as(i8, -1)));
-    testing.expect(compare(@as(i8, -1), .lt, @as(u9, 255)));
-    testing.expect(!compare(@as(i8, -1), .gte, @as(u9, 255)));
-    testing.expect(compare(@as(u9, 255), .gt, @as(i8, -1)));
-    testing.expect(!compare(@as(u9, 255), .lte, @as(i8, -1)));
-    testing.expect(compare(@as(i9, -1), .lt, @as(u8, 255)));
-    testing.expect(!compare(@as(i9, -1), .gte, @as(u8, 255)));
-    testing.expect(compare(@as(u8, 255), .gt, @as(i9, -1)));
-    testing.expect(!compare(@as(u8, 255), .lte, @as(i9, -1)));
-    testing.expect(compare(@as(u8, 1), .lt, @as(u8, 2)));
-    testing.expect(@bitCast(u8, @as(i8, -1)) == @as(u8, 255));
-    testing.expect(!compare(@as(u8, 255), .eq, @as(i8, -1)));
-    testing.expect(compare(@as(u8, 1), .eq, @as(u8, 1)));
+    try testing.expect(compare(@as(i8, -1), .lt, @as(u8, 255)));
+    try testing.expect(compare(@as(i8, 2), .gt, @as(u8, 1)));
+    try testing.expect(!compare(@as(i8, -1), .gte, @as(u8, 255)));
+    try testing.expect(compare(@as(u8, 255), .gt, @as(i8, -1)));
+    try testing.expect(!compare(@as(u8, 255), .lte, @as(i8, -1)));
+    try testing.expect(compare(@as(i8, -1), .lt, @as(u9, 255)));
+    try testing.expect(!compare(@as(i8, -1), .gte, @as(u9, 255)));
+    try testing.expect(compare(@as(u9, 255), .gt, @as(i8, -1)));
+    try testing.expect(!compare(@as(u9, 255), .lte, @as(i8, -1)));
+    try testing.expect(compare(@as(i9, -1), .lt, @as(u8, 255)));
+    try testing.expect(!compare(@as(i9, -1), .gte, @as(u8, 255)));
+    try testing.expect(compare(@as(u8, 255), .gt, @as(i9, -1)));
+    try testing.expect(!compare(@as(u8, 255), .lte, @as(i9, -1)));
+    try testing.expect(compare(@as(u8, 1), .lt, @as(u8, 2)));
+    try testing.expect(@bitCast(u8, @as(i8, -1)) == @as(u8, 255));
+    try testing.expect(!compare(@as(u8, 255), .eq, @as(i8, -1)));
+    try testing.expect(compare(@as(u8, 1), .eq, @as(u8, 1)));
 }
 
 test "order" {
-    testing.expect(order(0, 0) == .eq);
-    testing.expect(order(1, 0) == .gt);
-    testing.expect(order(-1, 0) == .lt);
+    try testing.expect(order(0, 0) == .eq);
+    try testing.expect(order(1, 0) == .gt);
+    try testing.expect(order(-1, 0) == .lt);
 }
 
 test "order.invert" {
-    testing.expect(Order.invert(order(0, 0)) == .eq);
-    testing.expect(Order.invert(order(1, 0)) == .lt);
-    testing.expect(Order.invert(order(-1, 0)) == .gt);
+    try testing.expect(Order.invert(order(0, 0)) == .eq);
+    try testing.expect(Order.invert(order(1, 0)) == .lt);
+    try testing.expect(Order.invert(order(-1, 0)) == .gt);
 }
 
 test "order.compare" {
-    testing.expect(order(-1, 0).compare(.lt));
-    testing.expect(order(-1, 0).compare(.lte));
-    testing.expect(order(0, 0).compare(.lte));
-    testing.expect(order(0, 0).compare(.eq));
-    testing.expect(order(0, 0).compare(.gte));
-    testing.expect(order(1, 0).compare(.gte));
-    testing.expect(order(1, 0).compare(.gt));
-    testing.expect(order(1, 0).compare(.neq));
+    try testing.expect(order(-1, 0).compare(.lt));
+    try testing.expect(order(-1, 0).compare(.lte));
+    try testing.expect(order(0, 0).compare(.lte));
+    try testing.expect(order(0, 0).compare(.eq));
+    try testing.expect(order(0, 0).compare(.gte));
+    try testing.expect(order(1, 0).compare(.gte));
+    try testing.expect(order(1, 0).compare(.gt));
+    try testing.expect(order(1, 0).compare(.neq));
 }
 
 test "math.comptime" {
     comptime const v = sin(@as(f32, 1)) + ln(@as(f32, 5));
-    testing.expect(v == sin(@as(f32, 1)) + ln(@as(f32, 5)));
+    try testing.expect(v == sin(@as(f32, 1)) + ln(@as(f32, 5)));
 }
 
 /// Returns a mask of all ones if value is true,
@@ -1354,26 +1354,26 @@ pub fn boolMask(comptime MaskInt: type, value: bool) callconv(.Inline) MaskInt {
 
 test "boolMask" {
     const runTest = struct {
-        fn runTest() void {
-            testing.expectEqual(@as(u1, 0), boolMask(u1, false));
-            testing.expectEqual(@as(u1, 1), boolMask(u1, true));
+        fn runTest() !void {
+            try testing.expectEqual(@as(u1, 0), boolMask(u1, false));
+            try testing.expectEqual(@as(u1, 1), boolMask(u1, true));
 
-            testing.expectEqual(@as(i1, 0), boolMask(i1, false));
-            testing.expectEqual(@as(i1, -1), boolMask(i1, true));
+            try testing.expectEqual(@as(i1, 0), boolMask(i1, false));
+            try testing.expectEqual(@as(i1, -1), boolMask(i1, true));
 
-            testing.expectEqual(@as(u13, 0), boolMask(u13, false));
-            testing.expectEqual(@as(u13, 0x1FFF), boolMask(u13, true));
+            try testing.expectEqual(@as(u13, 0), boolMask(u13, false));
+            try testing.expectEqual(@as(u13, 0x1FFF), boolMask(u13, true));
 
-            testing.expectEqual(@as(i13, 0), boolMask(i13, false));
-            testing.expectEqual(@as(i13, -1), boolMask(i13, true));
+            try testing.expectEqual(@as(i13, 0), boolMask(i13, false));
+            try testing.expectEqual(@as(i13, -1), boolMask(i13, true));
 
-            testing.expectEqual(@as(u32, 0), boolMask(u32, false));
-            testing.expectEqual(@as(u32, 0xFFFF_FFFF), boolMask(u32, true));
+            try testing.expectEqual(@as(u32, 0), boolMask(u32, false));
+            try testing.expectEqual(@as(u32, 0xFFFF_FFFF), boolMask(u32, true));
 
-            testing.expectEqual(@as(i32, 0), boolMask(i32, false));
-            testing.expectEqual(@as(i32, -1), boolMask(i32, true));
+            try testing.expectEqual(@as(i32, 0), boolMask(i32, false));
+            try testing.expectEqual(@as(i32, -1), boolMask(i32, true));
         }
     }.runTest;
-    runTest();
-    comptime runTest();
+    try runTest();
+    comptime try runTest();
 }

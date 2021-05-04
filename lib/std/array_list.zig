@@ -695,15 +695,15 @@ test "std.ArrayList/ArrayListUnmanaged.init" {
         var list = ArrayList(i32).init(testing.allocator);
         defer list.deinit();
 
-        testing.expect(list.items.len == 0);
-        testing.expect(list.capacity == 0);
+        try testing.expect(list.items.len == 0);
+        try testing.expect(list.capacity == 0);
     }
 
     {
         var list = ArrayListUnmanaged(i32){};
 
-        testing.expect(list.items.len == 0);
-        testing.expect(list.capacity == 0);
+        try testing.expect(list.items.len == 0);
+        try testing.expect(list.capacity == 0);
     }
 }
 
@@ -712,14 +712,14 @@ test "std.ArrayList/ArrayListUnmanaged.initCapacity" {
     {
         var list = try ArrayList(i8).initCapacity(a, 200);
         defer list.deinit();
-        testing.expect(list.items.len == 0);
-        testing.expect(list.capacity >= 200);
+        try testing.expect(list.items.len == 0);
+        try testing.expect(list.capacity >= 200);
     }
     {
         var list = try ArrayListUnmanaged(i8).initCapacity(a, 200);
         defer list.deinit(a);
-        testing.expect(list.items.len == 0);
-        testing.expect(list.capacity >= 200);
+        try testing.expect(list.items.len == 0);
+        try testing.expect(list.capacity >= 200);
     }
 }
 
@@ -739,33 +739,33 @@ test "std.ArrayList/ArrayListUnmanaged.basic" {
         {
             var i: usize = 0;
             while (i < 10) : (i += 1) {
-                testing.expect(list.items[i] == @intCast(i32, i + 1));
+                try testing.expect(list.items[i] == @intCast(i32, i + 1));
             }
         }
 
         for (list.items) |v, i| {
-            testing.expect(v == @intCast(i32, i + 1));
+            try testing.expect(v == @intCast(i32, i + 1));
         }
 
-        testing.expect(list.pop() == 10);
-        testing.expect(list.items.len == 9);
+        try testing.expect(list.pop() == 10);
+        try testing.expect(list.items.len == 9);
 
         list.appendSlice(&[_]i32{ 1, 2, 3 }) catch unreachable;
-        testing.expect(list.items.len == 12);
-        testing.expect(list.pop() == 3);
-        testing.expect(list.pop() == 2);
-        testing.expect(list.pop() == 1);
-        testing.expect(list.items.len == 9);
+        try testing.expect(list.items.len == 12);
+        try testing.expect(list.pop() == 3);
+        try testing.expect(list.pop() == 2);
+        try testing.expect(list.pop() == 1);
+        try testing.expect(list.items.len == 9);
 
         list.appendSlice(&[_]i32{}) catch unreachable;
-        testing.expect(list.items.len == 9);
+        try testing.expect(list.items.len == 9);
 
         // can only set on indices < self.items.len
         list.items[7] = 33;
         list.items[8] = 42;
 
-        testing.expect(list.pop() == 42);
-        testing.expect(list.pop() == 33);
+        try testing.expect(list.pop() == 42);
+        try testing.expect(list.pop() == 33);
     }
     {
         var list = ArrayListUnmanaged(i32){};
@@ -781,33 +781,33 @@ test "std.ArrayList/ArrayListUnmanaged.basic" {
         {
             var i: usize = 0;
             while (i < 10) : (i += 1) {
-                testing.expect(list.items[i] == @intCast(i32, i + 1));
+                try testing.expect(list.items[i] == @intCast(i32, i + 1));
             }
         }
 
         for (list.items) |v, i| {
-            testing.expect(v == @intCast(i32, i + 1));
+            try testing.expect(v == @intCast(i32, i + 1));
         }
 
-        testing.expect(list.pop() == 10);
-        testing.expect(list.items.len == 9);
+        try testing.expect(list.pop() == 10);
+        try testing.expect(list.items.len == 9);
 
         list.appendSlice(a, &[_]i32{ 1, 2, 3 }) catch unreachable;
-        testing.expect(list.items.len == 12);
-        testing.expect(list.pop() == 3);
-        testing.expect(list.pop() == 2);
-        testing.expect(list.pop() == 1);
-        testing.expect(list.items.len == 9);
+        try testing.expect(list.items.len == 12);
+        try testing.expect(list.pop() == 3);
+        try testing.expect(list.pop() == 2);
+        try testing.expect(list.pop() == 1);
+        try testing.expect(list.items.len == 9);
 
         list.appendSlice(a, &[_]i32{}) catch unreachable;
-        testing.expect(list.items.len == 9);
+        try testing.expect(list.items.len == 9);
 
         // can only set on indices < self.items.len
         list.items[7] = 33;
         list.items[8] = 42;
 
-        testing.expect(list.pop() == 42);
-        testing.expect(list.pop() == 33);
+        try testing.expect(list.pop() == 42);
+        try testing.expect(list.pop() == 33);
     }
 }
 
@@ -818,9 +818,9 @@ test "std.ArrayList/ArrayListUnmanaged.appendNTimes" {
         defer list.deinit();
 
         try list.appendNTimes(2, 10);
-        testing.expectEqual(@as(usize, 10), list.items.len);
+        try testing.expectEqual(@as(usize, 10), list.items.len);
         for (list.items) |element| {
-            testing.expectEqual(@as(i32, 2), element);
+            try testing.expectEqual(@as(i32, 2), element);
         }
     }
     {
@@ -828,9 +828,9 @@ test "std.ArrayList/ArrayListUnmanaged.appendNTimes" {
         defer list.deinit(a);
 
         try list.appendNTimes(a, 2, 10);
-        testing.expectEqual(@as(usize, 10), list.items.len);
+        try testing.expectEqual(@as(usize, 10), list.items.len);
         for (list.items) |element| {
-            testing.expectEqual(@as(i32, 2), element);
+            try testing.expectEqual(@as(i32, 2), element);
         }
     }
 }
@@ -840,12 +840,12 @@ test "std.ArrayList/ArrayListUnmanaged.appendNTimes with failing allocator" {
     {
         var list = ArrayList(i32).init(a);
         defer list.deinit();
-        testing.expectError(error.OutOfMemory, list.appendNTimes(2, 10));
+        try testing.expectError(error.OutOfMemory, list.appendNTimes(2, 10));
     }
     {
         var list = ArrayListUnmanaged(i32){};
         defer list.deinit(a);
-        testing.expectError(error.OutOfMemory, list.appendNTimes(a, 2, 10));
+        try testing.expectError(error.OutOfMemory, list.appendNTimes(a, 2, 10));
     }
 }
 
@@ -864,18 +864,18 @@ test "std.ArrayList/ArrayListUnmanaged.orderedRemove" {
         try list.append(7);
 
         //remove from middle
-        testing.expectEqual(@as(i32, 4), list.orderedRemove(3));
-        testing.expectEqual(@as(i32, 5), list.items[3]);
-        testing.expectEqual(@as(usize, 6), list.items.len);
+        try testing.expectEqual(@as(i32, 4), list.orderedRemove(3));
+        try testing.expectEqual(@as(i32, 5), list.items[3]);
+        try testing.expectEqual(@as(usize, 6), list.items.len);
 
         //remove from end
-        testing.expectEqual(@as(i32, 7), list.orderedRemove(5));
-        testing.expectEqual(@as(usize, 5), list.items.len);
+        try testing.expectEqual(@as(i32, 7), list.orderedRemove(5));
+        try testing.expectEqual(@as(usize, 5), list.items.len);
 
         //remove from front
-        testing.expectEqual(@as(i32, 1), list.orderedRemove(0));
-        testing.expectEqual(@as(i32, 2), list.items[0]);
-        testing.expectEqual(@as(usize, 4), list.items.len);
+        try testing.expectEqual(@as(i32, 1), list.orderedRemove(0));
+        try testing.expectEqual(@as(i32, 2), list.items[0]);
+        try testing.expectEqual(@as(usize, 4), list.items.len);
     }
     {
         var list = ArrayListUnmanaged(i32){};
@@ -890,18 +890,18 @@ test "std.ArrayList/ArrayListUnmanaged.orderedRemove" {
         try list.append(a, 7);
 
         //remove from middle
-        testing.expectEqual(@as(i32, 4), list.orderedRemove(3));
-        testing.expectEqual(@as(i32, 5), list.items[3]);
-        testing.expectEqual(@as(usize, 6), list.items.len);
+        try testing.expectEqual(@as(i32, 4), list.orderedRemove(3));
+        try testing.expectEqual(@as(i32, 5), list.items[3]);
+        try testing.expectEqual(@as(usize, 6), list.items.len);
 
         //remove from end
-        testing.expectEqual(@as(i32, 7), list.orderedRemove(5));
-        testing.expectEqual(@as(usize, 5), list.items.len);
+        try testing.expectEqual(@as(i32, 7), list.orderedRemove(5));
+        try testing.expectEqual(@as(usize, 5), list.items.len);
 
         //remove from front
-        testing.expectEqual(@as(i32, 1), list.orderedRemove(0));
-        testing.expectEqual(@as(i32, 2), list.items[0]);
-        testing.expectEqual(@as(usize, 4), list.items.len);
+        try testing.expectEqual(@as(i32, 1), list.orderedRemove(0));
+        try testing.expectEqual(@as(i32, 2), list.items[0]);
+        try testing.expectEqual(@as(usize, 4), list.items.len);
     }
 }
 
@@ -920,18 +920,18 @@ test "std.ArrayList/ArrayListUnmanaged.swapRemove" {
         try list.append(7);
 
         //remove from middle
-        testing.expect(list.swapRemove(3) == 4);
-        testing.expect(list.items[3] == 7);
-        testing.expect(list.items.len == 6);
+        try testing.expect(list.swapRemove(3) == 4);
+        try testing.expect(list.items[3] == 7);
+        try testing.expect(list.items.len == 6);
 
         //remove from end
-        testing.expect(list.swapRemove(5) == 6);
-        testing.expect(list.items.len == 5);
+        try testing.expect(list.swapRemove(5) == 6);
+        try testing.expect(list.items.len == 5);
 
         //remove from front
-        testing.expect(list.swapRemove(0) == 1);
-        testing.expect(list.items[0] == 5);
-        testing.expect(list.items.len == 4);
+        try testing.expect(list.swapRemove(0) == 1);
+        try testing.expect(list.items[0] == 5);
+        try testing.expect(list.items.len == 4);
     }
     {
         var list = ArrayListUnmanaged(i32){};
@@ -946,18 +946,18 @@ test "std.ArrayList/ArrayListUnmanaged.swapRemove" {
         try list.append(a, 7);
 
         //remove from middle
-        testing.expect(list.swapRemove(3) == 4);
-        testing.expect(list.items[3] == 7);
-        testing.expect(list.items.len == 6);
+        try testing.expect(list.swapRemove(3) == 4);
+        try testing.expect(list.items[3] == 7);
+        try testing.expect(list.items.len == 6);
 
         //remove from end
-        testing.expect(list.swapRemove(5) == 6);
-        testing.expect(list.items.len == 5);
+        try testing.expect(list.swapRemove(5) == 6);
+        try testing.expect(list.items.len == 5);
 
         //remove from front
-        testing.expect(list.swapRemove(0) == 1);
-        testing.expect(list.items[0] == 5);
-        testing.expect(list.items.len == 4);
+        try testing.expect(list.swapRemove(0) == 1);
+        try testing.expect(list.items[0] == 5);
+        try testing.expect(list.items.len == 4);
     }
 }
 
@@ -971,10 +971,10 @@ test "std.ArrayList/ArrayListUnmanaged.insert" {
         try list.append(2);
         try list.append(3);
         try list.insert(0, 5);
-        testing.expect(list.items[0] == 5);
-        testing.expect(list.items[1] == 1);
-        testing.expect(list.items[2] == 2);
-        testing.expect(list.items[3] == 3);
+        try testing.expect(list.items[0] == 5);
+        try testing.expect(list.items[1] == 1);
+        try testing.expect(list.items[2] == 2);
+        try testing.expect(list.items[3] == 3);
     }
     {
         var list = ArrayListUnmanaged(i32){};
@@ -984,10 +984,10 @@ test "std.ArrayList/ArrayListUnmanaged.insert" {
         try list.append(a, 2);
         try list.append(a, 3);
         try list.insert(a, 0, 5);
-        testing.expect(list.items[0] == 5);
-        testing.expect(list.items[1] == 1);
-        testing.expect(list.items[2] == 2);
-        testing.expect(list.items[3] == 3);
+        try testing.expect(list.items[0] == 5);
+        try testing.expect(list.items[1] == 1);
+        try testing.expect(list.items[2] == 2);
+        try testing.expect(list.items[3] == 3);
     }
 }
 
@@ -1002,17 +1002,17 @@ test "std.ArrayList/ArrayListUnmanaged.insertSlice" {
         try list.append(3);
         try list.append(4);
         try list.insertSlice(1, &[_]i32{ 9, 8 });
-        testing.expect(list.items[0] == 1);
-        testing.expect(list.items[1] == 9);
-        testing.expect(list.items[2] == 8);
-        testing.expect(list.items[3] == 2);
-        testing.expect(list.items[4] == 3);
-        testing.expect(list.items[5] == 4);
+        try testing.expect(list.items[0] == 1);
+        try testing.expect(list.items[1] == 9);
+        try testing.expect(list.items[2] == 8);
+        try testing.expect(list.items[3] == 2);
+        try testing.expect(list.items[4] == 3);
+        try testing.expect(list.items[5] == 4);
 
         const items = [_]i32{1};
         try list.insertSlice(0, items[0..0]);
-        testing.expect(list.items.len == 6);
-        testing.expect(list.items[0] == 1);
+        try testing.expect(list.items.len == 6);
+        try testing.expect(list.items[0] == 1);
     }
     {
         var list = ArrayListUnmanaged(i32){};
@@ -1023,17 +1023,17 @@ test "std.ArrayList/ArrayListUnmanaged.insertSlice" {
         try list.append(a, 3);
         try list.append(a, 4);
         try list.insertSlice(a, 1, &[_]i32{ 9, 8 });
-        testing.expect(list.items[0] == 1);
-        testing.expect(list.items[1] == 9);
-        testing.expect(list.items[2] == 8);
-        testing.expect(list.items[3] == 2);
-        testing.expect(list.items[4] == 3);
-        testing.expect(list.items[5] == 4);
+        try testing.expect(list.items[0] == 1);
+        try testing.expect(list.items[1] == 9);
+        try testing.expect(list.items[2] == 8);
+        try testing.expect(list.items[3] == 2);
+        try testing.expect(list.items[4] == 3);
+        try testing.expect(list.items[5] == 4);
 
         const items = [_]i32{1};
         try list.insertSlice(a, 0, items[0..0]);
-        testing.expect(list.items.len == 6);
-        testing.expect(list.items[0] == 1);
+        try testing.expect(list.items.len == 6);
+        try testing.expect(list.items[0] == 1);
     }
 }
 
@@ -1066,13 +1066,13 @@ test "std.ArrayList/ArrayListUnmanaged.replaceRange" {
         try list_lt.replaceRange(1, 2, &new);
 
         // after_range > new_items.len in function body
-        testing.expect(1 + 4 > new.len);
+        try testing.expect(1 + 4 > new.len);
         try list_gt.replaceRange(1, 4, &new);
 
-        testing.expectEqualSlices(i32, list_zero.items, &result_zero);
-        testing.expectEqualSlices(i32, list_eq.items, &result_eq);
-        testing.expectEqualSlices(i32, list_lt.items, &result_le);
-        testing.expectEqualSlices(i32, list_gt.items, &result_gt);
+        try testing.expectEqualSlices(i32, list_zero.items, &result_zero);
+        try testing.expectEqualSlices(i32, list_eq.items, &result_eq);
+        try testing.expectEqualSlices(i32, list_lt.items, &result_le);
+        try testing.expectEqualSlices(i32, list_gt.items, &result_gt);
     }
     {
         var list_zero = ArrayListUnmanaged(i32){};
@@ -1090,13 +1090,13 @@ test "std.ArrayList/ArrayListUnmanaged.replaceRange" {
         try list_lt.replaceRange(a, 1, 2, &new);
 
         // after_range > new_items.len in function body
-        testing.expect(1 + 4 > new.len);
+        try testing.expect(1 + 4 > new.len);
         try list_gt.replaceRange(a, 1, 4, &new);
 
-        testing.expectEqualSlices(i32, list_zero.items, &result_zero);
-        testing.expectEqualSlices(i32, list_eq.items, &result_eq);
-        testing.expectEqualSlices(i32, list_lt.items, &result_le);
-        testing.expectEqualSlices(i32, list_gt.items, &result_gt);
+        try testing.expectEqualSlices(i32, list_zero.items, &result_zero);
+        try testing.expectEqualSlices(i32, list_eq.items, &result_eq);
+        try testing.expectEqualSlices(i32, list_lt.items, &result_le);
+        try testing.expectEqualSlices(i32, list_gt.items, &result_gt);
     }
 }
 
@@ -1116,13 +1116,13 @@ test "std.ArrayList/ArrayListUnmanaged: ArrayList(T) of struct T" {
         var root = Item{ .integer = 1, .sub_items = ArrayList(Item).init(a) };
         defer root.sub_items.deinit();
         try root.sub_items.append(Item{ .integer = 42, .sub_items = ArrayList(Item).init(a) });
-        testing.expect(root.sub_items.items[0].integer == 42);
+        try testing.expect(root.sub_items.items[0].integer == 42);
     }
     {
         var root = ItemUnmanaged{ .integer = 1, .sub_items = ArrayListUnmanaged(ItemUnmanaged){} };
         defer root.sub_items.deinit(a);
         try root.sub_items.append(a, ItemUnmanaged{ .integer = 42, .sub_items = ArrayListUnmanaged(ItemUnmanaged){} });
-        testing.expect(root.sub_items.items[0].integer == 42);
+        try testing.expect(root.sub_items.items[0].integer == 42);
     }
 }
 
@@ -1137,7 +1137,7 @@ test "std.ArrayList(u8)/ArrayListAligned implements writer" {
         const y: i32 = 1234;
         try buffer.writer().print("x: {}\ny: {}\n", .{ x, y });
 
-        testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
+        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
     }
     {
         var list = ArrayListAligned(u8, 2).init(a);
@@ -1149,7 +1149,7 @@ test "std.ArrayList(u8)/ArrayListAligned implements writer" {
         try writer.writeAll("d");
         try writer.writeAll("efg");
 
-        testing.expectEqualSlices(u8, list.items, "abcdefg");
+        try testing.expectEqualSlices(u8, list.items, "abcdefg");
     }
 }
 
@@ -1167,7 +1167,7 @@ test "std.ArrayList/ArrayListUnmanaged.shrink still sets length on error.OutOfMe
         try list.append(3);
 
         list.shrinkAndFree(1);
-        testing.expect(list.items.len == 1);
+        try testing.expect(list.items.len == 1);
     }
     {
         var list = ArrayListUnmanaged(i32){};
@@ -1177,7 +1177,7 @@ test "std.ArrayList/ArrayListUnmanaged.shrink still sets length on error.OutOfMe
         try list.append(a, 3);
 
         list.shrinkAndFree(a, 1);
-        testing.expect(list.items.len == 1);
+        try testing.expect(list.items.len == 1);
     }
 }
 
@@ -1191,7 +1191,7 @@ test "std.ArrayList/ArrayListUnmanaged.addManyAsArray" {
         try list.ensureCapacity(8);
         list.addManyAsArrayAssumeCapacity(4).* = "asdf".*;
 
-        testing.expectEqualSlices(u8, list.items, "aoeuasdf");
+        try testing.expectEqualSlices(u8, list.items, "aoeuasdf");
     }
     {
         var list = ArrayListUnmanaged(u8){};
@@ -1201,7 +1201,7 @@ test "std.ArrayList/ArrayListUnmanaged.addManyAsArray" {
         try list.ensureCapacity(a, 8);
         list.addManyAsArrayAssumeCapacity(4).* = "asdf".*;
 
-        testing.expectEqualSlices(u8, list.items, "aoeuasdf");
+        try testing.expectEqualSlices(u8, list.items, "aoeuasdf");
     }
 }
 
@@ -1215,7 +1215,7 @@ test "std.ArrayList/ArrayListUnmanaged.toOwnedSliceSentinel" {
 
         const result = try list.toOwnedSliceSentinel(0);
         defer a.free(result);
-        testing.expectEqualStrings(result, mem.spanZ(result.ptr));
+        try testing.expectEqualStrings(result, mem.spanZ(result.ptr));
     }
     {
         var list = ArrayListUnmanaged(u8){};
@@ -1225,7 +1225,7 @@ test "std.ArrayList/ArrayListUnmanaged.toOwnedSliceSentinel" {
 
         const result = try list.toOwnedSliceSentinel(a, 0);
         defer a.free(result);
-        testing.expectEqualStrings(result, mem.spanZ(result.ptr));
+        try testing.expectEqualStrings(result, mem.spanZ(result.ptr));
     }
 }
 
@@ -1239,7 +1239,7 @@ test "ArrayListAligned/ArrayListAlignedUnmanaged accepts unaligned slices" {
         try list.insertSlice(2, &.{ 4, 5, 6, 7 });
         try list.replaceRange(1, 3, &.{ 8, 9 });
 
-        testing.expectEqualSlices(u8, list.items, &.{ 0, 8, 9, 6, 7, 2, 3 });
+        try testing.expectEqualSlices(u8, list.items, &.{ 0, 8, 9, 6, 7, 2, 3 });
     }
     {
         var list = std.ArrayListAlignedUnmanaged(u8, 8){};
@@ -1249,6 +1249,6 @@ test "ArrayListAligned/ArrayListAlignedUnmanaged accepts unaligned slices" {
         try list.insertSlice(a, 2, &.{ 4, 5, 6, 7 });
         try list.replaceRange(a, 1, 3, &.{ 8, 9 });
 
-        testing.expectEqualSlices(u8, list.items, &.{ 0, 8, 9, 6, 7, 2, 3 });
+        try testing.expectEqualSlices(u8, list.items, &.{ 0, 8, 9, 6, 7, 2, 3 });
     }
 }

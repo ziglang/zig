@@ -86,17 +86,17 @@ pub fn __aeabi_i2f(arg: i32) callconv(.AAPCS) f32 {
 
 fn test_one_floatsitf(a: i32, expected: u128) void {
     const r = __floatsitf(a);
-    std.testing.expect(@bitCast(u128, r) == expected);
+    try std.testing.expect(@bitCast(u128, r) == expected);
 }
 
 fn test_one_floatsidf(a: i32, expected: u64) void {
     const r = __floatsidf(a);
-    std.testing.expect(@bitCast(u64, r) == expected);
+    try std.testing.expect(@bitCast(u64, r) == expected);
 }
 
 fn test_one_floatsisf(a: i32, expected: u32) void {
     const r = __floatsisf(a);
-    std.testing.expect(@bitCast(u32, r) == expected);
+    try std.testing.expect(@bitCast(u32, r) == expected);
 }
 
 test "floatsidf" {

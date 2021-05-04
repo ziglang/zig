@@ -604,9 +604,9 @@ test "chacha20 AEAD API" {
 
         aead.encrypt(c[0..], tag[0..], m, ad, nonce, key);
         try aead.decrypt(out[0..], c[0..], tag, ad[0..], nonce, key);
-        testing.expectEqualSlices(u8, out[0..], m);
+        try testing.expectEqualSlices(u8, out[0..], m);
         c[0] += 1;
-        testing.expectError(error.AuthenticationFailed, aead.decrypt(out[0..], c[0..], tag, ad[0..], nonce, key));
+        try testing.expectError(error.AuthenticationFailed, aead.decrypt(out[0..], c[0..], tag, ad[0..], nonce, key));
     }
 }
 
@@ -644,11 +644,11 @@ test "crypto.chacha20 test vector sunscreen" {
     };
 
     ChaCha20IETF.xor(result[0..], m[0..], 1, key, nonce);
-    testing.expectEqualSlices(u8, &expected_result, &result);
+    try testing.expectEqualSlices(u8, &expected_result, &result);
 
     var m2: [114]u8 = undefined;
     ChaCha20IETF.xor(m2[0..], result[0..], 1, key, nonce);
-    testing.expect(mem.order(u8, m, &m2) == .eq);
+    try testing.expect(mem.order(u8, m, &m2) == .eq);
 }
 
 // https://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-04#section-7
@@ -683,7 +683,7 @@ test "crypto.chacha20 test vector 1" {
     const nonce = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
 
     ChaCha20With64BitNonce.xor(result[0..], m[0..], 0, key, nonce);
-    testing.expectEqualSlices(u8, &expected_result, &result);
+    try testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
 test "crypto.chacha20 test vector 2" {
@@ -717,7 +717,7 @@ test "crypto.chacha20 test vector 2" {
     const nonce = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
 
     ChaCha20With64BitNonce.xor(result[0..], m[0..], 0, key, nonce);
-    testing.expectEqualSlices(u8, &expected_result, &result);
+    try testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
 test "crypto.chacha20 test vector 3" {
@@ -751,7 +751,7 @@ test "crypto.chacha20 test vector 3" {
     const nonce = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 1 };
 
     ChaCha20With64BitNonce.xor(result[0..], m[0..], 0, key, nonce);
-    testing.expectEqualSlices(u8, &expected_result, &result);
+    try testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
 test "crypto.chacha20 test vector 4" {
@@ -785,7 +785,7 @@ test "crypto.chacha20 test vector 4" {
     const nonce = [_]u8{ 1, 0, 0, 0, 0, 0, 0, 0 };
 
     ChaCha20With64BitNonce.xor(result[0..], m[0..], 0, key, nonce);
-    testing.expectEqualSlices(u8, &expected_result, &result);
+    try testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
 test "crypto.chacha20 test vector 5" {
@@ -857,7 +857,7 @@ test "crypto.chacha20 test vector 5" {
     };
 
     ChaCha20With64BitNonce.xor(result[0..], m[0..], 0, key, nonce);
-    testing.expectEqualSlices(u8, &expected_result, &result);
+    try testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
 test "seal" {
@@ -873,7 +873,7 @@ test "seal" {
 
         var out: [exp_out.len]u8 = undefined;
         ChaCha20Poly1305.encrypt(out[0..m.len], out[m.len..], m, ad, nonce, key);
-        testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
+        try testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
     {
         const m = [_]u8{
@@ -906,7 +906,7 @@ test "seal" {
 
         var out: [exp_out.len]u8 = undefined;
         ChaCha20Poly1305.encrypt(out[0..m.len], out[m.len..], m[0..], ad[0..], nonce, key);
-        testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
+        try testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
 }
 
@@ -923,7 +923,7 @@ test "open" {
 
         var out: [exp_out.len]u8 = undefined;
         try ChaCha20Poly1305.decrypt(out[0..], c[0..exp_out.len], c[exp_out.len..].*, ad[0..], nonce, key);
-        testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
+        try testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
     {
         const c = [_]u8{
@@ -956,21 +956,21 @@ test "open" {
 
         var out: [exp_out.len]u8 = undefined;
         try ChaCha20Poly1305.decrypt(out[0..], c[0..exp_out.len], c[exp_out.len..].*, ad[0..], nonce, key);
-        testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
+        try testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
 
         // corrupting the ciphertext, data, key, or nonce should cause a failure
         var bad_c = c;
         bad_c[0] ^= 1;
-        testing.expectError(error.AuthenticationFailed, ChaCha20Poly1305.decrypt(out[0..], bad_c[0..out.len], bad_c[out.len..].*, ad[0..], nonce, key));
+        try testing.expectError(error.AuthenticationFailed, ChaCha20Poly1305.decrypt(out[0..], bad_c[0..out.len], bad_c[out.len..].*, ad[0..], nonce, key));
         var bad_ad = ad;
         bad_ad[0] ^= 1;
-        testing.expectError(error.AuthenticationFailed, ChaCha20Poly1305.decrypt(out[0..], c[0..out.len], c[out.len..].*, bad_ad[0..], nonce, key));
+        try testing.expectError(error.AuthenticationFailed, ChaCha20Poly1305.decrypt(out[0..], c[0..out.len], c[out.len..].*, bad_ad[0..], nonce, key));
         var bad_key = key;
         bad_key[0] ^= 1;
-        testing.expectError(error.AuthenticationFailed, ChaCha20Poly1305.decrypt(out[0..], c[0..out.len], c[out.len..].*, ad[0..], nonce, bad_key));
+        try testing.expectError(error.AuthenticationFailed, ChaCha20Poly1305.decrypt(out[0..], c[0..out.len], c[out.len..].*, ad[0..], nonce, bad_key));
         var bad_nonce = nonce;
         bad_nonce[0] ^= 1;
-        testing.expectError(error.AuthenticationFailed, ChaCha20Poly1305.decrypt(out[0..], c[0..out.len], c[out.len..].*, ad[0..], bad_nonce, key));
+        try testing.expectError(error.AuthenticationFailed, ChaCha20Poly1305.decrypt(out[0..], c[0..out.len], c[out.len..].*, ad[0..], bad_nonce, key));
     }
 }
 
@@ -982,7 +982,7 @@ test "crypto.xchacha20" {
         var c: [m.len]u8 = undefined;
         XChaCha20IETF.xor(c[0..], m[0..], 0, key, nonce);
         var buf: [2 * c.len]u8 = undefined;
-        testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&c)}), "E0A1BCF939654AFDBDC1746EC49832647C19D891F0D1A81FC0C1703B4514BDEA584B512F6908C2C5E9DD18D5CBC1805DE5803FE3B9CA5F193FB8359E91FAB0C3BB40309A292EB1CF49685C65C4A3ADF4F11DB0CD2B6B67FBC174BC2E860E8F769FD3565BBFAD1C845E05A0FED9BE167C240D");
+        try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&c)}), "E0A1BCF939654AFDBDC1746EC49832647C19D891F0D1A81FC0C1703B4514BDEA584B512F6908C2C5E9DD18D5CBC1805DE5803FE3B9CA5F193FB8359E91FAB0C3BB40309A292EB1CF49685C65C4A3ADF4F11DB0CD2B6B67FBC174BC2E860E8F769FD3565BBFAD1C845E05A0FED9BE167C240D");
     }
     {
         const ad = "Additional data";
@@ -991,9 +991,9 @@ test "crypto.xchacha20" {
         var out: [m.len]u8 = undefined;
         try XChaCha20Poly1305.decrypt(out[0..], c[0..m.len], c[m.len..].*, ad, nonce, key);
         var buf: [2 * c.len]u8 = undefined;
-        testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&c)}), "994D2DD32333F48E53650C02C7A2ABB8E018B0836D7175AEC779F52E961780768F815C58F1AA52D211498DB89B9216763F569C9433A6BBFCEFB4D4A49387A4C5207FBB3B5A92B5941294DF30588C6740D39DC16FA1F0E634F7246CF7CDCB978E44347D89381B7A74EB7084F754B90BDE9AAF5A94B8F2A85EFD0B50692AE2D425E234");
-        testing.expectEqualSlices(u8, out[0..], m);
+        try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&c)}), "994D2DD32333F48E53650C02C7A2ABB8E018B0836D7175AEC779F52E961780768F815C58F1AA52D211498DB89B9216763F569C9433A6BBFCEFB4D4A49387A4C5207FBB3B5A92B5941294DF30588C6740D39DC16FA1F0E634F7246CF7CDCB978E44347D89381B7A74EB7084F754B90BDE9AAF5A94B8F2A85EFD0B50692AE2D425E234");
+        try testing.expectEqualSlices(u8, out[0..], m);
         c[0] += 1;
-        testing.expectError(error.AuthenticationFailed, XChaCha20Poly1305.decrypt(out[0..], c[0..m.len], c[m.len..].*, ad, nonce, key));
+        try testing.expectError(error.AuthenticationFailed, XChaCha20Poly1305.decrypt(out[0..], c[0..m.len], c[m.len..].*, ad, nonce, key));
     }
 }

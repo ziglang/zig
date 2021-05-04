@@ -50,7 +50,7 @@ pub fn __aeabi_ui2f(arg: u32) callconv(.AAPCS) f32 {
 
 fn test_one_floatunsisf(a: u32, expected: u32) void {
     const r = __floatunsisf(a);
-    std.testing.expect(@bitCast(u32, r) == expected);
+    try std.testing.expect(@bitCast(u32, r) == expected);
 }
 
 test "floatunsisf" {

@@ -1064,63 +1064,63 @@ test "basic hash map usage" {
     var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
-    testing.expect((try map.fetchPut(1, 11)) == null);
-    testing.expect((try map.fetchPut(2, 22)) == null);
-    testing.expect((try map.fetchPut(3, 33)) == null);
-    testing.expect((try map.fetchPut(4, 44)) == null);
+    try testing.expect((try map.fetchPut(1, 11)) == null);
+    try testing.expect((try map.fetchPut(2, 22)) == null);
+    try testing.expect((try map.fetchPut(3, 33)) == null);
+    try testing.expect((try map.fetchPut(4, 44)) == null);
 
     try map.putNoClobber(5, 55);
-    testing.expect((try map.fetchPut(5, 66)).?.value == 55);
-    testing.expect((try map.fetchPut(5, 55)).?.value == 66);
+    try testing.expect((try map.fetchPut(5, 66)).?.value == 55);
+    try testing.expect((try map.fetchPut(5, 55)).?.value == 66);
 
     const gop1 = try map.getOrPut(5);
-    testing.expect(gop1.found_existing == true);
-    testing.expect(gop1.entry.value == 55);
-    testing.expect(gop1.index == 4);
+    try testing.expect(gop1.found_existing == true);
+    try testing.expect(gop1.entry.value == 55);
+    try testing.expect(gop1.index == 4);
     gop1.entry.value = 77;
-    testing.expect(map.getEntry(5).?.value == 77);
+    try testing.expect(map.getEntry(5).?.value == 77);
 
     const gop2 = try map.getOrPut(99);
-    testing.expect(gop2.found_existing == false);
-    testing.expect(gop2.index == 5);
+    try testing.expect(gop2.found_existing == false);
+    try testing.expect(gop2.index == 5);
     gop2.entry.value = 42;
-    testing.expect(map.getEntry(99).?.value == 42);
+    try testing.expect(map.getEntry(99).?.value == 42);
 
     const gop3 = try map.getOrPutValue(5, 5);
-    testing.expect(gop3.value == 77);
+    try testing.expect(gop3.value == 77);
 
     const gop4 = try map.getOrPutValue(100, 41);
-    testing.expect(gop4.value == 41);
+    try testing.expect(gop4.value == 41);
 
-    testing.expect(map.contains(2));
-    testing.expect(map.getEntry(2).?.value == 22);
-    testing.expect(map.get(2).? == 22);
+    try testing.expect(map.contains(2));
+    try testing.expect(map.getEntry(2).?.value == 22);
+    try testing.expect(map.get(2).? == 22);
 
     const rmv1 = map.swapRemove(2);
-    testing.expect(rmv1.?.key == 2);
-    testing.expect(rmv1.?.value == 22);
-    testing.expect(map.swapRemove(2) == null);
-    testing.expect(map.getEntry(2) == null);
-    testing.expect(map.get(2) == null);
+    try testing.expect(rmv1.?.key == 2);
+    try testing.expect(rmv1.?.value == 22);
+    try testing.expect(map.swapRemove(2) == null);
+    try testing.expect(map.getEntry(2) == null);
+    try testing.expect(map.get(2) == null);
 
     // Since we've used `swapRemove` above, the index of this entry should remain unchanged.
-    testing.expect(map.getIndex(100).? == 1);
+    try testing.expect(map.getIndex(100).? == 1);
     const gop5 = try map.getOrPut(5);
-    testing.expect(gop5.found_existing == true);
-    testing.expect(gop5.entry.value == 77);
-    testing.expect(gop5.index == 4);
+    try testing.expect(gop5.found_existing == true);
+    try testing.expect(gop5.entry.value == 77);
+    try testing.expect(gop5.index == 4);
 
     // Whereas, if we do an `orderedRemove`, it should move the index forward one spot.
     const rmv2 = map.orderedRemove(100);
-    testing.expect(rmv2.?.key == 100);
-    testing.expect(rmv2.?.value == 41);
-    testing.expect(map.orderedRemove(100) == null);
-    testing.expect(map.getEntry(100) == null);
-    testing.expect(map.get(100) == null);
+    try testing.expect(rmv2.?.key == 100);
+    try testing.expect(rmv2.?.value == 41);
+    try testing.expect(map.orderedRemove(100) == null);
+    try testing.expect(map.getEntry(100) == null);
+    try testing.expect(map.get(100) == null);
     const gop6 = try map.getOrPut(5);
-    testing.expect(gop6.found_existing == true);
-    testing.expect(gop6.entry.value == 77);
-    testing.expect(gop6.index == 3);
+    try testing.expect(gop6.found_existing == true);
+    try testing.expect(gop6.entry.value == 77);
+    try testing.expect(gop6.index == 3);
 
     map.removeAssertDiscard(3);
 }
@@ -1156,11 +1156,11 @@ test "iterator hash map" {
     while (it.next()) |entry| : (count += 1) {
         buffer[@intCast(usize, entry.key)] = entry.value;
     }
-    testing.expect(count == 3);
-    testing.expect(it.next() == null);
+    try testing.expect(count == 3);
+    try testing.expect(it.next() == null);
 
     for (buffer) |v, i| {
-        testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
+        try testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
     }
 
     it.reset();
@@ -1172,13 +1172,13 @@ test "iterator hash map" {
     }
 
     for (buffer[0..2]) |v, i| {
-        testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
+        try testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
     }
 
     it.reset();
     var entry = it.next().?;
-    testing.expect(entry.key == first_entry.key);
-    testing.expect(entry.value == first_entry.value);
+    try testing.expect(entry.key == first_entry.key);
+    try testing.expect(entry.value == first_entry.value);
 }
 
 test "ensure capacity" {
@@ -1187,13 +1187,13 @@ test "ensure capacity" {
 
     try map.ensureCapacity(20);
     const initial_capacity = map.capacity();
-    testing.expect(initial_capacity >= 20);
+    try testing.expect(initial_capacity >= 20);
     var i: i32 = 0;
     while (i < 20) : (i += 1) {
-        testing.expect(map.fetchPutAssumeCapacity(i, i + 10) == null);
+        try testing.expect(map.fetchPutAssumeCapacity(i, i + 10) == null);
     }
     // shouldn't resize from putAssumeCapacity
-    testing.expect(initial_capacity == map.capacity());
+    try testing.expect(initial_capacity == map.capacity());
 }
 
 test "clone" {
@@ -1211,7 +1211,7 @@ test "clone" {
 
     i = 0;
     while (i < 10) : (i += 1) {
-        testing.expect(copy.get(i).? == i * 10);
+        try testing.expect(copy.get(i).? == i * 10);
     }
 }
 
@@ -1223,35 +1223,35 @@ test "shrink" {
     const num_entries = 20;
     var i: i32 = 0;
     while (i < num_entries) : (i += 1)
-        testing.expect((try map.fetchPut(i, i * 10)) == null);
+        try testing.expect((try map.fetchPut(i, i * 10)) == null);
 
-    testing.expect(map.unmanaged.index_header != null);
-    testing.expect(map.count() == num_entries);
+    try testing.expect(map.unmanaged.index_header != null);
+    try testing.expect(map.count() == num_entries);
 
     // Test `shrinkRetainingCapacity`.
     map.shrinkRetainingCapacity(17);
-    testing.expect(map.count() == 17);
-    testing.expect(map.capacity() == 20);
+    try testing.expect(map.count() == 17);
+    try testing.expect(map.capacity() == 20);
     i = 0;
     while (i < num_entries) : (i += 1) {
         const gop = try map.getOrPut(i);
         if (i < 17) {
-            testing.expect(gop.found_existing == true);
-            testing.expect(gop.entry.value == i * 10);
-        } else testing.expect(gop.found_existing == false);
+            try testing.expect(gop.found_existing == true);
+            try testing.expect(gop.entry.value == i * 10);
+        } else try testing.expect(gop.found_existing == false);
     }
 
     // Test `shrinkAndFree`.
     map.shrinkAndFree(15);
-    testing.expect(map.count() == 15);
-    testing.expect(map.capacity() == 15);
+    try testing.expect(map.count() == 15);
+    try testing.expect(map.capacity() == 15);
     i = 0;
     while (i < num_entries) : (i += 1) {
         const gop = try map.getOrPut(i);
         if (i < 15) {
-            testing.expect(gop.found_existing == true);
-            testing.expect(gop.entry.value == i * 10);
-        } else testing.expect(gop.found_existing == false);
+            try testing.expect(gop.found_existing == true);
+            try testing.expect(gop.entry.value == i * 10);
+        } else try testing.expect(gop.found_existing == false);
     }
 }
 
@@ -1264,12 +1264,12 @@ test "pop" {
 
     var i: i32 = 0;
     while (i < 9) : (i += 1) {
-        testing.expect((try map.fetchPut(i, i)) == null);
+        try testing.expect((try map.fetchPut(i, i)) == null);
     }
 
     while (i > 0) : (i -= 1) {
         const pop = map.pop();
-        testing.expect(pop.key == i - 1 and pop.value == i - 1);
+        try testing.expect(pop.key == i - 1 and pop.value == i - 1);
     }
 }
 
@@ -1281,10 +1281,10 @@ test "reIndex" {
     const num_indexed_entries = 20;
     var i: i32 = 0;
     while (i < num_indexed_entries) : (i += 1)
-        testing.expect((try map.fetchPut(i, i * 10)) == null);
+        try testing.expect((try map.fetchPut(i, i * 10)) == null);
 
     // Make sure we allocated an index header.
-    testing.expect(map.unmanaged.index_header != null);
+    try testing.expect(map.unmanaged.index_header != null);
 
     // Now write to the underlying array list directly.
     const num_unindexed_entries = 20;
@@ -1303,9 +1303,9 @@ test "reIndex" {
     i = 0;
     while (i < num_indexed_entries + num_unindexed_entries) : (i += 1) {
         const gop = try map.getOrPut(i);
-        testing.expect(gop.found_existing == true);
-        testing.expect(gop.entry.value == i * 10);
-        testing.expect(gop.index == i);
+        try testing.expect(gop.found_existing == true);
+        try testing.expect(gop.entry.value == i * 10);
+        try testing.expect(gop.index == i);
     }
 }
 
@@ -1332,9 +1332,9 @@ test "fromOwnedArrayList" {
     i = 0;
     while (i < num_entries) : (i += 1) {
         const gop = try map.getOrPut(i);
-        testing.expect(gop.found_existing == true);
-        testing.expect(gop.entry.value == i * 10);
-        testing.expect(gop.index == i);
+        try testing.expect(gop.found_existing == true);
+        try testing.expect(gop.entry.value == i * 10);
+        try testing.expect(gop.index == i);
     }
 }
 

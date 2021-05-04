@@ -120,49 +120,49 @@ fn ceil128(x: f128) f128 {
 }
 
 test "math.ceil" {
-    expect(ceil(@as(f32, 0.0)) == ceil32(0.0));
-    expect(ceil(@as(f64, 0.0)) == ceil64(0.0));
-    expect(ceil(@as(f128, 0.0)) == ceil128(0.0));
+    try expect(ceil(@as(f32, 0.0)) == ceil32(0.0));
+    try expect(ceil(@as(f64, 0.0)) == ceil64(0.0));
+    try expect(ceil(@as(f128, 0.0)) == ceil128(0.0));
 }
 
 test "math.ceil32" {
-    expect(ceil32(1.3) == 2.0);
-    expect(ceil32(-1.3) == -1.0);
-    expect(ceil32(0.2) == 1.0);
+    try expect(ceil32(1.3) == 2.0);
+    try expect(ceil32(-1.3) == -1.0);
+    try expect(ceil32(0.2) == 1.0);
 }
 
 test "math.ceil64" {
-    expect(ceil64(1.3) == 2.0);
-    expect(ceil64(-1.3) == -1.0);
-    expect(ceil64(0.2) == 1.0);
+    try expect(ceil64(1.3) == 2.0);
+    try expect(ceil64(-1.3) == -1.0);
+    try expect(ceil64(0.2) == 1.0);
 }
 
 test "math.ceil128" {
-    expect(ceil128(1.3) == 2.0);
-    expect(ceil128(-1.3) == -1.0);
-    expect(ceil128(0.2) == 1.0);
+    try expect(ceil128(1.3) == 2.0);
+    try expect(ceil128(-1.3) == -1.0);
+    try expect(ceil128(0.2) == 1.0);
 }
 
 test "math.ceil32.special" {
-    expect(ceil32(0.0) == 0.0);
-    expect(ceil32(-0.0) == -0.0);
-    expect(math.isPositiveInf(ceil32(math.inf(f32))));
-    expect(math.isNegativeInf(ceil32(-math.inf(f32))));
-    expect(math.isNan(ceil32(math.nan(f32))));
+    try expect(ceil32(0.0) == 0.0);
+    try expect(ceil32(-0.0) == -0.0);
+    try expect(math.isPositiveInf(ceil32(math.inf(f32))));
+    try expect(math.isNegativeInf(ceil32(-math.inf(f32))));
+    try expect(math.isNan(ceil32(math.nan(f32))));
 }
 
 test "math.ceil64.special" {
-    expect(ceil64(0.0) == 0.0);
-    expect(ceil64(-0.0) == -0.0);
-    expect(math.isPositiveInf(ceil64(math.inf(f64))));
-    expect(math.isNegativeInf(ceil64(-math.inf(f64))));
-    expect(math.isNan(ceil64(math.nan(f64))));
+    try expect(ceil64(0.0) == 0.0);
+    try expect(ceil64(-0.0) == -0.0);
+    try expect(math.isPositiveInf(ceil64(math.inf(f64))));
+    try expect(math.isNegativeInf(ceil64(-math.inf(f64))));
+    try expect(math.isNan(ceil64(math.nan(f64))));
 }
 
 test "math.ceil128.special" {
-    expect(ceil128(0.0) == 0.0);
-    expect(ceil128(-0.0) == -0.0);
-    expect(math.isPositiveInf(ceil128(math.inf(f128))));
-    expect(math.isNegativeInf(ceil128(-math.inf(f128))));
-    expect(math.isNan(ceil128(math.nan(f128))));
+    try expect(ceil128(0.0) == 0.0);
+    try expect(ceil128(-0.0) == -0.0);
+    try expect(math.isPositiveInf(ceil128(math.inf(f128))));
+    try expect(math.isNegativeInf(ceil128(-math.inf(f128))));
+    try expect(math.isNan(ceil128(math.nan(f128))));
 }

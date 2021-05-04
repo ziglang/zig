@@ -1005,7 +1005,7 @@ test "createNullDelimitedEnvMap" {
     defer arena.deinit();
     const environ = try createNullDelimitedEnvMap(&arena.allocator, &envmap);
 
-    testing.expectEqual(@as(usize, 5), environ.len);
+    try testing.expectEqual(@as(usize, 5), environ.len);
 
     inline for (.{
         "HOME=/home/ifreund",
@@ -1017,7 +1017,7 @@ test "createNullDelimitedEnvMap" {
         for (environ) |variable| {
             if (mem.eql(u8, mem.span(variable orelse continue), target)) break;
         } else {
-            testing.expect(false); // Environment variable not found
+            try testing.expect(false); // Environment variable not found
         }
     }
 }

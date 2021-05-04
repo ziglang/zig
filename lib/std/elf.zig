@@ -565,7 +565,7 @@ test "bswapAllFields" {
         .ch_addralign = 0x12124242,
     };
     bswapAllFields(Elf32_Chdr, &s);
-    std.testing.expectEqual(Elf32_Chdr{
+    try std.testing.expectEqual(Elf32_Chdr{
         .ch_type = 0x34123412,
         .ch_size = 0x78567856,
         .ch_addralign = 0x42421212,

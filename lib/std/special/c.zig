@@ -161,10 +161,10 @@ fn strerror(errnum: c_int) callconv(.C) [*:0]const u8 {
 }
 
 test "strncmp" {
-    std.testing.expect(strncmp("a", "b", 1) == -1);
-    std.testing.expect(strncmp("a", "c", 1) == -2);
-    std.testing.expect(strncmp("b", "a", 1) == 1);
-    std.testing.expect(strncmp("\xff", "\x02", 1) == 253);
+    try std.testing.expect(strncmp("a", "b", 1) == -1);
+    try std.testing.expect(strncmp("a", "c", 1) == -2);
+    try std.testing.expect(strncmp("b", "a", 1) == 1);
+    try std.testing.expect(strncmp("\xff", "\x02", 1) == 253);
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
@@ -245,9 +245,9 @@ test "memcmp" {
     const arr2 = &[_]u8{ 1, 0, 1 };
     const arr3 = &[_]u8{ 1, 2, 1 };
 
-    std.testing.expect(memcmp(base_arr[0..], arr1[0..], base_arr.len) == 0);
-    std.testing.expect(memcmp(base_arr[0..], arr2[0..], base_arr.len) > 0);
-    std.testing.expect(memcmp(base_arr[0..], arr3[0..], base_arr.len) < 0);
+    try std.testing.expect(memcmp(base_arr[0..], arr1[0..], base_arr.len) == 0);
+    try std.testing.expect(memcmp(base_arr[0..], arr2[0..], base_arr.len) > 0);
+    try std.testing.expect(memcmp(base_arr[0..], arr3[0..], base_arr.len) < 0);
 }
 
 export fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) callconv(.C) isize {
@@ -269,9 +269,9 @@ test "bcmp" {
     const arr2 = &[_]u8{ 1, 0, 1 };
     const arr3 = &[_]u8{ 1, 2, 1 };
 
-    std.testing.expect(bcmp(base_arr[0..], arr1[0..], base_arr.len) == 0);
-    std.testing.expect(bcmp(base_arr[0..], arr2[0..], base_arr.len) != 0);
-    std.testing.expect(bcmp(base_arr[0..], arr3[0..], base_arr.len) != 0);
+    try std.testing.expect(bcmp(base_arr[0..], arr1[0..], base_arr.len) == 0);
+    try std.testing.expect(bcmp(base_arr[0..], arr2[0..], base_arr.len) != 0);
+    try std.testing.expect(bcmp(base_arr[0..], arr3[0..], base_arr.len) != 0);
 }
 
 comptime {
@@ -865,11 +865,11 @@ test "fmod, fmodf" {
         const nan_val = math.nan(T);
         const inf_val = math.inf(T);
 
-        std.testing.expect(isNan(generic_fmod(T, nan_val, 1.0)));
-        std.testing.expect(isNan(generic_fmod(T, 1.0, nan_val)));
-        std.testing.expect(isNan(generic_fmod(T, inf_val, 1.0)));
-        std.testing.expect(isNan(generic_fmod(T, 0.0, 0.0)));
-        std.testing.expect(isNan(generic_fmod(T, 1.0, 0.0)));
+        try std.testing.expect(isNan(generic_fmod(T, nan_val, 1.0)));
+        try std.testing.expect(isNan(generic_fmod(T, 1.0, nan_val)));
+        try std.testing.expect(isNan(generic_fmod(T, inf_val, 1.0)));
+        try std.testing.expect(isNan(generic_fmod(T, 0.0, 0.0)));
+        try std.testing.expect(isNan(generic_fmod(T, 1.0, 0.0)));
 
         std.testing.expectEqual(@as(T, 0.0), generic_fmod(T, 0.0, 2.0));
         std.testing.expectEqual(@as(T, -0.0), generic_fmod(T, -0.0, 2.0));
@@ -901,7 +901,7 @@ test "fmin, fminf" {
     inline for ([_]type{ f32, f64 }) |T| {
         const nan_val = math.nan(T);
 
-        std.testing.expect(isNan(generic_fmin(T, nan_val, nan_val)));
+        try std.testing.expect(isNan(generic_fmin(T, nan_val, nan_val)));
         std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, nan_val, 1.0));
         std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, 1.0, nan_val));
 
@@ -930,7 +930,7 @@ test "fmax, fmaxf" {
     inline for ([_]type{ f32, f64 }) |T| {
         const nan_val = math.nan(T);
 
-        std.testing.expect(isNan(generic_fmax(T, nan_val, nan_val)));
+        try std.testing.expect(isNan(generic_fmax(T, nan_val, nan_val)));
         std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, nan_val, 1.0));
         std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, 1.0, nan_val));
 
@@ -1094,11 +1094,11 @@ test "sqrt" {
 }
 
 test "sqrt special" {
-    std.testing.expect(std.math.isPositiveInf(sqrt(std.math.inf(f64))));
-    std.testing.expect(sqrt(0.0) == 0.0);
-    std.testing.expect(sqrt(-0.0) == -0.0);
-    std.testing.expect(isNan(sqrt(-1.0)));
-    std.testing.expect(isNan(sqrt(std.math.nan(f64))));
+    try std.testing.expect(std.math.isPositiveInf(sqrt(std.math.inf(f64))));
+    try std.testing.expect(sqrt(0.0) == 0.0);
+    try std.testing.expect(sqrt(-0.0) == -0.0);
+    try std.testing.expect(isNan(sqrt(-1.0)));
+    try std.testing.expect(isNan(sqrt(std.math.nan(f64))));
 }
 
 export fn sqrtf(x: f32) f32 {
@@ -1199,9 +1199,9 @@ test "sqrtf" {
 }
 
 test "sqrtf special" {
-    std.testing.expect(std.math.isPositiveInf(sqrtf(std.math.inf(f32))));
-    std.testing.expect(sqrtf(0.0) == 0.0);
-    std.testing.expect(sqrtf(-0.0) == -0.0);
-    std.testing.expect(isNan(sqrtf(-1.0)));
-    std.testing.expect(isNan(sqrtf(std.math.nan(f32))));
+    try std.testing.expect(std.math.isPositiveInf(sqrtf(std.math.inf(f32))));
+    try std.testing.expect(sqrtf(0.0) == 0.0);
+    try std.testing.expect(sqrtf(-0.0) == -0.0);
+    try std.testing.expect(isNan(sqrtf(-1.0)));
+    try std.testing.expect(isNan(sqrtf(std.math.nan(f32))));
 }

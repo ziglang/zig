@@ -18,7 +18,7 @@ fn naive_popcount(a_param: i64) i32 {
 fn test__popcountdi2(a: i64) void {
     const x = __popcountdi2(a);
     const expected = naive_popcount(a);
-    testing.expect(expected == x);
+    try testing.expect(expected == x);
 }
 
 test "popcountdi2" {

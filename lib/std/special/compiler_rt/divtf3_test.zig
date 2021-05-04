@@ -31,7 +31,7 @@ fn compareResultLD(result: f128, expectedHi: u64, expectedLo: u64) bool {
 fn test__divtf3(a: f128, b: f128, expectedHi: u64, expectedLo: u64) void {
     const x = __divtf3(a, b);
     const ret = compareResultLD(x, expectedHi, expectedLo);
-    testing.expect(ret == true);
+    try testing.expect(ret == true);
 }
 
 test "divtf3" {

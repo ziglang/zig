@@ -824,15 +824,15 @@ test "std.hash_map basic usage" {
     while (it.next()) |kv| {
         sum += kv.key;
     }
-    expect(sum == total);
+    try expect(sum == total);
 
     i = 0;
     sum = 0;
     while (i < count) : (i += 1) {
-        expectEqual(map.get(i).?, i);
+        try expectEqual(map.get(i).?, i);
         sum += map.get(i).?;
     }
-    expectEqual(total, sum);
+    try expectEqual(total, sum);
 }
 
 test "std.hash_map ensureCapacity" {
@@ -841,13 +841,13 @@ test "std.hash_map ensureCapacity" {
 
     try map.ensureCapacity(20);
     const initial_capacity = map.capacity();
-    testing.expect(initial_capacity >= 20);
+    try testing.expect(initial_capacity >= 20);
     var i: i32 = 0;
     while (i < 20) : (i += 1) {
-        testing.expect(map.fetchPutAssumeCapacity(i, i + 10) == null);
+        try testing.expect(map.fetchPutAssumeCapacity(i, i + 10) == null);
     }
     // shouldn't resize from putAssumeCapacity
-    testing.expect(initial_capacity == map.capacity());
+    try testing.expect(initial_capacity == map.capacity());
 }
 
 test "std.hash_map ensureCapacity with tombstones" {
@@ -870,22 +870,22 @@ test "std.hash_map clearRetainingCapacity" {
     map.clearRetainingCapacity();
 
     try map.put(1, 1);
-    expectEqual(map.get(1).?, 1);
-    expectEqual(map.count(), 1);
+    try expectEqual(map.get(1).?, 1);
+    try expectEqual(map.count(), 1);
 
     map.clearRetainingCapacity();
     map.putAssumeCapacity(1, 1);
-    expectEqual(map.get(1).?, 1);
-    expectEqual(map.count(), 1);
+    try expectEqual(map.get(1).?, 1);
+    try expectEqual(map.count(), 1);
 
     const cap = map.capacity();
-    expect(cap > 0);
+    try expect(cap > 0);
 
     map.clearRetainingCapacity();
     map.clearRetainingCapacity();
-    expectEqual(map.count(), 0);
-    expectEqual(map.capacity(), cap);
-    expect(!map.contains(1));
+    try expectEqual(map.count(), 0);
+    try expectEqual(map.capacity(), cap);
+    try expect(!map.contains(1));
 }
 
 test "std.hash_map grow" {
@@ -898,19 +898,19 @@ test "std.hash_map grow" {
     while (i < growTo) : (i += 1) {
         try map.put(i, i);
     }
-    expectEqual(map.count(), growTo);
+    try expectEqual(map.count(), growTo);
 
     i = 0;
     var it = map.iterator();
     while (it.next()) |kv| {
-        expectEqual(kv.key, kv.value);
+        try expectEqual(kv.key, kv.value);
         i += 1;
     }
-    expectEqual(i, growTo);
+    try expectEqual(i, growTo);
 
     i = 0;
     while (i < growTo) : (i += 1) {
-        expectEqual(map.get(i).?, i);
+        try expectEqual(map.get(i).?, i);
     }
 }
 
@@ -921,7 +921,7 @@ test "std.hash_map clone" {
     var a = try map.clone();
     defer a.deinit();
 
-    expectEqual(a.count(), 0);
+    try expectEqual(a.count(), 0);
 
     try a.put(1, 1);
     try a.put(2, 2);
@@ -930,10 +930,10 @@ test "std.hash_map clone" {
     var b = try a.clone();
     defer b.deinit();
 
-    expectEqual(b.count(), 3);
-    expectEqual(b.get(1), 1);
-    expectEqual(b.get(2), 2);
-    expectEqual(b.get(3), 3);
+    try expectEqual(b.count(), 3);
+    try expectEqual(b.get(1), 1);
+    try expectEqual(b.get(2), 2);
+    try expectEqual(b.get(3), 3);
 }
 
 test "std.hash_map ensureCapacity with existing elements" {
@@ -941,12 +941,12 @@ test "std.hash_map ensureCapacity with existing elements" {
     defer map.deinit();
 
     try map.put(0, 0);
-    expectEqual(map.count(), 1);
-    expectEqual(map.capacity(), @TypeOf(map).Unmanaged.minimal_capacity);
+    try expectEqual(map.count(), 1);
+    try expectEqual(map.capacity(), @TypeOf(map).Unmanaged.minimal_capacity);
 
     try map.ensureCapacity(65);
-    expectEqual(map.count(), 1);
-    expectEqual(map.capacity(), 128);
+    try expectEqual(map.count(), 1);
+    try expectEqual(map.capacity(), 128);
 }
 
 test "std.hash_map ensureCapacity satisfies max load factor" {
@@ -954,7 +954,7 @@ test "std.hash_map ensureCapacity satisfies max load factor" {
     defer map.deinit();
 
     try map.ensureCapacity(127);
-    expectEqual(map.capacity(), 256);
+    try expectEqual(map.capacity(), 256);
 }
 
 test "std.hash_map remove" {
@@ -972,19 +972,19 @@ test "std.hash_map remove" {
             _ = map.remove(i);
         }
     }
-    expectEqual(map.count(), 10);
+    try expectEqual(map.count(), 10);
     var it = map.iterator();
     while (it.next()) |kv| {
-        expectEqual(kv.key, kv.value);
-        expect(kv.key % 3 != 0);
+        try expectEqual(kv.key, kv.value);
+        try expect(kv.key % 3 != 0);
     }
 
     i = 0;
     while (i < 16) : (i += 1) {
         if (i % 3 == 0) {
-            expect(!map.contains(i));
+            try expect(!map.contains(i));
         } else {
-            expectEqual(map.get(i).?, i);
+            try expectEqual(map.get(i).?, i);
         }
     }
 }
@@ -1001,14 +1001,14 @@ test "std.hash_map reverse removes" {
     i = 16;
     while (i > 0) : (i -= 1) {
         _ = map.remove(i - 1);
-        expect(!map.contains(i - 1));
+        try expect(!map.contains(i - 1));
         var j: u32 = 0;
         while (j < i - 1) : (j += 1) {
-            expectEqual(map.get(j).?, j);
+            try expectEqual(map.get(j).?, j);
         }
     }
 
-    expectEqual(map.count(), 0);
+    try expectEqual(map.count(), 0);
 }
 
 test "std.hash_map multiple removes on same metadata" {
@@ -1024,17 +1024,17 @@ test "std.hash_map multiple removes on same metadata" {
     _ = map.remove(15);
     _ = map.remove(14);
     _ = map.remove(13);
-    expect(!map.contains(7));
-    expect(!map.contains(15));
-    expect(!map.contains(14));
-    expect(!map.contains(13));
+    try expect(!map.contains(7));
+    try expect(!map.contains(15));
+    try expect(!map.contains(14));
+    try expect(!map.contains(13));
 
     i = 0;
     while (i < 13) : (i += 1) {
         if (i == 7) {
-            expect(!map.contains(i));
+            try expect(!map.contains(i));
         } else {
-            expectEqual(map.get(i).?, i);
+            try expectEqual(map.get(i).?, i);
         }
     }
 
@@ -1044,7 +1044,7 @@ test "std.hash_map multiple removes on same metadata" {
     try map.put(7, 7);
     i = 0;
     while (i < 16) : (i += 1) {
-        expectEqual(map.get(i).?, i);
+        try expectEqual(map.get(i).?, i);
     }
 }
 
@@ -1070,12 +1070,12 @@ test "std.hash_map put and remove loop in random order" {
         for (keys.items) |key| {
             try map.put(key, key);
         }
-        expectEqual(map.count(), size);
+        try expectEqual(map.count(), size);
 
         for (keys.items) |key| {
             _ = map.remove(key);
         }
-        expectEqual(map.count(), 0);
+        try expectEqual(map.count(), 0);
     }
 }
 
@@ -1119,7 +1119,7 @@ test "std.hash_map put" {
 
     i = 0;
     while (i < 16) : (i += 1) {
-        expectEqual(map.get(i).?, i);
+        try expectEqual(map.get(i).?, i);
     }
 
     i = 0;
@@ -1129,7 +1129,7 @@ test "std.hash_map put" {
 
     i = 0;
     while (i < 16) : (i += 1) {
-        expectEqual(map.get(i).?, i * 16 + 1);
+        try expectEqual(map.get(i).?, i * 16 + 1);
     }
 }
 
@@ -1148,7 +1148,7 @@ test "std.hash_map putAssumeCapacity" {
     while (i < 20) : (i += 1) {
         sum += map.get(i).?;
     }
-    expectEqual(sum, 190);
+    try expectEqual(sum, 190);
 
     i = 0;
     while (i < 20) : (i += 1) {
@@ -1160,7 +1160,7 @@ test "std.hash_map putAssumeCapacity" {
     while (i < 20) : (i += 1) {
         sum += map.get(i).?;
     }
-    expectEqual(sum, 20);
+    try expectEqual(sum, 20);
 }
 
 test "std.hash_map getOrPut" {
@@ -1183,49 +1183,49 @@ test "std.hash_map getOrPut" {
         sum += map.get(i).?;
     }
 
-    expectEqual(sum, 30);
+    try expectEqual(sum, 30);
 }
 
 test "std.hash_map basic hash map usage" {
     var map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
-    testing.expect((try map.fetchPut(1, 11)) == null);
-    testing.expect((try map.fetchPut(2, 22)) == null);
-    testing.expect((try map.fetchPut(3, 33)) == null);
-    testing.expect((try map.fetchPut(4, 44)) == null);
+    try testing.expect((try map.fetchPut(1, 11)) == null);
+    try testing.expect((try map.fetchPut(2, 22)) == null);
+    try testing.expect((try map.fetchPut(3, 33)) == null);
+    try testing.expect((try map.fetchPut(4, 44)) == null);
 
     try map.putNoClobber(5, 55);
-    testing.expect((try map.fetchPut(5, 66)).?.value == 55);
-    testing.expect((try map.fetchPut(5, 55)).?.value == 66);
+    try testing.expect((try map.fetchPut(5, 66)).?.value == 55);
+    try testing.expect((try map.fetchPut(5, 55)).?.value == 66);
 
     const gop1 = try map.getOrPut(5);
-    testing.expect(gop1.found_existing == true);
-    testing.expect(gop1.entry.value == 55);
+    try testing.expect(gop1.found_existing == true);
+    try testing.expect(gop1.entry.value == 55);
     gop1.entry.value = 77;
-    testing.expect(map.getEntry(5).?.value == 77);
+    try testing.expect(map.getEntry(5).?.value == 77);
 
     const gop2 = try map.getOrPut(99);
-    testing.expect(gop2.found_existing == false);
+    try testing.expect(gop2.found_existing == false);
     gop2.entry.value = 42;
-    testing.expect(map.getEntry(99).?.value == 42);
+    try testing.expect(map.getEntry(99).?.value == 42);
 
     const gop3 = try map.getOrPutValue(5, 5);
-    testing.expect(gop3.value == 77);
+    try testing.expect(gop3.value == 77);
 
     const gop4 = try map.getOrPutValue(100, 41);
-    testing.expect(gop4.value == 41);
+    try testing.expect(gop4.value == 41);
 
-    testing.expect(map.contains(2));
-    testing.expect(map.getEntry(2).?.value == 22);
-    testing.expect(map.get(2).? == 22);
+    try testing.expect(map.contains(2));
+    try testing.expect(map.getEntry(2).?.value == 22);
+    try testing.expect(map.get(2).? == 22);
 
     const rmv1 = map.remove(2);
-    testing.expect(rmv1.?.key == 2);
-    testing.expect(rmv1.?.value == 22);
-    testing.expect(map.remove(2) == null);
-    testing.expect(map.getEntry(2) == null);
-    testing.expect(map.get(2) == null);
+    try testing.expect(rmv1.?.key == 2);
+    try testing.expect(rmv1.?.value == 22);
+    try testing.expect(map.remove(2) == null);
+    try testing.expect(map.getEntry(2) == null);
+    try testing.expect(map.get(2) == null);
 
     map.removeAssertDiscard(3);
 }
@@ -1244,6 +1244,6 @@ test "std.hash_map clone" {
 
     i = 0;
     while (i < 10) : (i += 1) {
-        testing.expect(copy.get(i).? == i * 10);
+        try testing.expect(copy.get(i).? == i * 10);
     }
 }

@@ -48,7 +48,7 @@ test "ctr" {
     var out: [exp_out.len]u8 = undefined;
     var ctx = Aes128.initEnc(key);
     ctr(AesEncryptCtx(Aes128), ctx, out[0..], in[0..], iv, builtin.Endian.Big);
-    testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
+    try testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
 }
 
 test "encrypt" {
@@ -61,7 +61,7 @@ test "encrypt" {
         var out: [exp_out.len]u8 = undefined;
         var ctx = Aes128.initEnc(key);
         ctx.encrypt(out[0..], in[0..]);
-        testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
+        try testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
 
     // Appendix C.3
@@ -76,7 +76,7 @@ test "encrypt" {
         var out: [exp_out.len]u8 = undefined;
         var ctx = Aes256.initEnc(key);
         ctx.encrypt(out[0..], in[0..]);
-        testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
+        try testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
 }
 
@@ -90,7 +90,7 @@ test "decrypt" {
         var out: [exp_out.len]u8 = undefined;
         var ctx = Aes128.initDec(key);
         ctx.decrypt(out[0..], in[0..]);
-        testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
+        try testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
 
     // Appendix C.3
@@ -105,7 +105,7 @@ test "decrypt" {
         var out: [exp_out.len]u8 = undefined;
         var ctx = Aes256.initDec(key);
         ctx.decrypt(out[0..], in[0..]);
-        testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
+        try testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
 }
 
@@ -123,11 +123,11 @@ test "expand 128-bit key" {
 
     for (enc.key_schedule.round_keys) |round_key, i| {
         _ = try std.fmt.hexToBytes(&exp, exp_enc[i]);
-        testing.expectEqualSlices(u8, &exp, &round_key.toBytes());
+        try testing.expectEqualSlices(u8, &exp, &round_key.toBytes());
     }
     for (enc.key_schedule.round_keys) |round_key, i| {
         _ = try std.fmt.hexToBytes(&exp, exp_dec[i]);
-        testing.expectEqualSlices(u8, &exp, &round_key.toBytes());
+        try testing.expectEqualSlices(u8, &exp, &round_key.toBytes());
     }
 }
 
@@ -145,10 +145,10 @@ test "expand 256-bit key" {
 
     for (enc.key_schedule.round_keys) |round_key, i| {
         _ = try std.fmt.hexToBytes(&exp, exp_enc[i]);
-        testing.expectEqualSlices(u8, &exp, &round_key.toBytes());
+        try testing.expectEqualSlices(u8, &exp, &round_key.toBytes());
     }
     for (dec.key_schedule.round_keys) |round_key, i| {
         _ = try std.fmt.hexToBytes(&exp, exp_dec[i]);
-        testing.expectEqualSlices(u8, &exp, &round_key.toBytes());
+        try testing.expectEqualSlices(u8, &exp, &round_key.toBytes());
     }
 }

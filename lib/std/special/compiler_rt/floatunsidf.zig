@@ -30,7 +30,7 @@ pub fn __aeabi_ui2d(arg: u32) callconv(.AAPCS) f64 {
 
 fn test_one_floatunsidf(a: u32, expected: u64) void {
     const r = __floatunsidf(a);
-    std.testing.expect(@bitCast(u64, r) == expected);
+    try std.testing.expect(@bitCast(u64, r) == expected);
 }
 
 test "floatsidf" {

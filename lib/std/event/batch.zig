@@ -119,12 +119,12 @@ test "std.event.Batch" {
     batch.add(&async sleepALittle(&count));
     batch.add(&async increaseByTen(&count));
     batch.wait();
-    testing.expect(count == 11);
+    try testing.expect(count == 11);
 
     var another = Batch(anyerror!void, 2, .auto_async).init();
     another.add(&async somethingElse());
     another.add(&async doSomethingThatFails());
-    testing.expectError(error.ItBroke, another.wait());
+    try testing.expectError(error.ItBroke, another.wait());
 }
 
 fn sleepALittle(count: *usize) void {

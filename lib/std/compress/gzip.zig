@@ -172,17 +172,17 @@ fn testReader(data: []const u8, comptime expected: []const u8) !void {
     var hash: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(buf, hash[0..], .{});
 
-    assertEqual(expected, &hash);
+    try assertEqual(expected, &hash);
 }
 
 // Assert `expected` == `input` where `input` is a bytestring.
-pub fn assertEqual(comptime expected: []const u8, input: []const u8) void {
+pub fn assertEqual(comptime expected: []const u8, input: []const u8) !void {
     var expected_bytes: [expected.len / 2]u8 = undefined;
     for (expected_bytes) |*r, i| {
         r.* = std.fmt.parseInt(u8, expected[2 * i .. 2 * i + 2], 16) catch unreachable;
     }
 
-    testing.expectEqualSlices(u8, &expected_bytes, input);
+    try testing.expectEqualSlices(u8, &expected_bytes, input);
 }
 
 // All the test cases are obtained by compressing the RFC1952 text
@@ -198,12 +198,12 @@ test "compressed data" {
 
 test "sanity checks" {
     // Truncated header
-    testing.expectError(
+    try testing.expectError(
         error.EndOfStream,
         testReader(&[_]u8{ 0x1f, 0x8B }, ""),
     );
     // Wrong CM
-    testing.expectError(
+    try testing.expectError(
         error.InvalidCompression,
         testReader(&[_]u8{
             0x1f, 0x8b, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -211,7 +211,7 @@ test "sanity checks" {
         }, ""),
     );
     // Wrong checksum
-    testing.expectError(
+    try testing.expectError(
         error.WrongChecksum,
         testReader(&[_]u8{
             0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -220,7 +220,7 @@ test "sanity checks" {
         }, ""),
     );
     // Truncated checksum
-    testing.expectError(
+    try testing.expectError(
         error.EndOfStream,
         testReader(&[_]u8{
             0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -228,7 +228,7 @@ test "sanity checks" {
         }, ""),
     );
     // Wrong initial size
-    testing.expectError(
+    try testing.expectError(
         error.CorruptedData,
         testReader(&[_]u8{
             0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -237,7 +237,7 @@ test "sanity checks" {
         }, ""),
     );
     // Truncated initial size field
-    testing.expectError(
+    try testing.expectError(
         error.EndOfStream,
         testReader(&[_]u8{
             0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,

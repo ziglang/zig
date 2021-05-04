@@ -8,7 +8,7 @@ const testing = @import("std").testing;
 
 fn test__fixunssfsi(a: f32, expected: u32) void {
     const x = __fixunssfsi(a);
-    testing.expect(x == expected);
+    try testing.expect(x == expected);
 }
 
 test "fixunssfsi" {

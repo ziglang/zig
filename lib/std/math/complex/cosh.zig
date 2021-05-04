@@ -165,14 +165,14 @@ test "complex.ccosh32" {
     const a = Complex(f32).new(5, 3);
     const c = cosh(a);
 
-    testing.expect(math.approxEqAbs(f32, c.re, -73.467300, epsilon));
-    testing.expect(math.approxEqAbs(f32, c.im, 10.471557, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.re, -73.467300, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.im, 10.471557, epsilon));
 }
 
 test "complex.ccosh64" {
     const a = Complex(f64).new(5, 3);
     const c = cosh(a);
 
-    testing.expect(math.approxEqAbs(f64, c.re, -73.467300, epsilon));
-    testing.expect(math.approxEqAbs(f64, c.im, 10.471557, epsilon));
+    try testing.expect(math.approxEqAbs(f64, c.re, -73.467300, epsilon));
+    try testing.expect(math.approxEqAbs(f64, c.im, 10.471557, epsilon));
 }
