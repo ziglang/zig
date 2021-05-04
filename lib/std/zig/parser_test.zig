@@ -4,6 +4,38 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
+test "zig fmt: preserves clobbers in inline asm with stray comma" {
+    try testTransform(
+        \\fn foo() void {
+        \\    asm volatile (""
+        \\        : [_] "" (-> type),
+        \\        :
+        \\        : "clobber"
+        \\    );
+        \\    asm volatile (""
+        \\        :
+        \\        : [_] "" (type),
+        \\        : "clobber"
+        \\    );
+        \\}
+        \\
+    ,
+        \\fn foo() void {
+        \\    asm volatile (""
+        \\        : [_] "" (-> type)
+        \\        :
+        \\        : "clobber"
+        \\    );
+        \\    asm volatile (""
+        \\        :
+        \\        : [_] "" (type)
+        \\        : "clobber"
+        \\    );
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: respect line breaks in struct field value declaration" {
     try testCanonical(
         \\const Foo = struct {
