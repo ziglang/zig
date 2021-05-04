@@ -908,11 +908,33 @@ fn zirErrorSetDecl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inner
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.ErrorSetDecl, inst_data.payload_index);
+    const fields = sema.code.extra[extra.end..][0..extra.data.fields_len];
 
-    return sema.mod.fail(&block.base, sema.src, "TODO implement zirErrorSetDecl", .{});
+    var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+
+    const error_set = try new_decl_arena.allocator.create(Module.ErrorSet);
+    const error_set_ty = try Type.Tag.error_set.create(&new_decl_arena.allocator, error_set);
+    const error_set_val = try Value.Tag.ty.create(&new_decl_arena.allocator, error_set_ty);
+    const new_decl = try sema.mod.createAnonymousDecl(&block.base, .{
+        .ty = Type.initTag(.type),
+        .val = error_set_val,
+    });
+    const names = try new_decl_arena.allocator.alloc([]const u8, fields.len);
+    for (fields) |str_index, i| {
+        names[i] = try new_decl_arena.allocator.dupe(u8, sema.code.nullTerminatedString(str_index));
+    }
+    error_set.* = .{
+        .owner_decl = new_decl,
+        .node_offset = inst_data.src_node,
+        .names_ptr = names.ptr,
+        .names_len = @intCast(u32, names.len),
+    };
+    try new_decl.finalizeNewArena(&new_decl_arena);
+    return sema.analyzeDeclVal(block, src, new_decl);
 }
 
 fn zirRetPtr(

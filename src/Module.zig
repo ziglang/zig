@@ -478,6 +478,7 @@ pub const ErrorSet = struct {
     names_len: u32,
     /// The string bytes are stored in the owner Decl arena.
     /// They are in the same order they appear in the AST.
+    /// The length is given by `names_len`.
     names_ptr: [*]const []const u8,
 
     pub fn srcLoc(self: ErrorSet) SrcLoc {

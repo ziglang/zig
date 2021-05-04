@@ -118,30 +118,8 @@ fn astgenAndSemaDecl(mod: *Module, decl: *Decl) !bool {
         return mod.failWithOwnedErrorMsg(scope, msg);
     }
 
-
-    const error_set = try arena.create(Module.ErrorSet);
-    error_set.* = .{
-        .owner_decl = astgen.decl,
-        .node_offset = astgen.decl.nodeIndexToRelative(node),
-        .names_ptr = fields.ptr,
-        .names_len = @intCast(u32, fields.len),
-    };
-    const error_set_ty = try Type.Tag.error_set.create(arena, error_set);
-    const error_set_val = try Value.Tag.ty.create(arena, error_set_ty);
-    const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
-        .ty = Type.initTag(.type),
-        .val = error_set_val,
-    });
-    const decl_index = try mod.declareDeclDependency(astgen.decl, new_decl);
-    const result = try gz.addDecl(.decl_val, decl_index, node);
-    return rvalue(gz, scope, rl, result, node);
-
-
-
         // when implementing this be sure to add test coverage for the asm return type
         // not resolving into a type (the node_offset_asm_ret_ty  field of LazySrcLoc)
-
-
 
 pub fn analyzeNamespace(
     mod: *Module,
