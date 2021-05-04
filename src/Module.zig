@@ -1603,6 +1603,34 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
+
+            .node_offset_lib_name => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                var params: [1]ast.Node.Index = undefined;
+                const full = switch (node_tags[parent_node]) {
+                    .fn_proto_simple => tree.fnProtoSimple(&params, parent_node),
+                    .fn_proto_multi => tree.fnProtoMulti(parent_node),
+                    .fn_proto_one => tree.fnProtoOne(&params, parent_node),
+                    .fn_proto => tree.fnProto(parent_node),
+                    .fn_decl => blk: {
+                        const fn_proto = node_datas[parent_node].lhs;
+                        break :blk switch (node_tags[fn_proto]) {
+                            .fn_proto_simple => tree.fnProtoSimple(&params, fn_proto),
+                            .fn_proto_multi => tree.fnProtoMulti(fn_proto),
+                            .fn_proto_one => tree.fnProtoOne(&params, fn_proto),
+                            .fn_proto => tree.fnProto(fn_proto),
+                            else => unreachable,
+                        };
+                    },
+                    else => unreachable,
+                };
+                const tok_index = full.lib_name.?;
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
         }
     }
 };
@@ -1768,6 +1796,12 @@ pub const LazySrcLoc = union(enum) {
     /// to the type expression.
     /// The Decl is determined contextually.
     node_offset_anyframe_type: i32,
+    /// The source location points to the string literal of `extern "foo"`, found
+    /// by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a function prototype or variable declaration
+    /// expression AST node. Next, navigate to the string literal of the `extern "foo"`.
+    /// The Decl is determined contextually.
+    node_offset_lib_name: i32,
 
     /// Upgrade to a `SrcLoc` based on the `Decl` or file in the provided scope.
     pub fn toSrcLoc(lazy: LazySrcLoc, scope: *Scope) SrcLoc {
@@ -1808,6 +1842,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_fn_type_cc,
             .node_offset_fn_type_ret_ty,
             .node_offset_anyframe_type,
+            .node_offset_lib_name,
             => .{
                 .file_scope = scope.getFileScope(),
                 .parent_decl_node = scope.srcDecl().?.src_node,
@@ -1855,6 +1890,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_fn_type_cc,
             .node_offset_fn_type_ret_ty,
             .node_offset_anyframe_type,
+            .node_offset_lib_name,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,

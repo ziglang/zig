@@ -63,6 +63,7 @@ const InnerError = Module.InnerError;
 const Decl = Module.Decl;
 const LazySrcLoc = Module.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
+const target_util = @import("target.zig");
 
 pub fn analyzeFnBody(
     sema: *Sema,
@@ -2739,6 +2740,7 @@ fn zirFunc(
         false,
         inferred_error_set,
         src_locs,
+        null,
     );
 }
 
@@ -2754,10 +2756,13 @@ fn funcCommon(
     var_args: bool,
     inferred_error_set: bool,
     src_locs: Zir.Inst.Func.SrcLocs,
+    opt_lib_name: ?[]const u8,
 ) InnerError!*Inst {
     const src: LazySrcLoc = .{ .node_offset = src_node_offset };
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
     const return_type = try sema.resolveType(block, ret_ty_src, zir_return_type);
+
+    const mod = sema.mod;
 
     const fn_ty: Type = fn_ty: {
         // Hot path for some common function types.
@@ -2789,7 +2794,7 @@ fn funcCommon(
         }
 
         if (align_val.tag() != .null_value) {
-            return sema.mod.fail(&block.base, src, "TODO implement support for function prototypes to have alignment specified", .{});
+            return mod.fail(&block.base, src, "TODO implement support for function prototypes to have alignment specified", .{});
         }
 
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
@@ -2801,7 +2806,48 @@ fn funcCommon(
     };
 
     if (body_inst == 0) {
-        return sema.mod.constType(sema.arena, src, fn_ty);
+        return mod.constType(sema.arena, src, fn_ty);
+    }
+
+    if (opt_lib_name) |lib_name| blk: {
+        const lib_name_src: LazySrcLoc = .{ .node_offset_lib_name = src_node_offset };
+        log.debug("extern fn symbol expected in lib '{s}'", .{lib_name});
+        mod.comp.stage1AddLinkLib(lib_name) catch |err| {
+            return mod.fail(&block.base, lib_name_src, "unable to add link lib '{s}': {s}", .{
+                lib_name, @errorName(err),
+            });
+        };
+        const target = mod.getTarget();
+        if (target_util.is_libc_lib_name(target, lib_name)) {
+            if (!mod.comp.bin_file.options.link_libc) {
+                return mod.fail(
+                    &block.base,
+                    lib_name_src,
+                    "dependency on libc must be explicitly specified in the build command",
+                    .{},
+                );
+            }
+            break :blk;
+        }
+        if (target_util.is_libcpp_lib_name(target, lib_name)) {
+            if (!mod.comp.bin_file.options.link_libcpp) {
+                return mod.fail(
+                    &block.base,
+                    lib_name_src,
+                    "dependency on libc++ must be explicitly specified in the build command",
+                    .{},
+                );
+            }
+            break :blk;
+        }
+        if (!target.isWasm() and !mod.comp.bin_file.options.pic) {
+            return mod.fail(
+                &block.base,
+                lib_name_src,
+                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by `-l{s}` or `-fPIC`.",
+                .{ lib_name, lib_name },
+            );
+        }
     }
 
     const is_inline = fn_ty.fnCallingConvention() == .Inline;
@@ -5599,11 +5645,13 @@ fn zirFuncExtended(
     const small = @bitCast(Zir.Inst.ExtendedFunc.Small, extended.small);
 
     var extra_index: usize = extra.end;
-    if (small.has_lib_name) {
+
+    const lib_name: ?[]const u8 = if (small.has_lib_name) blk: {
         const lib_name = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
         extra_index += 1;
-        return sema.mod.fail(&block.base, src, "TODO: implement Sema func lib name", .{});
-    }
+        break :blk lib_name;
+    } else null;
+
     const cc: std.builtin.CallingConvention = if (small.has_cc) blk: {
         const cc_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
         extra_index += 1;
@@ -5640,6 +5688,7 @@ fn zirFuncExtended(
         small.is_var_args,
         small.is_inferred_error,
         src_locs,
+        lib_name,
     );
 }
 
