@@ -667,7 +667,7 @@ pub const Scope = struct {
         return switch (scope.tag) {
             .block => scope.cast(Block).?.src_decl,
             .file => null,
-            .namespace => null,
+            .namespace => scope.cast(Namespace).?.getDecl(),
             .decl_ref => scope.cast(DeclRef).?.decl,
         };
     }
@@ -3331,13 +3331,12 @@ pub fn analyzeExport(
             .{symbol_name},
         );
         errdefer msg.destroy(mod.gpa);
-        try mod.errNote(
-            &other_export.owner_decl.namespace.base,
-            other_export.src,
-            msg,
-            "other symbol here",
-            .{},
-        );
+        const other_src_loc: SrcLoc = .{
+            .file_scope = other_export.owner_decl.namespace.file_scope,
+            .parent_decl_node = other_export.owner_decl.src_node,
+            .lazy = other_export.src,
+        };
+        try mod.errNoteNonLazy(other_src_loc, msg, "other symbol here", .{});
         mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
         new_export.status = .failed;
         return;
