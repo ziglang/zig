@@ -1008,7 +1008,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
         try case.files.append(.{
-            .src =
+            .src = 
             \\pub fn print() void {
             \\    asm volatile ("syscall"
             \\        :
@@ -1067,7 +1067,7 @@ pub fn addCases(ctx: *TestContext) !void {
             },
         );
         try case.files.append(.{
-            .src =
+            .src = 
             \\// dummy comment to make print be on line 2
             \\fn print() void {
             \\    asm volatile ("syscall"
@@ -1656,5 +1656,20 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
+    }
+    {
+        var case = ctx.exe("inline assembly", linux_x64);
+
+        case.addError(
+            \\pub fn main() void {
+            \\    const number = 1234;
+            \\    const x = asm volatile ("syscall"
+            \\        : [o] "{rax}" (-> number)
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\}
+        , &[_][]const u8{":4:27: error: expected type, found comptime_int"});
     }
 }
