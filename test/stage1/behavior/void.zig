@@ -13,14 +13,14 @@ test "compare void with void compile time known" {
             .b = 1,
             .c = {},
         };
-        expect(foo.a == {});
+        try expect(foo.a == {});
     }
 }
 
 test "iterate over a void slice" {
     var j: usize = 0;
     for (times(10)) |_, i| {
-        expect(i == j);
+        try expect(i == j);
         j += 1;
     }
 }
@@ -31,7 +31,7 @@ fn times(n: usize) []const void {
 
 test "void optional" {
     var x: ?void = {};
-    expect(x != null);
+    try expect(x != null);
 }
 
 test "void array as a local variable initializer" {

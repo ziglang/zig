@@ -35,9 +35,9 @@ test "issue 6456" {
         });
 
         const gen_fields = @typeInfo(T).Struct.fields;
-        testing.expectEqual(3, gen_fields.len);
-        testing.expectEqualStrings("f1", gen_fields[0].name);
-        testing.expectEqualStrings("f2", gen_fields[1].name);
-        testing.expectEqualStrings("f3", gen_fields[2].name);
+        try testing.expectEqual(3, gen_fields.len);
+        try testing.expectEqualStrings("f1", gen_fields[0].name);
+        try testing.expectEqualStrings("f2", gen_fields[1].name);
+        try testing.expectEqualStrings("f3", gen_fields[2].name);
     }
 }

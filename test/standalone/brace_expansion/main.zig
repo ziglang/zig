@@ -241,52 +241,52 @@ pub fn main() !void {
 test "invalid inputs" {
     global_allocator = std.testing.allocator;
 
-    expectError("}ABC", error.InvalidInput);
-    expectError("{ABC", error.InvalidInput);
-    expectError("}{", error.InvalidInput);
-    expectError("{}", error.InvalidInput);
-    expectError("A,B,C", error.InvalidInput);
-    expectError("{A{B,C}", error.InvalidInput);
-    expectError("{A,}", error.InvalidInput);
+    try expectError("}ABC", error.InvalidInput);
+    try expectError("{ABC", error.InvalidInput);
+    try expectError("}{", error.InvalidInput);
+    try expectError("{}", error.InvalidInput);
+    try expectError("A,B,C", error.InvalidInput);
+    try expectError("{A{B,C}", error.InvalidInput);
+    try expectError("{A,}", error.InvalidInput);
 
-    expectError("\n", error.InvalidInput);
+    try expectError("\n", error.InvalidInput);
 }
 
-fn expectError(test_input: []const u8, expected_err: anyerror) void {
+fn expectError(test_input: []const u8, expected_err: anyerror) !void {
     var output_buf = ArrayList(u8).init(global_allocator);
     defer output_buf.deinit();
 
-    testing.expectError(expected_err, expandString(test_input, &output_buf));
+    try testing.expectError(expected_err, expandString(test_input, &output_buf));
 }
 
 test "valid inputs" {
     global_allocator = std.testing.allocator;
 
-    expectExpansion("{x,y,z}", "x y z");
-    expectExpansion("{A,B}{x,y}", "Ax Ay Bx By");
-    expectExpansion("{A,B{x,y}}", "A Bx By");
+    try expectExpansion("{x,y,z}", "x y z");
+    try expectExpansion("{A,B}{x,y}", "Ax Ay Bx By");
+    try expectExpansion("{A,B{x,y}}", "A Bx By");
 
-    expectExpansion("{ABC}", "ABC");
-    expectExpansion("{A,B,C}", "A B C");
-    expectExpansion("ABC", "ABC");
+    try expectExpansion("{ABC}", "ABC");
+    try expectExpansion("{A,B,C}", "A B C");
+    try expectExpansion("ABC", "ABC");
 
-    expectExpansion("", "");
-    expectExpansion("{A,B}{C,{x,y}}{g,h}", "ACg ACh Axg Axh Ayg Ayh BCg BCh Bxg Bxh Byg Byh");
-    expectExpansion("{A,B}{C,C{x,y}}{g,h}", "ACg ACh ACxg ACxh ACyg ACyh BCg BCh BCxg BCxh BCyg BCyh");
-    expectExpansion("{A,B}a", "Aa Ba");
-    expectExpansion("{C,{x,y}}", "C x y");
-    expectExpansion("z{C,{x,y}}", "zC zx zy");
-    expectExpansion("a{b,c{d,e{f,g}}}", "ab acd acef aceg");
-    expectExpansion("a{x,y}b", "axb ayb");
-    expectExpansion("z{{a,b}}", "za zb");
-    expectExpansion("a{b}", "ab");
+    try expectExpansion("", "");
+    try expectExpansion("{A,B}{C,{x,y}}{g,h}", "ACg ACh Axg Axh Ayg Ayh BCg BCh Bxg Bxh Byg Byh");
+    try expectExpansion("{A,B}{C,C{x,y}}{g,h}", "ACg ACh ACxg ACxh ACyg ACyh BCg BCh BCxg BCxh BCyg BCyh");
+    try expectExpansion("{A,B}a", "Aa Ba");
+    try expectExpansion("{C,{x,y}}", "C x y");
+    try expectExpansion("z{C,{x,y}}", "zC zx zy");
+    try expectExpansion("a{b,c{d,e{f,g}}}", "ab acd acef aceg");
+    try expectExpansion("a{x,y}b", "axb ayb");
+    try expectExpansion("z{{a,b}}", "za zb");
+    try expectExpansion("a{b}", "ab");
 }
 
-fn expectExpansion(test_input: []const u8, expected_result: []const u8) void {
+fn expectExpansion(test_input: []const u8, expected_result: []const u8) !void {
     var result = ArrayList(u8).init(global_allocator);
     defer result.deinit();
 
     expandString(test_input, &result) catch unreachable;
 
-    testing.expectEqualSlices(u8, expected_result, result.items);
+    try testing.expectEqualSlices(u8, expected_result, result.items);
 }

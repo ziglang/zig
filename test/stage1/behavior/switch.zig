@@ -4,23 +4,23 @@ const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
 
 test "switch with numbers" {
-    testSwitchWithNumbers(13);
+    try testSwitchWithNumbers(13);
 }
 
-fn testSwitchWithNumbers(x: u32) void {
+fn testSwitchWithNumbers(x: u32) !void {
     const result = switch (x) {
         1, 2, 3, 4...8 => false,
         13 => true,
         else => false,
     };
-    expect(result);
+    try expect(result);
 }
 
 test "switch with all ranges" {
-    expect(testSwitchWithAllRanges(50, 3) == 1);
-    expect(testSwitchWithAllRanges(101, 0) == 2);
-    expect(testSwitchWithAllRanges(300, 5) == 3);
-    expect(testSwitchWithAllRanges(301, 6) == 6);
+    try expect(testSwitchWithAllRanges(50, 3) == 1);
+    try expect(testSwitchWithAllRanges(101, 0) == 2);
+    try expect(testSwitchWithAllRanges(300, 5) == 3);
+    try expect(testSwitchWithAllRanges(301, 6) == 6);
 }
 
 fn testSwitchWithAllRanges(x: u32, y: u32) u32 {
@@ -43,7 +43,7 @@ test "implicit comptime switch" {
     };
 
     comptime {
-        expect(result + 1 == 14);
+        try expect(result + 1 == 14);
     }
 }
 
@@ -65,16 +65,16 @@ fn nonConstSwitchOnEnum(fruit: Fruit) void {
 }
 
 test "switch statement" {
-    nonConstSwitch(SwitchStatmentFoo.C);
+    try nonConstSwitch(SwitchStatmentFoo.C);
 }
-fn nonConstSwitch(foo: SwitchStatmentFoo) void {
+fn nonConstSwitch(foo: SwitchStatmentFoo) !void {
     const val = switch (foo) {
         SwitchStatmentFoo.A => @as(i32, 1),
         SwitchStatmentFoo.B => 2,
         SwitchStatmentFoo.C => 3,
         SwitchStatmentFoo.D => 4,
     };
-    expect(val == 3);
+    try expect(val == 3);
 }
 const SwitchStatmentFoo = enum {
     A,
@@ -84,22 +84,22 @@ const SwitchStatmentFoo = enum {
 };
 
 test "switch prong with variable" {
-    switchProngWithVarFn(SwitchProngWithVarEnum{ .One = 13 });
-    switchProngWithVarFn(SwitchProngWithVarEnum{ .Two = 13.0 });
-    switchProngWithVarFn(SwitchProngWithVarEnum{ .Meh = {} });
+    try switchProngWithVarFn(SwitchProngWithVarEnum{ .One = 13 });
+    try switchProngWithVarFn(SwitchProngWithVarEnum{ .Two = 13.0 });
+    try switchProngWithVarFn(SwitchProngWithVarEnum{ .Meh = {} });
 }
 const SwitchProngWithVarEnum = union(enum) {
     One: i32,
     Two: f32,
     Meh: void,
 };
-fn switchProngWithVarFn(a: SwitchProngWithVarEnum) void {
+fn switchProngWithVarFn(a: SwitchProngWithVarEnum) !void {
     switch (a) {
         SwitchProngWithVarEnum.One => |x| {
-            expect(x == 13);
+            try expect(x == 13);
         },
         SwitchProngWithVarEnum.Two => |x| {
-            expect(x == 13.0);
+            try expect(x == 13.0);
         },
         SwitchProngWithVarEnum.Meh => |x| {
             const v: void = x;
@@ -108,18 +108,18 @@ fn switchProngWithVarFn(a: SwitchProngWithVarEnum) void {
 }
 
 test "switch on enum using pointer capture" {
-    testSwitchEnumPtrCapture();
-    comptime testSwitchEnumPtrCapture();
+    try testSwitchEnumPtrCapture();
+    comptime try testSwitchEnumPtrCapture();
 }
 
-fn testSwitchEnumPtrCapture() void {
+fn testSwitchEnumPtrCapture() !void {
     var value = SwitchProngWithVarEnum{ .One = 1234 };
     switch (value) {
         SwitchProngWithVarEnum.One => |*x| x.* += 1,
         else => unreachable,
     }
     switch (value) {
-        SwitchProngWithVarEnum.One => |x| expect(x == 1235),
+        SwitchProngWithVarEnum.One => |x| try expect(x == 1235),
         else => unreachable,
     }
 }
@@ -130,7 +130,7 @@ test "switch with multiple expressions" {
         4, 5, 6 => 2,
         else => @as(i32, 3),
     };
-    expect(x == 2);
+    try expect(x == 2);
 }
 fn returnsFive() i32 {
     return 5;
@@ -152,12 +152,12 @@ fn returnsFalse() bool {
     }
 }
 test "switch on const enum with var" {
-    expect(!returnsFalse());
+    try expect(!returnsFalse());
 }
 
 test "switch on type" {
-    expect(trueIfBoolFalseOtherwise(bool));
-    expect(!trueIfBoolFalseOtherwise(i32));
+    try expect(trueIfBoolFalseOtherwise(bool));
+    try expect(!trueIfBoolFalseOtherwise(i32));
 }
 
 fn trueIfBoolFalseOtherwise(comptime T: type) bool {
@@ -168,21 +168,21 @@ fn trueIfBoolFalseOtherwise(comptime T: type) bool {
 }
 
 test "switch handles all cases of number" {
-    testSwitchHandleAllCases();
-    comptime testSwitchHandleAllCases();
+    try testSwitchHandleAllCases();
+    comptime try testSwitchHandleAllCases();
 }
 
-fn testSwitchHandleAllCases() void {
-    expect(testSwitchHandleAllCasesExhaustive(0) == 3);
-    expect(testSwitchHandleAllCasesExhaustive(1) == 2);
-    expect(testSwitchHandleAllCasesExhaustive(2) == 1);
-    expect(testSwitchHandleAllCasesExhaustive(3) == 0);
+fn testSwitchHandleAllCases() !void {
+    try expect(testSwitchHandleAllCasesExhaustive(0) == 3);
+    try expect(testSwitchHandleAllCasesExhaustive(1) == 2);
+    try expect(testSwitchHandleAllCasesExhaustive(2) == 1);
+    try expect(testSwitchHandleAllCasesExhaustive(3) == 0);
 
-    expect(testSwitchHandleAllCasesRange(100) == 0);
-    expect(testSwitchHandleAllCasesRange(200) == 1);
-    expect(testSwitchHandleAllCasesRange(201) == 2);
-    expect(testSwitchHandleAllCasesRange(202) == 4);
-    expect(testSwitchHandleAllCasesRange(230) == 3);
+    try expect(testSwitchHandleAllCasesRange(100) == 0);
+    try expect(testSwitchHandleAllCasesRange(200) == 1);
+    try expect(testSwitchHandleAllCasesRange(201) == 2);
+    try expect(testSwitchHandleAllCasesRange(202) == 4);
+    try expect(testSwitchHandleAllCasesRange(230) == 3);
 }
 
 fn testSwitchHandleAllCasesExhaustive(x: u2) u2 {
@@ -205,13 +205,13 @@ fn testSwitchHandleAllCasesRange(x: u8) u8 {
 }
 
 test "switch all prongs unreachable" {
-    testAllProngsUnreachable();
-    comptime testAllProngsUnreachable();
+    try testAllProngsUnreachable();
+    comptime try testAllProngsUnreachable();
 }
 
-fn testAllProngsUnreachable() void {
-    expect(switchWithUnreachable(1) == 2);
-    expect(switchWithUnreachable(2) == 10);
+fn testAllProngsUnreachable() !void {
+    try expect(switchWithUnreachable(1) == 2);
+    try expect(switchWithUnreachable(2) == 10);
 }
 
 fn switchWithUnreachable(x: i32) i32 {
@@ -233,23 +233,23 @@ test "capture value of switch with all unreachable prongs" {
     const x = return_a_number() catch |err| switch (err) {
         else => unreachable,
     };
-    expect(x == 1);
+    try expect(x == 1);
 }
 
 test "switching on booleans" {
-    testSwitchOnBools();
-    comptime testSwitchOnBools();
+    try testSwitchOnBools();
+    comptime try testSwitchOnBools();
 }
 
-fn testSwitchOnBools() void {
-    expect(testSwitchOnBoolsTrueAndFalse(true) == false);
-    expect(testSwitchOnBoolsTrueAndFalse(false) == true);
+fn testSwitchOnBools() !void {
+    try expect(testSwitchOnBoolsTrueAndFalse(true) == false);
+    try expect(testSwitchOnBoolsTrueAndFalse(false) == true);
 
-    expect(testSwitchOnBoolsTrueWithElse(true) == false);
-    expect(testSwitchOnBoolsTrueWithElse(false) == true);
+    try expect(testSwitchOnBoolsTrueWithElse(true) == false);
+    try expect(testSwitchOnBoolsTrueWithElse(false) == true);
 
-    expect(testSwitchOnBoolsFalseWithElse(true) == false);
-    expect(testSwitchOnBoolsFalseWithElse(false) == true);
+    try expect(testSwitchOnBoolsFalseWithElse(true) == false);
+    try expect(testSwitchOnBoolsFalseWithElse(false) == true);
 }
 
 fn testSwitchOnBoolsTrueAndFalse(x: bool) bool {
@@ -276,14 +276,14 @@ fn testSwitchOnBoolsFalseWithElse(x: bool) bool {
 test "u0" {
     var val: u0 = 0;
     switch (val) {
-        0 => expect(val == 0),
+        0 => try expect(val == 0),
     }
 }
 
 test "undefined.u0" {
     var val: u0 = undefined;
     switch (val) {
-        0 => expect(val == 0),
+        0 => try expect(val == 0),
     }
 }
 
@@ -295,15 +295,15 @@ test "anon enum literal used in switch on union enum" {
     var foo = Foo{ .a = 1234 };
     switch (foo) {
         .a => |x| {
-            expect(x == 1234);
+            try expect(x == 1234);
         },
     }
 }
 
 test "else prong of switch on error set excludes other cases" {
     const S = struct {
-        fn doTheTest() void {
-            expectError(error.C, bar());
+        fn doTheTest() !void {
+            try expectError(error.C, bar());
         }
         const E = error{
             A,
@@ -326,14 +326,14 @@ test "else prong of switch on error set excludes other cases" {
             };
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "switch prongs with error set cases make a new error set type for capture value" {
     const S = struct {
-        fn doTheTest() void {
-            expectError(error.B, bar());
+        fn doTheTest() !void {
+            try expectError(error.B, bar());
         }
         const E = E1 || E2;
 
@@ -358,14 +358,14 @@ test "switch prongs with error set cases make a new error set type for capture v
             };
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "return result loc and then switch with range implicit casted to error union" {
     const S = struct {
-        fn doTheTest() void {
-            expect((func(0xb) catch unreachable) == 0xb);
+        fn doTheTest() !void {
+            try expect((func(0xb) catch unreachable) == 0xb);
         }
         fn func(d: u8) anyerror!u8 {
             return switch (d) {
@@ -374,13 +374,13 @@ test "return result loc and then switch with range implicit casted to error unio
             };
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "switch with null and T peer types and inferred result location type" {
     const S = struct {
-        fn doTheTest(c: u8) void {
+        fn doTheTest(c: u8) !void {
             if (switch (c) {
                 0 => true,
                 else => null,
@@ -389,8 +389,8 @@ test "switch with null and T peer types and inferred result location type" {
             }
         }
     };
-    S.doTheTest(1);
-    comptime S.doTheTest(1);
+    try S.doTheTest(1);
+    comptime try S.doTheTest(1);
 }
 
 test "switch prongs with cases with identical payload types" {
@@ -400,31 +400,31 @@ test "switch prongs with cases with identical payload types" {
         C: usize,
     };
     const S = struct {
-        fn doTheTest() void {
-            doTheSwitch1(Union{ .A = 8 });
-            doTheSwitch2(Union{ .B = -8 });
+        fn doTheTest() !void {
+            try doTheSwitch1(Union{ .A = 8 });
+            try doTheSwitch2(Union{ .B = -8 });
         }
-        fn doTheSwitch1(u: Union) void {
+        fn doTheSwitch1(u: Union) !void {
             switch (u) {
                 .A, .C => |e| {
-                    expect(@TypeOf(e) == usize);
-                    expect(e == 8);
+                    try expect(@TypeOf(e) == usize);
+                    try expect(e == 8);
                 },
                 .B => |e| @panic("fail"),
             }
         }
-        fn doTheSwitch2(u: Union) void {
+        fn doTheSwitch2(u: Union) !void {
             switch (u) {
                 .A, .C => |e| @panic("fail"),
                 .B => |e| {
-                    expect(@TypeOf(e) == isize);
-                    expect(e == -8);
+                    try expect(@TypeOf(e) == isize);
+                    try expect(e == -8);
                 },
             }
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "switch with disjoint range" {
@@ -438,19 +438,19 @@ test "switch with disjoint range" {
 
 test "switch variable for range and multiple prongs" {
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var u: u8 = 16;
-            doTheSwitch(u);
-            comptime doTheSwitch(u);
+            try doTheSwitch(u);
+            comptime try doTheSwitch(u);
             var v: u8 = 42;
-            doTheSwitch(v);
-            comptime doTheSwitch(v);
+            try doTheSwitch(v);
+            comptime try doTheSwitch(v);
         }
-        fn doTheSwitch(q: u8) void {
+        fn doTheSwitch(q: u8) !void {
             switch (q) {
-                0...40 => |x| expect(x == 16),
-                41, 42, 43 => |x| expect(x == 42),
-                else => expect(false),
+                0...40 => |x| try expect(x == 16),
+                41, 42, 43 => |x| try expect(x == 42),
+                else => try expect(false),
             }
         }
     };
@@ -493,31 +493,31 @@ test "switch on pointer type" {
         }
     };
 
-    expect(1 == S.doTheTest(S.P1));
-    expect(2 == S.doTheTest(S.P2));
-    expect(3 == S.doTheTest(S.P3));
-    comptime expect(1 == S.doTheTest(S.P1));
-    comptime expect(2 == S.doTheTest(S.P2));
-    comptime expect(3 == S.doTheTest(S.P3));
+    try expect(1 == S.doTheTest(S.P1));
+    try expect(2 == S.doTheTest(S.P2));
+    try expect(3 == S.doTheTest(S.P3));
+    comptime try expect(1 == S.doTheTest(S.P1));
+    comptime try expect(2 == S.doTheTest(S.P2));
+    comptime try expect(3 == S.doTheTest(S.P3));
 }
 
 test "switch on error set with single else" {
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var some: error{Foo} = error.Foo;
-            expect(switch (some) {
+            try expect(switch (some) {
                 else => |a| true,
             });
         }
     };
 
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "while copies its payload" {
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var tmp: union(enum) {
                 A: u8,
                 B: u32,
@@ -526,12 +526,12 @@ test "while copies its payload" {
                 .A => |value| {
                     // Modify the original union
                     tmp = .{ .B = 0x10101010 };
-                    expectEqual(@as(u8, 42), value);
+                    try expectEqual(@as(u8, 42), value);
                 },
                 else => unreachable,
             }
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }

@@ -19,5 +19,5 @@ fn MemoryPool(comptime T: type) type {
 
 test "foo" {
     var allocator = ContextAllocator{ .n = 10 };
-    expect(allocator.n == 10);
+    try expect(allocator.n == 10);
 }

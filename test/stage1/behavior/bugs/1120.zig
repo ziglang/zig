@@ -19,5 +19,5 @@ test "bug 1120" {
         1 => &b.a,
         else => unreachable,
     };
-    expect(ptr.* == 2);
+    try expect(ptr.* == 2);
 }

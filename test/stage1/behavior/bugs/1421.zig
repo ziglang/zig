@@ -10,5 +10,5 @@ const S = struct {
 
 test "functions with return type required to be comptime are generic" {
     const ti = S.method();
-    expect(@as(builtin.TypeId, ti) == builtin.TypeId.Struct);
+    try expect(@as(builtin.TypeId, ti) == builtin.TypeId.Struct);
 }

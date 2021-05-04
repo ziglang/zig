@@ -12,24 +12,24 @@ test "const slice child" {
         "three",
     };
     argv = &strs;
-    bar(strs.len);
+    try bar(strs.len);
 }
 
-fn foo(args: [][]const u8) void {
-    expect(args.len == 3);
-    expect(streql(args[0], "one"));
-    expect(streql(args[1], "two"));
-    expect(streql(args[2], "three"));
+fn foo(args: [][]const u8) !void {
+    try expect(args.len == 3);
+    try expect(streql(args[0], "one"));
+    try expect(streql(args[1], "two"));
+    try expect(streql(args[2], "three"));
 }
 
-fn bar(argc: usize) void {
+fn bar(argc: usize) !void {
     const args = testing.allocator.alloc([]const u8, argc) catch unreachable;
     defer testing.allocator.free(args);
     for (args) |_, i| {
         const ptr = argv[i];
         args[i] = ptr[0..strlen(ptr)];
     }
-    foo(args);
+    try foo(args);
 }
 
 fn strlen(ptr: [*]const u8) usize {

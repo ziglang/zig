@@ -25,14 +25,14 @@ test "Extern function calls in @TypeOf" {
             return 1;
         }
 
-        fn doTheTest() void {
-            expectEqual(c_int, @TypeOf(test_fn_1(0, 42)));
-            expectEqual(c_short, @TypeOf(test_fn_2(0)));
+        fn doTheTest() !void {
+            try expectEqual(c_int, @TypeOf(test_fn_1(0, 42)));
+            try expectEqual(c_short, @TypeOf(test_fn_2(0)));
         }
     };
 
-    Test.doTheTest();
-    comptime Test.doTheTest();
+    try Test.doTheTest();
+    comptime try Test.doTheTest();
 }
 
 test "Peer resolution of extern function calls in @TypeOf" {
@@ -41,13 +41,13 @@ test "Peer resolution of extern function calls in @TypeOf" {
             return 0;
         }
 
-        fn doTheTest() void {
-            expectEqual(c_long, @TypeOf(test_fn()));
+        fn doTheTest() !void {
+            try expectEqual(c_long, @TypeOf(test_fn()));
         }
     };
 
-    Test.doTheTest();
-    comptime Test.doTheTest();
+    try Test.doTheTest();
+    comptime try Test.doTheTest();
 }
 
 test "Extern function calls, dereferences and field access in @TypeOf" {
@@ -60,12 +60,12 @@ test "Extern function calls, dereferences and field access in @TypeOf" {
             return 255;
         }
 
-        fn doTheTest() void {
-            expectEqual(FILE, @TypeOf(test_fn_1(0)));
-            expectEqual(u8, @TypeOf(test_fn_2(0)));
+        fn doTheTest() !void {
+            try expectEqual(FILE, @TypeOf(test_fn_1(0)));
+            try expectEqual(u8, @TypeOf(test_fn_2(0)));
         }
     };
 
-    Test.doTheTest();
-    comptime Test.doTheTest();
+    try Test.doTheTest();
+    comptime try Test.doTheTest();
 }

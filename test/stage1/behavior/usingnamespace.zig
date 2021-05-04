@@ -9,8 +9,8 @@ fn Foo(comptime T: type) type {
 test "usingnamespace inside a generic struct" {
     const std2 = Foo(std);
     const testing2 = Foo(std.testing);
-    std2.testing.expect(true);
-    testing2.expect(true);
+    try std2.testing.expect(true);
+    try testing2.expect(true);
 }
 
 usingnamespace struct {
@@ -18,5 +18,5 @@ usingnamespace struct {
 };
 
 test "usingnamespace does not redeclare an imported variable" {
-    comptime std.testing.expect(foo == 42);
+    comptime try std.testing.expect(foo == 42);
 }

@@ -1,13 +1,13 @@
 const expect = @import("std").testing.expect;
 
 test "@fieldParentPtr non-first field" {
-    testParentFieldPtr(&foo.c);
-    comptime testParentFieldPtr(&foo.c);
+    try testParentFieldPtr(&foo.c);
+    comptime try testParentFieldPtr(&foo.c);
 }
 
 test "@fieldParentPtr first field" {
-    testParentFieldPtrFirst(&foo.a);
-    comptime testParentFieldPtrFirst(&foo.a);
+    try testParentFieldPtrFirst(&foo.a);
+    comptime try testParentFieldPtrFirst(&foo.a);
 }
 
 const Foo = struct {
@@ -24,18 +24,18 @@ const foo = Foo{
     .d = -10,
 };
 
-fn testParentFieldPtr(c: *const i32) void {
-    expect(c == &foo.c);
+fn testParentFieldPtr(c: *const i32) !void {
+    try expect(c == &foo.c);
 
     const base = @fieldParentPtr(Foo, "c", c);
-    expect(base == &foo);
-    expect(&base.c == c);
+    try expect(base == &foo);
+    try expect(&base.c == c);
 }
 
-fn testParentFieldPtrFirst(a: *const bool) void {
-    expect(a == &foo.a);
+fn testParentFieldPtrFirst(a: *const bool) !void {
+    try expect(a == &foo.a);
 
     const base = @fieldParentPtr(Foo, "a", a);
-    expect(base == &foo);
-    expect(&base.a == a);
+    try expect(base == &foo);
+    try expect(&base.a == a);
 }

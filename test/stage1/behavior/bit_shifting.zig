@@ -3,8 +3,8 @@ const expect = std.testing.expect;
 
 fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime V: type) type {
     const key_bits = @typeInfo(Key).Int.bits;
-    expect(Key == std.meta.Int(.unsigned, key_bits));
-    expect(key_bits >= mask_bit_count);
+    std.debug.assert(Key == std.meta.Int(.unsigned, key_bits));
+    std.debug.assert(key_bits >= mask_bit_count);
     const shard_key_bits = mask_bit_count;
     const ShardKey = std.meta.Int(.unsigned, mask_bit_count);
     const shift_amount = key_bits - shard_key_bits;
@@ -61,31 +61,31 @@ fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, compt
 
 test "sharded table" {
     // realistic 16-way sharding
-    testShardedTable(u32, 4, 8);
+    try testShardedTable(u32, 4, 8);
 
-    testShardedTable(u5, 0, 32); // ShardKey == u0
-    testShardedTable(u5, 2, 32);
-    testShardedTable(u5, 5, 32);
+    try testShardedTable(u5, 0, 32); // ShardKey == u0
+    try testShardedTable(u5, 2, 32);
+    try testShardedTable(u5, 5, 32);
 
-    testShardedTable(u1, 0, 2);
-    testShardedTable(u1, 1, 2); // this does u1 >> u0
+    try testShardedTable(u1, 0, 2);
+    try testShardedTable(u1, 1, 2); // this does u1 >> u0
 
-    testShardedTable(u0, 0, 1);
+    try testShardedTable(u0, 0, 1);
 }
-fn testShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime node_count: comptime_int) void {
+fn testShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime node_count: comptime_int) !void {
     const Table = ShardedTable(Key, mask_bit_count, void);
 
     var table = Table.create();
     var node_buffer: [node_count]Table.Node = undefined;
     for (node_buffer) |*node, i| {
         const key = @intCast(Key, i);
-        expect(table.get(key) == null);
+        try expect(table.get(key) == null);
         node.init(key, {});
         table.put(node);
     }
 
     for (node_buffer) |*node, i| {
-        expect(table.get(@intCast(Key, i)) == node);
+        try expect(table.get(@intCast(Key, i)) == node);
     }
 }
 
@@ -93,9 +93,9 @@ fn testShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, c
 test "comptime shr of BigInt" {
     comptime {
         var n0 = 0xdeadbeef0000000000000000;
-        std.debug.assert(n0 >> 64 == 0xdeadbeef);
+        try expect(n0 >> 64 == 0xdeadbeef);
         var n1 = 17908056155735594659;
-        std.debug.assert(n1 >> 64 == 0);
+        try expect(n1 >> 64 == 0);
     }
 }
 

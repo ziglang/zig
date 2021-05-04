@@ -8,9 +8,9 @@ test "fixed" {
             .max_distance_from_start_index = 456,
         },
     };
-    std.testing.expect(s.a == 1);
-    std.testing.expect(s.b.size == 123);
-    std.testing.expect(s.b.max_distance_from_start_index == 456);
+    try std.testing.expect(s.a == 1);
+    try std.testing.expect(s.b.size == 123);
+    try std.testing.expect(s.b.max_distance_from_start_index == 456);
 }
 
 const S = struct {

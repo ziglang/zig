@@ -27,12 +27,12 @@ test "for loop with pointer elem var" {
     var target: [source.len]u8 = undefined;
     mem.copy(u8, target[0..], source);
     mangleString(target[0..]);
-    expect(mem.eql(u8, &target, "bcdefgh"));
+    try expect(mem.eql(u8, &target, "bcdefgh"));
 
     for (source) |*c, i|
-        expect(@TypeOf(c) == *const u8);
+        try expect(@TypeOf(c) == *const u8);
     for (target) |*c, i|
-        expect(@TypeOf(c) == *u8);
+        try expect(@TypeOf(c) == *u8);
 }
 
 fn mangleString(s: []u8) void {
@@ -75,15 +75,15 @@ test "basic for loop" {
         buf_index += 1;
     }
 
-    expect(mem.eql(u8, buffer[0..buf_index], &expected_result));
+    try expect(mem.eql(u8, buffer[0..buf_index], &expected_result));
 }
 
 test "break from outer for loop" {
-    testBreakOuter();
-    comptime testBreakOuter();
+    try testBreakOuter();
+    comptime try testBreakOuter();
 }
 
-fn testBreakOuter() void {
+fn testBreakOuter() !void {
     var array = "aoeu";
     var count: usize = 0;
     outer: for (array) |_| {
@@ -92,15 +92,15 @@ fn testBreakOuter() void {
             break :outer;
         }
     }
-    expect(count == 1);
+    try expect(count == 1);
 }
 
 test "continue outer for loop" {
-    testContinueOuter();
-    comptime testContinueOuter();
+    try testContinueOuter();
+    comptime try testContinueOuter();
 }
 
-fn testContinueOuter() void {
+fn testContinueOuter() !void {
     var array = "aoeu";
     var counter: usize = 0;
     outer: for (array) |_| {
@@ -109,28 +109,28 @@ fn testContinueOuter() void {
             continue :outer;
         }
     }
-    expect(counter == array.len);
+    try expect(counter == array.len);
 }
 
 test "2 break statements and an else" {
     const S = struct {
-        fn entry(t: bool, f: bool) void {
+        fn entry(t: bool, f: bool) !void {
             var buf: [10]u8 = undefined;
             var ok = false;
             ok = for (buf) |item| {
                 if (f) break false;
                 if (t) break true;
             } else false;
-            expect(ok);
+            try expect(ok);
         }
     };
-    S.entry(true, false);
-    comptime S.entry(true, false);
+    try S.entry(true, false);
+    comptime try S.entry(true, false);
 }
 
 test "for with null and T peer types and inferred result location type" {
     const S = struct {
-        fn doTheTest(slice: []const u8) void {
+        fn doTheTest(slice: []const u8) !void {
             if (for (slice) |item| {
                 if (item == 10) {
                     break item;
@@ -140,33 +140,33 @@ test "for with null and T peer types and inferred result location type" {
             }
         }
     };
-    S.doTheTest(&[_]u8{ 1, 2 });
-    comptime S.doTheTest(&[_]u8{ 1, 2 });
+    try S.doTheTest(&[_]u8{ 1, 2 });
+    comptime try S.doTheTest(&[_]u8{ 1, 2 });
 }
 
 test "for copies its payload" {
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var x = [_]usize{ 1, 2, 3 };
             for (x) |value, i| {
                 // Modify the original array
                 x[i] += 99;
-                expectEqual(value, i + 1);
+                try expectEqual(value, i + 1);
             }
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "for on slice with allowzero ptr" {
     const S = struct {
-        fn doTheTest(slice: []const u8) void {
+        fn doTheTest(slice: []const u8) !void {
             var ptr = @ptrCast([*]allowzero const u8, slice.ptr)[0..slice.len];
-            for (ptr) |x, i| expect(x == i + 1);
-            for (ptr) |*x, i| expect(x.* == i + 1);
+            for (ptr) |x, i| try expect(x == i + 1);
+            for (ptr) |*x, i| try expect(x.* == i + 1);
         }
     };
-    S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
-    comptime S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
+    try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
+    comptime try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
 }
