@@ -1,5 +1,3 @@
- * implement lazy struct field resolution; don't resolve struct fields until
-   they are needed.
  * AstGen threadlocal
  * extern "foo" for vars and for functions
  * namespace decls table can't reference ZIR memory because it can get modified on updates

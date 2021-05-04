@@ -3273,6 +3273,10 @@ pub fn analyzeExport(
 
     const owner_decl = scope.ownerDecl().?;
 
+    log.debug("exporting Decl '{s}' as symbol '{s}' from Decl '{s}'", .{
+        exported_decl.name, borrowed_symbol_name, owner_decl.name,
+    });
+
     new_export.* = .{
         .options = .{ .name = symbol_name },
         .src = src,

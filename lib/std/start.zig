@@ -83,7 +83,7 @@ fn _start2() callconv(.Naked) noreturn {
     exit2(0);
 }
 
-fn exit2(code: u8) noreturn {
+fn exit2(code: usize) noreturn {
     switch (builtin.stage2_arch) {
         .x86_64 => {
             asm volatile ("syscall"

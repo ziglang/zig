@@ -1617,6 +1617,18 @@ fn zirBlock(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) Inner
     return sema.analyzeBlockBody(parent_block, src, &child_block, merges);
 }
 
+fn resolveBlockBody(
+    sema: *Sema,
+    parent_block: *Scope.Block,
+    src: LazySrcLoc,
+    child_block: *Scope.Block,
+    body: []const Zir.Inst.Index,
+    merges: *Scope.Block.Merges,
+) InnerError!*Inst {
+    _ = try sema.analyzeBody(child_block, body);
+    return sema.analyzeBlockBody(parent_block, src, child_block, merges);
+}
+
 fn analyzeBlockBody(
     sema: *Sema,
     parent_block: *Scope.Block,
@@ -1711,11 +1723,23 @@ fn zirExport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
     const decl_name = sema.code.nullTerminatedString(extra.decl_name);
     const decl = try sema.lookupIdentifier(block, lhs_src, decl_name);
     const options = try sema.resolveInstConst(block, rhs_src, extra.options);
+    const struct_obj = options.ty.castTag(.@"struct").?.data;
+    const fields = options.val.castTag(.@"struct").?.data[0..struct_obj.fields.count()];
+    const name_index = struct_obj.fields.getIndex("name").?;
+    const linkage_index = struct_obj.fields.getIndex("linkage").?;
+    const section_index = struct_obj.fields.getIndex("section").?;
+    const export_name = try fields[name_index].toAllocatedBytes(sema.arena);
+    const linkage = fields[linkage_index].toEnum(
+        struct_obj.fields.items()[linkage_index].value.ty,
+        std.builtin.GlobalLinkage,
+    );
 
-    // TODO respect the name, linkage, and section options. Until then we export
-    // as the decl name.
-    _ = options;
-    const export_name = mem.spanZ(decl.name);
+    if (linkage != .Strong) {
+        return sema.mod.fail(&block.base, src, "TODO: implement exporting with non-strong linkage", .{});
+    }
+    if (!fields[section_index].isNull()) {
+        return sema.mod.fail(&block.base, src, "TODO: implement exporting with linksection", .{});
+    }
 
     try sema.mod.analyzeExport(&block.base, src, export_name, decl);
 }
@@ -3600,77 +3624,6 @@ fn analyzeSwitch(
         }),
     }
 
-    if (try sema.resolveDefinedValue(block, src, operand)) |operand_val| {
-        var extra_index: usize = special.end;
-        {
-            var scalar_i: usize = 0;
-            while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
-                const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
-                extra_index += 1;
-                const body_len = sema.code.extra[extra_index];
-                extra_index += 1;
-                const body = sema.code.extra[extra_index..][0..body_len];
-                extra_index += body_len;
-
-                // Validation above ensured these will succeed.
-                const item = sema.resolveInst(item_ref) catch unreachable;
-                const item_val = sema.resolveConstValue(block, .unneeded, item) catch unreachable;
-                if (operand_val.eql(item_val)) {
-                    return sema.resolveBody(block, body);
-                }
-            }
-        }
-        {
-            var multi_i: usize = 0;
-            while (multi_i < multi_cases_len) : (multi_i += 1) {
-                const items_len = sema.code.extra[extra_index];
-                extra_index += 1;
-                const ranges_len = sema.code.extra[extra_index];
-                extra_index += 1;
-                const body_len = sema.code.extra[extra_index];
-                extra_index += 1;
-                const items = sema.code.refSlice(extra_index, items_len);
-                extra_index += items_len;
-                const body = sema.code.extra[extra_index + 2 * ranges_len ..][0..body_len];
-
-                for (items) |item_ref| {
-                    // Validation above ensured these will succeed.
-                    const item = sema.resolveInst(item_ref) catch unreachable;
-                    const item_val = sema.resolveConstValue(block, item.src, item) catch unreachable;
-                    if (operand_val.eql(item_val)) {
-                        return sema.resolveBody(block, body);
-                    }
-                }
-
-                var range_i: usize = 0;
-                while (range_i < ranges_len) : (range_i += 1) {
-                    const item_first = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
-                    extra_index += 1;
-                    const item_last = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
-                    extra_index += 1;
-
-                    // Validation above ensured these will succeed.
-                    const first_tv = sema.resolveInstConst(block, .unneeded, item_first) catch unreachable;
-                    const last_tv = sema.resolveInstConst(block, .unneeded, item_last) catch unreachable;
-                    if (Value.compare(operand_val, .gte, first_tv.val) and
-                        Value.compare(operand_val, .lte, last_tv.val))
-                    {
-                        return sema.resolveBody(block, body);
-                    }
-                }
-
-                extra_index += body_len;
-            }
-        }
-        return sema.resolveBody(block, special.body);
-    }
-
-    if (scalar_cases_len + multi_cases_len == 0) {
-        return sema.resolveBody(block, special.body);
-    }
-
-    try sema.requireRuntimeBlock(block, src);
-
     const block_inst = try sema.arena.create(Inst.Block);
     block_inst.* = .{
         .base = .{
@@ -3702,6 +3655,77 @@ fn analyzeSwitch(
     defer child_block.instructions.deinit(gpa);
     defer merges.results.deinit(gpa);
     defer merges.br_list.deinit(gpa);
+
+    if (try sema.resolveDefinedValue(&child_block, src, operand)) |operand_val| {
+        var extra_index: usize = special.end;
+        {
+            var scalar_i: usize = 0;
+            while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+                const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+                extra_index += 1;
+                const body_len = sema.code.extra[extra_index];
+                extra_index += 1;
+                const body = sema.code.extra[extra_index..][0..body_len];
+                extra_index += body_len;
+
+                // Validation above ensured these will succeed.
+                const item = sema.resolveInst(item_ref) catch unreachable;
+                const item_val = sema.resolveConstValue(&child_block, .unneeded, item) catch unreachable;
+                if (operand_val.eql(item_val)) {
+                    return sema.resolveBlockBody(block, src, &child_block, body, merges);
+                }
+            }
+        }
+        {
+            var multi_i: usize = 0;
+            while (multi_i < multi_cases_len) : (multi_i += 1) {
+                const items_len = sema.code.extra[extra_index];
+                extra_index += 1;
+                const ranges_len = sema.code.extra[extra_index];
+                extra_index += 1;
+                const body_len = sema.code.extra[extra_index];
+                extra_index += 1;
+                const items = sema.code.refSlice(extra_index, items_len);
+                extra_index += items_len;
+                const body = sema.code.extra[extra_index + 2 * ranges_len ..][0..body_len];
+
+                for (items) |item_ref| {
+                    // Validation above ensured these will succeed.
+                    const item = sema.resolveInst(item_ref) catch unreachable;
+                    const item_val = sema.resolveConstValue(&child_block, item.src, item) catch unreachable;
+                    if (operand_val.eql(item_val)) {
+                        return sema.resolveBlockBody(block, src, &child_block, body, merges);
+                    }
+                }
+
+                var range_i: usize = 0;
+                while (range_i < ranges_len) : (range_i += 1) {
+                    const item_first = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+                    extra_index += 1;
+                    const item_last = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+                    extra_index += 1;
+
+                    // Validation above ensured these will succeed.
+                    const first_tv = sema.resolveInstConst(&child_block, .unneeded, item_first) catch unreachable;
+                    const last_tv = sema.resolveInstConst(&child_block, .unneeded, item_last) catch unreachable;
+                    if (Value.compare(operand_val, .gte, first_tv.val) and
+                        Value.compare(operand_val, .lte, last_tv.val))
+                    {
+                        return sema.resolveBlockBody(block, src, &child_block, body, merges);
+                    }
+                }
+
+                extra_index += body_len;
+            }
+        }
+        return sema.resolveBlockBody(block, src, &child_block, special.body, merges);
+    }
+
+    if (scalar_cases_len + multi_cases_len == 0) {
+        return sema.resolveBlockBody(block, src, &child_block, special.body, merges);
+    }
+
+    try sema.requireRuntimeBlock(block, src);
 
     // TODO when reworking AIR memory layout make multi cases get generated as cases,
     // not as part of the "else" block.
@@ -4614,7 +4638,8 @@ fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
 }
 
 fn zirTypeof(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const zir_datas = sema.code.instructions.items(.data);
+    const inst_data = zir_datas[inst].un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     return sema.mod.constType(sema.arena, src, operand.ty);
@@ -5555,15 +5580,7 @@ fn zirFuncExtended(
         const cc_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
         extra_index += 1;
         const cc_tv = try sema.resolveInstConst(block, cc_src, cc_ref);
-        // TODO this needs to resolve other kinds of Value tags rather than
-        // assuming the tag will be .enum_field_index.
-        const cc_field_index = cc_tv.val.castTag(.enum_field_index).?.data;
-        // TODO should `@intToEnum` do this `@intCast` for you?
-        const cc = @intToEnum(
-            std.builtin.CallingConvention,
-            @intCast(@typeInfo(std.builtin.CallingConvention).Enum.tag_type, cc_field_index),
-        );
-        break :blk cc;
+        break :blk cc_tv.val.toEnum(cc_tv.ty, std.builtin.CallingConvention);
     } else .Unspecified;
 
     const align_val: Value = if (small.has_align) blk: {

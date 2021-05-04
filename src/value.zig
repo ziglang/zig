@@ -715,6 +715,15 @@ pub const Value = extern union {
         };
     }
 
+    /// Asserts the type is an enum type.
+    pub fn toEnum(val: Value, enum_ty: Type, comptime E: type) E {
+        // TODO this needs to resolve other kinds of Value tags rather than
+        // assuming the tag will be .enum_field_index.
+        const field_index = val.castTag(.enum_field_index).?.data;
+        // TODO should `@intToEnum` do this `@intCast` for you?
+        return @intToEnum(E, @intCast(@typeInfo(E).Enum.tag_type, field_index));
+    }
+
     /// Asserts the value is an integer.
     pub fn toBigInt(self: Value, space: *BigIntSpace) BigIntConst {
         switch (self.tag()) {
