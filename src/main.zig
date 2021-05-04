@@ -120,7 +120,9 @@ pub fn log(
     std.debug.print(prefix1 ++ prefix2 ++ format ++ "\n", args);
 }
 
-var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{
+    .stack_trace_frames = build_options.mem_leak_frames,
+}){};
 
 pub fn main() anyerror!void {
     const gpa = if (std.builtin.link_libc)

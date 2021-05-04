@@ -86,6 +86,12 @@ pub fn build(b: *Builder) !void {
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
 
+    const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
+        if (strip) break :blk @as(u32, 0);
+        if (mode != .Debug) break :blk 0;
+        break :blk 4;
+    };
+
     const main_file = if (is_stage1) "src/stage1.zig" else "src/main.zig";
 
     var exe = b.addExecutable("zig", main_file);
@@ -96,6 +102,7 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(&exe.step);
     b.default_step.dependOn(&exe.step);
 
+    exe.addBuildOption(u32, "mem_leak_frames", mem_leak_frames);
     exe.addBuildOption(bool, "skip_non_native", skip_non_native);
     exe.addBuildOption(bool, "have_llvm", enable_llvm);
     if (enable_llvm) {
@@ -230,6 +237,7 @@ pub fn build(b: *Builder) !void {
     test_stage2.addBuildOption(bool, "enable_qemu", is_qemu_enabled);
     test_stage2.addBuildOption(bool, "enable_wine", is_wine_enabled);
     test_stage2.addBuildOption(bool, "enable_wasmtime", is_wasmtime_enabled);
+    test_stage2.addBuildOption(u32, "mem_leak_frames", mem_leak_frames * 2);
     test_stage2.addBuildOption(?[]const u8, "glibc_multi_install_dir", glibc_multi_dir);
     test_stage2.addBuildOption([]const u8, "version", version);
 
