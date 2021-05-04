@@ -698,7 +698,7 @@ fn zirStructDecl(
         .val = struct_val,
     });
     struct_obj.* = .{
-        .owner_decl = sema.owner_decl,
+        .owner_decl = new_decl,
         .fields = .{},
         .node_offset = inst_data.src_node,
         .zir_index = inst,
@@ -710,6 +710,9 @@ fn zirStructDecl(
             .file_scope = block.getFileScope(),
         },
     };
+    std.log.scoped(.module).debug("create struct {*} owned by {*} ({s})", .{
+        &struct_obj.namespace, new_decl, new_decl.name,
+    });
     try sema.analyzeStructDecl(new_decl, inst, struct_obj);
     try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclVal(block, src, new_decl);
@@ -757,7 +760,7 @@ fn zirEnumDecl(
         .val = enum_val,
     });
     enum_obj.* = .{
-        .owner_decl = sema.owner_decl,
+        .owner_decl = new_decl,
         .tag_ty = tag_ty,
         .fields = .{},
         .values = .{},
@@ -768,6 +771,9 @@ fn zirEnumDecl(
             .file_scope = block.getFileScope(),
         },
     };
+    std.log.scoped(.module).debug("create enum {*} owned by {*} ({s})", .{
+        &enum_obj.namespace, new_decl, new_decl.name,
+    });
 
     var extra_index: usize = try sema.mod.scanNamespace(
         &enum_obj.namespace,

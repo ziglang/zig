@@ -173,6 +173,8 @@ pub const Decl = struct {
     value_arena: ?*std.heap.ArenaAllocator.State = null,
     /// The direct parent namespace of the Decl.
     /// Reference to externally owned memory.
+    /// In the case of the Decl corresponding to a file, this is
+    /// the namespace of the struct, since there is no parent.
     namespace: *Scope.Namespace,
 
     /// An integer that can be checked against the corresponding incrementing
@@ -279,7 +281,7 @@ pub const Decl = struct {
 
     pub fn destroy(decl: *Decl, module: *Module) void {
         const gpa = module.gpa;
-        log.debug("destroy Decl {s}", .{decl.name});
+        log.debug("destroy Decl {*} ({s})", .{ decl, decl.name });
         decl.clearName(gpa);
         if (decl.has_tv) {
             if (decl.val.castTag(.function)) |payload| {
@@ -469,6 +471,7 @@ pub const EmitH = struct {
 
 /// Represents the data that an explicit error set syntax provides.
 pub const ErrorSet = struct {
+    /// The Decl that corresponds to the error set itself.
     owner_decl: *Decl,
     /// Offset from Decl node index, points to the error set AST node.
     node_offset: i32,
@@ -488,6 +491,7 @@ pub const ErrorSet = struct {
 
 /// Represents the data that a struct declaration provides.
 pub const Struct = struct {
+    /// The Decl that corresponds to the struct itself.
     owner_decl: *Decl,
     /// Set of field names in declaration order.
     fields: std.StringArrayHashMapUnmanaged(Field),
@@ -537,6 +541,7 @@ pub const Struct = struct {
 /// is inferred to be the smallest power of two unsigned int that fits
 /// the number of fields.
 pub const EnumSimple = struct {
+    /// The Decl that corresponds to the enum itself.
     owner_decl: *Decl,
     /// Set of field names in declaration order.
     fields: std.StringArrayHashMapUnmanaged(void),
@@ -555,6 +560,7 @@ pub const EnumSimple = struct {
 /// Represents the data that an enum declaration provides, when there is
 /// at least one tag value explicitly specified, or at least one declaration.
 pub const EnumFull = struct {
+    /// The Decl that corresponds to the enum itself.
     owner_decl: *Decl,
     /// An integer type which is used for the numerical value of the enum.
     /// Whether zig chooses this type or the user specifies it, it is stored here.
@@ -585,6 +591,7 @@ pub const EnumFull = struct {
 /// Extern functions do not have this data structure; they are represented by
 /// the `Decl` only, with a `Value` tag of `extern_fn`.
 pub const Fn = struct {
+    /// The Decl that corresponds to the function itself.
     owner_decl: *Decl,
     /// undefined unless analysis state is `success`.
     body: ir.Body,
@@ -735,6 +742,8 @@ pub const Scope = struct {
 
         pub fn clearDecls(ns: *Namespace, mod: *Module) void {
             const gpa = mod.gpa;
+
+            log.debug("clearDecls {*}", .{ns});
 
             var decls = ns.decls;
             ns.decls = .{};
@@ -2919,12 +2928,12 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
         const test_name = zir.nullTerminatedString(decl_name_index + 1);
         break :name try std.fmt.allocPrintZ(gpa, "test.{s}", .{test_name});
     };
-    log.debug("scan decl {s} is_pub={}", .{ decl_name, is_pub });
 
     // We create a Decl for it regardless of analysis status.
     const gop = try namespace.decls.getOrPut(gpa, decl_name);
     if (!gop.found_existing) {
         const new_decl = try mod.allocateNewDecl(namespace, decl_node);
+        log.debug("scan new decl {*} ({s}) into {*}", .{ new_decl, decl_name, namespace });
         new_decl.src_line = line;
         new_decl.name = decl_name;
         gop.entry.value = new_decl;
@@ -2947,6 +2956,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
         return;
     }
     const decl = gop.entry.value;
+    log.debug("scan existing decl {*} ({s}) of {*}", .{ decl, decl_name, namespace });
     // Update the AST node of the decl; even if its contents are unchanged, it may
     // have been re-ordered.
     const prev_src_node = decl.src_node;
