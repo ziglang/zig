@@ -3435,10 +3435,10 @@ pub const WaitPidResult = struct {
 };
 
 pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
-    const Status = if (builtin.link_libc) c_uint else u32;
+    const Status = if (builtin.link_libc) c_int else u32;
     var status: Status = undefined;
     while (true) {
-        const rc = system.waitpid(pid, &status, flags);
+        const rc = system.waitpid(pid, &status, if (builtin.link_libc) @intCast(c_int, flags) else flags);
         switch (errno(rc)) {
             0 => return .{
                 .pid = @intCast(pid_t, rc),
