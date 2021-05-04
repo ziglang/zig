@@ -7,6 +7,8 @@ const clzsi2 = @import("clzsi2.zig");
 const testing = @import("std").testing;
 
 fn test__clzsi2(a: u32, expected: i32) void {
+    // XXX At high optimization levels this test may be horribly miscompiled if
+    // one of the naked implementations is selected.
     var nakedClzsi2 = clzsi2.__clzsi2;
     var actualClzsi2 = @ptrCast(fn (a: i32) callconv(.C) i32, nakedClzsi2);
     var x = @bitCast(i32, a);
