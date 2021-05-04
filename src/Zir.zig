@@ -523,7 +523,7 @@ pub const Inst = struct {
         /// Uses `un_node`.
         negate_wrap,
         /// Returns the type of a value.
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         typeof,
         /// Given a value which is a pointer, returns the element type.
         /// Uses the `un_node` field.
@@ -1334,7 +1334,7 @@ pub const Inst = struct {
                 .subwrap = .pl_node,
                 .negate = .un_node,
                 .negate_wrap = .un_node,
-                .typeof = .un_tok,
+                .typeof = .un_node,
                 .typeof_elem = .un_node,
                 .typeof_log2_int_type = .un_node,
                 .log2_int_type = .un_node,
