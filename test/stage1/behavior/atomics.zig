@@ -149,9 +149,10 @@ fn testAtomicStore() void {
 }
 
 test "atomicrmw with floats" {
-    if (builtin.arch == .aarch64 or builtin.arch == .arm or builtin.arch == .riscv64) {
+    switch (builtin.arch) {
         // https://github.com/ziglang/zig/issues/4457
-        return error.SkipZigTest;
+        .aarch64, .arm, .thumb, .riscv64 => return error.SkipZigTest,
+        else => {},
     }
     testAtomicRmwFloat();
     comptime testAtomicRmwFloat();

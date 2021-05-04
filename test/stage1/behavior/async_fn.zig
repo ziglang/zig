@@ -110,6 +110,9 @@ test "calling an inferred async function" {
 }
 
 test "@frameSize" {
+    if (builtin.arch == .thumb or builtin.arch == .thumbeb)
+        return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() void {
             {
