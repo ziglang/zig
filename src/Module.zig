@@ -501,7 +501,9 @@ pub const Struct = struct {
     layout: std.builtin.TypeInfo.ContainerLayout,
     status: enum {
         none,
+        field_types_wip,
         have_field_types,
+        layout_wip,
         have_layout,
     },
 

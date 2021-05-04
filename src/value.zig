@@ -118,6 +118,8 @@ pub const Value = extern union {
         enum_field_index,
         @"error",
         error_union,
+        /// An instance of a struct.
+        @"struct",
         /// This is a special value that tracks a set of types that have been stored
         /// to an inferred allocation. It does not support any of the normal value queries.
         inferred_alloc,
@@ -225,6 +227,7 @@ pub const Value = extern union {
                 .float_128 => Payload.Float_128,
                 .@"error" => Payload.Error,
                 .inferred_alloc => Payload.InferredAlloc,
+                .@"struct" => Payload.Struct,
             };
         }
 
@@ -442,6 +445,7 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .@"struct" => @panic("TODO can't copy struct value without knowing the type"),
 
             .inferred_alloc => unreachable,
         }
@@ -521,6 +525,9 @@ pub const Value = extern union {
             .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
+            .@"struct" => {
+                return out_stream.writeAll("(struct value)");
+            },
             .null_value => return out_stream.writeAll("null"),
             .undef => return out_stream.writeAll("undefined"),
             .zero => return out_stream.writeAll("0"),
@@ -701,6 +708,7 @@ pub const Value = extern union {
             .@"error",
             .error_union,
             .empty_struct_value,
+            .@"struct",
             .inferred_alloc,
             .abi_align_default,
             => unreachable,
@@ -1207,6 +1215,7 @@ pub const Value = extern union {
             .call_options_type,
             .export_options_type,
             .extern_options_type,
+            .@"struct",
             => @panic("TODO this hash function looks pretty broken. audit it"),
         }
         return hasher.final();
@@ -1394,6 +1403,7 @@ pub const Value = extern union {
             .@"error",
             .error_union,
             .empty_struct_value,
+            .@"struct",
             .null_value,
             .abi_align_default,
             => false,
@@ -1536,6 +1546,14 @@ pub const Value = extern union {
                 /// `Module.resolvePeerTypes`.
                 stored_inst_list: std.ArrayListUnmanaged(*ir.Inst) = .{},
             },
+        };
+
+        pub const Struct = struct {
+            pub const base_tag = Tag.@"struct";
+
+            base: Payload = .{ .tag = base_tag },
+            /// Field values. The number and type are according to the struct type.
+            data: [*]Value,
         };
     };
 

@@ -1163,7 +1163,6 @@ fn zirValidateStructInitPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Ind
     // Maps field index to field_ptr index of where it was already initialized.
     const found_fields = try gpa.alloc(Zir.Inst.Index, struct_obj.fields.entries.items.len);
     defer gpa.free(found_fields);
-
     mem.set(Zir.Inst.Index, found_fields, 0);
 
     for (instrs) |field_ptr| {
@@ -1190,11 +1189,12 @@ fn zirValidateStructInitPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Ind
 
     var root_msg: ?*Module.ErrorMsg = null;
 
+    // TODO handle default struct field values
     for (found_fields) |field_ptr, i| {
         if (field_ptr != 0) continue;
 
         const field_name = struct_obj.fields.entries.items[i].key;
-        const template = "mising struct field: {s}";
+        const template = "missing struct field: {s}";
         const args = .{field_name};
         if (root_msg) |msg| {
             try mod.errNote(&block.base, struct_init_src, msg, template, args);
@@ -4614,7 +4614,7 @@ fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
 }
 
 fn zirTypeof(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     return sema.mod.constType(sema.arena, src, operand.ty);
@@ -5052,9 +5052,112 @@ fn zirUnionInitPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inner
 }
 
 fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) InnerError!*Inst {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const mod = sema.mod;
+    const gpa = sema.gpa;
+    const zir_datas = sema.code.instructions.items(.data);
+    const inst_data = zir_datas[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.StructInit, inst_data.payload_index);
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirStructInit", .{});
+
+    const first_item = sema.code.extraData(Zir.Inst.StructInit.Item, extra.end).data;
+    const first_field_type_data = zir_datas[first_item.field_type].pl_node;
+    const first_field_type_extra = sema.code.extraData(Zir.Inst.FieldType, first_field_type_data.payload_index).data;
+    const unresolved_struct_type = try sema.resolveType(block, src, first_field_type_extra.container_type);
+    const struct_ty = try sema.resolveTypeFields(block, src, unresolved_struct_type);
+    const struct_obj = struct_ty.castTag(.@"struct").?.data;
+
+    // Maps field index to field_type index of where it was already initialized.
+    // For making sure all fields are accounted for and no fields are duplicated.
+    const found_fields = try gpa.alloc(Zir.Inst.Index, struct_obj.fields.entries.items.len);
+    defer gpa.free(found_fields);
+    mem.set(Zir.Inst.Index, found_fields, 0);
+
+    // The init values to use for the struct instance.
+    const field_inits = try gpa.alloc(*ir.Inst, struct_obj.fields.entries.items.len);
+    defer gpa.free(field_inits);
+
+    var field_i: u32 = 0;
+    var extra_index = extra.end;
+
+    while (field_i < extra.data.fields_len) : (field_i += 1) {
+        const item = sema.code.extraData(Zir.Inst.StructInit.Item, extra_index);
+        extra_index = item.end;
+
+        const field_type_data = zir_datas[item.data.field_type].pl_node;
+        const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_type_data.src_node };
+        const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index).data;
+        const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
+        const field_index = struct_obj.fields.getIndex(field_name) orelse
+            return sema.failWithBadFieldAccess(block, struct_obj, field_src, field_name);
+        if (found_fields[field_index] != 0) {
+            const other_field_type = found_fields[field_index];
+            const other_field_type_data = zir_datas[other_field_type].pl_node;
+            const other_field_src: LazySrcLoc = .{ .node_offset_back2tok = other_field_type_data.src_node };
+            const msg = msg: {
+                const msg = try mod.errMsg(&block.base, field_src, "duplicate field", .{});
+                errdefer msg.destroy(gpa);
+                try mod.errNote(&block.base, other_field_src, msg, "other field here", .{});
+                break :msg msg;
+            };
+            return mod.failWithOwnedErrorMsg(&block.base, msg);
+        }
+        found_fields[field_index] = item.data.field_type;
+        field_inits[field_index] = try sema.resolveInst(item.data.init);
+    }
+
+    var root_msg: ?*Module.ErrorMsg = null;
+
+    for (found_fields) |field_type_inst, i| {
+        if (field_type_inst != 0) continue;
+
+        // Check if the field has a default init.
+        const field = struct_obj.fields.entries.items[i].value;
+        if (field.default_val.tag() == .unreachable_value) {
+            const field_name = struct_obj.fields.entries.items[i].key;
+            const template = "missing struct field: {s}";
+            const args = .{field_name};
+            if (root_msg) |msg| {
+                try mod.errNote(&block.base, src, msg, template, args);
+            } else {
+                root_msg = try mod.errMsg(&block.base, src, template, args);
+            }
+        } else {
+            field_inits[i] = try mod.constInst(sema.arena, src, .{
+                .ty = field.ty,
+                .val = field.default_val,
+            });
+        }
+    }
+    if (root_msg) |msg| {
+        const fqn = try struct_obj.getFullyQualifiedName(gpa);
+        defer gpa.free(fqn);
+        try mod.errNoteNonLazy(
+            struct_obj.srcLoc(),
+            msg,
+            "struct '{s}' declared here",
+            .{fqn},
+        );
+        return mod.failWithOwnedErrorMsg(&block.base, msg);
+    }
+
+    const is_comptime = for (field_inits) |field_init| {
+        if (field_init.value() == null) {
+            break false;
+        }
+    } else true;
+
+    if (is_comptime) {
+        const values = try sema.arena.alloc(Value, field_inits.len);
+        for (field_inits) |field_init, i| {
+            values[i] = field_init.value().?;
+        }
+        return mod.constInst(sema.arena, src, .{
+            .ty = struct_ty,
+            .val = try Value.Tag.@"struct".create(sema.arena, values.ptr),
+        });
+    }
+
+    return mod.fail(&block.base, src, "TODO: Sema.zirStructInit for runtime-known struct values", .{});
 }
 
 fn zirStructInitAnon(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref: bool) InnerError!*Inst {
@@ -6043,17 +6146,18 @@ fn coerce(
             if (inst.ty.zigTypeTag() == .EnumLiteral) {
                 const val = try sema.resolveConstValue(block, inst_src, inst);
                 const bytes = val.castTag(.enum_literal).?.data;
-                const field_index = dest_type.enumFieldIndex(bytes) orelse {
+                const resolved_dest_type = try sema.resolveTypeFields(block, inst_src, dest_type);
+                const field_index = resolved_dest_type.enumFieldIndex(bytes) orelse {
                     const msg = msg: {
                         const msg = try mod.errMsg(
                             &block.base,
                             inst_src,
                             "enum '{}' has no field named '{s}'",
-                            .{ dest_type, bytes },
+                            .{ resolved_dest_type, bytes },
                         );
                         errdefer msg.destroy(sema.gpa);
                         try mod.errNoteNonLazy(
-                            dest_type.declSrcLoc(),
+                            resolved_dest_type.declSrcLoc(),
                             msg,
                             "enum declared here",
                             .{},
@@ -6063,7 +6167,7 @@ fn coerce(
                     return mod.failWithOwnedErrorMsg(&block.base, msg);
                 };
                 return mod.constInst(arena, inst_src, .{
-                    .ty = dest_type,
+                    .ty = resolved_dest_type,
                     .val = try Value.Tag.enum_field_index.create(arena, @intCast(u32, field_index)),
                 });
             }
@@ -6698,21 +6802,39 @@ fn resolveTypeFields(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, ty: Type
             const struct_obj = ty.castTag(.@"struct").?.data;
             switch (struct_obj.status) {
                 .none => {},
-                .have_field_types, .have_layout => return ty,
+                .field_types_wip => {
+                    return sema.mod.fail(&block.base, src, "struct {} depends on itself", .{
+                        ty,
+                    });
+                },
+                .have_field_types, .have_layout, .layout_wip => return ty,
             }
+            struct_obj.status = .field_types_wip;
             try sema.mod.analyzeStructFields(struct_obj);
+            struct_obj.status = .have_field_types;
             return ty;
         },
-        .extern_options => {
-            const extern_options_ty = try sema.getBuiltinType(block, src, "ExternOptions");
-            return sema.resolveTypeFields(block, src, extern_options_ty);
-        },
-        .export_options => {
-            const export_options_ty = try sema.getBuiltinType(block, src, "ExportOptions");
-            return sema.resolveTypeFields(block, src, export_options_ty);
-        },
+        .extern_options => return sema.resolveBuiltinTypeFields(block, src, ty, "ExternOptions"),
+        .export_options => return sema.resolveBuiltinTypeFields(block, src, ty, "ExportOptions"),
+        .atomic_ordering => return sema.resolveBuiltinTypeFields(block, src, ty, "AtomicOrdering"),
+        .atomic_rmw_op => return sema.resolveBuiltinTypeFields(block, src, ty, "AtomicRmwOp"),
+        .calling_convention => return sema.resolveBuiltinTypeFields(block, src, ty, "CallingConvention"),
+        .float_mode => return sema.resolveBuiltinTypeFields(block, src, ty, "FloatMode"),
+        .reduce_op => return sema.resolveBuiltinTypeFields(block, src, ty, "ReduceOp"),
+        .call_options => return sema.resolveBuiltinTypeFields(block, src, ty, "CallOptions"),
         else => return ty,
     }
+}
+
+fn resolveBuiltinTypeFields(
+    sema: *Sema,
+    block: *Scope.Block,
+    src: LazySrcLoc,
+    ty: Type,
+    name: []const u8,
+) InnerError!Type {
+    const resolved_ty = try sema.getBuiltinType(block, src, name);
+    return sema.resolveTypeFields(block, src, resolved_ty);
 }
 
 fn getBuiltinType(
