@@ -58,6 +58,7 @@ stubs_section_index: ?u16 = null,
 stub_helper_section_index: ?u16 = null,
 text_const_section_index: ?u16 = null,
 cstring_section_index: ?u16 = null,
+ustring_section_index: ?u16 = null,
 
 // __DATA_CONST segment sections
 got_section_index: ?u16 = null,
@@ -200,7 +201,6 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.populateMetadata();
     try self.parseInputFiles(files);
     try self.resolveSymbols();
-    // self.printSymbols();
     try self.resolveStubsAndGotEntries();
     try self.updateMetadata();
     try self.sortSections();
@@ -209,8 +209,6 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
     try self.allocateDataSegment();
     self.allocateLinkeditSegment();
     try self.allocateSymbols();
-    try self.writeStubHelperCommon();
-    try self.resolveRelocsAndWriteSections();
     try self.flush();
 }
 
@@ -356,23 +354,43 @@ fn updateMetadata(self: *Zld) !void {
             switch (flags) {
                 macho.S_REGULAR, macho.S_4BYTE_LITERALS, macho.S_8BYTE_LITERALS, macho.S_16BYTE_LITERALS => {
                     if (mem.eql(u8, segname, "__TEXT")) {
-                        if (self.text_const_section_index != null) continue;
+                        if (mem.eql(u8, sectname, "__ustring")) {
+                            if (self.ustring_section_index != null) continue;
 
-                        self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
-                        try text_seg.addSection(self.allocator, .{
-                            .sectname = makeStaticString("__const"),
-                            .segname = makeStaticString("__TEXT"),
-                            .addr = 0,
-                            .size = 0,
-                            .offset = 0,
-                            .@"align" = 0,
-                            .reloff = 0,
-                            .nreloc = 0,
-                            .flags = macho.S_REGULAR,
-                            .reserved1 = 0,
-                            .reserved2 = 0,
-                            .reserved3 = 0,
-                        });
+                            self.ustring_section_index = @intCast(u16, text_seg.sections.items.len);
+                            try text_seg.addSection(self.allocator, .{
+                                .sectname = makeStaticString("__ustring"),
+                                .segname = makeStaticString("__TEXT"),
+                                .addr = 0,
+                                .size = 0,
+                                .offset = 0,
+                                .@"align" = 0,
+                                .reloff = 0,
+                                .nreloc = 0,
+                                .flags = macho.S_REGULAR,
+                                .reserved1 = 0,
+                                .reserved2 = 0,
+                                .reserved3 = 0,
+                            });
+                        } else {
+                            if (self.text_const_section_index != null) continue;
+
+                            self.text_const_section_index = @intCast(u16, text_seg.sections.items.len);
+                            try text_seg.addSection(self.allocator, .{
+                                .sectname = makeStaticString("__const"),
+                                .segname = makeStaticString("__TEXT"),
+                                .addr = 0,
+                                .size = 0,
+                                .offset = 0,
+                                .@"align" = 0,
+                                .reloff = 0,
+                                .nreloc = 0,
+                                .flags = macho.S_REGULAR,
+                                .reserved1 = 0,
+                                .reserved2 = 0,
+                                .reserved3 = 0,
+                            });
+                        }
                     } else if (mem.eql(u8, segname, "__DATA")) {
                         if (!mem.eql(u8, sectname, "__const")) continue;
                         if (self.data_const_section_index != null) continue;
@@ -588,6 +606,50 @@ fn updateMetadata(self: *Zld) !void {
             }, 0);
         }
     }
+
+    tlv_align: {
+        const has_tlv =
+            self.tlv_section_index != null or
+            self.tlv_data_section_index != null or
+            self.tlv_bss_section_index != null;
+
+        if (!has_tlv) break :tlv_align;
+
+        const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+
+        if (self.tlv_section_index) |index| {
+            const sect = &seg.sections.items[index];
+            sect.@"align" = 3; // __thread_vars is always 8byte aligned
+        }
+
+        // Apparently __tlv_data and __tlv_bss need to have matching alignment, so fix it up.
+        // <rdar://problem/24221680> All __thread_data and __thread_bss sections must have same alignment
+        // https://github.com/apple-opensource/ld64/blob/e28c028b20af187a16a7161d89e91868a450cadc/src/ld/ld.cpp#L1172
+        const data_align: u32 = data: {
+            if (self.tlv_data_section_index) |index| {
+                const sect = &seg.sections.items[index];
+                break :data sect.@"align";
+            }
+            break :tlv_align;
+        };
+        const bss_align: u32 = bss: {
+            if (self.tlv_bss_section_index) |index| {
+                const sect = &seg.sections.items[index];
+                break :bss sect.@"align";
+            }
+            break :tlv_align;
+        };
+        const max_align = math.max(data_align, bss_align);
+
+        if (self.tlv_data_section_index) |index| {
+            const sect = &seg.sections.items[index];
+            sect.@"align" = max_align;
+        }
+        if (self.tlv_bss_section_index) |index| {
+            const sect = &seg.sections.items[index];
+            sect.@"align" = max_align;
+        }
+    }
 }
 
 const MatchingSection = struct {
@@ -663,10 +725,17 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
             },
             macho.S_REGULAR => {
                 if (mem.eql(u8, segname, "__TEXT")) {
-                    break :blk .{
-                        .seg = self.text_segment_cmd_index.?,
-                        .sect = self.text_const_section_index.?,
-                    };
+                    if (mem.eql(u8, sectname, "__ustring")) {
+                        break :blk .{
+                            .seg = self.text_segment_cmd_index.?,
+                            .sect = self.ustring_section_index.?,
+                        };
+                    } else {
+                        break :blk .{
+                            .seg = self.text_segment_cmd_index.?,
+                            .sect = self.text_const_section_index.?,
+                        };
+                    }
                 } else if (mem.eql(u8, segname, "__DATA")) {
                     if (mem.eql(u8, sectname, "__data")) {
                         break :blk .{
@@ -712,6 +781,7 @@ fn sortSections(self: *Zld) !void {
             &self.stub_helper_section_index,
             &self.text_const_section_index,
             &self.cstring_section_index,
+            &self.ustring_section_index,
         };
         for (indices) |maybe_index| {
             const new_index: u16 = if (maybe_index.*) |index| blk: {
@@ -1991,6 +2061,9 @@ fn populateMetadata(self: *Zld) !void {
 }
 
 fn flush(self: *Zld) !void {
+    try self.writeStubHelperCommon();
+    try self.resolveRelocsAndWriteSections();
+
     if (self.common_section_index) |index| {
         const seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         const sect = &seg.sections.items[index];
