@@ -1979,20 +1979,26 @@ pub const Tree = struct {
             // asm ("foo" :: [_] "" (y) : "a", "b");
             const last_input = result.inputs[result.inputs.len - 1];
             const rparen = tree.lastToken(last_input);
-            if (token_tags[rparen + 1] == .colon and
-                token_tags[rparen + 2] == .string_literal)
+            var i = rparen + 1;
+            // Allow a (useless) comma right after the closing parenthesis.
+            if (token_tags[i] == .comma) i += 1;
+            if (token_tags[i] == .colon and
+                token_tags[i + 1] == .string_literal)
             {
-                result.first_clobber = rparen + 2;
+                result.first_clobber = i + 1;
             }
         } else {
             // asm ("foo" : [_] "" (x) :: "a", "b");
             const last_output = result.outputs[result.outputs.len - 1];
             const rparen = tree.lastToken(last_output);
-            if (token_tags[rparen + 1] == .colon and
-                token_tags[rparen + 2] == .colon and
-                token_tags[rparen + 3] == .string_literal)
+            var i = rparen + 1;
+            // Allow a (useless) comma right after the closing parenthesis.
+            if (token_tags[i] == .comma) i += 1;
+            if (token_tags[i] == .colon and
+                token_tags[i + 1] == .colon and
+                token_tags[i + 2] == .string_literal)
             {
-                result.first_clobber = rparen + 3;
+                result.first_clobber = i + 2;
             }
         }
 
