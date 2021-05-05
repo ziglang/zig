@@ -282,7 +282,11 @@ test "tcp: create client/listener pair" {
     try listener.bind(ip.Address.initIPv4(IPv4.unspecified, 0));
     try listener.listen(128);
 
-    const binded_address = try listener.getLocalAddress();
+    var binded_address = try listener.getLocalAddress();
+    switch (binded_address) {
+        .ipv4 => |*ipv4| ipv4.host = IPv4.localhost,
+        .ipv6 => |*ipv6| ipv6.host = IPv6.localhost,
+    }
 
     const client = try tcp.Client.init(.ip, os.SOCK_CLOEXEC);
     defer client.deinit();
@@ -302,7 +306,11 @@ test "tcp/client: set read timeout of 1 millisecond on blocking client" {
     try listener.bind(ip.Address.initIPv4(IPv4.unspecified, 0));
     try listener.listen(128);
 
-    const binded_address = try listener.getLocalAddress();
+    var binded_address = try listener.getLocalAddress();
+    switch (binded_address) {
+        .ipv4 => |*ipv4| ipv4.host = IPv4.localhost,
+        .ipv6 => |*ipv6| ipv6.host = IPv6.localhost,
+    }
 
     const client = try tcp.Client.init(.ip, os.SOCK_CLOEXEC);
     defer client.deinit();

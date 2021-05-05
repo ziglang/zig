@@ -6,6 +6,8 @@
 
 const std = @import("../../std.zig");
 
+const fmt = std.fmt;
+
 const IPv4 = std.x.os.IPv4;
 const IPv6 = std.x.os.IPv6;
 const Socket = std.x.os.Socket;
