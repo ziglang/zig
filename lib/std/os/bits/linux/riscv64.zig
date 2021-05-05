@@ -376,6 +376,11 @@ pub const timespec = extern struct {
     tv_nsec: isize,
 };
 
+pub const timeval = extern struct {
+    tv_sec: time_t,
+    tv_usec: i64,
+};
+
 pub const Flock = extern struct {
     l_type: i16,
     l_whence: i16,

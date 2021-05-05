@@ -5,11 +5,12 @@
 // and substantial portions of the software.
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
-const arch = std.Target.current.cpu.arch;
+const arch = @import("builtin").target.cpu.arch;
 usingnamespace @import("../bits.zig");
 
 pub usingnamespace switch (arch) {
     .mips, .mipsel => @import("linux/errno-mips.zig"),
+    .sparc, .sparcel, .sparcv9 => @import("linux/errno-sparc.zig"),
     else => @import("linux/errno-generic.zig"),
 };
 
@@ -31,6 +32,7 @@ pub usingnamespace @import("linux/prctl.zig");
 pub usingnamespace @import("linux/securebits.zig");
 
 const is_mips = arch.isMIPS();
+const is_ppc = arch.isPPC();
 const is_ppc64 = arch.isPPC64();
 const is_sparc = arch.isSPARC();
 
@@ -247,40 +249,78 @@ else
         pub const SIG_SETMASK = 2;
     };
 
-pub const SIGHUP = 1;
-pub const SIGINT = 2;
-pub const SIGQUIT = 3;
-pub const SIGILL = 4;
-pub const SIGTRAP = 5;
-pub const SIGABRT = 6;
-pub const SIGIOT = SIGABRT;
-pub const SIGBUS = 7;
-pub const SIGFPE = 8;
-pub const SIGKILL = 9;
-pub const SIGUSR1 = 10;
-pub const SIGSEGV = 11;
-pub const SIGUSR2 = 12;
-pub const SIGPIPE = 13;
-pub const SIGALRM = 14;
-pub const SIGTERM = 15;
-pub const SIGSTKFLT = 16;
-pub const SIGCHLD = 17;
-pub const SIGCONT = 18;
-pub const SIGSTOP = 19;
-pub const SIGTSTP = 20;
-pub const SIGTTIN = 21;
-pub const SIGTTOU = 22;
-pub const SIGURG = 23;
-pub const SIGXCPU = 24;
-pub const SIGXFSZ = 25;
-pub const SIGVTALRM = 26;
-pub const SIGPROF = 27;
-pub const SIGWINCH = 28;
-pub const SIGIO = 29;
-pub const SIGPOLL = 29;
-pub const SIGPWR = 30;
-pub const SIGSYS = 31;
-pub const SIGUNUSED = SIGSYS;
+pub usingnamespace if (is_sparc) struct {
+    pub const SIGHUP = 1;
+    pub const SIGINT = 2;
+    pub const SIGQUIT = 3;
+    pub const SIGILL = 4;
+    pub const SIGTRAP = 5;
+    pub const SIGABRT = 6;
+    pub const SIGEMT = 7;
+    pub const SIGFPE = 8;
+    pub const SIGKILL = 9;
+    pub const SIGBUS = 10;
+    pub const SIGSEGV = 11;
+    pub const SIGSYS = 12;
+    pub const SIGPIPE = 13;
+    pub const SIGALRM = 14;
+    pub const SIGTERM = 15;
+    pub const SIGURG = 16;
+    pub const SIGSTOP = 17;
+    pub const SIGTSTP = 18;
+    pub const SIGCONT = 19;
+    pub const SIGCHLD = 20;
+    pub const SIGTTIN = 21;
+    pub const SIGTTOU = 22;
+    pub const SIGPOLL = 23;
+    pub const SIGXCPU = 24;
+    pub const SIGXFSZ = 25;
+    pub const SIGVTALRM = 26;
+    pub const SIGPROF = 27;
+    pub const SIGWINCH = 28;
+    pub const SIGLOST = 29;
+    pub const SIGUSR1 = 30;
+    pub const SIGUSR2 = 31;
+    pub const SIGIOT = SIGABRT;
+    pub const SIGCLD = SIGCHLD;
+    pub const SIGPWR = SIGLOST;
+    pub const SIGIO = SIGPOLL;
+} else struct {
+    pub const SIGHUP = 1;
+    pub const SIGINT = 2;
+    pub const SIGQUIT = 3;
+    pub const SIGILL = 4;
+    pub const SIGTRAP = 5;
+    pub const SIGABRT = 6;
+    pub const SIGIOT = SIGABRT;
+    pub const SIGBUS = 7;
+    pub const SIGFPE = 8;
+    pub const SIGKILL = 9;
+    pub const SIGUSR1 = 10;
+    pub const SIGSEGV = 11;
+    pub const SIGUSR2 = 12;
+    pub const SIGPIPE = 13;
+    pub const SIGALRM = 14;
+    pub const SIGTERM = 15;
+    pub const SIGSTKFLT = 16;
+    pub const SIGCHLD = 17;
+    pub const SIGCONT = 18;
+    pub const SIGSTOP = 19;
+    pub const SIGTSTP = 20;
+    pub const SIGTTIN = 21;
+    pub const SIGTTOU = 22;
+    pub const SIGURG = 23;
+    pub const SIGXCPU = 24;
+    pub const SIGXFSZ = 25;
+    pub const SIGVTALRM = 26;
+    pub const SIGPROF = 27;
+    pub const SIGWINCH = 28;
+    pub const SIGIO = 29;
+    pub const SIGPOLL = 29;
+    pub const SIGPWR = 30;
+    pub const SIGSYS = 31;
+    pub const SIGUNUSED = SIGSYS;
+};
 
 pub const O_RDONLY = 0o0;
 pub const O_WRONLY = 0o1;
@@ -419,7 +459,39 @@ pub const AF_QIPCRTR = PF_QIPCRTR;
 pub const AF_SMC = PF_SMC;
 pub const AF_MAX = PF_MAX;
 
-pub usingnamespace if (!is_mips)
+pub usingnamespace if (is_mips)
+    struct {}
+else if (is_ppc or is_ppc64)
+    struct {
+        pub const SO_DEBUG = 1;
+        pub const SO_REUSEADDR = 2;
+        pub const SO_TYPE = 3;
+        pub const SO_ERROR = 4;
+        pub const SO_DONTROUTE = 5;
+        pub const SO_BROADCAST = 6;
+        pub const SO_SNDBUF = 7;
+        pub const SO_RCVBUF = 8;
+        pub const SO_KEEPALIVE = 9;
+        pub const SO_OOBINLINE = 10;
+        pub const SO_NO_CHECK = 11;
+        pub const SO_PRIORITY = 12;
+        pub const SO_LINGER = 13;
+        pub const SO_BSDCOMPAT = 14;
+        pub const SO_REUSEPORT = 15;
+        pub const SO_RCVLOWAT = 16;
+        pub const SO_SNDLOWAT = 17;
+        pub const SO_RCVTIMEO = 18;
+        pub const SO_SNDTIMEO = 19;
+        pub const SO_PASSCRED = 20;
+        pub const SO_PEERCRED = 21;
+        pub const SO_ACCEPTCONN = 30;
+        pub const SO_PEERSEC = 31;
+        pub const SO_SNDBUFFORCE = 32;
+        pub const SO_RCVBUFFORCE = 33;
+        pub const SO_PROTOCOL = 38;
+        pub const SO_DOMAIN = 39;
+    }
+else
     struct {
         pub const SO_DEBUG = 1;
         pub const SO_REUSEADDR = 2;
@@ -448,9 +520,7 @@ pub usingnamespace if (!is_mips)
         pub const SO_RCVBUFFORCE = 33;
         pub const SO_PROTOCOL = 38;
         pub const SO_DOMAIN = 39;
-    }
-else
-    struct {};
+    };
 
 pub const SO_SECURITY_AUTHENTICATION = 22;
 pub const SO_SECURITY_ENCRYPTION_TRANSPORT = 23;

@@ -239,6 +239,28 @@ const llvm_targets = [_]LlvmTarget{
                     "zcz_fp",
                 },
             },
+            .{
+                .llvm_name = null,
+                .zig_name = "xgene1",
+                .features = &.{
+                    "fp_armv8",
+                    "neon",
+                    "perfmon",
+                    "v8a",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "emag",
+                .features = &.{
+                    "crc",
+                    "crypto",
+                    "fp_armv8",
+                    "neon",
+                    "perfmon",
+                    "v8a",
+                },
+            },
         },
     },
     .{

@@ -4,7 +4,7 @@ set -x
 set -e
 
 sudo pkg update -fq
-sudo pkg install -y cmake py37-s3cmd wget curl jq samurai
+sudo pkg install -y cmake py38-s3cmd wget curl jq samurai
 
 ZIGDIR="$(pwd)"
 CACHE_BASENAME="zig+llvm+lld+clang-x86_64-freebsd-gnu-0.8.0-dev.1939+5a3ea9bec"

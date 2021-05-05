@@ -9,6 +9,7 @@
 const std = @import("../../../std.zig");
 const linux = std.os.linux;
 const socklen_t = linux.socklen_t;
+const sockaddr = linux.sockaddr;
 const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
 const uid_t = linux.uid_t;
