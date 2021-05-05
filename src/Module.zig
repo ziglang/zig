@@ -438,11 +438,22 @@ pub const Decl = struct {
 
     /// If the Decl has a value and it is a struct, return it,
     /// otherwise null.
-    pub fn getStruct(decl: Decl) ?*Struct {
+    pub fn getStruct(decl: *Decl) ?*Struct {
         if (!decl.has_tv) return null;
         const ty = (decl.val.castTag(.ty) orelse return null).data;
         const struct_obj = (ty.castTag(.@"struct") orelse return null).data;
+        if (struct_obj.owner_decl != decl) return null;
         return struct_obj;
+    }
+
+    /// If the Decl has a value and it is a function, return it,
+    /// otherwise null.
+    pub fn getFunction(decl: *Decl) ?*Fn {
+        if (!decl.has_tv) return null;
+        if (decl.ty.zigTypeTag() != .Fn) return null;
+        const func = (decl.val.castTag(.function) orelse return null).data;
+        if (func.owner_decl != decl) return null;
+        return func;
     }
 
     pub fn dump(decl: *Decl) void {
@@ -2378,6 +2389,7 @@ const UpdateChangeList = struct {
 
 /// Patch ups:
 /// * Struct.zir_index
+/// * Fn.zir_body_inst
 /// * Decl.zir_decl_index
 /// * Decl.name
 /// * Namespace.decl keys
@@ -2454,6 +2466,13 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !UpdateChange
             };
         }
 
+        if (decl.getFunction()) |func| {
+            func.zir_body_inst = inst_map.get(func.zir_body_inst) orelse {
+                try deleted_decls.append(gpa, decl);
+                continue;
+            };
+        }
+
         if (decl.val.getTypeNamespace()) |namespace| {
             for (namespace.decls.items()) |*entry| {
                 const sub_decl = entry.value;
@@ -2503,6 +2522,11 @@ pub fn mapOldZirToNew(
         .new_inst = new_main_struct_inst,
     });
 
+    var old_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
+    defer old_decls.deinit();
+    var new_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
+    defer new_decls.deinit();
+
     while (match_stack.popOrNull()) |match_item| {
         try inst_map.put(gpa, match_item.old_inst, match_item.new_inst);
 
@@ -2523,16 +2547,17 @@ pub fn mapOldZirToNew(
             const new_extra_index = new_decl.sub_index;
             try extra_map.put(gpa, old_extra_index, new_extra_index);
 
-            //var old_it = declInstIterator(old_zir, old_extra_index);
-            //var new_it = declInstIterator(new_zir, new_extra_index);
-            //while (true) {
-            //    const old_decl_inst = old_it.next() orelse break;
-            //    const new_decl_inst = new_it.next() orelse break;
-            //    try match_stack.append(gpa, .{
-            //        .old_inst = old_decl_inst,
-            //        .new_inst = new_decl_inst,
-            //    });
-            //}
+            try old_zir.findDecls(&old_decls, old_extra_index);
+            try new_zir.findDecls(&new_decls, new_extra_index);
+            var i: usize = 0;
+            while (true) : (i += 1) {
+                if (i >= old_decls.items.len) break;
+                if (i >= new_decls.items.len) break;
+                try match_stack.append(gpa, .{
+                    .old_inst = old_decls.items[i],
+                    .new_inst = new_decls.items[i],
+                });
+            }
         }
     }
 }

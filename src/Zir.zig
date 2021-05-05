@@ -4427,6 +4427,15 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
             };
         },
 
+        // Functions are allowed and yield no iterations.
+        .func,
+        .func_inferred,
+        .extended, // assume also a function
+        => .{
+            .extra_index = 0,
+            .decls_len = 0,
+        },
+
         else => unreachable,
     };
 
@@ -4440,4 +4449,111 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
         .decl_i = 0,
         .decls_len = decl_info.decls_len,
     };
+}
+
+/// The iterator would have to allocate memory anyway to iterate. So here we populate
+/// an ArrayList as the result.
+pub fn findDecls(zir: Zir, list: *std.ArrayList(Zir.Inst.Index), decl_sub_index: u32) !void {
+    const block_inst = zir.extra[decl_sub_index + 6];
+    list.clearRetainingCapacity();
+
+    return zir.findDeclsInner(list, block_inst);
+}
+
+fn findDeclsInner(
+    zir: Zir,
+    list: *std.ArrayList(Zir.Inst.Index),
+    inst: Zir.Inst.Index,
+) Allocator.Error!void {
+    const tags = zir.instructions.items(.tag);
+    const datas = zir.instructions.items(.data);
+
+    switch (tags[inst]) {
+        // Decl instructions are interesting but have no body.
+        .struct_decl,
+        .struct_decl_packed,
+        .struct_decl_extern,
+        .union_decl,
+        .union_decl_packed,
+        .union_decl_extern,
+        .enum_decl,
+        .enum_decl_nonexhaustive,
+        .opaque_decl,
+        => return list.append(inst),
+
+        // Functions instructions are interesting and have a body.
+        .func,
+        .func_inferred,
+        => {
+            try list.append(inst);
+
+            const inst_data = datas[inst].pl_node;
+            const extra = zir.extraData(Inst.Func, inst_data.payload_index);
+            const param_types_len = extra.data.param_types_len;
+            const body = zir.extra[extra.end + param_types_len ..][0..extra.data.body_len];
+            return zir.findDeclsBody(list, body);
+        },
+        .extended => {
+            const extended = datas[inst].extended;
+            if (extended.opcode != .func) return;
+
+            try list.append(inst);
+
+            const extra = zir.extraData(Inst.ExtendedFunc, extended.operand);
+            const small = @bitCast(Inst.ExtendedFunc.Small, extended.small);
+            var extra_index: usize = extra.end;
+            extra_index += @boolToInt(small.has_lib_name);
+            extra_index += @boolToInt(small.has_cc);
+            extra_index += @boolToInt(small.has_align);
+            extra_index += extra.data.param_types_len;
+            const body = zir.extra[extra_index..][0..extra.data.body_len];
+            return zir.findDeclsBody(list, body);
+        },
+
+        // Block instructions, recurse over the bodies.
+
+        .block, .block_inline => {
+            const inst_data = datas[inst].pl_node;
+            const extra = zir.extraData(Inst.Block, inst_data.payload_index);
+            const body = zir.extra[extra.end..][0..extra.data.body_len];
+            return zir.findDeclsBody(list, body);
+        },
+        .condbr, .condbr_inline => {
+            const inst_data = datas[inst].pl_node;
+            const extra = zir.extraData(Inst.CondBr, inst_data.payload_index);
+            const then_body = zir.extra[extra.end..][0..extra.data.then_body_len];
+            const else_body = zir.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+            try zir.findDeclsBody(list, then_body);
+            try zir.findDeclsBody(list, else_body);
+        },
+        .switch_block,
+        .switch_block_else,
+        .switch_block_under,
+        .switch_block_ref,
+        .switch_block_ref_else,
+        .switch_block_ref_under,
+        => @panic("TODO iterate switch block"),
+
+        .switch_block_multi,
+        .switch_block_else_multi,
+        .switch_block_under_multi,
+        .switch_block_ref_multi,
+        .switch_block_ref_else_multi,
+        .switch_block_ref_under_multi,
+        => @panic("TODO iterate switch block multi"),
+
+        .suspend_block => @panic("TODO iterate suspend block"),
+
+        else => return, // Regular instruction, not interesting.
+    }
+}
+
+fn findDeclsBody(
+    zir: Zir,
+    list: *std.ArrayList(Zir.Inst.Index),
+    body: []const Zir.Inst.Index,
+) Allocator.Error!void {
+    for (body) |member| {
+        try zir.findDeclsInner(list, member);
+    }
 }
