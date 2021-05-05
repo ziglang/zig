@@ -28,13 +28,13 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Incorrect return type
         case.addError(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\}
         , &[_][]const u8{":2:1: error: expected noreturn, found void"});
 
         // Regular old hello world
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print();
             \\
             \\    exit();

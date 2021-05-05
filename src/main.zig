@@ -72,6 +72,7 @@ const debug_usage = normal_usage ++
     \\Debug Commands:
     \\
     \\  astgen           Print ZIR code for a .zig source file
+    \\  changelist       Compute mappings from old ZIR to new ZIR
     \\
 ;
 
@@ -231,6 +232,8 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         return io.getStdOut().writeAll(usage);
     } else if (debug_extensions_enabled and mem.eql(u8, cmd, "astgen")) {
         return cmdAstgen(gpa, arena, cmd_args);
+    } else if (debug_extensions_enabled and mem.eql(u8, cmd, "changelist")) {
+        return cmdChangelist(gpa, arena, cmd_args);
     } else {
         std.log.info("{s}", .{usage});
         fatal("unknown command: {s}", .{args[1]});
@@ -3617,4 +3620,143 @@ pub fn cmdAstgen(
     }
 
     return Zir.renderAsTextToFile(gpa, &file, io.getStdOut());
+}
+
+/// This is only enabled for debug builds.
+pub fn cmdChangelist(
+    gpa: *Allocator,
+    arena: *Allocator,
+    args: []const []const u8,
+) !void {
+    const Module = @import("Module.zig");
+    const AstGen = @import("AstGen.zig");
+    const Zir = @import("Zir.zig");
+
+    const old_source_file = args[0];
+    const new_source_file = args[1];
+
+    var f = try fs.cwd().openFile(old_source_file, .{});
+    defer f.close();
+
+    const stat = try f.stat();
+
+    if (stat.size > max_src_size)
+        return error.FileTooBig;
+
+    var file: Module.Scope.File = .{
+        .status = .never_loaded,
+        .source_loaded = false,
+        .tree_loaded = false,
+        .zir_loaded = false,
+        .sub_file_path = old_source_file,
+        .source = undefined,
+        .stat_size = stat.size,
+        .stat_inode = stat.inode,
+        .stat_mtime = stat.mtime,
+        .tree = undefined,
+        .zir = undefined,
+        .pkg = undefined,
+        .namespace = undefined,
+    };
+
+    const source = try arena.allocSentinel(u8, stat.size, 0);
+    const amt = try f.readAll(source);
+    if (amt != stat.size)
+        return error.UnexpectedEndOfFile;
+    file.source = source;
+    file.source_loaded = true;
+
+    file.tree = try std.zig.parse(gpa, file.source);
+    file.tree_loaded = true;
+    defer file.tree.deinit(gpa);
+
+    for (file.tree.errors) |parse_error| {
+        try printErrMsgToFile(gpa, parse_error, file.tree, old_source_file, io.getStdErr(), .auto);
+    }
+    if (file.tree.errors.len != 0) {
+        process.exit(1);
+    }
+
+    file.zir = try AstGen.generate(gpa, file.tree);
+    file.zir_loaded = true;
+    defer file.zir.deinit(gpa);
+
+    if (file.zir.hasCompileErrors()) {
+        var errors = std.ArrayList(Compilation.AllErrors.Message).init(arena);
+        try Compilation.AllErrors.addZir(arena, &errors, &file);
+        const ttyconf = std.debug.detectTTYConfig();
+        for (errors.items) |full_err_msg| {
+            full_err_msg.renderToStdErr(ttyconf);
+        }
+        process.exit(1);
+    }
+
+    var new_f = try fs.cwd().openFile(new_source_file, .{});
+    defer new_f.close();
+
+    const new_stat = try new_f.stat();
+
+    if (new_stat.size > max_src_size)
+        return error.FileTooBig;
+
+    const new_source = try arena.allocSentinel(u8, new_stat.size, 0);
+    const new_amt = try new_f.readAll(new_source);
+    if (new_amt != new_stat.size)
+        return error.UnexpectedEndOfFile;
+
+    var new_tree = try std.zig.parse(gpa, new_source);
+    defer new_tree.deinit(gpa);
+
+    for (new_tree.errors) |parse_error| {
+        try printErrMsgToFile(gpa, parse_error, new_tree, new_source_file, io.getStdErr(), .auto);
+    }
+    if (new_tree.errors.len != 0) {
+        process.exit(1);
+    }
+
+    var old_zir = file.zir;
+    defer old_zir.deinit(gpa);
+    file.zir_loaded = false;
+    file.zir = try AstGen.generate(gpa, new_tree);
+    file.zir_loaded = true;
+
+    if (file.zir.hasCompileErrors()) {
+        var errors = std.ArrayList(Compilation.AllErrors.Message).init(arena);
+        try Compilation.AllErrors.addZir(arena, &errors, &file);
+        const ttyconf = std.debug.detectTTYConfig();
+        for (errors.items) |full_err_msg| {
+            full_err_msg.renderToStdErr(ttyconf);
+        }
+        process.exit(1);
+    }
+
+    var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
+    defer inst_map.deinit(gpa);
+
+    var extra_map: std.AutoHashMapUnmanaged(u32, u32) = .{};
+    defer extra_map.deinit(gpa);
+
+    try Module.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map, &extra_map);
+
+    var bw = io.bufferedWriter(io.getStdOut().writer());
+    const stdout = bw.writer();
+    {
+        try stdout.print("Instruction mappings:\n", .{});
+        var it = inst_map.iterator();
+        while (it.next()) |entry| {
+            try stdout.print(" %{d} => %{d}\n", .{
+                entry.key, entry.value,
+            });
+        }
+    }
+    {
+        try stdout.print("Extra mappings:\n", .{});
+        var it = extra_map.iterator();
+        while (it.next()) |entry| {
+            try stdout.print(" {d} => {d}\n", .{
+                entry.key, entry.value,
+            });
+        }
+    }
+    try bw.flush();
 }

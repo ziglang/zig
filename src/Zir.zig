@@ -3702,6 +3702,8 @@ const Writer = struct {
             const has_section = @truncate(u1, cur_bit_bag) != 0;
             cur_bit_bag >>= 1;
 
+            const sub_index = extra_index;
+
             const hash_u32s = self.code.extra[extra_index..][0..4];
             extra_index += 4;
             const line = self.code.extra[extra_index];
@@ -3738,8 +3740,8 @@ const Writer = struct {
                     raw_decl_name;
                 const test_str = if (raw_decl_name.len == 0) "test " else "";
                 const export_str = if (is_exported) "export " else "";
-                try stream.print("{s}{s}{s}{}", .{
-                    pub_str, test_str, export_str, std.zig.fmtId(decl_name),
+                try stream.print("[{d}] {s}{s}{s}{}", .{
+                    sub_index, pub_str, test_str, export_str, std.zig.fmtId(decl_name),
                 });
                 if (align_inst != .none) {
                     try stream.writeAll(" align(");
@@ -4334,3 +4336,108 @@ const Writer = struct {
         }
     }
 };
+
+pub const DeclIterator = struct {
+    extra_index: usize,
+    bit_bag_index: usize,
+    cur_bit_bag: u32,
+    decl_i: u32,
+    decls_len: u32,
+    zir: Zir,
+
+    pub const Item = struct {
+        name: [:0]const u8,
+        sub_index: u32,
+    };
+
+    pub fn next(it: *DeclIterator) ?Item {
+        if (it.decl_i >= it.decls_len) return null;
+
+        if (it.decl_i % 8 == 0) {
+            it.cur_bit_bag = it.zir.extra[it.bit_bag_index];
+            it.bit_bag_index += 1;
+        }
+        it.decl_i += 1;
+
+        const flags = @truncate(u4, it.cur_bit_bag);
+        it.cur_bit_bag >>= 4;
+
+        const sub_index = @intCast(u32, it.extra_index);
+        it.extra_index += 5; // src_hash(4) + line(1)
+        const name = it.zir.nullTerminatedString(it.zir.extra[it.extra_index]);
+        it.extra_index += 2; // name(1) + value(1)
+        it.extra_index += @truncate(u1, flags >> 2);
+        it.extra_index += @truncate(u1, flags >> 3);
+
+        return Item{
+            .sub_index = sub_index,
+            .name = name,
+        };
+    }
+};
+
+pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
+    const tags = zir.instructions.items(.tag);
+    const datas = zir.instructions.items(.data);
+    const decl_info: struct {
+        extra_index: usize,
+        decls_len: u32,
+    } = switch (tags[decl_inst]) {
+        .struct_decl,
+        .struct_decl_packed,
+        .struct_decl_extern,
+        => blk: {
+            const inst_data = datas[decl_inst].pl_node;
+            const extra = zir.extraData(Inst.StructDecl, inst_data.payload_index);
+            break :blk .{
+                .extra_index = extra.end,
+                .decls_len = extra.data.decls_len,
+            };
+        },
+
+        .union_decl,
+        .union_decl_packed,
+        .union_decl_extern,
+        => blk: {
+            const inst_data = datas[decl_inst].pl_node;
+            const extra = zir.extraData(Inst.UnionDecl, inst_data.payload_index);
+            break :blk .{
+                .extra_index = extra.end,
+                .decls_len = extra.data.decls_len,
+            };
+        },
+
+        .enum_decl,
+        .enum_decl_nonexhaustive,
+        => blk: {
+            const inst_data = datas[decl_inst].pl_node;
+            const extra = zir.extraData(Inst.EnumDecl, inst_data.payload_index);
+            break :blk .{
+                .extra_index = extra.end,
+                .decls_len = extra.data.decls_len,
+            };
+        },
+
+        .opaque_decl => blk: {
+            const inst_data = datas[decl_inst].pl_node;
+            const extra = zir.extraData(Inst.OpaqueDecl, inst_data.payload_index);
+            break :blk .{
+                .extra_index = extra.end,
+                .decls_len = extra.data.decls_len,
+            };
+        },
+
+        else => unreachable,
+    };
+
+    const bit_bags_count = std.math.divCeil(usize, decl_info.decls_len, 8) catch unreachable;
+
+    return .{
+        .zir = zir,
+        .extra_index = decl_info.extra_index + bit_bags_count,
+        .bit_bag_index = decl_info.extra_index,
+        .cur_bit_bag = undefined,
+        .decl_i = 0,
+        .decls_len = decl_info.decls_len,
+    };
+}

@@ -190,6 +190,7 @@ pub const Decl = struct {
     /// Index to ZIR `extra` array to the entry in the parent's decl structure
     /// (the part that says "for every decls_len"). The first item at this index is
     /// the contents hash, followed by line, name, etc.
+    /// For anonymous decls and also the root Decl for a File, this is 0.
     zir_decl_index: Zir.Inst.Index,
 
     /// Represents the "shallow" analysis status. For example, for decls that are functions,
@@ -329,6 +330,7 @@ pub const Decl = struct {
     }
 
     pub fn getNameZir(decl: Decl, zir: Zir) ?[:0]const u8 {
+        assert(decl.zir_decl_index != 0);
         const name_index = zir.extra[decl.zir_decl_index + 5];
         if (name_index <= 1) return null;
         return zir.nullTerminatedString(name_index);
@@ -340,24 +342,28 @@ pub const Decl = struct {
     }
 
     pub fn contentsHashZir(decl: Decl, zir: Zir) std.zig.SrcHash {
+        assert(decl.zir_decl_index != 0);
         const hash_u32s = zir.extra[decl.zir_decl_index..][0..4];
         const contents_hash = @bitCast(std.zig.SrcHash, hash_u32s.*);
         return contents_hash;
     }
 
     pub fn zirBlockIndex(decl: Decl) Zir.Inst.Index {
+        assert(decl.zir_decl_index != 0);
         const zir = decl.namespace.file_scope.zir;
         return zir.extra[decl.zir_decl_index + 6];
     }
 
     pub fn zirAlignRef(decl: Decl) Zir.Inst.Ref {
         if (!decl.has_align) return .none;
+        assert(decl.zir_decl_index != 0);
         const zir = decl.namespace.file_scope.zir;
         return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 6]);
     }
 
     pub fn zirLinksectionRef(decl: Decl) Zir.Inst.Ref {
         if (!decl.has_linksection) return .none;
+        assert(decl.zir_decl_index != 0);
         const zir = decl.namespace.file_scope.zir;
         const extra_index = decl.zir_decl_index + 6 + @boolToInt(decl.has_align);
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
@@ -428,6 +434,15 @@ pub const Decl = struct {
     pub fn isFunction(decl: *Decl) !bool {
         const tv = try decl.typedValue();
         return tv.ty.zigTypeTag() == .Fn;
+    }
+
+    /// If the Decl has a value and it is a struct, return it,
+    /// otherwise null.
+    pub fn getStruct(decl: Decl) ?*Struct {
+        if (!decl.has_tv) return null;
+        const ty = (decl.val.castTag(.ty) orelse return null).data;
+        const struct_obj = (ty.castTag(.@"struct") orelse return null).data;
+        return struct_obj;
     }
 
     pub fn dump(decl: *Decl) void {
@@ -2335,7 +2350,8 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
         // We do not need to hold any locks at this time because all the Decl and Namespace
         // objects being touched are specific to this File, and the only other concurrent
         // tasks are touching other File objects.
-        @panic("TODO implement update references from old ZIR to new ZIR");
+        const change_list = try updateZirRefs(gpa, file, prev_zir);
+        @panic("TODO do something with change_list");
     }
 
     // TODO don't report compile errors until Sema @importFile
@@ -2347,6 +2363,177 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
         }
         file.status = .astgen_failure;
         return error.AnalysisFail;
+    }
+}
+
+const UpdateChangeList = struct {
+    deleted: []*const Decl,
+    outdated: []*const Decl,
+
+    fn deinit(self: *UpdateChangeList, gpa: *Allocator) void {
+        gpa.free(self.deleted);
+        gpa.free(self.outdated);
+    }
+};
+
+/// Patch ups:
+/// * Struct.zir_index
+/// * Decl.zir_decl_index
+/// * Decl.name
+/// * Namespace.decl keys
+fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !UpdateChangeList {
+    const new_zir = file.zir;
+
+    // Maps from old ZIR to new ZIR, struct_decl, enum_decl, etc. Any instruction which
+    // creates a namespace, gets mapped from old to new here.
+    var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
+    defer inst_map.deinit(gpa);
+    // Maps from old ZIR to new ZIR, the extra data index for the sub-decl item.
+    // e.g. the thing that Decl.zir_decl_index points to.
+    var extra_map: std.AutoHashMapUnmanaged(u32, u32) = .{};
+    defer extra_map.deinit(gpa);
+
+    try mapOldZirToNew(gpa, old_zir, new_zir, &inst_map, &extra_map);
+
+    // Build string table for new ZIR.
+    var string_table: std.StringHashMapUnmanaged(u32) = .{};
+    defer string_table.deinit(gpa);
+    {
+        var i: usize = 2;
+        while (i < new_zir.string_bytes.len) {
+            const string = new_zir.nullTerminatedString(i);
+            try string_table.put(gpa, string, @intCast(u32, i));
+            i += string.len + 1;
+        }
+    }
+
+    // Walk the Decl graph.
+
+    var decl_stack: std.ArrayListUnmanaged(*Decl) = .{};
+    defer decl_stack.deinit(gpa);
+
+    const root_decl = file.namespace.getDecl();
+    try decl_stack.append(gpa, root_decl);
+
+    var deleted_decls: std.ArrayListUnmanaged(*Decl) = .{};
+    defer deleted_decls.deinit(gpa);
+    var outdated_decls: std.ArrayListUnmanaged(*Decl) = .{};
+    defer outdated_decls.deinit(gpa);
+
+    while (decl_stack.popOrNull()) |decl| {
+        // Anonymous decls and the root decl have this set to 0. We still need
+        // to walk them but we do not need to modify this value.
+        if (decl.zir_decl_index != 0) {
+            decl.zir_decl_index = extra_map.get(decl.zir_decl_index) orelse {
+                try deleted_decls.append(gpa, decl);
+                continue;
+            };
+            const new_name_index = string_table.get(mem.spanZ(decl.name)) orelse {
+                try deleted_decls.append(gpa, decl);
+                continue;
+            };
+            decl.name = new_zir.nullTerminatedString(new_name_index).ptr;
+
+            const old_hash = decl.contentsHashZir(old_zir);
+            const new_hash = decl.contentsHashZir(new_zir);
+            if (!std.zig.srcHashEql(old_hash, new_hash)) {
+                try outdated_decls.append(gpa, decl);
+            }
+        } else {
+            // TODO all decls should probably store source hash. Without this,
+            // we currently unnecessarily mark all anon decls outdated here.
+            try outdated_decls.append(gpa, decl);
+        }
+
+        if (!decl.has_tv) continue;
+
+        if (decl.getStruct()) |struct_obj| {
+            struct_obj.zir_index = inst_map.get(struct_obj.zir_index) orelse {
+                try deleted_decls.append(gpa, decl);
+                continue;
+            };
+        }
+
+        if (decl.val.getTypeNamespace()) |namespace| {
+            for (namespace.decls.items()) |*entry| {
+                const sub_decl = entry.value;
+                if (sub_decl.zir_decl_index != 0) {
+                    const new_key_index = string_table.get(entry.key) orelse {
+                        try deleted_decls.append(gpa, sub_decl);
+                        continue;
+                    };
+                    entry.key = new_zir.nullTerminatedString(new_key_index);
+                }
+                try decl_stack.append(gpa, sub_decl);
+            }
+        }
+    }
+
+    const outdated_slice = outdated_decls.toOwnedSlice(gpa);
+    const deleted_slice = deleted_decls.toOwnedSlice(gpa);
+
+    return UpdateChangeList{
+        .outdated = outdated_slice,
+        .deleted = deleted_slice,
+    };
+}
+
+pub fn mapOldZirToNew(
+    gpa: *Allocator,
+    old_zir: Zir,
+    new_zir: Zir,
+    inst_map: *std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index),
+    extra_map: *std.AutoHashMapUnmanaged(u32, u32),
+) Allocator.Error!void {
+    // Contain ZIR indexes of declaration instructions.
+    const MatchedZirDecl = struct {
+        old_inst: Zir.Inst.Index,
+        new_inst: Zir.Inst.Index,
+    };
+    var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .{};
+    defer match_stack.deinit(gpa);
+
+    const old_main_struct_inst = old_zir.extra[@enumToInt(Zir.ExtraIndex.main_struct)] -
+        @intCast(u32, Zir.Inst.Ref.typed_value_map.len);
+    const new_main_struct_inst = new_zir.extra[@enumToInt(Zir.ExtraIndex.main_struct)] -
+        @intCast(u32, Zir.Inst.Ref.typed_value_map.len);
+
+    try match_stack.append(gpa, .{
+        .old_inst = old_main_struct_inst,
+        .new_inst = new_main_struct_inst,
+    });
+
+    while (match_stack.popOrNull()) |match_item| {
+        try inst_map.put(gpa, match_item.old_inst, match_item.new_inst);
+
+        // Maps name to extra index of decl sub item.
+        var decl_map: std.StringHashMapUnmanaged(u32) = .{};
+        defer decl_map.deinit(gpa);
+
+        {
+            var old_decl_it = old_zir.declIterator(match_item.old_inst);
+            while (old_decl_it.next()) |old_decl| {
+                try decl_map.put(gpa, old_decl.name, old_decl.sub_index);
+            }
+        }
+
+        var new_decl_it = new_zir.declIterator(match_item.new_inst);
+        while (new_decl_it.next()) |new_decl| {
+            const old_extra_index = decl_map.get(new_decl.name) orelse continue;
+            const new_extra_index = new_decl.sub_index;
+            try extra_map.put(gpa, old_extra_index, new_extra_index);
+
+            //var old_it = declInstIterator(old_zir, old_extra_index);
+            //var new_it = declInstIterator(new_zir, new_extra_index);
+            //while (true) {
+            //    const old_decl_inst = old_it.next() orelse break;
+            //    const new_decl_inst = new_it.next() orelse break;
+            //    try match_stack.append(gpa, .{
+            //        .old_inst = old_decl_inst,
+            //        .new_inst = new_decl_inst,
+            //    });
+            //}
+        }
     }
 }
 
@@ -2487,7 +2674,6 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
     new_decl.is_exported = false;
     new_decl.has_align = false;
     new_decl.has_linksection = false;
-    new_decl.zir_decl_index = undefined;
     new_decl.ty = struct_ty;
     new_decl.val = struct_val;
     new_decl.has_tv = true;
@@ -3256,7 +3442,7 @@ fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node
         .linksection_val = undefined,
         .analysis = .unreferenced,
         .deletion_flag = false,
-        .zir_decl_index = undefined,
+        .zir_decl_index = 0,
         .link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = link.File.Coff.TextBlock.empty },
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
