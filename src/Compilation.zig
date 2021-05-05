@@ -232,7 +232,6 @@ pub const CObject = struct {
         pub fn destroy(em: *ErrorMsg, gpa: *Allocator) void {
             gpa.free(em.msg);
             gpa.destroy(em);
-            em.* = undefined;
         }
     };
 
