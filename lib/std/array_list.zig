@@ -294,6 +294,18 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             self.items.len = new_len;
         }
 
+        /// Invalidates all element pointers.
+        pub fn clearRetainingCapacity(self: *Self) void {
+            self.items.len = 0;
+        }
+
+        /// Invalidates all element pointers.
+        pub fn clearAndFree(self: *Self) void {
+            self.allocator.free(self.allocatedSlice());
+            self.items.len = 0;
+            self.capacity = 0;
+        }
+
         /// Deprecated: call `ensureUnusedCapacity` or `ensureTotalCapacity`.
         pub const ensureCapacity = ensureTotalCapacity;
 
@@ -609,6 +621,18 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
             assert(new_len <= self.items.len);
             self.items.len = new_len;
+        }
+
+        /// Invalidates all element pointers.
+        pub fn clearRetainingCapacity(self: *Self) void {
+            self.items.len = 0;
+        }
+
+        /// Invalidates all element pointers.
+        pub fn clearAndFree(self: *Self, allocator: *Allocator) void {
+            allocator.free(self.allocatedSlice());
+            self.items.len = 0;
+            self.capacity = 0;
         }
 
         /// Deprecated: call `ensureUnusedCapacity` or `ensureTotalCapacity`.
