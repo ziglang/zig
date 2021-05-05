@@ -1456,19 +1456,19 @@ test "hash same value different representation" {
         .data = 0,
     };
     const zero_2 = Value.initPayload(&payload_1.base);
-    std.testing.expectEqual(zero_1.hash(), zero_2.hash());
+    try std.testing.expectEqual(zero_1.hash(), zero_2.hash());
 
     var payload_2 = Value.Payload.I64{
         .base = .{ .tag = .int_i64 },
         .data = 0,
     };
     const zero_3 = Value.initPayload(&payload_2.base);
-    std.testing.expectEqual(zero_2.hash(), zero_3.hash());
+    try std.testing.expectEqual(zero_2.hash(), zero_3.hash());
 
     var payload_3 = Value.Payload.BigInt{
         .base = .{ .tag = .int_big_negative },
         .data = &[_]std.math.big.Limb{0},
     };
     const zero_4 = Value.initPayload(&payload_3.base);
-    std.testing.expectEqual(zero_3.hash(), zero_4.hash());
+    try std.testing.expectEqual(zero_3.hash(), zero_4.hash());
 }

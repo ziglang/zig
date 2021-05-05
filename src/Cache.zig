@@ -727,7 +727,7 @@ test "cache file and then recall it" {
             _ = try ch.addFile(temp_file, null);
 
             // There should be nothing in the cache
-            testing.expectEqual(false, try ch.hit());
+            try testing.expectEqual(false, try ch.hit());
 
             digest1 = ch.final();
             try ch.writeManifest();
@@ -742,13 +742,13 @@ test "cache file and then recall it" {
             _ = try ch.addFile(temp_file, null);
 
             // Cache hit! We just "built" the same file
-            testing.expect(try ch.hit());
+            try testing.expect(try ch.hit());
             digest2 = ch.final();
 
             try ch.writeManifest();
         }
 
-        testing.expectEqual(digest1, digest2);
+        try testing.expectEqual(digest1, digest2);
     }
 
     try cwd.deleteTree(temp_manifest_dir);
@@ -760,11 +760,11 @@ test "give problematic timestamp" {
     // to make it problematic, we make it only accurate to the second
     fs_clock = @divTrunc(fs_clock, std.time.ns_per_s);
     fs_clock *= std.time.ns_per_s;
-    testing.expect(isProblematicTimestamp(fs_clock));
+    try testing.expect(isProblematicTimestamp(fs_clock));
 }
 
 test "give nonproblematic timestamp" {
-    testing.expect(!isProblematicTimestamp(std.time.nanoTimestamp() - std.time.ns_per_s));
+    try testing.expect(!isProblematicTimestamp(std.time.nanoTimestamp() - std.time.ns_per_s));
 }
 
 test "check that changing a file makes cache fail" {
@@ -807,9 +807,9 @@ test "check that changing a file makes cache fail" {
             const temp_file_idx = try ch.addFile(temp_file, 100);
 
             // There should be nothing in the cache
-            testing.expectEqual(false, try ch.hit());
+            try testing.expectEqual(false, try ch.hit());
 
-            testing.expect(mem.eql(u8, original_temp_file_contents, ch.files.items[temp_file_idx].contents.?));
+            try testing.expect(mem.eql(u8, original_temp_file_contents, ch.files.items[temp_file_idx].contents.?));
 
             digest1 = ch.final();
 
@@ -826,17 +826,17 @@ test "check that changing a file makes cache fail" {
             const temp_file_idx = try ch.addFile(temp_file, 100);
 
             // A file that we depend on has been updated, so the cache should not contain an entry for it
-            testing.expectEqual(false, try ch.hit());
+            try testing.expectEqual(false, try ch.hit());
 
             // The cache system does not keep the contents of re-hashed input files.
-            testing.expect(ch.files.items[temp_file_idx].contents == null);
+            try testing.expect(ch.files.items[temp_file_idx].contents == null);
 
             digest2 = ch.final();
 
             try ch.writeManifest();
         }
 
-        testing.expect(!mem.eql(u8, digest1[0..], digest2[0..]));
+        try testing.expect(!mem.eql(u8, digest1[0..], digest2[0..]));
     }
 
     try cwd.deleteTree(temp_manifest_dir);
@@ -868,7 +868,7 @@ test "no file inputs" {
         ch.hash.addBytes("1234");
 
         // There should be nothing in the cache
-        testing.expectEqual(false, try ch.hit());
+        try testing.expectEqual(false, try ch.hit());
 
         digest1 = ch.final();
 
@@ -880,12 +880,12 @@ test "no file inputs" {
 
         ch.hash.addBytes("1234");
 
-        testing.expect(try ch.hit());
+        try testing.expect(try ch.hit());
         digest2 = ch.final();
         try ch.writeManifest();
     }
 
-    testing.expectEqual(digest1, digest2);
+    try testing.expectEqual(digest1, digest2);
 }
 
 test "Manifest with files added after initial hash work" {
@@ -926,7 +926,7 @@ test "Manifest with files added after initial hash work" {
             _ = try ch.addFile(temp_file1, null);
 
             // There should be nothing in the cache
-            testing.expectEqual(false, try ch.hit());
+            try testing.expectEqual(false, try ch.hit());
 
             _ = try ch.addFilePost(temp_file2);
 
@@ -940,12 +940,12 @@ test "Manifest with files added after initial hash work" {
             ch.hash.addBytes("1234");
             _ = try ch.addFile(temp_file1, null);
 
-            testing.expect(try ch.hit());
+            try testing.expect(try ch.hit());
             digest2 = ch.final();
 
             try ch.writeManifest();
         }
-        testing.expect(mem.eql(u8, &digest1, &digest2));
+        try testing.expect(mem.eql(u8, &digest1, &digest2));
 
         // Modify the file added after initial hash
         const ts2 = std.time.nanoTimestamp();
@@ -963,7 +963,7 @@ test "Manifest with files added after initial hash work" {
             _ = try ch.addFile(temp_file1, null);
 
             // A file that we depend on has been updated, so the cache should not contain an entry for it
-            testing.expectEqual(false, try ch.hit());
+            try testing.expectEqual(false, try ch.hit());
 
             _ = try ch.addFilePost(temp_file2);
 
@@ -972,7 +972,7 @@ test "Manifest with files added after initial hash work" {
             try ch.writeManifest();
         }
 
-        testing.expect(!mem.eql(u8, &digest1, &digest3));
+        try testing.expect(!mem.eql(u8, &digest1, &digest3));
     }
 
     try cwd.deleteTree(temp_manifest_dir);

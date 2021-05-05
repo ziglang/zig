@@ -2852,14 +2852,14 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
 }
 
 test "classifyFileExt" {
-    std.testing.expectEqual(FileExt.cpp, classifyFileExt("foo.cc"));
-    std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.nim"));
-    std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so"));
-    std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1"));
-    std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2"));
-    std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2.3"));
-    std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.so.1.2.3~"));
-    std.testing.expectEqual(FileExt.zig, classifyFileExt("foo.zig"));
+    try std.testing.expectEqual(FileExt.cpp, classifyFileExt("foo.cc"));
+    try std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.nim"));
+    try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so"));
+    try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1"));
+    try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2"));
+    try std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2.3"));
+    try std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.so.1.2.3~"));
+    try std.testing.expectEqual(FileExt.zig, classifyFileExt("foo.zig"));
 }
 
 fn haveFramePointer(comp: *const Compilation) bool {

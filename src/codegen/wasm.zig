@@ -463,11 +463,11 @@ test "Wasm - buildOpcode" {
     const i64_extend32_s = buildOpcode(.{ .op = .extend, .valtype1 = .i64, .width = 32, .signedness = .signed });
     const f64_reinterpret_i64 = buildOpcode(.{ .op = .reinterpret, .valtype1 = .f64, .valtype2 = .i64 });
 
-    testing.expectEqual(@as(wasm.Opcode, .i32_const), i32_const);
-    testing.expectEqual(@as(wasm.Opcode, .end), end);
-    testing.expectEqual(@as(wasm.Opcode, .local_get), local_get);
-    testing.expectEqual(@as(wasm.Opcode, .i64_extend32_s), i64_extend32_s);
-    testing.expectEqual(@as(wasm.Opcode, .f64_reinterpret_i64), f64_reinterpret_i64);
+    try testing.expectEqual(@as(wasm.Opcode, .i32_const), i32_const);
+    try testing.expectEqual(@as(wasm.Opcode, .end), end);
+    try testing.expectEqual(@as(wasm.Opcode, .local_get), local_get);
+    try testing.expectEqual(@as(wasm.Opcode, .i64_extend32_s), i64_extend32_s);
+    try testing.expectEqual(@as(wasm.Opcode, .f64_reinterpret_i64), f64_reinterpret_i64);
 }
 
 pub const Result = union(enum) {
