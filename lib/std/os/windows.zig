@@ -1295,6 +1295,7 @@ pub fn WSASocketW(
             .WSAEMFILE => return error.ProcessFdQuotaExceeded,
             .WSAENOBUFS => return error.SystemResources,
             .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
+            .WSANOTINITIALISED => return error.NotInitialised,
             else => |err| return unexpectedWSAError(err),
         }
     }
