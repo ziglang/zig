@@ -133,6 +133,16 @@ pub fn isUndf(sym: macho.nlist_64) bool {
     return type_ == macho.N_UNDF;
 }
 
+pub fn isIndr(sym: macho.nlist_64) bool {
+    const type_ = macho.N_TYPE & sym.n_type;
+    return type_ == macho.N_INDR;
+}
+
+pub fn isAbs(sym: macho.nlist_64) bool {
+    const type_ = macho.N_TYPE & sym.n_type;
+    return type_ == macho.N_ABS;
+}
+
 pub fn isWeakDef(sym: macho.nlist_64) bool {
     return (sym.n_desc & macho.N_WEAK_DEF) != 0;
 }

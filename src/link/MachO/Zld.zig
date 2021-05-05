@@ -1553,8 +1553,15 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                             // TLV is handled via a separate offset mechanism.
                             // Calculate the offset to the initializer.
                             if (target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES) tlv: {
+                                log.warn("HIT", .{});
+                                log.warn("    | rel {any}", .{rel.cast(reloc.Unsigned).?});
+                                log.warn("    | name {s}", .{rel.target.symbol.name});
+                                log.warn("    | target address 0x{x}", .{args.target_addr});
+
                                 // TODO we don't want to save offset to tlv_bootstrap
                                 if (mem.eql(u8, rel.target.symbol.name, "__tlv_bootstrap")) break :tlv;
+
+                                log.warn("    | object {s}", .{rel.target.symbol.cast(Symbol.Regular).?.file.name.?});
 
                                 const base_addr = blk: {
                                     if (self.tlv_data_section_index) |index| {
@@ -1565,6 +1572,8 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                                         break :blk tlv_bss.addr;
                                     }
                                 };
+                                log.warn("    | base address 0x{x}", .{base_addr});
+                                log.warn("    | offset 0x{x}", .{args.target_addr - base_addr});
                                 // Since we require TLV data to always preceed TLV bss section, we calculate
                                 // offsets wrt to the former if it is defined; otherwise, wrt to the latter.
                                 try self.threadlocal_offsets.append(self.allocator, args.target_addr - base_addr);
