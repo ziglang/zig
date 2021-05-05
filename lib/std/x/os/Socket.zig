@@ -8,6 +8,7 @@ const std = @import("../../std.zig");
 const net = @import("net.zig");
 
 const os = std.os;
+const fmt = std.fmt;
 const mem = std.mem;
 const time = std.time;
 
