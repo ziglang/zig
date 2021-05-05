@@ -75,8 +75,10 @@ pub fn spinLoopHint() callconv(.Inline) void {
         },
         .arm, .armeb, .thumb, .thumbeb => {
             // `yield` was introduced in v6k but are also available on v6m.
-            const can_yield = comptime std.Target.arm.featureSetHas(std.Target.current.cpu.features, .has_v6m);
-            if (can_yield) asm volatile ("yield" ::: "memory");
+            const can_yield = comptime std.Target.arm.featureSetHasAny(std.Target.current.cpu.features, .{ .has_v6k, .has_v6m });
+            if (can_yield) asm volatile ("yield" ::: "memory")
+            // Fallback.
+            else asm volatile ("" ::: "memory");
         },
         .aarch64, .aarch64_be, .aarch64_32 => {
             asm volatile ("isb" ::: "memory");
