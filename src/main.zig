@@ -488,18 +488,20 @@ fn optionalStringEnvVar(arena: *Allocator, name: []const u8) !?[]const u8 {
     }
 }
 
+const ArgMode = union(enum) {
+    build: std.builtin.OutputMode,
+    cc,
+    cpp,
+    translate_c,
+    zig_test,
+    run,
+};
+
 fn buildOutputType(
     gpa: *Allocator,
     arena: *Allocator,
     all_args: []const []const u8,
-    arg_mode: union(enum) {
-        build: std.builtin.OutputMode,
-        cc,
-        cpp,
-        translate_c,
-        zig_test,
-        run,
-    },
+    arg_mode: ArgMode,
 ) !void {
     var color: Color = .auto;
     var optimize_mode: std.builtin.Mode = .Debug;
@@ -1967,108 +1969,21 @@ fn buildOutputType(
         .run, .zig_test => true,
         else => false,
     };
-    if (run_or_test) run: {
-        const exe_loc = emit_bin_loc orelse break :run;
-        const exe_directory = exe_loc.directory orelse comp.bin_file.options.emit.?.directory;
-        const exe_path = try fs.path.join(arena, &[_][]const u8{
-            exe_directory.path orelse ".", exe_loc.basename,
-        });
-
-        var argv = std.ArrayList([]const u8).init(gpa);
-        defer argv.deinit();
-
-        if (test_exec_args.items.len == 0) {
-            if (!std.Target.current.canExecBinariesOf(target_info.target)) {
-                switch (arg_mode) {
-                    .zig_test => {
-                        warn("created {s} but skipping execution because it is non-native", .{exe_path});
-                        if (!watch) return cleanExit();
-                        break :run;
-                    },
-                    .run => fatal("unable to execute {s}: non-native", .{exe_path}),
-                    else => unreachable,
-                }
-            }
-            // when testing pass the zig_exe_path to argv
-            if (arg_mode == .zig_test)
-                try argv.appendSlice(&[_][]const u8{
-                    exe_path, self_exe_path,
-                })
-                // when running just pass the current exe
-            else
-                try argv.appendSlice(&[_][]const u8{
-                    exe_path,
-                });
-        } else {
-            for (test_exec_args.items) |arg| {
-                if (arg) |a| {
-                    try argv.append(a);
-                } else {
-                    try argv.appendSlice(&[_][]const u8{
-                        exe_path, self_exe_path,
-                    });
-                }
-            }
-        }
-        if (runtime_args_start) |i| {
-            try argv.appendSlice(all_args[i..]);
-        }
-        // We do not execve for tests because if the test fails we want to print
-        // the error message and invocation below.
-        if (std.process.can_execv and arg_mode == .run and !watch) {
-            // execv releases the locks; no need to destroy the Compilation here.
-            const err = std.process.execv(gpa, argv.items);
-            const cmd = try argvCmd(arena, argv.items);
-            fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
-        } else {
-            const child = try std.ChildProcess.init(argv.items, gpa);
-            defer child.deinit();
-
-            child.stdin_behavior = .Inherit;
-            child.stdout_behavior = .Inherit;
-            child.stderr_behavior = .Inherit;
-
-            if (!watch) {
-                // Here we release all the locks associated with the Compilation so
-                // that whatever this child process wants to do won't deadlock.
-                comp.destroy();
-                comp_destroyed = true;
-            }
-
-            const term = try child.spawnAndWait();
-            switch (arg_mode) {
-                .run => {
-                    switch (term) {
-                        .Exited => |code| {
-                            if (code == 0) {
-                                if (!watch) return cleanExit();
-                            } else {
-                                // TODO https://github.com/ziglang/zig/issues/6342
-                                process.exit(1);
-                            }
-                        },
-                        else => process.exit(1),
-                    }
-                },
-                .zig_test => {
-                    switch (term) {
-                        .Exited => |code| {
-                            if (code == 0) {
-                                if (!watch) return cleanExit();
-                            } else {
-                                const cmd = try argvCmd(arena, argv.items);
-                                fatal("the following test command failed with exit code {d}:\n{s}", .{ code, cmd });
-                            }
-                        },
-                        else => {
-                            const cmd = try argvCmd(arena, argv.items);
-                            fatal("the following test command crashed:\n{s}", .{cmd});
-                        },
-                    }
-                },
-                else => unreachable,
-            }
-        }
+    if (run_or_test) {
+        try runOrTest(
+            comp,
+            gpa,
+            arena,
+            emit_bin_loc,
+            test_exec_args.items,
+            self_exe_path,
+            arg_mode,
+            target_info.target,
+            watch,
+            &comp_destroyed,
+            all_args,
+            runtime_args_start,
+        );
     }
 
     const stdin = std.io.getStdIn().reader();
@@ -2096,11 +2011,151 @@ fn buildOutputType(
                 break;
             } else if (mem.eql(u8, actual_line, "help")) {
                 try stderr.writeAll(repl_help);
+            } else if (mem.eql(u8, actual_line, "run")) {
+                try runOrTest(
+                    comp,
+                    gpa,
+                    arena,
+                    emit_bin_loc,
+                    test_exec_args.items,
+                    self_exe_path,
+                    arg_mode,
+                    target_info.target,
+                    watch,
+                    &comp_destroyed,
+                    all_args,
+                    runtime_args_start,
+                );
             } else {
                 try stderr.print("unknown command: {s}\n", .{actual_line});
             }
         } else {
             break;
+        }
+    }
+}
+
+fn runOrTest(
+    comp: *Compilation,
+    gpa: *Allocator,
+    arena: *Allocator,
+    emit_bin_loc: ?Compilation.EmitLoc,
+    test_exec_args: []const ?[]const u8,
+    self_exe_path: []const u8,
+    arg_mode: ArgMode,
+    target: std.Target,
+    watch: bool,
+    comp_destroyed: *bool,
+    all_args: []const []const u8,
+    runtime_args_start: ?usize,
+) !void {
+    const exe_loc = emit_bin_loc orelse return;
+    const exe_directory = exe_loc.directory orelse comp.bin_file.options.emit.?.directory;
+    const exe_path = try fs.path.join(arena, &[_][]const u8{
+        exe_directory.path orelse ".", exe_loc.basename,
+    });
+
+    var argv = std.ArrayList([]const u8).init(gpa);
+    defer argv.deinit();
+
+    if (test_exec_args.len == 0) {
+        if (!std.Target.current.canExecBinariesOf(target)) {
+            switch (arg_mode) {
+                .zig_test => {
+                    warn("created {s} but skipping execution because it is non-native", .{exe_path});
+                    if (!watch) return cleanExit();
+                    return;
+                },
+                .run => fatal("unable to execute {s}: non-native", .{exe_path}),
+                else => unreachable,
+            }
+        }
+        // when testing pass the zig_exe_path to argv
+        if (arg_mode == .zig_test)
+            try argv.appendSlice(&[_][]const u8{
+                exe_path, self_exe_path,
+            })
+            // when running just pass the current exe
+        else
+            try argv.appendSlice(&[_][]const u8{
+                exe_path,
+            });
+    } else {
+        for (test_exec_args) |arg| {
+            if (arg) |a| {
+                try argv.append(a);
+            } else {
+                try argv.appendSlice(&[_][]const u8{
+                    exe_path, self_exe_path,
+                });
+            }
+        }
+    }
+    if (runtime_args_start) |i| {
+        try argv.appendSlice(all_args[i..]);
+    }
+    // We do not execve for tests because if the test fails we want to print
+    // the error message and invocation below.
+    if (std.process.can_execv and arg_mode == .run and !watch) {
+        // execv releases the locks; no need to destroy the Compilation here.
+        const err = std.process.execv(gpa, argv.items);
+        const cmd = try argvCmd(arena, argv.items);
+        fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
+    } else {
+        const child = try std.ChildProcess.init(argv.items, gpa);
+        defer child.deinit();
+
+        child.stdin_behavior = .Inherit;
+        child.stdout_behavior = .Inherit;
+        child.stderr_behavior = .Inherit;
+
+        if (!watch) {
+            // Here we release all the locks associated with the Compilation so
+            // that whatever this child process wants to do won't deadlock.
+            comp.destroy();
+            comp_destroyed.* = true;
+        }
+
+        const term = try child.spawnAndWait();
+        switch (arg_mode) {
+            .run, .build => {
+                switch (term) {
+                    .Exited => |code| {
+                        if (code == 0) {
+                            if (!watch) return cleanExit();
+                        } else if (watch) {
+                            warn("process exited with code {d}", .{code});
+                        } else {
+                            // TODO https://github.com/ziglang/zig/issues/6342
+                            process.exit(1);
+                        }
+                    },
+                    else => {
+                        if (watch) {
+                            warn("process aborted abnormally", .{});
+                        } else {
+                            process.exit(1);
+                        }
+                    },
+                }
+            },
+            .zig_test => {
+                switch (term) {
+                    .Exited => |code| {
+                        if (code == 0) {
+                            if (!watch) return cleanExit();
+                        } else {
+                            const cmd = try argvCmd(arena, argv.items);
+                            fatal("the following test command failed with exit code {d}:\n{s}", .{ code, cmd });
+                        }
+                    },
+                    else => {
+                        const cmd = try argvCmd(arena, argv.items);
+                        fatal("the following test command crashed:\n{s}", .{cmd});
+                    },
+                }
+            },
+            else => unreachable,
         }
     }
 }
