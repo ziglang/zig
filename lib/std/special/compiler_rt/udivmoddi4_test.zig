@@ -8,7 +8,7 @@
 const __udivmoddi4 = @import("int.zig").__udivmoddi4;
 const testing = @import("std").testing;
 
-fn test__udivmoddi4(a: u64, b: u64, expected_q: u64, expected_r: u64) void {
+fn test__udivmoddi4(a: u64, b: u64, expected_q: u64, expected_r: u64) !void {
     var r: u64 = undefined;
     const q = __udivmoddi4(a, b, &r);
     try testing.expect(q == expected_q);
@@ -17,7 +17,7 @@ fn test__udivmoddi4(a: u64, b: u64, expected_q: u64, expected_r: u64) void {
 
 test "udivmoddi4" {
     for (cases) |case| {
-        test__udivmoddi4(case[0], case[1], case[2], case[3]);
+        try test__udivmoddi4(case[0], case[1], case[2], case[3]);
     }
 }
 

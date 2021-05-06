@@ -66,7 +66,7 @@ test "strcpy" {
 
     s1[0] = 0;
     _ = strcpy(&s1, "foobarbaz");
-    std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
+    try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
 }
 
 fn strncpy(dest: [*:0]u8, src: [*:0]const u8, n: usize) callconv(.C) [*:0]u8 {
@@ -86,7 +86,7 @@ test "strncpy" {
 
     s1[0] = 0;
     _ = strncpy(&s1, "foobarbaz", @sizeOf(@TypeOf(s1)));
-    std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
+    try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
 }
 
 fn strcat(dest: [*:0]u8, src: [*:0]const u8) callconv(.C) [*:0]u8 {
@@ -109,7 +109,7 @@ test "strcat" {
     _ = strcat(&s1, "foo");
     _ = strcat(&s1, "bar");
     _ = strcat(&s1, "baz");
-    std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
+    try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
 }
 
 fn strncat(dest: [*:0]u8, src: [*:0]const u8, avail: usize) callconv(.C) [*:0]u8 {
@@ -132,7 +132,7 @@ test "strncat" {
     _ = strncat(&s1, "foo1111", 3);
     _ = strncat(&s1, "bar1111", 3);
     _ = strncat(&s1, "baz1111", 3);
-    std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
+    try std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
 }
 
 fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.C) c_int {
@@ -871,13 +871,13 @@ test "fmod, fmodf" {
         try std.testing.expect(isNan(generic_fmod(T, 0.0, 0.0)));
         try std.testing.expect(isNan(generic_fmod(T, 1.0, 0.0)));
 
-        std.testing.expectEqual(@as(T, 0.0), generic_fmod(T, 0.0, 2.0));
-        std.testing.expectEqual(@as(T, -0.0), generic_fmod(T, -0.0, 2.0));
+        try std.testing.expectEqual(@as(T, 0.0), generic_fmod(T, 0.0, 2.0));
+        try std.testing.expectEqual(@as(T, -0.0), generic_fmod(T, -0.0, 2.0));
 
-        std.testing.expectEqual(@as(T, -2.0), generic_fmod(T, -32.0, 10.0));
-        std.testing.expectEqual(@as(T, -2.0), generic_fmod(T, -32.0, -10.0));
-        std.testing.expectEqual(@as(T, 2.0), generic_fmod(T, 32.0, 10.0));
-        std.testing.expectEqual(@as(T, 2.0), generic_fmod(T, 32.0, -10.0));
+        try std.testing.expectEqual(@as(T, -2.0), generic_fmod(T, -32.0, 10.0));
+        try std.testing.expectEqual(@as(T, -2.0), generic_fmod(T, -32.0, -10.0));
+        try std.testing.expectEqual(@as(T, 2.0), generic_fmod(T, 32.0, 10.0));
+        try std.testing.expectEqual(@as(T, 2.0), generic_fmod(T, 32.0, -10.0));
     }
 }
 
@@ -902,11 +902,11 @@ test "fmin, fminf" {
         const nan_val = math.nan(T);
 
         try std.testing.expect(isNan(generic_fmin(T, nan_val, nan_val)));
-        std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, nan_val, 1.0));
-        std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, 1.0, nan_val));
+        try std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, nan_val, 1.0));
+        try std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, 1.0, nan_val));
 
-        std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, 1.0, 10.0));
-        std.testing.expectEqual(@as(T, -1.0), generic_fmin(T, 1.0, -1.0));
+        try std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, 1.0, 10.0));
+        try std.testing.expectEqual(@as(T, -1.0), generic_fmin(T, 1.0, -1.0));
     }
 }
 
@@ -931,11 +931,11 @@ test "fmax, fmaxf" {
         const nan_val = math.nan(T);
 
         try std.testing.expect(isNan(generic_fmax(T, nan_val, nan_val)));
-        std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, nan_val, 1.0));
-        std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, 1.0, nan_val));
+        try std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, nan_val, 1.0));
+        try std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, 1.0, nan_val));
 
-        std.testing.expectEqual(@as(T, 10.0), generic_fmax(T, 1.0, 10.0));
-        std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, 1.0, -1.0));
+        try std.testing.expectEqual(@as(T, 10.0), generic_fmax(T, 1.0, 10.0));
+        try std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, 1.0, -1.0));
     }
 }
 
@@ -1090,7 +1090,7 @@ test "sqrt" {
     // Note that @sqrt will either generate the sqrt opcode (if supported by the
     // target ISA) or a call to `sqrtf` otherwise.
     for (V) |val|
-        std.testing.expectEqual(@sqrt(val), sqrt(val));
+        try std.testing.expectEqual(@sqrt(val), sqrt(val));
 }
 
 test "sqrt special" {
@@ -1195,7 +1195,7 @@ test "sqrtf" {
     // Note that @sqrt will either generate the sqrt opcode (if supported by the
     // target ISA) or a call to `sqrtf` otherwise.
     for (V) |val|
-        std.testing.expectEqual(@sqrt(val), sqrtf(val));
+        try std.testing.expectEqual(@sqrt(val), sqrtf(val));
 }
 
 test "sqrtf special" {
