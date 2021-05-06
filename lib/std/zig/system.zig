@@ -349,6 +349,15 @@ pub const NativeTargetInfo = struct {
                     }
                 }
             },
+            .arm, .armeb => {
+                // XXX What do we do if the target has the noarm feature?
+                //     What do we do if the user specifies +thumb_mode?
+            },
+            .thumb, .thumbeb => {
+                result.target.cpu.features.addFeature(
+                    @enumToInt(std.Target.arm.Feature.thumb_mode),
+                );
+            },
             else => {},
         }
         cross_target.updateCpuFeatures(&result.target.cpu.features);

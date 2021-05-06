@@ -23,6 +23,7 @@ pub usingnamespace switch (builtin.arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
     .arm => @import("linux/arm-eabi.zig"),
+    .thumb => @import("linux/thumb.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparcv9 => @import("linux/sparc64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),

@@ -176,7 +176,7 @@ fn _start() callconv(.Naked) noreturn {
                 : [argc] "={esp}" (-> [*]usize)
             );
         },
-        .aarch64, .aarch64_be, .arm, .armeb => {
+        .aarch64, .aarch64_be, .arm, .armeb, .thumb => {
             argc_argv_ptr = asm volatile (
                 \\ mov fp, #0
                 \\ mov lr, #0
