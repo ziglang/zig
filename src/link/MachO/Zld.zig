@@ -82,7 +82,7 @@ unresolved: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 strtab_dir: std.StringHashMapUnmanaged(u32) = .{},
 
-threadlocal_offsets: std.ArrayListUnmanaged(u64) = .{},
+threadlocal_offsets: std.ArrayListUnmanaged(TlvOffset) = .{}, // TODO merge with Symbol abstraction
 local_rebases: std.ArrayListUnmanaged(Pointer) = .{},
 stubs: std.ArrayListUnmanaged(*Symbol) = .{},
 got_entries: std.ArrayListUnmanaged(*Symbol) = .{},
@@ -91,6 +91,15 @@ stub_helper_stubs_start_off: ?u64 = null,
 
 mappings: std.AutoHashMapUnmanaged(MappingKey, SectionMapping) = .{},
 unhandled_sections: std.AutoHashMapUnmanaged(MappingKey, u0) = .{},
+
+const TlvOffset = struct {
+    source_addr: u64,
+    offset: u64,
+
+    fn cmp(context: void, a: TlvOffset, b: TlvOffset) bool {
+        return a.source_addr < b.source_addr;
+    }
+};
 
 const MappingKey = struct {
     object_id: u16,
@@ -277,7 +286,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
 
                 object.* = Object.init(self.allocator);
                 object.arch = self.arch.?;
-                object.name = try self.allocator.dupe(u8, input.name);
+                object.name = input.name;
                 object.file = input.file;
                 try object.parse();
                 try self.objects.append(self.allocator, object);
@@ -288,7 +297,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
 
                 archive.* = Archive.init(self.allocator);
                 archive.arch = self.arch.?;
-                archive.name = try self.allocator.dupe(u8, input.name);
+                archive.name = input.name;
                 archive.file = input.file;
                 try archive.parse();
                 try self.archives.append(self.allocator, archive);
@@ -1362,10 +1371,7 @@ fn resolveSymbols(self: *Zld) !void {
             };
             assert(offsets.items.len > 0);
 
-            const object = try self.allocator.create(Object);
-            errdefer self.allocator.destroy(object);
-
-            object.* = try archive.parseObject(offsets.items[0]);
+            const object = try archive.parseObject(offsets.items[0]);
             try self.objects.append(self.allocator, object);
             try self.resolveSymbolsInObject(object);
 
@@ -1553,15 +1559,8 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                             // TLV is handled via a separate offset mechanism.
                             // Calculate the offset to the initializer.
                             if (target_sect.flags == macho.S_THREAD_LOCAL_VARIABLES) tlv: {
-                                log.warn("HIT", .{});
-                                log.warn("    | rel {any}", .{rel.cast(reloc.Unsigned).?});
-                                log.warn("    | name {s}", .{rel.target.symbol.name});
-                                log.warn("    | target address 0x{x}", .{args.target_addr});
-
                                 // TODO we don't want to save offset to tlv_bootstrap
                                 if (mem.eql(u8, rel.target.symbol.name, "__tlv_bootstrap")) break :tlv;
-
-                                log.warn("    | object {s}", .{rel.target.symbol.cast(Symbol.Regular).?.file.name.?});
 
                                 const base_addr = blk: {
                                     if (self.tlv_data_section_index) |index| {
@@ -1572,11 +1571,12 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                                         break :blk tlv_bss.addr;
                                     }
                                 };
-                                log.warn("    | base address 0x{x}", .{base_addr});
-                                log.warn("    | offset 0x{x}", .{args.target_addr - base_addr});
                                 // Since we require TLV data to always preceed TLV bss section, we calculate
                                 // offsets wrt to the former if it is defined; otherwise, wrt to the latter.
-                                try self.threadlocal_offsets.append(self.allocator, args.target_addr - base_addr);
+                                try self.threadlocal_offsets.append(self.allocator, .{
+                                    .source_addr = args.source_addr,
+                                    .offset = args.target_addr - base_addr,
+                                });
                             }
                         },
                         .got_page, .got_page_off, .got_load, .got => {
@@ -2102,10 +2102,12 @@ fn flush(self: *Zld) !void {
         var stream = std.io.fixedBufferStream(buffer);
         var writer = stream.writer();
 
+        std.sort.sort(TlvOffset, self.threadlocal_offsets.items, {}, TlvOffset.cmp);
+
         const seek_amt = 2 * @sizeOf(u64);
-        while (self.threadlocal_offsets.popOrNull()) |offset| {
+        for (self.threadlocal_offsets.items) |tlv| {
             try writer.context.seekBy(seek_amt);
-            try writer.writeIntLittle(u64, offset);
+            try writer.writeIntLittle(u64, tlv.offset);
         }
 
         try self.file.?.pwriteAll(buffer, sect.offset);

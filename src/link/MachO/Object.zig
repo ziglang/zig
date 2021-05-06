@@ -22,7 +22,7 @@ arch: ?std.Target.Cpu.Arch = null,
 header: ?macho.mach_header_64 = null,
 file: ?fs.File = null,
 file_offset: ?u32 = null,
-name: ?[]u8 = null,
+name: ?[]const u8 = null,
 
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 sections: std.ArrayListUnmanaged(Section) = .{},
