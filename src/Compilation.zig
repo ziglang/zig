@@ -2608,6 +2608,10 @@ pub fn addCCArgs(
                 }
             }
 
+            if (target.cpu.arch.isThumb()) {
+                try argv.append("-mthumb");
+            }
+
             if (comp.haveFramePointer()) {
                 try argv.append("-fno-omit-frame-pointer");
             } else {
