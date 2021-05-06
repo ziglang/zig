@@ -24,6 +24,10 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .arm, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .arm, .os = .linux, .abi = .musleabi },
     .{ .arch = .arm, .os = .linux, .abi = .musleabihf },
+    .{ .arch = .thumb, .os = .linux, .abi = .gnueabi },
+    .{ .arch = .thumb, .os = .linux, .abi = .gnueabihf },
+    .{ .arch = .thumb, .os = .linux, .abi = .musleabi },
+    .{ .arch = .thumb, .os = .linux, .abi = .musleabihf },
     .{ .arch = .arm, .os = .windows, .abi = .gnu },
     .{ .arch = .csky, .os = .linux, .abi = .gnueabi },
     .{ .arch = .csky, .os = .linux, .abi = .gnueabihf },
@@ -97,7 +101,7 @@ pub fn libCGenericName(target: std.Target) [:0]const u8 {
 pub fn archMuslName(arch: std.Target.Cpu.Arch) [:0]const u8 {
     switch (arch) {
         .aarch64, .aarch64_be => return "aarch64",
-        .arm, .armeb => return "arm",
+        .arm, .armeb, .thumb, .thumbeb => return "arm",
         .mips, .mipsel => return "mips",
         .mips64el, .mips64 => return "mips64",
         .powerpc => return "powerpc",

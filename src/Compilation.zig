@@ -2903,7 +2903,17 @@ fn detectLibCIncludeDirs(
     if (target_util.canBuildLibC(target)) {
         const generic_name = target_util.libCGenericName(target);
         // Some architectures are handled by the same set of headers.
-        const arch_name = if (target.abi.isMusl()) target_util.archMuslName(target.cpu.arch) else @tagName(target.cpu.arch);
+        const arch_name = if (target.abi.isMusl())
+            target_util.archMuslName(target.cpu.arch)
+        else if (target.cpu.arch.isThumb())
+            // ARM headers are valid for Thumb too.
+            switch (target.cpu.arch) {
+                .thumb => "arm",
+                .thumbeb => "armeb",
+                else => unreachable,
+            }
+        else
+            @tagName(target.cpu.arch);
         const os_name = @tagName(target.os.tag);
         // Musl's headers are ABI-agnostic and so they all have the "musl" ABI name.
         const abi_name = if (target.abi.isMusl()) "musl" else @tagName(target.abi);
