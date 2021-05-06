@@ -2436,6 +2436,7 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !UpdateChange
         // Anonymous decls and the root decl have this set to 0. We still need
         // to walk them but we do not need to modify this value.
         if (decl.zir_decl_index != 0) {
+            const old_hash = decl.contentsHashZir(old_zir);
             decl.zir_decl_index = extra_map.get(decl.zir_decl_index) orelse {
                 try deleted_decls.append(gpa, decl);
                 continue;
@@ -2446,7 +2447,6 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !UpdateChange
             };
             decl.name = new_zir.nullTerminatedString(new_name_index).ptr;
 
-            const old_hash = decl.contentsHashZir(old_zir);
             const new_hash = decl.contentsHashZir(new_zir);
             if (!std.zig.srcHashEql(old_hash, new_hash)) {
                 try outdated_decls.append(gpa, decl);
