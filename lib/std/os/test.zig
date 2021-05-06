@@ -43,6 +43,8 @@ test "chdir smoke test" {
         // Next, change current working directory to one level above
         const parent = fs.path.dirname(old_cwd) orelse unreachable; // old_cwd should be absolute
         try os.chdir(parent);
+        // Restore cwd because process may have other tests that do not tolerate chdir.
+        defer os.chdir(old_cwd) catch unreachable;
         var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         const new_cwd = try os.getcwd(new_cwd_buf[0..]);
         expect(mem.eql(u8, parent, new_cwd));
