@@ -1571,6 +1571,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                         return error.DuplicateJSONField;
                                     } else if (options.duplicate_field_behavior == .UseLast) {
                                         parseFree(field.field_type, @field(r, field.name), options);
+                                        fields_seen[i] = false;
                                     }
                                 }
                                 if (field.is_comptime) {
@@ -1642,6 +1643,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             switch (ptrInfo.size) {
                 .One => {
                     const r: T = try allocator.create(ptrInfo.child);
+                    errdefer allocator.destroy(r);
                     r.* = try parseInternal(ptrInfo.child, token, tokens, options);
                     return r;
                 },
@@ -1986,6 +1988,24 @@ test "parse into struct with misc fields" {
     try testing.expectEqualSlices(u8, "zig", r.veryComplex[0].foo);
     try testing.expectEqualSlices(u8, "rocks", r.veryComplex[1].foo);
     try testing.expectEqual(T.Union{ .float = 100000 }, r.a_union);
+}
+
+test "parse into struct with duplicate field" {
+    // allow allocator to detect double frees by keeping bucket in use
+    const ballast = try testing.allocator.alloc(u64, 1);
+    defer testing.allocator.free(ballast);
+
+    const options = ParseOptions{ 
+        .allocator = testing.allocator,
+        .duplicate_field_behavior = .UseLast,
+    };
+    const str = "{ \"a\": 1, \"a\": 0.25 }";
+    
+    const T1 = struct { a: *u64 };
+    testing.expectError(error.UnexpectedToken, parse(T1, &TokenStream.init(str), options));
+
+    const T2 = struct { a: f64 };
+    testing.expectEqual(T2{ .a = 0.25 }, try parse(T2, &TokenStream.init(str), options));
 }
 
 /// A non-stream JSON parser which constructs a tree of Value's.
