@@ -3216,17 +3216,17 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
             if (is_exported) {
                 const i = iter.usingnamespace_index;
                 iter.usingnamespace_index += 1;
-                break :name try std.fmt.allocPrintZ(gpa, "usingnamespace${d}", .{i});
+                break :name try std.fmt.allocPrintZ(gpa, "usingnamespace_{d}", .{i});
             } else {
                 const i = iter.comptime_index;
                 iter.comptime_index += 1;
-                break :name try std.fmt.allocPrintZ(gpa, "comptime${d}", .{i});
+                break :name try std.fmt.allocPrintZ(gpa, "comptime_{d}", .{i});
             }
         },
         1 => name: {
             const i = iter.unnamed_test_index;
             iter.unnamed_test_index += 1;
-            break :name try std.fmt.allocPrintZ(gpa, "test${d}", .{i});
+            break :name try std.fmt.allocPrintZ(gpa, "test_{d}", .{i});
         },
         else => zir.nullTerminatedString(decl_name_index),
     };
