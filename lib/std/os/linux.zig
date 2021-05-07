@@ -142,8 +142,8 @@ pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: *const [2]timespec, fl
     return syscall4(.utimensat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), @ptrToInt(times), flags);
 }
 
-pub fn fallocate(fd: i32, mode: i32, offset: u64, length: u64) usize {
-    if (@sizeOf(usize) == 4) {
+pub fn fallocate(fd: i32, mode: i32, offset: i64, length: i64) usize {
+    if (usize_bits < 64) {
         const offset_halves = splitValue64(offset);
         const length_halves = splitValue64(length);
         return syscall6(
@@ -160,8 +160,8 @@ pub fn fallocate(fd: i32, mode: i32, offset: u64, length: u64) usize {
             .fallocate,
             @bitCast(usize, @as(isize, fd)),
             @bitCast(usize, @as(isize, mode)),
-            offset,
-            length,
+            @bitCast(u64, offset),
+            @bitCast(u64, length),
         );
     }
 }
