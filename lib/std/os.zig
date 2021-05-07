@@ -577,7 +577,12 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
         else
             system.ftruncate;
 
-        switch (errno(ftruncate_sym(fd, @bitCast(off_t, length)))) {
+        // XXX Pick a side and avoid this cast madness.
+        const casted_length = if (builtin.link_libc)
+            @bitCast(off_t, length)
+        else
+            length;
+        switch (errno(ftruncate_sym(fd, casted_length))) {
             0 => return,
             EINTR => continue,
             EFBIG => return error.FileTooBig,

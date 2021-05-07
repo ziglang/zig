@@ -61,11 +61,11 @@ pub const EAI = extern enum(c_int) {
     _,
 };
 
-pub extern "c" fn fallocate64(fd: fd_t, mode: c_int, offset: i64, len: i64) c_int;
+pub extern "c" fn fallocate64(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
 pub extern "c" fn fopen64(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
 pub extern "c" fn fstat64(fd: fd_t, buf: *libc_stat) c_int;
 pub extern "c" fn fstatat64(dirfd: fd_t, path: [*:0]const u8, stat_buf: *libc_stat, flags: u32) c_int;
-pub extern "c" fn ftruncate64(fd: c_int, length: i64) c_int;
+pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
 pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
 pub extern "c" fn lseek64(fd: fd_t, offset: u64, whence: c_int) u64;
 pub extern "c" fn mmap64(addr: ?*align(std.mem.page_size) c_void, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: u64) *c_void;
