@@ -397,9 +397,11 @@ const usage_build_generic =
 
 const repl_help =
     \\Commands:
-    \\  update   Detect changes to source files and update output files.
-    \\    help   Print this text
-    \\    exit   Quit this repl
+    \\         update  Detect changes to source files and update output files.
+    \\            run  Execute the output file, if it is an executable or test.
+    \\ update-and-run  Perform an `update` followed by `run`.
+    \\           help  Print this text
+    \\           exit  Quit this repl
     \\
 ;
 
@@ -1990,6 +1992,15 @@ fn buildOutputType(
     const stderr = std.io.getStdErr().writer();
     var repl_buf: [1024]u8 = undefined;
 
+    const ReplCmd = enum {
+        update,
+        help,
+        run,
+        update_and_run,
+    };
+
+    var last_cmd: ReplCmd = .help;
+
     while (watch) {
         try stderr.print("(zig) ", .{});
         try comp.makeBinFileExecutable();
@@ -1998,36 +2009,78 @@ fn buildOutputType(
             continue;
         }) |line| {
             const actual_line = mem.trimRight(u8, line, "\r\n ");
-
-            if (mem.eql(u8, actual_line, "update")) {
-                if (output_mode == .Exe) {
-                    try comp.makeBinFileWritable();
+            const cmd: ReplCmd = blk: {
+                if (mem.eql(u8, actual_line, "update")) {
+                    break :blk .update;
+                } else if (mem.eql(u8, actual_line, "exit")) {
+                    break;
+                } else if (mem.eql(u8, actual_line, "help")) {
+                    break :blk .help;
+                } else if (mem.eql(u8, actual_line, "run")) {
+                    break :blk .run;
+                } else if (mem.eql(u8, actual_line, "update-and-run")) {
+                    break :blk .update_and_run;
+                } else if (actual_line.len == 0) {
+                    break :blk last_cmd;
+                } else {
+                    try stderr.print("unknown command: {s}\n", .{actual_line});
+                    continue;
                 }
-                updateModule(gpa, comp, hook) catch |err| switch (err) {
-                    error.SemanticAnalyzeFail => continue,
-                    else => |e| return e,
-                };
-            } else if (mem.eql(u8, actual_line, "exit")) {
-                break;
-            } else if (mem.eql(u8, actual_line, "help")) {
-                try stderr.writeAll(repl_help);
-            } else if (mem.eql(u8, actual_line, "run")) {
-                try runOrTest(
-                    comp,
-                    gpa,
-                    arena,
-                    emit_bin_loc,
-                    test_exec_args.items,
-                    self_exe_path,
-                    arg_mode,
-                    target_info.target,
-                    watch,
-                    &comp_destroyed,
-                    all_args,
-                    runtime_args_start,
-                );
-            } else {
-                try stderr.print("unknown command: {s}\n", .{actual_line});
+            };
+            last_cmd = cmd;
+            switch (cmd) {
+                .update => {
+                    if (output_mode == .Exe) {
+                        try comp.makeBinFileWritable();
+                    }
+                    updateModule(gpa, comp, hook) catch |err| switch (err) {
+                        error.SemanticAnalyzeFail => continue,
+                        else => |e| return e,
+                    };
+                },
+                .help => {
+                    try stderr.writeAll(repl_help);
+                },
+                .run => {
+                    try runOrTest(
+                        comp,
+                        gpa,
+                        arena,
+                        emit_bin_loc,
+                        test_exec_args.items,
+                        self_exe_path,
+                        arg_mode,
+                        target_info.target,
+                        watch,
+                        &comp_destroyed,
+                        all_args,
+                        runtime_args_start,
+                    );
+                },
+                .update_and_run => {
+                    if (output_mode == .Exe) {
+                        try comp.makeBinFileWritable();
+                    }
+                    updateModule(gpa, comp, hook) catch |err| switch (err) {
+                        error.SemanticAnalyzeFail => continue,
+                        else => |e| return e,
+                    };
+                    try comp.makeBinFileExecutable();
+                    try runOrTest(
+                        comp,
+                        gpa,
+                        arena,
+                        emit_bin_loc,
+                        test_exec_args.items,
+                        self_exe_path,
+                        arg_mode,
+                        target_info.target,
+                        watch,
+                        &comp_destroyed,
+                        all_args,
+                        runtime_args_start,
+                    );
+                },
             }
         } else {
             break;
