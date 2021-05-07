@@ -2217,7 +2217,8 @@ pub const Inst = struct {
             has_cc: bool,
             has_align: bool,
             is_test: bool,
-            _: u10 = undefined,
+            is_extern: bool,
+            _: u9 = undefined,
         };
     };
 
@@ -4103,6 +4104,7 @@ const Writer = struct {
             extra.data.return_type,
             inferred_error_set,
             false,
+            false,
             .none,
             .none,
             body,
@@ -4150,6 +4152,7 @@ const Writer = struct {
             extra.data.return_type,
             small.is_inferred_error,
             small.is_var_args,
+            small.is_extern,
             cc,
             align_inst,
             body,
@@ -4232,6 +4235,7 @@ const Writer = struct {
         ret_ty: Inst.Ref,
         inferred_error_set: bool,
         var_args: bool,
+        is_extern: bool,
         cc: Inst.Ref,
         align_inst: Inst.Ref,
         body: []const Inst.Index,
@@ -4248,6 +4252,7 @@ const Writer = struct {
         try self.writeOptionalInstRef(stream, ", cc=", cc);
         try self.writeOptionalInstRef(stream, ", align=", align_inst);
         try self.writeFlag(stream, ", vargs", var_args);
+        try self.writeFlag(stream, ", extern", is_extern);
         try self.writeFlag(stream, ", inferror", inferred_error_set);
 
         if (body.len == 0) {

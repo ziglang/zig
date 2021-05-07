@@ -282,13 +282,10 @@ pub const Decl = struct {
 
     pub fn destroy(decl: *Decl, module: *Module) void {
         const gpa = module.gpa;
-        log.debug("destroy Decl {*} ({s})", .{ decl, decl.name });
+        log.debug("destroy {*} ({s})", .{ decl, decl.name });
         decl.clearName(gpa);
         if (decl.has_tv) {
-            if (decl.getFunction()) |func| {
-                func.deinit(gpa);
-                gpa.destroy(func);
-            } else if (decl.val.getTypeNamespace()) |namespace| {
+            if (decl.val.getTypeNamespace()) |namespace| {
                 if (namespace.getDecl() == decl) {
                     namespace.clearDecls(module);
                 }
@@ -470,7 +467,6 @@ pub const Decl = struct {
     /// otherwise null.
     pub fn getFunction(decl: *Decl) ?*Fn {
         if (!decl.has_tv) return null;
-        if (decl.ty.zigTypeTag() != .Fn) return null;
         const func = (decl.val.castTag(.function) orelse return null).data;
         if (func.owner_decl != decl) return null;
         return func;
@@ -2960,17 +2956,26 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             decl.clearValues(gpa);
         }
 
-        const new_variable = try decl_arena.allocator.create(Var);
-        new_variable.* = .{
-            .owner_decl = decl,
-            .init = try decl_tv.val.copy(&decl_arena.allocator),
-            .is_extern = is_extern,
-            .is_mutable = is_mutable,
-            .is_threadlocal = is_threadlocal,
+        const copied_val = try decl_tv.val.copy(&decl_arena.allocator);
+        const is_extern_fn = copied_val.tag() == .extern_fn;
+
+        // TODO: also avoid allocating this Var structure if `!is_mutable`.
+        // I think this will require adjusting Sema to copy the value or something
+        // like that; otherwise it causes use of undefined value when freeing resources.
+        const decl_val: Value = if (is_extern_fn) copied_val else blk: {
+            const new_variable = try decl_arena.allocator.create(Var);
+            new_variable.* = .{
+                .owner_decl = decl,
+                .init = copied_val,
+                .is_extern = is_extern,
+                .is_mutable = is_mutable,
+                .is_threadlocal = is_threadlocal,
+            };
+            break :blk try Value.Tag.variable.create(&decl_arena.allocator, new_variable);
         };
 
         decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
-        decl.val = try Value.Tag.variable.create(&decl_arena.allocator, new_variable);
+        decl.val = decl_val;
         decl.align_val = try align_val.copy(&decl_arena.allocator);
         decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
         decl.has_tv = true;
@@ -2984,6 +2989,16 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             // The scope needs to have the decl in it.
             try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
         }
+
+        if (decl.val.tag() == .extern_fn) {
+            try mod.comp.bin_file.allocateDeclIndexes(decl);
+            try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
+
+            if (type_changed and mod.emit_h != null) {
+                try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
+            }
+        }
+
         return type_changed;
     }
 }

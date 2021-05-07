@@ -2819,6 +2819,7 @@ fn zirFunc(
         Value.initTag(.null_value),
         false,
         inferred_error_set,
+        false,
         src_locs,
         null,
     );
@@ -2835,6 +2836,7 @@ fn funcCommon(
     align_val: Value,
     var_args: bool,
     inferred_error_set: bool,
+    is_extern: bool,
     src_locs: Zir.Inst.Func.SrcLocs,
     opt_lib_name: ?[]const u8,
 ) InnerError!*Inst {
@@ -2885,10 +2887,6 @@ fn funcCommon(
         });
     };
 
-    if (body_inst == 0) {
-        return mod.constType(sema.arena, src, fn_ty);
-    }
-
     if (opt_lib_name) |lib_name| blk: {
         const lib_name_src: LazySrcLoc = .{ .node_offset_lib_name = src_node_offset };
         log.debug("extern fn symbol expected in lib '{s}'", .{lib_name});
@@ -2928,6 +2926,17 @@ fn funcCommon(
                 .{ lib_name, lib_name },
             );
         }
+    }
+
+    if (is_extern) {
+        return sema.mod.constInst(sema.arena, src, .{
+            .ty = fn_ty,
+            .val = try Value.Tag.extern_fn.create(sema.arena, sema.owner_decl),
+        });
+    }
+
+    if (body_inst == 0) {
+        return mod.constType(sema.arena, src, fn_ty);
     }
 
     const is_inline = fn_ty.fnCallingConvention() == .Inline;
@@ -5795,6 +5804,7 @@ fn zirFuncExtended(
         align_val,
         small.is_var_args,
         small.is_inferred_error,
+        small.is_extern,
         src_locs,
         lib_name,
     );

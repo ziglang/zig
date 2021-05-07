@@ -1081,6 +1081,7 @@ fn fnProtoExpr(
         .is_var_args = is_var_args,
         .is_inferred_error = false,
         .is_test = false,
+        .is_extern = false,
     });
     return rvalue(gz, scope, rl, result, fn_proto.ast.proto_node);
 }
@@ -2807,6 +2808,7 @@ fn fnDecl(
             .is_var_args = is_var_args,
             .is_inferred_error = false,
             .is_test = false,
+            .is_extern = true,
         });
     } else func: {
         if (is_var_args) {
@@ -2883,6 +2885,7 @@ fn fnDecl(
             .is_var_args = is_var_args,
             .is_inferred_error = is_inferred_error,
             .is_test = false,
+            .is_extern = false,
         });
     };
 
@@ -3223,6 +3226,7 @@ fn testDecl(
         .is_var_args = false,
         .is_inferred_error = true,
         .is_test = true,
+        .is_extern = false,
     });
 
     _ = try decl_block.addBreak(.break_inline, block_inst, func_inst);
@@ -7973,6 +7977,7 @@ const GenZir = struct {
         is_var_args: bool,
         is_inferred_error: bool,
         is_test: bool,
+        is_extern: bool,
     }) !Zir.Inst.Ref {
         assert(args.src_node != 0);
         assert(args.ret_ty != .none);
@@ -8010,7 +8015,8 @@ const GenZir = struct {
         }
 
         if (args.cc != .none or args.lib_name != 0 or
-            args.is_var_args or args.is_test or args.align_inst != .none)
+            args.is_var_args or args.is_test or args.align_inst != .none or
+            args.is_extern)
         {
             try astgen.extra.ensureUnusedCapacity(
                 gpa,
@@ -8051,6 +8057,7 @@ const GenZir = struct {
                         .has_cc = args.cc != .none,
                         .has_align = args.align_inst != .none,
                         .is_test = args.is_test,
+                        .is_extern = args.is_extern,
                     }),
                     .operand = payload_index,
                 } },
