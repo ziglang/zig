@@ -59,15 +59,16 @@ const require_aligned_register_pair =
     std.Target.current.cpu.arch.isThumb();
 
 // Split a 64bit value into a {LSB,MSB} pair.
-fn splitValue64(val: u64) [2]u32 {
+fn splitValue64(val: i64) [2]u32 {
+    const u = @bitCast(u64, val);
     switch (builtin.endian) {
         .Little => return [2]u32{
-            @truncate(u32, val),
-            @truncate(u32, val >> 32),
+            @truncate(u32, u),
+            @truncate(u32, u >> 32),
         },
         .Big => return [2]u32{
-            @truncate(u32, val >> 32),
-            @truncate(u32, val),
+            @truncate(u32, u >> 32),
+            @truncate(u32, u),
         },
     }
 }
@@ -243,7 +244,7 @@ pub fn umount2(special: [*:0]const u8, flags: u32) usize {
     return syscall2(.umount2, @ptrToInt(special), flags);
 }
 
-pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: u64) usize {
+pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: i64) usize {
     if (@hasField(SYS, "mmap2")) {
         // Make sure the offset is also specified in multiples of page size
         if ((offset & (MMAP2_UNIT - 1)) != 0)
@@ -256,7 +257,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
             prot,
             flags,
             @bitCast(usize, @as(isize, fd)),
-            @truncate(usize, offset / MMAP2_UNIT),
+            @truncate(usize, @bitCast(u64, offset) / MMAP2_UNIT),
         );
     } else {
         return syscall6(
@@ -266,7 +267,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
             prot,
             flags,
             @bitCast(usize, @as(isize, fd)),
-            offset,
+            @bitCast(u64, offset),
         );
     }
 }
@@ -308,7 +309,7 @@ pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
     return syscall3(.read, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count);
 }
 
-pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: u64) usize {
+pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: i64) usize {
     const offset_halves = splitValue64(offset);
     return syscall5(
         .preadv,
@@ -320,7 +321,7 @@ pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: u64) usize {
     );
 }
 
-pub fn preadv2(fd: i32, iov: [*]const iovec, count: usize, offset: u64, flags: kernel_rwf) usize {
+pub fn preadv2(fd: i32, iov: [*]const iovec, count: usize, offset: i64, flags: kernel_rwf) usize {
     const offset_halves = splitValue64(offset);
     return syscall6(
         .preadv2,
@@ -341,7 +342,7 @@ pub fn writev(fd: i32, iov: [*]const iovec_const, count: usize) usize {
     return syscall3(.writev, @bitCast(usize, @as(isize, fd)), @ptrToInt(iov), count);
 }
 
-pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64) usize {
+pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: i64) usize {
     const offset_halves = splitValue64(offset);
     return syscall5(
         .pwritev,
@@ -353,7 +354,7 @@ pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64) us
     );
 }
 
-pub fn pwritev2(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64, flags: kernel_rwf) usize {
+pub fn pwritev2(fd: i32, iov: [*]const iovec_const, count: usize, offset: i64, flags: kernel_rwf) usize {
     const offset_halves = splitValue64(offset);
     return syscall6(
         .pwritev2,
@@ -386,7 +387,7 @@ pub fn symlinkat(existing: [*:0]const u8, newfd: i32, newpath: [*:0]const u8) us
     return syscall3(.symlinkat, @ptrToInt(existing), @bitCast(usize, @as(isize, newfd)), @ptrToInt(newpath));
 }
 
-pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: u64) usize {
+pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: i64) usize {
     if (@hasField(SYS, "pread64") and usize_bits < 64) {
         const offset_halves = splitValue64(offset);
         if (require_aligned_register_pair) {
@@ -417,7 +418,7 @@ pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: u64) usize {
             @bitCast(usize, @as(isize, fd)),
             @ptrToInt(buf),
             count,
-            offset,
+            @bitCast(u64, offset),
         );
     }
 }
@@ -452,7 +453,7 @@ pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
     return syscall3(.write, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count);
 }
 
-pub fn ftruncate(fd: i32, length: u64) usize {
+pub fn ftruncate(fd: i32, length: i64) usize {
     if (@hasField(SYS, "ftruncate64") and usize_bits < 64) {
         const length_halves = splitValue64(length);
         if (require_aligned_register_pair) {
@@ -475,12 +476,12 @@ pub fn ftruncate(fd: i32, length: u64) usize {
         return syscall2(
             .ftruncate,
             @bitCast(usize, @as(isize, fd)),
-            @truncate(usize, length),
+            @bitCast(usize, length),
         );
     }
 }
 
-pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: u64) usize {
+pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: i64) usize {
     if (@hasField(SYS, "pwrite64") and usize_bits < 64) {
         const offset_halves = splitValue64(offset);
 
@@ -512,7 +513,7 @@ pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: u64) usize {
             @bitCast(usize, @as(isize, fd)),
             @ptrToInt(buf),
             count,
-            offset,
+            @bitCast(u64, offset),
         );
     }
 }

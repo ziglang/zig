@@ -502,8 +502,9 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     else
         system.pread;
 
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     while (true) {
-        const rc = pread_sym(fd, buf.ptr, adjusted_len, offset);
+        const rc = pread_sym(fd, buf.ptr, adjusted_len, ioffset);
         switch (errno(rc)) {
             0 => return @intCast(usize, rc),
             EINTR => continue,
@@ -577,12 +578,8 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
         else
             system.ftruncate;
 
-        // XXX Pick a side and avoid this cast madness.
-        const casted_length = if (builtin.link_libc)
-            @bitCast(off_t, length)
-        else
-            length;
-        switch (errno(ftruncate_sym(fd, casted_length))) {
+        const ilen = @bitCast(i64, length); // the OS treats this as unsigned
+        switch (errno(ftruncate_sym(fd, ilen))) {
             0 => return,
             EINTR => continue,
             EFBIG => return error.FileTooBig,
@@ -912,8 +909,9 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     else
         system.pwrite;
 
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     while (true) {
-        const rc = pwrite_sym(fd, bytes.ptr, adjusted_len, offset);
+        const rc = pwrite_sym(fd, bytes.ptr, adjusted_len, ioffset);
         switch (errno(rc)) {
             0 => return @intCast(usize, rc),
             EINTR => continue,
@@ -3750,7 +3748,8 @@ pub fn mmap(
     else
         system.mmap;
 
-    const rc = mmap_sym(ptr, length, prot, flags, fd, offset);
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    const rc = mmap_sym(ptr, length, prot, flags, fd, ioffset);
     const err = if (builtin.link_libc) blk: {
         if (rc != std.c.MAP_FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
         break :blk system._errno().*;
@@ -4104,8 +4103,14 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    const ipos = @bitCast(i64, offset); // the OS treats this as unsigned
-    switch (errno(system.lseek(fd, ipos, SEEK_SET))) {
+
+    const lseek_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.lseek64
+    else
+        system.lseek;
+
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    switch (errno(lseek_sym(fd, ioffset, SEEK_SET))) {
         0 => return,
         EBADF => unreachable, // always a race condition
         EINVAL => return error.Unseekable,
@@ -4146,7 +4151,13 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    switch (errno(system.lseek(fd, offset, SEEK_CUR))) {
+    const lseek_sym = if (builtin.os.tag == .linux and builtin.link_libc)
+        system.lseek64
+    else
+        system.lseek;
+
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    switch (errno(lseek_sym(fd, ioffset, SEEK_CUR))) {
         0 => return,
         EBADF => unreachable, // always a race condition
         EINVAL => return error.Unseekable,
@@ -4192,7 +4203,8 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
     else
         system.lseek;
 
-    switch (errno(lseek_sym(fd, offset, SEEK_END))) {
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
+    switch (errno(lseek_sym(fd, ioffset, SEEK_END))) {
         0 => return,
         EBADF => unreachable, // always a race condition
         EINVAL => return error.Unseekable,
