@@ -1682,6 +1682,9 @@ fn transDeclStmtOne(
         .Enum => {
             try transEnumDecl(c, scope, @ptrCast(*const clang.EnumDecl, decl));
         },
+        .Function => {
+            try visitFnDecl(c, @ptrCast(*const clang.FunctionDecl, decl));
+        },
         else => |kind| return fail(
             c,
             error.UnsupportedTranslation,
