@@ -5,6 +5,9 @@
  * modify stage2 CBE tests so that only 1 uses pub export main and the
    rest use pub fn main
 
+ * get the test runner and `zig test` working
+ * get behavior tests passing for stage2
+
  * use a hash map for instructions because the array is too big
    - no, actually modify the Zir.Inst.Ref strategy so that each decl gets
      their indexes starting at 0 so that we can use an array to store Sema

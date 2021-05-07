@@ -1214,7 +1214,7 @@ pub const Type = extern union {
                 if (ptr_info.@"align" != 0) {
                     return ptr_info.@"align";
                 } else {
-                    return ptr_info.pointee_type.abiAlignment();
+                    return ptr_info.pointee_type.abiAlignment(target);
                 }
             },
 

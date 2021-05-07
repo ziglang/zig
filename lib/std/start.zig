@@ -28,8 +28,10 @@ comptime {
     // self-hosted is capable enough to handle all of the real start.zig logic.
     if (builtin.zig_is_stage2) {
         if (builtin.output_mode == .Exe) {
-            if (builtin.link_libc or builtin.object_format == .c) {
-                @export(main2, .{ .name = "main" });
+            if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
+                if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
+                    @export(main2, .{ .name = "main" });
+                }
             } else {
                 if (!@hasDecl(root, "_start")) {
                     @export(_start2, .{ .name = "_start" });

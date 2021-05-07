@@ -4708,7 +4708,44 @@ fn zirBuiltinSrc(
 fn zirTypeInfo(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: implement Sema.zirTypeInfo", .{});
+    const ty = try sema.resolveType(block, src, inst_data.operand);
+    const type_info_ty = try sema.getBuiltinType(block, src, "TypeInfo");
+    const target = sema.mod.getTarget();
+
+    switch (ty.zigTypeTag()) {
+        .Fn => {
+            const field_values = try sema.arena.alloc(Value, 6);
+            // calling_convention: CallingConvention,
+            field_values[0] = try Value.Tag.enum_field_index.create(
+                sema.arena,
+                @enumToInt(ty.fnCallingConvention()),
+            );
+            // alignment: comptime_int,
+            field_values[1] = try Value.Tag.int_u64.create(sema.arena, ty.ptrAlignment(target));
+            // is_generic: bool,
+            field_values[2] = Value.initTag(.bool_false); // TODO
+            // is_var_args: bool,
+            field_values[3] = Value.initTag(.bool_false); // TODO
+            // return_type: ?type,
+            field_values[4] = try Value.Tag.ty.create(sema.arena, ty.fnReturnType());
+            // args: []const FnArg,
+            field_values[5] = Value.initTag(.null_value); // TODO
+
+            return sema.mod.constInst(sema.arena, src, .{
+                .ty = type_info_ty,
+                .val = try Value.Tag.@"union".create(sema.arena, .{
+                    .tag = try Value.Tag.enum_field_index.create(
+                        sema.arena,
+                        @enumToInt(@typeInfo(std.builtin.TypeInfo).Union.tag_type.?.Fn),
+                    ),
+                    .val = try Value.Tag.@"struct".create(sema.arena, field_values.ptr),
+                }),
+            });
+        },
+        else => |t| return sema.mod.fail(&block.base, src, "TODO: implement zirTypeInfo for {s}", .{
+            @tagName(t),
+        }),
+    }
 }
 
 fn zirTypeof(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
