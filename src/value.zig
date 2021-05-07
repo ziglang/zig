@@ -104,6 +104,7 @@ pub const Value = extern union {
         /// Represents a pointer to a decl, not the value of the decl.
         decl_ref,
         elem_ptr,
+        field_ptr,
         /// A slice of u8 whose memory is managed externally.
         bytes,
         /// This value is repeated some number of times. The amount of times to repeat
@@ -223,6 +224,7 @@ pub const Value = extern union {
                 .function => Payload.Function,
                 .variable => Payload.Variable,
                 .elem_ptr => Payload.ElemPtr,
+                .field_ptr => Payload.FieldPtr,
                 .float_16 => Payload.Float_16,
                 .float_32 => Payload.Float_32,
                 .float_64 => Payload.Float_64,
@@ -414,6 +416,18 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .field_ptr => {
+                const payload = self.castTag(.field_ptr).?;
+                const new_payload = try allocator.create(Payload.FieldPtr);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = .{
+                        .container_ptr = try payload.data.container_ptr.copy(allocator),
+                        .field_index = payload.data.field_index,
+                    },
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
             .bytes => return self.copyPayloadShallow(allocator, Payload.Bytes),
             .repeated => {
                 const payload = self.castTag(.repeated).?;
@@ -569,6 +583,11 @@ pub const Value = extern union {
                 try out_stream.print("&[{}] ", .{elem_ptr.index});
                 val = elem_ptr.array_ptr;
             },
+            .field_ptr => {
+                const field_ptr = val.castTag(.field_ptr).?.data;
+                try out_stream.print("fieldptr({d}) ", .{field_ptr.field_index});
+                val = field_ptr.container_ptr;
+            },
             .empty_array => return out_stream.writeAll(".{}"),
             .enum_literal => return out_stream.print(".{}", .{std.zig.fmtId(self.castTag(.enum_literal).?.data)}),
             .enum_field_index => return out_stream.print("(enum field {d})", .{self.castTag(.enum_field_index).?.data}),
@@ -704,6 +723,7 @@ pub const Value = extern union {
             .ref_val,
             .decl_ref,
             .elem_ptr,
+            .field_ptr,
             .bytes,
             .repeated,
             .float_16,
@@ -1196,6 +1216,11 @@ pub const Value = extern union {
                 std.hash.autoHash(&hasher, payload.array_ptr.hash());
                 std.hash.autoHash(&hasher, payload.index);
             },
+            .field_ptr => {
+                const payload = self.castTag(.field_ptr).?.data;
+                std.hash.autoHash(&hasher, payload.container_ptr.hash());
+                std.hash.autoHash(&hasher, payload.field_index);
+            },
             .decl_ref => {
                 const decl = self.castTag(.decl_ref).?.data;
                 std.hash.autoHash(&hasher, decl);
@@ -1250,6 +1275,11 @@ pub const Value = extern union {
                 const array_val = try elem_ptr.array_ptr.pointerDeref(allocator);
                 return array_val.elemValue(allocator, elem_ptr.index);
             },
+            .field_ptr => {
+                const field_ptr = self.castTag(.field_ptr).?.data;
+                const container_val = try field_ptr.container_ptr.pointerDeref(allocator);
+                return container_val.fieldValue(allocator, field_ptr.field_index);
+            },
 
             else => unreachable,
         };
@@ -1265,6 +1295,22 @@ pub const Value = extern union {
 
             // No matter the index; all the elements are the same!
             .repeated => return self.castTag(.repeated).?.data,
+
+            else => unreachable,
+        }
+    }
+
+    pub fn fieldValue(val: Value, allocator: *Allocator, index: usize) error{OutOfMemory}!Value {
+        switch (val.tag()) {
+            .@"struct" => {
+                const field_values = val.castTag(.@"struct").?.data;
+                return field_values[index];
+            },
+            .@"union" => {
+                const payload = val.castTag(.@"union").?.data;
+                // TODO assert the tag is correct
+                return payload.val;
+            },
 
             else => unreachable,
         }
@@ -1409,6 +1455,7 @@ pub const Value = extern union {
             .ref_val,
             .decl_ref,
             .elem_ptr,
+            .field_ptr,
             .bytes,
             .repeated,
             .float_16,
@@ -1493,6 +1540,16 @@ pub const Value = extern union {
             data: struct {
                 array_ptr: Value,
                 index: usize,
+            },
+        };
+
+        pub const FieldPtr = struct {
+            pub const base_tag = Tag.field_ptr;
+
+            base: Payload = Payload{ .tag = base_tag },
+            data: struct {
+                container_ptr: Value,
+                field_index: usize,
             },
         };
 

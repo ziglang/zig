@@ -456,6 +456,16 @@ pub const Decl = struct {
         return struct_obj;
     }
 
+    /// If the Decl has a value and it is a union, return it,
+    /// otherwise null.
+    pub fn getUnion(decl: *Decl) ?*Union {
+        if (!decl.has_tv) return null;
+        const ty = (decl.val.castTag(.ty) orelse return null).data;
+        const union_obj = (ty.cast(Type.Payload.Union) orelse return null).data;
+        if (union_obj.owner_decl != decl) return null;
+        return union_obj;
+    }
+
     /// If the Decl has a value and it is a function, return it,
     /// otherwise null.
     pub fn getFunction(decl: *Decl) ?*Fn {
@@ -571,6 +581,18 @@ pub const Struct = struct {
             .lazy = .{ .node_offset = s.node_offset },
         };
     }
+
+    pub fn haveFieldTypes(s: Struct) bool {
+        return switch (s.status) {
+            .none,
+            .field_types_wip,
+            => false,
+            .have_field_types,
+            .layout_wip,
+            .have_layout,
+            => true,
+        };
+    }
 };
 
 /// Represents the data that an enum declaration provides, when the fields
@@ -616,6 +638,52 @@ pub const EnumFull = struct {
     pub const ValueMap = std.ArrayHashMapUnmanaged(Value, void, Value.hash_u32, Value.eql, false);
 
     pub fn srcLoc(self: EnumFull) SrcLoc {
+        return .{
+            .file_scope = self.owner_decl.getFileScope(),
+            .parent_decl_node = self.owner_decl.src_node,
+            .lazy = .{ .node_offset = self.node_offset },
+        };
+    }
+};
+
+pub const Union = struct {
+    /// The Decl that corresponds to the union itself.
+    owner_decl: *Decl,
+    /// An enum type which is used for the tag of the union.
+    /// This type is created even for untagged unions, even when the memory
+    /// layout does not store the tag.
+    /// Whether zig chooses this type or the user specifies it, it is stored here.
+    /// This will be set to the null type until status is `have_field_types`.
+    tag_ty: Type,
+    /// Set of field names in declaration order.
+    fields: std.StringArrayHashMapUnmanaged(Field),
+    /// Represents the declarations inside this union.
+    namespace: Scope.Namespace,
+    /// Offset from `owner_decl`, points to the union decl AST node.
+    node_offset: i32,
+    /// Index of the union_decl ZIR instruction.
+    zir_index: Zir.Inst.Index,
+
+    layout: std.builtin.TypeInfo.ContainerLayout,
+    status: enum {
+        none,
+        field_types_wip,
+        have_field_types,
+        layout_wip,
+        have_layout,
+    },
+
+    pub const Field = struct {
+        /// undefined until `status` is `have_field_types` or `have_layout`.
+        ty: Type,
+        abi_align: Value,
+    };
+
+    pub fn getFullyQualifiedName(s: *Union, gpa: *Allocator) ![]u8 {
+        return s.owner_decl.getFullyQualifiedName(gpa);
+    }
+
+    pub fn srcLoc(self: Union) SrcLoc {
         return .{
             .file_scope = self.owner_decl.getFileScope(),
             .parent_decl_node = self.owner_decl.src_node,
@@ -2401,6 +2469,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
 
 /// Patch ups:
 /// * Struct.zir_index
+/// * Decl.zir_index
 /// * Fn.zir_body_inst
 /// * Decl.zir_decl_index
 /// * Decl.name
@@ -2474,6 +2543,13 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
 
         if (decl.getStruct()) |struct_obj| {
             struct_obj.zir_index = inst_map.get(struct_obj.zir_index) orelse {
+                try file.deleted_decls.append(gpa, decl);
+                continue;
+            };
+        }
+
+        if (decl.getUnion()) |union_obj| {
+            union_obj.zir_index = inst_map.get(union_obj.zir_index) orelse {
                 try file.deleted_decls.append(gpa, decl);
                 continue;
             };
@@ -2769,7 +2845,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     };
 
     if (decl.isRoot()) {
-        log.debug("semaDecl root {*} ({s})", .{decl, decl.name});
+        log.debug("semaDecl root {*} ({s})", .{ decl, decl.name });
         const main_struct_inst = zir.getMainStruct();
         const struct_obj = decl.getStruct().?;
         try sema.analyzeStructDecl(decl, main_struct_inst, struct_obj);
@@ -4271,7 +4347,7 @@ pub const SwitchProngSrc = union(enum) {
     }
 };
 
-pub fn analyzeStructFields(mod: *Module, struct_obj: *Module.Struct) InnerError!void {
+pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -4284,26 +4360,9 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Module.Struct) InnerError!
     const decls_len = extra.data.decls_len;
 
     // Skip over decls.
-    var extra_index = extra.end;
-    {
-        const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
-        var bit_bag_index: usize = extra_index;
-        extra_index += bit_bags_count;
-        var cur_bit_bag: u32 = undefined;
-        var decl_i: u32 = 0;
-        while (decl_i < decls_len) : (decl_i += 1) {
-            if (decl_i % 8 == 0) {
-                cur_bit_bag = zir.extra[bit_bag_index];
-                bit_bag_index += 1;
-            }
-            const flags = @truncate(u4, cur_bit_bag);
-            cur_bit_bag >>= 4;
-
-            extra_index += 7; // src_hash(4) + line(1) + name(1) + value(1)
-            extra_index += @truncate(u1, flags >> 2);
-            extra_index += @truncate(u1, flags >> 3);
-        }
-    }
+    var decls_it = zir.declIterator(struct_obj.zir_index);
+    while (decls_it.next()) |_| {}
+    var extra_index = decls_it.extra_index;
 
     const body = zir.extra[extra_index..][0..extra.data.body_len];
     if (fields_len == 0) {
@@ -4415,6 +4474,141 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Module.Struct) InnerError!
             gop.entry.value.default_val = (try sema.resolveInstConst(&block, src, default_ref)).val;
         }
     }
+}
+
+pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = mod.gpa;
+    const zir = union_obj.owner_decl.namespace.file_scope.zir;
+    const inst_data = zir.instructions.items(.data)[union_obj.zir_index].pl_node;
+    const src = inst_data.src();
+    const extra = zir.extraData(Zir.Inst.UnionDecl, inst_data.payload_index);
+    const fields_len = extra.data.fields_len;
+    const decls_len = extra.data.decls_len;
+
+    // Skip over decls.
+    var decls_it = zir.declIterator(union_obj.zir_index);
+    while (decls_it.next()) |_| {}
+    var extra_index = decls_it.extra_index;
+
+    const body = zir.extra[extra_index..][0..extra.data.body_len];
+    if (fields_len == 0) {
+        assert(body.len == 0);
+        return;
+    }
+    extra_index += body.len;
+
+    var decl_arena = union_obj.owner_decl.value_arena.?.promote(gpa);
+    defer union_obj.owner_decl.value_arena.?.* = decl_arena.state;
+
+    try union_obj.fields.ensureCapacity(&decl_arena.allocator, fields_len);
+
+    // We create a block for the field type instructions because they
+    // may need to reference Decls from inside the struct namespace.
+    // Within the field type, default value, and alignment expressions, the "owner decl"
+    // should be the struct itself. Thus we need a new Sema.
+    var sema: Sema = .{
+        .mod = mod,
+        .gpa = gpa,
+        .arena = &decl_arena.allocator,
+        .code = zir,
+        .inst_map = try gpa.alloc(*ir.Inst, zir.instructions.len),
+        .owner_decl = union_obj.owner_decl,
+        .namespace = &union_obj.namespace,
+        .owner_func = null,
+        .func = null,
+        .param_inst_list = &.{},
+    };
+    defer gpa.free(sema.inst_map);
+
+    var block: Scope.Block = .{
+        .parent = null,
+        .sema = &sema,
+        .src_decl = union_obj.owner_decl,
+        .instructions = .{},
+        .inlining = null,
+        .is_comptime = true,
+    };
+    defer assert(block.instructions.items.len == 0); // should all be comptime instructions
+
+    _ = try sema.analyzeBody(&block, body);
+
+    var auto_enum_tag: ?bool = null;
+
+    const bits_per_field = 4;
+    const fields_per_u32 = 32 / bits_per_field;
+    const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
+    var bit_bag_index: usize = extra_index;
+    extra_index += bit_bags_count;
+    var cur_bit_bag: u32 = undefined;
+    var field_i: u32 = 0;
+    while (field_i < fields_len) : (field_i += 1) {
+        if (field_i % fields_per_u32 == 0) {
+            cur_bit_bag = zir.extra[bit_bag_index];
+            bit_bag_index += 1;
+        }
+        const has_type = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const has_align = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const has_tag = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+        const unused = @truncate(u1, cur_bit_bag) != 0;
+        cur_bit_bag >>= 1;
+
+        if (auto_enum_tag == null) {
+            auto_enum_tag = unused;
+        }
+
+        const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
+        extra_index += 1;
+
+        const field_type_ref: Zir.Inst.Ref = if (has_type) blk: {
+            const field_type_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+            extra_index += 1;
+            break :blk field_type_ref;
+        } else .none;
+
+        const align_ref: Zir.Inst.Ref = if (has_align) blk: {
+            const align_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+            extra_index += 1;
+            break :blk align_ref;
+        } else .none;
+
+        const tag_ref: Zir.Inst.Ref = if (has_tag) blk: {
+            const tag_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+            extra_index += 1;
+            break :blk tag_ref;
+        } else .none;
+
+        // This string needs to outlive the ZIR code.
+        const field_name = try decl_arena.allocator.dupe(u8, field_name_zir);
+        const field_ty: Type = if (field_type_ref == .none)
+            Type.initTag(.void)
+        else
+            // TODO: if we need to report an error here, use a source location
+            // that points to this type expression rather than the union.
+            // But only resolve the source location if we need to emit a compile error.
+            try sema.resolveType(&block, src, field_type_ref);
+
+        const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
+        assert(!gop.found_existing);
+        gop.entry.value = .{
+            .ty = field_ty,
+            .abi_align = Value.initTag(.abi_align_default),
+        };
+
+        if (align_ref != .none) {
+            // TODO: if we need to report an error here, use a source location
+            // that points to this alignment expression rather than the struct.
+            // But only resolve the source location if we need to emit a compile error.
+            gop.entry.value.abi_align = (try sema.resolveInstConst(&block, src, align_ref)).val;
+        }
+    }
+
+    // TODO resolve the union tag type
 }
 
 /// Called from `performAllTheWork`, after all AstGen workers have finished,

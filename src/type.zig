@@ -122,6 +122,10 @@ pub const Type = extern union {
             .reduce_op,
             => return .Enum,
 
+            .@"union",
+            .union_tagged,
+            => return .Union,
+
             .var_args_param => unreachable, // can be any type
         }
     }
@@ -506,11 +510,18 @@ pub const Type = extern union {
                 }
                 return a.tag() == b.tag();
             },
+            .Union => {
+                if (a.cast(Payload.Union)) |a_payload| {
+                    if (b.cast(Payload.Union)) |b_payload| {
+                        return a_payload.data == b_payload.data;
+                    }
+                }
+                return a.tag() == b.tag();
+            },
             .Opaque,
             .Float,
             .ErrorUnion,
             .ErrorSet,
-            .Union,
             .BoundFn,
             .Frame,
             => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
@@ -735,6 +746,7 @@ pub const Type = extern union {
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.Name),
             .empty_struct => return self.copyPayloadShallow(allocator, Payload.ContainerScope),
             .@"struct" => return self.copyPayloadShallow(allocator, Payload.Struct),
+            .@"union", .union_tagged => return self.copyPayloadShallow(allocator, Payload.Union),
             .enum_simple => return self.copyPayloadShallow(allocator, Payload.EnumSimple),
             .enum_full, .enum_nonexhaustive => return self.copyPayloadShallow(allocator, Payload.EnumFull),
             .@"opaque" => return self.copyPayloadShallow(allocator, Payload.Opaque),
@@ -805,6 +817,10 @@ pub const Type = extern union {
                 .@"struct" => {
                     const struct_obj = ty.castTag(.@"struct").?.data;
                     return struct_obj.owner_decl.renderFullyQualifiedName(writer);
+                },
+                .@"union", .union_tagged => {
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    return union_obj.owner_decl.renderFullyQualifiedName(writer);
                 },
                 .enum_full, .enum_nonexhaustive => {
                     const enum_full = ty.cast(Payload.EnumFull).?.data;
@@ -1151,6 +1167,27 @@ pub const Type = extern union {
                 const int_tag_ty = self.intTagType(&buffer);
                 return int_tag_ty.hasCodeGenBits();
             },
+            .@"union" => {
+                const union_obj = self.castTag(.@"union").?.data;
+                for (union_obj.fields.entries.items) |entry| {
+                    if (entry.value.ty.hasCodeGenBits())
+                        return true;
+                } else {
+                    return false;
+                }
+            },
+            .union_tagged => {
+                const union_obj = self.castTag(.@"union").?.data;
+                if (union_obj.tag_ty.hasCodeGenBits()) {
+                    return true;
+                }
+                for (union_obj.fields.entries.items) |entry| {
+                    if (entry.value.ty.hasCodeGenBits())
+                        return true;
+                } else {
+                    return false;
+                }
+            },
 
             // TODO lazy types
             .array, .vector => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
@@ -1359,6 +1396,34 @@ pub const Type = extern union {
                 const int_tag_ty = self.intTagType(&buffer);
                 return int_tag_ty.abiAlignment(target);
             },
+            .union_tagged => {
+                const union_obj = self.castTag(.union_tagged).?.data;
+                var biggest: u32 = union_obj.tag_ty.abiAlignment(target);
+                for (union_obj.fields.entries.items) |entry| {
+                    const field_ty = entry.value.ty;
+                    if (!field_ty.hasCodeGenBits()) continue;
+                    const field_align = field_ty.abiAlignment(target);
+                    if (field_align > biggest) {
+                        return field_align;
+                    }
+                }
+                assert(biggest != 0);
+                return biggest;
+            },
+            .@"union" => {
+                const union_obj = self.castTag(.@"union").?.data;
+                var biggest: u32 = 0;
+                for (union_obj.fields.entries.items) |entry| {
+                    const field_ty = entry.value.ty;
+                    if (!field_ty.hasCodeGenBits()) continue;
+                    const field_align = field_ty.abiAlignment(target);
+                    if (field_align > biggest) {
+                        return field_align;
+                    }
+                }
+                assert(biggest != 0);
+                return biggest;
+            },
             .c_void,
             .void,
             .type,
@@ -1410,6 +1475,9 @@ pub const Type = extern union {
                 var buffer: Payload.Bits = undefined;
                 const int_tag_ty = self.intTagType(&buffer);
                 return int_tag_ty.abiSize(target);
+            },
+            .@"union", .union_tagged => {
+                @panic("TODO abiSize unions");
             },
 
             .u8,
@@ -1569,6 +1637,9 @@ pub const Type = extern union {
                 var buffer: Payload.Bits = undefined;
                 const int_tag_ty = self.intTagType(&buffer);
                 return int_tag_ty.bitSize(target);
+            },
+            .@"union", .union_tagged => {
+                @panic("TODO bitSize unions");
             },
 
             .u8, .i8 => 8,
@@ -2263,6 +2334,8 @@ pub const Type = extern union {
         };
     }
 
+    /// During semantic analysis, instead call `Sema.typeHasOnePossibleValue` which
+    /// resolves field types rather than asserting they are already resolved.
     pub fn onePossibleValue(starting_type: Type) ?Value {
         var ty = starting_type;
         while (true) switch (ty.tag()) {
@@ -2330,10 +2403,18 @@ pub const Type = extern union {
             .extern_options,
             .@"anyframe",
             .anyframe_T,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .pointer,
             => return null,
 
             .@"struct" => {
                 const s = ty.castTag(.@"struct").?.data;
+                assert(s.haveFieldTypes());
                 for (s.fields.entries.items) |entry| {
                     const field_ty = entry.value.ty;
                     if (field_ty.onePossibleValue() == null) {
@@ -2359,6 +2440,12 @@ pub const Type = extern union {
                 }
             },
             .enum_nonexhaustive => ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty,
+            .@"union" => {
+                return null; // TODO
+            },
+            .union_tagged => {
+                return null; // TODO
+            },
 
             .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
             .void => return Value.initTag(.void_value),
@@ -2379,20 +2466,7 @@ pub const Type = extern union {
                 ty = ty.elemType();
                 continue;
             },
-            .many_const_pointer,
-            .many_mut_pointer,
-            .c_const_pointer,
-            .c_mut_pointer,
-            .single_const_pointer,
-            .single_mut_pointer,
-            => {
-                ty = ty.castPointer().?.data;
-                continue;
-            },
-            .pointer => {
-                ty = ty.castTag(.pointer).?.data.pointee_type;
-                continue;
-            },
+
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
         };
@@ -2412,6 +2486,8 @@ pub const Type = extern union {
             .enum_full => &self.castTag(.enum_full).?.data.namespace,
             .empty_struct => self.castTag(.empty_struct).?.data,
             .@"opaque" => &self.castTag(.@"opaque").?.data,
+            .@"union" => &self.castTag(.@"union").?.data.namespace,
+            .union_tagged => &self.castTag(.union_tagged).?.data.namespace,
 
             else => null,
         };
@@ -2612,6 +2688,10 @@ pub const Type = extern union {
                 const error_set = ty.castTag(.error_set).?.data;
                 return error_set.srcLoc();
             },
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
+                return union_obj.srcLoc();
+            },
             .atomic_ordering,
             .atomic_rmw_op,
             .calling_convention,
@@ -2642,6 +2722,10 @@ pub const Type = extern union {
             .error_set => {
                 const error_set = ty.castTag(.error_set).?.data;
                 return error_set.owner_decl;
+            },
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
+                return union_obj.owner_decl;
             },
             .@"opaque" => @panic("TODO"),
             .atomic_ordering,
@@ -2801,6 +2885,8 @@ pub const Type = extern union {
         empty_struct,
         @"opaque",
         @"struct",
+        @"union",
+        union_tagged,
         enum_simple,
         enum_full,
         enum_nonexhaustive,
@@ -2902,6 +2988,7 @@ pub const Type = extern union {
                 .error_set_single => Payload.Name,
                 .@"opaque" => Payload.Opaque,
                 .@"struct" => Payload.Struct,
+                .@"union", .union_tagged => Payload.Union,
                 .enum_full, .enum_nonexhaustive => Payload.EnumFull,
                 .enum_simple => Payload.EnumSimple,
                 .empty_struct => Payload.ContainerScope,
@@ -3038,6 +3125,11 @@ pub const Type = extern union {
         pub const Struct = struct {
             base: Payload = .{ .tag = .@"struct" },
             data: *Module.Struct,
+        };
+
+        pub const Union = struct {
+            base: Payload,
+            data: *Module.Union,
         };
 
         pub const EnumFull = struct {

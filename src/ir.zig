@@ -255,6 +255,9 @@ pub const Inst = struct {
     }
 
     /// Returns `null` if runtime-known.
+    /// Should be called by codegen, not by Sema. Sema functions should call
+    /// `resolvePossiblyUndefinedValue` or `resolveDefinedValue` instead.
+    /// TODO audit Sema code for violations to the above guidance.
     pub fn value(base: *Inst) ?Value {
         if (base.ty.onePossibleValue()) |opv| return opv;
 

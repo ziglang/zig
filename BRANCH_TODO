@@ -1,4 +1,3 @@
- * start.zig should support pub export fn main with -ofmt=c
  * get stage2 tests passing
  * modify stage2 tests so that only 1 uses _start and the rest use
    pub fn main
@@ -61,6 +60,3 @@
 
  * AstGen threadlocal
  * extern "foo" for vars
-
- * TODO all decls should probably store source hash. Without this,
-   we currently unnecessarily mark all anon decls outdated here.
