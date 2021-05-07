@@ -646,8 +646,9 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     else
         system.preadv;
 
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     while (true) {
-        const rc = preadv_sym(fd, iov.ptr, iov_count, offset);
+        const rc = preadv_sym(fd, iov.ptr, iov_count, ioffset);
         switch (errno(rc)) {
             0 => return @bitCast(usize, rc),
             EINTR => continue,
@@ -998,8 +999,9 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
         system.pwritev;
 
     const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
+    const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     while (true) {
-        const rc = pwritev_sym(fd, iov.ptr, iov_count, offset);
+        const rc = pwritev_sym(fd, iov.ptr, iov_count, ioffset);
         switch (errno(rc)) {
             0 => return @intCast(usize, rc),
             EINTR => continue,
