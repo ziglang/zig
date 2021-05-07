@@ -285,8 +285,7 @@ pub const Decl = struct {
         log.debug("destroy Decl {*} ({s})", .{ decl, decl.name });
         decl.clearName(gpa);
         if (decl.has_tv) {
-            if (decl.val.castTag(.function)) |payload| {
-                const func = payload.data;
+            if (decl.getFunction()) |func| {
                 func.deinit(gpa);
                 gpa.destroy(func);
             } else if (decl.val.getTypeNamespace()) |namespace| {
@@ -308,6 +307,10 @@ pub const Decl = struct {
     }
 
     pub fn clearValues(decl: *Decl, gpa: *Allocator) void {
+        if (decl.getFunction()) |func| {
+            func.deinit(gpa);
+            gpa.destroy(func);
+        }
         if (decl.value_arena) |arena_state| {
             arena_state.promote(gpa).deinit();
             decl.value_arena = null;
@@ -348,7 +351,7 @@ pub const Decl = struct {
         return contents_hash;
     }
 
-    pub fn zirBlockIndex(decl: Decl) Zir.Inst.Index {
+    pub fn zirBlockIndex(decl: *const Decl) Zir.Inst.Index {
         assert(decl.zir_decl_index != 0);
         const zir = decl.namespace.file_scope.zir;
         return zir.extra[decl.zir_decl_index + 6];
@@ -367,6 +370,13 @@ pub const Decl = struct {
         const zir = decl.namespace.file_scope.zir;
         const extra_index = decl.zir_decl_index + 6 + @boolToInt(decl.has_align);
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+    }
+
+    /// Returns true if and only if the Decl is the top level struct associated with a File.
+    pub fn isRoot(decl: *const Decl) bool {
+        if (decl.namespace.parent != null)
+            return false;
+        return decl == decl.namespace.ty.getOwnerDecl();
     }
 
     pub fn relativeToLine(decl: Decl, offset: u32) u32 {
@@ -832,6 +842,14 @@ pub const Scope = struct {
         /// Owned by its owner Decl Value.
         namespace: *Namespace,
 
+        /// Used by change detection algorithm, after astgen, contains the
+        /// set of decls that existed in the previous ZIR but not in the new one.
+        deleted_decls: std.ArrayListUnmanaged(*Decl) = .{},
+        /// Used by change detection algorithm, after astgen, contains the
+        /// set of decls that existed both in the previous ZIR and in the new one,
+        /// but their source code has been modified.
+        outdated_decls: std.ArrayListUnmanaged(*Decl) = .{},
+
         pub fn unload(file: *File, gpa: *Allocator) void {
             file.unloadTree(gpa);
             file.unloadSource(gpa);
@@ -862,6 +880,8 @@ pub const Scope = struct {
         pub fn deinit(file: *File, mod: *Module) void {
             const gpa = mod.gpa;
             log.debug("deinit File {s}", .{file.sub_file_path});
+            file.deleted_decls.deinit(gpa);
+            file.outdated_decls.deinit(gpa);
             if (file.status == .success_air) {
                 file.namespace.getDecl().destroy(mod);
             }
@@ -2361,8 +2381,10 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
         // We do not need to hold any locks at this time because all the Decl and Namespace
         // objects being touched are specific to this File, and the only other concurrent
         // tasks are touching other File objects.
-        const change_list = try updateZirRefs(gpa, file, prev_zir);
-        @panic("TODO do something with change_list");
+        try updateZirRefs(gpa, file, prev_zir);
+
+        // At this point, `file.outdated_decls` and `file.deleted_decls` are populated,
+        // and semantic analysis will deal with them properly.
     }
 
     // TODO don't report compile errors until Sema @importFile
@@ -2377,23 +2399,13 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
     }
 }
 
-const UpdateChangeList = struct {
-    deleted: []*const Decl,
-    outdated: []*const Decl,
-
-    fn deinit(self: *UpdateChangeList, gpa: *Allocator) void {
-        gpa.free(self.deleted);
-        gpa.free(self.outdated);
-    }
-};
-
 /// Patch ups:
 /// * Struct.zir_index
 /// * Fn.zir_body_inst
 /// * Decl.zir_decl_index
 /// * Decl.name
 /// * Namespace.decl keys
-fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !UpdateChangeList {
+fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
     const new_zir = file.zir;
 
     // Maps from old ZIR to new ZIR, struct_decl, enum_decl, etc. Any instruction which
@@ -2419,7 +2431,8 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !UpdateChange
         }
     }
 
-    // Walk the Decl graph.
+    // Walk the Decl graph, updating ZIR indexes, strings, and populating
+    // the deleted and outdated lists.
 
     var decl_stack: std.ArrayListUnmanaged(*Decl) = .{};
     defer decl_stack.deinit(gpa);
@@ -2427,48 +2440,48 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !UpdateChange
     const root_decl = file.namespace.getDecl();
     try decl_stack.append(gpa, root_decl);
 
-    var deleted_decls: std.ArrayListUnmanaged(*Decl) = .{};
-    defer deleted_decls.deinit(gpa);
-    var outdated_decls: std.ArrayListUnmanaged(*Decl) = .{};
-    defer outdated_decls.deinit(gpa);
+    file.deleted_decls.clearRetainingCapacity();
+    file.outdated_decls.clearRetainingCapacity();
+
+    // The root decl is always outdated; otherwise we would not have had
+    // to re-generate ZIR for the File.
+    try file.outdated_decls.append(gpa, root_decl);
 
     while (decl_stack.popOrNull()) |decl| {
         // Anonymous decls and the root decl have this set to 0. We still need
         // to walk them but we do not need to modify this value.
+        // Anonymous decls should not be marked outdated. They will be re-generated
+        // if their owner decl is marked outdated.
         if (decl.zir_decl_index != 0) {
             const old_hash = decl.contentsHashZir(old_zir);
             decl.zir_decl_index = extra_map.get(decl.zir_decl_index) orelse {
-                try deleted_decls.append(gpa, decl);
+                try file.deleted_decls.append(gpa, decl);
                 continue;
             };
             const new_name_index = string_table.get(mem.spanZ(decl.name)) orelse {
-                try deleted_decls.append(gpa, decl);
+                try file.deleted_decls.append(gpa, decl);
                 continue;
             };
             decl.name = new_zir.nullTerminatedString(new_name_index).ptr;
 
             const new_hash = decl.contentsHashZir(new_zir);
             if (!std.zig.srcHashEql(old_hash, new_hash)) {
-                try outdated_decls.append(gpa, decl);
+                try file.outdated_decls.append(gpa, decl);
             }
-        } else {
-            // TODO all decls should probably store source hash. Without this,
-            // we currently unnecessarily mark all anon decls outdated here.
-            try outdated_decls.append(gpa, decl);
         }
 
         if (!decl.has_tv) continue;
 
         if (decl.getStruct()) |struct_obj| {
             struct_obj.zir_index = inst_map.get(struct_obj.zir_index) orelse {
-                try deleted_decls.append(gpa, decl);
+                try file.deleted_decls.append(gpa, decl);
                 continue;
             };
         }
 
         if (decl.getFunction()) |func| {
             func.zir_body_inst = inst_map.get(func.zir_body_inst) orelse {
-                try deleted_decls.append(gpa, decl);
+                try file.deleted_decls.append(gpa, decl);
                 continue;
             };
         }
@@ -2478,7 +2491,7 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !UpdateChange
                 const sub_decl = entry.value;
                 if (sub_decl.zir_decl_index != 0) {
                     const new_key_index = string_table.get(entry.key) orelse {
-                        try deleted_decls.append(gpa, sub_decl);
+                        try file.deleted_decls.append(gpa, sub_decl);
                         continue;
                     };
                     entry.key = new_zir.nullTerminatedString(new_key_index);
@@ -2487,14 +2500,6 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !UpdateChange
             }
         }
     }
-
-    const outdated_slice = outdated_decls.toOwnedSlice(gpa);
-    const deleted_slice = deleted_decls.toOwnedSlice(gpa);
-
-    return UpdateChangeList{
-        .outdated = outdated_slice,
-        .deleted = deleted_slice,
-    };
 }
 
 pub fn mapOldZirToNew(
@@ -2512,10 +2517,8 @@ pub fn mapOldZirToNew(
     var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .{};
     defer match_stack.deinit(gpa);
 
-    const old_main_struct_inst = old_zir.extra[@enumToInt(Zir.ExtraIndex.main_struct)] -
-        @intCast(u32, Zir.Inst.Ref.typed_value_map.len);
-    const new_main_struct_inst = new_zir.extra[@enumToInt(Zir.ExtraIndex.main_struct)] -
-        @intCast(u32, Zir.Inst.Ref.typed_value_map.len);
+    const old_main_struct_inst = old_zir.getMainStruct();
+    const new_main_struct_inst = new_zir.getMainStruct();
 
     try match_stack.append(gpa, .{
         .old_inst = old_main_struct_inst,
@@ -2579,7 +2582,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
         .complete => return,
 
         .outdated => blk: {
-            log.debug("re-analyzing {s}", .{decl.name});
+            log.debug("re-analyzing {*} ({s})", .{ decl, decl.name });
 
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
@@ -2667,8 +2670,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
     }
 
     assert(file.zir_loaded);
-    const main_struct_inst = file.zir.extra[@enumToInt(Zir.ExtraIndex.main_struct)] -
-        @intCast(u32, Zir.Inst.Ref.typed_value_map.len);
+    const main_struct_inst = file.zir.getMainStruct();
 
     const gpa = mod.gpa;
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
@@ -2745,13 +2747,13 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     defer tracy.end();
 
     const gpa = mod.gpa;
+    const zir = decl.namespace.file_scope.zir;
+    const zir_datas = zir.instructions.items(.data);
 
     decl.analysis = .in_progress;
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
-
-    const zir = decl.namespace.file_scope.zir;
 
     var sema: Sema = .{
         .mod = mod,
@@ -2765,6 +2767,19 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .owner_func = null,
         .param_inst_list = &.{},
     };
+
+    if (decl.isRoot()) {
+        log.debug("semaDecl root {*} ({s})", .{decl, decl.name});
+        const main_struct_inst = zir.getMainStruct();
+        const struct_obj = decl.getStruct().?;
+        try sema.analyzeStructDecl(decl, main_struct_inst, struct_obj);
+        assert(decl.namespace.file_scope.status == .success_zir);
+        decl.namespace.file_scope.status = .success_air;
+        decl.analysis = .complete;
+        decl.generation = mod.generation;
+        return false;
+    }
+
     var block_scope: Scope.Block = .{
         .parent = null,
         .sema = &sema,
@@ -2775,25 +2790,23 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     };
     defer block_scope.instructions.deinit(gpa);
 
-    const zir_datas = zir.instructions.items(.data);
-    const zir_tags = zir.instructions.items(.tag);
-
     const zir_block_index = decl.zirBlockIndex();
     const inst_data = zir_datas[zir_block_index].pl_node;
     const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
     const body = zir.extra[extra.end..][0..extra.data.body_len];
     const break_index = try sema.analyzeBody(&block_scope, body);
     const result_ref = zir_datas[break_index].@"break".operand;
-    const decl_tv = try sema.resolveInstConst(&block_scope, inst_data.src(), result_ref);
+    const src = inst_data.src();
+    const decl_tv = try sema.resolveInstConst(&block_scope, src, result_ref);
     const align_val = blk: {
         const align_ref = decl.zirAlignRef();
         if (align_ref == .none) break :blk Value.initTag(.null_value);
-        break :blk (try sema.resolveInstConst(&block_scope, inst_data.src(), align_ref)).val;
+        break :blk (try sema.resolveInstConst(&block_scope, src, align_ref)).val;
     };
     const linksection_val = blk: {
         const linksection_ref = decl.zirLinksectionRef();
         if (linksection_ref == .none) break :blk Value.initTag(.null_value);
-        break :blk (try sema.resolveInstConst(&block_scope, inst_data.src(), linksection_ref)).val;
+        break :blk (try sema.resolveInstConst(&block_scope, src, linksection_ref)).val;
     };
 
     // We need the memory for the Type to go into the arena for the Decl
@@ -2842,7 +2855,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         }
 
         if (decl.is_exported) {
-            const export_src = inst_data.src(); // TODO make this point at `export` token
+            const export_src = src; // TODO make this point at `export` token
             if (is_inline) {
                 return mod.fail(&block_scope.base, export_src, "export of inline function", .{});
             }
@@ -2859,7 +2872,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         if (is_mutable and !decl_tv.ty.isValidVarType(is_extern)) {
             return mod.fail(
                 &block_scope.base,
-                inst_data.src(), // TODO point at the mut token
+                src, // TODO point at the mut token
                 "variable of type '{}' must be const",
                 .{decl_tv.ty},
             );
@@ -2891,7 +2904,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         decl.generation = mod.generation;
 
         if (decl.is_exported) {
-            const export_src = inst_data.src(); // TODO point to the export token
+            const export_src = src; // TODO point to the export token
             // The scope needs to have the decl in it.
             try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
         }
@@ -3047,26 +3060,6 @@ pub fn scanNamespace(
     try mod.comp.work_queue.ensureUnusedCapacity(decls_len);
     try namespace.decls.ensureCapacity(gpa, decls_len);
 
-    // Keep track of the decls that we expect to see in this namespace so that
-    // we know which ones have been deleted.
-    var deleted_decls = std.AutoArrayHashMap(*Decl, void).init(gpa);
-    defer deleted_decls.deinit();
-    {
-        const namespace_decls = namespace.decls.items();
-        try deleted_decls.ensureCapacity(namespace_decls.len);
-        for (namespace_decls) |entry| {
-            deleted_decls.putAssumeCapacityNoClobber(entry.value, {});
-        }
-    }
-
-    // Keep track of decls that are invalidated from the update. Ultimately,
-    // the goal is to queue up `analyze_decl` tasks in the work queue for
-    // the outdated decls, but we cannot queue up the tasks until after
-    // we find out which ones have been deleted, otherwise there would be
-    // deleted Decl pointers in the work queue.
-    var outdated_decls = std.AutoArrayHashMap(*Decl, void).init(gpa);
-    defer outdated_decls.deinit();
-
     const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
     var extra_index = extra_start + bit_bags_count;
     var bit_bag_index: usize = extra_start;
@@ -3075,8 +3068,6 @@ pub fn scanNamespace(
     var scan_decl_iter: ScanDeclIter = .{
         .module = mod,
         .namespace = namespace,
-        .deleted_decls = &deleted_decls,
-        .outdated_decls = &outdated_decls,
         .parent_decl = parent_decl,
     };
     while (decl_i < decls_len) : (decl_i += 1) {
@@ -3094,36 +3085,12 @@ pub fn scanNamespace(
 
         try scanDecl(&scan_decl_iter, decl_sub_index, flags);
     }
-    // Handle explicitly deleted decls from the source code. This is one of two
-    // places that Decl deletions happen. The other is in `Compilation`, after
-    // `performAllTheWork`, where we iterate over `Module.deletion_set` and
-    // delete Decls which are no longer referenced.
-    // If a Decl is explicitly deleted from source, and also no longer referenced,
-    // it may be both in this `deleted_decls` set, as well as in the
-    // `Module.deletion_set`. To avoid deleting it twice, we remove it from the
-    // deletion set at this time.
-    for (deleted_decls.items()) |entry| {
-        const decl = entry.key;
-        log.debug("'{s}' deleted from source", .{decl.name});
-        if (decl.deletion_flag) {
-            log.debug("'{s}' redundantly in deletion set; removing", .{decl.name});
-            mod.deletion_set.removeAssertDiscard(decl);
-        }
-        try mod.deleteDecl(decl, &outdated_decls);
-    }
-    // Finally we can queue up re-analysis tasks after we have processed
-    // the deleted decls.
-    for (outdated_decls.items()) |entry| {
-        try mod.markOutdatedDecl(entry.key);
-    }
     return extra_index;
 }
 
 const ScanDeclIter = struct {
     module: *Module,
     namespace: *Scope.Namespace,
-    deleted_decls: *std.AutoArrayHashMap(*Decl, void),
-    outdated_decls: *std.AutoArrayHashMap(*Decl, void),
     parent_decl: *Decl,
     usingnamespace_index: usize = 0,
     comptime_index: usize = 0,
@@ -3211,37 +3178,16 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
     decl.src_node = decl_node;
     decl.src_line = line;
 
+    decl.clearName(gpa);
+    decl.name = decl_name;
+
     decl.is_pub = is_pub;
     decl.is_exported = is_exported;
     decl.has_align = has_align;
     decl.has_linksection = has_linksection;
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
-    if (iter.deleted_decls.swapRemove(decl) == null) {
-        if (true) {
-            @panic("TODO I think this code path is unreachable; should be caught by AstGen.");
-        }
-        decl.analysis = .sema_failure;
-        const msg = try ErrorMsg.create(gpa, .{
-            .file_scope = namespace.file_scope,
-            .parent_decl_node = 0,
-            .lazy = .{ .token_abs = name_token },
-        }, "redeclaration of '{s}'", .{decl.name});
-        errdefer msg.destroy(gpa);
-        const other_src_loc: SrcLoc = .{
-            .file_scope = namespace.file_scope,
-            .parent_decl_node = 0,
-            .lazy = .{ .node_abs = prev_src_node },
-        };
-        try mod.errNoteNonLazy(other_src_loc, msg, "previously declared here", .{});
-        try mod.failed_decls.putNoClobber(gpa, decl, msg);
-    } else {
-        if (true) {
-            @panic("TODO reimplement scanDecl with regards to incremental compilation.");
-        }
-        if (!std.zig.srcHashEql(decl.contents_hash, contents_hash)) {
-            try iter.outdated_decls.put(decl, {});
-            decl.contents_hash = contents_hash;
-        } else if (try decl.isFunction()) switch (mod.comp.bin_file.tag) {
+    if (decl.getFunction()) |func| {
+        switch (mod.comp.bin_file.tag) {
             .coff => {
                 // TODO Implement for COFF
             },
@@ -3256,7 +3202,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
                 mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
             },
             .c, .wasm, .spirv => {},
-        };
+        }
     }
 }
 
@@ -3277,8 +3223,7 @@ pub fn deleteDecl(
     try mod.deletion_set.ensureCapacity(mod.gpa, mod.deletion_set.count() +
         decl.dependencies.count());
 
-    // Remove from the namespace it resides in. In the case of an anonymous Decl it will
-    // not be present in the set, and this does nothing.
+    // Remove from the namespace it resides in.
     decl.namespace.removeDecl(decl);
 
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
@@ -3430,7 +3375,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
 }
 
 fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
-    log.debug("mark {s} outdated", .{decl.name});
+    log.debug("mark outdated {*} ({s})", .{ decl, decl.name });
     try mod.comp.work_queue.writeItem(.{ .analyze_decl = decl });
     if (mod.failed_decls.swapRemove(decl)) |entry| {
         entry.value.destroy(mod.gpa);
@@ -4469,5 +4414,45 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Module.Struct) InnerError!
             // But only resolve the source location if we need to emit a compile error.
             gop.entry.value.default_val = (try sema.resolveInstConst(&block, src, default_ref)).val;
         }
+    }
+}
+
+/// Called from `performAllTheWork`, after all AstGen workers have finished,
+/// and before the main semantic analysis loop begins.
+pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
+    // Ultimately, the goal is to queue up `analyze_decl` tasks in the work queue
+    // for the outdated decls, but we cannot queue up the tasks until after
+    // we find out which ones have been deleted, otherwise there would be
+    // deleted Decl pointers in the work queue.
+    var outdated_decls = std.AutoArrayHashMap(*Decl, void).init(mod.gpa);
+    defer outdated_decls.deinit();
+    for (mod.import_table.items()) |import_table_entry| {
+        const file = import_table_entry.value;
+
+        try outdated_decls.ensureUnusedCapacity(file.outdated_decls.items.len);
+        for (file.outdated_decls.items) |decl| {
+            outdated_decls.putAssumeCapacity(decl, {});
+        }
+        // Handle explicitly deleted decls from the source code. This is one of two
+        // places that Decl deletions happen. The other is in `Compilation`, after
+        // `performAllTheWork`, where we iterate over `Module.deletion_set` and
+        // delete Decls which are no longer referenced.
+        // If a Decl is explicitly deleted from source, and also no longer referenced,
+        // it may be both in this `deleted_decls` set, as well as in the
+        // `Module.deletion_set`. To avoid deleting it twice, we remove it from the
+        // deletion set at this time.
+        for (file.deleted_decls.items) |decl| {
+            log.debug("deleted from source: {*} ({s})", .{ decl, decl.name });
+            if (decl.deletion_flag) {
+                log.debug("{*} ({s}) redundantly in deletion set; removing", .{ decl, decl.name });
+                mod.deletion_set.removeAssertDiscard(decl);
+            }
+            try mod.deleteDecl(decl, &outdated_decls);
+        }
+    }
+    // Finally we can queue up re-analysis tasks after we have processed
+    // the deleted decls.
+    for (outdated_decls.items()) |entry| {
+        try mod.markOutdatedDecl(entry.key);
     }
 }

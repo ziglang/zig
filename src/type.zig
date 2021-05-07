@@ -485,14 +485,33 @@ pub const Type = extern union {
                 var buf_b: Payload.ElemType = undefined;
                 return a.optionalChild(&buf_a).eql(b.optionalChild(&buf_b));
             },
+            .Struct => {
+                if (a.castTag(.@"struct")) |a_payload| {
+                    if (b.castTag(.@"struct")) |b_payload| {
+                        return a_payload.data == b_payload.data;
+                    }
+                }
+                return a.tag() == b.tag();
+            },
+            .Enum => {
+                if (a.cast(Payload.EnumFull)) |a_payload| {
+                    if (b.cast(Payload.EnumFull)) |b_payload| {
+                        return a_payload.data == b_payload.data;
+                    }
+                }
+                if (a.cast(Payload.EnumSimple)) |a_payload| {
+                    if (b.cast(Payload.EnumSimple)) |b_payload| {
+                        return a_payload.data == b_payload.data;
+                    }
+                }
+                return a.tag() == b.tag();
+            },
+            .Opaque,
             .Float,
-            .Struct,
             .ErrorUnion,
             .ErrorSet,
-            .Enum,
             .Union,
             .BoundFn,
-            .Opaque,
             .Frame,
             => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
         }

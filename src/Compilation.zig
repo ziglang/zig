@@ -1878,6 +1878,11 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         }
     }
 
+    // Iterate over all the files and look for outdated and deleted declarations.
+    if (self.bin_file.options.module) |mod| {
+        try mod.processOutdatedAndDeletedDecls();
+    }
+
     while (self.work_queue.readItem()) |work_item| switch (work_item) {
         .codegen_decl => |decl| switch (decl.analysis) {
             .unreferenced => unreachable,

@@ -62,6 +62,11 @@ pub const ExtraIndex = enum(u32) {
     _,
 };
 
+pub fn getMainStruct(zir: Zir) Zir.Inst.Index {
+    return zir.extra[@enumToInt(ExtraIndex.main_struct)] -
+        @intCast(u32, Inst.Ref.typed_value_map.len);
+}
+
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, end: usize } {
@@ -126,8 +131,7 @@ pub fn renderAsTextToFile(
         .parent_decl_node = 0,
     };
 
-    const main_struct_inst = scope_file.zir.extra[@enumToInt(ExtraIndex.main_struct)] -
-        @intCast(u32, Inst.Ref.typed_value_map.len);
+    const main_struct_inst = scope_file.zir.getMainStruct();
     try fs_file.writer().print("%{d} ", .{main_struct_inst});
     try writer.writeInstToStream(fs_file.writer(), main_struct_inst);
     try fs_file.writeAll("\n");

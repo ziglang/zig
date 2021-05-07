@@ -1,11 +1,3 @@
- * implement the iterators that updateZirRefs needs
-   - for iterating over ZIR decls
-   - for iterating over ZIR instructions within a decl to find decl instructions
- * implement `zig zirdiff a.zig b.zig` for showing debug output for how a particular
-   source transformation will be seen by the change detection algorithm.
- * communicate the changelist back to the driver code and process it in semantic analysis,
-   handling deletions and outdatings.
-
  * namespace decls table can't reference ZIR memory because it can get modified on updates
    - change it for astgen worker to compare old and new ZIR, updating existing
      namespaces & decls, and creating a changelist.
