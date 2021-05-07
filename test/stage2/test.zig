@@ -66,7 +66,7 @@ pub fn addCases(ctx: *TestContext) !void {
         );
         // Now change the message only
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print();
             \\
             \\    exit();
@@ -98,7 +98,7 @@ pub fn addCases(ctx: *TestContext) !void {
         );
         // Now we print it twice.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print();
             \\    print();
             \\
@@ -136,7 +136,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("adding numbers at comptime", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    asm volatile ("syscall"
             \\        :
             \\        : [number] "{rax}" (1),
@@ -161,7 +161,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("adding numbers at runtime and comptime", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    add(3, 4);
             \\
             \\    exit();
@@ -185,7 +185,7 @@ pub fn addCases(ctx: *TestContext) !void {
         );
         // comptime function call
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    exit();
             \\}
             \\
@@ -209,7 +209,7 @@ pub fn addCases(ctx: *TestContext) !void {
         );
         // Inline function call
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var x: usize = 3;
             \\    const y = add(1, 2, x);
             \\    exit(y - 6);
@@ -236,7 +236,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("subtracting numbers at runtime", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    sub(7, 4);
             \\
             \\    exit();
@@ -262,7 +262,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("@TypeOf", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var x: usize = 0;
             \\    const z = @TypeOf(x, @as(u128, 5));
             \\    assert(z == u128);
@@ -287,7 +287,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const z = @TypeOf(true);
             \\    assert(z == bool);
             \\
@@ -311,7 +311,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
         case.addError(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const z = @TypeOf(true, 1);
             \\    unreachable;
             \\}
@@ -321,7 +321,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("assert function", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    add(3, 4);
             \\
             \\    exit();
@@ -351,7 +351,7 @@ pub fn addCases(ctx: *TestContext) !void {
         // Tests copying a register. For the `c = a + b`, it has to
         // preserve both a and b, because they are both used later.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    add(3, 4);
             \\
             \\    exit();
@@ -383,7 +383,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // More stress on the liveness detection.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    add(3, 4);
             \\
             \\    exit();
@@ -419,7 +419,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Requires a second move. The register allocator should figure out to re-use rax.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    add(3, 4);
             \\
             \\    exit();
@@ -456,7 +456,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Now we test integer return values.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    assert(add(3, 4) == 7);
             \\    assert(add(20, 10) == 30);
             \\
@@ -486,7 +486,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Local mutable variables.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    assert(add(3, 4) == 7);
             \\    assert(add(20, 10) == 30);
             \\
@@ -520,7 +520,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Optionals
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const a: u32 = 2;
             \\    const b: ?u32 = a;
             \\    const c = b.?;
@@ -544,7 +544,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // While loops
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var i: u32 = 0;
             \\    while (i < 4) : (i += 1) print();
             \\    assert(i == 4);
@@ -583,7 +583,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // inline while requires the condition to be comptime known.
         case.addError(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var i: u32 = 0;
             \\    inline while (i < 4) : (i += 1) print();
             \\    assert(i == 4);
@@ -620,7 +620,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Labeled blocks (no conditional branch)
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    assert(add(3, 4) == 20);
             \\
             \\    exit();
@@ -657,7 +657,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // This catches a possible bug in the logic for re-using dying operands.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    assert(add(3, 4) == 116);
             \\
             \\    exit();
@@ -699,7 +699,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Spilling registers to the stack.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    assert(add(3, 4) == 791);
             \\
             \\    exit();
@@ -751,7 +751,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Reusing the registers of dead operands playing nicely with conditional branching.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    assert(add(3, 4) == 791);
             \\    assert(add(4, 3) == 79);
             \\
@@ -813,7 +813,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Character literals and multiline strings.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const ignore =
             \\        \\ cool thx
             \\        \\
@@ -846,7 +846,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Global const.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    add(aa, bb);
             \\
             \\    exit();
@@ -878,7 +878,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Array access.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    assert("hello"[0] == 'h');
             \\
             \\    exit();
@@ -904,7 +904,7 @@ pub fn addCases(ctx: *TestContext) !void {
         // Array access to a global array.
         case.addCompareOutput(
             \\const hello = "hello".*;
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    assert(hello[1] == 'e');
             \\
             \\    exit();
@@ -929,7 +929,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // 64bit set stack
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var i: u64 = 0xFFEEDDCCBBAA9988;
             \\    assert(i == 0xFFEEDDCCBBAA9988);
             \\
@@ -955,7 +955,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Basic for loop
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    for ("hello") |_| print();
             \\
             \\    exit();
@@ -990,7 +990,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("basic import", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    @import("print.zig").print();
             \\    exit();
             \\}
@@ -1027,14 +1027,14 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("redundant comptime", linux_x64);
         case.addError(
-            \\export fn _start() void {
+            \\pub export fn _start() void {
             \\    var a: comptime u32 = 0;
             \\}
         ,
             &.{":2:21: error: redundant comptime keyword in already comptime scope"},
         );
         case.addError(
-            \\export fn _start() void {
+            \\pub export fn _start() void {
             \\    comptime {
             \\        var a: u32 = comptime 0;
             \\    }
@@ -1046,7 +1046,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("import private", linux_x64);
         case.addError(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    @import("print.zig").print();
             \\    exit();
             \\}
@@ -1104,7 +1104,7 @@ pub fn addCases(ctx: *TestContext) !void {
     });
 
     ctx.compileError("compileError", linux_x64,
-        \\export fn _start() noreturn {
+        \\pub export fn _start() noreturn {
         \\  @compileError("this is an error");
         \\  unreachable;
         \\}
@@ -1113,7 +1113,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.obj("variable shadowing", linux_x64);
         case.addError(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var i: u32 = 10;
             \\    var i: u32 = 10;
             \\    unreachable;
@@ -1124,7 +1124,7 @@ pub fn addCases(ctx: *TestContext) !void {
         });
         case.addError(
             \\var testing: i64 = 10;
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var testing: i64 = 20;
             \\    unreachable;
             \\}
@@ -1136,7 +1136,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.obj("@compileLog", linux_x64);
         // The other compile error prevents emission of a "found compile log" statement.
         case.addError(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const b = true;
             \\    var f: u32 = 1;
             \\    @compileLog(b, 20, f, x);
@@ -1154,7 +1154,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Now only compile log statements remain. One per Decl.
         case.addError(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const b = true;
             \\    var f: u32 = 1;
             \\    @compileLog(b, 20, f, x);
@@ -1192,7 +1192,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Break out of loop
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    while (true) {
             \\        break;
             \\    }
@@ -1213,7 +1213,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    foo: while (true) {
             \\        break :foo;
             \\    }
@@ -1236,7 +1236,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Continue in loop
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var i: u64 = 0;
             \\    while (true) : (i+=1) {
             \\        if (i == 4) exit();
@@ -1257,7 +1257,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var i: u64 = 0;
             \\    foo: while (true) : (i+=1) {
             \\        if (i == 4) exit();
@@ -1318,7 +1318,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("compile error in inline fn call fixed", linux_x64);
         case.addError(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var x: usize = 3;
             \\    const y = add(10, 2, x);
             \\    exit(y - 6);
@@ -1341,7 +1341,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , &[_][]const u8{":8:18: error: bad"});
 
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var x: usize = 3;
             \\    const y = add(1, 2, x);
             \\    exit(y - 6);
@@ -1368,7 +1368,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("recursive inline function", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const y = fibonacci(7);
             \\    exit(y - 21);
             \\}
@@ -1394,7 +1394,7 @@ pub fn addCases(ctx: *TestContext) !void {
         // Without storing source locations relative to the owner decl, the compile error
         // here would be off by 2 bytes (from the "7" -> "999").
         case.addError(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const y = fibonacci(999);
             \\    exit(y - 21);
             \\}
@@ -1418,7 +1418,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("orelse at comptime", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const i: ?u64 = 0;
             \\    const orelsed = i orelse 5;
             \\    assert(orelsed == 0);
@@ -1440,7 +1440,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const i: ?u64 = null;
             \\    const orelsed = i orelse 5;
             \\    assert(orelsed == 5);
@@ -1466,7 +1466,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("only 1 function and it gets updated", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    asm volatile ("syscall"
             \\        :
             \\        : [number] "{rax}" (60), // exit
@@ -1479,7 +1479,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    asm volatile ("syscall"
             \\        :
             \\        : [number] "{rax}" (231), // exit_group
@@ -1495,7 +1495,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("passing u0 to function", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    doNothing(0);
             \\    exit();
             \\}
@@ -1516,7 +1516,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("catch at comptime", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const i: anyerror!u64 = 0;
             \\    const caught = i catch 5;
             \\    assert(caught == 0);
@@ -1539,7 +1539,7 @@ pub fn addCases(ctx: *TestContext) !void {
         );
 
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const i: anyerror!u64 = error.B;
             \\    const caught = i catch 5;
             \\    assert(caught == 5);
@@ -1562,7 +1562,7 @@ pub fn addCases(ctx: *TestContext) !void {
         );
 
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const a: anyerror!comptime_int = 42;
             \\    const b: *const comptime_int = &(a catch unreachable);
             \\    assert(b.* == 42);
@@ -1584,7 +1584,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "");
 
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const a: anyerror!u32 = error.B;
             \\    _ = &(a catch |err| assert(err == error.B));
             \\    exit();
@@ -1604,7 +1604,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "");
 
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const a: anyerror!u32 = error.Bar;
             \\    a catch |err| assert(err == error.Bar);
             \\
@@ -1628,7 +1628,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("merge error sets", linux_x64);
 
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    const E = error{ A, B, D } || error { A, B, C };
             \\    const a = E.A;
             \\    const b = E.B;

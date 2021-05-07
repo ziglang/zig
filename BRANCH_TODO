@@ -1,7 +1,7 @@
- * namespace decls table can't reference ZIR memory because it can get modified on updates
-   - change it for astgen worker to compare old and new ZIR, updating existing
-     namespaces & decls, and creating a changelist.
- * reimplement semaDecl
+ * get stage2 tests passing
+ * modify stage2 tests so that only 1 uses _start and the rest use
+   pub fn main
+
  * use a hash map for instructions because the array is too big
    - no, actually modify the Zir.Inst.Ref strategy so that each decl gets
      their indexes starting at 0 so that we can use an array to store Sema
