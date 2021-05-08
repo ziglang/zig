@@ -12,16 +12,16 @@ fn initStaticArray() [10]i32 {
 }
 const static_array = initStaticArray();
 test "init static array to undefined" {
-    expect(static_array[0] == 1);
-    expect(static_array[4] == 2);
-    expect(static_array[7] == 3);
-    expect(static_array[9] == 4);
+    try expect(static_array[0] == 1);
+    try expect(static_array[4] == 2);
+    try expect(static_array[7] == 3);
+    try expect(static_array[9] == 4);
 
     comptime {
-        expect(static_array[0] == 1);
-        expect(static_array[4] == 2);
-        expect(static_array[7] == 3);
-        expect(static_array[9] == 4);
+        try expect(static_array[0] == 1);
+        try expect(static_array[4] == 2);
+        try expect(static_array[7] == 3);
+        try expect(static_array[9] == 4);
     }
 }
 
@@ -41,12 +41,12 @@ test "assign undefined to struct" {
     comptime {
         var foo: Foo = undefined;
         setFooX(&foo);
-        expect(foo.x == 2);
+        try expect(foo.x == 2);
     }
     {
         var foo: Foo = undefined;
         setFooX(&foo);
-        expect(foo.x == 2);
+        try expect(foo.x == 2);
     }
 }
 
@@ -54,16 +54,16 @@ test "assign undefined to struct with method" {
     comptime {
         var foo: Foo = undefined;
         foo.setFooXMethod();
-        expect(foo.x == 3);
+        try expect(foo.x == 3);
     }
     {
         var foo: Foo = undefined;
         foo.setFooXMethod();
-        expect(foo.x == 3);
+        try expect(foo.x == 3);
     }
 }
 
 test "type name of undefined" {
     const x = undefined;
-    expect(mem.eql(u8, @typeName(@TypeOf(x)), "(undefined)"));
+    try expect(mem.eql(u8, @typeName(@TypeOf(x)), "(undefined)"));
 }

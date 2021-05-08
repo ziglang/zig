@@ -402,7 +402,7 @@ fn testVersionEquality(expected: std.builtin.Version, got: std.builtin.Version) 
     var b_got: [64]u8 = undefined;
     const s_got: []const u8 = try std.fmt.bufPrint(b_got[0..], "{}", .{got});
 
-    testing.expectEqualStrings(s_expected, s_got);
+    try testing.expectEqualStrings(s_expected, s_got);
 }
 
 /// Detect SDK path on Darwin.

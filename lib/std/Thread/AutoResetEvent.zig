@@ -176,7 +176,7 @@ test "basic usage" {
     // test local code paths
     {
         var event = AutoResetEvent{};
-        testing.expectError(error.TimedOut, event.timedWait(1));
+        try testing.expectError(error.TimedOut, event.timedWait(1));
         event.set();
         event.wait();
     }
@@ -192,28 +192,28 @@ test "basic usage" {
 
         const Self = @This();
 
-        fn sender(self: *Self) void {
-            testing.expect(self.value == 0);
+        fn sender(self: *Self) !void {
+            try testing.expect(self.value == 0);
             self.value = 1;
             self.out.set();
 
             self.in.wait();
-            testing.expect(self.value == 2);
+            try testing.expect(self.value == 2);
             self.value = 3;
             self.out.set();
 
             self.in.wait();
-            testing.expect(self.value == 4);
+            try testing.expect(self.value == 4);
         }
 
-        fn receiver(self: *Self) void {
+        fn receiver(self: *Self) !void {
             self.out.wait();
-            testing.expect(self.value == 1);
+            try testing.expect(self.value == 1);
             self.value = 2;
             self.in.set();
 
             self.out.wait();
-            testing.expect(self.value == 3);
+            try testing.expect(self.value == 3);
             self.value = 4;
             self.in.set();
         }

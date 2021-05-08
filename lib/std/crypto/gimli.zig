@@ -205,7 +205,7 @@ test "permute" {
     while (i < 12) : (i += 1) {
         mem.writeIntLittle(u32, expected_output[i * 4 ..][0..4], tv_output[i / 4][i % 4]);
     }
-    testing.expectEqualSlices(u8, state.toSliceConst(), expected_output[0..]);
+    try testing.expectEqualSlices(u8, state.toSliceConst(), expected_output[0..]);
 }
 
 pub const Hash = struct {
@@ -274,7 +274,7 @@ test "hash" {
     _ = try std.fmt.hexToBytes(&msg, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C");
     var md: [32]u8 = undefined;
     hash(&md, &msg, .{});
-    htest.assertEqual("1C9A03DC6A5DDC5444CFC6F4B154CFF5CF081633B2CEA4D7D0AE7CCFED5AAA44", &md);
+    try htest.assertEqual("1C9A03DC6A5DDC5444CFC6F4B154CFF5CF081633B2CEA4D7D0AE7CCFED5AAA44", &md);
 }
 
 test "hash test vector 17" {
@@ -282,7 +282,7 @@ test "hash test vector 17" {
     _ = try std.fmt.hexToBytes(&msg, "000102030405060708090A0B0C0D0E0F");
     var md: [32]u8 = undefined;
     hash(&md, &msg, .{});
-    htest.assertEqual("404C130AF1B9023A7908200919F690FFBB756D5176E056FFDE320016A37C7282", &md);
+    try htest.assertEqual("404C130AF1B9023A7908200919F690FFBB756D5176E056FFDE320016A37C7282", &md);
 }
 
 test "hash test vector 33" {
@@ -290,7 +290,7 @@ test "hash test vector 33" {
     _ = try std.fmt.hexToBytes(&msg, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
     var md: [32]u8 = undefined;
     hash(&md, &msg, .{});
-    htest.assertEqual("A8F4FA28708BDA7EFB4C1914CA4AFA9E475B82D588D36504F87DBB0ED9AB3C4B", &md);
+    try htest.assertEqual("A8F4FA28708BDA7EFB4C1914CA4AFA9E475B82D588D36504F87DBB0ED9AB3C4B", &md);
 }
 
 pub const Aead = struct {
@@ -447,12 +447,12 @@ test "cipher" {
         var ct: [pt.len]u8 = undefined;
         var tag: [16]u8 = undefined;
         Aead.encrypt(&ct, &tag, &pt, &ad, nonce, key);
-        htest.assertEqual("", &ct);
-        htest.assertEqual("14DA9BB7120BF58B985A8E00FDEBA15B", &tag);
+        try htest.assertEqual("", &ct);
+        try htest.assertEqual("14DA9BB7120BF58B985A8E00FDEBA15B", &tag);
 
         var pt2: [pt.len]u8 = undefined;
         try Aead.decrypt(&pt2, &ct, tag, &ad, nonce, key);
-        testing.expectEqualSlices(u8, &pt, &pt2);
+        try testing.expectEqualSlices(u8, &pt, &pt2);
     }
     { // test vector (34) from NIST KAT submission.
         const ad: [0]u8 = undefined;
@@ -462,12 +462,12 @@ test "cipher" {
         var ct: [pt.len]u8 = undefined;
         var tag: [16]u8 = undefined;
         Aead.encrypt(&ct, &tag, &pt, &ad, nonce, key);
-        htest.assertEqual("7F", &ct);
-        htest.assertEqual("80492C317B1CD58A1EDC3A0D3E9876FC", &tag);
+        try htest.assertEqual("7F", &ct);
+        try htest.assertEqual("80492C317B1CD58A1EDC3A0D3E9876FC", &tag);
 
         var pt2: [pt.len]u8 = undefined;
         try Aead.decrypt(&pt2, &ct, tag, &ad, nonce, key);
-        testing.expectEqualSlices(u8, &pt, &pt2);
+        try testing.expectEqualSlices(u8, &pt, &pt2);
     }
     { // test vector (106) from NIST KAT submission.
         var ad: [12 / 2]u8 = undefined;
@@ -478,12 +478,12 @@ test "cipher" {
         var ct: [pt.len]u8 = undefined;
         var tag: [16]u8 = undefined;
         Aead.encrypt(&ct, &tag, &pt, &ad, nonce, key);
-        htest.assertEqual("484D35", &ct);
-        htest.assertEqual("030BBEA23B61C00CED60A923BDCF9147", &tag);
+        try htest.assertEqual("484D35", &ct);
+        try htest.assertEqual("030BBEA23B61C00CED60A923BDCF9147", &tag);
 
         var pt2: [pt.len]u8 = undefined;
         try Aead.decrypt(&pt2, &ct, tag, &ad, nonce, key);
-        testing.expectEqualSlices(u8, &pt, &pt2);
+        try testing.expectEqualSlices(u8, &pt, &pt2);
     }
     { // test vector (790) from NIST KAT submission.
         var ad: [60 / 2]u8 = undefined;
@@ -494,12 +494,12 @@ test "cipher" {
         var ct: [pt.len]u8 = undefined;
         var tag: [16]u8 = undefined;
         Aead.encrypt(&ct, &tag, &pt, &ad, nonce, key);
-        htest.assertEqual("6815B4A0ECDAD01596EAD87D9E690697475D234C6A13D1", &ct);
-        htest.assertEqual("DFE23F1642508290D68245279558B2FB", &tag);
+        try htest.assertEqual("6815B4A0ECDAD01596EAD87D9E690697475D234C6A13D1", &ct);
+        try htest.assertEqual("DFE23F1642508290D68245279558B2FB", &tag);
 
         var pt2: [pt.len]u8 = undefined;
         try Aead.decrypt(&pt2, &ct, tag, &ad, nonce, key);
-        testing.expectEqualSlices(u8, &pt, &pt2);
+        try testing.expectEqualSlices(u8, &pt, &pt2);
     }
     { // test vector (1057) from NIST KAT submission.
         const ad: [0]u8 = undefined;
@@ -509,11 +509,11 @@ test "cipher" {
         var ct: [pt.len]u8 = undefined;
         var tag: [16]u8 = undefined;
         Aead.encrypt(&ct, &tag, &pt, &ad, nonce, key);
-        htest.assertEqual("7F8A2CF4F52AA4D6B2E74105C30A2777B9D0C8AEFDD555DE35861BD3011F652F", &ct);
-        htest.assertEqual("7256456FA935AC34BBF55AE135F33257", &tag);
+        try htest.assertEqual("7F8A2CF4F52AA4D6B2E74105C30A2777B9D0C8AEFDD555DE35861BD3011F652F", &ct);
+        try htest.assertEqual("7256456FA935AC34BBF55AE135F33257", &tag);
 
         var pt2: [pt.len]u8 = undefined;
         try Aead.decrypt(&pt2, &ct, tag, &ad, nonce, key);
-        testing.expectEqualSlices(u8, &pt, &pt2);
+        try testing.expectEqualSlices(u8, &pt, &pt2);
     }
 }

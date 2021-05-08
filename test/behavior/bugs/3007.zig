@@ -19,5 +19,5 @@ fn get_foo() Foo.FooError!*Foo {
 
 test "fixed" {
     default_foo = get_foo() catch null; // This Line
-    std.testing.expect(!default_foo.?.free);
+    try std.testing.expect(!default_foo.?.free);
 }

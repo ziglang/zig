@@ -18,5 +18,5 @@ test "switch prong implicit cast" {
         FormValue.One => false,
         FormValue.Two => |x| x,
     };
-    expect(result);
+    try expect(result);
 }

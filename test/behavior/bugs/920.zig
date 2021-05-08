@@ -60,6 +60,6 @@ test "bug 920 fixed" {
     };
 
     for (NormalDist1.f) |_, i| {
-        std.testing.expectEqual(NormalDist1.f[i], NormalDist.f[i]);
+        try std.testing.expectEqual(NormalDist1.f[i], NormalDist.f[i]);
     }
 }

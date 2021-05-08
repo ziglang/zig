@@ -185,64 +185,64 @@ test "api coverage" {
     const expect = testing.expect;
     const expectError = testing.expectError;
 
-    expect(1 == try bit_stream_be.readBits(u2, 1, &out_bits));
-    expect(out_bits == 1);
-    expect(2 == try bit_stream_be.readBits(u5, 2, &out_bits));
-    expect(out_bits == 2);
-    expect(3 == try bit_stream_be.readBits(u128, 3, &out_bits));
-    expect(out_bits == 3);
-    expect(4 == try bit_stream_be.readBits(u8, 4, &out_bits));
-    expect(out_bits == 4);
-    expect(5 == try bit_stream_be.readBits(u9, 5, &out_bits));
-    expect(out_bits == 5);
-    expect(1 == try bit_stream_be.readBits(u1, 1, &out_bits));
-    expect(out_bits == 1);
+    try expect(1 == try bit_stream_be.readBits(u2, 1, &out_bits));
+    try expect(out_bits == 1);
+    try expect(2 == try bit_stream_be.readBits(u5, 2, &out_bits));
+    try expect(out_bits == 2);
+    try expect(3 == try bit_stream_be.readBits(u128, 3, &out_bits));
+    try expect(out_bits == 3);
+    try expect(4 == try bit_stream_be.readBits(u8, 4, &out_bits));
+    try expect(out_bits == 4);
+    try expect(5 == try bit_stream_be.readBits(u9, 5, &out_bits));
+    try expect(out_bits == 5);
+    try expect(1 == try bit_stream_be.readBits(u1, 1, &out_bits));
+    try expect(out_bits == 1);
 
     mem_in_be.pos = 0;
     bit_stream_be.bit_count = 0;
-    expect(0b110011010000101 == try bit_stream_be.readBits(u15, 15, &out_bits));
-    expect(out_bits == 15);
+    try expect(0b110011010000101 == try bit_stream_be.readBits(u15, 15, &out_bits));
+    try expect(out_bits == 15);
 
     mem_in_be.pos = 0;
     bit_stream_be.bit_count = 0;
-    expect(0b1100110100001011 == try bit_stream_be.readBits(u16, 16, &out_bits));
-    expect(out_bits == 16);
+    try expect(0b1100110100001011 == try bit_stream_be.readBits(u16, 16, &out_bits));
+    try expect(out_bits == 16);
 
     _ = try bit_stream_be.readBits(u0, 0, &out_bits);
 
-    expect(0 == try bit_stream_be.readBits(u1, 1, &out_bits));
-    expect(out_bits == 0);
-    expectError(error.EndOfStream, bit_stream_be.readBitsNoEof(u1, 1));
+    try expect(0 == try bit_stream_be.readBits(u1, 1, &out_bits));
+    try expect(out_bits == 0);
+    try expectError(error.EndOfStream, bit_stream_be.readBitsNoEof(u1, 1));
 
     var mem_in_le = io.fixedBufferStream(&mem_le);
     var bit_stream_le = bitReader(.Little, mem_in_le.reader());
 
-    expect(1 == try bit_stream_le.readBits(u2, 1, &out_bits));
-    expect(out_bits == 1);
-    expect(2 == try bit_stream_le.readBits(u5, 2, &out_bits));
-    expect(out_bits == 2);
-    expect(3 == try bit_stream_le.readBits(u128, 3, &out_bits));
-    expect(out_bits == 3);
-    expect(4 == try bit_stream_le.readBits(u8, 4, &out_bits));
-    expect(out_bits == 4);
-    expect(5 == try bit_stream_le.readBits(u9, 5, &out_bits));
-    expect(out_bits == 5);
-    expect(1 == try bit_stream_le.readBits(u1, 1, &out_bits));
-    expect(out_bits == 1);
+    try expect(1 == try bit_stream_le.readBits(u2, 1, &out_bits));
+    try expect(out_bits == 1);
+    try expect(2 == try bit_stream_le.readBits(u5, 2, &out_bits));
+    try expect(out_bits == 2);
+    try expect(3 == try bit_stream_le.readBits(u128, 3, &out_bits));
+    try expect(out_bits == 3);
+    try expect(4 == try bit_stream_le.readBits(u8, 4, &out_bits));
+    try expect(out_bits == 4);
+    try expect(5 == try bit_stream_le.readBits(u9, 5, &out_bits));
+    try expect(out_bits == 5);
+    try expect(1 == try bit_stream_le.readBits(u1, 1, &out_bits));
+    try expect(out_bits == 1);
 
     mem_in_le.pos = 0;
     bit_stream_le.bit_count = 0;
-    expect(0b001010100011101 == try bit_stream_le.readBits(u15, 15, &out_bits));
-    expect(out_bits == 15);
+    try expect(0b001010100011101 == try bit_stream_le.readBits(u15, 15, &out_bits));
+    try expect(out_bits == 15);
 
     mem_in_le.pos = 0;
     bit_stream_le.bit_count = 0;
-    expect(0b1001010100011101 == try bit_stream_le.readBits(u16, 16, &out_bits));
-    expect(out_bits == 16);
+    try expect(0b1001010100011101 == try bit_stream_le.readBits(u16, 16, &out_bits));
+    try expect(out_bits == 16);
 
     _ = try bit_stream_le.readBits(u0, 0, &out_bits);
 
-    expect(0 == try bit_stream_le.readBits(u1, 1, &out_bits));
-    expect(out_bits == 0);
-    expectError(error.EndOfStream, bit_stream_le.readBitsNoEof(u1, 1));
+    try expect(0 == try bit_stream_le.readBits(u1, 1, &out_bits));
+    try expect(out_bits == 0);
+    try expectError(error.EndOfStream, bit_stream_le.readBitsNoEof(u1, 1));
 }

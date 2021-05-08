@@ -26,7 +26,7 @@ fn firstEqlThird(a: i32, b: i32, c: i32) void {
 }
 
 test "else if expression" {
-    expect(elseIfExpressionF(1) == 1);
+    try expect(elseIfExpressionF(1) == 1);
 }
 fn elseIfExpressionF(c: u8) u8 {
     if (c == 0) {
@@ -44,14 +44,14 @@ var global_with_err: anyerror!u32 = error.SomeError;
 
 test "unwrap mutable global var" {
     if (global_with_val) |v| {
-        expect(v == 0);
+        try expect(v == 0);
     } else |e| {
         unreachable;
     }
     if (global_with_err) |_| {
         unreachable;
     } else |e| {
-        expect(e == error.SomeError);
+        try expect(e == error.SomeError);
     }
 }
 
@@ -63,7 +63,7 @@ test "labeled break inside comptime if inside runtime if" {
             break :blk @as(i32, 42);
         };
     }
-    expect(answer == 42);
+    try expect(answer == 42);
 }
 
 test "const result loc, runtime if cond, else unreachable" {
@@ -74,36 +74,36 @@ test "const result loc, runtime if cond, else unreachable" {
 
     var t = true;
     const x = if (t) Num.Two else unreachable;
-    expect(x == .Two);
+    try expect(x == .Two);
 }
 
 test "if prongs cast to expected type instead of peer type resolution" {
     const S = struct {
-        fn doTheTest(f: bool) void {
+        fn doTheTest(f: bool) !void {
             var x: i32 = 0;
             x = if (f) 1 else 2;
-            expect(x == 2);
+            try expect(x == 2);
 
             var b = true;
             const y: i32 = if (b) 1 else 2;
-            expect(y == 1);
+            try expect(y == 1);
         }
     };
-    S.doTheTest(false);
-    comptime S.doTheTest(false);
+    try S.doTheTest(false);
+    comptime try S.doTheTest(false);
 }
 
 test "while copies its payload" {
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var tmp: ?i32 = 10;
             if (tmp) |value| {
                 // Modify the original variable
                 tmp = null;
-                expectEqual(@as(i32, 10), value);
+                try expectEqual(@as(i32, 10), value);
             } else unreachable;
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }

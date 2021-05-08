@@ -3,9 +3,9 @@ const expect = std.testing.expect;
 
 test "namespace depends on compile var" {
     if (some_namespace.a_bool) {
-        expect(some_namespace.a_bool);
+        try expect(some_namespace.a_bool);
     } else {
-        expect(!some_namespace.a_bool);
+        try expect(!some_namespace.a_bool);
     }
 }
 const some_namespace = switch (std.builtin.os.tag) {

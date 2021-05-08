@@ -336,224 +336,224 @@ pub const Utf16LeIterator = struct {
 };
 
 test "utf8 encode" {
-    comptime testUtf8Encode() catch unreachable;
+    comptime try testUtf8Encode();
     try testUtf8Encode();
 }
 fn testUtf8Encode() !void {
     // A few taken from wikipedia a few taken elsewhere
     var array: [4]u8 = undefined;
-    testing.expect((try utf8Encode(try utf8Decode("€"), array[0..])) == 3);
-    testing.expect(array[0] == 0b11100010);
-    testing.expect(array[1] == 0b10000010);
-    testing.expect(array[2] == 0b10101100);
+    try testing.expect((try utf8Encode(try utf8Decode("€"), array[0..])) == 3);
+    try testing.expect(array[0] == 0b11100010);
+    try testing.expect(array[1] == 0b10000010);
+    try testing.expect(array[2] == 0b10101100);
 
-    testing.expect((try utf8Encode(try utf8Decode("$"), array[0..])) == 1);
-    testing.expect(array[0] == 0b00100100);
+    try testing.expect((try utf8Encode(try utf8Decode("$"), array[0..])) == 1);
+    try testing.expect(array[0] == 0b00100100);
 
-    testing.expect((try utf8Encode(try utf8Decode("¢"), array[0..])) == 2);
-    testing.expect(array[0] == 0b11000010);
-    testing.expect(array[1] == 0b10100010);
+    try testing.expect((try utf8Encode(try utf8Decode("¢"), array[0..])) == 2);
+    try testing.expect(array[0] == 0b11000010);
+    try testing.expect(array[1] == 0b10100010);
 
-    testing.expect((try utf8Encode(try utf8Decode("𐍈"), array[0..])) == 4);
-    testing.expect(array[0] == 0b11110000);
-    testing.expect(array[1] == 0b10010000);
-    testing.expect(array[2] == 0b10001101);
-    testing.expect(array[3] == 0b10001000);
+    try testing.expect((try utf8Encode(try utf8Decode("𐍈"), array[0..])) == 4);
+    try testing.expect(array[0] == 0b11110000);
+    try testing.expect(array[1] == 0b10010000);
+    try testing.expect(array[2] == 0b10001101);
+    try testing.expect(array[3] == 0b10001000);
 }
 
 test "utf8 encode error" {
-    comptime testUtf8EncodeError();
-    testUtf8EncodeError();
+    comptime try testUtf8EncodeError();
+    try testUtf8EncodeError();
 }
-fn testUtf8EncodeError() void {
+fn testUtf8EncodeError() !void {
     var array: [4]u8 = undefined;
-    testErrorEncode(0xd800, array[0..], error.Utf8CannotEncodeSurrogateHalf);
-    testErrorEncode(0xdfff, array[0..], error.Utf8CannotEncodeSurrogateHalf);
-    testErrorEncode(0x110000, array[0..], error.CodepointTooLarge);
-    testErrorEncode(0x1fffff, array[0..], error.CodepointTooLarge);
+    try testErrorEncode(0xd800, array[0..], error.Utf8CannotEncodeSurrogateHalf);
+    try testErrorEncode(0xdfff, array[0..], error.Utf8CannotEncodeSurrogateHalf);
+    try testErrorEncode(0x110000, array[0..], error.CodepointTooLarge);
+    try testErrorEncode(0x1fffff, array[0..], error.CodepointTooLarge);
 }
 
-fn testErrorEncode(codePoint: u21, array: []u8, expectedErr: anyerror) void {
-    testing.expectError(expectedErr, utf8Encode(codePoint, array));
+fn testErrorEncode(codePoint: u21, array: []u8, expectedErr: anyerror) !void {
+    try testing.expectError(expectedErr, utf8Encode(codePoint, array));
 }
 
 test "utf8 iterator on ascii" {
-    comptime testUtf8IteratorOnAscii();
-    testUtf8IteratorOnAscii();
+    comptime try testUtf8IteratorOnAscii();
+    try testUtf8IteratorOnAscii();
 }
-fn testUtf8IteratorOnAscii() void {
+fn testUtf8IteratorOnAscii() !void {
     const s = Utf8View.initComptime("abc");
 
     var it1 = s.iterator();
-    testing.expect(std.mem.eql(u8, "a", it1.nextCodepointSlice().?));
-    testing.expect(std.mem.eql(u8, "b", it1.nextCodepointSlice().?));
-    testing.expect(std.mem.eql(u8, "c", it1.nextCodepointSlice().?));
-    testing.expect(it1.nextCodepointSlice() == null);
+    try testing.expect(std.mem.eql(u8, "a", it1.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "b", it1.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "c", it1.nextCodepointSlice().?));
+    try testing.expect(it1.nextCodepointSlice() == null);
 
     var it2 = s.iterator();
-    testing.expect(it2.nextCodepoint().? == 'a');
-    testing.expect(it2.nextCodepoint().? == 'b');
-    testing.expect(it2.nextCodepoint().? == 'c');
-    testing.expect(it2.nextCodepoint() == null);
+    try testing.expect(it2.nextCodepoint().? == 'a');
+    try testing.expect(it2.nextCodepoint().? == 'b');
+    try testing.expect(it2.nextCodepoint().? == 'c');
+    try testing.expect(it2.nextCodepoint() == null);
 }
 
 test "utf8 view bad" {
-    comptime testUtf8ViewBad();
-    testUtf8ViewBad();
+    comptime try testUtf8ViewBad();
+    try testUtf8ViewBad();
 }
-fn testUtf8ViewBad() void {
+fn testUtf8ViewBad() !void {
     // Compile-time error.
     // const s3 = Utf8View.initComptime("\xfe\xf2");
-    testing.expectError(error.InvalidUtf8, Utf8View.init("hel\xadlo"));
+    try testing.expectError(error.InvalidUtf8, Utf8View.init("hel\xadlo"));
 }
 
 test "utf8 view ok" {
-    comptime testUtf8ViewOk();
-    testUtf8ViewOk();
+    comptime try testUtf8ViewOk();
+    try testUtf8ViewOk();
 }
-fn testUtf8ViewOk() void {
+fn testUtf8ViewOk() !void {
     const s = Utf8View.initComptime("東京市");
 
     var it1 = s.iterator();
-    testing.expect(std.mem.eql(u8, "東", it1.nextCodepointSlice().?));
-    testing.expect(std.mem.eql(u8, "京", it1.nextCodepointSlice().?));
-    testing.expect(std.mem.eql(u8, "市", it1.nextCodepointSlice().?));
-    testing.expect(it1.nextCodepointSlice() == null);
+    try testing.expect(std.mem.eql(u8, "東", it1.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "京", it1.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "市", it1.nextCodepointSlice().?));
+    try testing.expect(it1.nextCodepointSlice() == null);
 
     var it2 = s.iterator();
-    testing.expect(it2.nextCodepoint().? == 0x6771);
-    testing.expect(it2.nextCodepoint().? == 0x4eac);
-    testing.expect(it2.nextCodepoint().? == 0x5e02);
-    testing.expect(it2.nextCodepoint() == null);
+    try testing.expect(it2.nextCodepoint().? == 0x6771);
+    try testing.expect(it2.nextCodepoint().? == 0x4eac);
+    try testing.expect(it2.nextCodepoint().? == 0x5e02);
+    try testing.expect(it2.nextCodepoint() == null);
 }
 
 test "bad utf8 slice" {
-    comptime testBadUtf8Slice();
-    testBadUtf8Slice();
+    comptime try testBadUtf8Slice();
+    try testBadUtf8Slice();
 }
-fn testBadUtf8Slice() void {
-    testing.expect(utf8ValidateSlice("abc"));
-    testing.expect(!utf8ValidateSlice("abc\xc0"));
-    testing.expect(!utf8ValidateSlice("abc\xc0abc"));
-    testing.expect(utf8ValidateSlice("abc\xdf\xbf"));
+fn testBadUtf8Slice() !void {
+    try testing.expect(utf8ValidateSlice("abc"));
+    try testing.expect(!utf8ValidateSlice("abc\xc0"));
+    try testing.expect(!utf8ValidateSlice("abc\xc0abc"));
+    try testing.expect(utf8ValidateSlice("abc\xdf\xbf"));
 }
 
 test "valid utf8" {
-    comptime testValidUtf8();
-    testValidUtf8();
+    comptime try testValidUtf8();
+    try testValidUtf8();
 }
-fn testValidUtf8() void {
-    testValid("\x00", 0x0);
-    testValid("\x20", 0x20);
-    testValid("\x7f", 0x7f);
-    testValid("\xc2\x80", 0x80);
-    testValid("\xdf\xbf", 0x7ff);
-    testValid("\xe0\xa0\x80", 0x800);
-    testValid("\xe1\x80\x80", 0x1000);
-    testValid("\xef\xbf\xbf", 0xffff);
-    testValid("\xf0\x90\x80\x80", 0x10000);
-    testValid("\xf1\x80\x80\x80", 0x40000);
-    testValid("\xf3\xbf\xbf\xbf", 0xfffff);
-    testValid("\xf4\x8f\xbf\xbf", 0x10ffff);
+fn testValidUtf8() !void {
+    try testValid("\x00", 0x0);
+    try testValid("\x20", 0x20);
+    try testValid("\x7f", 0x7f);
+    try testValid("\xc2\x80", 0x80);
+    try testValid("\xdf\xbf", 0x7ff);
+    try testValid("\xe0\xa0\x80", 0x800);
+    try testValid("\xe1\x80\x80", 0x1000);
+    try testValid("\xef\xbf\xbf", 0xffff);
+    try testValid("\xf0\x90\x80\x80", 0x10000);
+    try testValid("\xf1\x80\x80\x80", 0x40000);
+    try testValid("\xf3\xbf\xbf\xbf", 0xfffff);
+    try testValid("\xf4\x8f\xbf\xbf", 0x10ffff);
 }
 
 test "invalid utf8 continuation bytes" {
-    comptime testInvalidUtf8ContinuationBytes();
-    testInvalidUtf8ContinuationBytes();
+    comptime try testInvalidUtf8ContinuationBytes();
+    try testInvalidUtf8ContinuationBytes();
 }
-fn testInvalidUtf8ContinuationBytes() void {
+fn testInvalidUtf8ContinuationBytes() !void {
     // unexpected continuation
-    testError("\x80", error.Utf8InvalidStartByte);
-    testError("\xbf", error.Utf8InvalidStartByte);
+    try testError("\x80", error.Utf8InvalidStartByte);
+    try testError("\xbf", error.Utf8InvalidStartByte);
     // too many leading 1's
-    testError("\xf8", error.Utf8InvalidStartByte);
-    testError("\xff", error.Utf8InvalidStartByte);
+    try testError("\xf8", error.Utf8InvalidStartByte);
+    try testError("\xff", error.Utf8InvalidStartByte);
     // expected continuation for 2 byte sequences
-    testError("\xc2", error.UnexpectedEof);
-    testError("\xc2\x00", error.Utf8ExpectedContinuation);
-    testError("\xc2\xc0", error.Utf8ExpectedContinuation);
+    try testError("\xc2", error.UnexpectedEof);
+    try testError("\xc2\x00", error.Utf8ExpectedContinuation);
+    try testError("\xc2\xc0", error.Utf8ExpectedContinuation);
     // expected continuation for 3 byte sequences
-    testError("\xe0", error.UnexpectedEof);
-    testError("\xe0\x00", error.UnexpectedEof);
-    testError("\xe0\xc0", error.UnexpectedEof);
-    testError("\xe0\xa0", error.UnexpectedEof);
-    testError("\xe0\xa0\x00", error.Utf8ExpectedContinuation);
-    testError("\xe0\xa0\xc0", error.Utf8ExpectedContinuation);
+    try testError("\xe0", error.UnexpectedEof);
+    try testError("\xe0\x00", error.UnexpectedEof);
+    try testError("\xe0\xc0", error.UnexpectedEof);
+    try testError("\xe0\xa0", error.UnexpectedEof);
+    try testError("\xe0\xa0\x00", error.Utf8ExpectedContinuation);
+    try testError("\xe0\xa0\xc0", error.Utf8ExpectedContinuation);
     // expected continuation for 4 byte sequences
-    testError("\xf0", error.UnexpectedEof);
-    testError("\xf0\x00", error.UnexpectedEof);
-    testError("\xf0\xc0", error.UnexpectedEof);
-    testError("\xf0\x90\x00", error.UnexpectedEof);
-    testError("\xf0\x90\xc0", error.UnexpectedEof);
-    testError("\xf0\x90\x80\x00", error.Utf8ExpectedContinuation);
-    testError("\xf0\x90\x80\xc0", error.Utf8ExpectedContinuation);
+    try testError("\xf0", error.UnexpectedEof);
+    try testError("\xf0\x00", error.UnexpectedEof);
+    try testError("\xf0\xc0", error.UnexpectedEof);
+    try testError("\xf0\x90\x00", error.UnexpectedEof);
+    try testError("\xf0\x90\xc0", error.UnexpectedEof);
+    try testError("\xf0\x90\x80\x00", error.Utf8ExpectedContinuation);
+    try testError("\xf0\x90\x80\xc0", error.Utf8ExpectedContinuation);
 }
 
 test "overlong utf8 codepoint" {
-    comptime testOverlongUtf8Codepoint();
-    testOverlongUtf8Codepoint();
+    comptime try testOverlongUtf8Codepoint();
+    try testOverlongUtf8Codepoint();
 }
-fn testOverlongUtf8Codepoint() void {
-    testError("\xc0\x80", error.Utf8OverlongEncoding);
-    testError("\xc1\xbf", error.Utf8OverlongEncoding);
-    testError("\xe0\x80\x80", error.Utf8OverlongEncoding);
-    testError("\xe0\x9f\xbf", error.Utf8OverlongEncoding);
-    testError("\xf0\x80\x80\x80", error.Utf8OverlongEncoding);
-    testError("\xf0\x8f\xbf\xbf", error.Utf8OverlongEncoding);
+fn testOverlongUtf8Codepoint() !void {
+    try testError("\xc0\x80", error.Utf8OverlongEncoding);
+    try testError("\xc1\xbf", error.Utf8OverlongEncoding);
+    try testError("\xe0\x80\x80", error.Utf8OverlongEncoding);
+    try testError("\xe0\x9f\xbf", error.Utf8OverlongEncoding);
+    try testError("\xf0\x80\x80\x80", error.Utf8OverlongEncoding);
+    try testError("\xf0\x8f\xbf\xbf", error.Utf8OverlongEncoding);
 }
 
 test "misc invalid utf8" {
-    comptime testMiscInvalidUtf8();
-    testMiscInvalidUtf8();
+    comptime try testMiscInvalidUtf8();
+    try testMiscInvalidUtf8();
 }
-fn testMiscInvalidUtf8() void {
+fn testMiscInvalidUtf8() !void {
     // codepoint out of bounds
-    testError("\xf4\x90\x80\x80", error.Utf8CodepointTooLarge);
-    testError("\xf7\xbf\xbf\xbf", error.Utf8CodepointTooLarge);
+    try testError("\xf4\x90\x80\x80", error.Utf8CodepointTooLarge);
+    try testError("\xf7\xbf\xbf\xbf", error.Utf8CodepointTooLarge);
     // surrogate halves
-    testValid("\xed\x9f\xbf", 0xd7ff);
-    testError("\xed\xa0\x80", error.Utf8EncodesSurrogateHalf);
-    testError("\xed\xbf\xbf", error.Utf8EncodesSurrogateHalf);
-    testValid("\xee\x80\x80", 0xe000);
+    try testValid("\xed\x9f\xbf", 0xd7ff);
+    try testError("\xed\xa0\x80", error.Utf8EncodesSurrogateHalf);
+    try testError("\xed\xbf\xbf", error.Utf8EncodesSurrogateHalf);
+    try testValid("\xee\x80\x80", 0xe000);
 }
 
 test "utf8 iterator peeking" {
-    comptime testUtf8Peeking();
-    testUtf8Peeking();
+    comptime try testUtf8Peeking();
+    try testUtf8Peeking();
 }
 
-fn testUtf8Peeking() void {
+fn testUtf8Peeking() !void {
     const s = Utf8View.initComptime("noël");
     var it = s.iterator();
 
-    testing.expect(std.mem.eql(u8, "n", it.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "n", it.nextCodepointSlice().?));
 
-    testing.expect(std.mem.eql(u8, "o", it.peek(1)));
-    testing.expect(std.mem.eql(u8, "oë", it.peek(2)));
-    testing.expect(std.mem.eql(u8, "oël", it.peek(3)));
-    testing.expect(std.mem.eql(u8, "oël", it.peek(4)));
-    testing.expect(std.mem.eql(u8, "oël", it.peek(10)));
+    try testing.expect(std.mem.eql(u8, "o", it.peek(1)));
+    try testing.expect(std.mem.eql(u8, "oë", it.peek(2)));
+    try testing.expect(std.mem.eql(u8, "oël", it.peek(3)));
+    try testing.expect(std.mem.eql(u8, "oël", it.peek(4)));
+    try testing.expect(std.mem.eql(u8, "oël", it.peek(10)));
 
-    testing.expect(std.mem.eql(u8, "o", it.nextCodepointSlice().?));
-    testing.expect(std.mem.eql(u8, "ë", it.nextCodepointSlice().?));
-    testing.expect(std.mem.eql(u8, "l", it.nextCodepointSlice().?));
-    testing.expect(it.nextCodepointSlice() == null);
+    try testing.expect(std.mem.eql(u8, "o", it.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "ë", it.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "l", it.nextCodepointSlice().?));
+    try testing.expect(it.nextCodepointSlice() == null);
 
-    testing.expect(std.mem.eql(u8, &[_]u8{}, it.peek(1)));
+    try testing.expect(std.mem.eql(u8, &[_]u8{}, it.peek(1)));
 }
 
-fn testError(bytes: []const u8, expected_err: anyerror) void {
-    testing.expectError(expected_err, testDecode(bytes));
+fn testError(bytes: []const u8, expected_err: anyerror) !void {
+    try testing.expectError(expected_err, testDecode(bytes));
 }
 
-fn testValid(bytes: []const u8, expected_codepoint: u21) void {
-    testing.expect((testDecode(bytes) catch unreachable) == expected_codepoint);
+fn testValid(bytes: []const u8, expected_codepoint: u21) !void {
+    try testing.expect((testDecode(bytes) catch unreachable) == expected_codepoint);
 }
 
 fn testDecode(bytes: []const u8) !u21 {
     const length = try utf8ByteSequenceLength(bytes[0]);
     if (bytes.len < length) return error.UnexpectedEof;
-    testing.expect(bytes.len == length);
+    try testing.expect(bytes.len == length);
     return utf8Decode(bytes);
 }
 
@@ -615,7 +615,7 @@ test "utf16leToUtf8" {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 'a');
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
-        testing.expect(mem.eql(u8, utf8, "Aa"));
+        try testing.expect(mem.eql(u8, utf8, "Aa"));
     }
 
     {
@@ -623,7 +623,7 @@ test "utf16leToUtf8" {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xffff);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
-        testing.expect(mem.eql(u8, utf8, "\xc2\x80" ++ "\xef\xbf\xbf"));
+        try testing.expect(mem.eql(u8, utf8, "\xc2\x80" ++ "\xef\xbf\xbf"));
     }
 
     {
@@ -632,7 +632,7 @@ test "utf16leToUtf8" {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xe000);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
-        testing.expect(mem.eql(u8, utf8, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
+        try testing.expect(mem.eql(u8, utf8, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
     }
 
     {
@@ -641,7 +641,7 @@ test "utf16leToUtf8" {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdc00);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
-        testing.expect(mem.eql(u8, utf8, "\xf0\x90\x80\x80"));
+        try testing.expect(mem.eql(u8, utf8, "\xf0\x90\x80\x80"));
     }
 
     {
@@ -650,7 +650,7 @@ test "utf16leToUtf8" {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdfff);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
-        testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xbf\xbf"));
+        try testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xbf\xbf"));
     }
 
     {
@@ -658,7 +658,7 @@ test "utf16leToUtf8" {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdc00);
         const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
         defer std.testing.allocator.free(utf8);
-        testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
+        try testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
     }
 }
 
@@ -717,13 +717,13 @@ test "utf8ToUtf16Le" {
     var utf16le: [2]u16 = [_]u16{0} ** 2;
     {
         const length = try utf8ToUtf16Le(utf16le[0..], "𐐷");
-        testing.expectEqual(@as(usize, 2), length);
-        testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16le[0..]));
+        try testing.expectEqual(@as(usize, 2), length);
+        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16le[0..]));
     }
     {
         const length = try utf8ToUtf16Le(utf16le[0..], "\u{10FFFF}");
-        testing.expectEqual(@as(usize, 2), length);
-        testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16le[0..]));
+        try testing.expectEqual(@as(usize, 2), length);
+        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16le[0..]));
     }
 }
 
@@ -731,14 +731,14 @@ test "utf8ToUtf16LeWithNull" {
     {
         const utf16 = try utf8ToUtf16LeWithNull(testing.allocator, "𐐷");
         defer testing.allocator.free(utf16);
-        testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16[0..]));
-        testing.expect(utf16[2] == 0);
+        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16[0..]));
+        try testing.expect(utf16[2] == 0);
     }
     {
         const utf16 = try utf8ToUtf16LeWithNull(testing.allocator, "\u{10FFFF}");
         defer testing.allocator.free(utf16);
-        testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16[0..]));
-        testing.expect(utf16[2] == 0);
+        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16[0..]));
+        try testing.expect(utf16[2] == 0);
     }
 }
 
@@ -776,8 +776,8 @@ test "utf8ToUtf16LeStringLiteral" {
             mem.nativeToLittle(u16, 0x41),
         };
         const utf16 = utf8ToUtf16LeStringLiteral("A");
-        testing.expectEqualSlices(u16, &bytes, utf16);
-        testing.expect(utf16[1] == 0);
+        try testing.expectEqualSlices(u16, &bytes, utf16);
+        try testing.expect(utf16[1] == 0);
     }
     {
         const bytes = [_:0]u16{
@@ -785,32 +785,32 @@ test "utf8ToUtf16LeStringLiteral" {
             mem.nativeToLittle(u16, 0xDC37),
         };
         const utf16 = utf8ToUtf16LeStringLiteral("𐐷");
-        testing.expectEqualSlices(u16, &bytes, utf16);
-        testing.expect(utf16[2] == 0);
+        try testing.expectEqualSlices(u16, &bytes, utf16);
+        try testing.expect(utf16[2] == 0);
     }
     {
         const bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0x02FF),
         };
         const utf16 = utf8ToUtf16LeStringLiteral("\u{02FF}");
-        testing.expectEqualSlices(u16, &bytes, utf16);
-        testing.expect(utf16[1] == 0);
+        try testing.expectEqualSlices(u16, &bytes, utf16);
+        try testing.expect(utf16[1] == 0);
     }
     {
         const bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0x7FF),
         };
         const utf16 = utf8ToUtf16LeStringLiteral("\u{7FF}");
-        testing.expectEqualSlices(u16, &bytes, utf16);
-        testing.expect(utf16[1] == 0);
+        try testing.expectEqualSlices(u16, &bytes, utf16);
+        try testing.expect(utf16[1] == 0);
     }
     {
         const bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0x801),
         };
         const utf16 = utf8ToUtf16LeStringLiteral("\u{801}");
-        testing.expectEqualSlices(u16, &bytes, utf16);
-        testing.expect(utf16[1] == 0);
+        try testing.expectEqualSlices(u16, &bytes, utf16);
+        try testing.expect(utf16[1] == 0);
     }
     {
         const bytes = [_:0]u16{
@@ -818,35 +818,35 @@ test "utf8ToUtf16LeStringLiteral" {
             mem.nativeToLittle(u16, 0xDFFF),
         };
         const utf16 = utf8ToUtf16LeStringLiteral("\u{10FFFF}");
-        testing.expectEqualSlices(u16, &bytes, utf16);
-        testing.expect(utf16[2] == 0);
+        try testing.expectEqualSlices(u16, &bytes, utf16);
+        try testing.expect(utf16[2] == 0);
     }
 }
 
 fn testUtf8CountCodepoints() !void {
-    testing.expectEqual(@as(usize, 10), try utf8CountCodepoints("abcdefghij"));
-    testing.expectEqual(@as(usize, 10), try utf8CountCodepoints("äåéëþüúíóö"));
-    testing.expectEqual(@as(usize, 5), try utf8CountCodepoints("こんにちは"));
+    try testing.expectEqual(@as(usize, 10), try utf8CountCodepoints("abcdefghij"));
+    try testing.expectEqual(@as(usize, 10), try utf8CountCodepoints("äåéëþüúíóö"));
+    try testing.expectEqual(@as(usize, 5), try utf8CountCodepoints("こんにちは"));
     // testing.expectError(error.Utf8EncodesSurrogateHalf, utf8CountCodepoints("\xED\xA0\x80"));
 }
 
 test "utf8 count codepoints" {
     try testUtf8CountCodepoints();
-    comptime testUtf8CountCodepoints() catch unreachable;
+    comptime try testUtf8CountCodepoints();
 }
 
 fn testUtf8ValidCodepoint() !void {
-    testing.expect(utf8ValidCodepoint('e'));
-    testing.expect(utf8ValidCodepoint('ë'));
-    testing.expect(utf8ValidCodepoint('は'));
-    testing.expect(utf8ValidCodepoint(0xe000));
-    testing.expect(utf8ValidCodepoint(0x10ffff));
-    testing.expect(!utf8ValidCodepoint(0xd800));
-    testing.expect(!utf8ValidCodepoint(0xdfff));
-    testing.expect(!utf8ValidCodepoint(0x110000));
+    try testing.expect(utf8ValidCodepoint('e'));
+    try testing.expect(utf8ValidCodepoint('ë'));
+    try testing.expect(utf8ValidCodepoint('は'));
+    try testing.expect(utf8ValidCodepoint(0xe000));
+    try testing.expect(utf8ValidCodepoint(0x10ffff));
+    try testing.expect(!utf8ValidCodepoint(0xd800));
+    try testing.expect(!utf8ValidCodepoint(0xdfff));
+    try testing.expect(!utf8ValidCodepoint(0x110000));
 }
 
 test "utf8 valid codepoint" {
     try testUtf8ValidCodepoint();
-    comptime testUtf8ValidCodepoint() catch unreachable;
+    comptime try testUtf8ValidCodepoint();
 }

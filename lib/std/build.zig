@@ -3060,19 +3060,19 @@ test "Builder.dupePkg()" {
     const dupe_deps = dupe.dependencies.?;
 
     // probably the same top level package details
-    std.testing.expectEqualStrings(pkg_top.name, dupe.name);
+    try std.testing.expectEqualStrings(pkg_top.name, dupe.name);
 
     // probably the same dependencies
-    std.testing.expectEqual(original_deps.len, dupe_deps.len);
-    std.testing.expectEqual(original_deps[0].name, pkg_dep.name);
+    try std.testing.expectEqual(original_deps.len, dupe_deps.len);
+    try std.testing.expectEqual(original_deps[0].name, pkg_dep.name);
 
     // could segfault otherwise if pointers in duplicated package's fields are
     // the same as those in stack allocated package's fields
-    std.testing.expect(dupe_deps.ptr != original_deps.ptr);
-    std.testing.expect(dupe.name.ptr != pkg_top.name.ptr);
-    std.testing.expect(dupe.path.ptr != pkg_top.path.ptr);
-    std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
-    std.testing.expect(dupe_deps[0].path.ptr != pkg_dep.path.ptr);
+    try std.testing.expect(dupe_deps.ptr != original_deps.ptr);
+    try std.testing.expect(dupe.name.ptr != pkg_top.name.ptr);
+    try std.testing.expect(dupe.path.ptr != pkg_top.path.ptr);
+    try std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
+    try std.testing.expect(dupe_deps[0].path.ptr != pkg_dep.path.ptr);
 }
 
 test "LibExeObjStep.addBuildOption" {
@@ -3096,7 +3096,7 @@ test "LibExeObjStep.addBuildOption" {
     exe.addBuildOption(?[]const u8, "optional_string", null);
     exe.addBuildOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
 
-    std.testing.expectEqualStrings(
+    try std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
         \\pub const option2: ?usize = null;
         \\pub const string: []const u8 = "zigisthebest";
@@ -3140,10 +3140,10 @@ test "LibExeObjStep.addPackage" {
     var exe = builder.addExecutable("not_an_executable", "/not/an/executable.zig");
     exe.addPackage(pkg_top);
 
-    std.testing.expectEqual(@as(usize, 1), exe.packages.items.len);
+    try std.testing.expectEqual(@as(usize, 1), exe.packages.items.len);
 
     const dupe = exe.packages.items[0];
-    std.testing.expectEqualStrings(pkg_top.name, dupe.name);
+    try std.testing.expectEqualStrings(pkg_top.name, dupe.name);
 }
 
 test {

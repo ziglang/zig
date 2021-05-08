@@ -9,12 +9,12 @@ var global_x: i32 = 1;
 
 test "simple coroutine suspend and resume" {
     var frame = async simpleAsyncFn();
-    expect(global_x == 2);
+    try expect(global_x == 2);
     resume frame;
-    expect(global_x == 3);
+    try expect(global_x == 3);
     const af: anyframe->void = &frame;
     resume frame;
-    expect(global_x == 4);
+    try expect(global_x == 4);
 }
 fn simpleAsyncFn() void {
     global_x += 1;
@@ -28,9 +28,9 @@ var global_y: i32 = 1;
 
 test "pass parameter to coroutine" {
     var p = async simpleAsyncFnWithArg(2);
-    expect(global_y == 3);
+    try expect(global_y == 3);
     resume p;
-    expect(global_y == 5);
+    try expect(global_y == 5);
 }
 fn simpleAsyncFnWithArg(delta: i32) void {
     global_y += delta;
@@ -42,10 +42,10 @@ test "suspend at end of function" {
     const S = struct {
         var x: i32 = 1;
 
-        fn doTheTest() void {
-            expect(x == 1);
+        fn doTheTest() !void {
+            try expect(x == 1);
             const p = async suspendAtEnd();
-            expect(x == 2);
+            try expect(x == 2);
         }
 
         fn suspendAtEnd() void {
@@ -53,23 +53,23 @@ test "suspend at end of function" {
             suspend {}
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "local variable in async function" {
     const S = struct {
         var x: i32 = 0;
 
-        fn doTheTest() void {
-            expect(x == 0);
+        fn doTheTest() !void {
+            try expect(x == 0);
             var p = async add(1, 2);
-            expect(x == 0);
+            try expect(x == 0);
             resume p;
-            expect(x == 0);
+            try expect(x == 0);
             resume p;
-            expect(x == 0);
+            try expect(x == 0);
             resume p;
-            expect(x == 3);
+            try expect(x == 3);
         }
 
         fn add(a: i32, b: i32) void {
@@ -82,7 +82,7 @@ test "local variable in async function" {
             x = accum;
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "calling an inferred async function" {
@@ -90,11 +90,11 @@ test "calling an inferred async function" {
         var x: i32 = 1;
         var other_frame: *@Frame(other) = undefined;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             _ = async first();
-            expect(x == 1);
+            try expect(x == 1);
             resume other_frame.*;
-            expect(x == 2);
+            try expect(x == 2);
         }
 
         fn first() void {
@@ -106,7 +106,7 @@ test "calling an inferred async function" {
             x += 1;
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "@frameSize" {
@@ -114,16 +114,16 @@ test "@frameSize" {
         return error.SkipZigTest;
 
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             {
                 var ptr = @ptrCast(fn (i32) callconv(.Async) void, other);
                 const size = @frameSize(ptr);
-                expect(size == @sizeOf(@Frame(other)));
+                try expect(size == @sizeOf(@Frame(other)));
             }
             {
                 var ptr = @ptrCast(fn () callconv(.Async) void, first);
                 const size = @frameSize(ptr);
-                expect(size == @sizeOf(@Frame(first)));
+                try expect(size == @sizeOf(@Frame(first)));
             }
         }
 
@@ -135,20 +135,20 @@ test "@frameSize" {
             suspend {}
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "coroutine suspend, resume" {
     const S = struct {
         var frame: anyframe = undefined;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             _ = async amain();
             seq('d');
             resume frame;
             seq('h');
 
-            expect(std.mem.eql(u8, &points, "abcdefgh"));
+            try expect(std.mem.eql(u8, &points, "abcdefgh"));
         }
 
         fn amain() void {
@@ -176,27 +176,27 @@ test "coroutine suspend, resume" {
             index += 1;
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "coroutine suspend with block" {
     const p = async testSuspendBlock();
-    expect(!global_result);
+    try expect(!global_result);
     resume a_promise;
-    expect(global_result);
+    try expect(global_result);
 }
 
 var a_promise: anyframe = undefined;
 var global_result = false;
 fn testSuspendBlock() callconv(.Async) void {
     suspend {
-        comptime expect(@TypeOf(@frame()) == *@Frame(testSuspendBlock));
+        comptime expect(@TypeOf(@frame()) == *@Frame(testSuspendBlock)) catch unreachable;
         a_promise = @frame();
     }
 
     // Test to make sure that @frame() works as advertised (issue #1296)
     // var our_handle: anyframe = @frame();
-    expect(a_promise == @as(anyframe, @frame()));
+    expect(a_promise == @as(anyframe, @frame())) catch @panic("test failed");
 
     global_result = true;
 }
@@ -210,8 +210,8 @@ test "coroutine await" {
     await_seq('f');
     resume await_a_promise;
     await_seq('i');
-    expect(await_final_result == 1234);
-    expect(std.mem.eql(u8, &await_points, "abcdefghi"));
+    try expect(await_final_result == 1234);
+    try expect(std.mem.eql(u8, &await_points, "abcdefghi"));
 }
 fn await_amain() callconv(.Async) void {
     await_seq('b');
@@ -244,8 +244,8 @@ test "coroutine await early return" {
     early_seq('a');
     var p = async early_amain();
     early_seq('f');
-    expect(early_final_result == 1234);
-    expect(std.mem.eql(u8, &early_points, "abcdef"));
+    try expect(early_final_result == 1234);
+    try expect(std.mem.eql(u8, &early_points, "abcdef"));
 }
 fn early_amain() callconv(.Async) void {
     early_seq('b');
@@ -276,7 +276,7 @@ test "async function with dot syntax" {
         }
     };
     const p = async S.foo();
-    expect(S.y == 2);
+    try expect(S.y == 2);
 }
 
 test "async fn pointer in a struct field" {
@@ -287,12 +287,12 @@ test "async fn pointer in a struct field" {
     var foo = Foo{ .bar = simpleAsyncFn2 };
     var bytes: [64]u8 align(16) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
-    comptime expect(@TypeOf(f) == anyframe->void);
-    expect(data == 2);
+    comptime try expect(@TypeOf(f) == anyframe->void);
+    try expect(data == 2);
     resume f;
-    expect(data == 4);
+    try expect(data == 4);
     _ = async doTheAwait(f);
-    expect(data == 4);
+    try expect(data == 4);
 }
 
 fn doTheAwait(f: anyframe->void) void {
@@ -323,22 +323,22 @@ test "@asyncCall with return type" {
     var bytes: [150]u8 align(16) = undefined;
     var aresult: i32 = 0;
     _ = @asyncCall(&bytes, &aresult, foo.bar, .{});
-    expect(aresult == 0);
+    try expect(aresult == 0);
     resume Foo.global_frame;
-    expect(aresult == 1234);
+    try expect(aresult == 1234);
 }
 
 test "async fn with inferred error set" {
     const S = struct {
         var global_frame: anyframe = undefined;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var frame: [1]@Frame(middle) = undefined;
             var fn_ptr = middle;
             var result: @typeInfo(@typeInfo(@TypeOf(fn_ptr)).Fn.return_type.?).ErrorUnion.error_set!void = undefined;
             _ = @asyncCall(std.mem.sliceAsBytes(frame[0..]), &result, fn_ptr, .{});
             resume global_frame;
-            std.testing.expectError(error.Fail, result);
+            try std.testing.expectError(error.Fail, result);
         }
         fn middle() callconv(.Async) !void {
             var f = async middle2();
@@ -355,7 +355,7 @@ test "async fn with inferred error set" {
             return error.Fail;
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "error return trace across suspend points - early return" {
@@ -383,9 +383,9 @@ fn suspendThenFail() callconv(.Async) anyerror!void {
 }
 fn printTrace(p: anyframe->(anyerror!void)) callconv(.Async) void {
     (await p) catch |e| {
-        std.testing.expect(e == error.Fail);
+        std.testing.expect(e == error.Fail) catch @panic("test failure");
         if (@errorReturnTrace()) |trace| {
-            expect(trace.index == 1);
+            expect(trace.index == 1) catch @panic("test failure");
         } else switch (builtin.mode) {
             .Debug, .ReleaseSafe => @panic("expected return trace"),
             .ReleaseFast, .ReleaseSmall => {},
@@ -396,7 +396,7 @@ fn printTrace(p: anyframe->(anyerror!void)) callconv(.Async) void {
 test "break from suspend" {
     var my_result: i32 = 1;
     const p = async testBreakFromSuspend(&my_result);
-    std.testing.expect(my_result == 2);
+    try std.testing.expect(my_result == 2);
 }
 fn testBreakFromSuspend(my_result: *i32) callconv(.Async) void {
     suspend {
@@ -415,11 +415,11 @@ test "heap allocated async function frame" {
             const frame = try std.testing.allocator.create(@Frame(someFunc));
             defer std.testing.allocator.destroy(frame);
 
-            expect(x == 42);
+            try expect(x == 42);
             frame.* = async someFunc();
-            expect(x == 43);
+            try expect(x == 43);
             resume frame;
-            expect(x == 44);
+            try expect(x == 44);
         }
 
         fn someFunc() void {
@@ -436,15 +436,15 @@ test "async function call return value" {
         var frame: anyframe = undefined;
         var pt = Point{ .x = 10, .y = 11 };
 
-        fn doTheTest() void {
-            expectEqual(pt.x, 10);
-            expectEqual(pt.y, 11);
+        fn doTheTest() !void {
+            try expectEqual(pt.x, 10);
+            try expectEqual(pt.y, 11);
             _ = async first();
-            expectEqual(pt.x, 10);
-            expectEqual(pt.y, 11);
+            try expectEqual(pt.x, 10);
+            try expectEqual(pt.y, 11);
             resume frame;
-            expectEqual(pt.x, 1);
-            expectEqual(pt.y, 2);
+            try expectEqual(pt.x, 1);
+            try expectEqual(pt.y, 2);
         }
 
         fn first() void {
@@ -469,23 +469,23 @@ test "async function call return value" {
             y: i32,
         };
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "suspension points inside branching control flow" {
     const S = struct {
         var result: i32 = 10;
 
-        fn doTheTest() void {
-            expect(10 == result);
+        fn doTheTest() !void {
+            try expect(10 == result);
             var frame = async func(true);
-            expect(10 == result);
+            try expect(10 == result);
             resume frame;
-            expect(11 == result);
+            try expect(11 == result);
             resume frame;
-            expect(12 == result);
+            try expect(12 == result);
             resume frame;
-            expect(13 == result);
+            try expect(13 == result);
         }
 
         fn func(b: bool) void {
@@ -495,7 +495,7 @@ test "suspension points inside branching control flow" {
             }
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "call async function which has struct return type" {
@@ -509,8 +509,8 @@ test "call async function which has struct return type" {
 
         fn atest() void {
             const result = func();
-            expect(result.x == 5);
-            expect(result.y == 6);
+            expect(result.x == 5) catch @panic("test failed");
+            expect(result.y == 6) catch @panic("test failed");
         }
 
         const Point = struct {
@@ -536,27 +536,27 @@ test "pass string literal to async function" {
         var frame: anyframe = undefined;
         var ok: bool = false;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             _ = async hello("hello");
             resume frame;
-            expect(ok);
+            try expect(ok);
         }
 
         fn hello(msg: []const u8) void {
             frame = @frame();
             suspend {}
-            expectEqualStrings("hello", msg);
+            expectEqualStrings("hello", msg) catch @panic("test failed");
             ok = true;
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "await inside an errdefer" {
     const S = struct {
         var frame: anyframe = undefined;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             _ = async amainWrap();
             resume frame;
         }
@@ -572,7 +572,7 @@ test "await inside an errdefer" {
             suspend {}
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "try in an async function with error union and non-zero-bit payload" {
@@ -580,14 +580,14 @@ test "try in an async function with error union and non-zero-bit payload" {
         var frame: anyframe = undefined;
         var ok = false;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             _ = async amain();
             resume frame;
-            expect(ok);
+            try expect(ok);
         }
 
         fn amain() void {
-            std.testing.expectError(error.Bad, theProblem());
+            std.testing.expectError(error.Bad, theProblem()) catch @panic("test failed");
             ok = true;
         }
 
@@ -602,7 +602,7 @@ test "try in an async function with error union and non-zero-bit payload" {
             return error.Bad;
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "returning a const error from async function" {
@@ -610,10 +610,10 @@ test "returning a const error from async function" {
         var frame: anyframe = undefined;
         var ok = false;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             _ = async amain();
             resume frame;
-            expect(ok);
+            try expect(ok);
         }
 
         fn amain() !void {
@@ -630,7 +630,7 @@ test "returning a const error from async function" {
             return error.OutOfMemory;
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "async/await typical usage" {
@@ -663,11 +663,11 @@ fn testAsyncAwaitTypicalUsage(
         }
         fn amainWrap() void {
             if (amain()) |_| {
-                expect(!simulate_fail_download);
-                expect(!simulate_fail_file);
+                expect(!simulate_fail_download) catch @panic("test failure");
+                expect(!simulate_fail_file) catch @panic("test failure");
             } else |e| switch (e) {
-                error.NoResponse => expect(simulate_fail_download),
-                error.FileNotFound => expect(simulate_fail_file),
+                error.NoResponse => expect(simulate_fail_download) catch @panic("test failure"),
+                error.FileNotFound => expect(simulate_fail_file) catch @panic("test failure"),
                 else => @panic("test failure"),
             }
         }
@@ -694,8 +694,8 @@ fn testAsyncAwaitTypicalUsage(
             const file_text = try await file_frame;
             defer allocator.free(file_text);
 
-            expect(std.mem.eql(u8, "expected download text", download_text));
-            expect(std.mem.eql(u8, "expected file text", file_text));
+            try expect(std.mem.eql(u8, "expected download text", download_text));
+            try expect(std.mem.eql(u8, "expected file text", file_text));
         }
 
         var global_download_frame: anyframe = undefined;
@@ -728,13 +728,13 @@ fn testAsyncAwaitTypicalUsage(
 
 test "alignment of local variables in async functions" {
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var y: u8 = 123;
             var x: u8 align(128) = 1;
-            expect(@ptrToInt(&x) % 128 == 0);
+            try expect(@ptrToInt(&x) % 128 == 0);
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "no reason to resolve frame still works" {
@@ -746,10 +746,10 @@ fn simpleNothing() void {
 
 test "async call a generic function" {
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var f = async func(i32, 2);
             const result = await f;
-            expect(result == 3);
+            try expect(result == 3);
         }
 
         fn func(comptime T: type, inc: T) T {
@@ -766,8 +766,8 @@ test "async call a generic function" {
 
 test "return from suspend block" {
     const S = struct {
-        fn doTheTest() void {
-            expect(func() == 1234);
+        fn doTheTest() !void {
+            expect(func() == 1234) catch @panic("test failure");
         }
         fn func() i32 {
             suspend {
@@ -808,7 +808,7 @@ test "struct parameter to async function is copied to the frame" {
             var pt = Point{ .x = 1, .y = 2 };
             f.* = async foo(pt);
             var result = await f;
-            expect(result == 1);
+            expect(result == 1) catch @panic("test failure");
         }
 
         fn foo(point: Point) i32 {
@@ -833,7 +833,7 @@ test "cast fn to async fn when it is inferred to be async" {
             var result: i32 = undefined;
             const f = @asyncCall(&buf, &result, ptr, .{});
             _ = await f;
-            expect(result == 1234);
+            expect(result == 1234) catch @panic("test failure");
             ok = true;
         }
 
@@ -846,7 +846,7 @@ test "cast fn to async fn when it is inferred to be async" {
     };
     _ = async S.doTheTest();
     resume S.frame;
-    expect(S.ok);
+    try expect(S.ok);
 }
 
 test "cast fn to async fn when it is inferred to be async, awaited directly" {
@@ -860,7 +860,7 @@ test "cast fn to async fn when it is inferred to be async, awaited directly" {
             var buf: [100]u8 align(16) = undefined;
             var result: i32 = undefined;
             _ = await @asyncCall(&buf, &result, ptr, .{});
-            expect(result == 1234);
+            expect(result == 1234) catch @panic("test failure");
             ok = true;
         }
 
@@ -873,7 +873,7 @@ test "cast fn to async fn when it is inferred to be async, awaited directly" {
     };
     _ = async S.doTheTest();
     resume S.frame;
-    expect(S.ok);
+    try expect(S.ok);
 }
 
 test "await does not force async if callee is blocking" {
@@ -883,12 +883,12 @@ test "await does not force async if callee is blocking" {
         }
     };
     var x = async S.simple();
-    expect(await x == 1234);
+    try expect(await x == 1234);
 }
 
 test "recursive async function" {
-    expect(recursiveAsyncFunctionTest(false).doTheTest() == 55);
-    expect(recursiveAsyncFunctionTest(true).doTheTest() == 55);
+    try expect(recursiveAsyncFunctionTest(false).doTheTest() == 55);
+    try expect(recursiveAsyncFunctionTest(true).doTheTest() == 55);
 }
 
 fn recursiveAsyncFunctionTest(comptime suspending_implementation: bool) type {
@@ -952,12 +952,12 @@ test "@asyncCall with comptime-known function, but not awaited directly" {
     const S = struct {
         var global_frame: anyframe = undefined;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var frame: [1]@Frame(middle) = undefined;
             var result: @typeInfo(@typeInfo(@TypeOf(middle)).Fn.return_type.?).ErrorUnion.error_set!void = undefined;
             _ = @asyncCall(std.mem.sliceAsBytes(frame[0..]), &result, middle, .{});
             resume global_frame;
-            std.testing.expectError(error.Fail, result);
+            try std.testing.expectError(error.Fail, result);
         }
         fn middle() callconv(.Async) !void {
             var f = async middle2();
@@ -974,7 +974,7 @@ test "@asyncCall with comptime-known function, but not awaited directly" {
             return error.Fail;
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "@asyncCall with actual frame instead of byte buffer" {
@@ -988,7 +988,7 @@ test "@asyncCall with actual frame instead of byte buffer" {
     var result: i32 = undefined;
     const ptr = @asyncCall(&frame, &result, S.func, .{});
     resume ptr;
-    expect(result == 1234);
+    try expect(result == 1234);
 }
 
 test "@asyncCall using the result location inside the frame" {
@@ -1010,19 +1010,19 @@ test "@asyncCall using the result location inside the frame" {
     var foo = Foo{ .bar = S.simple2 };
     var bytes: [64]u8 align(16) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
-    comptime expect(@TypeOf(f) == anyframe->i32);
-    expect(data == 2);
+    comptime try expect(@TypeOf(f) == anyframe->i32);
+    try expect(data == 2);
     resume f;
-    expect(data == 4);
+    try expect(data == 4);
     _ = async S.getAnswer(f, &data);
-    expect(data == 1234);
+    try expect(data == 1234);
 }
 
 test "@TypeOf an async function call of generic fn with error union type" {
     const S = struct {
         fn func(comptime x: anytype) anyerror!i32 {
             const T = @TypeOf(async func(x));
-            comptime expect(T == @typeInfo(@TypeOf(@frame())).Pointer.child);
+            comptime try expect(T == @typeInfo(@TypeOf(@frame())).Pointer.child);
             return undefined;
         }
     };
@@ -1051,7 +1051,7 @@ test "using @TypeOf on a generic function call" {
     };
     _ = async S.amain(@as(u32, 1));
     resume S.global_frame;
-    expect(S.global_ok);
+    try expect(S.global_ok);
 }
 
 test "recursive call of await @asyncCall with struct return type" {
@@ -1084,17 +1084,17 @@ test "recursive call of await @asyncCall with struct return type" {
     var frame: @TypeOf(async S.amain(@as(u32, 1))) = undefined;
     _ = @asyncCall(&frame, &res, S.amain, .{@as(u32, 1)});
     resume S.global_frame;
-    expect(S.global_ok);
-    expect(res.x == 1);
-    expect(res.y == 2);
-    expect(res.z == 3);
+    try expect(S.global_ok);
+    try expect(res.x == 1);
+    try expect(res.y == 2);
+    try expect(res.z == 3);
 }
 
 test "nosuspend function call" {
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             const result = nosuspend add(50, 100);
-            expect(result == 150);
+            try expect(result == 150);
         }
         fn add(a: i32, b: i32) i32 {
             if (a > 100) {
@@ -1103,7 +1103,7 @@ test "nosuspend function call" {
             return a + b;
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "await used in expression and awaiting fn with no suspend but async calling convention" {
@@ -1113,7 +1113,7 @@ test "await used in expression and awaiting fn with no suspend but async calling
             var f2 = async add(3, 4);
 
             const sum = (await f1) + (await f2);
-            expect(sum == 10);
+            expect(sum == 10) catch @panic("test failure");
         }
         fn add(a: i32, b: i32) callconv(.Async) i32 {
             return a + b;
@@ -1128,7 +1128,7 @@ test "await used in expression after a fn call" {
             var f1 = async add(3, 4);
             var sum: i32 = 0;
             sum = foo() + await f1;
-            expect(sum == 8);
+            expect(sum == 8) catch @panic("test failure");
         }
         fn add(a: i32, b: i32) callconv(.Async) i32 {
             return a + b;
@@ -1145,7 +1145,7 @@ test "async fn call used in expression after a fn call" {
         fn atest() void {
             var sum: i32 = 0;
             sum = foo() + add(3, 4);
-            expect(sum == 8);
+            expect(sum == 8) catch @panic("test failure");
         }
         fn add(a: i32, b: i32) callconv(.Async) i32 {
             return a + b;
@@ -1167,7 +1167,7 @@ test "suspend in for loop" {
         }
 
         fn atest() void {
-            expect(func(&[_]u8{ 1, 2, 3 }) == 6);
+            expect(func(&[_]u8{ 1, 2, 3 }) == 6) catch @panic("test failure");
         }
         fn func(stuff: []const u8) u32 {
             global_frame = @frame();
@@ -1193,8 +1193,8 @@ test "suspend in while loop" {
         }
 
         fn atest() void {
-            expect(optional(6) == 6);
-            expect(errunion(6) == 6);
+            expect(optional(6) == 6) catch @panic("test failure");
+            expect(errunion(6) == 6) catch @panic("test failure");
         }
         fn optional(stuff: ?u32) u32 {
             global_frame = @frame();
@@ -1223,8 +1223,8 @@ test "correctly spill when returning the error union result of another async fn"
     const S = struct {
         var global_frame: anyframe = undefined;
 
-        fn doTheTest() void {
-            expect((atest() catch unreachable) == 1234);
+        fn doTheTest() !void {
+            expect((atest() catch unreachable) == 1234) catch @panic("test failure");
         }
 
         fn atest() !i32 {
@@ -1246,11 +1246,11 @@ test "spill target expr in a for loop" {
     const S = struct {
         var global_frame: anyframe = undefined;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var foo = Foo{
                 .slice = &[_]i32{ 1, 2 },
             };
-            expect(atest(&foo) == 3);
+            expect(atest(&foo) == 3) catch @panic("test failure");
         }
 
         const Foo = struct {
@@ -1277,11 +1277,11 @@ test "spill target expr in a for loop, with a var decl in the loop body" {
     const S = struct {
         var global_frame: anyframe = undefined;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var foo = Foo{
                 .slice = &[_]i32{ 1, 2 },
             };
-            expect(atest(&foo) == 3);
+            expect(atest(&foo) == 3) catch @panic("test failure");
         }
 
         const Foo = struct {
@@ -1319,7 +1319,7 @@ test "async call with @call" {
         fn atest() void {
             var frame = @call(.{ .modifier = .async_kw }, afoo, .{});
             const res = await frame;
-            expect(res == 42);
+            expect(res == 42) catch @panic("test failure");
         }
         fn afoo() i32 {
             suspend {
@@ -1348,7 +1348,7 @@ test "async function passed 0-bit arg after non-0-bit arg" {
     };
     _ = async S.foo();
     resume S.global_frame;
-    expect(S.global_int == 1);
+    try expect(S.global_int == 1);
 }
 
 test "async function passed align(16) arg after align(8) arg" {
@@ -1362,7 +1362,7 @@ test "async function passed align(16) arg after align(8) arg" {
         }
 
         fn bar(x: u64, args: anytype) anyerror!void {
-            expect(x == 10);
+            try expect(x == 10);
             global_frame = @frame();
             suspend {}
             global_int = args[0];
@@ -1370,7 +1370,7 @@ test "async function passed align(16) arg after align(8) arg" {
     };
     _ = async S.foo();
     resume S.global_frame;
-    expect(S.global_int == 99);
+    try expect(S.global_int == 99);
 }
 
 test "async function call resolves target fn frame, comptime func" {
@@ -1392,7 +1392,7 @@ test "async function call resolves target fn frame, comptime func" {
     };
     _ = async S.foo();
     resume S.global_frame;
-    expect(S.global_int == 10);
+    try expect(S.global_int == 10);
 }
 
 test "async function call resolves target fn frame, runtime func" {
@@ -1415,7 +1415,7 @@ test "async function call resolves target fn frame, runtime func" {
     };
     _ = async S.foo();
     resume S.global_frame;
-    expect(S.global_int == 10);
+    try expect(S.global_int == 10);
 }
 
 test "properly spill optional payload capture value" {
@@ -1439,7 +1439,7 @@ test "properly spill optional payload capture value" {
     };
     _ = async S.foo();
     resume S.global_frame;
-    expect(S.global_int == 1237);
+    try expect(S.global_int == 1237);
 }
 
 test "handle defer interfering with return value spill" {
@@ -1449,16 +1449,16 @@ test "handle defer interfering with return value spill" {
         var finished = false;
         var baz_happened = false;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             _ = async testFoo();
             resume global_frame1;
             resume global_frame2;
-            expect(baz_happened);
-            expect(finished);
+            try expect(baz_happened);
+            try expect(finished);
         }
 
         fn testFoo() void {
-            expectError(error.Bad, foo());
+            expectError(error.Bad, foo()) catch @panic("test failure");
             finished = true;
         }
 
@@ -1479,7 +1479,7 @@ test "handle defer interfering with return value spill" {
             baz_happened = true;
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "take address of temporary async frame" {
@@ -1487,14 +1487,14 @@ test "take address of temporary async frame" {
         var global_frame: anyframe = undefined;
         var finished = false;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             _ = async asyncDoTheTest();
             resume global_frame;
-            expect(finished);
+            try expect(finished);
         }
 
         fn asyncDoTheTest() void {
-            expect(finishIt(&async foo(10)) == 1245);
+            expect(finishIt(&async foo(10)) == 1245) catch @panic("test failure");
             finished = true;
         }
 
@@ -1508,16 +1508,16 @@ test "take address of temporary async frame" {
             return (await frame) + 1;
         }
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "nosuspend await" {
     const S = struct {
         var finished = false;
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var frame = async foo(false);
-            expect(nosuspend await frame == 42);
+            try expect(nosuspend await frame == 42);
             finished = true;
         }
 
@@ -1528,8 +1528,8 @@ test "nosuspend await" {
             return 42;
         }
     };
-    S.doTheTest();
-    expect(S.finished);
+    try S.doTheTest();
+    try expect(S.finished);
 }
 
 test "nosuspend on function calls" {
@@ -1544,8 +1544,8 @@ test "nosuspend on function calls" {
             return S0{};
         }
     };
-    expectEqual(@as(i32, 42), nosuspend S1.c().b);
-    expectEqual(@as(i32, 42), (try nosuspend S1.d()).b);
+    try expectEqual(@as(i32, 42), nosuspend S1.c().b);
+    try expectEqual(@as(i32, 42), (try nosuspend S1.d()).b);
 }
 
 test "nosuspend on async function calls" {
@@ -1561,9 +1561,9 @@ test "nosuspend on async function calls" {
         }
     };
     var frame_c = nosuspend async S1.c();
-    expectEqual(@as(i32, 42), (await frame_c).b);
+    try expectEqual(@as(i32, 42), (await frame_c).b);
     var frame_d = nosuspend async S1.d();
-    expectEqual(@as(i32, 42), (try await frame_d).b);
+    try expectEqual(@as(i32, 42), (try await frame_d).b);
 }
 
 // test "resume nosuspend async function calls" {
@@ -1582,10 +1582,10 @@ test "nosuspend on async function calls" {
 //     };
 //     var frame_c = nosuspend async S1.c();
 //     resume frame_c;
-//     expectEqual(@as(i32, 42), (await frame_c).b);
+// try expectEqual(@as(i32, 42), (await frame_c).b);
 //     var frame_d = nosuspend async S1.d();
 //     resume frame_d;
-//     expectEqual(@as(i32, 42), (try await frame_d).b);
+// try expectEqual(@as(i32, 42), (try await frame_d).b);
 // }
 
 test "nosuspend resume async function calls" {
@@ -1604,10 +1604,10 @@ test "nosuspend resume async function calls" {
     };
     var frame_c = async S1.c();
     nosuspend resume frame_c;
-    expectEqual(@as(i32, 42), (await frame_c).b);
+    try expectEqual(@as(i32, 42), (await frame_c).b);
     var frame_d = async S1.d();
     nosuspend resume frame_d;
-    expectEqual(@as(i32, 42), (try await frame_d).b);
+    try expectEqual(@as(i32, 42), (try await frame_d).b);
 }
 
 test "avoid forcing frame alignment resolution implicit cast to *c_void" {
@@ -1623,7 +1623,7 @@ test "avoid forcing frame alignment resolution implicit cast to *c_void" {
     };
     var frame = async S.foo();
     resume @ptrCast(anyframe->bool, @alignCast(@alignOf(@Frame(S.foo)), S.x));
-    expect(nosuspend await frame);
+    try expect(nosuspend await frame);
 }
 
 test "@asyncCall with pass-by-value arguments" {
@@ -1638,9 +1638,9 @@ test "@asyncCall with pass-by-value arguments" {
         pub fn f(_fill0: u64, s: ST, _fill1: u64, a: AT, _fill2: u64) callconv(.Async) void {
             // Check that the array and struct arguments passed by value don't
             // end up overflowing the adjacent fields in the frame structure.
-            expectEqual(F0, _fill0);
-            expectEqual(F1, _fill1);
-            expectEqual(F2, _fill2);
+            expectEqual(F0, _fill0) catch @panic("test failure");
+            expectEqual(F1, _fill1) catch @panic("test failure");
+            expectEqual(F2, _fill2) catch @panic("test failure");
         }
     };
 
@@ -1664,8 +1664,8 @@ test "@asyncCall with arguments having non-standard alignment" {
         pub fn f(_fill0: u32, s: struct { x: u64 align(16) }, _fill1: u64) callconv(.Async) void {
             // The compiler inserts extra alignment for s, check that the
             // generated code picks the right slot for fill1.
-            expectEqual(F0, _fill0);
-            expectEqual(F1, _fill1);
+            expectEqual(F0, _fill0) catch @panic("test failure");
+            expectEqual(F1, _fill1) catch @panic("test failure");
         }
     };
 

@@ -6,13 +6,13 @@ const maxInt = std.math.maxInt;
 const native_endian = builtin.target.cpu.arch.endian();
 
 test "@bitCast i32 -> u32" {
-    testBitCast_i32_u32();
-    comptime testBitCast_i32_u32();
+    try testBitCast_i32_u32();
+    comptime try testBitCast_i32_u32();
 }
 
-fn testBitCast_i32_u32() void {
-    expect(conv(-1) == maxInt(u32));
-    expect(conv2(maxInt(u32)) == -1);
+fn testBitCast_i32_u32() !void {
+    try expect(conv(-1) == maxInt(u32));
+    try expect(conv2(maxInt(u32)) == -1);
 }
 
 fn conv(x: i32) u32 {
@@ -27,15 +27,15 @@ test "@bitCast extern enum to its integer type" {
         A,
         B,
 
-        fn testBitCastExternEnum() void {
+        fn testBitCastExternEnum() !void {
             var SOCK_DGRAM = @This().B;
             var sock_dgram = @bitCast(c_int, SOCK_DGRAM);
-            expect(sock_dgram == 1);
+            try expect(sock_dgram == 1);
         }
     };
 
-    SOCK.testBitCastExternEnum();
-    comptime SOCK.testBitCastExternEnum();
+    try SOCK.testBitCastExternEnum();
+    comptime try SOCK.testBitCastExternEnum();
 }
 
 test "@bitCast packed structs at runtime and comptime" {
@@ -48,25 +48,25 @@ test "@bitCast packed structs at runtime and comptime" {
         quarter4: u4,
     };
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var full = Full{ .number = 0x1234 };
             var two_halves = @bitCast(Divided, full);
             switch (native_endian) {
                 .Big => {
-                    expect(two_halves.half1 == 0x12);
-                    expect(two_halves.quarter3 == 0x3);
-                    expect(two_halves.quarter4 == 0x4);
+                    try expect(two_halves.half1 == 0x12);
+                    try expect(two_halves.quarter3 == 0x3);
+                    try expect(two_halves.quarter4 == 0x4);
                 },
                 .Little => {
-                    expect(two_halves.half1 == 0x34);
-                    expect(two_halves.quarter3 == 0x2);
-                    expect(two_halves.quarter4 == 0x1);
+                    try expect(two_halves.half1 == 0x34);
+                    try expect(two_halves.quarter3 == 0x2);
+                    try expect(two_halves.quarter4 == 0x1);
                 },
             }
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "@bitCast extern structs at runtime and comptime" {
@@ -78,23 +78,23 @@ test "@bitCast extern structs at runtime and comptime" {
         half2: u8,
     };
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var full = Full{ .number = 0x1234 };
             var two_halves = @bitCast(TwoHalves, full);
             switch (native_endian) {
                 .Big => {
-                    expect(two_halves.half1 == 0x12);
-                    expect(two_halves.half2 == 0x34);
+                    try expect(two_halves.half1 == 0x12);
+                    try expect(two_halves.half2 == 0x34);
                 },
                 .Little => {
-                    expect(two_halves.half1 == 0x34);
-                    expect(two_halves.half2 == 0x12);
+                    try expect(two_halves.half1 == 0x34);
+                    try expect(two_halves.half2 == 0x12);
                 },
             }
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "bitcast packed struct to integer and back" {
@@ -103,35 +103,35 @@ test "bitcast packed struct to integer and back" {
         level: u7,
     };
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var move = LevelUpMove{ .move_id = 1, .level = 2 };
             var v = @bitCast(u16, move);
             var back_to_a_move = @bitCast(LevelUpMove, v);
-            expect(back_to_a_move.move_id == 1);
-            expect(back_to_a_move.level == 2);
+            try expect(back_to_a_move.move_id == 1);
+            try expect(back_to_a_move.level == 2);
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "implicit cast to error union by returning" {
     const S = struct {
-        fn entry() void {
-            expect((func(-1) catch unreachable) == maxInt(u64));
+        fn entry() !void {
+            try expect((func(-1) catch unreachable) == maxInt(u64));
         }
         pub fn func(sz: i64) anyerror!u64 {
             return @bitCast(u64, sz);
         }
     };
-    S.entry();
-    comptime S.entry();
+    try S.entry();
+    comptime try S.entry();
 }
 
 // issue #3010: compiler segfault
 test "bitcast literal [4]u8 param to u32" {
     const ip = @bitCast(u32, [_]u8{ 255, 255, 255, 255 });
-    expect(ip == maxInt(u32));
+    try expect(ip == maxInt(u32));
 }
 
 test "bitcast packed struct literal to byte" {
@@ -139,14 +139,14 @@ test "bitcast packed struct literal to byte" {
         value: u8,
     };
     const casted = @bitCast(u8, Foo{ .value = 0xF });
-    expect(casted == 0xf);
+    try expect(casted == 0xf);
 }
 
 test "comptime bitcast used in expression has the correct type" {
     const Foo = packed struct {
         value: u8,
     };
-    expect(@bitCast(u8, Foo{ .value = 0xF }) == 0xf);
+    try expect(@bitCast(u8, Foo{ .value = 0xF }) == 0xf);
 }
 
 test "bitcast result to _" {
@@ -155,43 +155,43 @@ test "bitcast result to _" {
 
 test "nested bitcast" {
     const S = struct {
-        fn moo(x: isize) void {
-            @import("std").testing.expectEqual(@intCast(isize, 42), x);
+        fn moo(x: isize) !void {
+            try @import("std").testing.expectEqual(@intCast(isize, 42), x);
         }
 
-        fn foo(x: isize) void {
-            @This().moo(
+        fn foo(x: isize) !void {
+            try @This().moo(
                 @bitCast(isize, if (x != 0) @bitCast(usize, x) else @bitCast(usize, x)),
             );
         }
     };
 
-    S.foo(42);
-    comptime S.foo(42);
+    try S.foo(42);
+    comptime try S.foo(42);
 }
 
 test "bitcast passed as tuple element" {
     const S = struct {
-        fn foo(args: anytype) void {
-            comptime expect(@TypeOf(args[0]) == f32);
-            expect(args[0] == 12.34);
+        fn foo(args: anytype) !void {
+            comptime try expect(@TypeOf(args[0]) == f32);
+            try expect(args[0] == 12.34);
         }
     };
-    S.foo(.{@bitCast(f32, @as(u32, 0x414570A4))});
+    try S.foo(.{@bitCast(f32, @as(u32, 0x414570A4))});
 }
 
 test "triple level result location with bitcast sandwich passed as tuple element" {
     const S = struct {
-        fn foo(args: anytype) void {
-            comptime expect(@TypeOf(args[0]) == f64);
-            expect(args[0] > 12.33 and args[0] < 12.35);
+        fn foo(args: anytype) !void {
+            comptime try expect(@TypeOf(args[0]) == f64);
+            try expect(args[0] > 12.33 and args[0] < 12.35);
         }
     };
-    S.foo(.{@as(f64, @bitCast(f32, @as(u32, 0x414570A4)))});
+    try S.foo(.{@as(f64, @bitCast(f32, @as(u32, 0x414570A4)))});
 }
 
 test "bitcast generates a temporary value" {
     var y = @as(u16, 0x55AA);
     const x = @bitCast(u16, @bitCast([2]u8, y));
-    expectEqual(y, x);
+    try expectEqual(y, x);
 }

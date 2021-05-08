@@ -17,7 +17,7 @@ test "p256 ECDH key exchange" {
     const dhB = try P256.basePoint.mul(dhb, .Little);
     const shareda = try dhA.mul(dhb, .Little);
     const sharedb = try dhB.mul(dha, .Little);
-    testing.expect(shareda.equivalent(sharedb));
+    try testing.expect(shareda.equivalent(sharedb));
 }
 
 test "p256 point from affine coordinates" {
@@ -28,7 +28,7 @@ test "p256 point from affine coordinates" {
     var ys: [32]u8 = undefined;
     _ = try fmt.hexToBytes(&ys, yh);
     var p = try P256.fromSerializedAffineCoordinates(xs, ys, .Big);
-    testing.expect(p.equivalent(P256.basePoint));
+    try testing.expect(p.equivalent(P256.basePoint));
 }
 
 test "p256 test vectors" {
@@ -50,7 +50,7 @@ test "p256 test vectors" {
         p = p.add(P256.basePoint);
         var xs: [32]u8 = undefined;
         _ = try fmt.hexToBytes(&xs, xh);
-        testing.expectEqualSlices(u8, &x.toBytes(.Big), &xs);
+        try testing.expectEqualSlices(u8, &x.toBytes(.Big), &xs);
     }
 }
 
@@ -67,7 +67,7 @@ test "p256 test vectors - doubling" {
         p = p.dbl();
         var xs: [32]u8 = undefined;
         _ = try fmt.hexToBytes(&xs, xh);
-        testing.expectEqualSlices(u8, &x.toBytes(.Big), &xs);
+        try testing.expectEqualSlices(u8, &x.toBytes(.Big), &xs);
     }
 }
 
@@ -75,29 +75,29 @@ test "p256 compressed sec1 encoding/decoding" {
     const p = P256.random();
     const s = p.toCompressedSec1();
     const q = try P256.fromSec1(&s);
-    testing.expect(p.equivalent(q));
+    try testing.expect(p.equivalent(q));
 }
 
 test "p256 uncompressed sec1 encoding/decoding" {
     const p = P256.random();
     const s = p.toUncompressedSec1();
     const q = try P256.fromSec1(&s);
-    testing.expect(p.equivalent(q));
+    try testing.expect(p.equivalent(q));
 }
 
 test "p256 public key is the neutral element" {
     const n = P256.scalar.Scalar.zero.toBytes(.Little);
     const p = P256.random();
-    testing.expectError(error.IdentityElement, p.mul(n, .Little));
+    try testing.expectError(error.IdentityElement, p.mul(n, .Little));
 }
 
 test "p256 public key is the neutral element (public verification)" {
     const n = P256.scalar.Scalar.zero.toBytes(.Little);
     const p = P256.random();
-    testing.expectError(error.IdentityElement, p.mulPublic(n, .Little));
+    try testing.expectError(error.IdentityElement, p.mulPublic(n, .Little));
 }
 
 test "p256 field element non-canonical encoding" {
     const s = [_]u8{0xff} ** 32;
-    testing.expectError(error.NonCanonical, P256.Fe.fromBytes(s, .Little));
+    try testing.expectError(error.NonCanonical, P256.Fe.fromBytes(s, .Little));
 }

@@ -267,21 +267,21 @@ test "tryAllocReg: no spilling" {
         .src = .unneeded,
     };
 
-    std.testing.expect(!function.register_manager.isRegAllocated(.r2));
-    std.testing.expect(!function.register_manager.isRegAllocated(.r3));
+    try std.testing.expect(!function.register_manager.isRegAllocated(.r2));
+    try std.testing.expect(!function.register_manager.isRegAllocated(.r3));
 
-    std.testing.expectEqual(@as(?MockRegister, .r2), function.register_manager.tryAllocReg(&mock_instruction));
-    std.testing.expectEqual(@as(?MockRegister, .r3), function.register_manager.tryAllocReg(&mock_instruction));
-    std.testing.expectEqual(@as(?MockRegister, null), function.register_manager.tryAllocReg(&mock_instruction));
+    try std.testing.expectEqual(@as(?MockRegister, .r2), function.register_manager.tryAllocReg(&mock_instruction));
+    try std.testing.expectEqual(@as(?MockRegister, .r3), function.register_manager.tryAllocReg(&mock_instruction));
+    try std.testing.expectEqual(@as(?MockRegister, null), function.register_manager.tryAllocReg(&mock_instruction));
 
-    std.testing.expect(function.register_manager.isRegAllocated(.r2));
-    std.testing.expect(function.register_manager.isRegAllocated(.r3));
+    try std.testing.expect(function.register_manager.isRegAllocated(.r2));
+    try std.testing.expect(function.register_manager.isRegAllocated(.r3));
 
     function.register_manager.freeReg(.r2);
     function.register_manager.freeReg(.r3);
 
-    std.testing.expect(function.register_manager.isRegAllocated(.r2));
-    std.testing.expect(function.register_manager.isRegAllocated(.r3));
+    try std.testing.expect(function.register_manager.isRegAllocated(.r2));
+    try std.testing.expect(function.register_manager.isRegAllocated(.r3));
 }
 
 test "allocReg: spilling" {
@@ -298,20 +298,20 @@ test "allocReg: spilling" {
         .src = .unneeded,
     };
 
-    std.testing.expect(!function.register_manager.isRegAllocated(.r2));
-    std.testing.expect(!function.register_manager.isRegAllocated(.r3));
+    try std.testing.expect(!function.register_manager.isRegAllocated(.r2));
+    try std.testing.expect(!function.register_manager.isRegAllocated(.r3));
 
-    std.testing.expectEqual(@as(?MockRegister, .r2), try function.register_manager.allocReg(&mock_instruction));
-    std.testing.expectEqual(@as(?MockRegister, .r3), try function.register_manager.allocReg(&mock_instruction));
+    try std.testing.expectEqual(@as(?MockRegister, .r2), try function.register_manager.allocReg(&mock_instruction));
+    try std.testing.expectEqual(@as(?MockRegister, .r3), try function.register_manager.allocReg(&mock_instruction));
 
     // Spill a register
-    std.testing.expectEqual(@as(?MockRegister, .r2), try function.register_manager.allocReg(&mock_instruction));
-    std.testing.expectEqualSlices(MockRegister, &[_]MockRegister{.r2}, function.spilled.items);
+    try std.testing.expectEqual(@as(?MockRegister, .r2), try function.register_manager.allocReg(&mock_instruction));
+    try std.testing.expectEqualSlices(MockRegister, &[_]MockRegister{.r2}, function.spilled.items);
 
     // No spilling necessary
     function.register_manager.freeReg(.r3);
-    std.testing.expectEqual(@as(?MockRegister, .r3), try function.register_manager.allocReg(&mock_instruction));
-    std.testing.expectEqualSlices(MockRegister, &[_]MockRegister{.r2}, function.spilled.items);
+    try std.testing.expectEqual(@as(?MockRegister, .r3), try function.register_manager.allocReg(&mock_instruction));
+    try std.testing.expectEqualSlices(MockRegister, &[_]MockRegister{.r2}, function.spilled.items);
 }
 
 test "getReg" {
@@ -328,18 +328,18 @@ test "getReg" {
         .src = .unneeded,
     };
 
-    std.testing.expect(!function.register_manager.isRegAllocated(.r2));
-    std.testing.expect(!function.register_manager.isRegAllocated(.r3));
+    try std.testing.expect(!function.register_manager.isRegAllocated(.r2));
+    try std.testing.expect(!function.register_manager.isRegAllocated(.r3));
 
     try function.register_manager.getReg(.r3, &mock_instruction);
 
-    std.testing.expect(!function.register_manager.isRegAllocated(.r2));
-    std.testing.expect(function.register_manager.isRegAllocated(.r3));
+    try std.testing.expect(!function.register_manager.isRegAllocated(.r2));
+    try std.testing.expect(function.register_manager.isRegAllocated(.r3));
 
     // Spill r3
     try function.register_manager.getReg(.r3, &mock_instruction);
 
-    std.testing.expect(!function.register_manager.isRegAllocated(.r2));
-    std.testing.expect(function.register_manager.isRegAllocated(.r3));
-    std.testing.expectEqualSlices(MockRegister, &[_]MockRegister{.r3}, function.spilled.items);
+    try std.testing.expect(!function.register_manager.isRegAllocated(.r2));
+    try std.testing.expect(function.register_manager.isRegAllocated(.r3));
+    try std.testing.expectEqualSlices(MockRegister, &[_]MockRegister{.r3}, function.spilled.items);
 }

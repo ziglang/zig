@@ -352,16 +352,16 @@ test "Aegis128L test vector 1" {
 
     Aegis128L.encrypt(&c, &tag, &m, &ad, nonce, key);
     try Aegis128L.decrypt(&m2, &c, tag, &ad, nonce, key);
-    testing.expectEqualSlices(u8, &m, &m2);
+    try testing.expectEqualSlices(u8, &m, &m2);
 
-    htest.assertEqual("79d94593d8c2119d7e8fd9b8fc77845c5c077a05b2528b6ac54b563aed8efe84", &c);
-    htest.assertEqual("cc6f3372f6aa1bb82388d695c3962d9a", &tag);
+    try htest.assertEqual("79d94593d8c2119d7e8fd9b8fc77845c5c077a05b2528b6ac54b563aed8efe84", &c);
+    try htest.assertEqual("cc6f3372f6aa1bb82388d695c3962d9a", &tag);
 
     c[0] +%= 1;
-    testing.expectError(error.AuthenticationFailed, Aegis128L.decrypt(&m2, &c, tag, &ad, nonce, key));
+    try testing.expectError(error.AuthenticationFailed, Aegis128L.decrypt(&m2, &c, tag, &ad, nonce, key));
     c[0] -%= 1;
     tag[0] +%= 1;
-    testing.expectError(error.AuthenticationFailed, Aegis128L.decrypt(&m2, &c, tag, &ad, nonce, key));
+    try testing.expectError(error.AuthenticationFailed, Aegis128L.decrypt(&m2, &c, tag, &ad, nonce, key));
 }
 
 test "Aegis128L test vector 2" {
@@ -375,10 +375,10 @@ test "Aegis128L test vector 2" {
 
     Aegis128L.encrypt(&c, &tag, &m, &ad, nonce, key);
     try Aegis128L.decrypt(&m2, &c, tag, &ad, nonce, key);
-    testing.expectEqualSlices(u8, &m, &m2);
+    try testing.expectEqualSlices(u8, &m, &m2);
 
-    htest.assertEqual("41de9000a7b5e40e2d68bb64d99ebb19", &c);
-    htest.assertEqual("f4d997cc9b94227ada4fe4165422b1c8", &tag);
+    try htest.assertEqual("41de9000a7b5e40e2d68bb64d99ebb19", &c);
+    try htest.assertEqual("f4d997cc9b94227ada4fe4165422b1c8", &tag);
 }
 
 test "Aegis128L test vector 3" {
@@ -392,9 +392,9 @@ test "Aegis128L test vector 3" {
 
     Aegis128L.encrypt(&c, &tag, &m, &ad, nonce, key);
     try Aegis128L.decrypt(&m2, &c, tag, &ad, nonce, key);
-    testing.expectEqualSlices(u8, &m, &m2);
+    try testing.expectEqualSlices(u8, &m, &m2);
 
-    htest.assertEqual("83cc600dc4e3e7e62d4055826174f149", &tag);
+    try htest.assertEqual("83cc600dc4e3e7e62d4055826174f149", &tag);
 }
 
 test "Aegis256 test vector 1" {
@@ -408,16 +408,16 @@ test "Aegis256 test vector 1" {
 
     Aegis256.encrypt(&c, &tag, &m, &ad, nonce, key);
     try Aegis256.decrypt(&m2, &c, tag, &ad, nonce, key);
-    testing.expectEqualSlices(u8, &m, &m2);
+    try testing.expectEqualSlices(u8, &m, &m2);
 
-    htest.assertEqual("f373079ed84b2709faee373584585d60accd191db310ef5d8b11833df9dec711", &c);
-    htest.assertEqual("8d86f91ee606e9ff26a01b64ccbdd91d", &tag);
+    try htest.assertEqual("f373079ed84b2709faee373584585d60accd191db310ef5d8b11833df9dec711", &c);
+    try htest.assertEqual("8d86f91ee606e9ff26a01b64ccbdd91d", &tag);
 
     c[0] +%= 1;
-    testing.expectError(error.AuthenticationFailed, Aegis256.decrypt(&m2, &c, tag, &ad, nonce, key));
+    try testing.expectError(error.AuthenticationFailed, Aegis256.decrypt(&m2, &c, tag, &ad, nonce, key));
     c[0] -%= 1;
     tag[0] +%= 1;
-    testing.expectError(error.AuthenticationFailed, Aegis256.decrypt(&m2, &c, tag, &ad, nonce, key));
+    try testing.expectError(error.AuthenticationFailed, Aegis256.decrypt(&m2, &c, tag, &ad, nonce, key));
 }
 
 test "Aegis256 test vector 2" {
@@ -431,10 +431,10 @@ test "Aegis256 test vector 2" {
 
     Aegis256.encrypt(&c, &tag, &m, &ad, nonce, key);
     try Aegis256.decrypt(&m2, &c, tag, &ad, nonce, key);
-    testing.expectEqualSlices(u8, &m, &m2);
+    try testing.expectEqualSlices(u8, &m, &m2);
 
-    htest.assertEqual("b98f03a947807713d75a4fff9fc277a6", &c);
-    htest.assertEqual("478f3b50dc478ef7d5cf2d0f7cc13180", &tag);
+    try htest.assertEqual("b98f03a947807713d75a4fff9fc277a6", &c);
+    try htest.assertEqual("478f3b50dc478ef7d5cf2d0f7cc13180", &tag);
 }
 
 test "Aegis256 test vector 3" {
@@ -448,7 +448,7 @@ test "Aegis256 test vector 3" {
 
     Aegis256.encrypt(&c, &tag, &m, &ad, nonce, key);
     try Aegis256.decrypt(&m2, &c, tag, &ad, nonce, key);
-    testing.expectEqualSlices(u8, &m, &m2);
+    try testing.expectEqualSlices(u8, &m, &m2);
 
-    htest.assertEqual("f7a0878f68bd083e8065354071fc27c3", &tag);
+    try htest.assertEqual("f7a0878f68bd083e8065354071fc27c3", &tag);
 }

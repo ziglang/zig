@@ -20,7 +20,7 @@ fn add(x: i32, y: i32) i32 {
 }
 
 test "this refer to module call private fn" {
-    expect(module.add(1, 2) == 3);
+    try expect(module.add(1, 2) == 3);
 }
 
 test "this refer to container" {
@@ -29,6 +29,6 @@ test "this refer to container" {
         .y = 34,
     };
     pt.addOne();
-    expect(pt.x == 13);
-    expect(pt.y == 35);
+    try expect(pt.x == 13);
+    try expect(pt.y == 35);
 }

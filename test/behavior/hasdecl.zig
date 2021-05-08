@@ -11,11 +11,11 @@ const Bar = struct {
 };
 
 test "@hasDecl" {
-    expect(@hasDecl(Foo, "public_thing"));
-    expect(!@hasDecl(Foo, "private_thing"));
-    expect(!@hasDecl(Foo, "no_thing"));
+    try expect(@hasDecl(Foo, "public_thing"));
+    try expect(!@hasDecl(Foo, "private_thing"));
+    try expect(!@hasDecl(Foo, "no_thing"));
 
-    expect(@hasDecl(Bar, "hi"));
-    expect(@hasDecl(Bar, "blah"));
-    expect(!@hasDecl(Bar, "nope"));
+    try expect(@hasDecl(Bar, "hi"));
+    try expect(@hasDecl(Bar, "blah"));
+    try expect(!@hasDecl(Bar, "nope"));
 }

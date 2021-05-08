@@ -87,5 +87,5 @@ test "io.BufferedReader" {
 
     const res = try stream.readAllAlloc(testing.allocator, str.len + 1);
     defer testing.allocator.free(res);
-    testing.expectEqualSlices(u8, str, res);
+    try testing.expectEqualSlices(u8, str, res);
 }

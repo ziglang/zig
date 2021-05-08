@@ -22,6 +22,6 @@ test "complex.cacos" {
     const a = Complex(f32).new(5, 3);
     const c = acos(a);
 
-    testing.expect(math.approxEqAbs(f32, c.re, 0.546975, epsilon));
-    testing.expect(math.approxEqAbs(f32, c.im, -2.452914, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.re, 0.546975, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.im, -2.452914, epsilon));
 }

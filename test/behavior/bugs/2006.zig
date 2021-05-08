@@ -7,6 +7,6 @@ const S = struct {
 test "bug 2006" {
     var a: S = undefined;
     a = S{ .p = undefined };
-    expect(@sizeOf(S) != 0);
-    expect(@sizeOf(*void) == 0);
+    try expect(@sizeOf(S) != 0);
+    try expect(@sizeOf(*void) == 0);
 }

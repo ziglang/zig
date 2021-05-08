@@ -195,24 +195,24 @@ test "std.atomic.Queue" {
     };
 
     if (builtin.single_threaded) {
-        expect(context.queue.isEmpty());
+        try expect(context.queue.isEmpty());
         {
             var i: usize = 0;
             while (i < put_thread_count) : (i += 1) {
-                expect(startPuts(&context) == 0);
+                try expect(startPuts(&context) == 0);
             }
         }
-        expect(!context.queue.isEmpty());
+        try expect(!context.queue.isEmpty());
         context.puts_done = true;
         {
             var i: usize = 0;
             while (i < put_thread_count) : (i += 1) {
-                expect(startGets(&context) == 0);
+                try expect(startGets(&context) == 0);
             }
         }
-        expect(context.queue.isEmpty());
+        try expect(context.queue.isEmpty());
     } else {
-        expect(context.queue.isEmpty());
+        try expect(context.queue.isEmpty());
 
         var putters: [put_thread_count]*std.Thread = undefined;
         for (putters) |*t| {
@@ -229,7 +229,7 @@ test "std.atomic.Queue" {
         for (getters) |t|
             t.wait();
 
-        expect(context.queue.isEmpty());
+        try expect(context.queue.isEmpty());
     }
 
     if (context.put_sum != context.get_sum) {
@@ -279,7 +279,7 @@ fn startGets(ctx: *Context) u8 {
 
 test "std.atomic.Queue single-threaded" {
     var queue = Queue(i32).init();
-    expect(queue.isEmpty());
+    try expect(queue.isEmpty());
 
     var node_0 = Queue(i32).Node{
         .data = 0,
@@ -287,7 +287,7 @@ test "std.atomic.Queue single-threaded" {
         .prev = undefined,
     };
     queue.put(&node_0);
-    expect(!queue.isEmpty());
+    try expect(!queue.isEmpty());
 
     var node_1 = Queue(i32).Node{
         .data = 1,
@@ -295,10 +295,10 @@ test "std.atomic.Queue single-threaded" {
         .prev = undefined,
     };
     queue.put(&node_1);
-    expect(!queue.isEmpty());
+    try expect(!queue.isEmpty());
 
-    expect(queue.get().?.data == 0);
-    expect(!queue.isEmpty());
+    try expect(queue.get().?.data == 0);
+    try expect(!queue.isEmpty());
 
     var node_2 = Queue(i32).Node{
         .data = 2,
@@ -306,7 +306,7 @@ test "std.atomic.Queue single-threaded" {
         .prev = undefined,
     };
     queue.put(&node_2);
-    expect(!queue.isEmpty());
+    try expect(!queue.isEmpty());
 
     var node_3 = Queue(i32).Node{
         .data = 3,
@@ -314,13 +314,13 @@ test "std.atomic.Queue single-threaded" {
         .prev = undefined,
     };
     queue.put(&node_3);
-    expect(!queue.isEmpty());
+    try expect(!queue.isEmpty());
 
-    expect(queue.get().?.data == 1);
-    expect(!queue.isEmpty());
+    try expect(queue.get().?.data == 1);
+    try expect(!queue.isEmpty());
 
-    expect(queue.get().?.data == 2);
-    expect(!queue.isEmpty());
+    try expect(queue.get().?.data == 2);
+    try expect(!queue.isEmpty());
 
     var node_4 = Queue(i32).Node{
         .data = 4,
@@ -328,17 +328,17 @@ test "std.atomic.Queue single-threaded" {
         .prev = undefined,
     };
     queue.put(&node_4);
-    expect(!queue.isEmpty());
+    try expect(!queue.isEmpty());
 
-    expect(queue.get().?.data == 3);
+    try expect(queue.get().?.data == 3);
     node_3.next = null;
-    expect(!queue.isEmpty());
+    try expect(!queue.isEmpty());
 
-    expect(queue.get().?.data == 4);
-    expect(queue.isEmpty());
+    try expect(queue.get().?.data == 4);
+    try expect(queue.isEmpty());
 
-    expect(queue.get() == null);
-    expect(queue.isEmpty());
+    try expect(queue.get() == null);
+    try expect(queue.isEmpty());
 }
 
 test "std.atomic.Queue dump" {
@@ -352,7 +352,7 @@ test "std.atomic.Queue dump" {
     // Test empty stream
     fbs.reset();
     try queue.dumpToStream(fbs.writer());
-    expect(mem.eql(u8, buffer[0..fbs.pos],
+    try expect(mem.eql(u8, buffer[0..fbs.pos],
         \\head: (null)
         \\tail: (null)
         \\
@@ -376,7 +376,7 @@ test "std.atomic.Queue dump" {
         \\ (null)
         \\
     , .{ @ptrToInt(queue.head), @ptrToInt(queue.tail) });
-    expect(mem.eql(u8, buffer[0..fbs.pos], expected));
+    try expect(mem.eql(u8, buffer[0..fbs.pos], expected));
 
     // Test a stream with two elements
     var node_1 = Queue(i32).Node{
@@ -397,5 +397,5 @@ test "std.atomic.Queue dump" {
         \\ (null)
         \\
     , .{ @ptrToInt(queue.head), @ptrToInt(queue.head.?.next), @ptrToInt(queue.tail) });
-    expect(mem.eql(u8, buffer[0..fbs.pos], expected));
+    try expect(mem.eql(u8, buffer[0..fbs.pos], expected));
 }

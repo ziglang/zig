@@ -465,6 +465,6 @@ test "serialize instructions" {
 
     for (testcases) |case| {
         const actual = case.inst.toU32();
-        testing.expectEqual(case.expected, actual);
+        try testing.expectEqual(case.expected, actual);
     }
 }

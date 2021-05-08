@@ -146,7 +146,7 @@ test "TrailerFlags" {
         b: bool,
         c: u64,
     });
-    testing.expectEqual(u2, meta.Tag(Flags.FieldEnum));
+    try testing.expectEqual(u2, meta.Tag(Flags.FieldEnum));
 
     var flags = Flags.init(.{
         .b = true,
@@ -158,16 +158,16 @@ test "TrailerFlags" {
     flags.set(slice.ptr, .b, false);
     flags.set(slice.ptr, .c, 12345678);
 
-    testing.expect(flags.get(slice.ptr, .a) == null);
-    testing.expect(!flags.get(slice.ptr, .b).?);
-    testing.expect(flags.get(slice.ptr, .c).? == 12345678);
+    try testing.expect(flags.get(slice.ptr, .a) == null);
+    try testing.expect(!flags.get(slice.ptr, .b).?);
+    try testing.expect(flags.get(slice.ptr, .c).? == 12345678);
 
     flags.setMany(slice.ptr, .{
         .b = true,
         .c = 5678,
     });
 
-    testing.expect(flags.get(slice.ptr, .a) == null);
-    testing.expect(flags.get(slice.ptr, .b).?);
-    testing.expect(flags.get(slice.ptr, .c).? == 5678);
+    try testing.expect(flags.get(slice.ptr, .a) == null);
+    try testing.expect(flags.get(slice.ptr, .b).?);
+    try testing.expect(flags.get(slice.ptr, .c).? == 5678);
 }

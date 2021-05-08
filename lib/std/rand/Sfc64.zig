@@ -103,7 +103,7 @@ test "Sfc64 sequence" {
     };
 
     for (seq) |s| {
-        std.testing.expectEqual(s, r.next());
+        try std.testing.expectEqual(s, r.next());
     }
 }
 
@@ -135,6 +135,6 @@ test "Sfc64 fill" {
         var buf1: [7]u8 = undefined;
         std.mem.writeIntLittle(u64, &buf0, s);
         Sfc64.fill(&r.random, &buf1);
-        std.testing.expect(std.mem.eql(u8, buf0[0..7], buf1[0..]));
+        try std.testing.expect(std.mem.eql(u8, buf0[0..7], buf1[0..]));
     }
 }

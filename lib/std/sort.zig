@@ -43,35 +43,35 @@ test "binarySearch" {
             return math.order(lhs, rhs);
         }
     };
-    testing.expectEqual(
+    try testing.expectEqual(
         @as(?usize, null),
         binarySearch(u32, 1, &[_]u32{}, {}, S.order_u32),
     );
-    testing.expectEqual(
+    try testing.expectEqual(
         @as(?usize, 0),
         binarySearch(u32, 1, &[_]u32{1}, {}, S.order_u32),
     );
-    testing.expectEqual(
+    try testing.expectEqual(
         @as(?usize, null),
         binarySearch(u32, 1, &[_]u32{0}, {}, S.order_u32),
     );
-    testing.expectEqual(
+    try testing.expectEqual(
         @as(?usize, null),
         binarySearch(u32, 0, &[_]u32{1}, {}, S.order_u32),
     );
-    testing.expectEqual(
+    try testing.expectEqual(
         @as(?usize, 4),
         binarySearch(u32, 5, &[_]u32{ 1, 2, 3, 4, 5 }, {}, S.order_u32),
     );
-    testing.expectEqual(
+    try testing.expectEqual(
         @as(?usize, 0),
         binarySearch(u32, 2, &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.order_u32),
     );
-    testing.expectEqual(
+    try testing.expectEqual(
         @as(?usize, 1),
         binarySearch(i32, -4, &[_]i32{ -7, -4, 0, 9, 10 }, {}, S.order_i32),
     );
-    testing.expectEqual(
+    try testing.expectEqual(
         @as(?usize, 3),
         binarySearch(i32, 98, &[_]i32{ -100, -25, 2, 98, 99, 100 }, {}, S.order_i32),
     );
@@ -1152,10 +1152,10 @@ pub fn desc(comptime T: type) fn (void, T, T) bool {
 }
 
 test "stable sort" {
-    testStableSort();
-    comptime testStableSort();
+    try testStableSort();
+    comptime try testStableSort();
 }
-fn testStableSort() void {
+fn testStableSort() !void {
     var expected = [_]IdAndValue{
         IdAndValue{ .id = 0, .value = 0 },
         IdAndValue{ .id = 1, .value = 0 },
@@ -1194,8 +1194,8 @@ fn testStableSort() void {
     for (cases) |*case| {
         insertionSort(IdAndValue, (case.*)[0..], {}, cmpByValue);
         for (case.*) |item, i| {
-            testing.expect(item.id == expected[i].id);
-            testing.expect(item.value == expected[i].value);
+            try testing.expect(item.id == expected[i].id);
+            try testing.expect(item.value == expected[i].value);
         }
     }
 }
@@ -1245,7 +1245,7 @@ test "sort" {
         const slice = buf[0..case[0].len];
         mem.copy(u8, slice, case[0]);
         sort(u8, slice, {}, asc_u8);
-        testing.expect(mem.eql(u8, slice, case[1]));
+        try testing.expect(mem.eql(u8, slice, case[1]));
     }
 
     const i32cases = [_][]const []const i32{
@@ -1280,7 +1280,7 @@ test "sort" {
         const slice = buf[0..case[0].len];
         mem.copy(i32, slice, case[0]);
         sort(i32, slice, {}, asc_i32);
-        testing.expect(mem.eql(i32, slice, case[1]));
+        try testing.expect(mem.eql(i32, slice, case[1]));
     }
 }
 
@@ -1317,7 +1317,7 @@ test "sort descending" {
         const slice = buf[0..case[0].len];
         mem.copy(i32, slice, case[0]);
         sort(i32, slice, {}, desc_i32);
-        testing.expect(mem.eql(i32, slice, case[1]));
+        try testing.expect(mem.eql(i32, slice, case[1]));
     }
 }
 
@@ -1325,7 +1325,7 @@ test "another sort case" {
     var arr = [_]i32{ 5, 3, 1, 2, 4 };
     sort(i32, arr[0..], {}, asc_i32);
 
-    testing.expect(mem.eql(i32, &arr, &[_]i32{ 1, 2, 3, 4, 5 }));
+    try testing.expect(mem.eql(i32, &arr, &[_]i32{ 1, 2, 3, 4, 5 }));
 }
 
 test "sort fuzz testing" {
@@ -1353,9 +1353,9 @@ fn fuzzTest(rng: *std.rand.Random) !void {
     var index: usize = 1;
     while (index < array.len) : (index += 1) {
         if (array[index].value == array[index - 1].value) {
-            testing.expect(array[index].id > array[index - 1].id);
+            try testing.expect(array[index].id > array[index - 1].id);
         } else {
-            testing.expect(array[index].value > array[index - 1].value);
+            try testing.expect(array[index].value > array[index - 1].value);
         }
     }
 }
@@ -1383,13 +1383,13 @@ pub fn argMin(
 }
 
 test "argMin" {
-    testing.expectEqual(@as(?usize, null), argMin(i32, &[_]i32{}, {}, asc_i32));
-    testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{1}, {}, asc_i32));
-    testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
-    testing.expectEqual(@as(?usize, 3), argMin(i32, &[_]i32{ 9, 3, 8, 2, 5 }, {}, asc_i32));
-    testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{ 1, 1, 1, 1, 1 }, {}, asc_i32));
-    testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{ -10, 1, 10 }, {}, asc_i32));
-    testing.expectEqual(@as(?usize, 3), argMin(i32, &[_]i32{ 6, 3, 5, 7, 6 }, {}, desc_i32));
+    try testing.expectEqual(@as(?usize, null), argMin(i32, &[_]i32{}, {}, asc_i32));
+    try testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{1}, {}, asc_i32));
+    try testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
+    try testing.expectEqual(@as(?usize, 3), argMin(i32, &[_]i32{ 9, 3, 8, 2, 5 }, {}, asc_i32));
+    try testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{ 1, 1, 1, 1, 1 }, {}, asc_i32));
+    try testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{ -10, 1, 10 }, {}, asc_i32));
+    try testing.expectEqual(@as(?usize, 3), argMin(i32, &[_]i32{ 6, 3, 5, 7, 6 }, {}, desc_i32));
 }
 
 pub fn min(
@@ -1403,13 +1403,13 @@ pub fn min(
 }
 
 test "min" {
-    testing.expectEqual(@as(?i32, null), min(i32, &[_]i32{}, {}, asc_i32));
-    testing.expectEqual(@as(?i32, 1), min(i32, &[_]i32{1}, {}, asc_i32));
-    testing.expectEqual(@as(?i32, 1), min(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
-    testing.expectEqual(@as(?i32, 2), min(i32, &[_]i32{ 9, 3, 8, 2, 5 }, {}, asc_i32));
-    testing.expectEqual(@as(?i32, 1), min(i32, &[_]i32{ 1, 1, 1, 1, 1 }, {}, asc_i32));
-    testing.expectEqual(@as(?i32, -10), min(i32, &[_]i32{ -10, 1, 10 }, {}, asc_i32));
-    testing.expectEqual(@as(?i32, 7), min(i32, &[_]i32{ 6, 3, 5, 7, 6 }, {}, desc_i32));
+    try testing.expectEqual(@as(?i32, null), min(i32, &[_]i32{}, {}, asc_i32));
+    try testing.expectEqual(@as(?i32, 1), min(i32, &[_]i32{1}, {}, asc_i32));
+    try testing.expectEqual(@as(?i32, 1), min(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
+    try testing.expectEqual(@as(?i32, 2), min(i32, &[_]i32{ 9, 3, 8, 2, 5 }, {}, asc_i32));
+    try testing.expectEqual(@as(?i32, 1), min(i32, &[_]i32{ 1, 1, 1, 1, 1 }, {}, asc_i32));
+    try testing.expectEqual(@as(?i32, -10), min(i32, &[_]i32{ -10, 1, 10 }, {}, asc_i32));
+    try testing.expectEqual(@as(?i32, 7), min(i32, &[_]i32{ 6, 3, 5, 7, 6 }, {}, desc_i32));
 }
 
 pub fn argMax(
@@ -1435,13 +1435,13 @@ pub fn argMax(
 }
 
 test "argMax" {
-    testing.expectEqual(@as(?usize, null), argMax(i32, &[_]i32{}, {}, asc_i32));
-    testing.expectEqual(@as(?usize, 0), argMax(i32, &[_]i32{1}, {}, asc_i32));
-    testing.expectEqual(@as(?usize, 4), argMax(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
-    testing.expectEqual(@as(?usize, 0), argMax(i32, &[_]i32{ 9, 3, 8, 2, 5 }, {}, asc_i32));
-    testing.expectEqual(@as(?usize, 0), argMax(i32, &[_]i32{ 1, 1, 1, 1, 1 }, {}, asc_i32));
-    testing.expectEqual(@as(?usize, 2), argMax(i32, &[_]i32{ -10, 1, 10 }, {}, asc_i32));
-    testing.expectEqual(@as(?usize, 1), argMax(i32, &[_]i32{ 6, 3, 5, 7, 6 }, {}, desc_i32));
+    try testing.expectEqual(@as(?usize, null), argMax(i32, &[_]i32{}, {}, asc_i32));
+    try testing.expectEqual(@as(?usize, 0), argMax(i32, &[_]i32{1}, {}, asc_i32));
+    try testing.expectEqual(@as(?usize, 4), argMax(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
+    try testing.expectEqual(@as(?usize, 0), argMax(i32, &[_]i32{ 9, 3, 8, 2, 5 }, {}, asc_i32));
+    try testing.expectEqual(@as(?usize, 0), argMax(i32, &[_]i32{ 1, 1, 1, 1, 1 }, {}, asc_i32));
+    try testing.expectEqual(@as(?usize, 2), argMax(i32, &[_]i32{ -10, 1, 10 }, {}, asc_i32));
+    try testing.expectEqual(@as(?usize, 1), argMax(i32, &[_]i32{ 6, 3, 5, 7, 6 }, {}, desc_i32));
 }
 
 pub fn max(
@@ -1455,13 +1455,13 @@ pub fn max(
 }
 
 test "max" {
-    testing.expectEqual(@as(?i32, null), max(i32, &[_]i32{}, {}, asc_i32));
-    testing.expectEqual(@as(?i32, 1), max(i32, &[_]i32{1}, {}, asc_i32));
-    testing.expectEqual(@as(?i32, 5), max(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
-    testing.expectEqual(@as(?i32, 9), max(i32, &[_]i32{ 9, 3, 8, 2, 5 }, {}, asc_i32));
-    testing.expectEqual(@as(?i32, 1), max(i32, &[_]i32{ 1, 1, 1, 1, 1 }, {}, asc_i32));
-    testing.expectEqual(@as(?i32, 10), max(i32, &[_]i32{ -10, 1, 10 }, {}, asc_i32));
-    testing.expectEqual(@as(?i32, 3), max(i32, &[_]i32{ 6, 3, 5, 7, 6 }, {}, desc_i32));
+    try testing.expectEqual(@as(?i32, null), max(i32, &[_]i32{}, {}, asc_i32));
+    try testing.expectEqual(@as(?i32, 1), max(i32, &[_]i32{1}, {}, asc_i32));
+    try testing.expectEqual(@as(?i32, 5), max(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
+    try testing.expectEqual(@as(?i32, 9), max(i32, &[_]i32{ 9, 3, 8, 2, 5 }, {}, asc_i32));
+    try testing.expectEqual(@as(?i32, 1), max(i32, &[_]i32{ 1, 1, 1, 1, 1 }, {}, asc_i32));
+    try testing.expectEqual(@as(?i32, 10), max(i32, &[_]i32{ -10, 1, 10 }, {}, asc_i32));
+    try testing.expectEqual(@as(?i32, 3), max(i32, &[_]i32{ 6, 3, 5, 7, 6 }, {}, desc_i32));
 }
 
 pub fn isSorted(
@@ -1481,28 +1481,28 @@ pub fn isSorted(
 }
 
 test "isSorted" {
-    testing.expect(isSorted(i32, &[_]i32{}, {}, asc_i32));
-    testing.expect(isSorted(i32, &[_]i32{10}, {}, asc_i32));
-    testing.expect(isSorted(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
-    testing.expect(isSorted(i32, &[_]i32{ -10, 1, 1, 1, 10 }, {}, asc_i32));
+    try testing.expect(isSorted(i32, &[_]i32{}, {}, asc_i32));
+    try testing.expect(isSorted(i32, &[_]i32{10}, {}, asc_i32));
+    try testing.expect(isSorted(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
+    try testing.expect(isSorted(i32, &[_]i32{ -10, 1, 1, 1, 10 }, {}, asc_i32));
 
-    testing.expect(isSorted(i32, &[_]i32{}, {}, desc_i32));
-    testing.expect(isSorted(i32, &[_]i32{-20}, {}, desc_i32));
-    testing.expect(isSorted(i32, &[_]i32{ 3, 2, 1, 0, -1 }, {}, desc_i32));
-    testing.expect(isSorted(i32, &[_]i32{ 10, -10 }, {}, desc_i32));
+    try testing.expect(isSorted(i32, &[_]i32{}, {}, desc_i32));
+    try testing.expect(isSorted(i32, &[_]i32{-20}, {}, desc_i32));
+    try testing.expect(isSorted(i32, &[_]i32{ 3, 2, 1, 0, -1 }, {}, desc_i32));
+    try testing.expect(isSorted(i32, &[_]i32{ 10, -10 }, {}, desc_i32));
 
-    testing.expect(isSorted(i32, &[_]i32{ 1, 1, 1, 1, 1 }, {}, asc_i32));
-    testing.expect(isSorted(i32, &[_]i32{ 1, 1, 1, 1, 1 }, {}, desc_i32));
+    try testing.expect(isSorted(i32, &[_]i32{ 1, 1, 1, 1, 1 }, {}, asc_i32));
+    try testing.expect(isSorted(i32, &[_]i32{ 1, 1, 1, 1, 1 }, {}, desc_i32));
 
-    testing.expectEqual(false, isSorted(i32, &[_]i32{ 5, 4, 3, 2, 1 }, {}, asc_i32));
-    testing.expectEqual(false, isSorted(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, desc_i32));
+    try testing.expectEqual(false, isSorted(i32, &[_]i32{ 5, 4, 3, 2, 1 }, {}, asc_i32));
+    try testing.expectEqual(false, isSorted(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, desc_i32));
 
-    testing.expect(isSorted(u8, "abcd", {}, asc_u8));
-    testing.expect(isSorted(u8, "zyxw", {}, desc_u8));
+    try testing.expect(isSorted(u8, "abcd", {}, asc_u8));
+    try testing.expect(isSorted(u8, "zyxw", {}, desc_u8));
 
-    testing.expectEqual(false, isSorted(u8, "abcd", {}, desc_u8));
-    testing.expectEqual(false, isSorted(u8, "zyxw", {}, asc_u8));
+    try testing.expectEqual(false, isSorted(u8, "abcd", {}, desc_u8));
+    try testing.expectEqual(false, isSorted(u8, "zyxw", {}, asc_u8));
 
-    testing.expect(isSorted(u8, "ffff", {}, asc_u8));
-    testing.expect(isSorted(u8, "ffff", {}, desc_u8));
+    try testing.expect(isSorted(u8, "ffff", {}, asc_u8));
+    try testing.expect(isSorted(u8, "ffff", {}, desc_u8));
 }

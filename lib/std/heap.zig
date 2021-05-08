@@ -858,16 +858,16 @@ test "WasmPageAllocator internals" {
     if (comptime std.Target.current.isWasm()) {
         const conventional_memsize = WasmPageAllocator.conventional.totalPages() * mem.page_size;
         const initial = try page_allocator.alloc(u8, mem.page_size);
-        testing.expect(@ptrToInt(initial.ptr) < conventional_memsize); // If this isn't conventional, the rest of these tests don't make sense. Also we have a serious memory leak in the test suite.
+        try testing.expect(@ptrToInt(initial.ptr) < conventional_memsize); // If this isn't conventional, the rest of these tests don't make sense. Also we have a serious memory leak in the test suite.
 
         var inplace = try page_allocator.realloc(initial, 1);
-        testing.expectEqual(initial.ptr, inplace.ptr);
+        try testing.expectEqual(initial.ptr, inplace.ptr);
         inplace = try page_allocator.realloc(inplace, 4);
-        testing.expectEqual(initial.ptr, inplace.ptr);
+        try testing.expectEqual(initial.ptr, inplace.ptr);
         page_allocator.free(inplace);
 
         const reuse = try page_allocator.alloc(u8, 1);
-        testing.expectEqual(initial.ptr, reuse.ptr);
+        try testing.expectEqual(initial.ptr, reuse.ptr);
         page_allocator.free(reuse);
 
         // This segment may span conventional and extended which has really complex rules so we're just ignoring it for now.
@@ -875,18 +875,18 @@ test "WasmPageAllocator internals" {
         page_allocator.free(padding);
 
         const extended = try page_allocator.alloc(u8, conventional_memsize);
-        testing.expect(@ptrToInt(extended.ptr) >= conventional_memsize);
+        try testing.expect(@ptrToInt(extended.ptr) >= conventional_memsize);
 
         const use_small = try page_allocator.alloc(u8, 1);
-        testing.expectEqual(initial.ptr, use_small.ptr);
+        try testing.expectEqual(initial.ptr, use_small.ptr);
         page_allocator.free(use_small);
 
         inplace = try page_allocator.realloc(extended, 1);
-        testing.expectEqual(extended.ptr, inplace.ptr);
+        try testing.expectEqual(extended.ptr, inplace.ptr);
         page_allocator.free(inplace);
 
         const reuse_extended = try page_allocator.alloc(u8, conventional_memsize);
-        testing.expectEqual(extended.ptr, reuse_extended.ptr);
+        try testing.expectEqual(extended.ptr, reuse_extended.ptr);
         page_allocator.free(reuse_extended);
     }
 }
@@ -959,15 +959,15 @@ test "FixedBufferAllocator.reset" {
 
     var x = try fba.allocator.create(u64);
     x.* = X;
-    testing.expectError(error.OutOfMemory, fba.allocator.create(u64));
+    try testing.expectError(error.OutOfMemory, fba.allocator.create(u64));
 
     fba.reset();
     var y = try fba.allocator.create(u64);
     y.* = Y;
 
     // we expect Y to have overwritten X.
-    testing.expect(x.* == y.*);
-    testing.expect(y.* == Y);
+    try testing.expect(x.* == y.*);
+    try testing.expect(y.* == Y);
 }
 
 test "StackFallbackAllocator" {
@@ -987,11 +987,11 @@ test "FixedBufferAllocator Reuse memory on realloc" {
         var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
 
         var slice0 = try fixed_buffer_allocator.allocator.alloc(u8, 5);
-        testing.expect(slice0.len == 5);
+        try testing.expect(slice0.len == 5);
         var slice1 = try fixed_buffer_allocator.allocator.realloc(slice0, 10);
-        testing.expect(slice1.ptr == slice0.ptr);
-        testing.expect(slice1.len == 10);
-        testing.expectError(error.OutOfMemory, fixed_buffer_allocator.allocator.realloc(slice1, 11));
+        try testing.expect(slice1.ptr == slice0.ptr);
+        try testing.expect(slice1.len == 10);
+        try testing.expectError(error.OutOfMemory, fixed_buffer_allocator.allocator.realloc(slice1, 11));
     }
     // check that we don't re-use the memory if it's not the most recent block
     {
@@ -1002,10 +1002,10 @@ test "FixedBufferAllocator Reuse memory on realloc" {
         slice0[1] = 2;
         var slice1 = try fixed_buffer_allocator.allocator.alloc(u8, 2);
         var slice2 = try fixed_buffer_allocator.allocator.realloc(slice0, 4);
-        testing.expect(slice0.ptr != slice2.ptr);
-        testing.expect(slice1.ptr != slice2.ptr);
-        testing.expect(slice2[0] == 1);
-        testing.expect(slice2[1] == 2);
+        try testing.expect(slice0.ptr != slice2.ptr);
+        try testing.expect(slice1.ptr != slice2.ptr);
+        try testing.expect(slice2[0] == 1);
+        try testing.expect(slice2[1] == 2);
     }
 }
 
@@ -1024,28 +1024,28 @@ pub fn testAllocator(base_allocator: *mem.Allocator) !void {
     const allocator = &validationAllocator.allocator;
 
     var slice = try allocator.alloc(*i32, 100);
-    testing.expect(slice.len == 100);
+    try testing.expect(slice.len == 100);
     for (slice) |*item, i| {
         item.* = try allocator.create(i32);
         item.*.* = @intCast(i32, i);
     }
 
     slice = try allocator.realloc(slice, 20000);
-    testing.expect(slice.len == 20000);
+    try testing.expect(slice.len == 20000);
 
     for (slice[0..100]) |item, i| {
-        testing.expect(item.* == @intCast(i32, i));
+        try testing.expect(item.* == @intCast(i32, i));
         allocator.destroy(item);
     }
 
     slice = allocator.shrink(slice, 50);
-    testing.expect(slice.len == 50);
+    try testing.expect(slice.len == 50);
     slice = allocator.shrink(slice, 25);
-    testing.expect(slice.len == 25);
+    try testing.expect(slice.len == 25);
     slice = allocator.shrink(slice, 0);
-    testing.expect(slice.len == 0);
+    try testing.expect(slice.len == 0);
     slice = try allocator.realloc(slice, 10);
-    testing.expect(slice.len == 10);
+    try testing.expect(slice.len == 10);
 
     allocator.free(slice);
 
@@ -1058,7 +1058,7 @@ pub fn testAllocator(base_allocator: *mem.Allocator) !void {
     allocator.destroy(zero_bit_ptr);
 
     const oversize = try allocator.allocAdvanced(u32, null, 5, .at_least);
-    testing.expect(oversize.len >= 5);
+    try testing.expect(oversize.len >= 5);
     for (oversize) |*item| {
         item.* = 0xDEADBEEF;
     }
@@ -1073,29 +1073,29 @@ pub fn testAllocatorAligned(base_allocator: *mem.Allocator) !void {
     inline for ([_]u29{ 1, 2, 4, 8, 16, 32, 64 }) |alignment| {
         // initial
         var slice = try allocator.alignedAlloc(u8, alignment, 10);
-        testing.expect(slice.len == 10);
+        try testing.expect(slice.len == 10);
         // grow
         slice = try allocator.realloc(slice, 100);
-        testing.expect(slice.len == 100);
+        try testing.expect(slice.len == 100);
         // shrink
         slice = allocator.shrink(slice, 10);
-        testing.expect(slice.len == 10);
+        try testing.expect(slice.len == 10);
         // go to zero
         slice = allocator.shrink(slice, 0);
-        testing.expect(slice.len == 0);
+        try testing.expect(slice.len == 0);
         // realloc from zero
         slice = try allocator.realloc(slice, 100);
-        testing.expect(slice.len == 100);
+        try testing.expect(slice.len == 100);
         // shrink with shrink
         slice = allocator.shrink(slice, 10);
-        testing.expect(slice.len == 10);
+        try testing.expect(slice.len == 10);
         // shrink to zero
         slice = allocator.shrink(slice, 0);
-        testing.expect(slice.len == 0);
+        try testing.expect(slice.len == 0);
     }
 }
 
-pub fn testAllocatorLargeAlignment(base_allocator: *mem.Allocator) mem.Allocator.Error!void {
+pub fn testAllocatorLargeAlignment(base_allocator: *mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = &validationAllocator.allocator;
 
@@ -1110,24 +1110,24 @@ pub fn testAllocatorLargeAlignment(base_allocator: *mem.Allocator) mem.Allocator
     _ = @shlWithOverflow(usize, ~@as(usize, 0), @as(USizeShift, @ctz(u29, large_align)), &align_mask);
 
     var slice = try allocator.alignedAlloc(u8, large_align, 500);
-    testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     slice = allocator.shrink(slice, 100);
-    testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     slice = try allocator.realloc(slice, 5000);
-    testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     slice = allocator.shrink(slice, 10);
-    testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     slice = try allocator.realloc(slice, 20000);
-    testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     allocator.free(slice);
 }
 
-pub fn testAllocatorAlignedShrink(base_allocator: *mem.Allocator) mem.Allocator.Error!void {
+pub fn testAllocatorAlignedShrink(base_allocator: *mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = &validationAllocator.allocator;
 
@@ -1155,8 +1155,8 @@ pub fn testAllocatorAlignedShrink(base_allocator: *mem.Allocator) mem.Allocator.
 
     // realloc to a smaller size but with a larger alignment
     slice = try allocator.reallocAdvanced(slice, mem.page_size * 32, alloc_size / 2, .exact);
-    testing.expect(slice[0] == 0x12);
-    testing.expect(slice[60] == 0x34);
+    try testing.expect(slice[0] == 0x12);
+    try testing.expect(slice[60] == 0x34);
 }
 
 test "heap" {

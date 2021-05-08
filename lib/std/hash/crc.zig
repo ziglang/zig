@@ -109,9 +109,9 @@ test "crc32 ieee" {
 
     const Crc32Ieee = Crc32WithPoly(.IEEE);
 
-    testing.expect(Crc32Ieee.hash("") == 0x00000000);
-    testing.expect(Crc32Ieee.hash("a") == 0xe8b7be43);
-    testing.expect(Crc32Ieee.hash("abc") == 0x352441c2);
+    try testing.expect(Crc32Ieee.hash("") == 0x00000000);
+    try testing.expect(Crc32Ieee.hash("a") == 0xe8b7be43);
+    try testing.expect(Crc32Ieee.hash("abc") == 0x352441c2);
 }
 
 test "crc32 castagnoli" {
@@ -119,9 +119,9 @@ test "crc32 castagnoli" {
 
     const Crc32Castagnoli = Crc32WithPoly(.Castagnoli);
 
-    testing.expect(Crc32Castagnoli.hash("") == 0x00000000);
-    testing.expect(Crc32Castagnoli.hash("a") == 0xc1d04330);
-    testing.expect(Crc32Castagnoli.hash("abc") == 0x364b3fb7);
+    try testing.expect(Crc32Castagnoli.hash("") == 0x00000000);
+    try testing.expect(Crc32Castagnoli.hash("a") == 0xc1d04330);
+    try testing.expect(Crc32Castagnoli.hash("abc") == 0x364b3fb7);
 }
 
 // half-byte lookup table implementation.
@@ -177,9 +177,9 @@ test "small crc32 ieee" {
 
     const Crc32Ieee = Crc32SmallWithPoly(.IEEE);
 
-    testing.expect(Crc32Ieee.hash("") == 0x00000000);
-    testing.expect(Crc32Ieee.hash("a") == 0xe8b7be43);
-    testing.expect(Crc32Ieee.hash("abc") == 0x352441c2);
+    try testing.expect(Crc32Ieee.hash("") == 0x00000000);
+    try testing.expect(Crc32Ieee.hash("a") == 0xe8b7be43);
+    try testing.expect(Crc32Ieee.hash("abc") == 0x352441c2);
 }
 
 test "small crc32 castagnoli" {
@@ -187,7 +187,7 @@ test "small crc32 castagnoli" {
 
     const Crc32Castagnoli = Crc32SmallWithPoly(.Castagnoli);
 
-    testing.expect(Crc32Castagnoli.hash("") == 0x00000000);
-    testing.expect(Crc32Castagnoli.hash("a") == 0xc1d04330);
-    testing.expect(Crc32Castagnoli.hash("abc") == 0x364b3fb7);
+    try testing.expect(Crc32Castagnoli.hash("") == 0x00000000);
+    try testing.expect(Crc32Castagnoli.hash("a") == 0xc1d04330);
+    try testing.expect(Crc32Castagnoli.hash("abc") == 0x364b3fb7);
 }

@@ -561,11 +561,11 @@ test "(x)salsa20" {
     var c: [msg.len]u8 = undefined;
 
     Salsa20.xor(&c, msg[0..], 0, key, nonce);
-    htest.assertEqual("30ff9933aa6534ff5207142593cd1fca4b23bdd8", c[0..]);
+    try htest.assertEqual("30ff9933aa6534ff5207142593cd1fca4b23bdd8", c[0..]);
 
     const extended_nonce = [_]u8{0x42} ** 24;
     XSalsa20.xor(&c, msg[0..], 0, key, extended_nonce);
-    htest.assertEqual("b4ab7d82e750ec07644fa3281bce6cd91d4243f9", c[0..]);
+    try htest.assertEqual("b4ab7d82e750ec07644fa3281bce6cd91d4243f9", c[0..]);
 }
 
 test "xsalsa20poly1305" {
@@ -628,5 +628,5 @@ test "secretbox twoblocks" {
     const msg = [_]u8{'a'} ** 97;
     var ciphertext: [msg.len + SecretBox.tag_length]u8 = undefined;
     SecretBox.seal(&ciphertext, &msg, nonce, key);
-    htest.assertEqual("b05760e217288ba079caa2fd57fd3701784974ffcfda20fe523b89211ad8af065a6eb37cdb29d51aca5bd75dafdd21d18b044c54bb7c526cf576c94ee8900f911ceab0147e82b667a28c52d58ceb29554ff45471224d37b03256b01c119b89ff6d36855de8138d103386dbc9d971f52261", &ciphertext);
+    try htest.assertEqual("b05760e217288ba079caa2fd57fd3701784974ffcfda20fe523b89211ad8af065a6eb37cdb29d51aca5bd75dafdd21d18b044c54bb7c526cf576c94ee8900f911ceab0147e82b667a28c52d58ceb29554ff45471224d37b03256b01c119b89ff6d36855de8138d103386dbc9d971f52261", &ciphertext);
 }

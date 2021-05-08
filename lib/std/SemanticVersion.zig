@@ -249,13 +249,13 @@ test "SemanticVersion format" {
         "+justmeta",
         "9.8.7+meta+meta",
         "9.8.7-whatever+meta+meta",
-    }) |invalid| expectError(error.InvalidVersion, parse(invalid));
+    }) |invalid| try expectError(error.InvalidVersion, parse(invalid));
 
     // Valid version string that may overflow.
     const big_valid = "99999999999999999999999.999999999999999999.99999999999999999";
     if (parse(big_valid)) |ver| {
         try std.testing.expectFmt(big_valid, "{}", .{ver});
-    } else |err| expect(err == error.Overflow);
+    } else |err| try expect(err == error.Overflow);
 
     // Invalid version string that may overflow.
     const big_invalid = "99999999999999999999999.999999999999999999.99999999999999999----RC-SNAPSHOT.12.09.1--------------------------------..12";
@@ -264,22 +264,22 @@ test "SemanticVersion format" {
 
 test "SemanticVersion precedence" {
     // SemVer 2 spec 11.2 example: 1.0.0 < 2.0.0 < 2.1.0 < 2.1.1.
-    expect(order(try parse("1.0.0"), try parse("2.0.0")) == .lt);
-    expect(order(try parse("2.0.0"), try parse("2.1.0")) == .lt);
-    expect(order(try parse("2.1.0"), try parse("2.1.1")) == .lt);
+    try expect(order(try parse("1.0.0"), try parse("2.0.0")) == .lt);
+    try expect(order(try parse("2.0.0"), try parse("2.1.0")) == .lt);
+    try expect(order(try parse("2.1.0"), try parse("2.1.1")) == .lt);
 
     // SemVer 2 spec 11.3 example: 1.0.0-alpha < 1.0.0.
-    expect(order(try parse("1.0.0-alpha"), try parse("1.0.0")) == .lt);
+    try expect(order(try parse("1.0.0-alpha"), try parse("1.0.0")) == .lt);
 
     // SemVer 2 spec 11.4 example: 1.0.0-alpha < 1.0.0-alpha.1 < 1.0.0-alpha.beta < 1.0.0-beta <
     // 1.0.0-beta.2 < 1.0.0-beta.11 < 1.0.0-rc.1 < 1.0.0.
-    expect(order(try parse("1.0.0-alpha"), try parse("1.0.0-alpha.1")) == .lt);
-    expect(order(try parse("1.0.0-alpha.1"), try parse("1.0.0-alpha.beta")) == .lt);
-    expect(order(try parse("1.0.0-alpha.beta"), try parse("1.0.0-beta")) == .lt);
-    expect(order(try parse("1.0.0-beta"), try parse("1.0.0-beta.2")) == .lt);
-    expect(order(try parse("1.0.0-beta.2"), try parse("1.0.0-beta.11")) == .lt);
-    expect(order(try parse("1.0.0-beta.11"), try parse("1.0.0-rc.1")) == .lt);
-    expect(order(try parse("1.0.0-rc.1"), try parse("1.0.0")) == .lt);
+    try expect(order(try parse("1.0.0-alpha"), try parse("1.0.0-alpha.1")) == .lt);
+    try expect(order(try parse("1.0.0-alpha.1"), try parse("1.0.0-alpha.beta")) == .lt);
+    try expect(order(try parse("1.0.0-alpha.beta"), try parse("1.0.0-beta")) == .lt);
+    try expect(order(try parse("1.0.0-beta"), try parse("1.0.0-beta.2")) == .lt);
+    try expect(order(try parse("1.0.0-beta.2"), try parse("1.0.0-beta.11")) == .lt);
+    try expect(order(try parse("1.0.0-beta.11"), try parse("1.0.0-rc.1")) == .lt);
+    try expect(order(try parse("1.0.0-rc.1"), try parse("1.0.0")) == .lt);
 }
 
 test "zig_version" {

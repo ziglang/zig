@@ -107,7 +107,7 @@ fn testFuture() void {
 
     const result = (await a) + (await b);
 
-    testing.expect(result == 12);
+    try testing.expect(result == 12);
 }
 
 fn waitOnFuture(future: *Future(i32)) i32 {

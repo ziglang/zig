@@ -320,7 +320,7 @@ test "basic usage" {
     event.reset();
 
     event.set();
-    testing.expectEqual(TimedWaitResult.event_set, event.timedWait(1));
+    try testing.expectEqual(TimedWaitResult.event_set, event.timedWait(1));
 
     // test cross-thread signaling
     if (std.builtin.single_threaded)
@@ -333,25 +333,25 @@ test "basic usage" {
         in: StaticResetEvent = .{},
         out: StaticResetEvent = .{},
 
-        fn sender(self: *Self) void {
+        fn sender(self: *Self) !void {
             // update value and signal input
-            testing.expect(self.value == 0);
+            try testing.expect(self.value == 0);
             self.value = 1;
             self.in.set();
 
             // wait for receiver to update value and signal output
             self.out.wait();
-            testing.expect(self.value == 2);
+            try testing.expect(self.value == 2);
 
             // update value and signal final input
             self.value = 3;
             self.in.set();
         }
 
-        fn receiver(self: *Self) void {
+        fn receiver(self: *Self) !void {
             // wait for sender to update value and signal input
             self.in.wait();
-            assert(self.value == 1);
+            try testing.expect(self.value == 1);
 
             // update value and signal output
             self.in.reset();
@@ -360,7 +360,7 @@ test "basic usage" {
 
             // wait for sender to update value and signal final input
             self.in.wait();
-            assert(self.value == 3);
+            try testing.expect(self.value == 3);
         }
 
         fn sleeper(self: *Self) void {
@@ -372,16 +372,16 @@ test "basic usage" {
 
         fn timedWaiter(self: *Self) !void {
             self.in.wait();
-            testing.expectEqual(TimedWaitResult.timed_out, self.out.timedWait(time.ns_per_us));
+            try testing.expectEqual(TimedWaitResult.timed_out, self.out.timedWait(time.ns_per_us));
             try self.out.timedWait(time.ns_per_ms * 100);
-            testing.expect(self.value == 5);
+            try testing.expect(self.value == 5);
         }
     };
 
     var context = Context{};
     const receiver = try std.Thread.spawn(Context.receiver, &context);
     defer receiver.wait();
-    context.sender();
+    try context.sender();
 
     if (false) {
         // I have now observed this fail on macOS, Windows, and Linux.

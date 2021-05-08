@@ -30,11 +30,11 @@ const array = [_]Value{
 
 test "unions embedded in aggregate types" {
     switch (array[1]) {
-        Value.Array => |arr| expect(arr[4] == 3),
+        Value.Array => |arr| try expect(arr[4] == 3),
         else => unreachable,
     }
     switch ((err catch unreachable).val1) {
-        Value.Int => |x| expect(x == 1234),
+        Value.Int => |x| try expect(x == 1234),
         else => unreachable,
     }
 }
@@ -46,18 +46,18 @@ const Foo = union {
 
 test "basic unions" {
     var foo = Foo{ .int = 1 };
-    expect(foo.int == 1);
+    try expect(foo.int == 1);
     foo = Foo{ .float = 12.34 };
-    expect(foo.float == 12.34);
+    try expect(foo.float == 12.34);
 }
 
 test "comptime union field access" {
     comptime {
         var foo = Foo{ .int = 0 };
-        expect(foo.int == 0);
+        try expect(foo.int == 0);
 
         foo = Foo{ .float = 42.42 };
-        expect(foo.float == 42.42);
+        try expect(foo.float == 42.42);
     }
 }
 
@@ -65,10 +65,10 @@ test "init union with runtime value" {
     var foo: Foo = undefined;
 
     setFloat(&foo, 12.34);
-    expect(foo.float == 12.34);
+    try expect(foo.float == 12.34);
 
     setInt(&foo, 42);
-    expect(foo.int == 42);
+    try expect(foo.int == 42);
 }
 
 fn setFloat(foo: *Foo, x: f64) void {
@@ -86,9 +86,9 @@ const FooExtern = extern union {
 
 test "basic extern unions" {
     var foo = FooExtern{ .int = 1 };
-    expect(foo.int == 1);
+    try expect(foo.int == 1);
     foo.float = 12.34;
-    expect(foo.float == 12.34);
+    try expect(foo.float == 12.34);
 }
 
 const Letter = enum {
@@ -103,16 +103,16 @@ const Payload = union(Letter) {
 };
 
 test "union with specified enum tag" {
-    doTest();
-    comptime doTest();
+    try doTest();
+    comptime try doTest();
 }
 
-fn doTest() void {
-    expect(bar(Payload{ .A = 1234 }) == -10);
+fn doTest() !void {
+    try expect((try bar(Payload{ .A = 1234 })) == -10);
 }
 
-fn bar(value: Payload) i32 {
-    expect(@as(Letter, value) == Letter.A);
+fn bar(value: Payload) !i32 {
+    try expect(@as(Letter, value) == Letter.A);
     return switch (value) {
         Payload.A => |x| return x - 1244,
         Payload.B => |x| if (x == 12.34) @as(i32, 20) else 21,
@@ -128,8 +128,8 @@ const MultipleChoice = union(enum(u32)) {
 };
 test "simple union(enum(u32))" {
     var x = MultipleChoice.C;
-    expect(x == MultipleChoice.C);
-    expect(@enumToInt(@as(Tag(MultipleChoice), x)) == 60);
+    try expect(x == MultipleChoice.C);
+    try expect(@enumToInt(@as(Tag(MultipleChoice), x)) == 60);
 }
 
 const MultipleChoice2 = union(enum(u32)) {
@@ -145,14 +145,14 @@ const MultipleChoice2 = union(enum(u32)) {
 };
 
 test "union(enum(u32)) with specified and unspecified tag values" {
-    comptime expect(Tag(Tag(MultipleChoice2)) == u32);
-    testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
-    comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
+    comptime try expect(Tag(Tag(MultipleChoice2)) == u32);
+    try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
+    comptime try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
 }
 
-fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
-    expect(@enumToInt(@as(Tag(MultipleChoice2), x)) == 60);
-    expect(1123 == switch (x) {
+fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
+    try expect(@enumToInt(@as(Tag(MultipleChoice2), x)) == 60);
+    try expect(1123 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
         MultipleChoice2.C => |v| @as(i32, 1000) + v,
@@ -170,7 +170,7 @@ const ExternPtrOrInt = extern union {
     int: u64,
 };
 test "extern union size" {
-    comptime expect(@sizeOf(ExternPtrOrInt) == 8);
+    comptime try expect(@sizeOf(ExternPtrOrInt) == 8);
 }
 
 const PackedPtrOrInt = packed union {
@@ -178,14 +178,14 @@ const PackedPtrOrInt = packed union {
     int: u64,
 };
 test "extern union size" {
-    comptime expect(@sizeOf(PackedPtrOrInt) == 8);
+    comptime try expect(@sizeOf(PackedPtrOrInt) == 8);
 }
 
 const ZeroBits = union {
     OnlyField: void,
 };
 test "union with only 1 field which is void should be zero bits" {
-    comptime expect(@sizeOf(ZeroBits) == 0);
+    comptime try expect(@sizeOf(ZeroBits) == 0);
 }
 
 const TheTag = enum {
@@ -199,23 +199,23 @@ const TheUnion = union(TheTag) {
     C: i32,
 };
 test "union field access gives the enum values" {
-    expect(TheUnion.A == TheTag.A);
-    expect(TheUnion.B == TheTag.B);
-    expect(TheUnion.C == TheTag.C);
+    try expect(TheUnion.A == TheTag.A);
+    try expect(TheUnion.B == TheTag.B);
+    try expect(TheUnion.C == TheTag.C);
 }
 
 test "cast union to tag type of union" {
-    testCastUnionToTag(TheUnion{ .B = 1234 });
-    comptime testCastUnionToTag(TheUnion{ .B = 1234 });
+    try testCastUnionToTag(TheUnion{ .B = 1234 });
+    comptime try testCastUnionToTag(TheUnion{ .B = 1234 });
 }
 
-fn testCastUnionToTag(x: TheUnion) void {
-    expect(@as(TheTag, x) == TheTag.B);
+fn testCastUnionToTag(x: TheUnion) !void {
+    try expect(@as(TheTag, x) == TheTag.B);
 }
 
 test "cast tag type of union to union" {
     var x: Value2 = Letter2.B;
-    expect(@as(Letter2, x) == Letter2.B);
+    try expect(@as(Letter2, x) == Letter2.B);
 }
 const Letter2 = enum {
     A,
@@ -230,11 +230,11 @@ const Value2 = union(Letter2) {
 
 test "implicit cast union to its tag type" {
     var x: Value2 = Letter2.B;
-    expect(x == Letter2.B);
-    giveMeLetterB(x);
+    try expect(x == Letter2.B);
+    try giveMeLetterB(x);
 }
-fn giveMeLetterB(x: Letter2) void {
-    expect(x == Value2.B);
+fn giveMeLetterB(x: Letter2) !void {
+    try expect(x == Value2.B);
 }
 
 pub const PackThis = union(enum) {
@@ -243,11 +243,11 @@ pub const PackThis = union(enum) {
 };
 
 test "constant packed union" {
-    testConstPackedUnion(&[_]PackThis{PackThis{ .StringLiteral = 1 }});
+    try testConstPackedUnion(&[_]PackThis{PackThis{ .StringLiteral = 1 }});
 }
 
-fn testConstPackedUnion(expected_tokens: []const PackThis) void {
-    expect(expected_tokens[0].StringLiteral == 1);
+fn testConstPackedUnion(expected_tokens: []const PackThis) !void {
+    try expect(expected_tokens[0].StringLiteral == 1);
 }
 
 test "switch on union with only 1 field" {
@@ -259,7 +259,7 @@ test "switch on union with only 1 field" {
             z = PartialInstWithPayload{ .Compiled = 1234 };
             switch (z) {
                 PartialInstWithPayload.Compiled => |x| {
-                    expect(x == 1234);
+                    try expect(x == 1234);
                     return;
                 },
             }
@@ -285,11 +285,11 @@ test "access a member of tagged union with conflicting enum tag name" {
         const B = void;
     };
 
-    comptime expect(Bar.A == u8);
+    comptime try expect(Bar.A == u8);
 }
 
 test "tagged union initialization with runtime void" {
-    expect(testTaggedUnionInit({}));
+    try expect(testTaggedUnionInit({}));
 }
 
 const TaggedUnionWithAVoid = union(enum) {
@@ -327,9 +327,9 @@ test "union with only 1 field casted to its enum type" {
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     const ExprTag = Tag(Expr);
-    comptime expect(Tag(ExprTag) == u0);
+    comptime try expect(Tag(ExprTag) == u0);
     var t = @as(ExprTag, e);
-    expect(t == Expr.Literal);
+    try expect(t == Expr.Literal);
 }
 
 test "union with only 1 field casted to its enum type which has enum value specified" {
@@ -347,11 +347,11 @@ test "union with only 1 field casted to its enum type which has enum value speci
     };
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
-    comptime expect(Tag(ExprTag) == comptime_int);
+    comptime try expect(Tag(ExprTag) == comptime_int);
     var t = @as(ExprTag, e);
-    expect(t == Expr.Literal);
-    expect(@enumToInt(t) == 33);
-    comptime expect(@enumToInt(t) == 33);
+    try expect(t == Expr.Literal);
+    try expect(@enumToInt(t) == 33);
+    comptime try expect(@enumToInt(t) == 33);
 }
 
 test "@enumToInt works on unions" {
@@ -364,9 +364,9 @@ test "@enumToInt works on unions" {
     const a = Bar{ .A = true };
     var b = Bar{ .B = undefined };
     var c = Bar.C;
-    expect(@enumToInt(a) == 0);
-    expect(@enumToInt(b) == 1);
-    expect(@enumToInt(c) == 2);
+    try expect(@enumToInt(a) == 0);
+    try expect(@enumToInt(b) == 1);
+    try expect(@enumToInt(c) == 2);
 }
 
 const Attribute = union(enum) {
@@ -393,23 +393,23 @@ test "comptime union field value equality" {
     const b1 = Setter(Attribute{ .B = 9 });
     const b2 = Setter(Attribute{ .B = 5 });
 
-    expect(a0 == a0);
-    expect(a1 == a1);
-    expect(a0 == a2);
+    try expect(a0 == a0);
+    try expect(a1 == a1);
+    try expect(a0 == a2);
 
-    expect(b0 == b0);
-    expect(b1 == b1);
-    expect(b0 == b2);
+    try expect(b0 == b0);
+    try expect(b1 == b1);
+    try expect(b0 == b2);
 
-    expect(a0 != b0);
-    expect(a0 != a1);
-    expect(b0 != b1);
+    try expect(a0 != b0);
+    try expect(a0 != a1);
+    try expect(b0 != b1);
 }
 
 test "return union init with void payload" {
     const S = struct {
-        fn entry() void {
-            expect(func().state == State.one);
+        fn entry() !void {
+            try expect(func().state == State.one);
         }
         const Outer = union(enum) {
             state: State,
@@ -422,8 +422,8 @@ test "return union init with void payload" {
             return Outer{ .state = State{ .one = {} } };
         }
     };
-    S.entry();
-    comptime S.entry();
+    try S.entry();
+    comptime try S.entry();
 }
 
 test "@unionInit can modify a union type" {
@@ -435,14 +435,14 @@ test "@unionInit can modify a union type" {
     var value: UnionInitEnum = undefined;
 
     value = @unionInit(UnionInitEnum, "Boolean", true);
-    expect(value.Boolean == true);
+    try expect(value.Boolean == true);
     value.Boolean = false;
-    expect(value.Boolean == false);
+    try expect(value.Boolean == false);
 
     value = @unionInit(UnionInitEnum, "Byte", 2);
-    expect(value.Byte == 2);
+    try expect(value.Byte == 2);
     value.Byte = 3;
-    expect(value.Byte == 3);
+    try expect(value.Byte == 3);
 }
 
 test "@unionInit can modify a pointer value" {
@@ -455,10 +455,10 @@ test "@unionInit can modify a pointer value" {
     var value_ptr = &value;
 
     value_ptr.* = @unionInit(UnionInitEnum, "Boolean", true);
-    expect(value.Boolean == true);
+    try expect(value.Boolean == true);
 
     value_ptr.* = @unionInit(UnionInitEnum, "Byte", 2);
-    expect(value.Byte == 2);
+    try expect(value.Byte == 2);
 }
 
 test "union no tag with struct member" {
@@ -471,38 +471,38 @@ test "union no tag with struct member" {
     u.foo();
 }
 
-fn testComparison() void {
+fn testComparison() !void {
     var x = Payload{ .A = 42 };
-    expect(x == .A);
-    expect(x != .B);
-    expect(x != .C);
-    expect((x == .B) == false);
-    expect((x == .C) == false);
-    expect((x != .A) == false);
+    try expect(x == .A);
+    try expect(x != .B);
+    try expect(x != .C);
+    try expect((x == .B) == false);
+    try expect((x == .C) == false);
+    try expect((x != .A) == false);
 }
 
 test "comparison between union and enum literal" {
-    testComparison();
-    comptime testComparison();
+    try testComparison();
+    comptime try testComparison();
 }
 
 test "packed union generates correctly aligned LLVM type" {
     const U = packed union {
-        f1: fn () void,
+        f1: fn () error{TestUnexpectedResult}!void,
         f2: u32,
     };
     var foo = [_]U{
         U{ .f1 = doTest },
         U{ .f2 = 0 },
     };
-    foo[0].f1();
+    try foo[0].f1();
 }
 
 test "union with one member defaults to u0 tag type" {
     const U0 = union(enum) {
         X: u32,
     };
-    comptime expect(Tag(Tag(U0)) == u0);
+    comptime try expect(Tag(Tag(U0)) == u0);
 }
 
 test "union with comptime_int tag" {
@@ -511,7 +511,7 @@ test "union with comptime_int tag" {
         Y: u16,
         Z: u8,
     };
-    comptime expect(Tag(Tag(Union)) == comptime_int);
+    comptime try expect(Tag(Tag(Union)) == comptime_int);
 }
 
 test "extern union doesn't trigger field check at comptime" {
@@ -521,7 +521,7 @@ test "extern union doesn't trigger field check at comptime" {
     };
 
     const x = U{ .x = 0x55AAAA55 };
-    comptime expect(x.y == 0x55);
+    comptime try expect(x.y == 0x55);
 }
 
 const Foo1 = union(enum) {
@@ -535,7 +535,7 @@ test "global union with single field is correctly initialized" {
     glbl = Foo1{
         .f = @typeInfo(Foo1).Union.fields[0].field_type{ .x = 123 },
     };
-    expect(glbl.f.x == 123);
+    try expect(glbl.f.x == 123);
 }
 
 pub const FooUnion = union(enum) {
@@ -548,8 +548,8 @@ var glbl_array: [2]FooUnion = undefined;
 test "initialize global array of union" {
     glbl_array[1] = FooUnion{ .U1 = 2 };
     glbl_array[0] = FooUnion{ .U0 = 1 };
-    expect(glbl_array[0].U0 == 1);
-    expect(glbl_array[1].U1 == 2);
+    try expect(glbl_array[0].U0 == 1);
+    try expect(glbl_array[1].U1 == 2);
 }
 
 test "anonymous union literal syntax" {
@@ -559,19 +559,19 @@ test "anonymous union literal syntax" {
             float: f64,
         };
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var i: Number = .{ .int = 42 };
             var f = makeNumber();
-            expect(i.int == 42);
-            expect(f.float == 12.34);
+            try expect(i.int == 42);
+            try expect(f.float == 12.34);
         }
 
         fn makeNumber() Number {
             return .{ .float = 12.34 };
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "update the tag value for zero-sized unions" {
@@ -580,9 +580,9 @@ test "update the tag value for zero-sized unions" {
         U1: void,
     };
     var x = S{ .U0 = {} };
-    expect(x == .U0);
+    try expect(x == .U0);
     x = S{ .U1 = {} };
-    expect(x == .U1);
+    try expect(x == .U1);
 }
 
 test "function call result coerces from tagged union to the tag" {
@@ -594,12 +594,12 @@ test "function call result coerces from tagged union to the tag" {
 
         const ArchTag = Tag(Arch);
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var x: ArchTag = getArch1();
-            expect(x == .One);
+            try expect(x == .One);
 
             var y: ArchTag = getArch2();
-            expect(y == .Two);
+            try expect(y == .Two);
         }
 
         pub fn getArch1() Arch {
@@ -610,8 +610,8 @@ test "function call result coerces from tagged union to the tag" {
             return .{ .Two = 99 };
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "0-sized extern union definition" {
@@ -620,7 +620,7 @@ test "0-sized extern union definition" {
         const f = 1;
     };
 
-    expect(U.f == 1);
+    try expect(U.f == 1);
 }
 
 test "union initializer generates padding only if needed" {
@@ -629,7 +629,7 @@ test "union initializer generates padding only if needed" {
     };
 
     var v = U{ .A = 532 };
-    expect(v.A == 532);
+    try expect(v.A == 532);
 }
 
 test "runtime tag name with single field" {
@@ -638,7 +638,7 @@ test "runtime tag name with single field" {
     };
 
     var v = U{ .A = 42 };
-    expect(std.mem.eql(u8, @tagName(v), "A"));
+    try expect(std.mem.eql(u8, @tagName(v), "A"));
 }
 
 test "cast from anonymous struct to union" {
@@ -648,7 +648,7 @@ test "cast from anonymous struct to union" {
             B: []const u8,
             C: void,
         };
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var y: u32 = 42;
             const t0 = .{ .A = 123 };
             const t1 = .{ .B = "foo" };
@@ -658,14 +658,14 @@ test "cast from anonymous struct to union" {
             var x1: U = t1;
             const x2: U = t2;
             var x3: U = t3;
-            expect(x0.A == 123);
-            expect(std.mem.eql(u8, x1.B, "foo"));
-            expect(x2 == .C);
-            expect(x3.A == y);
+            try expect(x0.A == 123);
+            try expect(std.mem.eql(u8, x1.B, "foo"));
+            try expect(x2 == .C);
+            try expect(x3.A == y);
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "cast from pointer to anonymous struct to pointer to union" {
@@ -675,7 +675,7 @@ test "cast from pointer to anonymous struct to pointer to union" {
             B: []const u8,
             C: void,
         };
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var y: u32 = 42;
             const t0 = &.{ .A = 123 };
             const t1 = &.{ .B = "foo" };
@@ -685,14 +685,14 @@ test "cast from pointer to anonymous struct to pointer to union" {
             var x1: *const U = t1;
             const x2: *const U = t2;
             var x3: *const U = t3;
-            expect(x0.A == 123);
-            expect(std.mem.eql(u8, x1.B, "foo"));
-            expect(x2.* == .C);
-            expect(x3.A == y);
+            try expect(x0.A == 123);
+            try expect(std.mem.eql(u8, x1.B, "foo"));
+            try expect(x2.* == .C);
+            try expect(x3.A == y);
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "method call on an empty union" {
@@ -707,13 +707,13 @@ test "method call on an empty union" {
             }
         };
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var u = MyUnion{ .X1 = [0]u8{} };
-            expect(u.useIt());
+            try expect(u.useIt());
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "switching on non exhaustive union" {
@@ -727,16 +727,16 @@ test "switching on non exhaustive union" {
             a: i32,
             b: u32,
         };
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var a = U{ .a = 2 };
             switch (a) {
-                .a => |val| expect(val == 2),
+                .a => |val| try expect(val == 2),
                 .b => unreachable,
             }
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "containers with single-field enums" {
@@ -746,21 +746,21 @@ test "containers with single-field enums" {
         const C = struct { a: A };
         const D = struct { a: B };
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var array1 = [1]A{A{ .f1 = {} }};
             var array2 = [1]B{B{ .f1 = {} }};
-            expect(array1[0] == .f1);
-            expect(array2[0] == .f1);
+            try expect(array1[0] == .f1);
+            try expect(array2[0] == .f1);
 
             var struct1 = C{ .a = A{ .f1 = {} } };
             var struct2 = D{ .a = B{ .f1 = {} } };
-            expect(struct1.a == .f1);
-            expect(struct2.a == .f1);
+            try expect(struct1.a == .f1);
+            try expect(struct2.a == .f1);
         }
     };
 
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "@unionInit on union w/ tag but no fields" {
@@ -776,18 +776,18 @@ test "@unionInit on union w/ tag but no fields" {
         };
 
         comptime {
-            expect(@sizeOf(Data) != 0);
+            try expect(@sizeOf(Data) != 0);
         }
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var data: Data = .{ .no_op = .{} };
             var o = Data.decode(&[_]u8{});
-            expectEqual(Type.no_op, o);
+            try expectEqual(Type.no_op, o);
         }
     };
 
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "union enum type gets a separate scope" {
@@ -797,10 +797,10 @@ test "union enum type gets a separate scope" {
             const foo = 1;
         };
 
-        fn doTheTest() void {
-            expect(!@hasDecl(Tag(U), "foo"));
+        fn doTheTest() !void {
+            try expect(!@hasDecl(Tag(U), "foo"));
         }
     };
 
-    S.doTheTest();
+    try S.doTheTest();
 }

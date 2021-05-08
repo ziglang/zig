@@ -32,8 +32,8 @@ fn custom(comptime T: type, comptime num: u64) fn (T) u64 {
 
 test "fn delegation" {
     const foo = Foo{};
-    expect(foo.one() == 11);
-    expect(foo.two() == 12);
-    expect(foo.three() == 13);
-    expect(foo.four() == 14);
+    try expect(foo.one() == 11);
+    try expect(foo.two() == 12);
+    try expect(foo.three() == 13);
+    try expect(foo.four() == 14);
 }

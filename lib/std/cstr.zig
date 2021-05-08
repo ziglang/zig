@@ -27,13 +27,13 @@ pub fn cmp(a: [*:0]const u8, b: [*:0]const u8) i8 {
 }
 
 test "cstr fns" {
-    comptime testCStrFnsImpl();
-    testCStrFnsImpl();
+    comptime try testCStrFnsImpl();
+    try testCStrFnsImpl();
 }
 
-fn testCStrFnsImpl() void {
-    testing.expect(cmp("aoeu", "aoez") == -1);
-    testing.expect(mem.len("123456789") == 9);
+fn testCStrFnsImpl() !void {
+    try testing.expect(cmp("aoeu", "aoez") == -1);
+    try testing.expect(mem.len("123456789") == 9);
 }
 
 /// Returns a mutable, null-terminated slice with the same length as `slice`.
@@ -48,8 +48,8 @@ pub fn addNullByte(allocator: *mem.Allocator, slice: []const u8) ![:0]u8 {
 test "addNullByte" {
     const slice = try addNullByte(std.testing.allocator, "hello"[0..4]);
     defer std.testing.allocator.free(slice);
-    testing.expect(slice.len == 4);
-    testing.expect(slice[4] == 0);
+    try testing.expect(slice.len == 4);
+    try testing.expect(slice[4] == 0);
 }
 
 pub const NullTerminated2DArray = struct {

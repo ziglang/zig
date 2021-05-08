@@ -25,18 +25,18 @@ test "call disabled extern fn" {
 }
 
 test "short circuit" {
-    testShortCircuit(false, true);
-    comptime testShortCircuit(false, true);
+    try testShortCircuit(false, true);
+    comptime try testShortCircuit(false, true);
 }
 
-fn testShortCircuit(f: bool, t: bool) void {
+fn testShortCircuit(f: bool, t: bool) !void {
     var hit_1 = f;
     var hit_2 = f;
     var hit_3 = f;
     var hit_4 = f;
 
     if (t or x: {
-        expect(f);
+        try expect(f);
         break :x f;
     }) {
         hit_1 = t;
@@ -45,31 +45,31 @@ fn testShortCircuit(f: bool, t: bool) void {
         hit_2 = t;
         break :x f;
     }) {
-        expect(f);
+        try expect(f);
     }
 
     if (t and x: {
         hit_3 = t;
         break :x f;
     }) {
-        expect(f);
+        try expect(f);
     }
     if (f and x: {
-        expect(f);
+        try expect(f);
         break :x f;
     }) {
-        expect(f);
+        try expect(f);
     } else {
         hit_4 = t;
     }
-    expect(hit_1);
-    expect(hit_2);
-    expect(hit_3);
-    expect(hit_4);
+    try expect(hit_1);
+    try expect(hit_2);
+    try expect(hit_3);
+    try expect(hit_4);
 }
 
 test "truncate" {
-    expect(testTruncate(0x10fd) == 0xfd);
+    try expect(testTruncate(0x10fd) == 0xfd);
 }
 fn testTruncate(x: u32) u8 {
     return @truncate(u8, x);
@@ -80,16 +80,16 @@ fn first4KeysOfHomeRow() []const u8 {
 }
 
 test "return string from function" {
-    expect(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
+    try expect(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
 }
 
 const g1: i32 = 1233 + 1;
 var g2: i32 = 0;
 
 test "global variables" {
-    expect(g2 == 0);
+    try expect(g2 == 0);
     g2 = g1;
-    expect(g2 == 1234);
+    try expect(g2 == 1234);
 }
 
 test "memcpy and memset intrinsics" {
@@ -106,7 +106,7 @@ test "builtin static eval" {
     const x: i32 = comptime x: {
         break :x 1 + 2 + 3;
     };
-    expect(x == comptime 6);
+    try expect(x == comptime 6);
 }
 
 test "slicing" {
@@ -127,7 +127,7 @@ test "slicing" {
 
 test "constant equal function pointers" {
     const alias = emptyFn;
-    expect(comptime x: {
+    try expect(comptime x: {
         break :x emptyFn == alias;
     });
 }
@@ -135,25 +135,25 @@ test "constant equal function pointers" {
 fn emptyFn() void {}
 
 test "hex escape" {
-    expect(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
+    try expect(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
 }
 
 test "string concatenation" {
-    expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
+    try expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
 test "array mult operator" {
-    expect(mem.eql(u8, "ab" ** 5, "ababababab"));
+    try expect(mem.eql(u8, "ab" ** 5, "ababababab"));
 }
 
 test "string escapes" {
-    expect(mem.eql(u8, "\"", "\x22"));
-    expect(mem.eql(u8, "\'", "\x27"));
-    expect(mem.eql(u8, "\n", "\x0a"));
-    expect(mem.eql(u8, "\r", "\x0d"));
-    expect(mem.eql(u8, "\t", "\x09"));
-    expect(mem.eql(u8, "\\", "\x5c"));
-    expect(mem.eql(u8, "\u{1234}\u{069}\u{1}", "\xe1\x88\xb4\x69\x01"));
+    try expect(mem.eql(u8, "\"", "\x22"));
+    try expect(mem.eql(u8, "\'", "\x27"));
+    try expect(mem.eql(u8, "\n", "\x0a"));
+    try expect(mem.eql(u8, "\r", "\x0d"));
+    try expect(mem.eql(u8, "\t", "\x09"));
+    try expect(mem.eql(u8, "\\", "\x5c"));
+    try expect(mem.eql(u8, "\u{1234}\u{069}\u{1}", "\xe1\x88\xb4\x69\x01"));
 }
 
 test "multiline string" {
@@ -163,7 +163,7 @@ test "multiline string" {
         \\three
     ;
     const s2 = "one\ntwo)\nthree";
-    expect(mem.eql(u8, s1, s2));
+    try expect(mem.eql(u8, s1, s2));
 }
 
 test "multiline string comments at start" {
@@ -173,7 +173,7 @@ test "multiline string comments at start" {
         \\three
     ;
     const s2 = "two)\nthree";
-    expect(mem.eql(u8, s1, s2));
+    try expect(mem.eql(u8, s1, s2));
 }
 
 test "multiline string comments at end" {
@@ -183,7 +183,7 @@ test "multiline string comments at end" {
         //\\three
     ;
     const s2 = "one\ntwo)";
-    expect(mem.eql(u8, s1, s2));
+    try expect(mem.eql(u8, s1, s2));
 }
 
 test "multiline string comments in middle" {
@@ -193,7 +193,7 @@ test "multiline string comments in middle" {
         \\three
     ;
     const s2 = "one\nthree";
-    expect(mem.eql(u8, s1, s2));
+    try expect(mem.eql(u8, s1, s2));
 }
 
 test "multiline string comments at multiple places" {
@@ -205,7 +205,7 @@ test "multiline string comments at multiple places" {
         \\five
     ;
     const s2 = "one\nthree\nfive";
-    expect(mem.eql(u8, s1, s2));
+    try expect(mem.eql(u8, s1, s2));
 }
 
 test "multiline C string" {
@@ -215,11 +215,11 @@ test "multiline C string" {
         \\three
     ;
     const s2 = "one\ntwo)\nthree";
-    expect(std.cstr.cmp(s1, s2) == 0);
+    try expect(std.cstr.cmp(s1, s2) == 0);
 }
 
 test "type equality" {
-    expect(*const u8 != *u8);
+    try expect(*const u8 != *u8);
 }
 
 const global_a: i32 = 1234;
@@ -227,7 +227,7 @@ const global_b: *const i32 = &global_a;
 const global_c: *const f32 = @ptrCast(*const f32, global_b);
 test "compile time global reinterpret" {
     const d = @ptrCast(*const i32, global_c);
-    expect(d.* == 1234);
+    try expect(d.* == 1234);
 }
 
 test "explicit cast maybe pointers" {
@@ -253,8 +253,8 @@ test "cast undefined" {
 fn testCastUndefined(x: []const u8) void {}
 
 test "cast small unsigned to larger signed" {
-    expect(castSmallUnsignedToLargerSigned1(200) == @as(i16, 200));
-    expect(castSmallUnsignedToLargerSigned2(9999) == @as(i64, 9999));
+    try expect(castSmallUnsignedToLargerSigned1(200) == @as(i16, 200));
+    try expect(castSmallUnsignedToLargerSigned2(9999) == @as(i64, 9999));
 }
 fn castSmallUnsignedToLargerSigned1(x: u8) i16 {
     return x;
@@ -264,7 +264,7 @@ fn castSmallUnsignedToLargerSigned2(x: u16) i64 {
 }
 
 test "implicit cast after unreachable" {
-    expect(outer() == 1234);
+    try expect(outer() == 1234);
 }
 fn inner() i32 {
     return 1234;
@@ -279,13 +279,13 @@ test "pointer dereferencing" {
 
     y.* += 1;
 
-    expect(x == 4);
-    expect(y.* == 4);
+    try expect(x == 4);
+    try expect(y.* == 4);
 }
 
 test "call result of if else expression" {
-    expect(mem.eql(u8, f2(true), "a"));
-    expect(mem.eql(u8, f2(false), "b"));
+    try expect(mem.eql(u8, f2(true), "a"));
+    try expect(mem.eql(u8, f2(false), "b"));
 }
 fn f2(x: bool) []const u8 {
     return (if (x) fA else fB)();
@@ -305,8 +305,8 @@ test "const expression eval handling of variables" {
 }
 
 test "constant enum initialization with differing sizes" {
-    test3_1(test3_foo);
-    test3_2(test3_bar);
+    try test3_1(test3_foo);
+    try test3_2(test3_bar);
 }
 const Test3Foo = union(enum) {
     One: void,
@@ -324,41 +324,41 @@ const test3_foo = Test3Foo{
     },
 };
 const test3_bar = Test3Foo{ .Two = 13 };
-fn test3_1(f: Test3Foo) void {
+fn test3_1(f: Test3Foo) !void {
     switch (f) {
         Test3Foo.Three => |pt| {
-            expect(pt.x == 3);
-            expect(pt.y == 4);
+            try expect(pt.x == 3);
+            try expect(pt.y == 4);
         },
         else => unreachable,
     }
 }
-fn test3_2(f: Test3Foo) void {
+fn test3_2(f: Test3Foo) !void {
     switch (f) {
         Test3Foo.Two => |x| {
-            expect(x == 13);
+            try expect(x == 13);
         },
         else => unreachable,
     }
 }
 
 test "character literals" {
-    expect('\'' == single_quote);
+    try expect('\'' == single_quote);
 }
 const single_quote = '\'';
 
 test "take address of parameter" {
-    testTakeAddressOfParameter(12.34);
+    try testTakeAddressOfParameter(12.34);
 }
-fn testTakeAddressOfParameter(f: f32) void {
+fn testTakeAddressOfParameter(f: f32) !void {
     const f_ptr = &f;
-    expect(f_ptr.* == 12.34);
+    try expect(f_ptr.* == 12.34);
 }
 
 test "pointer comparison" {
     const a = @as([]const u8, "a");
     const b = &a;
-    expect(ptrEql(b, b));
+    try expect(ptrEql(b, b));
 }
 fn ptrEql(a: *const []const u8, b: *const []const u8) bool {
     return a == b;
@@ -368,19 +368,19 @@ test "string concatenation" {
     const a = "OK" ++ " IT " ++ "WORKED";
     const b = "OK IT WORKED";
 
-    comptime expect(@TypeOf(a) == *const [12:0]u8);
-    comptime expect(@TypeOf(b) == *const [12:0]u8);
+    comptime try expect(@TypeOf(a) == *const [12:0]u8);
+    comptime try expect(@TypeOf(b) == *const [12:0]u8);
 
     const len = mem.len(b);
     const len_with_null = len + 1;
     {
         var i: u32 = 0;
         while (i < len_with_null) : (i += 1) {
-            expect(a[i] == b[i]);
+            try expect(a[i] == b[i]);
         }
     }
-    expect(a[len] == 0);
-    expect(b[len] == 0);
+    try expect(a[len] == 0);
+    try expect(b[len] == 0);
 }
 
 test "pointer to void return type" {
@@ -397,7 +397,7 @@ fn testPointerToVoidReturnType2() *const void {
 
 test "non const ptr to aliased type" {
     const int = i32;
-    expect(?*int == ?*i32);
+    try expect(?*int == ?*i32);
 }
 
 test "array 2D const double ptr" {
@@ -405,13 +405,13 @@ test "array 2D const double ptr" {
         [_]f32{1.0},
         [_]f32{2.0},
     };
-    testArray2DConstDoublePtr(&rect_2d_vertexes[0][0]);
+    try testArray2DConstDoublePtr(&rect_2d_vertexes[0][0]);
 }
 
-fn testArray2DConstDoublePtr(ptr: *const f32) void {
+fn testArray2DConstDoublePtr(ptr: *const f32) !void {
     const ptr2 = @ptrCast([*]const f32, ptr);
-    expect(ptr2[0] == 1.0);
-    expect(ptr2[1] == 2.0);
+    try expect(ptr2[0] == 1.0);
+    try expect(ptr2[1] == 2.0);
 }
 
 const AStruct = struct {
@@ -439,13 +439,13 @@ test "@typeName" {
         Unused,
     };
     comptime {
-        expect(mem.eql(u8, @typeName(i64), "i64"));
-        expect(mem.eql(u8, @typeName(*usize), "*usize"));
+        try expect(mem.eql(u8, @typeName(i64), "i64"));
+        try expect(mem.eql(u8, @typeName(*usize), "*usize"));
         // https://github.com/ziglang/zig/issues/675
-        expect(mem.eql(u8, "behavior.misc.TypeFromFn(u8)", @typeName(TypeFromFn(u8))));
-        expect(mem.eql(u8, @typeName(Struct), "Struct"));
-        expect(mem.eql(u8, @typeName(Union), "Union"));
-        expect(mem.eql(u8, @typeName(Enum), "Enum"));
+        try expect(mem.eql(u8, "behavior.misc.TypeFromFn(u8)", @typeName(TypeFromFn(u8))));
+        try expect(mem.eql(u8, @typeName(Struct), "Struct"));
+        try expect(mem.eql(u8, @typeName(Union), "Union"));
+        try expect(mem.eql(u8, @typeName(Enum), "Enum"));
     }
 }
 
@@ -455,14 +455,14 @@ fn TypeFromFn(comptime T: type) type {
 
 test "double implicit cast in same expression" {
     var x = @as(i32, @as(u16, nine()));
-    expect(x == 9);
+    try expect(x == 9);
 }
 fn nine() u8 {
     return 9;
 }
 
 test "global variable initialized to global variable array element" {
-    expect(global_ptr == &gdt[0]);
+    try expect(global_ptr == &gdt[0]);
 }
 const GDTEntry = struct {
     field: i32,
@@ -483,9 +483,9 @@ export fn writeToVRam() void {
 const OpaqueA = opaque {};
 const OpaqueB = opaque {};
 test "opaque types" {
-    expect(*OpaqueA != *OpaqueB);
-    expect(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
-    expect(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
+    try expect(*OpaqueA != *OpaqueB);
+    try expect(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
+    try expect(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
 }
 
 test "variable is allowed to be a pointer to an opaque type" {
@@ -525,7 +525,7 @@ fn fnThatClosesOverLocalConst() type {
 
 test "function closes over local const" {
     const x = fnThatClosesOverLocalConst().g();
-    expect(x == 1);
+    try expect(x == 1);
 }
 
 test "cold function" {
@@ -562,21 +562,21 @@ export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion, c: Pack
 test "slicing zero length array" {
     const s1 = ""[0..];
     const s2 = ([_]u32{})[0..];
-    expect(s1.len == 0);
-    expect(s2.len == 0);
-    expect(mem.eql(u8, s1, ""));
-    expect(mem.eql(u32, s2, &[_]u32{}));
+    try expect(s1.len == 0);
+    try expect(s2.len == 0);
+    try expect(mem.eql(u8, s1, ""));
+    try expect(mem.eql(u32, s2, &[_]u32{}));
 }
 
 const addr1 = @ptrCast(*const u8, emptyFn);
 test "comptime cast fn to ptr" {
     const addr2 = @ptrCast(*const u8, emptyFn);
-    comptime expect(addr1 == addr2);
+    comptime try expect(addr1 == addr2);
 }
 
 test "equality compare fn ptrs" {
     var a = emptyFn;
-    expect(a == a);
+    try expect(a == a);
 }
 
 test "self reference through fn ptr field" {
@@ -591,34 +591,34 @@ test "self reference through fn ptr field" {
     };
     var a: S.A = undefined;
     a.f = S.foo;
-    expect(a.f(a) == 12);
+    try expect(a.f(a) == 12);
 }
 
 test "volatile load and store" {
     var number: i32 = 1234;
     const ptr = @as(*volatile i32, &number);
     ptr.* += 1;
-    expect(ptr.* == 1235);
+    try expect(ptr.* == 1235);
 }
 
 test "slice string literal has correct type" {
     comptime {
-        expect(@TypeOf("aoeu"[0..]) == *const [4:0]u8);
+        try expect(@TypeOf("aoeu"[0..]) == *const [4:0]u8);
         const array = [_]i32{ 1, 2, 3, 4 };
-        expect(@TypeOf(array[0..]) == *const [4]i32);
+        try expect(@TypeOf(array[0..]) == *const [4]i32);
     }
     var runtime_zero: usize = 0;
-    comptime expect(@TypeOf("aoeu"[runtime_zero..]) == [:0]const u8);
+    comptime try expect(@TypeOf("aoeu"[runtime_zero..]) == [:0]const u8);
     const array = [_]i32{ 1, 2, 3, 4 };
-    comptime expect(@TypeOf(array[runtime_zero..]) == []const i32);
+    comptime try expect(@TypeOf(array[runtime_zero..]) == []const i32);
 }
 
 test "struct inside function" {
-    testStructInFn();
-    comptime testStructInFn();
+    try testStructInFn();
+    comptime try testStructInFn();
 }
 
-fn testStructInFn() void {
+fn testStructInFn() !void {
     const BlockKind = u32;
 
     const Block = struct {
@@ -629,11 +629,11 @@ fn testStructInFn() void {
 
     block.kind += 1;
 
-    expect(block.kind == 1235);
+    try expect(block.kind == 1235);
 }
 
 test "fn call returning scalar optional in equality expression" {
-    expect(getNull() == null);
+    try expect(getNull() == null);
 }
 
 fn getNull() ?*i32 {
@@ -645,16 +645,16 @@ test "thread local variable" {
         threadlocal var t: i32 = 1234;
     };
     S.t += 1;
-    expect(S.t == 1235);
+    try expect(S.t == 1235);
 }
 
 test "unicode escape in character literal" {
     var a: u24 = '\u{01f4a9}';
-    expect(a == 128169);
+    try expect(a == 128169);
 }
 
 test "unicode character in character literal" {
-    expect('💩' == 128169);
+    try expect('💩' == 128169);
 }
 
 test "result location zero sized array inside struct field implicit cast to slice" {
@@ -662,7 +662,7 @@ test "result location zero sized array inside struct field implicit cast to slic
         entries: []u32,
     };
     var foo = E{ .entries = &[_]u32{} };
-    expect(foo.entries.len == 0);
+    try expect(foo.entries.len == 0);
 }
 
 var global_foo: *i32 = undefined;
@@ -677,7 +677,7 @@ test "global variable assignment with optional unwrapping with var initialized t
     global_foo = S.foo() orelse {
         @panic("bad");
     };
-    expect(global_foo.* == 1234);
+    try expect(global_foo.* == 1234);
 }
 
 test "peer result location with typed parent, runtime condition, comptime prongs" {
@@ -696,8 +696,8 @@ test "peer result location with typed parent, runtime condition, comptime prongs
             bleh: i32,
         };
     };
-    expect(S.doTheTest(0) == 1234);
-    expect(S.doTheTest(1) == 1234);
+    try expect(S.doTheTest(0) == 1234);
+    try expect(S.doTheTest(1) == 1234);
 }
 
 test "nested optional field in struct" {
@@ -710,7 +710,7 @@ test "nested optional field in struct" {
     var s = S1{
         .x = S2{ .y = 127 },
     };
-    expect(s.x.?.y == 127);
+    try expect(s.x.?.y == 127);
 }
 
 fn maybe(x: bool) anyerror!?u32 {
@@ -722,7 +722,7 @@ fn maybe(x: bool) anyerror!?u32 {
 
 test "result location is optional inside error union" {
     const x = maybe(true) catch unreachable;
-    expect(x.? == 42);
+    try expect(x.? == 42);
 }
 
 threadlocal var buffer: [11]u8 = undefined;
@@ -730,7 +730,7 @@ threadlocal var buffer: [11]u8 = undefined;
 test "pointer to thread local array" {
     const s = "Hello world";
     std.mem.copy(u8, buffer[0..], s);
-    std.testing.expectEqualSlices(u8, buffer[0..], s);
+    try std.testing.expectEqualSlices(u8, buffer[0..], s);
 }
 
 test "auto created variables have correct alignment" {
@@ -742,15 +742,15 @@ test "auto created variables have correct alignment" {
             return 0;
         }
     };
-    expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
-    comptime expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
+    try expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
+    comptime try expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
 }
 
 extern var opaque_extern_var: opaque {};
 var var_to_export: u32 = 42;
 test "extern variable with non-pointer opaque type" {
     @export(var_to_export, .{ .name = "opaque_extern_var" });
-    expect(@ptrCast(*align(1) u32, &opaque_extern_var).* == 42);
+    try expect(@ptrCast(*align(1) u32, &opaque_extern_var).* == 42);
 }
 
 test "lazy typeInfo value as generic parameter" {

@@ -67,5 +67,5 @@ test "Once executes its function just once" {
         }
     }
 
-    testing.expectEqual(@as(i32, 1), global_number);
+    try testing.expectEqual(@as(i32, 1), global_number);
 }

@@ -247,17 +247,17 @@ pub fn parseHexFloat(comptime T: type, s: []const u8) !T {
 }
 
 test "special" {
-    testing.expect(math.isNan(try parseHexFloat(f32, "nAn")));
-    testing.expect(math.isPositiveInf(try parseHexFloat(f32, "iNf")));
-    testing.expect(math.isPositiveInf(try parseHexFloat(f32, "+Inf")));
-    testing.expect(math.isNegativeInf(try parseHexFloat(f32, "-iNf")));
+    try testing.expect(math.isNan(try parseHexFloat(f32, "nAn")));
+    try testing.expect(math.isPositiveInf(try parseHexFloat(f32, "iNf")));
+    try testing.expect(math.isPositiveInf(try parseHexFloat(f32, "+Inf")));
+    try testing.expect(math.isNegativeInf(try parseHexFloat(f32, "-iNf")));
 }
 test "zero" {
-    testing.expectEqual(@as(f32, 0.0), try parseHexFloat(f32, "0x0"));
-    testing.expectEqual(@as(f32, 0.0), try parseHexFloat(f32, "-0x0"));
-    testing.expectEqual(@as(f32, 0.0), try parseHexFloat(f32, "0x0p42"));
-    testing.expectEqual(@as(f32, 0.0), try parseHexFloat(f32, "-0x0.00000p42"));
-    testing.expectEqual(@as(f32, 0.0), try parseHexFloat(f32, "0x0.00000p666"));
+    try testing.expectEqual(@as(f32, 0.0), try parseHexFloat(f32, "0x0"));
+    try testing.expectEqual(@as(f32, 0.0), try parseHexFloat(f32, "-0x0"));
+    try testing.expectEqual(@as(f32, 0.0), try parseHexFloat(f32, "0x0p42"));
+    try testing.expectEqual(@as(f32, 0.0), try parseHexFloat(f32, "-0x0.00000p42"));
+    try testing.expectEqual(@as(f32, 0.0), try parseHexFloat(f32, "0x0.00000p666"));
 }
 
 test "f16" {
@@ -279,7 +279,7 @@ test "f16" {
     };
 
     for (cases) |case| {
-        testing.expectEqual(case.v, try parseHexFloat(f16, case.s));
+        try testing.expectEqual(case.v, try parseHexFloat(f16, case.s));
     }
 }
 test "f32" {
@@ -303,7 +303,7 @@ test "f32" {
     };
 
     for (cases) |case| {
-        testing.expectEqual(case.v, try parseHexFloat(f32, case.s));
+        try testing.expectEqual(case.v, try parseHexFloat(f32, case.s));
     }
 }
 test "f64" {
@@ -325,7 +325,7 @@ test "f64" {
     };
 
     for (cases) |case| {
-        testing.expectEqual(case.v, try parseHexFloat(f64, case.s));
+        try testing.expectEqual(case.v, try parseHexFloat(f64, case.s));
     }
 }
 test "f128" {
@@ -347,6 +347,6 @@ test "f128" {
     };
 
     for (cases) |case| {
-        testing.expectEqual(@bitCast(u128, case.v), @bitCast(u128, try parseHexFloat(f128, case.s)));
+        try testing.expectEqual(@bitCast(u128, case.v), @bitCast(u128, try parseHexFloat(f128, case.s)));
     }
 }

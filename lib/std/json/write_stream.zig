@@ -288,7 +288,7 @@ test "json write stream" {
         \\ "float": 3.5e+00
         \\}
     ;
-    std.testing.expect(std.mem.eql(u8, expected, result));
+    try std.testing.expect(std.mem.eql(u8, expected, result));
 }
 
 fn getJsonObject(allocator: *std.mem.Allocator) !std.json.Value {

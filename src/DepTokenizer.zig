@@ -918,7 +918,7 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     }
 
     if (std.mem.eql(u8, expect, buffer.items)) {
-        testing.expect(true);
+        try testing.expect(true);
         return;
     }
 
@@ -930,7 +930,7 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     try printSection(out, ">>>> got", buffer.items);
     try printRuler(out);
 
-    testing.expect(false);
+    try testing.expect(false);
 }
 
 fn printSection(out: anytype, label: []const u8, bytes: []const u8) !void {

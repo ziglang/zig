@@ -163,17 +163,17 @@ test "api coverage" {
     try bit_stream_be.writeBits(@as(u9, 5), 5);
     try bit_stream_be.writeBits(@as(u1, 1), 1);
 
-    testing.expect(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001011);
+    try testing.expect(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001011);
 
     mem_out_be.pos = 0;
 
     try bit_stream_be.writeBits(@as(u15, 0b110011010000101), 15);
     try bit_stream_be.flushBits();
-    testing.expect(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001010);
+    try testing.expect(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001010);
 
     mem_out_be.pos = 0;
     try bit_stream_be.writeBits(@as(u32, 0b110011010000101), 16);
-    testing.expect(mem_be[0] == 0b01100110 and mem_be[1] == 0b10000101);
+    try testing.expect(mem_be[0] == 0b01100110 and mem_be[1] == 0b10000101);
 
     try bit_stream_be.writeBits(@as(u0, 0), 0);
 
@@ -187,16 +187,16 @@ test "api coverage" {
     try bit_stream_le.writeBits(@as(u9, 5), 5);
     try bit_stream_le.writeBits(@as(u1, 1), 1);
 
-    testing.expect(mem_le[0] == 0b00011101 and mem_le[1] == 0b10010101);
+    try testing.expect(mem_le[0] == 0b00011101 and mem_le[1] == 0b10010101);
 
     mem_out_le.pos = 0;
     try bit_stream_le.writeBits(@as(u15, 0b110011010000101), 15);
     try bit_stream_le.flushBits();
-    testing.expect(mem_le[0] == 0b10000101 and mem_le[1] == 0b01100110);
+    try testing.expect(mem_le[0] == 0b10000101 and mem_le[1] == 0b01100110);
 
     mem_out_le.pos = 0;
     try bit_stream_le.writeBits(@as(u32, 0b1100110100001011), 16);
-    testing.expect(mem_le[0] == 0b00001011 and mem_le[1] == 0b11001101);
+    try testing.expect(mem_le[0] == 0b00001011 and mem_le[1] == 0b11001101);
 
     try bit_stream_le.writeBits(@as(u0, 0), 0);
 }

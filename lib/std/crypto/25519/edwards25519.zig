@@ -491,7 +491,7 @@ test "edwards25519 packing/unpacking" {
     var b = Edwards25519.basePoint;
     const pk = try b.mul(s);
     var buf: [128]u8 = undefined;
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&pk.toBytes())}), "074BC7E0FCBD587FDBC0969444245FADC562809C8F6E97E949AF62484B5B81A6");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&pk.toBytes())}), "074BC7E0FCBD587FDBC0969444245FADC562809C8F6E97E949AF62484B5B81A6");
 
     const small_order_ss: [7][32]u8 = .{
         .{
@@ -518,7 +518,7 @@ test "edwards25519 packing/unpacking" {
     };
     for (small_order_ss) |small_order_s| {
         const small_p = try Edwards25519.fromBytes(small_order_s);
-        std.testing.expectError(error.WeakPublicKey, small_p.mul(s));
+        try std.testing.expectError(error.WeakPublicKey, small_p.mul(s));
     }
 }
 
@@ -531,26 +531,26 @@ test "edwards25519 point addition/substraction" {
     const q = try Edwards25519.basePoint.clampedMul(s2);
     const r = p.add(q).add(q).sub(q).sub(q);
     try r.rejectIdentity();
-    std.testing.expectError(error.IdentityElement, r.sub(p).rejectIdentity());
-    std.testing.expectError(error.IdentityElement, p.sub(p).rejectIdentity());
-    std.testing.expectError(error.IdentityElement, p.sub(q).add(q).sub(p).rejectIdentity());
+    try std.testing.expectError(error.IdentityElement, r.sub(p).rejectIdentity());
+    try std.testing.expectError(error.IdentityElement, p.sub(p).rejectIdentity());
+    try std.testing.expectError(error.IdentityElement, p.sub(q).add(q).sub(p).rejectIdentity());
 }
 
 test "edwards25519 uniform-to-point" {
     var r = [32]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
     var p = Edwards25519.fromUniform(r);
-    htest.assertEqual("0691eee3cf70a0056df6bfa03120635636581b5c4ea571dfc680f78c7e0b4137", p.toBytes()[0..]);
+    try htest.assertEqual("0691eee3cf70a0056df6bfa03120635636581b5c4ea571dfc680f78c7e0b4137", p.toBytes()[0..]);
 
     r[31] = 0xff;
     p = Edwards25519.fromUniform(r);
-    htest.assertEqual("f70718e68ef42d90ca1d936bb2d7e159be6c01d8095d39bd70487c82fe5c973a", p.toBytes()[0..]);
+    try htest.assertEqual("f70718e68ef42d90ca1d936bb2d7e159be6c01d8095d39bd70487c82fe5c973a", p.toBytes()[0..]);
 }
 
 // Test vectors from draft-irtf-cfrg-hash-to-curve-10
 test "edwards25519 hash-to-curve operation" {
     var p = Edwards25519.fromString(true, "QUUX-V01-CS02-with-edwards25519_XMD:SHA-512_ELL2_RO_", "abc");
-    htest.assertEqual("31558a26887f23fb8218f143e69d5f0af2e7831130bd5b432ef23883b895831a", p.toBytes()[0..]);
+    try htest.assertEqual("31558a26887f23fb8218f143e69d5f0af2e7831130bd5b432ef23883b895831a", p.toBytes()[0..]);
 
     p = Edwards25519.fromString(false, "QUUX-V01-CS02-with-edwards25519_XMD:SHA-512_ELL2_NU_", "abc");
-    htest.assertEqual("42fa27c8f5a1ae0aa38bb59d5938e5145622ba5dedd11d11736fa2f9502d73e7", p.toBytes()[0..]);
+    try htest.assertEqual("42fa27c8f5a1ae0aa38bb59d5938e5145622ba5dedd11d11736fa2f9502d73e7", p.toBytes()[0..]);
 }

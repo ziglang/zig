@@ -94,19 +94,19 @@ test "BufMap" {
     defer bufmap.deinit();
 
     try bufmap.set("x", "1");
-    testing.expect(mem.eql(u8, bufmap.get("x").?, "1"));
-    testing.expect(1 == bufmap.count());
+    try testing.expect(mem.eql(u8, bufmap.get("x").?, "1"));
+    try testing.expect(1 == bufmap.count());
 
     try bufmap.set("x", "2");
-    testing.expect(mem.eql(u8, bufmap.get("x").?, "2"));
-    testing.expect(1 == bufmap.count());
+    try testing.expect(mem.eql(u8, bufmap.get("x").?, "2"));
+    try testing.expect(1 == bufmap.count());
 
     try bufmap.set("x", "3");
-    testing.expect(mem.eql(u8, bufmap.get("x").?, "3"));
-    testing.expect(1 == bufmap.count());
+    try testing.expect(mem.eql(u8, bufmap.get("x").?, "3"));
+    try testing.expect(1 == bufmap.count());
 
     bufmap.delete("x");
-    testing.expect(0 == bufmap.count());
+    try testing.expect(0 == bufmap.count());
 
     try bufmap.setMove(try allocator.dupe(u8, "k"), try allocator.dupe(u8, "v1"));
     try bufmap.setMove(try allocator.dupe(u8, "k"), try allocator.dupe(u8, "v2"));

@@ -119,10 +119,10 @@ test "std.enums.directEnumArray" {
         .c = true,
     });
 
-    testing.expectEqual([7]bool, @TypeOf(array));
-    testing.expectEqual(true, array[4]);
-    testing.expectEqual(false, array[6]);
-    testing.expectEqual(true, array[2]);
+    try testing.expectEqual([7]bool, @TypeOf(array));
+    try testing.expectEqual(true, array[4]);
+    try testing.expectEqual(false, array[6]);
+    try testing.expectEqual(true, array[2]);
 }
 
 /// Initializes an array of Data which can be indexed by
@@ -160,10 +160,10 @@ test "std.enums.directEnumArrayDefault" {
         .b = runtime_false,
     });
 
-    testing.expectEqual([7]bool, @TypeOf(array));
-    testing.expectEqual(true, array[4]);
-    testing.expectEqual(false, array[6]);
-    testing.expectEqual(false, array[2]);
+    try testing.expectEqual([7]bool, @TypeOf(array));
+    try testing.expectEqual(true, array[4]);
+    try testing.expectEqual(false, array[6]);
+    try testing.expectEqual(false, array[2]);
 }
 
 /// Cast an enum literal, value, or string to the enum value of type E
@@ -190,23 +190,23 @@ pub fn nameCast(comptime E: type, comptime value: anytype) E {
 test "std.enums.nameCast" {
     const A = enum(u1) { a = 0, b = 1 };
     const B = enum(u1) { a = 1, b = 0 };
-    testing.expectEqual(A.a, nameCast(A, .a));
-    testing.expectEqual(A.a, nameCast(A, A.a));
-    testing.expectEqual(A.a, nameCast(A, B.a));
-    testing.expectEqual(A.a, nameCast(A, "a"));
-    testing.expectEqual(A.a, nameCast(A, @as(*const [1]u8, "a")));
-    testing.expectEqual(A.a, nameCast(A, @as([:0]const u8, "a")));
-    testing.expectEqual(A.a, nameCast(A, @as([]const u8, "a")));
+    try testing.expectEqual(A.a, nameCast(A, .a));
+    try testing.expectEqual(A.a, nameCast(A, A.a));
+    try testing.expectEqual(A.a, nameCast(A, B.a));
+    try testing.expectEqual(A.a, nameCast(A, "a"));
+    try testing.expectEqual(A.a, nameCast(A, @as(*const [1]u8, "a")));
+    try testing.expectEqual(A.a, nameCast(A, @as([:0]const u8, "a")));
+    try testing.expectEqual(A.a, nameCast(A, @as([]const u8, "a")));
 
-    testing.expectEqual(B.a, nameCast(B, .a));
-    testing.expectEqual(B.a, nameCast(B, A.a));
-    testing.expectEqual(B.a, nameCast(B, B.a));
-    testing.expectEqual(B.a, nameCast(B, "a"));
+    try testing.expectEqual(B.a, nameCast(B, .a));
+    try testing.expectEqual(B.a, nameCast(B, A.a));
+    try testing.expectEqual(B.a, nameCast(B, B.a));
+    try testing.expectEqual(B.a, nameCast(B, "a"));
 
-    testing.expectEqual(B.b, nameCast(B, .b));
-    testing.expectEqual(B.b, nameCast(B, A.b));
-    testing.expectEqual(B.b, nameCast(B, B.b));
-    testing.expectEqual(B.b, nameCast(B, "b"));
+    try testing.expectEqual(B.b, nameCast(B, .b));
+    try testing.expectEqual(B.b, nameCast(B, A.b));
+    try testing.expectEqual(B.b, nameCast(B, B.b));
+    try testing.expectEqual(B.b, nameCast(B, "b"));
 }
 
 /// A set of enum elements, backed by a bitfield.  If the enum
@@ -791,62 +791,62 @@ test "std.enums.EnumIndexer dense zeroed" {
     const E = enum(u2) { b = 1, a = 0, c = 2 };
     const Indexer = EnumIndexer(E);
     ensureIndexer(Indexer);
-    testing.expectEqual(E, Indexer.Key);
-    testing.expectEqual(@as(usize, 3), Indexer.count);
+    try testing.expectEqual(E, Indexer.Key);
+    try testing.expectEqual(@as(usize, 3), Indexer.count);
 
-    testing.expectEqual(@as(usize, 0), Indexer.indexOf(.a));
-    testing.expectEqual(@as(usize, 1), Indexer.indexOf(.b));
-    testing.expectEqual(@as(usize, 2), Indexer.indexOf(.c));
+    try testing.expectEqual(@as(usize, 0), Indexer.indexOf(.a));
+    try testing.expectEqual(@as(usize, 1), Indexer.indexOf(.b));
+    try testing.expectEqual(@as(usize, 2), Indexer.indexOf(.c));
 
-    testing.expectEqual(E.a, Indexer.keyForIndex(0));
-    testing.expectEqual(E.b, Indexer.keyForIndex(1));
-    testing.expectEqual(E.c, Indexer.keyForIndex(2));
+    try testing.expectEqual(E.a, Indexer.keyForIndex(0));
+    try testing.expectEqual(E.b, Indexer.keyForIndex(1));
+    try testing.expectEqual(E.c, Indexer.keyForIndex(2));
 }
 
 test "std.enums.EnumIndexer dense positive" {
     const E = enum(u4) { c = 6, a = 4, b = 5 };
     const Indexer = EnumIndexer(E);
     ensureIndexer(Indexer);
-    testing.expectEqual(E, Indexer.Key);
-    testing.expectEqual(@as(usize, 3), Indexer.count);
+    try testing.expectEqual(E, Indexer.Key);
+    try testing.expectEqual(@as(usize, 3), Indexer.count);
 
-    testing.expectEqual(@as(usize, 0), Indexer.indexOf(.a));
-    testing.expectEqual(@as(usize, 1), Indexer.indexOf(.b));
-    testing.expectEqual(@as(usize, 2), Indexer.indexOf(.c));
+    try testing.expectEqual(@as(usize, 0), Indexer.indexOf(.a));
+    try testing.expectEqual(@as(usize, 1), Indexer.indexOf(.b));
+    try testing.expectEqual(@as(usize, 2), Indexer.indexOf(.c));
 
-    testing.expectEqual(E.a, Indexer.keyForIndex(0));
-    testing.expectEqual(E.b, Indexer.keyForIndex(1));
-    testing.expectEqual(E.c, Indexer.keyForIndex(2));
+    try testing.expectEqual(E.a, Indexer.keyForIndex(0));
+    try testing.expectEqual(E.b, Indexer.keyForIndex(1));
+    try testing.expectEqual(E.c, Indexer.keyForIndex(2));
 }
 
 test "std.enums.EnumIndexer dense negative" {
     const E = enum(i4) { a = -6, c = -4, b = -5 };
     const Indexer = EnumIndexer(E);
     ensureIndexer(Indexer);
-    testing.expectEqual(E, Indexer.Key);
-    testing.expectEqual(@as(usize, 3), Indexer.count);
+    try testing.expectEqual(E, Indexer.Key);
+    try testing.expectEqual(@as(usize, 3), Indexer.count);
 
-    testing.expectEqual(@as(usize, 0), Indexer.indexOf(.a));
-    testing.expectEqual(@as(usize, 1), Indexer.indexOf(.b));
-    testing.expectEqual(@as(usize, 2), Indexer.indexOf(.c));
+    try testing.expectEqual(@as(usize, 0), Indexer.indexOf(.a));
+    try testing.expectEqual(@as(usize, 1), Indexer.indexOf(.b));
+    try testing.expectEqual(@as(usize, 2), Indexer.indexOf(.c));
 
-    testing.expectEqual(E.a, Indexer.keyForIndex(0));
-    testing.expectEqual(E.b, Indexer.keyForIndex(1));
-    testing.expectEqual(E.c, Indexer.keyForIndex(2));
+    try testing.expectEqual(E.a, Indexer.keyForIndex(0));
+    try testing.expectEqual(E.b, Indexer.keyForIndex(1));
+    try testing.expectEqual(E.c, Indexer.keyForIndex(2));
 }
 
 test "std.enums.EnumIndexer sparse" {
     const E = enum(i4) { a = -2, c = 6, b = 4 };
     const Indexer = EnumIndexer(E);
     ensureIndexer(Indexer);
-    testing.expectEqual(E, Indexer.Key);
-    testing.expectEqual(@as(usize, 3), Indexer.count);
+    try testing.expectEqual(E, Indexer.Key);
+    try testing.expectEqual(@as(usize, 3), Indexer.count);
 
-    testing.expectEqual(@as(usize, 0), Indexer.indexOf(.a));
-    testing.expectEqual(@as(usize, 1), Indexer.indexOf(.b));
-    testing.expectEqual(@as(usize, 2), Indexer.indexOf(.c));
+    try testing.expectEqual(@as(usize, 0), Indexer.indexOf(.a));
+    try testing.expectEqual(@as(usize, 1), Indexer.indexOf(.b));
+    try testing.expectEqual(@as(usize, 2), Indexer.indexOf(.c));
 
-    testing.expectEqual(E.a, Indexer.keyForIndex(0));
-    testing.expectEqual(E.b, Indexer.keyForIndex(1));
-    testing.expectEqual(E.c, Indexer.keyForIndex(2));
+    try testing.expectEqual(E.a, Indexer.keyForIndex(0));
+    try testing.expectEqual(E.b, Indexer.keyForIndex(1));
+    try testing.expectEqual(E.c, Indexer.keyForIndex(2));
 }

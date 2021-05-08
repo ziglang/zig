@@ -7,13 +7,13 @@ fn ctz(x: anytype) usize {
 }
 
 test "fixed" {
-    testClz();
-    comptime testClz();
+    try testClz();
+    comptime try testClz();
 }
 
-fn testClz() void {
-    expect(ctz(@as(u128, 0x40000000000000000000000000000000)) == 126);
-    expect(math.rotl(u128, @as(u128, 0x40000000000000000000000000000000), @as(u8, 1)) == @as(u128, 0x80000000000000000000000000000000));
-    expect(ctz(@as(u128, 0x80000000000000000000000000000000)) == 127);
-    expect(ctz(math.rotl(u128, @as(u128, 0x40000000000000000000000000000000), @as(u8, 1))) == 127);
+fn testClz() !void {
+    try expect(ctz(@as(u128, 0x40000000000000000000000000000000)) == 126);
+    try expect(math.rotl(u128, @as(u128, 0x40000000000000000000000000000000), @as(u8, 1)) == @as(u128, 0x80000000000000000000000000000000));
+    try expect(ctz(@as(u128, 0x80000000000000000000000000000000)) == 127);
+    try expect(ctz(math.rotl(u128, @as(u128, 0x40000000000000000000000000000000), @as(u8, 1))) == 127);
 }

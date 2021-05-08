@@ -84,14 +84,14 @@ fn scalbn64(x: f64, n_: i32) f64 {
 }
 
 test "math.scalbn" {
-    expect(scalbn(@as(f32, 1.5), 4) == scalbn32(1.5, 4));
-    expect(scalbn(@as(f64, 1.5), 4) == scalbn64(1.5, 4));
+    try expect(scalbn(@as(f32, 1.5), 4) == scalbn32(1.5, 4));
+    try expect(scalbn(@as(f64, 1.5), 4) == scalbn64(1.5, 4));
 }
 
 test "math.scalbn32" {
-    expect(scalbn32(1.5, 4) == 24.0);
+    try expect(scalbn32(1.5, 4) == 24.0);
 }
 
 test "math.scalbn64" {
-    expect(scalbn64(1.5, 4) == 24.0);
+    try expect(scalbn64(1.5, 4) == 24.0);
 }

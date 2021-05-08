@@ -92,7 +92,7 @@ test "x25519 public key calculation from secret key" {
     _ = try fmt.hexToBytes(sk[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     _ = try fmt.hexToBytes(pk_expected[0..], "f1814f0e8ff1043d8a44d25babff3cedcae6c22c3edaa48f857ae70de2baae50");
     const pk_calculated = try X25519.recoverPublicKey(sk);
-    std.testing.expectEqual(pk_calculated, pk_expected);
+    try std.testing.expectEqual(pk_calculated, pk_expected);
 }
 
 test "x25519 rfc7748 vector1" {
@@ -102,7 +102,7 @@ test "x25519 rfc7748 vector1" {
     const expected_output = [32]u8{ 0xc3, 0xda, 0x55, 0x37, 0x9d, 0xe9, 0xc6, 0x90, 0x8e, 0x94, 0xea, 0x4d, 0xf2, 0x8d, 0x08, 0x4f, 0x32, 0xec, 0xcf, 0x03, 0x49, 0x1c, 0x71, 0xf7, 0x54, 0xb4, 0x07, 0x55, 0x77, 0xa2, 0x85, 0x52 };
 
     const output = try X25519.scalarmult(secret_key, public_key);
-    std.testing.expectEqual(output, expected_output);
+    try std.testing.expectEqual(output, expected_output);
 }
 
 test "x25519 rfc7748 vector2" {
@@ -112,7 +112,7 @@ test "x25519 rfc7748 vector2" {
     const expected_output = [32]u8{ 0x95, 0xcb, 0xde, 0x94, 0x76, 0xe8, 0x90, 0x7d, 0x7a, 0xad, 0xe4, 0x5c, 0xb4, 0xb8, 0x73, 0xf8, 0x8b, 0x59, 0x5a, 0x68, 0x79, 0x9f, 0xa1, 0x52, 0xe6, 0xf8, 0xf7, 0x64, 0x7a, 0xac, 0x79, 0x57 };
 
     const output = try X25519.scalarmult(secret_key, public_key);
-    std.testing.expectEqual(output, expected_output);
+    try std.testing.expectEqual(output, expected_output);
 }
 
 test "x25519 rfc7748 one iteration" {
@@ -129,7 +129,7 @@ test "x25519 rfc7748 one iteration" {
         mem.copy(u8, k[0..], output[0..]);
     }
 
-    std.testing.expectEqual(k, expected_output);
+    try std.testing.expectEqual(k, expected_output);
 }
 
 test "x25519 rfc7748 1,000 iterations" {
@@ -151,7 +151,7 @@ test "x25519 rfc7748 1,000 iterations" {
         mem.copy(u8, k[0..], output[0..]);
     }
 
-    std.testing.expectEqual(k, expected_output);
+    try std.testing.expectEqual(k, expected_output);
 }
 
 test "x25519 rfc7748 1,000,000 iterations" {
@@ -172,12 +172,12 @@ test "x25519 rfc7748 1,000,000 iterations" {
         mem.copy(u8, k[0..], output[0..]);
     }
 
-    std.testing.expectEqual(k[0..], expected_output);
+    try std.testing.expectEqual(k[0..], expected_output);
 }
 
 test "edwards25519 -> curve25519 map" {
     const ed_kp = try crypto.sign.Ed25519.KeyPair.create([_]u8{0x42} ** 32);
     const mont_kp = try X25519.KeyPair.fromEd25519(ed_kp);
-    htest.assertEqual("90e7595fc89e52fdfddce9c6a43d74dbf6047025ee0462d2d172e8b6a2841d6e", &mont_kp.secret_key);
-    htest.assertEqual("cc4f2cdb695dd766f34118eb67b98652fed1d8bc49c330b119bbfa8a64989378", &mont_kp.public_key);
+    try htest.assertEqual("90e7595fc89e52fdfddce9c6a43d74dbf6047025ee0462d2d172e8b6a2841d6e", &mont_kp.secret_key);
+    try htest.assertEqual("cc4f2cdb695dd766f34118eb67b98652fed1d8bc49c330b119bbfa8a64989378", &mont_kp.public_key);
 }

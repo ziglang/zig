@@ -168,7 +168,7 @@ test "RFC 6070 one iteration" {
 
     const expected = "0c60c80f961f0e71f3a9b524af6012062fe037a6";
 
-    htest.assertEqual(expected, dk[0..]);
+    try htest.assertEqual(expected, dk[0..]);
 }
 
 test "RFC 6070 two iterations" {
@@ -183,7 +183,7 @@ test "RFC 6070 two iterations" {
 
     const expected = "ea6c014dc72d6f8ccd1ed92ace1d41f0d8de8957";
 
-    htest.assertEqual(expected, dk[0..]);
+    try htest.assertEqual(expected, dk[0..]);
 }
 
 test "RFC 6070 4096 iterations" {
@@ -198,7 +198,7 @@ test "RFC 6070 4096 iterations" {
 
     const expected = "4b007901b765489abead49d926f721d065a429c1";
 
-    htest.assertEqual(expected, dk[0..]);
+    try htest.assertEqual(expected, dk[0..]);
 }
 
 test "RFC 6070 16,777,216 iterations" {
@@ -218,7 +218,7 @@ test "RFC 6070 16,777,216 iterations" {
 
     const expected = "eefe3d61cd4da4e4e9945b3d6ba2158c2634e984";
 
-    htest.assertEqual(expected, dk[0..]);
+    try htest.assertEqual(expected, dk[0..]);
 }
 
 test "RFC 6070 multi-block salt and password" {
@@ -233,7 +233,7 @@ test "RFC 6070 multi-block salt and password" {
 
     const expected = "3d2eec4fe41c849b80c8d83662c0e44a8b291a964cf2f07038";
 
-    htest.assertEqual(expected, dk[0..]);
+    try htest.assertEqual(expected, dk[0..]);
 }
 
 test "RFC 6070 embedded NUL" {
@@ -248,7 +248,7 @@ test "RFC 6070 embedded NUL" {
 
     const expected = "56fa6aa75548099dcc37d7f03425e0c3";
 
-    htest.assertEqual(expected, dk[0..]);
+    try htest.assertEqual(expected, dk[0..]);
 }
 
 test "Very large dk_len" {

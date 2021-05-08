@@ -308,7 +308,7 @@ fn SMHasherTest(comptime hash_fn: anytype, comptime hashbits: u32) u32 {
 }
 
 test "murmur2_32" {
-    testing.expectEqual(SMHasherTest(Murmur2_32.hashWithSeed, 32), 0x27864C1E);
+    try testing.expectEqual(SMHasherTest(Murmur2_32.hashWithSeed, 32), 0x27864C1E);
     var v0: u32 = 0x12345678;
     var v1: u64 = 0x1234567812345678;
     var v0le: u32 = v0;
@@ -317,12 +317,12 @@ test "murmur2_32" {
         v0le = @byteSwap(u32, v0le);
         v1le = @byteSwap(u64, v1le);
     }
-    testing.expectEqual(Murmur2_32.hash(@ptrCast([*]u8, &v0le)[0..4]), Murmur2_32.hashUint32(v0));
-    testing.expectEqual(Murmur2_32.hash(@ptrCast([*]u8, &v1le)[0..8]), Murmur2_32.hashUint64(v1));
+    try testing.expectEqual(Murmur2_32.hash(@ptrCast([*]u8, &v0le)[0..4]), Murmur2_32.hashUint32(v0));
+    try testing.expectEqual(Murmur2_32.hash(@ptrCast([*]u8, &v1le)[0..8]), Murmur2_32.hashUint64(v1));
 }
 
 test "murmur2_64" {
-    std.testing.expectEqual(SMHasherTest(Murmur2_64.hashWithSeed, 64), 0x1F0D3804);
+    try std.testing.expectEqual(SMHasherTest(Murmur2_64.hashWithSeed, 64), 0x1F0D3804);
     var v0: u32 = 0x12345678;
     var v1: u64 = 0x1234567812345678;
     var v0le: u32 = v0;
@@ -331,12 +331,12 @@ test "murmur2_64" {
         v0le = @byteSwap(u32, v0le);
         v1le = @byteSwap(u64, v1le);
     }
-    testing.expectEqual(Murmur2_64.hash(@ptrCast([*]u8, &v0le)[0..4]), Murmur2_64.hashUint32(v0));
-    testing.expectEqual(Murmur2_64.hash(@ptrCast([*]u8, &v1le)[0..8]), Murmur2_64.hashUint64(v1));
+    try testing.expectEqual(Murmur2_64.hash(@ptrCast([*]u8, &v0le)[0..4]), Murmur2_64.hashUint32(v0));
+    try testing.expectEqual(Murmur2_64.hash(@ptrCast([*]u8, &v1le)[0..8]), Murmur2_64.hashUint64(v1));
 }
 
 test "murmur3_32" {
-    std.testing.expectEqual(SMHasherTest(Murmur3_32.hashWithSeed, 32), 0xB0F57EE3);
+    try std.testing.expectEqual(SMHasherTest(Murmur3_32.hashWithSeed, 32), 0xB0F57EE3);
     var v0: u32 = 0x12345678;
     var v1: u64 = 0x1234567812345678;
     var v0le: u32 = v0;
@@ -345,6 +345,6 @@ test "murmur3_32" {
         v0le = @byteSwap(u32, v0le);
         v1le = @byteSwap(u64, v1le);
     }
-    testing.expectEqual(Murmur3_32.hash(@ptrCast([*]u8, &v0le)[0..4]), Murmur3_32.hashUint32(v0));
-    testing.expectEqual(Murmur3_32.hash(@ptrCast([*]u8, &v1le)[0..8]), Murmur3_32.hashUint64(v1));
+    try testing.expectEqual(Murmur3_32.hash(@ptrCast([*]u8, &v0le)[0..4]), Murmur3_32.hashUint32(v0));
+    try testing.expectEqual(Murmur3_32.hash(@ptrCast([*]u8, &v1le)[0..8]), Murmur3_32.hashUint64(v1));
 }
