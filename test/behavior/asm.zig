@@ -87,6 +87,21 @@ test "sized integer/float in asm input" {
     );
 }
 
+test "struct/array/union types as input values" {
+    asm volatile (""
+        :
+        : [_] "m" (@as([1]u32, undefined))
+    ); // fails
+    asm volatile (""
+        :
+        : [_] "m" (@as(struct { x: u32, y: u8 }, undefined))
+    ); // fails
+    asm volatile (""
+        :
+        : [_] "m" (@as(union { x: u32, y: u8 }, undefined))
+    ); // fails
+}
+
 extern fn this_is_my_alias() i32;
 
 export fn derp() i32 {

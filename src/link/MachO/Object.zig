@@ -22,7 +22,7 @@ arch: ?std.Target.Cpu.Arch = null,
 header: ?macho.mach_header_64 = null,
 file: ?fs.File = null,
 file_offset: ?u32 = null,
-name: ?[]u8 = null,
+name: ?[]const u8 = null,
 
 load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 sections: std.ArrayListUnmanaged(Section) = .{},
@@ -343,14 +343,22 @@ pub fn parseSymbols(self: *Object) !void {
     _ = try self.file.?.preadAll(strtab, symtab_cmd.stroff);
 
     for (slice) |sym| {
+        const sym_name = mem.spanZ(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx));
+
         if (Symbol.isStab(sym)) {
-            log.err("TODO handle stabs embedded within object files", .{});
-            return error.HandleStabsInObjects;
+            log.err("stab {s} in {s}", .{ sym_name, self.name.? });
+            return error.UnhandledSymbolType;
+        }
+        if (Symbol.isIndr(sym)) {
+            log.err("indirect symbol {s} in {s}", .{ sym_name, self.name.? });
+            return error.UnhandledSymbolType;
+        }
+        if (Symbol.isAbs(sym)) {
+            log.err("absolute symbol {s} in {s}", .{ sym_name, self.name.? });
+            return error.UnhandledSymbolType;
         }
 
-        const sym_name = mem.spanZ(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx));
         const name = try self.allocator.dupe(u8, sym_name);
-
         const symbol: *Symbol = symbol: {
             if (Symbol.isSect(sym)) {
                 const linkage: Symbol.Regular.Linkage = linkage: {
@@ -372,6 +380,14 @@ pub fn parseSymbols(self: *Object) !void {
                     .file = self,
                 };
                 break :symbol &regular.base;
+            }
+
+            if (sym.n_value != 0) {
+                log.err("common symbol {s} in {s}", .{ sym_name, self.name.? });
+                return error.UnhandledSymbolType;
+                // const comm_size = sym.n_value;
+                // const comm_align = (sym.n_desc >> 8) & 0x0f;
+                // log.warn("Common symbol: size 0x{x}, align 0x{x}", .{ comm_size, comm_align });
             }
 
             const undef = try self.allocator.create(Symbol.Unresolved);

@@ -16,7 +16,7 @@ allocator: *Allocator,
 arch: ?std.Target.Cpu.Arch = null,
 file: ?fs.File = null,
 header: ?ar_hdr = null,
-name: ?[]u8 = null,
+name: ?[]const u8 = null,
 
 /// Parsed table of contents.
 /// Each symbol name points to a list of all definition
@@ -195,7 +195,7 @@ fn parseTableOfContents(self: *Archive, reader: anytype) !void {
 }
 
 /// Caller owns the Object instance.
-pub fn parseObject(self: Archive, offset: u32) !Object {
+pub fn parseObject(self: Archive, offset: u32) !*Object {
     var reader = self.file.?.reader();
     try reader.context.seekTo(offset);
 
@@ -217,7 +217,10 @@ pub fn parseObject(self: Archive, offset: u32) !Object {
         break :name try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ path, object_name });
     };
 
-    var object = Object.init(self.allocator);
+    var object = try self.allocator.create(Object);
+    errdefer self.allocator.destroy(object);
+
+    object.* = Object.init(self.allocator);
     object.arch = self.arch.?;
     object.file = try fs.cwd().openFile(self.name.?, .{});
     object.name = name;

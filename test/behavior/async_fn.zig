@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
@@ -110,6 +110,9 @@ test "calling an inferred async function" {
 }
 
 test "@frameSize" {
+    if (builtin.target.cpu.arch == .thumb or builtin.target.cpu.arch == .thumbeb)
+        return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() void {
             {

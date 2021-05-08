@@ -25,7 +25,7 @@ pub const Branch = struct {
         log.debug("    | displacement 0x{x}", .{displacement});
 
         var inst = branch.inst;
-        inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement) >> 2);
+        inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement >> 2));
         mem.writeIntLittle(u32, branch.base.code[0..4], inst.toU32());
     }
 };
