@@ -149,10 +149,10 @@ pub const Socket = struct {
     /// Accept a pending incoming connection queued to the kernel backlog
     /// of the socket.
     pub fn accept(self: Socket, flags: u32) !Socket.Connection {
-        var address: ws2_32.sockaddr = undefined;
-        var address_len: c_int = @sizeOf(ws2_32.sockaddr);
+        var address: ws2_32.sockaddr_storage = undefined;
+        var address_len: c_int = @sizeOf(ws2_32.sockaddr_storage);
 
-        const rc = ws2_32.accept(self.fd, &address, &address_len);
+        const rc = ws2_32.accept(self.fd, @ptrCast(*ws2_32.sockaddr, &address), &address_len);
         if (rc == ws2_32.INVALID_SOCKET) {
             return switch (ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
@@ -169,7 +169,7 @@ pub const Socket = struct {
         }
 
         const socket = Socket.from(rc);
-        const socket_address = Socket.Address.fromNative(@alignCast(4, &address));
+        const socket_address = Socket.Address.fromNative(@alignCast(4, @ptrCast(*ws2_32.sockaddr, &address)));
 
         return Socket.Connection.from(socket, socket_address);
     }

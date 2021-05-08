@@ -55,11 +55,11 @@ pub const Socket = struct {
     /// Accept a pending incoming connection queued to the kernel backlog
     /// of the socket.
     pub fn accept(self: Socket, flags: u32) !Socket.Connection {
-        var address: os.sockaddr = undefined;
-        var address_len: u32 = @sizeOf(os.sockaddr);
+        var address: os.sockaddr_storage = undefined;
+        var address_len: u32 = @sizeOf(os.sockaddr_storage);
 
-        const socket = Socket{ .fd = try os.accept(self.fd, &address, &address_len, flags) };
-        const socket_address = Socket.Address.fromNative(@alignCast(4, &address));
+        const socket = Socket{ .fd = try os.accept(self.fd, @ptrCast(*os.sockaddr, &address), &address_len, flags) };
+        const socket_address = Socket.Address.fromNative(@alignCast(4, @ptrCast(*os.sockaddr, &address)));
 
         return Socket.Connection.from(socket, socket_address);
     }
