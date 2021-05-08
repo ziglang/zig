@@ -1404,7 +1404,7 @@ pub const Type = extern union {
                     if (!field_ty.hasCodeGenBits()) continue;
                     const field_align = field_ty.abiAlignment(target);
                     if (field_align > biggest) {
-                        return field_align;
+                        biggest = field_align;
                     }
                 }
                 assert(biggest != 0);
@@ -1418,7 +1418,7 @@ pub const Type = extern union {
                     if (!field_ty.hasCodeGenBits()) continue;
                     const field_align = field_ty.abiAlignment(target);
                     if (field_align > biggest) {
-                        return field_align;
+                        biggest = field_align;
                     }
                 }
                 assert(biggest != 0);
