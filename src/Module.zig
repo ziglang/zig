@@ -75,8 +75,6 @@ failed_files: std.AutoArrayHashMapUnmanaged(*Scope.File, ?*ErrorMsg) = .{},
 /// The ErrorMsg memory is owned by the `Export`, using Module's general purpose allocator.
 failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
 
-next_anon_name_index: usize = 0,
-
 /// Candidates for deletion. After a semantic analysis update completes, this list
 /// contains Decls that need to be deleted if they end up having no references to them.
 deletion_set: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
@@ -912,9 +910,22 @@ pub const Scope = struct {
             _ = ns.decls.orderedRemove(mem.spanZ(child.name));
         }
 
-        pub fn renderFullyQualifiedName(ns: Namespace, name: []const u8, writer: anytype) !void {
-            // TODO this should render e.g. "std.fs.Dir.OpenOptions"
-            return writer.writeAll(name);
+        // This renders e.g. "std.fs.Dir.OpenOptions"
+        pub fn renderFullyQualifiedName(
+            ns: Namespace,
+            name: []const u8,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            if (ns.parent) |parent| {
+                const decl = ns.getDecl();
+                try parent.renderFullyQualifiedName(mem.spanZ(decl.name), writer);
+            } else {
+                try ns.file_scope.renderFullyQualifiedName(writer);
+            }
+            if (name.len != 0) {
+                try writer.writeAll(".");
+                try writer.writeAll(name);
+            }
         }
 
         pub fn getDecl(ns: Namespace) *Decl {
@@ -1054,16 +1065,21 @@ pub const Scope = struct {
             gpa.destroy(file);
         }
 
-        pub fn fullyQualifiedNameZ(file: File, gpa: *Allocator) ![:0]u8 {
+        pub fn renderFullyQualifiedName(file: File, writer: anytype) !void {
             // Convert all the slashes into dots and truncate the extension.
             const ext = std.fs.path.extension(file.sub_file_path);
             const noext = file.sub_file_path[0 .. file.sub_file_path.len - ext.len];
-            const duped = try gpa.dupeZ(u8, noext);
-            for (duped) |*byte| switch (byte.*) {
-                '/', '\\' => byte.* = '.',
-                else => continue,
+            for (noext) |byte| switch (byte) {
+                '/', '\\' => try writer.writeByte('.'),
+                else => try writer.writeByte(byte),
             };
-            return duped;
+        }
+
+        pub fn fullyQualifiedNameZ(file: File, gpa: *Allocator) ![:0]u8 {
+            var buf = std.ArrayList(u8).init(gpa);
+            defer buf.deinit();
+            try file.renderFullyQualifiedName(buf.writer());
+            return buf.toOwnedSliceSentinel(0);
         }
 
         pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
@@ -3723,17 +3739,34 @@ pub fn constIntBig(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, b
 }
 
 pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
-    const name_index = mod.getNextAnonNameIndex();
     const scope_decl = scope.ownerDecl().?;
     const namespace = scope_decl.namespace;
-    try namespace.decls.ensureCapacity(mod.gpa, namespace.decls.count() + 1);
-    const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{ scope_decl.name, name_index });
-    errdefer mod.gpa.free(name);
-    const new_decl = try mod.allocateNewDecl(namespace, scope_decl.src_node);
-    namespace.decls.putAssumeCapacityNoClobber(name, new_decl);
+    try namespace.decls.ensureUnusedCapacity(mod.gpa, 1);
+
+    // Find a unique name for the anon decl.
+    var name_buf = std.ArrayList(u8).init(mod.gpa);
+    defer name_buf.deinit();
+
+    try name_buf.appendSlice(mem.spanZ(scope_decl.name));
+    var name_index: usize = namespace.decls.count();
+
+    const new_decl = while (true) {
+        const gop = namespace.decls.getOrPutAssumeCapacity(name_buf.items);
+        if (!gop.found_existing) {
+            const name = try name_buf.toOwnedSliceSentinel(0);
+            const new_decl = try mod.allocateNewDecl(namespace, scope_decl.src_node);
+            new_decl.name = name;
+            gop.entry.key = name;
+            gop.entry.value = new_decl;
+            break gop.entry.value;
+        }
+
+        name_buf.clearRetainingCapacity();
+        try name_buf.writer().print("{s}__anon_{d}", .{ scope_decl.name, name_index });
+        name_index += 1;
+    } else unreachable; // TODO should not need else unreachable on while(true)
 
     new_decl.src_line = scope_decl.src_line;
-    new_decl.name = name;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
     new_decl.has_tv = true;
@@ -3749,10 +3782,6 @@ pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue)
     }
 
     return new_decl;
-}
-
-fn getNextAnonNameIndex(mod: *Module) usize {
-    return @atomicRmw(usize, &mod.next_anon_name_index, .Add, 1, .Monotonic);
 }
 
 /// This looks up a bare identifier in the given scope. This will walk up the tree of namespaces
