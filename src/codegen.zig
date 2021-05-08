@@ -928,7 +928,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // TODO separate architectures with registers from
                     // stack-based architectures (spu_2)
                     if (callee_preserved_regs.len > 0) {
-                        if (self.register_manager.tryAllocReg(inst)) |reg| {
+                        if (self.register_manager.tryAllocReg(inst, &.{})) |reg| {
                             return MCValue{ .register = registerAlias(reg, abi_size) };
                         }
                     }
@@ -940,6 +940,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         pub fn spillInstruction(self: *Self, src: LazySrcLoc, reg: Register, inst: *ir.Inst) !void {
             const stack_mcv = try self.allocRegOrMem(inst, false);
+            log.debug("spilling {*} to stack mcv {any}", .{ inst, stack_mcv });
             const reg_mcv = self.getResolvedInstValue(inst);
             assert(reg == toCanonicalReg(reg_mcv.register));
             const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -951,7 +952,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// allocated. A second call to `copyToTmpRegister` may return the same register.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
         fn copyToTmpRegister(self: *Self, src: LazySrcLoc, ty: Type, mcv: MCValue) !Register {
-            const reg = try self.register_manager.allocRegWithoutTracking();
+            const reg = try self.register_manager.allocRegWithoutTracking(&.{});
             try self.genSetReg(src, ty, reg, mcv);
             return reg;
         }
@@ -960,7 +961,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// `reg_owner` is the instruction that gets associated with the register in the register table.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
         fn copyToNewRegister(self: *Self, reg_owner: *ir.Inst, mcv: MCValue) !MCValue {
-            const reg = try self.register_manager.allocReg(reg_owner);
+            const reg = try self.register_manager.allocReg(reg_owner, &.{});
             try self.genSetReg(reg_owner.src, reg_owner.ty, reg, mcv);
             return MCValue{ .register = reg };
         }
@@ -1380,54 +1381,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genArmBinOp(self: *Self, inst: *ir.Inst, op_lhs: *ir.Inst, op_rhs: *ir.Inst, op: ir.Inst.Tag) !MCValue {
-            const lhs = try self.resolveInst(op_lhs);
-            const rhs = try self.resolveInst(op_rhs);
-
-            // Destination must be a register
-            var dst_mcv: MCValue = undefined;
-            var lhs_mcv: MCValue = undefined;
-            var rhs_mcv: MCValue = undefined;
-            if (self.reuseOperand(inst, 0, lhs)) {
-                // LHS is the destination
-                // RHS is the source
-                lhs_mcv = if (lhs != .register) try self.copyToNewRegister(inst, lhs) else lhs;
-                rhs_mcv = rhs;
-                dst_mcv = lhs_mcv;
-            } else if (self.reuseOperand(inst, 1, rhs)) {
-                // RHS is the destination
-                // LHS is the source
-                lhs_mcv = lhs;
-                rhs_mcv = if (rhs != .register) try self.copyToNewRegister(inst, rhs) else rhs;
-                dst_mcv = rhs_mcv;
-            } else {
-                // TODO save 1 copy instruction by directly allocating the destination register
-                // LHS is the destination
-                // RHS is the source
-                lhs_mcv = try self.copyToNewRegister(inst, lhs);
-                rhs_mcv = rhs;
-                dst_mcv = lhs_mcv;
-            }
-
-            try self.genArmBinOpCode(inst.src, dst_mcv.register, lhs_mcv, rhs_mcv, op);
-            return dst_mcv;
-        }
-
-        fn genArmBinOpCode(
-            self: *Self,
-            src: LazySrcLoc,
-            dst_reg: Register,
-            lhs_mcv: MCValue,
-            rhs_mcv: MCValue,
-            op: ir.Inst.Tag,
-        ) !void {
-            assert(lhs_mcv == .register or lhs_mcv == .register);
-
-            const swap_lhs_and_rhs = rhs_mcv == .register and lhs_mcv != .register;
-            const op1 = if (swap_lhs_and_rhs) rhs_mcv.register else lhs_mcv.register;
-            const op2 = if (swap_lhs_and_rhs) lhs_mcv else rhs_mcv;
-
-            const operand = switch (op2) {
+        fn armOperandShouldBeRegister(self: *Self, src: LazySrcLoc, mcv: MCValue) !bool {
+            return switch (mcv) {
                 .none => unreachable,
                 .undef => unreachable,
                 .dead, .unreach => unreachable,
@@ -1439,15 +1394,142 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     if (imm > std.math.maxInt(u32)) return self.fail(src, "TODO ARM binary arithmetic immediate larger than u32", .{});
 
                     // Load immediate into register if it doesn't fit
-                    // as an operand
-                    break :blk Instruction.Operand.fromU32(@intCast(u32, imm)) orelse
-                        Instruction.Operand.reg(try self.copyToTmpRegister(src, Type.initTag(.u32), op2), Instruction.Operand.Shift.none);
+                    // in an operand
+                    break :blk Instruction.Operand.fromU32(@intCast(u32, imm)) == null;
                 },
+                .register => true,
+                .stack_offset,
+                .embedded_in_code,
+                .memory,
+                => true,
+            };
+        }
+
+        fn genArmBinOp(self: *Self, inst: *ir.Inst, op_lhs: *ir.Inst, op_rhs: *ir.Inst, op: ir.Inst.Tag) !MCValue {
+            const lhs = try self.resolveInst(op_lhs);
+            const rhs = try self.resolveInst(op_rhs);
+
+            const lhs_is_register = lhs == .register;
+            const rhs_is_register = rhs == .register;
+            const lhs_should_be_register = try self.armOperandShouldBeRegister(op_lhs.src, lhs);
+            const rhs_should_be_register = try self.armOperandShouldBeRegister(op_rhs.src, rhs);
+            const reuse_lhs = lhs_is_register and self.reuseOperand(inst, 0, lhs);
+            const reuse_rhs = !reuse_lhs and rhs_is_register and self.reuseOperand(inst, 1, rhs);
+
+            // Destination must be a register
+            var dst_mcv: MCValue = undefined;
+            var lhs_mcv = lhs;
+            var rhs_mcv = rhs;
+            var swap_lhs_and_rhs = false;
+
+            // Allocate registers for operands and/or destination
+            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+            if (reuse_lhs) {
+                // Allocate 0 or 1 registers
+                if (!rhs_is_register and rhs_should_be_register) {
+                    rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(op_rhs, &.{lhs.register}) };
+                    branch.inst_table.putAssumeCapacity(op_rhs, rhs_mcv);
+                }
+                dst_mcv = lhs;
+            } else if (reuse_rhs) {
+                // Allocate 0 or 1 registers
+                if (!lhs_is_register and lhs_should_be_register) {
+                    lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(op_lhs, &.{rhs.register}) };
+                    branch.inst_table.putAssumeCapacity(op_lhs, lhs_mcv);
+                }
+                dst_mcv = rhs;
+
+                swap_lhs_and_rhs = true;
+            } else {
+                // Allocate 1 or 2 registers
+                if (lhs_should_be_register and rhs_should_be_register) {
+                    if (lhs_is_register and rhs_is_register) {
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{ lhs.register, rhs.register }) };
+                    } else if (lhs_is_register) {
+                        // Move RHS to register
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{lhs.register}) };
+                        rhs_mcv = dst_mcv;
+                    } else if (rhs_is_register) {
+                        // Move LHS to register
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{rhs.register}) };
+                        lhs_mcv = dst_mcv;
+                    } else {
+                        // Move LHS and RHS to register
+                        const regs = try self.register_manager.allocRegs(2, .{ inst, op_rhs }, &.{});
+                        lhs_mcv = MCValue{ .register = regs[0] };
+                        rhs_mcv = MCValue{ .register = regs[1] };
+                        dst_mcv = lhs_mcv;
+
+                        branch.inst_table.putAssumeCapacity(op_rhs, rhs_mcv);
+                    }
+                } else if (lhs_should_be_register) {
+                    // RHS is immediate
+                    if (lhs_is_register) {
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{lhs.register}) };
+                    } else {
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
+                        lhs_mcv = dst_mcv;
+                    }
+                } else if (rhs_should_be_register) {
+                    // LHS is immediate
+                    if (rhs_is_register) {
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{rhs.register}) };
+                    } else {
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
+                        rhs_mcv = dst_mcv;
+                    }
+
+                    swap_lhs_and_rhs = true;
+                } else unreachable; // binary operation on two immediates
+            }
+
+            // Move the operands to the newly allocated registers
+            if (lhs_mcv == .register and !lhs_is_register) {
+                try self.genSetReg(op_lhs.src, op_lhs.ty, lhs_mcv.register, lhs);
+            }
+            if (rhs_mcv == .register and !rhs_is_register) {
+                try self.genSetReg(op_rhs.src, op_rhs.ty, rhs_mcv.register, rhs);
+            }
+
+            try self.genArmBinOpCode(
+                inst.src,
+                dst_mcv.register,
+                lhs_mcv,
+                rhs_mcv,
+                swap_lhs_and_rhs,
+                op,
+            );
+            return dst_mcv;
+        }
+
+        fn genArmBinOpCode(
+            self: *Self,
+            src: LazySrcLoc,
+            dst_reg: Register,
+            lhs_mcv: MCValue,
+            rhs_mcv: MCValue,
+            swap_lhs_and_rhs: bool,
+            op: ir.Inst.Tag,
+        ) !void {
+            assert(lhs_mcv == .register or rhs_mcv == .register);
+
+            const op1 = if (swap_lhs_and_rhs) rhs_mcv.register else lhs_mcv.register;
+            const op2 = if (swap_lhs_and_rhs) lhs_mcv else rhs_mcv;
+
+            const operand = switch (op2) {
+                .none => unreachable,
+                .undef => unreachable,
+                .dead, .unreach => unreachable,
+                .compare_flags_unsigned => unreachable,
+                .compare_flags_signed => unreachable,
+                .ptr_stack_offset => unreachable,
+                .ptr_embedded_in_code => unreachable,
+                .immediate => |imm| Instruction.Operand.fromU32(@intCast(u32, imm)).?,
                 .register => |reg| Instruction.Operand.reg(reg, Instruction.Operand.Shift.none),
                 .stack_offset,
                 .embedded_in_code,
                 .memory,
-                => Instruction.Operand.reg(try self.copyToTmpRegister(src, Type.initTag(.u32), op2), Instruction.Operand.Shift.none),
+                => unreachable,
             };
 
             switch (op) {
@@ -2613,10 +2695,42 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     const lhs = try self.resolveInst(inst.lhs);
                     const rhs = try self.resolveInst(inst.rhs);
 
-                    const src_mcv = rhs;
-                    const dst_mcv = if (lhs != .register) try self.copyToNewRegister(inst.lhs, lhs) else lhs;
+                    const lhs_is_register = lhs == .register;
+                    const rhs_is_register = rhs == .register;
+                    // lhs should always be a register
+                    const rhs_should_be_register = try self.armOperandShouldBeRegister(inst.rhs.src, rhs);
 
-                    try self.genArmBinOpCode(inst.base.src, dst_mcv.register, dst_mcv, src_mcv, .cmp_eq);
+                    var lhs_mcv = lhs;
+                    var rhs_mcv = rhs;
+
+                    // Allocate registers
+                    if (rhs_should_be_register) {
+                        if (!lhs_is_register and !rhs_is_register) {
+                            const regs = try self.register_manager.allocRegs(2, .{ inst.rhs, inst.lhs }, &.{});
+                            lhs_mcv = MCValue{ .register = regs[0] };
+                            rhs_mcv = MCValue{ .register = regs[1] };
+                        } else if (!rhs_is_register) {
+                            rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(inst.rhs, &.{}) };
+                        }
+                    }
+                    if (!lhs_is_register) {
+                        lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(inst.lhs, &.{}) };
+                    }
+
+                    // Move the operands to the newly allocated registers
+                    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+                    if (lhs_mcv == .register and !lhs_is_register) {
+                        try self.genSetReg(inst.lhs.src, inst.lhs.ty, lhs_mcv.register, lhs);
+                        branch.inst_table.putAssumeCapacity(inst.lhs, lhs);
+                    }
+                    if (rhs_mcv == .register and !rhs_is_register) {
+                        try self.genSetReg(inst.rhs.src, inst.rhs.ty, rhs_mcv.register, rhs);
+                        branch.inst_table.putAssumeCapacity(inst.rhs, rhs);
+                    }
+
+                    // The destination register is not present in the cmp instruction
+                    try self.genArmBinOpCode(inst.base.src, undefined, lhs_mcv, rhs_mcv, false, .cmp_eq);
+
                     const info = inst.lhs.ty.intInfo(self.target.*);
                     return switch (info.signedness) {
                         .signed => MCValue{ .compare_flags_signed = op },
