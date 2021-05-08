@@ -1386,7 +1386,6 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index)
 fn zirSetEvalBranchQuota(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    try sema.requireFunctionBlock(block, src);
     const quota = try sema.resolveAlreadyCoercedInt(block, src, inst_data.operand, u32);
     if (sema.branch_quota < quota)
         sema.branch_quota = quota;
