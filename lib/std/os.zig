@@ -3217,6 +3217,35 @@ pub fn getsockname(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
     }
 }
 
+pub fn getpeername(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSockNameError!void {
+    if (builtin.os.tag == .windows) {
+        const rc = windows.getpeername(sock, addr, addrlen);
+        if (rc == windows.ws2_32.SOCKET_ERROR) {
+            switch (windows.ws2_32.WSAGetLastError()) {
+                .WSANOTINITIALISED => unreachable,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAEFAULT => unreachable, // addr or addrlen have invalid pointers or addrlen points to an incorrect value
+                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                .WSAEINVAL => return error.SocketNotBound,
+                else => |err| return windows.unexpectedWSAError(err),
+            }
+        }
+        return;
+    } else {
+        const rc = system.getpeername(sock, addr, addrlen);
+        switch (errno(rc)) {
+            0 => return,
+            else => |err| return unexpectedErrno(err),
+
+            EBADF => unreachable, // always a race condition
+            EFAULT => unreachable,
+            EINVAL => unreachable, // invalid parameters
+            ENOTSOCK => return error.FileDescriptorNotASocket,
+            ENOBUFS => return error.SystemResources,
+        }
+    }
+}
+
 pub const ConnectError = error{
     /// For UNIX domain sockets, which are identified by pathname: Write permission is denied on  the  socket
     /// file,  or  search  permission  is  denied  for  one of the directories in the path prefix.
