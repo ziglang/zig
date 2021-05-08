@@ -297,26 +297,47 @@ fn posixCallMainAndExit() noreturn {
             std.os.linux.tls.initStaticTLS();
         }
 
-        // TODO This is disabled because what should we do when linking libc and this code
-        // does not execute? And also it's causing a test failure in stack traces in release modes.
+        // Linux ignores the stack size from the ELF file, and instead always gives 8 MiB.
+        // Here we look for the stack size in our program headers and tell the kernel,
+        // no, seriously, give me that stack space, I wasn't joking.
+        {
+            var i: usize = 0;
+            var at_phnum: usize = undefined;
+            var at_phdr: usize = undefined;
+            while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
+                switch (auxv[i].a_type) {
+                    std.elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
+                    std.elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
+                    else => continue,
+                }
+            }
+            const phdrs = (@intToPtr([*]std.elf.Phdr, at_phdr))[0..at_phnum];
+            for (phdrs) |*phdr| {
+                switch (phdr.p_type) {
+                    std.elf.PT_GNU_STACK => {
+                        const wanted_stack_size = phdr.p_memsz;
+                        assert(wanted_stack_size % std.mem.page_size == 0);
 
-        //// Linux ignores the stack size from the ELF file, and instead always does 8 MiB. A further
-        //// problem is that it uses PROT_GROWSDOWN which prevents stores to addresses too far down
-        //// the stack and requires "probing". So here we allocate our own stack.
-        //const wanted_stack_size = gnu_stack_phdr.p_memsz;
-        //assert(wanted_stack_size % std.mem.page_size == 0);
-        //// Allocate an extra page as the guard page.
-        //const total_size = wanted_stack_size + std.mem.page_size;
-        //const new_stack = std.os.mmap(
-        //    null,
-        //    total_size,
-        //    std.os.PROT_READ | std.os.PROT_WRITE,
-        //    std.os.MAP_PRIVATE | std.os.MAP_ANONYMOUS,
-        //    -1,
-        //    0,
-        //) catch @panic("out of memory");
-        //std.os.mprotect(new_stack[0..std.mem.page_size], std.os.PROT_NONE) catch {};
-        //std.os.exit(@call(.{.stack = new_stack}, callMainWithArgs, .{argc, argv, envp}));
+                        std.os.setrlimit(.STACK, .{
+                            .cur = wanted_stack_size,
+                            .max = wanted_stack_size,
+                        }) catch {
+                            // If this is a debug build, it will be useful to find out
+                            // why this failed. If it is a release build, we allow the
+                            // stack overflow to cause a segmentation fault. Memory safety
+                            // is not compromised, however, depending on runtime state,
+                            // the application may crash due to provided stack space not
+                            // matching the known upper bound.
+                            if (builtin.mode == .Debug) {
+                                @panic("unable to increase stack size");
+                            }
+                        };
+                        break;
+                    },
+                    else => {},
+                }
+            }
+        }
     }
 
     std.os.exit(@call(.{ .modifier = .always_inline }, callMainWithArgs, .{ argc, argv, envp }));

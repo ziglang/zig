@@ -180,18 +180,6 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
 
     defer log_scopes.deinit(gpa);
 
-    if (@import("builtin").target.os.tag == .linux) {
-        // Linux does not respect the stack size specified in the ELF, so we
-        // have to do this at runtime. TODO move this code to start.zig using
-        // the GNU_STACK program header.
-        std.os.setrlimit(.STACK, .{
-            .cur = 16 * 1024 * 1024,
-            .max = 16 * 1024 * 1024,
-        }) catch |err| {
-            warn("unable to increase stack size to 16 MiB", .{});
-        };
-    }
-
     const cmd = args[1];
     const cmd_args = args[2..];
     if (mem.eql(u8, cmd, "build-exe")) {
