@@ -14,7 +14,7 @@ const CrossTarget = std.zig.CrossTarget;
 
 const zig_h = link.File.C.zig_h;
 
-const hr = "=" ** 40;
+const hr = "=" ** 80;
 
 test "self-hosted" {
     var ctx = TestContext.init();
@@ -541,6 +541,8 @@ pub const TestContext = struct {
         };
         defer std.testing.allocator.free(global_cache_directory.path.?);
 
+        var fail_count: usize = 0;
+
         for (self.cases.items) |case| {
             if (build_options.skip_non_native and case.target.getCpuArch() != std.Target.current.cpu.arch)
                 continue;
@@ -558,14 +560,21 @@ pub const TestContext = struct {
             progress.initial_delay_ns = 0;
             progress.refresh_rate_ns = 0;
 
-            try self.runOneCase(
+            self.runOneCase(
                 std.testing.allocator,
                 &prg_node,
                 case,
                 zig_lib_directory,
                 &thread_pool,
                 global_cache_directory,
-            );
+            ) catch |err| {
+                fail_count += 1;
+                std.debug.print("test '{s}' failed: {s}\n\n", .{ case.name, @errorName(err) });
+            };
+        }
+        if (fail_count != 0) {
+            std.debug.print("{d} tests failed\n", .{fail_count});
+            return error.TestFailed;
         }
     }
 
@@ -693,8 +702,7 @@ pub const TestContext = struct {
                         }
                     }
                     // TODO print generated C code
-                    std.debug.print("Test failed.\n", .{});
-                    std.process.exit(1);
+                    return error.UnexpectedCompileErrors;
                 }
             }
 
@@ -817,10 +825,8 @@ pub const TestContext = struct {
                     }
 
                     if (any_failed) {
-                        std.debug.print("\nTest case '{s}' failed, update_index={d}.\n", .{
-                            case.name, update_index,
-                        });
-                        std.process.exit(1);
+                        std.debug.print("\nupdate_index={d} ", .{update_index});
+                        return error.WrongCompileErrors;
                     }
                 },
                 .Execution => |expected_stdout| {
@@ -908,11 +914,11 @@ pub const TestContext = struct {
                             .cwd_dir = tmp.dir,
                             .cwd = tmp_dir_path,
                         }) catch |err| {
-                            std.debug.print("\nThe following command failed with {s}:\n", .{
-                                @errorName(err),
+                            std.debug.print("\nupdate_index={d} The following command failed with {s}:\n", .{
+                                update_index, @errorName(err),
                             });
                             dumpArgs(argv.items);
-                            return error.ZigTestFailed;
+                            return error.ChildProcessExecution;
                         };
                     };
                     var test_node = update_node.start("test", 0);
@@ -927,7 +933,7 @@ pub const TestContext = struct {
                                     exec_result.stderr, case.name, code,
                                 });
                                 dumpArgs(argv.items);
-                                return error.ZigTestFailed;
+                                return error.ChildProcessExecution;
                             }
                         },
                         else => {
@@ -935,7 +941,7 @@ pub const TestContext = struct {
                                 exec_result.stderr, case.name,
                             });
                             dumpArgs(argv.items);
-                            return error.ZigTestFailed;
+                            return error.ChildProcessExecution;
                         },
                     }
                     try std.testing.expectEqualStrings(expected_stdout, exec_result.stdout);
@@ -1016,26 +1022,26 @@ pub const TestContext = struct {
             while (try iterator.next()) |phdr| {
                 if (phdr.p_type != std.elf.PT_LOAD) {
                     std.debug.print("Encountered unexpected ELF program header: type {}\n", .{phdr.p_type});
-                    std.process.exit(1);
+                    return error.UnexpectedElfProgramHeader;
                 }
                 if (phdr.p_paddr != phdr.p_vaddr) {
                     std.debug.print("Physical address does not match virtual address in ELF header!\n", .{});
-                    std.process.exit(1);
+                    return error.PhysicalAddressMismatchVirt;
                 }
                 if (phdr.p_filesz != phdr.p_memsz) {
                     std.debug.print("Physical size does not match virtual size in ELF header!\n", .{});
-                    std.process.exit(1);
+                    return error.PhysicalSizeMismatchVirt;
                 }
                 if ((try file.pread(interpreter.bus.RAM[phdr.p_paddr .. phdr.p_paddr + phdr.p_filesz], phdr.p_offset)) != phdr.p_filesz) {
                     std.debug.print("Read less than expected from ELF file!", .{});
-                    std.process.exit(1);
+                    return error.ElfFileEof;
                 }
                 std.log.scoped(.spu2_test).debug("Loaded 0x{x} bytes to 0x{x:0<4}\n", .{ phdr.p_filesz, phdr.p_paddr });
                 none_loaded = false;
             }
             if (none_loaded) {
                 std.debug.print("No data found in ELF file!\n", .{});
-                std.process.exit(1);
+                return error.EmptyElfFile;
             }
         }
 
@@ -1052,7 +1058,7 @@ pub const TestContext = struct {
                 try interpreter.ExecuteBlock(block_size);
                 if (pre_ip == interpreter.ip) {
                     std.debug.print("Infinite loop detected in SPU II test!\n", .{});
-                    std.process.exit(1);
+                    return error.InfiniteLoop;
                 }
             }
         }
