@@ -4536,25 +4536,129 @@ fn findDeclsInner(
             try zir.findDeclsBody(list, then_body);
             try zir.findDeclsBody(list, else_body);
         },
-        .switch_block,
-        .switch_block_else,
-        .switch_block_under,
-        .switch_block_ref,
-        .switch_block_ref_else,
-        .switch_block_ref_under,
-        => @panic("TODO iterate switch block"),
+        .switch_block => return findDeclsSwitch(zir, list, inst, .none),
+        .switch_block_else => return findDeclsSwitch(zir, list, inst, .@"else"),
+        .switch_block_under => return findDeclsSwitch(zir, list, inst, .under),
+        .switch_block_ref => return findDeclsSwitch(zir, list, inst, .none),
+        .switch_block_ref_else => return findDeclsSwitch(zir, list, inst, .@"else"),
+        .switch_block_ref_under => return findDeclsSwitch(zir, list, inst, .under),
 
-        .switch_block_multi,
-        .switch_block_else_multi,
-        .switch_block_under_multi,
-        .switch_block_ref_multi,
-        .switch_block_ref_else_multi,
-        .switch_block_ref_under_multi,
-        => @panic("TODO iterate switch block multi"),
+        .switch_block_multi => return findDeclsSwitchMulti(zir, list, inst, .none),
+        .switch_block_else_multi => return findDeclsSwitchMulti(zir, list, inst, .@"else"),
+        .switch_block_under_multi => return findDeclsSwitchMulti(zir, list, inst, .under),
+        .switch_block_ref_multi => return findDeclsSwitchMulti(zir, list, inst, .none),
+        .switch_block_ref_else_multi => return findDeclsSwitchMulti(zir, list, inst, .@"else"),
+        .switch_block_ref_under_multi => return findDeclsSwitchMulti(zir, list, inst, .under),
 
         .suspend_block => @panic("TODO iterate suspend block"),
 
         else => return, // Regular instruction, not interesting.
+    }
+}
+
+fn findDeclsSwitch(
+    zir: Zir,
+    list: *std.ArrayList(Zir.Inst.Index),
+    inst: Zir.Inst.Index,
+    special_prong: SpecialProng,
+) Allocator.Error!void {
+    const inst_data = zir.instructions.items(.data)[inst].pl_node;
+    const extra = zir.extraData(Inst.SwitchBlock, inst_data.payload_index);
+    const special: struct {
+        body: []const Inst.Index,
+        end: usize,
+    } = switch (special_prong) {
+        .none => .{ .body = &.{}, .end = extra.end },
+        .under, .@"else" => blk: {
+            const body_len = zir.extra[extra.end];
+            const extra_body_start = extra.end + 1;
+            break :blk .{
+                .body = zir.extra[extra_body_start..][0..body_len],
+                .end = extra_body_start + body_len,
+            };
+        },
+    };
+
+    try zir.findDeclsBody(list, special.body);
+
+    var extra_index: usize = special.end;
+    var scalar_i: usize = 0;
+    while (scalar_i < extra.data.cases_len) : (scalar_i += 1) {
+        const item_ref = @intToEnum(Inst.Ref, zir.extra[extra_index]);
+        extra_index += 1;
+        const body_len = zir.extra[extra_index];
+        extra_index += 1;
+        const body = zir.extra[extra_index..][0..body_len];
+        extra_index += body_len;
+
+        try zir.findDeclsBody(list, body);
+    }
+}
+
+fn findDeclsSwitchMulti(
+    zir: Zir,
+    list: *std.ArrayList(Zir.Inst.Index),
+    inst: Zir.Inst.Index,
+    special_prong: SpecialProng,
+) Allocator.Error!void {
+    const inst_data = zir.instructions.items(.data)[inst].pl_node;
+    const extra = zir.extraData(Inst.SwitchBlockMulti, inst_data.payload_index);
+    const special: struct {
+        body: []const Inst.Index,
+        end: usize,
+    } = switch (special_prong) {
+        .none => .{ .body = &.{}, .end = extra.end },
+        .under, .@"else" => blk: {
+            const body_len = zir.extra[extra.end];
+            const extra_body_start = extra.end + 1;
+            break :blk .{
+                .body = zir.extra[extra_body_start..][0..body_len],
+                .end = extra_body_start + body_len,
+            };
+        },
+    };
+
+    try zir.findDeclsBody(list, special.body);
+
+    var extra_index: usize = special.end;
+    {
+        var scalar_i: usize = 0;
+        while (scalar_i < extra.data.scalar_cases_len) : (scalar_i += 1) {
+            const item_ref = @intToEnum(Inst.Ref, zir.extra[extra_index]);
+            extra_index += 1;
+            const body_len = zir.extra[extra_index];
+            extra_index += 1;
+            const body = zir.extra[extra_index..][0..body_len];
+            extra_index += body_len;
+
+            try zir.findDeclsBody(list, body);
+        }
+    }
+    {
+        var multi_i: usize = 0;
+        while (multi_i < extra.data.multi_cases_len) : (multi_i += 1) {
+            const items_len = zir.extra[extra_index];
+            extra_index += 1;
+            const ranges_len = zir.extra[extra_index];
+            extra_index += 1;
+            const body_len = zir.extra[extra_index];
+            extra_index += 1;
+            const items = zir.refSlice(extra_index, items_len);
+            extra_index += items_len;
+
+            var range_i: usize = 0;
+            while (range_i < ranges_len) : (range_i += 1) {
+                const item_first = @intToEnum(Inst.Ref, zir.extra[extra_index]);
+                extra_index += 1;
+                const item_last = @intToEnum(Inst.Ref, zir.extra[extra_index]);
+                extra_index += 1;
+            }
+
+            const body = zir.extra[extra_index..][0..body_len];
+            extra_index += body_len;
+
+            try zir.findDeclsBody(list, body);
+        }
     }
 }
 
