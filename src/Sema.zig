@@ -5425,11 +5425,8 @@ fn zirFieldType(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErr
     }
     const struct_ty = try sema.resolveTypeFields(block, src, unresolved_struct_type);
     const struct_obj = struct_ty.castTag(.@"struct").?.data;
-    const field = struct_obj.fields.get(field_name) orelse {
-        return sema.mod.fail(&block.base, src, "no field named '{s}' in struct '{}'", .{
-            field_name, struct_ty,
-        });
-    };
+    const field = struct_obj.fields.get(field_name) orelse
+        return sema.failWithBadFieldAccess(block, struct_obj, src, field_name);
     return sema.mod.constType(sema.arena, src, field.ty);
 }
 
@@ -6220,13 +6217,14 @@ fn analyzeStructFieldPtr(
     struct_ptr: *Inst,
     field_name: []const u8,
     field_name_src: LazySrcLoc,
-    elem_ty: Type,
+    unresolved_struct_ty: Type,
 ) InnerError!*Inst {
     const mod = sema.mod;
     const arena = sema.arena;
-    assert(elem_ty.zigTypeTag() == .Struct);
+    assert(unresolved_struct_ty.zigTypeTag() == .Struct);
 
-    const struct_obj = elem_ty.castTag(.@"struct").?.data;
+    const struct_ty = try sema.resolveTypeFields(block, src, unresolved_struct_ty);
+    const struct_obj = struct_ty.castTag(.@"struct").?.data;
 
     const field_index = struct_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadFieldAccess(block, struct_obj, field_name_src, field_name);

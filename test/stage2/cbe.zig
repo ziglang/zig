@@ -516,7 +516,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return p.y - p.x - p.x;
             \\}
         , &.{
-            ":3:21: error: mising struct field: x",
+            ":3:21: error: missing struct field: x",
             ":1:15: note: struct 'Point' declared here",
         });
         case.addError(

@@ -4416,7 +4416,9 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) InnerError!void {
     };
     defer assert(block.instructions.items.len == 0); // should all be comptime instructions
 
-    _ = try sema.analyzeBody(&block, body);
+    if (body.len != 0) {
+        _ = try sema.analyzeBody(&block, body);
+    }
 
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
@@ -4545,7 +4547,9 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
     };
     defer assert(block.instructions.items.len == 0); // should all be comptime instructions
 
-    _ = try sema.analyzeBody(&block, body);
+    if (body.len != 0) {
+        _ = try sema.analyzeBody(&block, body);
+    }
 
     var auto_enum_tag: ?bool = null;
 

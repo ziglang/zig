@@ -1,3 +1,5 @@
+ * structs, unions, enums, etc get weird names such as "Point__anon_22" rather
+   than "Point".
  * get stage2 tests passing
  * modify stage2 tests so that only 1 uses _start and the rest use
    pub fn main
