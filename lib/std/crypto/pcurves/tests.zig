@@ -101,3 +101,9 @@ test "p256 field element non-canonical encoding" {
     const s = [_]u8{0xff} ** 32;
     try testing.expectError(error.NonCanonical, P256.Fe.fromBytes(s, .Little));
 }
+
+test "p256 neutral element decoding" {
+    try testing.expectError(error.InvalidEncoding, P256.fromAffineCoordinates(.{ .x = P256.Fe.zero, .y = P256.Fe.zero }));
+    const p = try P256.fromAffineCoordinates(.{ .x = P256.Fe.zero, .y = P256.Fe.one });
+    try testing.expectError(error.IdentityElement, p.rejectIdentity());
+}
