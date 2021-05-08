@@ -58,5 +58,8 @@
    natural alignment for fields and do not have any comptime fields. this
    will save 16 bytes per struct field in the compilation.
 
- * AstGen threadlocal
  * extern "foo" for vars
+
+ * use ZIR memory for decl names where possible and also for keys
+   - this will require more sophisticated changelist detection which does some
+     pre-emptive deletion of decls from the parent namespace

@@ -2086,6 +2086,8 @@ fn buildOutputType(
             break;
         }
     }
+    // Skip resource deallocation in release builds; let the OS do it.
+    return cleanExit();
 }
 
 fn runOrTest(

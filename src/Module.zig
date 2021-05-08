@@ -154,9 +154,7 @@ pub const DeclPlusEmitH = struct {
 };
 
 pub const Decl = struct {
-    /// For declarations that have corresponding source code, this is identical to
-    /// `getName().?`. For anonymous declarations this is allocated with Module's
-    /// allocator.
+    /// Allocated with Module's allocator; outlives the ZIR code.
     name: [*:0]const u8,
     /// The most recent Type of the Decl after a successful semantic analysis.
     /// Populated when `has_tv`.
@@ -270,13 +268,7 @@ pub const Decl = struct {
     );
 
     pub fn clearName(decl: *Decl, gpa: *Allocator) void {
-        // name could be allocated in the ZIR or it could be owned by gpa.
-        const file = decl.namespace.file_scope;
-        const string_table_start = @ptrToInt(file.zir.string_bytes.ptr);
-        const string_table_end = string_table_start + file.zir.string_bytes.len;
-        if (@ptrToInt(decl.name) < string_table_start or @ptrToInt(decl.name) >= string_table_end) {
-            gpa.free(mem.spanZ(decl.name));
-        }
+        gpa.free(mem.spanZ(decl.name));
         decl.name = undefined;
     }
 
@@ -285,7 +277,7 @@ pub const Decl = struct {
         log.debug("destroy {*} ({s})", .{ decl, decl.name });
         decl.clearName(gpa);
         if (decl.has_tv) {
-            if (decl.val.getTypeNamespace()) |namespace| {
+            if (decl.getInnerNamespace()) |namespace| {
                 if (namespace.getDecl() == decl) {
                     namespace.clearDecls(module);
                 }
@@ -307,6 +299,9 @@ pub const Decl = struct {
         if (decl.getFunction()) |func| {
             func.deinit(gpa);
             gpa.destroy(func);
+        }
+        if (decl.getVariable()) |variable| {
+            gpa.destroy(variable);
         }
         if (decl.value_arena) |arena_state| {
             arena_state.promote(gpa).deinit();
@@ -472,6 +467,47 @@ pub const Decl = struct {
         return func;
     }
 
+    pub fn getVariable(decl: *Decl) ?*Var {
+        if (!decl.has_tv) return null;
+        const variable = (decl.val.castTag(.variable) orelse return null).data;
+        if (variable.owner_decl != decl) return null;
+        return variable;
+    }
+
+    /// Gets the namespace that this Decl creates by being a struct, union,
+    /// enum, or opaque.
+    /// Only returns it if the Decl is the owner.
+    pub fn getInnerNamespace(decl: *Decl) ?*Scope.Namespace {
+        if (!decl.has_tv) return null;
+        const ty = (decl.val.castTag(.ty) orelse return null).data;
+        switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                if (struct_obj.owner_decl != decl) return null;
+                return &struct_obj.namespace;
+            },
+            .enum_full => {
+                const enum_obj = ty.castTag(.enum_full).?.data;
+                if (enum_obj.owner_decl != decl) return null;
+                return &enum_obj.namespace;
+            },
+            .empty_struct => {
+                // design flaw, can't verify the owner is this decl
+                @panic("TODO can't implement getInnerNamespace for this type");
+            },
+            .@"opaque" => {
+                @panic("TODO opaque types");
+            },
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Type.Payload.Union).?.data;
+                if (union_obj.owner_decl != decl) return null;
+                return &union_obj.namespace;
+            },
+
+            else => return null,
+        }
+    }
+
     pub fn dump(decl: *Decl) void {
         const loc = std.zig.findLineColumn(decl.scope.source.bytes, decl.src);
         std.debug.print("{s}:{d}:{d} name={s} status={s}", .{
@@ -503,6 +539,23 @@ pub const Decl = struct {
 
     fn removeDependency(decl: *Decl, other: *Decl) void {
         decl.dependencies.removeAssertDiscard(other);
+    }
+
+    fn hasLinkAllocation(decl: Decl) bool {
+        return switch (decl.analysis) {
+            .unreferenced,
+            .in_progress,
+            .dependency_failure,
+            .sema_failure,
+            .sema_failure_retryable,
+            .codegen_failure,
+            .codegen_failure_retryable,
+            => false,
+
+            .complete,
+            .outdated,
+            => true,
+        };
     }
 };
 
@@ -831,9 +884,8 @@ pub const Scope = struct {
         /// Direct children of the namespace. Used during an update to detect
         /// which decls have been added/removed from source.
         /// Declaration order is preserved via entry order.
-        /// Key memory references the string table of the containing `File` ZIR.
+        /// Key memory is owned by `decl.name`.
         /// TODO save memory with https://github.com/ziglang/zig/issues/8619.
-        /// Does not contain anonymous decls.
         decls: std.StringArrayHashMapUnmanaged(*Decl) = .{},
 
         pub fn deinit(ns: *Namespace, mod: *Module) void {
@@ -2468,8 +2520,6 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
 /// * Decl.zir_index
 /// * Fn.zir_body_inst
 /// * Decl.zir_decl_index
-/// * Decl.name
-/// * Namespace.decl keys
 fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
     const new_zir = file.zir;
 
@@ -2483,18 +2533,6 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
     defer extra_map.deinit(gpa);
 
     try mapOldZirToNew(gpa, old_zir, new_zir, &inst_map, &extra_map);
-
-    // Build string table for new ZIR.
-    var string_table: std.StringHashMapUnmanaged(u32) = .{};
-    defer string_table.deinit(gpa);
-    {
-        var i: usize = 2;
-        while (i < new_zir.string_bytes.len) {
-            const string = new_zir.nullTerminatedString(i);
-            try string_table.put(gpa, string, @intCast(u32, i));
-            i += string.len + 1;
-        }
-    }
 
     // Walk the Decl graph, updating ZIR indexes, strings, and populating
     // the deleted and outdated lists.
@@ -2523,12 +2561,6 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
                 try file.deleted_decls.append(gpa, decl);
                 continue;
             };
-            const new_name_index = string_table.get(mem.spanZ(decl.name)) orelse {
-                try file.deleted_decls.append(gpa, decl);
-                continue;
-            };
-            decl.name = new_zir.nullTerminatedString(new_name_index).ptr;
-
             const new_hash = decl.contentsHashZir(new_zir);
             if (!std.zig.srcHashEql(old_hash, new_hash)) {
                 try file.outdated_decls.append(gpa, decl);
@@ -2558,16 +2590,9 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
             };
         }
 
-        if (decl.val.getTypeNamespace()) |namespace| {
+        if (decl.getInnerNamespace()) |namespace| {
             for (namespace.decls.items()) |*entry| {
                 const sub_decl = entry.value;
-                if (sub_decl.zir_decl_index != 0) {
-                    const new_key_index = string_table.get(entry.key) orelse {
-                        try file.deleted_decls.append(gpa, sub_decl);
-                        continue;
-                    };
-                    entry.key = new_zir.nullTerminatedString(new_key_index);
-                }
                 try decl_stack.append(gpa, sub_decl);
             }
         }
@@ -2936,46 +2961,14 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         }
         return type_changed or is_inline != prev_is_inline;
     } else {
-        const is_mutable = decl_tv.val.tag() == .variable;
-
-        var is_threadlocal = false; // TODO implement threadlocal variables
-        var is_extern = false; // TODO implement extern variables
-
-        if (is_mutable and !decl_tv.ty.isValidVarType(is_extern)) {
-            return mod.fail(
-                &block_scope.base,
-                src, // TODO point at the mut token
-                "variable of type '{}' must be const",
-                .{decl_tv.ty},
-            );
-        }
-
         var type_changed = true;
         if (decl.has_tv) {
             type_changed = !decl.ty.eql(decl_tv.ty);
             decl.clearValues(gpa);
         }
 
-        const copied_val = try decl_tv.val.copy(&decl_arena.allocator);
-        const is_extern_fn = copied_val.tag() == .extern_fn;
-
-        // TODO: also avoid allocating this Var structure if `!is_mutable`.
-        // I think this will require adjusting Sema to copy the value or something
-        // like that; otherwise it causes use of undefined value when freeing resources.
-        const decl_val: Value = if (is_extern_fn) copied_val else blk: {
-            const new_variable = try decl_arena.allocator.create(Var);
-            new_variable.* = .{
-                .owner_decl = decl,
-                .init = copied_val,
-                .is_extern = is_extern,
-                .is_mutable = is_mutable,
-                .is_threadlocal = is_threadlocal,
-            };
-            break :blk try Value.Tag.variable.create(&decl_arena.allocator, new_variable);
-        };
-
         decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
-        decl.val = decl_val;
+        decl.val = try decl_tv.val.copy(&decl_arena.allocator);
         decl.align_val = try align_val.copy(&decl_arena.allocator);
         decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
         decl.has_tv = true;
@@ -3211,7 +3204,8 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
     const decl_node = iter.parent_decl.relativeToNodeIndex(decl_block_inst_data.src_node);
 
     // Every Decl needs a name.
-    const raw_decl_name: [:0]const u8 = switch (decl_name_index) {
+    var is_named_test = false;
+    const decl_name: [:0]const u8 = switch (decl_name_index) {
         0 => name: {
             if (is_exported) {
                 const i = iter.usingnamespace_index;
@@ -3228,24 +3222,28 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
             iter.unnamed_test_index += 1;
             break :name try std.fmt.allocPrintZ(gpa, "test_{d}", .{i});
         },
-        else => zir.nullTerminatedString(decl_name_index),
-    };
-    const decl_name = if (raw_decl_name.len != 0) raw_decl_name else name: {
-        const test_name = zir.nullTerminatedString(decl_name_index + 1);
-        break :name try std.fmt.allocPrintZ(gpa, "test.{s}", .{test_name});
+        else => name: {
+            const raw_name = zir.nullTerminatedString(decl_name_index);
+            if (raw_name.len == 0) {
+                is_named_test = true;
+                const test_name = zir.nullTerminatedString(decl_name_index + 1);
+                break :name try std.fmt.allocPrintZ(gpa, "test.{s}", .{test_name});
+            } else {
+                break :name try gpa.dupeZ(u8, raw_name);
+            }
+        },
     };
 
     // We create a Decl for it regardless of analysis status.
     const gop = try namespace.decls.getOrPut(gpa, decl_name);
     if (!gop.found_existing) {
         const new_decl = try mod.allocateNewDecl(namespace, decl_node);
-        log.debug("scan new decl {*} ({s}) into {*}", .{ new_decl, decl_name, namespace });
+        log.debug("scan new {*} ({s}) into {*}", .{ new_decl, decl_name, namespace });
         new_decl.src_line = line;
         new_decl.name = decl_name;
         gop.entry.value = new_decl;
         // Exported decls, comptime decls, usingnamespace decls, and
         // test decls if in test mode, get analyzed.
-        const is_named_test = raw_decl_name.len == 0;
         const want_analysis = is_exported or switch (decl_name_index) {
             0 => true, // comptime decl
             1 => mod.comp.bin_file.options.is_test, // test decl
@@ -3261,16 +3259,14 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
         new_decl.zir_decl_index = @intCast(u32, decl_sub_index);
         return;
     }
+    gpa.free(decl_name);
     const decl = gop.entry.value;
-    log.debug("scan existing decl {*} ({s}) of {*}", .{ decl, decl_name, namespace });
+    log.debug("scan existing {*} ({s}) of {*}", .{ decl, decl_name, namespace });
     // Update the AST node of the decl; even if its contents are unchanged, it may
     // have been re-ordered.
     const prev_src_node = decl.src_node;
     decl.src_node = decl_node;
     decl.src_line = line;
-
-    decl.clearName(gpa);
-    decl.name = decl_name;
 
     decl.is_pub = is_pub;
     decl.is_exported = is_exported;
@@ -3305,14 +3301,13 @@ pub fn deleteDecl(
     const tracy = trace(@src());
     defer tracy.end();
 
-    log.debug("deleting decl '{s}'", .{decl.name});
+    log.debug("deleting {*} ({s})", .{ decl, decl.name });
 
     if (outdated_decls) |map| {
         _ = map.swapRemove(decl);
-        try map.ensureCapacity(map.count() + decl.dependants.count());
+        try map.ensureUnusedCapacity(decl.dependants.count());
     }
-    try mod.deletion_set.ensureCapacity(mod.gpa, mod.deletion_set.count() +
-        decl.dependencies.count());
+    try mod.deletion_set.ensureUnusedCapacity(mod.gpa, decl.dependencies.count());
 
     // Remove from the namespace it resides in.
     decl.namespace.removeDecl(decl);
@@ -3354,7 +3349,9 @@ pub fn deleteDecl(
     }
     _ = mod.compile_log_decls.swapRemove(decl);
     mod.deleteDeclExports(decl);
-    mod.comp.bin_file.freeDecl(decl);
+    if (decl.hasLinkAllocation()) {
+        mod.comp.bin_file.freeDecl(decl);
+    }
 
     decl.destroy(mod);
 }

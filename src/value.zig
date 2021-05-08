@@ -626,14 +626,6 @@ pub const Value = extern union {
         unreachable;
     }
 
-    /// Returns null if not a type or if the type has no namespace.
-    pub fn getTypeNamespace(self: Value) ?*Module.Scope.Namespace {
-        return switch (self.tag()) {
-            .ty => self.castTag(.ty).?.data.getNamespace(),
-            else => null,
-        };
-    }
-
     /// Asserts that the value is representable as a type.
     pub fn toType(self: Value, allocator: *Allocator) !Type {
         return switch (self.tag()) {

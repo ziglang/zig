@@ -5742,8 +5742,63 @@ fn zirVarExtended(
 ) InnerError!*Inst {
     const extra = sema.code.extraData(Zir.Inst.ExtendedVar, extended.operand);
     const src = sema.src;
+    const align_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at align
+    const ty_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at type
+    const mut_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at mut token
+    const init_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at init expr
+    const small = @bitCast(Zir.Inst.ExtendedVar.Small, extended.small);
+    const var_ty = try sema.resolveType(block, ty_src, extra.data.var_type);
 
-    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirVarExtended", .{});
+    var extra_index: usize = extra.end;
+
+    const lib_name: ?[]const u8 = if (small.has_lib_name) blk: {
+        const lib_name = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
+        extra_index += 1;
+        break :blk lib_name;
+    } else null;
+
+    // ZIR supports encoding this information but it is not used; the information
+    // is encoded via the Decl entry.
+    assert(!small.has_align);
+    //const align_val: Value = if (small.has_align) blk: {
+    //    const align_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+    //    extra_index += 1;
+    //    const align_tv = try sema.resolveInstConst(block, align_src, align_ref);
+    //    break :blk align_tv.val;
+    //} else Value.initTag(.null_value);
+
+    const init_val: Value = if (small.has_init) blk: {
+        const init_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        const init_tv = try sema.resolveInstConst(block, init_src, init_ref);
+        break :blk init_tv.val;
+    } else Value.initTag(.null_value);
+
+    if (!var_ty.isValidVarType(small.is_extern)) {
+        return sema.mod.fail(&block.base, mut_src, "variable of type '{}' must be const", .{
+            var_ty,
+        });
+    }
+
+    if (lib_name != null) {
+        // Look at the sema code for functions which has this logic, it just needs to
+        // be extracted and shared by both var and func
+        return sema.mod.fail(&block.base, src, "TODO: handle var with lib_name in Sema", .{});
+    }
+
+    const new_var = try sema.gpa.create(Module.Var);
+    new_var.* = .{
+        .owner_decl = sema.owner_decl,
+        .init = init_val,
+        .is_extern = small.is_extern,
+        .is_mutable = true, // TODO get rid of this unused field
+        .is_threadlocal = small.is_threadlocal,
+    };
+    const result = try sema.mod.constInst(sema.arena, src, .{
+        .ty = var_ty,
+        .val = try Value.Tag.variable.create(sema.arena, new_var),
+    });
+    return result;
 }
 
 fn zirFuncExtended(
