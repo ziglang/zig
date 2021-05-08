@@ -2864,9 +2864,14 @@ fn fnDecl(
             _ = try expr(&fn_gz, params_scope, .none, body_node);
         }
 
-        if (fn_gz.instructions.items.len == 0 or
-            !astgen.instructions.items(.tag)[fn_gz.instructions.items.len - 1].isNoReturn())
-        {
+        const need_implicit_ret = blk: {
+            if (fn_gz.instructions.items.len == 0)
+                break :blk true;
+            const last = fn_gz.instructions.items[fn_gz.instructions.items.len - 1];
+            const zir_tags = astgen.instructions.items(.tag);
+            break :blk !zir_tags[last].isNoReturn();
+        };
+        if (need_implicit_ret) {
             // Since we are adding the return instruction here, we must handle the coercion.
             // We do this by using the `ret_coerce` instruction.
             _ = try fn_gz.addUnTok(.ret_coerce, .void_value, tree.lastToken(body_node));
