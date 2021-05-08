@@ -1088,7 +1088,7 @@ pub const Scope = struct {
         /// for the one that will be the same for all Block instances.
         src_decl: *Decl,
         instructions: ArrayListUnmanaged(*ir.Inst),
-        label: ?Label = null,
+        label: ?*Label = null,
         inlining: ?*Inlining,
         is_comptime: bool,
 

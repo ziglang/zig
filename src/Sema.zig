@@ -1610,8 +1610,7 @@ fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) InnerE
         .body = undefined,
     };
 
-    var child_block = parent_block.makeSubBlock();
-    child_block.label = Scope.Block.Label{
+    var label: Scope.Block.Label = .{
         .zir_block = inst,
         .merges = .{
             .results = .{},
@@ -1619,6 +1618,8 @@ fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) InnerE
             .block_inst = block_inst,
         },
     };
+    var child_block = parent_block.makeSubBlock();
+    child_block.label = &label;
     const merges = &child_block.label.?.merges;
 
     defer child_block.instructions.deinit(sema.gpa);
@@ -1689,20 +1690,21 @@ fn zirBlock(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) Inner
         .body = undefined,
     };
 
+    var label: Scope.Block.Label = .{
+        .zir_block = inst,
+        .merges = .{
+            .results = .{},
+            .br_list = .{},
+            .block_inst = block_inst,
+        },
+    };
+
     var child_block: Scope.Block = .{
         .parent = parent_block,
         .sema = sema,
         .src_decl = parent_block.src_decl,
         .instructions = .{},
-        // TODO @as here is working around a stage1 miscompilation bug :(
-        .label = @as(?Scope.Block.Label, Scope.Block.Label{
-            .zir_block = inst,
-            .merges = .{
-                .results = .{},
-                .br_list = .{},
-                .block_inst = block_inst,
-            },
-        }),
+        .label = &label,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
     };
@@ -1895,7 +1897,7 @@ fn zirBreak(sema: *Sema, start_block: *Scope.Block, inst: Zir.Inst.Index) InnerE
 
     var block = start_block;
     while (true) {
-        if (block.label) |*label| {
+        if (block.label) |label| {
             if (label.zir_block == zir_block) {
                 // Here we add a br instruction, but we over-allocate a little bit
                 // (if necessary) to make it possible to convert the instruction into
@@ -2084,26 +2086,38 @@ fn analyzeCall(
                 .block_inst = block_inst,
             },
         };
-        const callee_zir = module_fn.owner_decl.namespace.file_scope.zir;
-        var inline_sema: Sema = .{
-            .mod = sema.mod,
-            .gpa = sema.mod.gpa,
-            .arena = sema.arena,
-            .code = callee_zir,
-            .inst_map = try sema.gpa.alloc(*ir.Inst, callee_zir.instructions.len),
-            .owner_decl = sema.owner_decl,
-            .namespace = sema.owner_decl.namespace,
-            .owner_func = sema.owner_func,
-            .func = module_fn,
-            .param_inst_list = casted_args,
-            .branch_quota = sema.branch_quota,
-            .branch_count = sema.branch_count,
-        };
-        defer sema.gpa.free(inline_sema.inst_map);
+        // In order to save a bit of stack space, directly modify Sema rather
+        // than create a child one.
+        const parent_zir = sema.code;
+        sema.code = module_fn.owner_decl.namespace.file_scope.zir;
+        defer sema.code = parent_zir;
+
+        const parent_inst_map = sema.inst_map;
+        sema.inst_map = try sema.gpa.alloc(*ir.Inst, sema.code.instructions.len);
+        defer {
+            sema.gpa.free(sema.inst_map);
+            sema.inst_map = parent_inst_map;
+        }
+
+        const parent_namespace = sema.namespace;
+        sema.namespace = module_fn.owner_decl.namespace;
+        defer sema.namespace = parent_namespace;
+
+        const parent_func = sema.func;
+        sema.func = module_fn;
+        defer sema.func = parent_func;
+
+        const parent_param_inst_list = sema.param_inst_list;
+        sema.param_inst_list = casted_args;
+        defer sema.param_inst_list = parent_param_inst_list;
+
+        const parent_next_arg_index = sema.next_arg_index;
+        sema.next_arg_index = 0;
+        defer sema.next_arg_index = parent_next_arg_index;
 
         var child_block: Scope.Block = .{
             .parent = null,
-            .sema = &inline_sema,
+            .sema = sema,
             .src_decl = module_fn.owner_decl,
             .instructions = .{},
             .label = null,
@@ -2117,16 +2131,13 @@ fn analyzeCall(
         defer merges.results.deinit(sema.gpa);
         defer merges.br_list.deinit(sema.gpa);
 
-        try inline_sema.emitBackwardBranch(&child_block, call_src);
+        try sema.emitBackwardBranch(&child_block, call_src);
 
         // This will have return instructions analyzed as break instructions to
         // the block_inst above.
-        try inline_sema.analyzeFnBody(&child_block, module_fn.zir_body_inst);
+        try sema.analyzeFnBody(&child_block, module_fn.zir_body_inst);
 
-        const result = try inline_sema.analyzeBlockBody(block, call_src, &child_block, merges);
-
-        sema.branch_quota = inline_sema.branch_quota;
-        sema.branch_count = inline_sema.branch_count;
+        const result = try sema.analyzeBlockBody(block, call_src, &child_block, merges);
 
         break :res result;
     } else res: {
@@ -3797,20 +3808,21 @@ fn analyzeSwitch(
         .body = undefined,
     };
 
+    var label: Scope.Block.Label = .{
+        .zir_block = switch_inst,
+        .merges = .{
+            .results = .{},
+            .br_list = .{},
+            .block_inst = block_inst,
+        },
+    };
+
     var child_block: Scope.Block = .{
         .parent = block,
         .sema = sema,
         .src_decl = block.src_decl,
         .instructions = .{},
-        // TODO @as here is working around a stage1 miscompilation bug :(
-        .label = @as(?Scope.Block.Label, Scope.Block.Label{
-            .zir_block = switch_inst,
-            .merges = .{
-                .results = .{},
-                .br_list = .{},
-                .block_inst = block_inst,
-            },
-        }),
+        .label = &label,
         .inlining = block.inlining,
         .is_comptime = block.is_comptime,
     };
