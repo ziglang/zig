@@ -6,6 +6,7 @@
 
 const std = @import("../../std.zig");
 
+const io = std.io;
 const os = std.os;
 const ip = std.x.net.ip;
 
@@ -58,6 +59,28 @@ pub const Domain = extern enum(u16) {
 pub const Client = struct {
     socket: Socket,
 
+    /// Implements `std.io.Reader`.
+    pub const Reader = struct {
+        client: Client,
+        flags: u32,
+
+        /// Implements `readFn` for `std.io.Reader`.
+        pub fn read(self: Client.Reader, buffer: []u8) !usize {
+            return self.client.read(buffer, self.flags);
+        }
+    };
+
+    /// Implements `std.io.Writer`.
+    pub const Writer = struct {
+        client: Client,
+        flags: u32,
+
+        /// Implements `writeFn` for `std.io.Writer`.
+        pub fn write(self: Client.Writer, buffer: []const u8) !usize {
+            return self.client.write(buffer, self.flags);
+        }
+    };
+
     /// Opens a new client.
     pub fn init(domain: tcp.Domain, flags: u32) !Client {
         return Client{
@@ -87,6 +110,22 @@ pub const Client = struct {
     /// Have the client attempt to the connect to an address.
     pub fn connect(self: Client, address: ip.Address) !void {
         return self.socket.connect(address.into());
+    }
+
+    /// Extracts the error set of a function.
+    /// TODO: remove after Socket.{read, write} error unions are well-defined across different platforms
+    fn ErrorSetOf(comptime Function: anytype) type {
+        return @typeInfo(@typeInfo(@TypeOf(Function)).Fn.return_type.?).ErrorUnion.error_set;
+    }
+
+    /// Wrap `tcp.Client` into `std.io.Reader`.
+    pub fn reader(self: Client, flags: u32) io.Reader(Client.Reader, ErrorSetOf(Client.Reader.read), Client.Reader.read) {
+        return .{ .context = .{ .client = self, .flags = flags } };
+    }
+
+    /// Wrap `tcp.Client` into `std.io.Writer`.
+    pub fn writer(self: Client, flags: u32) io.Writer(Client.Writer, ErrorSetOf(Client.Writer.write), Client.Writer.write) {
+        return .{ .context = .{ .client = self, .flags = flags } };
     }
 
     /// Read data from the socket into the buffer provided with a set of flags

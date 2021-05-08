@@ -7,7 +7,6 @@
 const std = @import("../../std.zig");
 const net = @import("net.zig");
 
-const io = std.io;
 const os = std.os;
 const fmt = std.fmt;
 const mem = std.mem;
@@ -114,43 +113,5 @@ pub fn Mixin(comptime Self: type) type {
                 }
             }
         };
-
-        /// Implements `std.io.Reader`.
-        pub const Reader = struct {
-            socket: Self,
-            flags: u32,
-
-            /// Implements `readFn` for `std.io.Reader`.
-            pub fn read(self: Self.Reader, buffer: []u8) !usize {
-                return self.socket.read(buffer, self.flags);
-            }
-        };
-
-        /// Implements `std.io.Writer`.
-        pub const Writer = struct {
-            socket: Self,
-            flags: u32,
-
-            /// Implements `writeFn` for `std.io.Writer`.
-            pub fn write(self: Self.Writer, buffer: []const u8) !usize {
-                return self.socket.write(buffer, self.flags);
-            }
-        };
-
-        /// Extracts the error set of a function.
-        /// TODO: remove after Socket.{read, write} error unions are well-defined across different platforms
-        fn ErrorSetOf(comptime Function: anytype) type {
-            return @typeInfo(@typeInfo(@TypeOf(Function)).Fn.return_type.?).ErrorUnion.error_set;
-        }
-
-        /// Wrap `Socket` into `std.io.Reader`.
-        pub fn reader(self: Self, flags: u32) io.Reader(Self.Reader, ErrorSetOf(Self.Reader.read), Self.Reader.read) {
-            return .{ .context = .{ .socket = self, .flags = flags } };
-        }
-
-        /// Wrap `Socket` into `std.io.Writer`.
-        pub fn writer(self: Self, flags: u32) io.Writer(Self.Writer, ErrorSetOf(Self.Writer.write), Self.Writer.write) {
-            return .{ .context = .{ .socket = self, .flags = flags } };
-        }
     };
 }
