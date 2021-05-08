@@ -156,7 +156,7 @@ pub const Socket = struct {
     /// seconds.
     pub fn setLinger(self: Socket, timeout_seconds: ?u16) !void {
         if (comptime @hasDecl(os, "SO_LINGER")) {
-            const settings = struct {
+            const settings = extern struct {
                 l_onoff: c_int,
                 l_linger: c_int,
             }{
