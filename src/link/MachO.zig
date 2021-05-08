@@ -687,10 +687,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try argv.append("zig");
                 try argv.append("ld");
 
-                try argv.ensureCapacity(input_files.items.len);
-                for (input_files.items) |f| {
-                    argv.appendAssumeCapacity(f);
-                }
+                try argv.appendSlice(input_files.items);
 
                 try argv.append("-o");
                 try argv.append(full_out_path);
