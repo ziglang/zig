@@ -23,6 +23,7 @@ pub fn main() anyerror!void {
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
     var skip_count: usize = 0;
+    var fail_count: usize = 0;
     var progress = std.Progress{};
     const root_node = progress.start("Test", test_fn_list.len) catch |err| switch (err) {
         // TODO still run tests in this case
@@ -62,7 +63,7 @@ pub fn main() anyerror!void {
             .blocking => {
                 skip_count += 1;
                 test_node.end();
-                progress.log("{s}...SKIP (async test)\n", .{test_fn.name});
+                progress.log("{s}... SKIP (async test)\n", .{test_fn.name});
                 if (progress.terminal == null) std.debug.print("SKIP (async test)\n", .{});
                 continue;
             },
@@ -75,12 +76,14 @@ pub fn main() anyerror!void {
             error.SkipZigTest => {
                 skip_count += 1;
                 test_node.end();
-                progress.log("{s}...SKIP\n", .{test_fn.name});
+                progress.log("{s}... SKIP\n", .{test_fn.name});
                 if (progress.terminal == null) std.debug.print("SKIP\n", .{});
             },
             else => {
-                progress.log("", .{});
-                return err;
+                fail_count += 1;
+                test_node.end();
+                progress.log("{s}... FAIL ({s})\n", .{ test_fn.name, @errorName(err) });
+                if (progress.terminal == null) std.debug.print("FAIL ({s})\n", .{@errorName(err)});
             },
         }
     }
@@ -88,7 +91,7 @@ pub fn main() anyerror!void {
     if (ok_count == test_fn_list.len) {
         std.debug.print("All {d} tests passed.\n", .{ok_count});
     } else {
-        std.debug.print("{d} passed; {d} skipped.\n", .{ ok_count, skip_count });
+        std.debug.print("{d} passed; {d} skipped; {d} failed.\n", .{ ok_count, skip_count, fail_count });
     }
     if (log_err_count != 0) {
         std.debug.print("{d} errors were logged.\n", .{log_err_count});
@@ -96,7 +99,7 @@ pub fn main() anyerror!void {
     if (leaks != 0) {
         std.debug.print("{d} tests leaked memory.\n", .{leaks});
     }
-    if (leaks != 0 or log_err_count != 0) {
+    if (leaks != 0 or log_err_count != 0 or fail_count != 0) {
         std.process.exit(1);
     }
 }

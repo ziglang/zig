@@ -14,5 +14,5 @@ test "bug 394 fixed" {
         .x = 3,
         .y = E{ .B = 1 },
     };
-    expect(x.x == 3);
+    try expect(x.x == 3);
 }

@@ -15,7 +15,7 @@ comptime {
 
 test "module level assembly" {
     if (is_x86_64_linux) {
-        expect(this_is_my_alias() == 1234);
+        try expect(this_is_my_alias() == 1234);
     }
 }
 

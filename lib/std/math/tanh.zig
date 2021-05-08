@@ -124,42 +124,42 @@ fn tanh64(x: f64) f64 {
 }
 
 test "math.tanh" {
-    expect(tanh(@as(f32, 1.5)) == tanh32(1.5));
-    expect(tanh(@as(f64, 1.5)) == tanh64(1.5));
+    try expect(tanh(@as(f32, 1.5)) == tanh32(1.5));
+    try expect(tanh(@as(f64, 1.5)) == tanh64(1.5));
 }
 
 test "math.tanh32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f32, tanh32(0.0), 0.0, epsilon));
-    expect(math.approxEqAbs(f32, tanh32(0.2), 0.197375, epsilon));
-    expect(math.approxEqAbs(f32, tanh32(0.8923), 0.712528, epsilon));
-    expect(math.approxEqAbs(f32, tanh32(1.5), 0.905148, epsilon));
-    expect(math.approxEqAbs(f32, tanh32(37.45), 1.0, epsilon));
+    try expect(math.approxEqAbs(f32, tanh32(0.0), 0.0, epsilon));
+    try expect(math.approxEqAbs(f32, tanh32(0.2), 0.197375, epsilon));
+    try expect(math.approxEqAbs(f32, tanh32(0.8923), 0.712528, epsilon));
+    try expect(math.approxEqAbs(f32, tanh32(1.5), 0.905148, epsilon));
+    try expect(math.approxEqAbs(f32, tanh32(37.45), 1.0, epsilon));
 }
 
 test "math.tanh64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f64, tanh64(0.0), 0.0, epsilon));
-    expect(math.approxEqAbs(f64, tanh64(0.2), 0.197375, epsilon));
-    expect(math.approxEqAbs(f64, tanh64(0.8923), 0.712528, epsilon));
-    expect(math.approxEqAbs(f64, tanh64(1.5), 0.905148, epsilon));
-    expect(math.approxEqAbs(f64, tanh64(37.45), 1.0, epsilon));
+    try expect(math.approxEqAbs(f64, tanh64(0.0), 0.0, epsilon));
+    try expect(math.approxEqAbs(f64, tanh64(0.2), 0.197375, epsilon));
+    try expect(math.approxEqAbs(f64, tanh64(0.8923), 0.712528, epsilon));
+    try expect(math.approxEqAbs(f64, tanh64(1.5), 0.905148, epsilon));
+    try expect(math.approxEqAbs(f64, tanh64(37.45), 1.0, epsilon));
 }
 
 test "math.tanh32.special" {
-    expect(tanh32(0.0) == 0.0);
-    expect(tanh32(-0.0) == -0.0);
-    expect(tanh32(math.inf(f32)) == 1.0);
-    expect(tanh32(-math.inf(f32)) == -1.0);
-    expect(math.isNan(tanh32(math.nan(f32))));
+    try expect(tanh32(0.0) == 0.0);
+    try expect(tanh32(-0.0) == -0.0);
+    try expect(tanh32(math.inf(f32)) == 1.0);
+    try expect(tanh32(-math.inf(f32)) == -1.0);
+    try expect(math.isNan(tanh32(math.nan(f32))));
 }
 
 test "math.tanh64.special" {
-    expect(tanh64(0.0) == 0.0);
-    expect(tanh64(-0.0) == -0.0);
-    expect(tanh64(math.inf(f64)) == 1.0);
-    expect(tanh64(-math.inf(f64)) == -1.0);
-    expect(math.isNan(tanh64(math.nan(f64))));
+    try expect(tanh64(0.0) == 0.0);
+    try expect(tanh64(-0.0) == -0.0);
+    try expect(tanh64(math.inf(f64)) == 1.0);
+    try expect(tanh64(-math.inf(f64)) == -1.0);
+    try expect(math.isNan(tanh64(math.nan(f64))));
 }

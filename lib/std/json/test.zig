@@ -21,37 +21,37 @@ fn testNonStreaming(s: []const u8) !void {
 }
 
 fn ok(s: []const u8) !void {
-    testing.expect(json.validate(s));
+    try testing.expect(json.validate(s));
 
     try testNonStreaming(s);
 }
 
-fn err(s: []const u8) void {
-    testing.expect(!json.validate(s));
+fn err(s: []const u8) !void {
+    try testing.expect(!json.validate(s));
 
-    testing.expect(std.meta.isError(testNonStreaming(s)));
+    try testing.expect(std.meta.isError(testNonStreaming(s)));
 }
 
-fn utf8Error(s: []const u8) void {
-    testing.expect(!json.validate(s));
+fn utf8Error(s: []const u8) !void {
+    try testing.expect(!json.validate(s));
 
-    testing.expectError(error.InvalidUtf8Byte, testNonStreaming(s));
+    try testing.expectError(error.InvalidUtf8Byte, testNonStreaming(s));
 }
 
-fn any(s: []const u8) void {
+fn any(s: []const u8) !void {
     _ = json.validate(s);
 
     testNonStreaming(s) catch {};
 }
 
-fn anyStreamingErrNonStreaming(s: []const u8) void {
+fn anyStreamingErrNonStreaming(s: []const u8) !void {
     _ = json.validate(s);
 
-    testing.expect(std.meta.isError(testNonStreaming(s)));
+    try testing.expect(std.meta.isError(testNonStreaming(s)));
 }
 
 fn roundTrip(s: []const u8) !void {
-    testing.expect(json.validate(s));
+    try testing.expect(json.validate(s));
 
     var p = json.Parser.init(testing.allocator, false);
     defer p.deinit();
@@ -63,7 +63,7 @@ fn roundTrip(s: []const u8) !void {
     var fbs = std.io.fixedBufferStream(&buf);
     try tree.root.jsonStringify(.{}, fbs.writer());
 
-    testing.expectEqualStrings(s, fbs.getWritten());
+    try testing.expectEqualStrings(s, fbs.getWritten());
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -642,109 +642,109 @@ test "y_structure_whitespace_array" {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 test "n_array_1_true_without_comma" {
-    err(
+    try err(
         \\[1 true]
     );
 }
 
 test "n_array_a_invalid_utf8" {
-    err(
+    try err(
         \\[aå]
     );
 }
 
 test "n_array_colon_instead_of_comma" {
-    err(
+    try err(
         \\["": 1]
     );
 }
 
 test "n_array_comma_after_close" {
-    err(
+    try err(
         \\[""],
     );
 }
 
 test "n_array_comma_and_number" {
-    err(
+    try err(
         \\[,1]
     );
 }
 
 test "n_array_double_comma" {
-    err(
+    try err(
         \\[1,,2]
     );
 }
 
 test "n_array_double_extra_comma" {
-    err(
+    try err(
         \\["x",,]
     );
 }
 
 test "n_array_extra_close" {
-    err(
+    try err(
         \\["x"]]
     );
 }
 
 test "n_array_extra_comma" {
-    err(
+    try err(
         \\["",]
     );
 }
 
 test "n_array_incomplete_invalid_value" {
-    err(
+    try err(
         \\[x
     );
 }
 
 test "n_array_incomplete" {
-    err(
+    try err(
         \\["x"
     );
 }
 
 test "n_array_inner_array_no_comma" {
-    err(
+    try err(
         \\[3[4]]
     );
 }
 
 test "n_array_invalid_utf8" {
-    err(
+    try err(
         \\[ÿ]
     );
 }
 
 test "n_array_items_separated_by_semicolon" {
-    err(
+    try err(
         \\[1:2]
     );
 }
 
 test "n_array_just_comma" {
-    err(
+    try err(
         \\[,]
     );
 }
 
 test "n_array_just_minus" {
-    err(
+    try err(
         \\[-]
     );
 }
 
 test "n_array_missing_value" {
-    err(
+    try err(
         \\[   , ""]
     );
 }
 
 test "n_array_newlines_unclosed" {
-    err(
+    try err(
         \\["a",
         \\4
         \\,1,
@@ -752,41 +752,41 @@ test "n_array_newlines_unclosed" {
 }
 
 test "n_array_number_and_comma" {
-    err(
+    try err(
         \\[1,]
     );
 }
 
 test "n_array_number_and_several_commas" {
-    err(
+    try err(
         \\[1,,]
     );
 }
 
 test "n_array_spaces_vertical_tab_formfeed" {
-    err("[\"\x0aa\"\\f]");
+    try err("[\"\x0aa\"\\f]");
 }
 
 test "n_array_star_inside" {
-    err(
+    try err(
         \\[*]
     );
 }
 
 test "n_array_unclosed" {
-    err(
+    try err(
         \\[""
     );
 }
 
 test "n_array_unclosed_trailing_comma" {
-    err(
+    try err(
         \\[1,
     );
 }
 
 test "n_array_unclosed_with_new_lines" {
-    err(
+    try err(
         \\[1,
         \\1
         \\,1
@@ -794,956 +794,956 @@ test "n_array_unclosed_with_new_lines" {
 }
 
 test "n_array_unclosed_with_object_inside" {
-    err(
+    try err(
         \\[{}
     );
 }
 
 test "n_incomplete_false" {
-    err(
+    try err(
         \\[fals]
     );
 }
 
 test "n_incomplete_null" {
-    err(
+    try err(
         \\[nul]
     );
 }
 
 test "n_incomplete_true" {
-    err(
+    try err(
         \\[tru]
     );
 }
 
 test "n_multidigit_number_then_00" {
-    err("123\x00");
+    try err("123\x00");
 }
 
 test "n_number_0.1.2" {
-    err(
+    try err(
         \\[0.1.2]
     );
 }
 
 test "n_number_-01" {
-    err(
+    try err(
         \\[-01]
     );
 }
 
 test "n_number_0.3e" {
-    err(
+    try err(
         \\[0.3e]
     );
 }
 
 test "n_number_0.3e+" {
-    err(
+    try err(
         \\[0.3e+]
     );
 }
 
 test "n_number_0_capital_E" {
-    err(
+    try err(
         \\[0E]
     );
 }
 
 test "n_number_0_capital_E+" {
-    err(
+    try err(
         \\[0E+]
     );
 }
 
 test "n_number_0.e1" {
-    err(
+    try err(
         \\[0.e1]
     );
 }
 
 test "n_number_0e" {
-    err(
+    try err(
         \\[0e]
     );
 }
 
 test "n_number_0e+" {
-    err(
+    try err(
         \\[0e+]
     );
 }
 
 test "n_number_1_000" {
-    err(
+    try err(
         \\[1 000.0]
     );
 }
 
 test "n_number_1.0e-" {
-    err(
+    try err(
         \\[1.0e-]
     );
 }
 
 test "n_number_1.0e" {
-    err(
+    try err(
         \\[1.0e]
     );
 }
 
 test "n_number_1.0e+" {
-    err(
+    try err(
         \\[1.0e+]
     );
 }
 
 test "n_number_-1.0." {
-    err(
+    try err(
         \\[-1.0.]
     );
 }
 
 test "n_number_1eE2" {
-    err(
+    try err(
         \\[1eE2]
     );
 }
 
 test "n_number_.-1" {
-    err(
+    try err(
         \\[.-1]
     );
 }
 
 test "n_number_+1" {
-    err(
+    try err(
         \\[+1]
     );
 }
 
 test "n_number_.2e-3" {
-    err(
+    try err(
         \\[.2e-3]
     );
 }
 
 test "n_number_2.e-3" {
-    err(
+    try err(
         \\[2.e-3]
     );
 }
 
 test "n_number_2.e+3" {
-    err(
+    try err(
         \\[2.e+3]
     );
 }
 
 test "n_number_2.e3" {
-    err(
+    try err(
         \\[2.e3]
     );
 }
 
 test "n_number_-2." {
-    err(
+    try err(
         \\[-2.]
     );
 }
 
 test "n_number_9.e+" {
-    err(
+    try err(
         \\[9.e+]
     );
 }
 
 test "n_number_expression" {
-    err(
+    try err(
         \\[1+2]
     );
 }
 
 test "n_number_hex_1_digit" {
-    err(
+    try err(
         \\[0x1]
     );
 }
 
 test "n_number_hex_2_digits" {
-    err(
+    try err(
         \\[0x42]
     );
 }
 
 test "n_number_infinity" {
-    err(
+    try err(
         \\[Infinity]
     );
 }
 
 test "n_number_+Inf" {
-    err(
+    try err(
         \\[+Inf]
     );
 }
 
 test "n_number_Inf" {
-    err(
+    try err(
         \\[Inf]
     );
 }
 
 test "n_number_invalid+-" {
-    err(
+    try err(
         \\[0e+-1]
     );
 }
 
 test "n_number_invalid-negative-real" {
-    err(
+    try err(
         \\[-123.123foo]
     );
 }
 
 test "n_number_invalid-utf-8-in-bigger-int" {
-    err(
+    try err(
         \\[123å]
     );
 }
 
 test "n_number_invalid-utf-8-in-exponent" {
-    err(
+    try err(
         \\[1e1å]
     );
 }
 
 test "n_number_invalid-utf-8-in-int" {
-    err(
+    try err(
         \\[0å]
     );
 }
 
 test "n_number_++" {
-    err(
+    try err(
         \\[++1234]
     );
 }
 
 test "n_number_minus_infinity" {
-    err(
+    try err(
         \\[-Infinity]
     );
 }
 
 test "n_number_minus_sign_with_trailing_garbage" {
-    err(
+    try err(
         \\[-foo]
     );
 }
 
 test "n_number_minus_space_1" {
-    err(
+    try err(
         \\[- 1]
     );
 }
 
 test "n_number_-NaN" {
-    err(
+    try err(
         \\[-NaN]
     );
 }
 
 test "n_number_NaN" {
-    err(
+    try err(
         \\[NaN]
     );
 }
 
 test "n_number_neg_int_starting_with_zero" {
-    err(
+    try err(
         \\[-012]
     );
 }
 
 test "n_number_neg_real_without_int_part" {
-    err(
+    try err(
         \\[-.123]
     );
 }
 
 test "n_number_neg_with_garbage_at_end" {
-    err(
+    try err(
         \\[-1x]
     );
 }
 
 test "n_number_real_garbage_after_e" {
-    err(
+    try err(
         \\[1ea]
     );
 }
 
 test "n_number_real_with_invalid_utf8_after_e" {
-    err(
+    try err(
         \\[1eå]
     );
 }
 
 test "n_number_real_without_fractional_part" {
-    err(
+    try err(
         \\[1.]
     );
 }
 
 test "n_number_starting_with_dot" {
-    err(
+    try err(
         \\[.123]
     );
 }
 
 test "n_number_U+FF11_fullwidth_digit_one" {
-    err(
+    try err(
         \\[ï¼]
     );
 }
 
 test "n_number_with_alpha_char" {
-    err(
+    try err(
         \\[1.8011670033376514H-308]
     );
 }
 
 test "n_number_with_alpha" {
-    err(
+    try err(
         \\[1.2a-3]
     );
 }
 
 test "n_number_with_leading_zero" {
-    err(
+    try err(
         \\[012]
     );
 }
 
 test "n_object_bad_value" {
-    err(
+    try err(
         \\["x", truth]
     );
 }
 
 test "n_object_bracket_key" {
-    err(
+    try err(
         \\{[: "x"}
     );
 }
 
 test "n_object_comma_instead_of_colon" {
-    err(
+    try err(
         \\{"x", null}
     );
 }
 
 test "n_object_double_colon" {
-    err(
+    try err(
         \\{"x"::"b"}
     );
 }
 
 test "n_object_emoji" {
-    err(
+    try err(
         \\{ð¨ð­}
     );
 }
 
 test "n_object_garbage_at_end" {
-    err(
+    try err(
         \\{"a":"a" 123}
     );
 }
 
 test "n_object_key_with_single_quotes" {
-    err(
+    try err(
         \\{key: 'value'}
     );
 }
 
 test "n_object_lone_continuation_byte_in_key_and_trailing_comma" {
-    err(
+    try err(
         \\{"¹":"0",}
     );
 }
 
 test "n_object_missing_colon" {
-    err(
+    try err(
         \\{"a" b}
     );
 }
 
 test "n_object_missing_key" {
-    err(
+    try err(
         \\{:"b"}
     );
 }
 
 test "n_object_missing_semicolon" {
-    err(
+    try err(
         \\{"a" "b"}
     );
 }
 
 test "n_object_missing_value" {
-    err(
+    try err(
         \\{"a":
     );
 }
 
 test "n_object_no-colon" {
-    err(
+    try err(
         \\{"a"
     );
 }
 
 test "n_object_non_string_key_but_huge_number_instead" {
-    err(
+    try err(
         \\{9999E9999:1}
     );
 }
 
 test "n_object_non_string_key" {
-    err(
+    try err(
         \\{1:1}
     );
 }
 
 test "n_object_repeated_null_null" {
-    err(
+    try err(
         \\{null:null,null:null}
     );
 }
 
 test "n_object_several_trailing_commas" {
-    err(
+    try err(
         \\{"id":0,,,,,}
     );
 }
 
 test "n_object_single_quote" {
-    err(
+    try err(
         \\{'a':0}
     );
 }
 
 test "n_object_trailing_comma" {
-    err(
+    try err(
         \\{"id":0,}
     );
 }
 
 test "n_object_trailing_comment" {
-    err(
+    try err(
         \\{"a":"b"}/**/
     );
 }
 
 test "n_object_trailing_comment_open" {
-    err(
+    try err(
         \\{"a":"b"}/**//
     );
 }
 
 test "n_object_trailing_comment_slash_open_incomplete" {
-    err(
+    try err(
         \\{"a":"b"}/
     );
 }
 
 test "n_object_trailing_comment_slash_open" {
-    err(
+    try err(
         \\{"a":"b"}//
     );
 }
 
 test "n_object_two_commas_in_a_row" {
-    err(
+    try err(
         \\{"a":"b",,"c":"d"}
     );
 }
 
 test "n_object_unquoted_key" {
-    err(
+    try err(
         \\{a: "b"}
     );
 }
 
 test "n_object_unterminated-value" {
-    err(
+    try err(
         \\{"a":"a
     );
 }
 
 test "n_object_with_single_string" {
-    err(
+    try err(
         \\{ "foo" : "bar", "a" }
     );
 }
 
 test "n_object_with_trailing_garbage" {
-    err(
+    try err(
         \\{"a":"b"}#
     );
 }
 
 test "n_single_space" {
-    err(" ");
+    try err(" ");
 }
 
 test "n_string_1_surrogate_then_escape" {
-    err(
+    try err(
         \\["\uD800\"]
     );
 }
 
 test "n_string_1_surrogate_then_escape_u1" {
-    err(
+    try err(
         \\["\uD800\u1"]
     );
 }
 
 test "n_string_1_surrogate_then_escape_u1x" {
-    err(
+    try err(
         \\["\uD800\u1x"]
     );
 }
 
 test "n_string_1_surrogate_then_escape_u" {
-    err(
+    try err(
         \\["\uD800\u"]
     );
 }
 
 test "n_string_accentuated_char_no_quotes" {
-    err(
+    try err(
         \\[Ã©]
     );
 }
 
 test "n_string_backslash_00" {
-    err("[\"\x00\"]");
+    try err("[\"\x00\"]");
 }
 
 test "n_string_escaped_backslash_bad" {
-    err(
+    try err(
         \\["\\\"]
     );
 }
 
 test "n_string_escaped_ctrl_char_tab" {
-    err("\x5b\x22\x5c\x09\x22\x5d");
+    try err("\x5b\x22\x5c\x09\x22\x5d");
 }
 
 test "n_string_escaped_emoji" {
-    err("[\"\x5c\xc3\xb0\xc2\x9f\xc2\x8c\xc2\x80\"]");
+    try err("[\"\x5c\xc3\xb0\xc2\x9f\xc2\x8c\xc2\x80\"]");
 }
 
 test "n_string_escape_x" {
-    err(
+    try err(
         \\["\x00"]
     );
 }
 
 test "n_string_incomplete_escaped_character" {
-    err(
+    try err(
         \\["\u00A"]
     );
 }
 
 test "n_string_incomplete_escape" {
-    err(
+    try err(
         \\["\"]
     );
 }
 
 test "n_string_incomplete_surrogate_escape_invalid" {
-    err(
+    try err(
         \\["\uD800\uD800\x"]
     );
 }
 
 test "n_string_incomplete_surrogate" {
-    err(
+    try err(
         \\["\uD834\uDd"]
     );
 }
 
 test "n_string_invalid_backslash_esc" {
-    err(
+    try err(
         \\["\a"]
     );
 }
 
 test "n_string_invalid_unicode_escape" {
-    err(
+    try err(
         \\["\uqqqq"]
     );
 }
 
 test "n_string_invalid_utf8_after_escape" {
-    err("[\"\\\x75\xc3\xa5\"]");
+    try err("[\"\\\x75\xc3\xa5\"]");
 }
 
 test "n_string_invalid-utf-8-in-escape" {
-    err(
+    try err(
         \\["\uå"]
     );
 }
 
 test "n_string_leading_uescaped_thinspace" {
-    err(
+    try err(
         \\[\u0020"asd"]
     );
 }
 
 test "n_string_no_quotes_with_bad_escape" {
-    err(
+    try err(
         \\[\n]
     );
 }
 
 test "n_string_single_doublequote" {
-    err(
+    try err(
         \\"
     );
 }
 
 test "n_string_single_quote" {
-    err(
+    try err(
         \\['single quote']
     );
 }
 
 test "n_string_single_string_no_double_quotes" {
-    err(
+    try err(
         \\abc
     );
 }
 
 test "n_string_start_escape_unclosed" {
-    err(
+    try err(
         \\["\
     );
 }
 
 test "n_string_unescaped_crtl_char" {
-    err("[\"a\x00a\"]");
+    try err("[\"a\x00a\"]");
 }
 
 test "n_string_unescaped_newline" {
-    err(
+    try err(
         \\["new
         \\line"]
     );
 }
 
 test "n_string_unescaped_tab" {
-    err("[\"\t\"]");
+    try err("[\"\t\"]");
 }
 
 test "n_string_unicode_CapitalU" {
-    err(
+    try err(
         \\"\UA66D"
     );
 }
 
 test "n_string_with_trailing_garbage" {
-    err(
+    try err(
         \\""x
     );
 }
 
 test "n_structure_100000_opening_arrays" {
-    err("[" ** 100000);
+    try err("[" ** 100000);
 }
 
 test "n_structure_angle_bracket_." {
-    err(
+    try err(
         \\<.>
     );
 }
 
 test "n_structure_angle_bracket_null" {
-    err(
+    try err(
         \\[<null>]
     );
 }
 
 test "n_structure_array_trailing_garbage" {
-    err(
+    try err(
         \\[1]x
     );
 }
 
 test "n_structure_array_with_extra_array_close" {
-    err(
+    try err(
         \\[1]]
     );
 }
 
 test "n_structure_array_with_unclosed_string" {
-    err(
+    try err(
         \\["asd]
     );
 }
 
 test "n_structure_ascii-unicode-identifier" {
-    err(
+    try err(
         \\aÃ¥
     );
 }
 
 test "n_structure_capitalized_True" {
-    err(
+    try err(
         \\[True]
     );
 }
 
 test "n_structure_close_unopened_array" {
-    err(
+    try err(
         \\1]
     );
 }
 
 test "n_structure_comma_instead_of_closing_brace" {
-    err(
+    try err(
         \\{"x": true,
     );
 }
 
 test "n_structure_double_array" {
-    err(
+    try err(
         \\[][]
     );
 }
 
 test "n_structure_end_array" {
-    err(
+    try err(
         \\]
     );
 }
 
 test "n_structure_incomplete_UTF8_BOM" {
-    err(
+    try err(
         \\ï»{}
     );
 }
 
 test "n_structure_lone-invalid-utf-8" {
-    err(
+    try err(
         \\å
     );
 }
 
 test "n_structure_lone-open-bracket" {
-    err(
+    try err(
         \\[
     );
 }
 
 test "n_structure_no_data" {
-    err(
+    try err(
         \\
     );
 }
 
 test "n_structure_null-byte-outside-string" {
-    err("[\x00]");
+    try err("[\x00]");
 }
 
 test "n_structure_number_with_trailing_garbage" {
-    err(
+    try err(
         \\2@
     );
 }
 
 test "n_structure_object_followed_by_closing_object" {
-    err(
+    try err(
         \\{}}
     );
 }
 
 test "n_structure_object_unclosed_no_value" {
-    err(
+    try err(
         \\{"":
     );
 }
 
 test "n_structure_object_with_comment" {
-    err(
+    try err(
         \\{"a":/*comment*/"b"}
     );
 }
 
 test "n_structure_object_with_trailing_garbage" {
-    err(
+    try err(
         \\{"a": true} "x"
     );
 }
 
 test "n_structure_open_array_apostrophe" {
-    err(
+    try err(
         \\['
     );
 }
 
 test "n_structure_open_array_comma" {
-    err(
+    try err(
         \\[,
     );
 }
 
 test "n_structure_open_array_object" {
-    err("[{\"\":" ** 50000);
+    try err("[{\"\":" ** 50000);
 }
 
 test "n_structure_open_array_open_object" {
-    err(
+    try err(
         \\[{
     );
 }
 
 test "n_structure_open_array_open_string" {
-    err(
+    try err(
         \\["a
     );
 }
 
 test "n_structure_open_array_string" {
-    err(
+    try err(
         \\["a"
     );
 }
 
 test "n_structure_open_object_close_array" {
-    err(
+    try err(
         \\{]
     );
 }
 
 test "n_structure_open_object_comma" {
-    err(
+    try err(
         \\{,
     );
 }
 
 test "n_structure_open_object" {
-    err(
+    try err(
         \\{
     );
 }
 
 test "n_structure_open_object_open_array" {
-    err(
+    try err(
         \\{[
     );
 }
 
 test "n_structure_open_object_open_string" {
-    err(
+    try err(
         \\{"a
     );
 }
 
 test "n_structure_open_object_string_with_apostrophes" {
-    err(
+    try err(
         \\{'a'
     );
 }
 
 test "n_structure_open_open" {
-    err(
+    try err(
         \\["\{["\{["\{["\{
     );
 }
 
 test "n_structure_single_eacute" {
-    err(
+    try err(
         \\é
     );
 }
 
 test "n_structure_single_star" {
-    err(
+    try err(
         \\*
     );
 }
 
 test "n_structure_trailing_#" {
-    err(
+    try err(
         \\{"a":"b"}#{}
     );
 }
 
 test "n_structure_U+2060_word_joined" {
-    err(
+    try err(
         \\[â ]
     );
 }
 
 test "n_structure_uescaped_LF_before_string" {
-    err(
+    try err(
         \\[\u000A""]
     );
 }
 
 test "n_structure_unclosed_array" {
-    err(
+    try err(
         \\[1
     );
 }
 
 test "n_structure_unclosed_array_partial_null" {
-    err(
+    try err(
         \\[ false, nul
     );
 }
 
 test "n_structure_unclosed_array_unfinished_false" {
-    err(
+    try err(
         \\[ true, fals
     );
 }
 
 test "n_structure_unclosed_array_unfinished_true" {
-    err(
+    try err(
         \\[ false, tru
     );
 }
 
 test "n_structure_unclosed_object" {
-    err(
+    try err(
         \\{"asd":"asd"
     );
 }
 
 test "n_structure_unicode-identifier" {
-    err(
+    try err(
         \\Ã¥
     );
 }
 
 test "n_structure_UTF8_BOM_no_data" {
-    err(
+    try err(
         \\ï»¿
     );
 }
 
 test "n_structure_whitespace_formfeed" {
-    err("[\x0c]");
+    try err("[\x0c]");
 }
 
 test "n_structure_whitespace_U+2060_word_joiner" {
-    err(
+    try err(
         \\[â ]
     );
 }
@@ -1751,255 +1751,255 @@ test "n_structure_whitespace_U+2060_word_joiner" {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 test "i_number_double_huge_neg_exp" {
-    any(
+    try any(
         \\[123.456e-789]
     );
 }
 
 test "i_number_huge_exp" {
-    any(
+    try any(
         \\[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]
     );
 }
 
 test "i_number_neg_int_huge_exp" {
-    any(
+    try any(
         \\[-1e+9999]
     );
 }
 
 test "i_number_pos_double_huge_exp" {
-    any(
+    try any(
         \\[1.5e+9999]
     );
 }
 
 test "i_number_real_neg_overflow" {
-    any(
+    try any(
         \\[-123123e100000]
     );
 }
 
 test "i_number_real_pos_overflow" {
-    any(
+    try any(
         \\[123123e100000]
     );
 }
 
 test "i_number_real_underflow" {
-    any(
+    try any(
         \\[123e-10000000]
     );
 }
 
 test "i_number_too_big_neg_int" {
-    any(
+    try any(
         \\[-123123123123123123123123123123]
     );
 }
 
 test "i_number_too_big_pos_int" {
-    any(
+    try any(
         \\[100000000000000000000]
     );
 }
 
 test "i_number_very_big_negative_int" {
-    any(
+    try any(
         \\[-237462374673276894279832749832423479823246327846]
     );
 }
 
 test "i_object_key_lone_2nd_surrogate" {
-    anyStreamingErrNonStreaming(
+    try anyStreamingErrNonStreaming(
         \\{"\uDFAA":0}
     );
 }
 
 test "i_string_1st_surrogate_but_2nd_missing" {
-    anyStreamingErrNonStreaming(
+    try anyStreamingErrNonStreaming(
         \\["\uDADA"]
     );
 }
 
 test "i_string_1st_valid_surrogate_2nd_invalid" {
-    anyStreamingErrNonStreaming(
+    try anyStreamingErrNonStreaming(
         \\["\uD888\u1234"]
     );
 }
 
 test "i_string_incomplete_surrogate_and_escape_valid" {
-    anyStreamingErrNonStreaming(
+    try anyStreamingErrNonStreaming(
         \\["\uD800\n"]
     );
 }
 
 test "i_string_incomplete_surrogate_pair" {
-    anyStreamingErrNonStreaming(
+    try anyStreamingErrNonStreaming(
         \\["\uDd1ea"]
     );
 }
 
 test "i_string_incomplete_surrogates_escape_valid" {
-    anyStreamingErrNonStreaming(
+    try anyStreamingErrNonStreaming(
         \\["\uD800\uD800\n"]
     );
 }
 
 test "i_string_invalid_lonely_surrogate" {
-    anyStreamingErrNonStreaming(
+    try anyStreamingErrNonStreaming(
         \\["\ud800"]
     );
 }
 
 test "i_string_invalid_surrogate" {
-    anyStreamingErrNonStreaming(
+    try anyStreamingErrNonStreaming(
         \\["\ud800abc"]
     );
 }
 
 test "i_string_invalid_utf-8" {
-    any(
+    try any(
         \\["ÿ"]
     );
 }
 
 test "i_string_inverted_surrogates_U+1D11E" {
-    anyStreamingErrNonStreaming(
+    try anyStreamingErrNonStreaming(
         \\["\uDd1e\uD834"]
     );
 }
 
 test "i_string_iso_latin_1" {
-    any(
+    try any(
         \\["é"]
     );
 }
 
 test "i_string_lone_second_surrogate" {
-    anyStreamingErrNonStreaming(
+    try anyStreamingErrNonStreaming(
         \\["\uDFAA"]
     );
 }
 
 test "i_string_lone_utf8_continuation_byte" {
-    any(
+    try any(
         \\[""]
     );
 }
 
 test "i_string_not_in_unicode_range" {
-    any(
+    try any(
         \\["ô¿¿¿"]
     );
 }
 
 test "i_string_overlong_sequence_2_bytes" {
-    any(
+    try any(
         \\["À¯"]
     );
 }
 
 test "i_string_overlong_sequence_6_bytes" {
-    any(
+    try any(
         \\["ü¿¿¿¿"]
     );
 }
 
 test "i_string_overlong_sequence_6_bytes_null" {
-    any(
+    try any(
         \\["ü"]
     );
 }
 
 test "i_string_truncated-utf-8" {
-    any(
+    try any(
         \\["àÿ"]
     );
 }
 
 test "i_string_utf16BE_no_BOM" {
-    any("\x00\x5b\x00\x22\x00\xc3\xa9\x00\x22\x00\x5d");
+    try any("\x00\x5b\x00\x22\x00\xc3\xa9\x00\x22\x00\x5d");
 }
 
 test "i_string_utf16LE_no_BOM" {
-    any("\x5b\x00\x22\x00\xc3\xa9\x00\x22\x00\x5d\x00");
+    try any("\x5b\x00\x22\x00\xc3\xa9\x00\x22\x00\x5d\x00");
 }
 
 test "i_string_UTF-16LE_with_BOM" {
-    any("\xc3\xbf\xc3\xbe\x5b\x00\x22\x00\xc3\xa9\x00\x22\x00\x5d\x00");
+    try any("\xc3\xbf\xc3\xbe\x5b\x00\x22\x00\xc3\xa9\x00\x22\x00\x5d\x00");
 }
 
 test "i_string_UTF-8_invalid_sequence" {
-    any(
+    try any(
         \\["æ¥Ñú"]
     );
 }
 
 test "i_string_UTF8_surrogate_U+D800" {
-    any(
+    try any(
         \\["í "]
     );
 }
 
 test "i_structure_500_nested_arrays" {
-    any(("[" ** 500) ++ ("]" ** 500));
+    try any(("[" ** 500) ++ ("]" ** 500));
 }
 
 test "i_structure_UTF-8_BOM_empty_object" {
-    any(
+    try any(
         \\ï»¿{}
     );
 }
 
 test "truncated UTF-8 sequence" {
-    utf8Error("\"\xc2\"");
-    utf8Error("\"\xdf\"");
-    utf8Error("\"\xed\xa0\"");
-    utf8Error("\"\xf0\x80\"");
-    utf8Error("\"\xf0\x80\x80\"");
+    try utf8Error("\"\xc2\"");
+    try utf8Error("\"\xdf\"");
+    try utf8Error("\"\xed\xa0\"");
+    try utf8Error("\"\xf0\x80\"");
+    try utf8Error("\"\xf0\x80\x80\"");
 }
 
 test "invalid continuation byte" {
-    utf8Error("\"\xc2\x00\"");
-    utf8Error("\"\xc2\x7f\"");
-    utf8Error("\"\xc2\xc0\"");
-    utf8Error("\"\xc3\xc1\"");
-    utf8Error("\"\xc4\xf5\"");
-    utf8Error("\"\xc5\xff\"");
-    utf8Error("\"\xe4\x80\x00\"");
-    utf8Error("\"\xe5\x80\x10\"");
-    utf8Error("\"\xe6\x80\xc0\"");
-    utf8Error("\"\xe7\x80\xf5\"");
-    utf8Error("\"\xe8\x00\x80\"");
-    utf8Error("\"\xf2\x00\x80\x80\"");
-    utf8Error("\"\xf0\x80\x00\x80\"");
-    utf8Error("\"\xf1\x80\xc0\x80\"");
-    utf8Error("\"\xf2\x80\x80\x00\"");
-    utf8Error("\"\xf3\x80\x80\xc0\"");
-    utf8Error("\"\xf4\x80\x80\xf5\"");
+    try utf8Error("\"\xc2\x00\"");
+    try utf8Error("\"\xc2\x7f\"");
+    try utf8Error("\"\xc2\xc0\"");
+    try utf8Error("\"\xc3\xc1\"");
+    try utf8Error("\"\xc4\xf5\"");
+    try utf8Error("\"\xc5\xff\"");
+    try utf8Error("\"\xe4\x80\x00\"");
+    try utf8Error("\"\xe5\x80\x10\"");
+    try utf8Error("\"\xe6\x80\xc0\"");
+    try utf8Error("\"\xe7\x80\xf5\"");
+    try utf8Error("\"\xe8\x00\x80\"");
+    try utf8Error("\"\xf2\x00\x80\x80\"");
+    try utf8Error("\"\xf0\x80\x00\x80\"");
+    try utf8Error("\"\xf1\x80\xc0\x80\"");
+    try utf8Error("\"\xf2\x80\x80\x00\"");
+    try utf8Error("\"\xf3\x80\x80\xc0\"");
+    try utf8Error("\"\xf4\x80\x80\xf5\"");
 }
 
 test "disallowed overlong form" {
-    utf8Error("\"\xc0\x80\"");
-    utf8Error("\"\xc0\x90\"");
-    utf8Error("\"\xc1\x80\"");
-    utf8Error("\"\xc1\x90\"");
-    utf8Error("\"\xe0\x80\x80\"");
-    utf8Error("\"\xf0\x80\x80\x80\"");
+    try utf8Error("\"\xc0\x80\"");
+    try utf8Error("\"\xc0\x90\"");
+    try utf8Error("\"\xc1\x80\"");
+    try utf8Error("\"\xc1\x90\"");
+    try utf8Error("\"\xe0\x80\x80\"");
+    try utf8Error("\"\xf0\x80\x80\x80\"");
 }
 
 test "out of UTF-16 range" {
-    utf8Error("\"\xf4\x90\x80\x80\"");
-    utf8Error("\"\xf5\x80\x80\x80\"");
-    utf8Error("\"\xf6\x80\x80\x80\"");
-    utf8Error("\"\xf7\x80\x80\x80\"");
-    utf8Error("\"\xf8\x80\x80\x80\"");
-    utf8Error("\"\xf9\x80\x80\x80\"");
-    utf8Error("\"\xfa\x80\x80\x80\"");
-    utf8Error("\"\xfb\x80\x80\x80\"");
-    utf8Error("\"\xfc\x80\x80\x80\"");
-    utf8Error("\"\xfd\x80\x80\x80\"");
-    utf8Error("\"\xfe\x80\x80\x80\"");
-    utf8Error("\"\xff\x80\x80\x80\"");
+    try utf8Error("\"\xf4\x90\x80\x80\"");
+    try utf8Error("\"\xf5\x80\x80\x80\"");
+    try utf8Error("\"\xf6\x80\x80\x80\"");
+    try utf8Error("\"\xf7\x80\x80\x80\"");
+    try utf8Error("\"\xf8\x80\x80\x80\"");
+    try utf8Error("\"\xf9\x80\x80\x80\"");
+    try utf8Error("\"\xfa\x80\x80\x80\"");
+    try utf8Error("\"\xfb\x80\x80\x80\"");
+    try utf8Error("\"\xfc\x80\x80\x80\"");
+    try utf8Error("\"\xfd\x80\x80\x80\"");
+    try utf8Error("\"\xfe\x80\x80\x80\"");
+    try utf8Error("\"\xff\x80\x80\x80\"");
 }

@@ -22,9 +22,9 @@ fn doThing(form_id: u64) anyerror!FormValue {
 test "switch prong returns error enum" {
     switch (doThing(17) catch unreachable) {
         FormValue.Address => |payload| {
-            expect(payload == 1);
+            try expect(payload == 1);
         },
         else => unreachable,
     }
-    expect(read_count == 1);
+    try expect(read_count == 1);
 }

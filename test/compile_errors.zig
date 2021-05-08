@@ -230,7 +230,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("array in c exported function",
         \\export fn zig_array(x: [10]u8) void {
-        \\    expect(std.mem.eql(u8, &x, "1234567890"));
+        \\try expect(std.mem.eql(u8, &x, "1234567890"));
         \\}
         \\
         \\export fn zig_return_array() [10]u8 {

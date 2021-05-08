@@ -5,13 +5,13 @@ const tests = @import("tests.zig");
 pub fn addCases(cases: *tests.StackTracesContext) void {
     cases.addCase(.{
         .name = "return",
-        .source =
+        .source = 
         \\pub fn main() !void {
         \\    return error.TheSkyIsFalling;
         \\}
         ,
         .Debug = .{
-            .expect =
+            .expect = 
             \\error: TheSkyIsFalling
             \\source.zig:2:5: [address] in main (test)
             \\    return error.TheSkyIsFalling;
@@ -23,7 +23,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             .exclude_os = .{
                 .windows, // segfault
             },
-            .expect =
+            .expect = 
             \\error: TheSkyIsFalling
             \\source.zig:2:5: [address] in [function]
             \\    return error.TheSkyIsFalling;
@@ -32,13 +32,13 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseFast = .{
-            .expect =
+            .expect = 
             \\error: TheSkyIsFalling
             \\
             ,
         },
         .ReleaseSmall = .{
-            .expect =
+            .expect = 
             \\error: TheSkyIsFalling
             \\
             ,
@@ -47,7 +47,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
 
     cases.addCase(.{
         .name = "try return",
-        .source =
+        .source = 
         \\fn foo() !void {
         \\    return error.TheSkyIsFalling;
         \\}
@@ -57,7 +57,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         \\}
         ,
         .Debug = .{
-            .expect =
+            .expect = 
             \\error: TheSkyIsFalling
             \\source.zig:2:5: [address] in foo (test)
             \\    return error.TheSkyIsFalling;
@@ -72,7 +72,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             .exclude_os = .{
                 .windows, // segfault
             },
-            .expect =
+            .expect = 
             \\error: TheSkyIsFalling
             \\source.zig:2:5: [address] in [function]
             \\    return error.TheSkyIsFalling;
@@ -84,13 +84,13 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseFast = .{
-            .expect =
+            .expect = 
             \\error: TheSkyIsFalling
             \\
             ,
         },
         .ReleaseSmall = .{
-            .expect =
+            .expect = 
             \\error: TheSkyIsFalling
             \\
             ,
@@ -99,7 +99,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
 
     cases.addCase(.{
         .name = "try try return return",
-        .source =
+        .source = 
         \\fn foo() !void {
         \\    try bar();
         \\}
@@ -117,7 +117,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         \\}
         ,
         .Debug = .{
-            .expect =
+            .expect = 
             \\error: TheSkyIsFalling
             \\source.zig:10:5: [address] in make_error (test)
             \\    return error.TheSkyIsFalling;
@@ -138,7 +138,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             .exclude_os = .{
                 .windows, // segfault
             },
-            .expect =
+            .expect = 
             \\error: TheSkyIsFalling
             \\source.zig:10:5: [address] in [function]
             \\    return error.TheSkyIsFalling;
@@ -156,13 +156,13 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseFast = .{
-            .expect =
+            .expect = 
             \\error: TheSkyIsFalling
             \\
             ,
         },
         .ReleaseSmall = .{
-            .expect =
+            .expect = 
             \\error: TheSkyIsFalling
             \\
             ,
@@ -174,7 +174,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             .windows,
         },
         .name = "dumpCurrentStackTrace",
-        .source =
+        .source = 
         \\const std = @import("std");
         \\
         \\fn bar() void {
@@ -189,7 +189,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         \\}
         ,
         .Debug = .{
-            .expect =
+            .expect = 
             \\source.zig:7:8: [address] in foo (test)
             \\    bar();
             \\       ^

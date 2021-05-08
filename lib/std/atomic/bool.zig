@@ -47,9 +47,9 @@ pub const Bool = extern struct {
 
 test "std.atomic.Bool" {
     var a = Bool.init(false);
-    testing.expectEqual(false, a.xchg(false, .SeqCst));
-    testing.expectEqual(false, a.load(.SeqCst));
+    try testing.expectEqual(false, a.xchg(false, .SeqCst));
+    try testing.expectEqual(false, a.load(.SeqCst));
     a.store(true, .SeqCst);
-    testing.expectEqual(true, a.xchg(false, .SeqCst));
-    testing.expectEqual(false, a.load(.SeqCst));
+    try testing.expectEqual(true, a.xchg(false, .SeqCst));
+    try testing.expectEqual(false, a.load(.SeqCst));
 }

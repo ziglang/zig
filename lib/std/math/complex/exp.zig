@@ -131,14 +131,14 @@ test "complex.cexp32" {
     const a = Complex(f32).new(5, 3);
     const c = exp(a);
 
-    testing.expect(math.approxEqAbs(f32, c.re, -146.927917, epsilon));
-    testing.expect(math.approxEqAbs(f32, c.im, 20.944065, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.re, -146.927917, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.im, 20.944065, epsilon));
 }
 
 test "complex.cexp64" {
     const a = Complex(f64).new(5, 3);
     const c = exp(a);
 
-    testing.expect(math.approxEqAbs(f64, c.re, -146.927917, epsilon));
-    testing.expect(math.approxEqAbs(f64, c.im, 20.944065, epsilon));
+    try testing.expect(math.approxEqAbs(f64, c.re, -146.927917, epsilon));
+    try testing.expect(math.approxEqAbs(f64, c.im, 20.944065, epsilon));
 }

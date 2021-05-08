@@ -3,7 +3,7 @@ const expect = std.testing.expect;
 
 test "struct contains null pointer which contains original struct" {
     var x: ?*NodeLineComment = null;
-    expect(x == null);
+    try expect(x == null);
 }
 
 pub const Node = struct {

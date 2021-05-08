@@ -6,5 +6,5 @@ test "symbol exists" {
         .a = 1,
         .b = 1,
     };
-    expect(foo.a + foo.b == 2);
+    try expect(foo.a + foo.b == 2);
 }

@@ -31,13 +31,13 @@ pub fn isNormal(x: anytype) bool {
 }
 
 test "math.isNormal" {
-    expect(!isNormal(math.nan(f16)));
-    expect(!isNormal(math.nan(f32)));
-    expect(!isNormal(math.nan(f64)));
-    expect(!isNormal(@as(f16, 0)));
-    expect(!isNormal(@as(f32, 0)));
-    expect(!isNormal(@as(f64, 0)));
-    expect(isNormal(@as(f16, 1.0)));
-    expect(isNormal(@as(f32, 1.0)));
-    expect(isNormal(@as(f64, 1.0)));
+    try expect(!isNormal(math.nan(f16)));
+    try expect(!isNormal(math.nan(f32)));
+    try expect(!isNormal(math.nan(f64)));
+    try expect(!isNormal(@as(f16, 0)));
+    try expect(!isNormal(@as(f32, 0)));
+    try expect(!isNormal(@as(f64, 0)));
+    try expect(isNormal(@as(f16, 1.0)));
+    try expect(isNormal(@as(f32, 1.0)));
+    try expect(isNormal(@as(f64, 1.0)));
 }

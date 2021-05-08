@@ -12,9 +12,9 @@ fn add(args: anytype) i32 {
 }
 
 test "add arbitrary args" {
-    expect(add(.{ @as(i32, 1), @as(i32, 2), @as(i32, 3), @as(i32, 4) }) == 10);
-    expect(add(.{@as(i32, 1234)}) == 1234);
-    expect(add(.{}) == 0);
+    try expect(add(.{ @as(i32, 1), @as(i32, 2), @as(i32, 3), @as(i32, 4) }) == 10);
+    try expect(add(.{@as(i32, 1234)}) == 1234);
+    try expect(add(.{}) == 0);
 }
 
 fn readFirstVarArg(args: anytype) void {
@@ -26,9 +26,9 @@ test "send void arg to var args" {
 }
 
 test "pass args directly" {
-    expect(addSomeStuff(.{ @as(i32, 1), @as(i32, 2), @as(i32, 3), @as(i32, 4) }) == 10);
-    expect(addSomeStuff(.{@as(i32, 1234)}) == 1234);
-    expect(addSomeStuff(.{}) == 0);
+    try expect(addSomeStuff(.{ @as(i32, 1), @as(i32, 2), @as(i32, 3), @as(i32, 4) }) == 10);
+    try expect(addSomeStuff(.{@as(i32, 1234)}) == 1234);
+    try expect(addSomeStuff(.{}) == 0);
 }
 
 fn addSomeStuff(args: anytype) i32 {
@@ -36,23 +36,23 @@ fn addSomeStuff(args: anytype) i32 {
 }
 
 test "runtime parameter before var args" {
-    expect(extraFn(10, .{}) == 0);
-    expect(extraFn(10, .{false}) == 1);
-    expect(extraFn(10, .{ false, true }) == 2);
+    try expect((try extraFn(10, .{})) == 0);
+    try expect((try extraFn(10, .{false})) == 1);
+    try expect((try extraFn(10, .{ false, true })) == 2);
 
     comptime {
-        expect(extraFn(10, .{}) == 0);
-        expect(extraFn(10, .{false}) == 1);
-        expect(extraFn(10, .{ false, true }) == 2);
+        try expect((try extraFn(10, .{})) == 0);
+        try expect((try extraFn(10, .{false})) == 1);
+        try expect((try extraFn(10, .{ false, true })) == 2);
     }
 }
 
-fn extraFn(extra: u32, args: anytype) usize {
+fn extraFn(extra: u32, args: anytype) !usize {
     if (args.len >= 1) {
-        expect(args[0] == false);
+        try expect(args[0] == false);
     }
     if (args.len >= 2) {
-        expect(args[1] == true);
+        try expect(args[1] == true);
     }
     return args.len;
 }
@@ -70,8 +70,8 @@ fn foo2(args: anytype) bool {
 }
 
 test "array of var args functions" {
-    expect(foos[0](.{}));
-    expect(!foos[1](.{}));
+    try expect(foos[0](.{}));
+    try expect(!foos[1](.{}));
 }
 
 test "pass zero length array to var args param" {

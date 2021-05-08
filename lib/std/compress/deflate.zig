@@ -669,5 +669,5 @@ test "lengths overflow" {
     var inflate = inflateStream(reader, &window);
 
     var buf: [1]u8 = undefined;
-    std.testing.expectError(error.InvalidLength, inflate.read(&buf));
+    try std.testing.expectError(error.InvalidLength, inflate.read(&buf));
 }

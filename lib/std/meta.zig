@@ -47,16 +47,16 @@ test "std.meta.tagName" {
     var u2a = U2{ .C = 0 };
     var u2b = U2{ .D = 0 };
 
-    testing.expect(mem.eql(u8, tagName(E1.A), "A"));
-    testing.expect(mem.eql(u8, tagName(E1.B), "B"));
-    testing.expect(mem.eql(u8, tagName(E2.C), "C"));
-    testing.expect(mem.eql(u8, tagName(E2.D), "D"));
-    testing.expect(mem.eql(u8, tagName(error.E), "E"));
-    testing.expect(mem.eql(u8, tagName(error.F), "F"));
-    testing.expect(mem.eql(u8, tagName(u1g), "G"));
-    testing.expect(mem.eql(u8, tagName(u1h), "H"));
-    testing.expect(mem.eql(u8, tagName(u2a), "C"));
-    testing.expect(mem.eql(u8, tagName(u2b), "D"));
+    try testing.expect(mem.eql(u8, tagName(E1.A), "A"));
+    try testing.expect(mem.eql(u8, tagName(E1.B), "B"));
+    try testing.expect(mem.eql(u8, tagName(E2.C), "C"));
+    try testing.expect(mem.eql(u8, tagName(E2.D), "D"));
+    try testing.expect(mem.eql(u8, tagName(error.E), "E"));
+    try testing.expect(mem.eql(u8, tagName(error.F), "F"));
+    try testing.expect(mem.eql(u8, tagName(u1g), "G"));
+    try testing.expect(mem.eql(u8, tagName(u1h), "H"));
+    try testing.expect(mem.eql(u8, tagName(u2a), "C"));
+    try testing.expect(mem.eql(u8, tagName(u2b), "D"));
 }
 
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
@@ -98,9 +98,9 @@ test "std.meta.stringToEnum" {
         A,
         B,
     };
-    testing.expect(E1.A == stringToEnum(E1, "A").?);
-    testing.expect(E1.B == stringToEnum(E1, "B").?);
-    testing.expect(null == stringToEnum(E1, "C"));
+    try testing.expect(E1.A == stringToEnum(E1, "A").?);
+    try testing.expect(E1.B == stringToEnum(E1, "B").?);
+    try testing.expect(null == stringToEnum(E1, "C"));
 }
 
 pub fn bitCount(comptime T: type) comptime_int {
@@ -113,8 +113,8 @@ pub fn bitCount(comptime T: type) comptime_int {
 }
 
 test "std.meta.bitCount" {
-    testing.expect(bitCount(u8) == 8);
-    testing.expect(bitCount(f32) == 32);
+    try testing.expect(bitCount(u8) == 8);
+    try testing.expect(bitCount(f32) == 32);
 }
 
 /// Returns the alignment of type T.
@@ -135,13 +135,13 @@ pub fn alignment(comptime T: type) comptime_int {
 }
 
 test "std.meta.alignment" {
-    testing.expect(alignment(u8) == 1);
-    testing.expect(alignment(*align(1) u8) == 1);
-    testing.expect(alignment(*align(2) u8) == 2);
-    testing.expect(alignment([]align(1) u8) == 1);
-    testing.expect(alignment([]align(2) u8) == 2);
-    testing.expect(alignment(fn () void) > 0);
-    testing.expect(alignment(fn () align(128) void) == 128);
+    try testing.expect(alignment(u8) == 1);
+    try testing.expect(alignment(*align(1) u8) == 1);
+    try testing.expect(alignment(*align(2) u8) == 2);
+    try testing.expect(alignment([]align(1) u8) == 1);
+    try testing.expect(alignment([]align(2) u8) == 2);
+    try testing.expect(alignment(fn () void) > 0);
+    try testing.expect(alignment(fn () align(128) void) == 128);
 }
 
 pub fn Child(comptime T: type) type {
@@ -155,11 +155,11 @@ pub fn Child(comptime T: type) type {
 }
 
 test "std.meta.Child" {
-    testing.expect(Child([1]u8) == u8);
-    testing.expect(Child(*u8) == u8);
-    testing.expect(Child([]u8) == u8);
-    testing.expect(Child(?u8) == u8);
-    testing.expect(Child(Vector(2, u8)) == u8);
+    try testing.expect(Child([1]u8) == u8);
+    try testing.expect(Child(*u8) == u8);
+    try testing.expect(Child([]u8) == u8);
+    try testing.expect(Child(?u8) == u8);
+    try testing.expect(Child(Vector(2, u8)) == u8);
 }
 
 /// Given a "memory span" type, returns the "element type".
@@ -188,13 +188,13 @@ pub fn Elem(comptime T: type) type {
 }
 
 test "std.meta.Elem" {
-    testing.expect(Elem([1]u8) == u8);
-    testing.expect(Elem([*]u8) == u8);
-    testing.expect(Elem([]u8) == u8);
-    testing.expect(Elem(*[10]u8) == u8);
-    testing.expect(Elem(Vector(2, u8)) == u8);
-    testing.expect(Elem(*Vector(2, u8)) == u8);
-    testing.expect(Elem(?[*]u8) == u8);
+    try testing.expect(Elem([1]u8) == u8);
+    try testing.expect(Elem([*]u8) == u8);
+    try testing.expect(Elem([]u8) == u8);
+    try testing.expect(Elem(*[10]u8) == u8);
+    try testing.expect(Elem(Vector(2, u8)) == u8);
+    try testing.expect(Elem(*Vector(2, u8)) == u8);
+    try testing.expect(Elem(?[*]u8) == u8);
 }
 
 /// Given a type which can have a sentinel e.g. `[:0]u8`, returns the sentinel value,
@@ -219,20 +219,20 @@ pub fn sentinel(comptime T: type) ?Elem(T) {
 }
 
 test "std.meta.sentinel" {
-    testSentinel();
-    comptime testSentinel();
+    try testSentinel();
+    comptime try testSentinel();
 }
 
-fn testSentinel() void {
-    testing.expectEqual(@as(u8, 0), sentinel([:0]u8).?);
-    testing.expectEqual(@as(u8, 0), sentinel([*:0]u8).?);
-    testing.expectEqual(@as(u8, 0), sentinel([5:0]u8).?);
-    testing.expectEqual(@as(u8, 0), sentinel(*const [5:0]u8).?);
+fn testSentinel() !void {
+    try testing.expectEqual(@as(u8, 0), sentinel([:0]u8).?);
+    try testing.expectEqual(@as(u8, 0), sentinel([*:0]u8).?);
+    try testing.expectEqual(@as(u8, 0), sentinel([5:0]u8).?);
+    try testing.expectEqual(@as(u8, 0), sentinel(*const [5:0]u8).?);
 
-    testing.expect(sentinel([]u8) == null);
-    testing.expect(sentinel([*]u8) == null);
-    testing.expect(sentinel([5]u8) == null);
-    testing.expect(sentinel(*const [5]u8) == null);
+    try testing.expect(sentinel([]u8) == null);
+    try testing.expect(sentinel([*]u8) == null);
+    try testing.expect(sentinel([5]u8) == null);
+    try testing.expect(sentinel(*const [5]u8) == null);
 }
 
 /// Given a "memory span" type, returns the same type except with the given sentinel value.
@@ -322,17 +322,17 @@ pub fn assumeSentinel(p: anytype, comptime sentinel_val: Elem(@TypeOf(p))) Senti
 }
 
 test "std.meta.assumeSentinel" {
-    testing.expect([*:0]u8 == @TypeOf(assumeSentinel(@as([*]u8, undefined), 0)));
-    testing.expect([:0]u8 == @TypeOf(assumeSentinel(@as([]u8, undefined), 0)));
-    testing.expect([*:0]const u8 == @TypeOf(assumeSentinel(@as([*]const u8, undefined), 0)));
-    testing.expect([:0]const u8 == @TypeOf(assumeSentinel(@as([]const u8, undefined), 0)));
-    testing.expect([*:0]u16 == @TypeOf(assumeSentinel(@as([*]u16, undefined), 0)));
-    testing.expect([:0]const u16 == @TypeOf(assumeSentinel(@as([]const u16, undefined), 0)));
-    testing.expect([*:3]u8 == @TypeOf(assumeSentinel(@as([*:1]u8, undefined), 3)));
-    testing.expect([:null]?[*]u8 == @TypeOf(assumeSentinel(@as([]?[*]u8, undefined), null)));
-    testing.expect([*:null]?[*]u8 == @TypeOf(assumeSentinel(@as([*]?[*]u8, undefined), null)));
-    testing.expect(*[10:0]u8 == @TypeOf(assumeSentinel(@as(*[10]u8, undefined), 0)));
-    testing.expect(?[*:0]u8 == @TypeOf(assumeSentinel(@as(?[*]u8, undefined), 0)));
+    try testing.expect([*:0]u8 == @TypeOf(assumeSentinel(@as([*]u8, undefined), 0)));
+    try testing.expect([:0]u8 == @TypeOf(assumeSentinel(@as([]u8, undefined), 0)));
+    try testing.expect([*:0]const u8 == @TypeOf(assumeSentinel(@as([*]const u8, undefined), 0)));
+    try testing.expect([:0]const u8 == @TypeOf(assumeSentinel(@as([]const u8, undefined), 0)));
+    try testing.expect([*:0]u16 == @TypeOf(assumeSentinel(@as([*]u16, undefined), 0)));
+    try testing.expect([:0]const u16 == @TypeOf(assumeSentinel(@as([]const u16, undefined), 0)));
+    try testing.expect([*:3]u8 == @TypeOf(assumeSentinel(@as([*:1]u8, undefined), 3)));
+    try testing.expect([:null]?[*]u8 == @TypeOf(assumeSentinel(@as([]?[*]u8, undefined), null)));
+    try testing.expect([*:null]?[*]u8 == @TypeOf(assumeSentinel(@as([*]?[*]u8, undefined), null)));
+    try testing.expect(*[10:0]u8 == @TypeOf(assumeSentinel(@as(*[10]u8, undefined), 0)));
+    try testing.expect(?[*:0]u8 == @TypeOf(assumeSentinel(@as(?[*]u8, undefined), 0)));
 }
 
 pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {
@@ -367,15 +367,15 @@ test "std.meta.containerLayout" {
         a: u8,
     };
 
-    testing.expect(containerLayout(E1) == .Auto);
-    testing.expect(containerLayout(E2) == .Packed);
-    testing.expect(containerLayout(E3) == .Extern);
-    testing.expect(containerLayout(S1) == .Auto);
-    testing.expect(containerLayout(S2) == .Packed);
-    testing.expect(containerLayout(S3) == .Extern);
-    testing.expect(containerLayout(U1) == .Auto);
-    testing.expect(containerLayout(U2) == .Packed);
-    testing.expect(containerLayout(U3) == .Extern);
+    try testing.expect(containerLayout(E1) == .Auto);
+    try testing.expect(containerLayout(E2) == .Packed);
+    try testing.expect(containerLayout(E3) == .Extern);
+    try testing.expect(containerLayout(S1) == .Auto);
+    try testing.expect(containerLayout(S2) == .Packed);
+    try testing.expect(containerLayout(S3) == .Extern);
+    try testing.expect(containerLayout(U1) == .Auto);
+    try testing.expect(containerLayout(U2) == .Packed);
+    try testing.expect(containerLayout(U3) == .Extern);
 }
 
 pub fn declarations(comptime T: type) []const TypeInfo.Declaration {
@@ -414,8 +414,8 @@ test "std.meta.declarations" {
     };
 
     inline for (decls) |decl| {
-        testing.expect(decl.len == 1);
-        testing.expect(comptime mem.eql(u8, decl[0].name, "a"));
+        try testing.expect(decl.len == 1);
+        try testing.expect(comptime mem.eql(u8, decl[0].name, "a"));
     }
 }
 
@@ -450,8 +450,8 @@ test "std.meta.declarationInfo" {
     };
 
     inline for (infos) |info| {
-        testing.expect(comptime mem.eql(u8, info.name, "a"));
-        testing.expect(!info.is_pub);
+        try testing.expect(comptime mem.eql(u8, info.name, "a"));
+        try testing.expect(!info.is_pub);
     }
 }
 
@@ -488,16 +488,16 @@ test "std.meta.fields" {
     const sf = comptime fields(S1);
     const uf = comptime fields(U1);
 
-    testing.expect(e1f.len == 1);
-    testing.expect(e2f.len == 1);
-    testing.expect(sf.len == 1);
-    testing.expect(uf.len == 1);
-    testing.expect(mem.eql(u8, e1f[0].name, "A"));
-    testing.expect(mem.eql(u8, e2f[0].name, "A"));
-    testing.expect(mem.eql(u8, sf[0].name, "a"));
-    testing.expect(mem.eql(u8, uf[0].name, "a"));
-    testing.expect(comptime sf[0].field_type == u8);
-    testing.expect(comptime uf[0].field_type == u8);
+    try testing.expect(e1f.len == 1);
+    try testing.expect(e2f.len == 1);
+    try testing.expect(sf.len == 1);
+    try testing.expect(uf.len == 1);
+    try testing.expect(mem.eql(u8, e1f[0].name, "A"));
+    try testing.expect(mem.eql(u8, e2f[0].name, "A"));
+    try testing.expect(mem.eql(u8, sf[0].name, "a"));
+    try testing.expect(mem.eql(u8, uf[0].name, "a"));
+    try testing.expect(comptime sf[0].field_type == u8);
+    try testing.expect(comptime uf[0].field_type == u8);
 }
 
 pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeInfo(T)) {
@@ -527,12 +527,12 @@ test "std.meta.fieldInfo" {
     const sf = fieldInfo(S1, .a);
     const uf = fieldInfo(U1, .a);
 
-    testing.expect(mem.eql(u8, e1f.name, "A"));
-    testing.expect(mem.eql(u8, e2f.name, "A"));
-    testing.expect(mem.eql(u8, sf.name, "a"));
-    testing.expect(mem.eql(u8, uf.name, "a"));
-    testing.expect(comptime sf.field_type == u8);
-    testing.expect(comptime uf.field_type == u8);
+    try testing.expect(mem.eql(u8, e1f.name, "A"));
+    try testing.expect(mem.eql(u8, e2f.name, "A"));
+    try testing.expect(mem.eql(u8, sf.name, "a"));
+    try testing.expect(mem.eql(u8, uf.name, "a"));
+    try testing.expect(comptime sf.field_type == u8);
+    try testing.expect(comptime uf.field_type == u8);
 }
 
 pub fn fieldNames(comptime T: type) *const [fields(T).len][]const u8 {
@@ -562,16 +562,16 @@ test "std.meta.fieldNames" {
     const s1names = fieldNames(S1);
     const u1names = fieldNames(U1);
 
-    testing.expect(e1names.len == 2);
-    testing.expectEqualSlices(u8, e1names[0], "A");
-    testing.expectEqualSlices(u8, e1names[1], "B");
-    testing.expect(e2names.len == 1);
-    testing.expectEqualSlices(u8, e2names[0], "A");
-    testing.expect(s1names.len == 1);
-    testing.expectEqualSlices(u8, s1names[0], "a");
-    testing.expect(u1names.len == 2);
-    testing.expectEqualSlices(u8, u1names[0], "a");
-    testing.expectEqualSlices(u8, u1names[1], "b");
+    try testing.expect(e1names.len == 2);
+    try testing.expectEqualSlices(u8, e1names[0], "A");
+    try testing.expectEqualSlices(u8, e1names[1], "B");
+    try testing.expect(e2names.len == 1);
+    try testing.expectEqualSlices(u8, e2names[0], "A");
+    try testing.expect(s1names.len == 1);
+    try testing.expectEqualSlices(u8, s1names[0], "a");
+    try testing.expect(u1names.len == 2);
+    try testing.expectEqualSlices(u8, u1names[0], "a");
+    try testing.expectEqualSlices(u8, u1names[1], "b");
 }
 
 pub fn FieldEnum(comptime T: type) type {
@@ -595,20 +595,20 @@ pub fn FieldEnum(comptime T: type) type {
     });
 }
 
-fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) void {
+fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
     // TODO: https://github.com/ziglang/zig/issues/7419
     // testing.expectEqual(@typeInfo(expected).Enum, @typeInfo(actual).Enum);
-    testing.expectEqual(@typeInfo(expected).Enum.layout, @typeInfo(actual).Enum.layout);
-    testing.expectEqual(@typeInfo(expected).Enum.tag_type, @typeInfo(actual).Enum.tag_type);
-    comptime testing.expectEqualSlices(std.builtin.TypeInfo.EnumField, @typeInfo(expected).Enum.fields, @typeInfo(actual).Enum.fields);
-    comptime testing.expectEqualSlices(std.builtin.TypeInfo.Declaration, @typeInfo(expected).Enum.decls, @typeInfo(actual).Enum.decls);
-    testing.expectEqual(@typeInfo(expected).Enum.is_exhaustive, @typeInfo(actual).Enum.is_exhaustive);
+    try testing.expectEqual(@typeInfo(expected).Enum.layout, @typeInfo(actual).Enum.layout);
+    try testing.expectEqual(@typeInfo(expected).Enum.tag_type, @typeInfo(actual).Enum.tag_type);
+    comptime try testing.expectEqualSlices(std.builtin.TypeInfo.EnumField, @typeInfo(expected).Enum.fields, @typeInfo(actual).Enum.fields);
+    comptime try testing.expectEqualSlices(std.builtin.TypeInfo.Declaration, @typeInfo(expected).Enum.decls, @typeInfo(actual).Enum.decls);
+    try testing.expectEqual(@typeInfo(expected).Enum.is_exhaustive, @typeInfo(actual).Enum.is_exhaustive);
 }
 
 test "std.meta.FieldEnum" {
-    expectEqualEnum(enum { a }, FieldEnum(struct { a: u8 }));
-    expectEqualEnum(enum { a, b, c }, FieldEnum(struct { a: u8, b: void, c: f32 }));
-    expectEqualEnum(enum { a, b, c }, FieldEnum(union { a: u8, b: void, c: f32 }));
+    try expectEqualEnum(enum { a }, FieldEnum(struct { a: u8 }));
+    try expectEqualEnum(enum { a, b, c }, FieldEnum(struct { a: u8, b: void, c: f32 }));
+    try expectEqualEnum(enum { a, b, c }, FieldEnum(union { a: u8, b: void, c: f32 }));
 }
 
 // Deprecated: use Tag
@@ -632,8 +632,8 @@ test "std.meta.Tag" {
         D: u16,
     };
 
-    testing.expect(Tag(E) == u8);
-    testing.expect(Tag(U) == E);
+    try testing.expect(Tag(E) == u8);
+    try testing.expect(Tag(U) == E);
 }
 
 ///Returns the active tag of a tagged union
@@ -654,10 +654,10 @@ test "std.meta.activeTag" {
     };
 
     var u = U{ .Int = 32 };
-    testing.expect(activeTag(u) == UE.Int);
+    try testing.expect(activeTag(u) == UE.Int);
 
     u = U{ .Float = 112.9876 };
-    testing.expect(activeTag(u) == UE.Float);
+    try testing.expect(activeTag(u) == UE.Float);
 }
 
 const TagPayloadType = TagPayload;
@@ -665,7 +665,7 @@ const TagPayloadType = TagPayload;
 ///Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
 pub fn TagPayload(comptime U: type, tag: Tag(U)) type {
-    testing.expect(trait.is(.Union)(U));
+    try testing.expect(trait.is(.Union)(U));
 
     const info = @typeInfo(U).Union;
     const tag_info = @typeInfo(Tag(U)).Enum;
@@ -687,7 +687,7 @@ test "std.meta.TagPayload" {
     };
     const MovedEvent = TagPayload(Event, Event.Moved);
     var e: Event = undefined;
-    testing.expect(MovedEvent == @TypeOf(e.Moved));
+    try testing.expect(MovedEvent == @TypeOf(e.Moved));
 }
 
 /// Compares two of any type for equality. Containers are compared on a field-by-field basis,
@@ -787,19 +787,19 @@ test "std.meta.eql" {
     const u_2 = U{ .s = s_1 };
     const u_3 = U{ .f = 24 };
 
-    testing.expect(eql(s_1, s_3));
-    testing.expect(eql(&s_1, &s_1));
-    testing.expect(!eql(&s_1, &s_3));
-    testing.expect(eql(u_1, u_3));
-    testing.expect(!eql(u_1, u_2));
+    try testing.expect(eql(s_1, s_3));
+    try testing.expect(eql(&s_1, &s_1));
+    try testing.expect(!eql(&s_1, &s_3));
+    try testing.expect(eql(u_1, u_3));
+    try testing.expect(!eql(u_1, u_2));
 
     var a1 = "abcdef".*;
     var a2 = "abcdef".*;
     var a3 = "ghijkl".*;
 
-    testing.expect(eql(a1, a2));
-    testing.expect(!eql(a1, a3));
-    testing.expect(!eql(a1[0..], a2[0..]));
+    try testing.expect(eql(a1, a2));
+    try testing.expect(!eql(a1, a3));
+    try testing.expect(!eql(a1[0..], a2[0..]));
 
     const EU = struct {
         fn tst(err: bool) !u8 {
@@ -808,16 +808,16 @@ test "std.meta.eql" {
         }
     };
 
-    testing.expect(eql(EU.tst(true), EU.tst(true)));
-    testing.expect(eql(EU.tst(false), EU.tst(false)));
-    testing.expect(!eql(EU.tst(false), EU.tst(true)));
+    try testing.expect(eql(EU.tst(true), EU.tst(true)));
+    try testing.expect(eql(EU.tst(false), EU.tst(false)));
+    try testing.expect(!eql(EU.tst(false), EU.tst(true)));
 
     var v1 = @splat(4, @as(u32, 1));
     var v2 = @splat(4, @as(u32, 1));
     var v3 = @splat(4, @as(u32, 2));
 
-    testing.expect(eql(v1, v2));
-    testing.expect(!eql(v1, v3));
+    try testing.expect(eql(v1, v2));
+    try testing.expect(!eql(v1, v3));
 }
 
 test "intToEnum with error return" {
@@ -831,9 +831,9 @@ test "intToEnum with error return" {
 
     var zero: u8 = 0;
     var one: u16 = 1;
-    testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
-    testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
-    testing.expectError(error.InvalidEnumTag, intToEnum(E1, one));
+    try testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
+    try testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
+    try testing.expectError(error.InvalidEnumTag, intToEnum(E1, one));
 }
 
 pub const IntToEnumError = error{InvalidEnumTag};
@@ -1008,27 +1008,27 @@ test "std.meta.cast" {
 
     var i = @as(i64, 10);
 
-    testing.expect(cast(*u8, 16) == @intToPtr(*u8, 16));
-    testing.expect(cast(*u64, &i).* == @as(u64, 10));
-    testing.expect(cast(*i64, @as(?*align(1) i64, &i)) == &i);
+    try testing.expect(cast(*u8, 16) == @intToPtr(*u8, 16));
+    try testing.expect(cast(*u64, &i).* == @as(u64, 10));
+    try testing.expect(cast(*i64, @as(?*align(1) i64, &i)) == &i);
 
-    testing.expect(cast(?*u8, 2) == @intToPtr(*u8, 2));
-    testing.expect(cast(?*i64, @as(*align(1) i64, &i)) == &i);
-    testing.expect(cast(?*i64, @as(?*align(1) i64, &i)) == &i);
+    try testing.expect(cast(?*u8, 2) == @intToPtr(*u8, 2));
+    try testing.expect(cast(?*i64, @as(*align(1) i64, &i)) == &i);
+    try testing.expect(cast(?*i64, @as(?*align(1) i64, &i)) == &i);
 
-    testing.expect(cast(E, 1) == .One);
+    try testing.expect(cast(E, 1) == .One);
 
-    testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(*u32, 4)));
-    testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(?*u32, 4)));
-    testing.expectEqual(@as(u32, 10), cast(u32, @as(u64, 10)));
-    testing.expectEqual(@as(u8, 2), cast(u8, E.Two));
+    try testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(*u32, 4)));
+    try testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(?*u32, 4)));
+    try testing.expectEqual(@as(u32, 10), cast(u32, @as(u64, 10)));
+    try testing.expectEqual(@as(u8, 2), cast(u8, E.Two));
 
-    testing.expectEqual(@bitCast(i32, @as(u32, 0x8000_0000)), cast(i32, @as(u32, 0x8000_0000)));
+    try testing.expectEqual(@bitCast(i32, @as(u32, 0x8000_0000)), cast(i32, @as(u32, 0x8000_0000)));
 
-    testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*const u8, 2)));
-    testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*volatile u8, 2)));
+    try testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*const u8, 2)));
+    try testing.expectEqual(@intToPtr(*u8, 2), cast(*u8, @intToPtr(*volatile u8, 2)));
 
-    testing.expectEqual(@intToPtr(?*c_void, 2), cast(?*c_void, @intToPtr(*u8, 2)));
+    try testing.expectEqual(@intToPtr(?*c_void, 2), cast(?*c_void, @intToPtr(*u8, 2)));
 
     const C_ENUM = extern enum(c_int) {
         A = 0,
@@ -1036,10 +1036,10 @@ test "std.meta.cast" {
         C,
         _,
     };
-    testing.expectEqual(cast(C_ENUM, @as(i64, -1)), @intToEnum(C_ENUM, -1));
-    testing.expectEqual(cast(C_ENUM, @as(i8, 1)), .B);
-    testing.expectEqual(cast(C_ENUM, @as(u64, 1)), .B);
-    testing.expectEqual(cast(C_ENUM, @as(u64, 42)), @intToEnum(C_ENUM, 42));
+    try testing.expectEqual(cast(C_ENUM, @as(i64, -1)), @intToEnum(C_ENUM, -1));
+    try testing.expectEqual(cast(C_ENUM, @as(i8, 1)), .B);
+    try testing.expectEqual(cast(C_ENUM, @as(u64, 1)), .B);
+    try testing.expectEqual(cast(C_ENUM, @as(u64, 42)), @intToEnum(C_ENUM, 42));
 }
 
 /// Given a value returns its size as C's sizeof operator would.
@@ -1118,43 +1118,43 @@ test "sizeof" {
 
     const ptr_size = @sizeOf(*c_void);
 
-    testing.expect(sizeof(u32) == 4);
-    testing.expect(sizeof(@as(u32, 2)) == 4);
-    testing.expect(sizeof(2) == @sizeOf(c_int));
+    try testing.expect(sizeof(u32) == 4);
+    try testing.expect(sizeof(@as(u32, 2)) == 4);
+    try testing.expect(sizeof(2) == @sizeOf(c_int));
 
-    testing.expect(sizeof(2.0) == @sizeOf(f64));
+    try testing.expect(sizeof(2.0) == @sizeOf(f64));
 
-    testing.expect(sizeof(E) == @sizeOf(c_int));
-    testing.expect(sizeof(E.One) == @sizeOf(c_int));
+    try testing.expect(sizeof(E) == @sizeOf(c_int));
+    try testing.expect(sizeof(E.One) == @sizeOf(c_int));
 
-    testing.expect(sizeof(S) == 4);
+    try testing.expect(sizeof(S) == 4);
 
-    testing.expect(sizeof([_]u32{ 4, 5, 6 }) == 12);
-    testing.expect(sizeof([3]u32) == 12);
-    testing.expect(sizeof([3:0]u32) == 16);
-    testing.expect(sizeof(&[_]u32{ 4, 5, 6 }) == ptr_size);
+    try testing.expect(sizeof([_]u32{ 4, 5, 6 }) == 12);
+    try testing.expect(sizeof([3]u32) == 12);
+    try testing.expect(sizeof([3:0]u32) == 16);
+    try testing.expect(sizeof(&[_]u32{ 4, 5, 6 }) == ptr_size);
 
-    testing.expect(sizeof(*u32) == ptr_size);
-    testing.expect(sizeof([*]u32) == ptr_size);
-    testing.expect(sizeof([*c]u32) == ptr_size);
-    testing.expect(sizeof(?*u32) == ptr_size);
-    testing.expect(sizeof(?[*]u32) == ptr_size);
-    testing.expect(sizeof(*c_void) == ptr_size);
-    testing.expect(sizeof(*void) == ptr_size);
-    testing.expect(sizeof(null) == ptr_size);
+    try testing.expect(sizeof(*u32) == ptr_size);
+    try testing.expect(sizeof([*]u32) == ptr_size);
+    try testing.expect(sizeof([*c]u32) == ptr_size);
+    try testing.expect(sizeof(?*u32) == ptr_size);
+    try testing.expect(sizeof(?[*]u32) == ptr_size);
+    try testing.expect(sizeof(*c_void) == ptr_size);
+    try testing.expect(sizeof(*void) == ptr_size);
+    try testing.expect(sizeof(null) == ptr_size);
 
-    testing.expect(sizeof("foobar") == 7);
-    testing.expect(sizeof(&[_:0]u16{ 'f', 'o', 'o', 'b', 'a', 'r' }) == 14);
-    testing.expect(sizeof(*const [4:0]u8) == 5);
-    testing.expect(sizeof(*[4:0]u8) == ptr_size);
-    testing.expect(sizeof([*]const [4:0]u8) == ptr_size);
-    testing.expect(sizeof(*const *const [4:0]u8) == ptr_size);
-    testing.expect(sizeof(*const [4]u8) == ptr_size);
+    try testing.expect(sizeof("foobar") == 7);
+    try testing.expect(sizeof(&[_:0]u16{ 'f', 'o', 'o', 'b', 'a', 'r' }) == 14);
+    try testing.expect(sizeof(*const [4:0]u8) == 5);
+    try testing.expect(sizeof(*[4:0]u8) == ptr_size);
+    try testing.expect(sizeof([*]const [4:0]u8) == ptr_size);
+    try testing.expect(sizeof(*const *const [4:0]u8) == ptr_size);
+    try testing.expect(sizeof(*const [4]u8) == ptr_size);
 
-    testing.expect(sizeof(sizeof) == @sizeOf(@TypeOf(sizeof)));
+    try testing.expect(sizeof(sizeof) == @sizeOf(@TypeOf(sizeof)));
 
-    testing.expect(sizeof(void) == 1);
-    testing.expect(sizeof(c_void) == 1);
+    try testing.expect(sizeof(void) == 1);
+    try testing.expect(sizeof(c_void) == 1);
 }
 
 pub const CIntLiteralRadix = enum { decimal, octal, hexadecimal };
@@ -1193,7 +1193,7 @@ pub fn promoteIntLiteral(
 
 test "promoteIntLiteral" {
     const signed_hex = promoteIntLiteral(c_int, math.maxInt(c_int) + 1, .hexadecimal);
-    testing.expectEqual(c_uint, @TypeOf(signed_hex));
+    try testing.expectEqual(c_uint, @TypeOf(signed_hex));
 
     if (math.maxInt(c_longlong) == math.maxInt(c_int)) return;
 
@@ -1201,11 +1201,11 @@ test "promoteIntLiteral" {
     const unsigned = promoteIntLiteral(c_uint, math.maxInt(c_uint) + 1, .hexadecimal);
 
     if (math.maxInt(c_long) > math.maxInt(c_int)) {
-        testing.expectEqual(c_long, @TypeOf(signed_decimal));
-        testing.expectEqual(c_ulong, @TypeOf(unsigned));
+        try testing.expectEqual(c_long, @TypeOf(signed_decimal));
+        try testing.expectEqual(c_ulong, @TypeOf(unsigned));
     } else {
-        testing.expectEqual(c_longlong, @TypeOf(signed_decimal));
-        testing.expectEqual(c_ulonglong, @TypeOf(unsigned));
+        try testing.expectEqual(c_longlong, @TypeOf(signed_decimal));
+        try testing.expectEqual(c_ulonglong, @TypeOf(unsigned));
     }
 }
 
@@ -1347,17 +1347,17 @@ pub fn shuffleVectorIndex(comptime this_index: c_int, comptime source_vector_len
 test "shuffleVectorIndex" {
     const vector_len: usize = 4;
 
-    testing.expect(shuffleVectorIndex(-1, vector_len) == 0);
+    try testing.expect(shuffleVectorIndex(-1, vector_len) == 0);
 
-    testing.expect(shuffleVectorIndex(0, vector_len) == 0);
-    testing.expect(shuffleVectorIndex(1, vector_len) == 1);
-    testing.expect(shuffleVectorIndex(2, vector_len) == 2);
-    testing.expect(shuffleVectorIndex(3, vector_len) == 3);
+    try testing.expect(shuffleVectorIndex(0, vector_len) == 0);
+    try testing.expect(shuffleVectorIndex(1, vector_len) == 1);
+    try testing.expect(shuffleVectorIndex(2, vector_len) == 2);
+    try testing.expect(shuffleVectorIndex(3, vector_len) == 3);
 
-    testing.expect(shuffleVectorIndex(4, vector_len) == -1);
-    testing.expect(shuffleVectorIndex(5, vector_len) == -2);
-    testing.expect(shuffleVectorIndex(6, vector_len) == -3);
-    testing.expect(shuffleVectorIndex(7, vector_len) == -4);
+    try testing.expect(shuffleVectorIndex(4, vector_len) == -1);
+    try testing.expect(shuffleVectorIndex(5, vector_len) == -2);
+    try testing.expect(shuffleVectorIndex(6, vector_len) == -3);
+    try testing.expect(shuffleVectorIndex(7, vector_len) == -4);
 }
 
 /// Returns whether `error_union` contains an error.
@@ -1366,6 +1366,6 @@ pub fn isError(error_union: anytype) bool {
 }
 
 test "isError" {
-    std.testing.expect(isError(math.absInt(@as(i8, -128))));
-    std.testing.expect(!isError(math.absInt(@as(i8, -127))));
+    try std.testing.expect(isError(math.absInt(@as(i8, -128))));
+    try std.testing.expect(!isError(math.absInt(@as(i8, -127))));
 }

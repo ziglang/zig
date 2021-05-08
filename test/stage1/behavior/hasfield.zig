@@ -8,10 +8,10 @@ test "@hasField" {
 
         pub const nope = 1;
     };
-    expect(@hasField(struc, "a") == true);
-    expect(@hasField(struc, "b") == true);
-    expect(@hasField(struc, "non-existant") == false);
-    expect(@hasField(struc, "nope") == false);
+    try expect(@hasField(struc, "a") == true);
+    try expect(@hasField(struc, "b") == true);
+    try expect(@hasField(struc, "non-existant") == false);
+    try expect(@hasField(struc, "nope") == false);
 
     const unin = union {
         a: u64,
@@ -19,10 +19,10 @@ test "@hasField" {
 
         pub const nope = 1;
     };
-    expect(@hasField(unin, "a") == true);
-    expect(@hasField(unin, "b") == true);
-    expect(@hasField(unin, "non-existant") == false);
-    expect(@hasField(unin, "nope") == false);
+    try expect(@hasField(unin, "a") == true);
+    try expect(@hasField(unin, "b") == true);
+    try expect(@hasField(unin, "non-existant") == false);
+    try expect(@hasField(unin, "nope") == false);
 
     const enm = enum {
         a,
@@ -30,8 +30,8 @@ test "@hasField" {
 
         pub const nope = 1;
     };
-    expect(@hasField(enm, "a") == true);
-    expect(@hasField(enm, "b") == true);
-    expect(@hasField(enm, "non-existant") == false);
-    expect(@hasField(enm, "nope") == false);
+    try expect(@hasField(enm, "a") == true);
+    try expect(@hasField(enm, "b") == true);
+    try expect(@hasField(enm, "non-existant") == false);
+    try expect(@hasField(enm, "nope") == false);
 }

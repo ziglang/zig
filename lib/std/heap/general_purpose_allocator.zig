@@ -692,7 +692,7 @@ const test_config = Config{};
 
 test "small allocations - free in same order" {
     var gpa = GeneralPurposeAllocator(test_config){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     var list = std.ArrayList(*u64).init(std.testing.allocator);
@@ -711,7 +711,7 @@ test "small allocations - free in same order" {
 
 test "small allocations - free in reverse order" {
     var gpa = GeneralPurposeAllocator(test_config){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     var list = std.ArrayList(*u64).init(std.testing.allocator);
@@ -730,7 +730,7 @@ test "small allocations - free in reverse order" {
 
 test "large allocations" {
     var gpa = GeneralPurposeAllocator(test_config){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     const ptr1 = try allocator.alloc(u64, 42768);
@@ -743,7 +743,7 @@ test "large allocations" {
 
 test "realloc" {
     var gpa = GeneralPurposeAllocator(test_config){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     var slice = try allocator.alignedAlloc(u8, @alignOf(u32), 1);
@@ -753,19 +753,19 @@ test "realloc" {
     // This reallocation should keep its pointer address.
     const old_slice = slice;
     slice = try allocator.realloc(slice, 2);
-    std.testing.expect(old_slice.ptr == slice.ptr);
-    std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(old_slice.ptr == slice.ptr);
+    try std.testing.expect(slice[0] == 0x12);
     slice[1] = 0x34;
 
     // This requires upgrading to a larger size class
     slice = try allocator.realloc(slice, 17);
-    std.testing.expect(slice[0] == 0x12);
-    std.testing.expect(slice[1] == 0x34);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[1] == 0x34);
 }
 
 test "shrink" {
     var gpa = GeneralPurposeAllocator(test_config){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     var slice = try allocator.alloc(u8, 20);
@@ -776,19 +776,19 @@ test "shrink" {
     slice = allocator.shrink(slice, 17);
 
     for (slice) |b| {
-        std.testing.expect(b == 0x11);
+        try std.testing.expect(b == 0x11);
     }
 
     slice = allocator.shrink(slice, 16);
 
     for (slice) |b| {
-        std.testing.expect(b == 0x11);
+        try std.testing.expect(b == 0x11);
     }
 }
 
 test "large object - grow" {
     var gpa = GeneralPurposeAllocator(test_config){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     var slice1 = try allocator.alloc(u8, page_size * 2 - 20);
@@ -796,17 +796,17 @@ test "large object - grow" {
 
     const old = slice1;
     slice1 = try allocator.realloc(slice1, page_size * 2 - 10);
-    std.testing.expect(slice1.ptr == old.ptr);
+    try std.testing.expect(slice1.ptr == old.ptr);
 
     slice1 = try allocator.realloc(slice1, page_size * 2);
-    std.testing.expect(slice1.ptr == old.ptr);
+    try std.testing.expect(slice1.ptr == old.ptr);
 
     slice1 = try allocator.realloc(slice1, page_size * 2 + 1);
 }
 
 test "realloc small object to large object" {
     var gpa = GeneralPurposeAllocator(test_config){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     var slice = try allocator.alloc(u8, 70);
@@ -817,13 +817,13 @@ test "realloc small object to large object" {
     // This requires upgrading to a large object
     const large_object_size = page_size * 2 + 50;
     slice = try allocator.realloc(slice, large_object_size);
-    std.testing.expect(slice[0] == 0x12);
-    std.testing.expect(slice[60] == 0x34);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[60] == 0x34);
 }
 
 test "shrink large object to large object" {
     var gpa = GeneralPurposeAllocator(test_config){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     var slice = try allocator.alloc(u8, page_size * 2 + 50);
@@ -832,21 +832,21 @@ test "shrink large object to large object" {
     slice[60] = 0x34;
 
     slice = try allocator.resize(slice, page_size * 2 + 1);
-    std.testing.expect(slice[0] == 0x12);
-    std.testing.expect(slice[60] == 0x34);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[60] == 0x34);
 
     slice = allocator.shrink(slice, page_size * 2 + 1);
-    std.testing.expect(slice[0] == 0x12);
-    std.testing.expect(slice[60] == 0x34);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[60] == 0x34);
 
     slice = try allocator.realloc(slice, page_size * 2);
-    std.testing.expect(slice[0] == 0x12);
-    std.testing.expect(slice[60] == 0x34);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[60] == 0x34);
 }
 
 test "shrink large object to large object with larger alignment" {
     var gpa = GeneralPurposeAllocator(test_config){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     var debug_buffer: [1000]u8 = undefined;
@@ -875,13 +875,13 @@ test "shrink large object to large object with larger alignment" {
     slice[60] = 0x34;
 
     slice = try allocator.reallocAdvanced(slice, big_alignment, alloc_size / 2, .exact);
-    std.testing.expect(slice[0] == 0x12);
-    std.testing.expect(slice[60] == 0x34);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[60] == 0x34);
 }
 
 test "realloc large object to small object" {
     var gpa = GeneralPurposeAllocator(test_config){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     var slice = try allocator.alloc(u8, page_size * 2 + 50);
@@ -890,8 +890,8 @@ test "realloc large object to small object" {
     slice[16] = 0x34;
 
     slice = try allocator.realloc(slice, 19);
-    std.testing.expect(slice[0] == 0x12);
-    std.testing.expect(slice[16] == 0x34);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[16] == 0x34);
 }
 
 test "overrideable mutexes" {
@@ -899,7 +899,7 @@ test "overrideable mutexes" {
         .backing_allocator = std.testing.allocator,
         .mutex = std.Thread.Mutex{},
     };
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     const ptr = try allocator.create(i32);
@@ -908,7 +908,7 @@ test "overrideable mutexes" {
 
 test "non-page-allocator backing allocator" {
     var gpa = GeneralPurposeAllocator(.{}){ .backing_allocator = std.testing.allocator };
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     const ptr = try allocator.create(i32);
@@ -917,7 +917,7 @@ test "non-page-allocator backing allocator" {
 
 test "realloc large object to larger alignment" {
     var gpa = GeneralPurposeAllocator(test_config){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     var debug_buffer: [1000]u8 = undefined;
@@ -943,22 +943,22 @@ test "realloc large object to larger alignment" {
     slice[16] = 0x34;
 
     slice = try allocator.reallocAdvanced(slice, 32, page_size * 2 + 100, .exact);
-    std.testing.expect(slice[0] == 0x12);
-    std.testing.expect(slice[16] == 0x34);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[16] == 0x34);
 
     slice = try allocator.reallocAdvanced(slice, 32, page_size * 2 + 25, .exact);
-    std.testing.expect(slice[0] == 0x12);
-    std.testing.expect(slice[16] == 0x34);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[16] == 0x34);
 
     slice = try allocator.reallocAdvanced(slice, big_alignment, page_size * 2 + 100, .exact);
-    std.testing.expect(slice[0] == 0x12);
-    std.testing.expect(slice[16] == 0x34);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[16] == 0x34);
 }
 
 test "large object shrinks to small but allocation fails during shrink" {
     var failing_allocator = std.testing.FailingAllocator.init(std.heap.page_allocator, 3);
     var gpa = GeneralPurposeAllocator(.{}){ .backing_allocator = &failing_allocator.allocator };
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     var slice = try allocator.alloc(u8, page_size * 2 + 50);
@@ -969,13 +969,13 @@ test "large object shrinks to small but allocation fails during shrink" {
     // Next allocation will fail in the backing allocator of the GeneralPurposeAllocator
 
     slice = allocator.shrink(slice, 4);
-    std.testing.expect(slice[0] == 0x12);
-    std.testing.expect(slice[3] == 0x34);
+    try std.testing.expect(slice[0] == 0x12);
+    try std.testing.expect(slice[3] == 0x34);
 }
 
 test "objects of size 1024 and 2048" {
     var gpa = GeneralPurposeAllocator(test_config){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     const slice = try allocator.alloc(u8, 1025);
@@ -987,26 +987,26 @@ test "objects of size 1024 and 2048" {
 
 test "setting a memory cap" {
     var gpa = GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
-    defer std.testing.expect(!gpa.deinit());
+    defer std.testing.expect(!gpa.deinit()) catch @panic("leak");
     const allocator = &gpa.allocator;
 
     gpa.setRequestedMemoryLimit(1010);
 
     const small = try allocator.create(i32);
-    std.testing.expect(gpa.total_requested_bytes == 4);
+    try std.testing.expect(gpa.total_requested_bytes == 4);
 
     const big = try allocator.alloc(u8, 1000);
-    std.testing.expect(gpa.total_requested_bytes == 1004);
+    try std.testing.expect(gpa.total_requested_bytes == 1004);
 
-    std.testing.expectError(error.OutOfMemory, allocator.create(u64));
+    try std.testing.expectError(error.OutOfMemory, allocator.create(u64));
 
     allocator.destroy(small);
-    std.testing.expect(gpa.total_requested_bytes == 1000);
+    try std.testing.expect(gpa.total_requested_bytes == 1000);
 
     allocator.free(big);
-    std.testing.expect(gpa.total_requested_bytes == 0);
+    try std.testing.expect(gpa.total_requested_bytes == 0);
 
     const exact = try allocator.alloc(u8, 1010);
-    std.testing.expect(gpa.total_requested_bytes == 1010);
+    try std.testing.expect(gpa.total_requested_bytes == 1010);
     allocator.free(exact);
 }

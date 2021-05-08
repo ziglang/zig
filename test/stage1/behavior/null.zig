@@ -17,13 +17,13 @@ test "optional type" {
 
     const z = next_x orelse 1234;
 
-    expect(z == 1234);
+    try expect(z == 1234);
 
     const final_x: ?i32 = 13;
 
     const num = final_x orelse unreachable;
 
-    expect(num == 13);
+    try expect(num == 13);
 }
 
 test "test maybe object and get a pointer to the inner value" {
@@ -33,7 +33,7 @@ test "test maybe object and get a pointer to the inner value" {
         b.* = false;
     }
 
-    expect(maybe_bool.? == false);
+    try expect(maybe_bool.? == false);
 }
 
 test "rhs maybe unwrap return" {
@@ -42,14 +42,14 @@ test "rhs maybe unwrap return" {
 }
 
 test "maybe return" {
-    maybeReturnImpl();
-    comptime maybeReturnImpl();
+    try maybeReturnImpl();
+    comptime try maybeReturnImpl();
 }
 
-fn maybeReturnImpl() void {
-    expect(foo(1235).?);
+fn maybeReturnImpl() !void {
+    try expect(foo(1235).?);
     if (foo(null) != null) unreachable;
-    expect(!foo(1234).?);
+    try expect(!foo(1234).?);
 }
 
 fn foo(x: ?i32) ?bool {
@@ -58,7 +58,7 @@ fn foo(x: ?i32) ?bool {
 }
 
 test "if var maybe pointer" {
-    expect(shouldBeAPlus1(Particle{
+    try expect(shouldBeAPlus1(Particle{
         .a = 14,
         .b = 1,
         .c = 1,
@@ -84,10 +84,10 @@ const Particle = struct {
 
 test "null literal outside function" {
     const is_null = here_is_a_null_literal.context == null;
-    expect(is_null);
+    try expect(is_null);
 
     const is_non_null = here_is_a_null_literal.context != null;
-    expect(!is_non_null);
+    try expect(!is_non_null);
 }
 const SillyStruct = struct {
     context: ?i32,
@@ -95,21 +95,21 @@ const SillyStruct = struct {
 const here_is_a_null_literal = SillyStruct{ .context = null };
 
 test "test null runtime" {
-    testTestNullRuntime(null);
+    try testTestNullRuntime(null);
 }
-fn testTestNullRuntime(x: ?i32) void {
-    expect(x == null);
-    expect(!(x != null));
+fn testTestNullRuntime(x: ?i32) !void {
+    try expect(x == null);
+    try expect(!(x != null));
 }
 
 test "optional void" {
-    optionalVoidImpl();
-    comptime optionalVoidImpl();
+    try optionalVoidImpl();
+    comptime try optionalVoidImpl();
 }
 
-fn optionalVoidImpl() void {
-    expect(bar(null) == null);
-    expect(bar({}) != null);
+fn optionalVoidImpl() !void {
+    try expect(bar(null) == null);
+    try expect(bar({}) != null);
 }
 
 fn bar(x: ?void) ?void {
@@ -133,7 +133,7 @@ test "unwrap optional which is field of global var" {
     }
     struct_with_optional.field = 1234;
     if (struct_with_optional.field) |payload| {
-        expect(payload == 1234);
+        try expect(payload == 1234);
     } else {
         unreachable;
     }
@@ -141,13 +141,13 @@ test "unwrap optional which is field of global var" {
 
 test "null with default unwrap" {
     const x: i32 = null orelse 1;
-    expect(x == 1);
+    try expect(x == 1);
 }
 
 test "optional types" {
     comptime {
         const opt_type_struct = StructWithOptionalType{ .t = u8 };
-        expect(opt_type_struct.t != null and opt_type_struct.t.? == u8);
+        try expect(opt_type_struct.t != null and opt_type_struct.t.? == u8);
     }
 }
 
@@ -158,5 +158,5 @@ const StructWithOptionalType = struct {
 test "optional pointer to 0 bit type null value at runtime" {
     const EmptyStruct = struct {};
     var x: ?*EmptyStruct = null;
-    expect(x == null);
+    try expect(x == null);
 }

@@ -55,52 +55,52 @@ fn fabs128(x: f128) f128 {
 }
 
 test "math.fabs" {
-    expect(fabs(@as(f16, 1.0)) == fabs16(1.0));
-    expect(fabs(@as(f32, 1.0)) == fabs32(1.0));
-    expect(fabs(@as(f64, 1.0)) == fabs64(1.0));
-    expect(fabs(@as(f128, 1.0)) == fabs128(1.0));
+    try expect(fabs(@as(f16, 1.0)) == fabs16(1.0));
+    try expect(fabs(@as(f32, 1.0)) == fabs32(1.0));
+    try expect(fabs(@as(f64, 1.0)) == fabs64(1.0));
+    try expect(fabs(@as(f128, 1.0)) == fabs128(1.0));
 }
 
 test "math.fabs16" {
-    expect(fabs16(1.0) == 1.0);
-    expect(fabs16(-1.0) == 1.0);
+    try expect(fabs16(1.0) == 1.0);
+    try expect(fabs16(-1.0) == 1.0);
 }
 
 test "math.fabs32" {
-    expect(fabs32(1.0) == 1.0);
-    expect(fabs32(-1.0) == 1.0);
+    try expect(fabs32(1.0) == 1.0);
+    try expect(fabs32(-1.0) == 1.0);
 }
 
 test "math.fabs64" {
-    expect(fabs64(1.0) == 1.0);
-    expect(fabs64(-1.0) == 1.0);
+    try expect(fabs64(1.0) == 1.0);
+    try expect(fabs64(-1.0) == 1.0);
 }
 
 test "math.fabs128" {
-    expect(fabs128(1.0) == 1.0);
-    expect(fabs128(-1.0) == 1.0);
+    try expect(fabs128(1.0) == 1.0);
+    try expect(fabs128(-1.0) == 1.0);
 }
 
 test "math.fabs16.special" {
-    expect(math.isPositiveInf(fabs(math.inf(f16))));
-    expect(math.isPositiveInf(fabs(-math.inf(f16))));
-    expect(math.isNan(fabs(math.nan(f16))));
+    try expect(math.isPositiveInf(fabs(math.inf(f16))));
+    try expect(math.isPositiveInf(fabs(-math.inf(f16))));
+    try expect(math.isNan(fabs(math.nan(f16))));
 }
 
 test "math.fabs32.special" {
-    expect(math.isPositiveInf(fabs(math.inf(f32))));
-    expect(math.isPositiveInf(fabs(-math.inf(f32))));
-    expect(math.isNan(fabs(math.nan(f32))));
+    try expect(math.isPositiveInf(fabs(math.inf(f32))));
+    try expect(math.isPositiveInf(fabs(-math.inf(f32))));
+    try expect(math.isNan(fabs(math.nan(f32))));
 }
 
 test "math.fabs64.special" {
-    expect(math.isPositiveInf(fabs(math.inf(f64))));
-    expect(math.isPositiveInf(fabs(-math.inf(f64))));
-    expect(math.isNan(fabs(math.nan(f64))));
+    try expect(math.isPositiveInf(fabs(math.inf(f64))));
+    try expect(math.isPositiveInf(fabs(-math.inf(f64))));
+    try expect(math.isNan(fabs(math.nan(f64))));
 }
 
 test "math.fabs128.special" {
-    expect(math.isPositiveInf(fabs(math.inf(f128))));
-    expect(math.isPositiveInf(fabs(-math.inf(f128))));
-    expect(math.isNan(fabs(math.nan(f128))));
+    try expect(math.isPositiveInf(fabs(math.inf(f128))));
+    try expect(math.isPositiveInf(fabs(-math.inf(f128))));
+    try expect(math.isNan(fabs(math.nan(f128))));
 }

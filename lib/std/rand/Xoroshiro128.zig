@@ -113,7 +113,7 @@ test "xoroshiro sequence" {
     };
 
     for (seq1) |s| {
-        std.testing.expect(s == r.next());
+        try std.testing.expect(s == r.next());
     }
 
     r.jump();
@@ -128,7 +128,7 @@ test "xoroshiro sequence" {
     };
 
     for (seq2) |s| {
-        std.testing.expect(s == r.next());
+        try std.testing.expect(s == r.next());
     }
 }
 
@@ -151,6 +151,6 @@ test "xoroshiro fill" {
         var buf1: [7]u8 = undefined;
         std.mem.writeIntLittle(u64, &buf0, s);
         Xoroshiro128.fill(&r.random, &buf1);
-        std.testing.expect(std.mem.eql(u8, buf0[0..7], buf1[0..]));
+        try std.testing.expect(std.mem.eql(u8, buf0[0..7], buf1[0..]));
     }
 }

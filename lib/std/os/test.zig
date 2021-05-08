@@ -37,7 +37,7 @@ test "chdir smoke test" {
         try os.chdir(old_cwd);
         var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         const new_cwd = try os.getcwd(new_cwd_buf[0..]);
-        expect(mem.eql(u8, old_cwd, new_cwd));
+        try expect(mem.eql(u8, old_cwd, new_cwd));
     }
     {
         // Next, change current working directory to one level above
@@ -47,7 +47,7 @@ test "chdir smoke test" {
         defer os.chdir(old_cwd) catch unreachable;
         var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         const new_cwd = try os.getcwd(new_cwd_buf[0..]);
-        expect(mem.eql(u8, parent, new_cwd));
+        try expect(mem.eql(u8, parent, new_cwd));
     }
 }
 
@@ -79,7 +79,7 @@ test "open smoke test" {
 
     // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
-    expectError(error.PathAlreadyExists, os.open(file_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
+    try expectError(error.PathAlreadyExists, os.open(file_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
 
     // Try opening without `O_EXCL` flag.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
@@ -88,7 +88,7 @@ test "open smoke test" {
 
     // Try opening as a directory which should fail.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
-    expectError(error.NotDir, os.open(file_path, os.O_RDWR | os.O_DIRECTORY, mode));
+    try expectError(error.NotDir, os.open(file_path, os.O_RDWR | os.O_DIRECTORY, mode));
 
     // Create some directory
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
@@ -101,7 +101,7 @@ test "open smoke test" {
 
     // Try opening as file which should fail.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
-    expectError(error.IsDir, os.open(file_path, os.O_RDWR, mode));
+    try expectError(error.IsDir, os.open(file_path, os.O_RDWR, mode));
 }
 
 test "openat smoke test" {
@@ -120,14 +120,14 @@ test "openat smoke test" {
     os.close(fd);
 
     // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
-    expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
+    try expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
 
     // Try opening without `O_EXCL` flag.
     fd = try os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT, mode);
     os.close(fd);
 
     // Try opening as a directory which should fail.
-    expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_DIRECTORY, mode));
+    try expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_DIRECTORY, mode));
 
     // Create some directory
     try os.mkdirat(tmp.dir.fd, "some_dir", mode);
@@ -137,7 +137,7 @@ test "openat smoke test" {
     os.close(fd);
 
     // Try opening as file which should fail.
-    expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.O_RDWR, mode));
+    try expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.O_RDWR, mode));
 }
 
 test "symlink with relative paths" {
@@ -171,7 +171,7 @@ test "symlink with relative paths" {
 
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
     const given = try os.readlink("symlinked", buffer[0..]);
-    expect(mem.eql(u8, "file.txt", given));
+    try expect(mem.eql(u8, "file.txt", given));
 
     try cwd.deleteFile("file.txt");
     try cwd.deleteFile("symlinked");
@@ -188,7 +188,7 @@ test "readlink on Windows" {
 fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
     const given = try os.readlink(symlink_path, buffer[0..]);
-    expect(mem.eql(u8, target_path, given));
+    try expect(mem.eql(u8, target_path, given));
 }
 
 test "link with relative paths" {
@@ -211,15 +211,15 @@ test "link with relative paths" {
         const estat = try os.fstat(efd.handle);
         const nstat = try os.fstat(nfd.handle);
 
-        testing.expectEqual(estat.ino, nstat.ino);
-        testing.expectEqual(@as(usize, 2), nstat.nlink);
+        try testing.expectEqual(estat.ino, nstat.ino);
+        try testing.expectEqual(@as(usize, 2), nstat.nlink);
     }
 
     try os.unlink("new.txt");
 
     {
         const estat = try os.fstat(efd.handle);
-        testing.expectEqual(@as(usize, 1), estat.nlink);
+        try testing.expectEqual(@as(usize, 1), estat.nlink);
     }
 
     try cwd.deleteFile("example.txt");
@@ -246,15 +246,15 @@ test "linkat with different directories" {
         const estat = try os.fstat(efd.handle);
         const nstat = try os.fstat(nfd.handle);
 
-        testing.expectEqual(estat.ino, nstat.ino);
-        testing.expectEqual(@as(usize, 2), nstat.nlink);
+        try testing.expectEqual(estat.ino, nstat.ino);
+        try testing.expectEqual(@as(usize, 2), nstat.nlink);
     }
 
     try os.unlinkat(tmp.dir.fd, "new.txt", 0);
 
     {
         const estat = try os.fstat(efd.handle);
-        testing.expectEqual(@as(usize, 1), estat.nlink);
+        try testing.expectEqual(@as(usize, 1), estat.nlink);
     }
 
     try cwd.deleteFile("example.txt");
@@ -283,7 +283,7 @@ test "fstatat" {
     // now repeat but using `fstatat` instead
     const flags = if (builtin.os.tag == .wasi) 0x0 else os.AT_SYMLINK_NOFOLLOW;
     const statat = try os.fstatat(tmp.dir.fd, "file.txt", flags);
-    expectEqual(stat, statat);
+    try expectEqual(stat, statat);
 }
 
 test "readlinkat" {
@@ -312,7 +312,7 @@ test "readlinkat" {
     // read the link
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
     const read_link = try os.readlinkat(tmp.dir.fd, "link", buffer[0..]);
-    expect(mem.eql(u8, "file.txt", read_link));
+    try expect(mem.eql(u8, "file.txt", read_link));
 }
 
 fn testThreadIdFn(thread_id: *Thread.Id) void {
@@ -327,13 +327,13 @@ test "std.Thread.getCurrentId" {
     const thread_id = thread.handle();
     thread.wait();
     if (Thread.use_pthreads) {
-        expect(thread_current_id == thread_id);
+        try expect(thread_current_id == thread_id);
     } else if (builtin.os.tag == .windows) {
-        expect(Thread.getCurrentId() != thread_current_id);
+        try expect(Thread.getCurrentId() != thread_current_id);
     } else {
         // If the thread completes very quickly, then thread_id can be 0. See the
         // documentation comments for `std.Thread.handle`.
-        expect(thread_id == 0 or thread_current_id == thread_id);
+        try expect(thread_id == 0 or thread_current_id == thread_id);
     }
 }
 
@@ -352,7 +352,7 @@ test "spawn threads" {
     thread3.wait();
     thread4.wait();
 
-    expect(shared_ctx == 4);
+    try expect(shared_ctx == 4);
 }
 
 fn start1(ctx: void) u8 {
@@ -368,23 +368,23 @@ test "cpu count" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const cpu_count = try Thread.cpuCount();
-    expect(cpu_count >= 1);
+    try expect(cpu_count >= 1);
 }
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
     const thread1 = try Thread.spawn(testTls, {});
     const thread2 = try Thread.spawn(testTls, {});
-    testTls({});
+    try testTls({});
     thread1.wait();
     thread2.wait();
 }
 
 threadlocal var x: i32 = 1234;
-fn testTls(context: void) void {
-    if (x != 1234) @panic("bad start value");
+fn testTls(context: void) !void {
+    if (x != 1234) return error.TlsBadStartValue;
     x += 1;
-    if (x != 1235) @panic("bad end value");
+    if (x != 1235) return error.TlsBadEndValue;
 }
 
 test "getrandom" {
@@ -394,7 +394,7 @@ test "getrandom" {
     try os.getrandom(&buf_b);
     // If this test fails the chance is significantly higher that there is a bug than
     // that two sets of 50 bytes were equal.
-    expect(!mem.eql(u8, &buf_a, &buf_b));
+    try expect(!mem.eql(u8, &buf_a, &buf_b));
 }
 
 test "getcwd" {
@@ -413,7 +413,7 @@ test "sigaltstack" {
     // Setting a stack size less than MINSIGSTKSZ returns ENOMEM
     st.ss_flags = 0;
     st.ss_size = 1;
-    testing.expectError(error.SizeTooSmall, os.sigaltstack(&st, null));
+    try testing.expectError(error.SizeTooSmall, os.sigaltstack(&st, null));
 }
 
 // If the type is not available use void to avoid erroring out when `iter_fn` is
@@ -464,7 +464,7 @@ test "dl_iterate_phdr" {
 
     var counter: usize = 0;
     try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);
-    expect(counter != 0);
+    try expect(counter != 0);
 }
 
 test "gethostname" {
@@ -473,7 +473,7 @@ test "gethostname" {
 
     var buf: [os.HOST_NAME_MAX]u8 = undefined;
     const hostname = try os.gethostname(&buf);
-    expect(hostname.len != 0);
+    try expect(hostname.len != 0);
 }
 
 test "pipe" {
@@ -481,10 +481,10 @@ test "pipe" {
         return error.SkipZigTest;
 
     var fds = try os.pipe();
-    expect((try os.write(fds[1], "hello")) == 5);
+    try expect((try os.write(fds[1], "hello")) == 5);
     var buf: [16]u8 = undefined;
-    expect((try os.read(fds[0], buf[0..])) == 5);
-    testing.expectEqualSlices(u8, buf[0..5], "hello");
+    try expect((try os.read(fds[0], buf[0..])) == 5);
+    try testing.expectEqualSlices(u8, buf[0..5], "hello");
     os.close(fds[1]);
     os.close(fds[0]);
 }
@@ -503,13 +503,13 @@ test "memfd_create" {
         else => |e| return e,
     };
     defer std.os.close(fd);
-    expect((try std.os.write(fd, "test")) == 4);
+    try expect((try std.os.write(fd, "test")) == 4);
     try std.os.lseek_SET(fd, 0);
 
     var buf: [10]u8 = undefined;
     const bytes_read = try std.os.read(fd, &buf);
-    expect(bytes_read == 4);
-    expect(mem.eql(u8, buf[0..4], "test"));
+    try expect(bytes_read == 4);
+    try expect(mem.eql(u8, buf[0..4], "test"));
 }
 
 test "mmap" {
@@ -531,14 +531,14 @@ test "mmap" {
         );
         defer os.munmap(data);
 
-        testing.expectEqual(@as(usize, 1234), data.len);
+        try testing.expectEqual(@as(usize, 1234), data.len);
 
         // By definition the data returned by mmap is zero-filled
-        testing.expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
+        try testing.expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
 
         // Make sure the memory is writeable as requested
         std.mem.set(u8, data, 0x55);
-        testing.expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
+        try testing.expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
     }
 
     const test_out_file = "os_tmp_test";
@@ -578,7 +578,7 @@ test "mmap" {
 
         var i: u32 = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            testing.expectEqual(i, try stream.readIntNative(u32));
+            try testing.expectEqual(i, try stream.readIntNative(u32));
         }
     }
 
@@ -602,7 +602,7 @@ test "mmap" {
 
         var i: u32 = alloc_size / 2 / @sizeOf(u32);
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            testing.expectEqual(i, try stream.readIntNative(u32));
+            try testing.expectEqual(i, try stream.readIntNative(u32));
         }
     }
 
@@ -611,9 +611,9 @@ test "mmap" {
 
 test "getenv" {
     if (builtin.os.tag == .windows) {
-        expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
+        try expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
     } else {
-        expect(os.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
+        try expect(os.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
     }
 }
 
@@ -635,17 +635,17 @@ test "fcntl" {
     // Note: The test assumes createFile opens the file with O_CLOEXEC
     {
         const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
-        expect((flags & os.FD_CLOEXEC) != 0);
+        try expect((flags & os.FD_CLOEXEC) != 0);
     }
     {
         _ = try os.fcntl(file.handle, os.F_SETFD, 0);
         const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
-        expect((flags & os.FD_CLOEXEC) == 0);
+        try expect((flags & os.FD_CLOEXEC) == 0);
     }
     {
         _ = try os.fcntl(file.handle, os.F_SETFD, os.FD_CLOEXEC);
         const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
-        expect((flags & os.FD_CLOEXEC) != 0);
+        try expect((flags & os.FD_CLOEXEC) != 0);
     }
 }
 
@@ -750,12 +750,12 @@ test "sigaction" {
     os.sigaction(os.SIGUSR1, &sa, null);
     // Check that we can read it back correctly.
     os.sigaction(os.SIGUSR1, null, &old_sa);
-    testing.expectEqual(S.handler, old_sa.handler.sigaction.?);
-    testing.expect((old_sa.flags & os.SA_SIGINFO) != 0);
+    try testing.expectEqual(S.handler, old_sa.handler.sigaction.?);
+    try testing.expect((old_sa.flags & os.SA_SIGINFO) != 0);
     // Invoke the handler.
     try os.raise(os.SIGUSR1);
-    testing.expect(signal_test_failed == false);
+    try testing.expect(signal_test_failed == false);
     // Check if the handler has been correctly reset to SIG_DFL
     os.sigaction(os.SIGUSR1, null, &old_sa);
-    testing.expectEqual(os.SIG_DFL, old_sa.handler.sigaction);
+    try testing.expectEqual(os.SIG_DFL, old_sa.handler.sigaction);
 }

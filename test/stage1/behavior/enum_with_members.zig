@@ -19,9 +19,9 @@ test "enum with members" {
     const b = ET{ .UINT = 42 };
     var buf: [20]u8 = undefined;
 
-    expect((a.print(buf[0..]) catch unreachable) == 3);
-    expect(mem.eql(u8, buf[0..3], "-42"));
+    try expect((a.print(buf[0..]) catch unreachable) == 3);
+    try expect(mem.eql(u8, buf[0..3], "-42"));
 
-    expect((b.print(buf[0..]) catch unreachable) == 2);
-    expect(mem.eql(u8, buf[0..2], "42"));
+    try expect((b.print(buf[0..]) catch unreachable) == 2);
+    try expect(mem.eql(u8, buf[0..2], "42"));
 }

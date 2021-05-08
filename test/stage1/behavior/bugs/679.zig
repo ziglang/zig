@@ -13,5 +13,5 @@ const Element = struct {
 test "false dependency loop in struct definition" {
     const listType = ElementList;
     var x: listType = 42;
-    expect(x == 42);
+    try expect(x == 42);
 }

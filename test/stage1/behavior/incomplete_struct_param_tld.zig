@@ -26,5 +26,5 @@ test "incomplete struct param top level declaration" {
             .c = C{ .x = 13 },
         },
     };
-    expect(foo(a) == 13);
+    try expect(foo(a) == 13);
 }

@@ -286,13 +286,13 @@ fn testRead(allocator: *Allocator, buffer: []const u8, expected: anytype) !void 
     var stream = io.fixedBufferStream(buffer);
     var given = try LoadCommand.read(allocator, stream.reader());
     defer given.deinit(allocator);
-    testing.expect(expected.eql(given));
+    try testing.expect(expected.eql(given));
 }
 
 fn testWrite(buffer: []u8, cmd: LoadCommand, expected: []const u8) !void {
     var stream = io.fixedBufferStream(buffer);
     try cmd.write(stream.writer());
-    testing.expect(mem.eql(u8, expected, buffer[0..expected.len]));
+    try testing.expect(mem.eql(u8, expected, buffer[0..expected.len]));
 }
 
 test "read-write segment command" {

@@ -322,7 +322,7 @@ test "tcp/client: set read timeout of 1 millisecond on blocking client" {
     defer conn.deinit();
 
     var buf: [1]u8 = undefined;
-    testing.expectError(error.WouldBlock, client.read(&buf));
+    try testing.expectError(error.WouldBlock, client.read(&buf));
 }
 
 test "tcp/listener: bind to unspecified ipv4 address" {
@@ -335,7 +335,7 @@ test "tcp/listener: bind to unspecified ipv4 address" {
     try listener.listen(128);
 
     const address = try listener.getLocalAddress();
-    testing.expect(address == .ipv4);
+    try testing.expect(address == .ipv4);
 }
 
 test "tcp/listener: bind to unspecified ipv6 address" {
@@ -348,5 +348,5 @@ test "tcp/listener: bind to unspecified ipv6 address" {
     try listener.listen(128);
 
     const address = try listener.getLocalAddress();
-    testing.expect(address == .ipv6);
+    try testing.expect(address == .ipv6);
 }

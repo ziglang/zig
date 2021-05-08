@@ -15,18 +15,18 @@ fn naive_popcount(a_param: i64) i32 {
     return r;
 }
 
-fn test__popcountdi2(a: i64) void {
+fn test__popcountdi2(a: i64) !void {
     const x = __popcountdi2(a);
     const expected = naive_popcount(a);
-    testing.expect(expected == x);
+    try testing.expect(expected == x);
 }
 
 test "popcountdi2" {
-    test__popcountdi2(0);
-    test__popcountdi2(1);
-    test__popcountdi2(2);
-    test__popcountdi2(@bitCast(i64, @as(u64, 0xFFFFFFFFFFFFFFFD)));
-    test__popcountdi2(@bitCast(i64, @as(u64, 0xFFFFFFFFFFFFFFFE)));
-    test__popcountdi2(@bitCast(i64, @as(u64, 0xFFFFFFFFFFFFFFFF)));
+    try test__popcountdi2(0);
+    try test__popcountdi2(1);
+    try test__popcountdi2(2);
+    try test__popcountdi2(@bitCast(i64, @as(u64, 0xFFFFFFFFFFFFFFFD)));
+    try test__popcountdi2(@bitCast(i64, @as(u64, 0xFFFFFFFFFFFFFFFE)));
+    try test__popcountdi2(@bitCast(i64, @as(u64, 0xFFFFFFFFFFFFFFFF)));
     // TODO some fuzz testing
 }

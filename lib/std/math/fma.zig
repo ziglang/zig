@@ -148,30 +148,30 @@ fn add_and_denorm(a: f64, b: f64, scale: i32) f64 {
 }
 
 test "math.fma" {
-    expect(fma(f32, 0.0, 1.0, 1.0) == fma32(0.0, 1.0, 1.0));
-    expect(fma(f64, 0.0, 1.0, 1.0) == fma64(0.0, 1.0, 1.0));
+    try expect(fma(f32, 0.0, 1.0, 1.0) == fma32(0.0, 1.0, 1.0));
+    try expect(fma(f64, 0.0, 1.0, 1.0) == fma64(0.0, 1.0, 1.0));
 }
 
 test "math.fma32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f32, fma32(0.0, 5.0, 9.124), 9.124, epsilon));
-    expect(math.approxEqAbs(f32, fma32(0.2, 5.0, 9.124), 10.124, epsilon));
-    expect(math.approxEqAbs(f32, fma32(0.8923, 5.0, 9.124), 13.5855, epsilon));
-    expect(math.approxEqAbs(f32, fma32(1.5, 5.0, 9.124), 16.624, epsilon));
-    expect(math.approxEqAbs(f32, fma32(37.45, 5.0, 9.124), 196.374004, epsilon));
-    expect(math.approxEqAbs(f32, fma32(89.123, 5.0, 9.124), 454.739005, epsilon));
-    expect(math.approxEqAbs(f32, fma32(123123.234375, 5.0, 9.124), 615625.295875, epsilon));
+    try expect(math.approxEqAbs(f32, fma32(0.0, 5.0, 9.124), 9.124, epsilon));
+    try expect(math.approxEqAbs(f32, fma32(0.2, 5.0, 9.124), 10.124, epsilon));
+    try expect(math.approxEqAbs(f32, fma32(0.8923, 5.0, 9.124), 13.5855, epsilon));
+    try expect(math.approxEqAbs(f32, fma32(1.5, 5.0, 9.124), 16.624, epsilon));
+    try expect(math.approxEqAbs(f32, fma32(37.45, 5.0, 9.124), 196.374004, epsilon));
+    try expect(math.approxEqAbs(f32, fma32(89.123, 5.0, 9.124), 454.739005, epsilon));
+    try expect(math.approxEqAbs(f32, fma32(123123.234375, 5.0, 9.124), 615625.295875, epsilon));
 }
 
 test "math.fma64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f64, fma64(0.0, 5.0, 9.124), 9.124, epsilon));
-    expect(math.approxEqAbs(f64, fma64(0.2, 5.0, 9.124), 10.124, epsilon));
-    expect(math.approxEqAbs(f64, fma64(0.8923, 5.0, 9.124), 13.5855, epsilon));
-    expect(math.approxEqAbs(f64, fma64(1.5, 5.0, 9.124), 16.624, epsilon));
-    expect(math.approxEqAbs(f64, fma64(37.45, 5.0, 9.124), 196.374, epsilon));
-    expect(math.approxEqAbs(f64, fma64(89.123, 5.0, 9.124), 454.739, epsilon));
-    expect(math.approxEqAbs(f64, fma64(123123.234375, 5.0, 9.124), 615625.295875, epsilon));
+    try expect(math.approxEqAbs(f64, fma64(0.0, 5.0, 9.124), 9.124, epsilon));
+    try expect(math.approxEqAbs(f64, fma64(0.2, 5.0, 9.124), 10.124, epsilon));
+    try expect(math.approxEqAbs(f64, fma64(0.8923, 5.0, 9.124), 13.5855, epsilon));
+    try expect(math.approxEqAbs(f64, fma64(1.5, 5.0, 9.124), 16.624, epsilon));
+    try expect(math.approxEqAbs(f64, fma64(37.45, 5.0, 9.124), 196.374, epsilon));
+    try expect(math.approxEqAbs(f64, fma64(89.123, 5.0, 9.124), 454.739, epsilon));
+    try expect(math.approxEqAbs(f64, fma64(123123.234375, 5.0, 9.124), 615625.295875, epsilon));
 }

@@ -4,9 +4,9 @@ const c = @cImport(@cInclude("foo.h"));
 
 test "C add" {
     const result = c.add(1, 2);
-    expect(result == 3);
+    try expect(result == 3);
 }
 
 test "C extern variable" {
-    expect(c.foo == 12345);
+    try expect(c.foo == 12345);
 }

@@ -358,7 +358,7 @@ test "comments" {
     //expect(false);
 
     const x = true;  // another comment
-    expect(x);
+    try expect(x);
 }
       {#code_end#}
       <p>
@@ -718,15 +718,15 @@ const mem = @import("std").mem;
 
 test "string literals" {
     const bytes = "hello";
-    expect(@TypeOf(bytes) == *const [5:0]u8);
-    expect(bytes.len == 5);
-    expect(bytes[1] == 'e');
-    expect(bytes[5] == 0);
-    expect('e' == '\x65');
-    expect('\u{1f4a9}' == 128169);
-    expect('💯' == 128175);
-    expect(mem.eql(u8, "hello", "h\x65llo"));
-    expect("\xff"[0] == 0xff); // non-UTF-8 strings are possible with \xNN notation.
+    try expect(@TypeOf(bytes) == *const [5:0]u8);
+    try expect(bytes.len == 5);
+    try expect(bytes[1] == 'e');
+    try expect(bytes[5] == 0);
+    try expect('e' == '\x65');
+    try expect('\u{1f4a9}' == 128169);
+    try expect('💯' == 128175);
+    try expect(mem.eql(u8, "hello", "h\x65llo"));
+    try expect("\xff"[0] == 0xff); // non-UTF-8 strings are possible with \xNN notation.
 }
       {#code_end#}
       {#see_also|Arrays|Zig Test|Source Encoding#}
@@ -826,7 +826,7 @@ test "var" {
 
     y += 1;
 
-    expect(y == 5679);
+    try expect(y == 5679);
 }
       {#code_end#}
       <p>Variables must be initialized:</p>
@@ -845,7 +845,7 @@ const expect = @import("std").testing.expect;
 test "init with undefined" {
     var x: i32 = undefined;
     x = 1;
-    expect(x == 1);
+    try expect(x == 1);
 }
       {#code_end#}
       <p>
@@ -887,8 +887,8 @@ var y: i32 = add(10, x);
 const x: i32 = add(12, 34);
 
 test "global variables" {
-    expect(x == 46);
-    expect(y == 56);
+    try expect(x == 46);
+    try expect(y == 56);
 }
 
 fn add(a: i32, b: i32) i32 {
@@ -906,8 +906,8 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "namespaced global variable" {
-    expect(foo() == 1235);
-    expect(foo() == 1236);
+    try expect(foo() == 1235);
+    try expect(foo() == 1236);
 }
 
 fn foo() i32 {
@@ -985,8 +985,8 @@ test "comptime vars" {
     x += 1;
     y += 1;
 
-    expect(x == 2);
-    expect(y == 2);
+    try expect(x == 2);
+    try expect(y == 2);
 
     if (y != 2) {
         // This compile error never triggers because y is a comptime variable,
@@ -1777,6 +1777,7 @@ orelse catch
       {#header_open|Arrays#}
       {#code_begin|test|arrays#}
 const expect = @import("std").testing.expect;
+const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 // array literal
@@ -1784,14 +1785,14 @@ const message = [_]u8{ 'h', 'e', 'l', 'l', 'o' };
 
 // get the size of an array
 comptime {
-    expect(message.len == 5);
+    assert(message.len == 5);
 }
 
 // A string literal is a single-item pointer to an array literal.
 const same_message = "hello";
 
 comptime {
-    expect(mem.eql(u8, &message, same_message));
+    assert(mem.eql(u8, &message, same_message));
 }
 
 test "iterate over an array" {
@@ -1799,7 +1800,7 @@ test "iterate over an array" {
     for (message) |byte| {
         sum += byte;
     }
-    expect(sum == 'h' + 'e' + 'l' * 2 + 'o');
+    try expect(sum == 'h' + 'e' + 'l' * 2 + 'o');
 }
 
 // modifiable array
@@ -1809,8 +1810,8 @@ test "modify an array" {
     for (some_integers) |*item, i| {
         item.* = @intCast(i32, i);
     }
-    expect(some_integers[10] == 10);
-    expect(some_integers[99] == 99);
+    try expect(some_integers[10] == 10);
+    try expect(some_integers[99] == 99);
 }
 
 // array concatenation works if the values are known
@@ -1819,7 +1820,7 @@ const part_one = [_]i32{ 1, 2, 3, 4 };
 const part_two = [_]i32{ 5, 6, 7, 8 };
 const all_of_it = part_one ++ part_two;
 comptime {
-    expect(mem.eql(i32, &all_of_it, &[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
+    assert(mem.eql(i32, &all_of_it, &[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
 }
 
 // remember that string literals are arrays
@@ -1827,21 +1828,21 @@ const hello = "hello";
 const world = "world";
 const hello_world = hello ++ " " ++ world;
 comptime {
-    expect(mem.eql(u8, hello_world, "hello world"));
+    assert(mem.eql(u8, hello_world, "hello world"));
 }
 
 // ** does repeating patterns
 const pattern = "ab" ** 3;
 comptime {
-    expect(mem.eql(u8, pattern, "ababab"));
+    assert(mem.eql(u8, pattern, "ababab"));
 }
 
 // initialize an array to zero
 const all_zero = [_]u16{0} ** 10;
 
 comptime {
-    expect(all_zero.len == 10);
-    expect(all_zero[5] == 0);
+    assert(all_zero.len == 10);
+    assert(all_zero[5] == 0);
 }
 
 // use compile-time code to initialize an array
@@ -1861,8 +1862,8 @@ const Point = struct {
 };
 
 test "compile-time array initialization" {
-    expect(fancy_array[4].x == 4);
-    expect(fancy_array[4].y == 8);
+    try expect(fancy_array[4].x == 4);
+    try expect(fancy_array[4].y == 8);
 }
 
 // call a function to initialize an array
@@ -1874,9 +1875,9 @@ fn makePoint(x: i32) Point {
     };
 }
 test "array initialization with function calls" {
-    expect(more_points[4].x == 3);
-    expect(more_points[4].y == 6);
-    expect(more_points.len == 10);
+    try expect(more_points[4].x == 3);
+    try expect(more_points[4].y == 6);
+    try expect(more_points.len == 10);
 }
       {#code_end#}
       {#see_also|for|Slices#}
@@ -1890,10 +1891,10 @@ const expect = std.testing.expect;
 
 test "anonymous list literal syntax" {
     var array: [4]u8 = .{11, 22, 33, 44};
-    expect(array[0] == 11);
-    expect(array[1] == 22);
-    expect(array[2] == 33);
-    expect(array[3] == 44);
+    try expect(array[0] == 11);
+    try expect(array[1] == 22);
+    try expect(array[2] == 33);
+    try expect(array[3] == 44);
 }
       {#code_end#}
       <p>
@@ -1905,15 +1906,15 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "fully anonymous list literal" {
-    dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
+    try dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
 }
 
-fn dump(args: anytype) void {
-    expect(args.@"0" == 1234);
-    expect(args.@"1" == 12.34);
-    expect(args.@"2");
-    expect(args.@"3"[0] == 'h');
-    expect(args.@"3"[1] == 'i');
+fn dump(args: anytype) !void {
+    try expect(args.@"0" == 1234);
+    try expect(args.@"1" == 12.34);
+    try expect(args.@"2");
+    try expect(args.@"3"[0] == 'h');
+    try expect(args.@"3"[1] == 'i');
 }
       {#code_end#}
       {#header_close#}
@@ -1934,13 +1935,13 @@ const mat4x4 = [4][4]f32{
 };
 test "multidimensional arrays" {
     // Access the 2D array by indexing the outer array, and then the inner array.
-    expect(mat4x4[1][1] == 1.0);
+    try expect(mat4x4[1][1] == 1.0);
 
     // Here we iterate with for loops.
     for (mat4x4) |row, row_index| {
         for (row) |cell, column_index| {
             if (row_index == column_index) {
-                expect(cell == 1.0);
+                try expect(cell == 1.0);
             }
         }
     }
@@ -1960,9 +1961,9 @@ const expect = std.testing.expect;
 test "null terminated array" {
     const array = [_:0]u8 {1, 2, 3, 4};
 
-    expect(@TypeOf(array) == [4:0]u8);
-    expect(array.len == 4);
-    expect(array[4] == 0);
+    try expect(@TypeOf(array) == [4:0]u8);
+    try expect(array.len == 4);
+    try expect(array[4] == 0);
 }
       {#code_end#}
       {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Slices#}
@@ -2040,17 +2041,17 @@ test "address of syntax" {
     const x_ptr = &x;
 
     // Dereference a pointer:
-    expect(x_ptr.* == 1234);
+    try expect(x_ptr.* == 1234);
 
     // When you get the address of a const variable, you get a const single-item pointer.
-    expect(@TypeOf(x_ptr) == *const i32);
+    try expect(@TypeOf(x_ptr) == *const i32);
 
     // If you want to mutate the value, you'd need an address of a mutable variable:
     var y: i32 = 5678;
     const y_ptr = &y;
-    expect(@TypeOf(y_ptr) == *i32);
+    try expect(@TypeOf(y_ptr) == *i32);
     y_ptr.* += 1;
-    expect(y_ptr.* == 5679);
+    try expect(y_ptr.* == 5679);
 }
 
 test "pointer array access" {
@@ -2059,11 +2060,11 @@ test "pointer array access" {
     // does not support pointer arithmetic.
     var array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const ptr = &array[2];
-    expect(@TypeOf(ptr) == *u8);
+    try expect(@TypeOf(ptr) == *u8);
 
-    expect(array[2] == 3);
+    try expect(array[2] == 3);
     ptr.* += 1;
-    expect(array[2] == 4);
+    try expect(array[2] == 4);
 }
       {#code_end#}
       <p>
@@ -2081,11 +2082,11 @@ const expect = @import("std").testing.expect;
 test "pointer slicing" {
     var array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const slice = array[2..4];
-    expect(slice.len == 2);
+    try expect(slice.len == 2);
 
-    expect(array[3] == 4);
+    try expect(array[3] == 4);
     slice[1] += 1;
-    expect(array[3] == 5);
+    try expect(array[3] == 5);
 }
       {#code_end#}
       <p>Pointers work at compile-time too, as long as the code does not depend on
@@ -2099,7 +2100,7 @@ test "comptime pointers" {
         const ptr = &x;
         ptr.* += 1;
         x += 1;
-        expect(ptr.* == 3);
+        try expect(ptr.* == 3);
     }
 }
       {#code_end#}
@@ -2111,8 +2112,8 @@ const expect = @import("std").testing.expect;
 test "@ptrToInt and @intToPtr" {
     const ptr = @intToPtr(*i32, 0xdeadbee0);
     const addr = @ptrToInt(ptr);
-    expect(@TypeOf(addr) == usize);
-    expect(addr == 0xdeadbee0);
+    try expect(@TypeOf(addr) == usize);
+    try expect(addr == 0xdeadbee0);
 }
       {#code_end#}
       <p>Zig is able to preserve memory addresses in comptime code, as long as
@@ -2126,8 +2127,8 @@ test "comptime @intToPtr" {
         // ptr is never dereferenced.
         const ptr = @intToPtr(*i32, 0xdeadbee0);
         const addr = @ptrToInt(ptr);
-        expect(@TypeOf(addr) == usize);
-        expect(addr == 0xdeadbee0);
+        try expect(@TypeOf(addr) == usize);
+        try expect(addr == 0xdeadbee0);
     }
 }
       {#code_end#}
@@ -2142,7 +2143,7 @@ const expect = @import("std").testing.expect;
 
 test "volatile" {
     const mmio_ptr = @intToPtr(*volatile u8, 0x12345678);
-    expect(@TypeOf(mmio_ptr) == *volatile u8);
+    try expect(@TypeOf(mmio_ptr) == *volatile u8);
 }
       {#code_end#}
       <p>
@@ -2163,20 +2164,20 @@ const expect = std.testing.expect;
 test "pointer casting" {
     const bytes align(@alignOf(u32)) = [_]u8{ 0x12, 0x12, 0x12, 0x12 };
     const u32_ptr = @ptrCast(*const u32, &bytes);
-    expect(u32_ptr.* == 0x12121212);
+    try expect(u32_ptr.* == 0x12121212);
 
     // Even this example is contrived - there are better ways to do the above than
     // pointer casting. For example, using a slice narrowing cast:
     const u32_value = std.mem.bytesAsSlice(u32, bytes[0..])[0];
-    expect(u32_value == 0x12121212);
+    try expect(u32_value == 0x12121212);
 
     // And even another way, the most straightforward way to do it:
-    expect(@bitCast(u32, bytes) == 0x12121212);
+    try expect(@bitCast(u32, bytes) == 0x12121212);
 }
 
 test "pointer child type" {
     // pointer types have a `child` field which tells you the type they point to.
-    expect(@typeInfo(*u32).Pointer.child == u32);
+    try expect(@typeInfo(*u32).Pointer.child == u32);
 }
       {#code_end#}
       {#header_open|Alignment#}
@@ -2201,10 +2202,10 @@ const expect = std.testing.expect;
 test "variable alignment" {
     var x: i32 = 1234;
     const align_of_i32 = @alignOf(@TypeOf(x));
-    expect(@TypeOf(&x) == *i32);
-    expect(*i32 == *align(align_of_i32) i32);
+    try expect(@TypeOf(&x) == *i32);
+    try expect(*i32 == *align(align_of_i32) i32);
     if (std.Target.current.cpu.arch == .x86_64) {
-        expect(@typeInfo(*i32).Pointer.alignment == 4);
+        try expect(@typeInfo(*i32).Pointer.alignment == 4);
     }
 }
       {#code_end#}
@@ -2222,11 +2223,11 @@ const expect = @import("std").testing.expect;
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    expect(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
-    expect(@TypeOf(&foo) == *align(4) u8);
+    try expect(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
+    try expect(@TypeOf(&foo) == *align(4) u8);
     const as_pointer_to_array: *[1]u8 = &foo;
     const as_slice: []u8 = as_pointer_to_array;
-    expect(@TypeOf(as_slice) == []align(4) u8);
+    try expect(@TypeOf(as_slice) == []align(4) u8);
 }
 
 fn derp() align(@sizeOf(usize) * 2) i32 { return 1234; }
@@ -2234,9 +2235,9 @@ fn noop1() align(1) void {}
 fn noop4() align(4) void {}
 
 test "function alignment" {
-    expect(derp() == 1234);
-    expect(@TypeOf(noop1) == fn() align(1) void);
-    expect(@TypeOf(noop4) == fn() align(4) void);
+    try expect(derp() == 1234);
+    try expect(@TypeOf(noop1) == fn() align(1) void);
+    try expect(@TypeOf(noop4) == fn() align(4) void);
     noop1();
     noop4();
 }
@@ -2253,7 +2254,7 @@ const std = @import("std");
 test "pointer alignment safety" {
     var array align(4) = [_]u32{ 0x11111111, 0x11111111 };
     const bytes = std.mem.sliceAsBytes(array[0..]);
-    std.testing.expect(foo(bytes) == 0x11111111);
+    try std.testing.expect(foo(bytes) == 0x11111111);
 }
 fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];
@@ -2279,7 +2280,7 @@ const expect = std.testing.expect;
 test "allowzero" {
     var zero: usize = 0;
     var ptr = @intToPtr(*allowzero i32, zero);
-    expect(@ptrToInt(ptr) == 0);
+    try expect(@ptrToInt(ptr) == 0);
 }
       {#code_end#}
       {#header_close#}
@@ -2321,14 +2322,14 @@ test "basic slices" {
     // Both can be accessed with the `len` field.
     var known_at_runtime_zero: usize = 0;
     const slice = array[known_at_runtime_zero..array.len];
-    expect(&slice[0] == &array[0]);
-    expect(slice.len == array.len);
+    try expect(&slice[0] == &array[0]);
+    try expect(slice.len == array.len);
 
     // Using the address-of operator on a slice gives a single-item pointer,
     // while using the `ptr` field gives a many-item pointer.
-    expect(@TypeOf(slice.ptr) == [*]i32);
-    expect(@TypeOf(&slice[0]) == *i32);
-    expect(@ptrToInt(slice.ptr) == @ptrToInt(&slice[0]));
+    try expect(@TypeOf(slice.ptr) == [*]i32);
+    try expect(@TypeOf(&slice[0]) == *i32);
+    try expect(@ptrToInt(slice.ptr) == @ptrToInt(&slice[0]));
 
     // Slices have array bounds checking. If you try to access something out
     // of bounds, you'll get a safety check failure:
@@ -2362,7 +2363,7 @@ test "using slices for strings" {
     // Generally, you can use UTF-8 and not worry about whether something is a
     // string. If you don't need to deal with individual characters, no need
     // to decode.
-    expect(mem.eql(u8, hello_world, "hello 世界"));
+    try expect(mem.eql(u8, hello_world, "hello 世界"));
 }
 
 test "slice pointer" {
@@ -2372,16 +2373,16 @@ test "slice pointer" {
     // You can use slicing syntax to convert a pointer into a slice:
     const slice = ptr[0..5];
     slice[2] = 3;
-    expect(slice[2] == 3);
+    try expect(slice[2] == 3);
     // The slice is mutable because we sliced a mutable pointer.
     // Furthermore, it is actually a pointer to an array, since the start
     // and end indexes were both comptime-known.
-    expect(@TypeOf(slice) == *[5]u8);
+    try expect(@TypeOf(slice) == *[5]u8);
 
     // You can also slice a slice:
     const slice2 = slice[2..3];
-    expect(slice2.len == 1);
-    expect(slice2[0] == 3);
+    try expect(slice2.len == 1);
+    try expect(slice2[0] == 3);
 }
       {#code_end#}
       {#see_also|Pointers|for|Arrays#}
@@ -2400,8 +2401,8 @@ const expect = std.testing.expect;
 test "null terminated slice" {
     const slice: [:0]const u8 = "hello";
 
-    expect(slice.len == 5);
-    expect(slice[5] == 0);
+    try expect(slice.len == 5);
+    try expect(slice[5] == 0);
 }
       {#code_end#}
       {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Arrays#}
@@ -2463,12 +2464,12 @@ const expect = @import("std").testing.expect;
 test "dot product" {
     const v1 = Vec3.init(1.0, 0.0, 0.0);
     const v2 = Vec3.init(0.0, 1.0, 0.0);
-    expect(v1.dot(v2) == 0.0);
+    try expect(v1.dot(v2) == 0.0);
 
     // Other than being available to call with dot syntax, struct methods are
     // not special. You can reference them as any other declaration inside
     // the struct:
-    expect(Vec3.dot(v1, v2) == 0.0);
+    try expect(Vec3.dot(v1, v2) == 0.0);
 }
 
 // Structs can have global declarations.
@@ -2477,8 +2478,8 @@ const Empty = struct {
     pub const PI = 3.14;
 };
 test "struct namespaced variable" {
-    expect(Empty.PI == 3.14);
-    expect(@sizeOf(Empty) == 0);
+    try expect(Empty.PI == 3.14);
+    try expect(@sizeOf(Empty) == 0);
 
     // you can still instantiate an empty struct
     const does_nothing = Empty {};
@@ -2496,7 +2497,7 @@ test "field parent pointer" {
         .y = 0.5678,
     };
     setYBasedOnX(&point.x, 0.9);
-    expect(point.y == 0.9);
+    try expect(point.y == 0.9);
 }
 
 // You can return a struct from a function. This is how we do generics
@@ -2518,19 +2519,19 @@ fn LinkedList(comptime T: type) type {
 test "linked list" {
     // Functions called at compile-time are memoized. This means you can
     // do this:
-    expect(LinkedList(i32) == LinkedList(i32));
+    try expect(LinkedList(i32) == LinkedList(i32));
 
     var list = LinkedList(i32) {
         .first = null,
         .last = null,
         .len = 0,
     };
-    expect(list.len == 0);
+    try expect(list.len == 0);
 
     // Since types are first class values you can instantiate the type
     // by assigning it to a variable:
     const ListOfInts = LinkedList(i32);
-    expect(ListOfInts == LinkedList(i32));
+    try expect(ListOfInts == LinkedList(i32));
 
     var node = ListOfInts.Node {
         .prev = null,
@@ -2542,7 +2543,7 @@ test "linked list" {
         .last = &node,
         .len = 1,
     };
-    expect(list2.first.?.data == 1234);
+    try expect(list2.first.?.data == 1234);
 }
       {#code_end#}
 
@@ -2615,25 +2616,25 @@ const Divided = packed struct {
 };
 
 test "@bitCast between packed structs" {
-    doTheTest();
-    comptime doTheTest();
+    try doTheTest();
+    comptime try doTheTest();
 }
 
-fn doTheTest() void {
-    expect(@sizeOf(Full) == 2);
-    expect(@sizeOf(Divided) == 2);
+fn doTheTest() !void {
+    try expect(@sizeOf(Full) == 2);
+    try expect(@sizeOf(Divided) == 2);
     var full = Full{ .number = 0x1234 };
     var divided = @bitCast(Divided, full);
     switch (builtin.endian) {
         .Big => {
-            expect(divided.half1 == 0x12);
-            expect(divided.quarter3 == 0x3);
-            expect(divided.quarter4 == 0x4);
+            try expect(divided.half1 == 0x12);
+            try expect(divided.quarter3 == 0x3);
+            try expect(divided.quarter4 == 0x4);
         },
         .Little => {
-            expect(divided.half1 == 0x34);
-            expect(divided.quarter3 == 0x2);
-            expect(divided.quarter4 == 0x1);
+            try expect(divided.half1 == 0x34);
+            try expect(divided.quarter3 == 0x2);
+            try expect(divided.quarter4 == 0x1);
         },
     }
 }
@@ -2659,7 +2660,7 @@ var foo = BitField{
 
 test "pointer to non-byte-aligned field" {
     const ptr = &foo.b;
-    expect(ptr.* == 2);
+    try expect(ptr.* == 2);
 }
       {#code_end#}
       <p>
@@ -2683,7 +2684,7 @@ var bit_field = BitField{
 };
 
 test "pointer to non-bit-aligned field" {
-    expect(bar(&bit_field.b) == 2);
+    try expect(bar(&bit_field.b) == 2);
 }
 
 fn bar(x: *const u3) u3 {
@@ -2714,8 +2715,8 @@ var bit_field = BitField{
 };
 
 test "pointer to non-bit-aligned field" {
-    expect(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.b));
-    expect(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.c));
+    try expect(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.b));
+    try expect(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.c));
 }
       {#code_end#}
       <p>
@@ -2733,13 +2734,13 @@ const BitField = packed struct {
 
 test "pointer to non-bit-aligned field" {
     comptime {
-        expect(@bitOffsetOf(BitField, "a") == 0);
-        expect(@bitOffsetOf(BitField, "b") == 3);
-        expect(@bitOffsetOf(BitField, "c") == 6);
+        try expect(@bitOffsetOf(BitField, "a") == 0);
+        try expect(@bitOffsetOf(BitField, "b") == 3);
+        try expect(@bitOffsetOf(BitField, "c") == 6);
 
-        expect(@byteOffsetOf(BitField, "a") == 0);
-        expect(@byteOffsetOf(BitField, "b") == 0);
-        expect(@byteOffsetOf(BitField, "c") == 0);
+        try expect(@byteOffsetOf(BitField, "a") == 0);
+        try expect(@byteOffsetOf(BitField, "b") == 0);
+        try expect(@byteOffsetOf(BitField, "c") == 0);
     }
 }
       {#code_end#}
@@ -2776,9 +2777,9 @@ test "aligned struct fields" {
     };
     var foo = S{ .a = 1, .b = 2 };
 
-    expectEqual(64, @alignOf(S));
-    expectEqual(*align(2) u32, @TypeOf(&foo.a));
-    expectEqual(*align(64) u32, @TypeOf(&foo.b));
+    try expectEqual(64, @alignOf(S));
+    try expectEqual(*align(2) u32, @TypeOf(&foo.a));
+    try expectEqual(*align(64) u32, @TypeOf(&foo.b));
 }
       {#code_end#}
       <p>
@@ -2834,8 +2835,8 @@ test "anonymous struct literal" {
         .x = 13,
         .y = 67,
     };
-    expect(pt.x == 13);
-    expect(pt.y == 67);
+    try expect(pt.x == 13);
+    try expect(pt.y == 67);
 }
       {#code_end#}
       <p>
@@ -2847,7 +2848,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "fully anonymous struct" {
-    dump(.{
+    try dump(.{
         .int = @as(u32, 1234),
         .float = @as(f64, 12.34),
         .b = true,
@@ -2855,12 +2856,12 @@ test "fully anonymous struct" {
     });
 }
 
-fn dump(args: anytype) void {
-    expect(args.int == 1234);
-    expect(args.float == 12.34);
-    expect(args.b);
-    expect(args.s[0] == 'h');
-    expect(args.s[1] == 'i');
+fn dump(args: anytype) !void {
+    try expect(args.int == 1234);
+    try expect(args.float == 12.34);
+    try expect(args.b);
+    try expect(args.s[0] == 'h');
+    try expect(args.s[1] == 'i');
 }
       {#code_end#}
       <p>
@@ -2884,14 +2885,14 @@ test "tuple" {
         true,
         "hi",
     } ++ .{false} ** 2;
-    expect(values[0] == 1234);
-    expect(values[4] == false);
+    try expect(values[0] == 1234);
+    try expect(values[4] == false);
     inline for (values) |v, i| {
         if (i != 2) continue;
-        expect(v);
+        try expect(v);
     }
-    expect(values.len == 6);
-    expect(values.@"3"[0] == 'h');
+    try expect(values.len == 6);
+    try expect(values.@"3"[0] == 'h');
 }
       {#code_end#}
       {#header_close#}
@@ -2922,9 +2923,9 @@ const Value = enum(u2) {
 // Now you can cast between u2 and Value.
 // The ordinal value starts from 0, counting up for each member.
 test "enum ordinal value" {
-    expect(@enumToInt(Value.zero) == 0);
-    expect(@enumToInt(Value.one) == 1);
-    expect(@enumToInt(Value.two) == 2);
+    try expect(@enumToInt(Value.zero) == 0);
+    try expect(@enumToInt(Value.one) == 1);
+    try expect(@enumToInt(Value.two) == 2);
 }
 
 // You can override the ordinal value for an enum.
@@ -2934,9 +2935,9 @@ const Value2 = enum(u32) {
     million = 1000000,
 };
 test "set enum ordinal value" {
-    expect(@enumToInt(Value2.hundred) == 100);
-    expect(@enumToInt(Value2.thousand) == 1000);
-    expect(@enumToInt(Value2.million) == 1000000);
+    try expect(@enumToInt(Value2.hundred) == 100);
+    try expect(@enumToInt(Value2.thousand) == 1000);
+    try expect(@enumToInt(Value2.million) == 1000000);
 }
 
 // Enums can have methods, the same as structs and unions.
@@ -2954,7 +2955,7 @@ const Suit = enum {
 };
 test "enum method" {
     const p = Suit.spades;
-    expect(!p.isClubs());
+    try expect(!p.isClubs());
 }
 
 // An enum variant of different types can be switched upon.
@@ -2970,7 +2971,7 @@ test "enum variant switch" {
         Foo.number => "this is a number",
         Foo.none => "this is a none",
     };
-    expect(mem.eql(u8, what_is_it, "this is a number"));
+    try expect(mem.eql(u8, what_is_it, "this is a number"));
 }
 
 // @typeInfo can be used to access the integer tag type of an enum.
@@ -2981,18 +2982,18 @@ const Small = enum {
     four,
 };
 test "std.meta.Tag" {
-    expect(@typeInfo(Small).Enum.tag_type == u2);
+    try expect(@typeInfo(Small).Enum.tag_type == u2);
 }
 
 // @typeInfo tells us the field count and the fields names:
 test "@typeInfo" {
-    expect(@typeInfo(Small).Enum.fields.len == 4);
-    expect(mem.eql(u8, @typeInfo(Small).Enum.fields[1].name, "two"));
+    try expect(@typeInfo(Small).Enum.fields.len == 4);
+    try expect(mem.eql(u8, @typeInfo(Small).Enum.fields[1].name, "two"));
 }
 
 // @tagName gives a []const u8 representation of an enum value:
 test "@tagName" {
-    expect(mem.eql(u8, @tagName(Small.three), "three"));
+    try expect(mem.eql(u8, @tagName(Small.three), "three"));
 }
       {#code_end#}
       {#see_also|@typeInfo|@tagName|@sizeOf#}
@@ -3027,7 +3028,7 @@ test "packed enum" {
         two,
         three,
     };
-    std.testing.expect(@sizeOf(Number) == @sizeOf(u8));
+    try std.testing.expect(@sizeOf(Number) == @sizeOf(u8));
 }
       {#code_end#}
       <p>This makes the enum eligible to be in a {#link|packed struct#}.</p>
@@ -3050,7 +3051,7 @@ const Color = enum {
 test "enum literals" {
     const color1: Color = .auto;
     const color2 = Color.auto;
-    expect(color1 == color2);
+    try expect(color1 == color2);
 }
 
 test "switch using enum literals" {
@@ -3060,7 +3061,7 @@ test "switch using enum literals" {
         .on => true,
         .off => false,
     };
-    expect(result);
+    try expect(result);
 }
       {#code_end#}
       {#header_close#}
@@ -3096,12 +3097,12 @@ test "switch on non-exhaustive enum" {
         .three => false,
         _ => false,
     };
-    expect(result);
+    try expect(result);
     const is_one = switch (number) {
         .one => true,
         else => false,
     };
-    expect(is_one);
+    try expect(is_one);
 }
       {#code_end#}
       {#header_close#}
@@ -3141,9 +3142,9 @@ const Payload = union {
 };
 test "simple union" {
     var payload = Payload{ .int = 1234 };
-    expect(payload.int == 1234);
+    try expect(payload.int == 1234);
     payload = Payload{ .float = 12.34 };
-    expect(payload.float == 12.34);
+    try expect(payload.float == 12.34);
 }
       {#code_end#}
       <p>
@@ -3174,24 +3175,24 @@ const ComplexType = union(ComplexTypeTag) {
 
 test "switch on tagged union" {
     const c = ComplexType{ .ok = 42 };
-    expect(@as(ComplexTypeTag, c) == ComplexTypeTag.ok);
+    try expect(@as(ComplexTypeTag, c) == ComplexTypeTag.ok);
 
     switch (c) {
-        ComplexTypeTag.ok => |value| expect(value == 42),
+        ComplexTypeTag.ok => |value| try expect(value == 42),
         ComplexTypeTag.not_ok => unreachable,
     }
 }
 
 test "get tag type" {
-    expect(std.meta.Tag(ComplexType) == ComplexTypeTag);
+    try expect(std.meta.Tag(ComplexType) == ComplexTypeTag);
 }
 
 test "coerce to enum" {
     const c1 = ComplexType{ .ok = 42 };
     const c2 = ComplexType.not_ok;
 
-    expect(c1 == .ok);
-    expect(c2 == .not_ok);
+    try expect(c1 == .ok);
+    try expect(c2 == .not_ok);
 }
       {#code_end#}
       <p>In order to modify the payload of a tagged union in a switch expression,
@@ -3212,14 +3213,14 @@ const ComplexType = union(ComplexTypeTag) {
 
 test "modify tagged union in switch" {
     var c = ComplexType{ .ok = 42 };
-    expect(@as(ComplexTypeTag, c) == ComplexTypeTag.ok);
+    try expect(@as(ComplexTypeTag, c) == ComplexTypeTag.ok);
 
     switch (c) {
         ComplexTypeTag.ok => |*value| value.* += 1,
         ComplexTypeTag.not_ok => unreachable,
     }
 
-    expect(c.ok == 43);
+    try expect(c.ok == 43);
 }
       {#code_end#}
       <p>
@@ -3250,8 +3251,8 @@ test "union method" {
     var v1 = Variant{ .int = 1 };
     var v2 = Variant{ .boolean = false };
 
-    expect(v1.truthy());
-    expect(!v2.truthy());
+    try expect(v1.truthy());
+    try expect(!v2.truthy());
 }
       {#code_end#}
       <p>
@@ -3268,7 +3269,7 @@ const Small2 = union(enum) {
     c: u8,
 };
 test "@tagName" {
-    expect(std.mem.eql(u8, @tagName(Small2.a), "a"));
+    try expect(std.mem.eql(u8, @tagName(Small2.a), "a"));
 }
       {#code_end#}
       {#header_close#}
@@ -3301,8 +3302,8 @@ const Number = union {
 test "anonymous union literal syntax" {
     var i: Number = .{.int = 42};
     var f = makeNumber();
-    expect(i.int == 42);
-    expect(f.float == 12.34);
+    try expect(i.int == 42);
+    try expect(f.float == 12.34);
 }
 
 fn makeNumber() Number {
@@ -3364,8 +3365,8 @@ test "labeled break from labeled block expression" {
         y += 1;
         break :blk y;
     };
-    expect(x == 124);
-    expect(y == 124);
+    try expect(x == 124);
+    try expect(y == 124);
 }
       {#code_end#}
       <p>Here, {#syntax#}blk{#endsyntax#} can be any name.</p>
@@ -3443,7 +3444,7 @@ test "switch simple" {
         else => 9,
     };
 
-    expect(b == 1);
+    try expect(b == 1);
 }
 
 // Switch expressions can be used outside a function:
@@ -3506,8 +3507,8 @@ test "switch on tagged union" {
         Item.d => 8,
     };
 
-    expect(b == 6);
-    expect(a.c.x == 2);
+    try expect(b == 6);
+    try expect(a.c.x == 2);
 }
       {#code_end#}
       {#see_also|comptime|enum|@compileError|Compile Variables#}
@@ -3556,7 +3557,7 @@ test "enum literals with switch" {
         .on => false,
         .off => true,
     };
-    expect(result);
+    try expect(result);
 }
       {#code_end#}
       {#header_close#}
@@ -3575,7 +3576,7 @@ test "while basic" {
     while (i < 10) {
         i += 1;
     }
-    expect(i == 10);
+    try expect(i == 10);
 }
       {#code_end#}
       <p>
@@ -3591,7 +3592,7 @@ test "while break" {
             break;
         i += 1;
     }
-    expect(i == 10);
+    try expect(i == 10);
 }
       {#code_end#}
       <p>
@@ -3608,7 +3609,7 @@ test "while continue" {
             continue;
         break;
     }
-    expect(i == 10);
+    try expect(i == 10);
 }
       {#code_end#}
       <p>
@@ -3621,7 +3622,7 @@ const expect = @import("std").testing.expect;
 test "while loop continue expression" {
     var i: usize = 0;
     while (i < 10) : (i += 1) {}
-    expect(i == 10);
+    try expect(i == 10);
 }
 
 test "while loop continue expression, more complicated" {
@@ -3629,7 +3630,7 @@ test "while loop continue expression, more complicated" {
     var j: usize = 1;
     while (i * j < 2000) : ({ i *= 2; j *= 3; }) {
         const my_ij = i * j;
-        expect(my_ij < 2000);
+        try expect(my_ij < 2000);
     }
 }
       {#code_end#}
@@ -3648,8 +3649,8 @@ test "while loop continue expression, more complicated" {
 const expect = @import("std").testing.expect;
 
 test "while else" {
-    expect(rangeHasNumber(0, 10, 5));
-    expect(!rangeHasNumber(0, 10, 15));
+    try expect(rangeHasNumber(0, 10, 5));
+    try expect(!rangeHasNumber(0, 10, 15));
 }
 
 fn rangeHasNumber(begin: usize, end: usize, number: usize) bool {
@@ -3706,14 +3707,14 @@ test "while null capture" {
     while (eventuallyNullSequence()) |value| {
         sum1 += value;
     }
-    expect(sum1 == 3);
+    try expect(sum1 == 3);
 
     var sum2: u32 = 0;
     numbers_left = 3;
     while (eventuallyNullSequence()) |value| {
         sum2 += value;
     } else {
-        expect(sum2 == 3);
+        try expect(sum2 == 3);
     }
 }
 
@@ -3748,7 +3749,7 @@ test "while error union capture" {
     while (eventuallyErrorSequence()) |value| {
         sum1 += value;
     } else |err| {
-        expect(err == error.ReachedZero);
+        try expect(err == error.ReachedZero);
     }
 }
 
@@ -3784,7 +3785,7 @@ test "inline while loop" {
         };
         sum += typeNameLength(T);
     }
-    expect(sum == 9);
+    try expect(sum == 9);
 }
 
 fn typeNameLength(comptime T: type) usize {
@@ -3819,22 +3820,22 @@ test "for basics" {
         }
         sum += value;
     }
-    expect(sum == 16);
+    try expect(sum == 16);
 
     // To iterate over a portion of a slice, reslice.
     for (items[0..1]) |value| {
         sum += value;
     }
-    expect(sum == 20);
+    try expect(sum == 20);
 
     // To access the index of iteration, specify a second capture value.
     // This is zero-indexed.
     var sum2: i32 = 0;
     for (items) |value, i| {
-        expect(@TypeOf(i) == usize);
+        try expect(@TypeOf(i) == usize);
         sum2 += @intCast(i32, i);
     }
-    expect(sum2 == 10);
+    try expect(sum2 == 10);
 }
 
 test "for reference" {
@@ -3846,9 +3847,9 @@ test "for reference" {
         value.* += 1;
     }
 
-    expect(items[0] == 4);
-    expect(items[1] == 5);
-    expect(items[2] == 3);
+    try expect(items[0] == 4);
+    try expect(items[1] == 5);
+    try expect(items[2] == 3);
 }
 
 test "for else" {
@@ -3863,10 +3864,10 @@ test "for else" {
             sum += value.?;
         }
     } else blk: {
-        expect(sum == 12);
+        try expect(sum == 12);
         break :blk sum;
     };
-    expect(result == 12);
+    try expect(result == 12);
 }
       {#code_end#}
       {#header_open|Labeled for#}
@@ -3884,7 +3885,7 @@ test "nested break" {
             break :outer;
         }
     }
-    expect(count == 1);
+    try expect(count == 1);
 }
 
 test "nested continue" {
@@ -3896,7 +3897,7 @@ test "nested continue" {
         }
     }
 
-    expect(count == 8);
+    try expect(count == 8);
 }
       {#code_end#}
       {#header_close#}
@@ -3923,7 +3924,7 @@ test "inline for loop" {
         };
         sum += typeNameLength(T);
     }
-    expect(sum == 9);
+    try expect(sum == 9);
 }
 
 fn typeNameLength(comptime T: type) usize {
@@ -3956,7 +3957,7 @@ test "if expression" {
     const a: u32 = 5;
     const b: u32 = 4;
     const result = if (a != b) 47 else 3089;
-    expect(result == 47);
+    try expect(result == 47);
 }
 
 test "if boolean" {
@@ -3964,7 +3965,7 @@ test "if boolean" {
     const a: u32 = 5;
     const b: u32 = 4;
     if (a != b) {
-        expect(true);
+        try expect(true);
     } else if (a == 9) {
         unreachable;
     } else {
@@ -3977,7 +3978,7 @@ test "if optional" {
 
     const a: ?u32 = 0;
     if (a) |value| {
-        expect(value == 0);
+        try expect(value == 0);
     } else {
         unreachable;
     }
@@ -3986,17 +3987,17 @@ test "if optional" {
     if (b) |value| {
         unreachable;
     } else {
-        expect(true);
+        try expect(true);
     }
 
     // The else is not required.
     if (a) |value| {
-        expect(value == 0);
+        try expect(value == 0);
     }
 
     // To test against null only, use the binary equality operator.
     if (b == null) {
-        expect(true);
+        try expect(true);
     }
 
     // Access the value by reference using a pointer capture.
@@ -4006,7 +4007,7 @@ test "if optional" {
     }
 
     if (c) |value| {
-        expect(value == 2);
+        try expect(value == 2);
     } else {
         unreachable;
     }
@@ -4018,7 +4019,7 @@ test "if error union" {
 
     const a: anyerror!u32 = 0;
     if (a) |value| {
-        expect(value == 0);
+        try expect(value == 0);
     } else |err| {
         unreachable;
     }
@@ -4027,17 +4028,17 @@ test "if error union" {
     if (b) |value| {
         unreachable;
     } else |err| {
-        expect(err == error.BadValue);
+        try expect(err == error.BadValue);
     }
 
     // The else and |err| capture is strictly required.
     if (a) |value| {
-        expect(value == 0);
+        try expect(value == 0);
     } else |_| {}
 
     // To check only the error value, use an empty block expression.
     if (b) |_| {} else |err| {
-        expect(err == error.BadValue);
+        try expect(err == error.BadValue);
     }
 
     // Access the value by reference using a pointer capture.
@@ -4049,7 +4050,7 @@ test "if error union" {
     }
 
     if (c) |value| {
-        expect(value == 9);
+        try expect(value == 9);
     } else |err| {
         unreachable;
     }
@@ -4061,14 +4062,14 @@ test "if error union with optional" {
 
     const a: anyerror!?u32 = 0;
     if (a) |optional_value| {
-        expect(optional_value.? == 0);
+        try expect(optional_value.? == 0);
     } else |err| {
         unreachable;
     }
 
     const b: anyerror!?u32 = null;
     if (b) |optional_value| {
-        expect(optional_value == null);
+        try expect(optional_value == null);
     } else |err| {
         unreachable;
     }
@@ -4077,7 +4078,7 @@ test "if error union with optional" {
     if (c) |optional_value| {
         unreachable;
     } else |err| {
-        expect(err == error.BadValue);
+        try expect(err == error.BadValue);
     }
 
     // Access the value by reference by using a pointer capture each time.
@@ -4091,7 +4092,7 @@ test "if error union with optional" {
     }
 
     if (d) |optional_value| {
-        expect(optional_value.? == 9);
+        try expect(optional_value.? == 9);
     } else |err| {
         unreachable;
     }
@@ -4106,21 +4107,21 @@ const expect = std.testing.expect;
 const print = std.debug.print;
 
 // defer will execute an expression at the end of the current scope.
-fn deferExample() usize {
+fn deferExample() !usize {
     var a: usize = 1;
 
     {
         defer a = 2;
         a = 1;
     }
-    expect(a == 2);
+    try expect(a == 2);
 
     a = 5;
     return a;
 }
 
 test "defer basics" {
-    expect(deferExample() == 5);
+    try expect((try deferExample()) == 5);
 }
 
 // If multiple defer statements are specified, they will be executed in
@@ -4258,7 +4259,7 @@ pub extern "kernel32" fn ExitProcess(exit_code: c_uint) callconv(if (@import("bu
 
 test "foo" {
     const value = bar() catch ExitProcess(1);
-    expect(value == 1234);
+    try expect(value == 1234);
 }
 
 fn bar() anyerror!u32 {
@@ -4321,17 +4322,17 @@ fn do_op(fn_call: call2_op, op1: i8, op2: i8) i8 {
 }
 
 test "function" {
-    expect(do_op(add, 5, 6) == 11);
-    expect(do_op(sub2, 5, 6) == -1);
+    try expect(do_op(add, 5, 6) == 11);
+    try expect(do_op(sub2, 5, 6) == -1);
 }
       {#code_end#}
       <p>Function values are like pointers:</p>
       {#code_begin|obj#}
-const expect = @import("std").testing.expect;
+const assert = @import("std").debug.assert;
 
 comptime {
-    expect(@TypeOf(foo) == fn()void);
-    expect(@sizeOf(fn()void) == @sizeOf(?fn()void));
+    assert(@TypeOf(foo) == fn()void);
+    assert(@sizeOf(fn()void) == @sizeOf(?fn()void));
 }
 
 fn foo() void { }
@@ -4366,7 +4367,7 @@ fn foo(point: Point) i32 {
 const expect = @import("std").testing.expect;
 
 test "pass struct to function" {
-    expect(foo(Point{ .x = 1, .y = 2 }) == 3);
+    try expect(foo(Point{ .x = 1, .y = 2 }) == 3);
 }
       {#code_end#}
       <p>
@@ -4387,11 +4388,11 @@ fn addFortyTwo(x: anytype) @TypeOf(x) {
 }
 
 test "fn type inference" {
-    expect(addFortyTwo(1) == 43);
-    expect(@TypeOf(addFortyTwo(1)) == comptime_int);
+    try expect(addFortyTwo(1) == 43);
+    try expect(@TypeOf(addFortyTwo(1)) == comptime_int);
     var y: i64 = 2;
-    expect(addFortyTwo(y) == 44);
-    expect(@TypeOf(addFortyTwo(y)) == i64);
+    try expect(addFortyTwo(y) == 44);
+    try expect(@TypeOf(addFortyTwo(y)) == i64);
 }
       {#code_end#}
 
@@ -4401,8 +4402,8 @@ test "fn type inference" {
 const expect = @import("std").testing.expect;
 
 test "fn reflection" {
-    expect(@typeInfo(@TypeOf(expect)).Fn.return_type.? == void);
-    expect(@typeInfo(@TypeOf(expect)).Fn.is_var_args == false);
+    try expect(@typeInfo(@TypeOf(expect)).Fn.args[0].arg_type.? == bool);
+    try expect(@typeInfo(@TypeOf(expect)).Fn.is_var_args == false);
 }
       {#code_end#}
       {#header_close#}
@@ -4437,7 +4438,7 @@ const AllocationError = error {
 
 test "coerce subset to superset" {
     const err = foo(AllocationError.OutOfMemory);
-    std.testing.expect(err == FileOpenError.OutOfMemory);
+    try std.testing.expect(err == FileOpenError.OutOfMemory);
 }
 
 fn foo(err: AllocationError) FileOpenError {
@@ -4545,7 +4546,7 @@ fn charToDigit(c: u8) u8 {
 
 test "parse u64" {
     const result = try parseU64("1234", 10);
-    std.testing.expect(result == 1234);
+    try std.testing.expect(result == 1234);
 }
       {#code_end#}
       <p>
@@ -4702,10 +4703,10 @@ test "error union" {
     foo = error.SomeError;
 
     // Use compile-time reflection to access the payload type of an error union:
-    comptime expect(@typeInfo(@TypeOf(foo)).ErrorUnion.payload == i32);
+    comptime try expect(@typeInfo(@TypeOf(foo)).ErrorUnion.payload == i32);
 
     // Use compile-time reflection to access the error set type of an error union:
-    comptime expect(@typeInfo(@TypeOf(foo)).ErrorUnion.error_set == anyerror);
+    comptime try expect(@typeInfo(@TypeOf(foo)).ErrorUnion.error_set == anyerror);
 }
       {#code_end#}
       {#header_open|Merging Error Sets#}
@@ -5082,7 +5083,7 @@ test "optional type" {
     foo = 1234;
 
     // Use compile-time reflection to access the child type of the optional:
-    comptime expect(@typeInfo(@TypeOf(foo)).Optional.child == i32);
+    comptime try expect(@typeInfo(@TypeOf(foo)).Optional.child == i32);
 }
       {#code_end#}
       {#header_close#}
@@ -5109,11 +5110,11 @@ test "optional pointers" {
     var x: i32 = 1;
     ptr = &x;
 
-    expect(ptr.?.* == 1);
+    try expect(ptr.?.* == 1);
 
     // Optional pointers are the same size as normal pointers, because pointer
     // value 0 is used as the null value.
-    expect(@sizeOf(?*i32) == @sizeOf(*i32));
+    try expect(@sizeOf(?*i32) == @sizeOf(*i32));
 }
       {#code_end#}
       {#header_close#}
@@ -5186,7 +5187,7 @@ const mem = std.mem;
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    expect(mem.eql(u8, std.mem.spanZ(@ptrCast([*:0]const u8, x[0].?)), "window name"));
+    try expect(mem.eql(u8, std.mem.spanZ(@ptrCast([*:0]const u8, x[0].?)), "window name"));
 }
       {#code_end#}
       {#header_close#}
@@ -5207,13 +5208,13 @@ test "integer widening" {
     var d: u64 = c;
     var e: u64 = d;
     var f: u128 = e;
-    expect(f == a);
+    try expect(f == a);
 }
 
 test "implicit unsigned integer to signed integer" {
     var a: u8 = 250;
     var b: i16 = a;
-    expect(b == 250);
+    try expect(b == 250);
 }
 
 test "float widening" {
@@ -5225,7 +5226,7 @@ test "float widening" {
     var b: f32 = a;
     var c: f64 = b;
     var d: f128 = c;
-    expect(d == a);
+    try expect(d == a);
 }
       {#code_end#}
       {#header_close#}
@@ -5257,48 +5258,48 @@ const expect = std.testing.expect;
 test "[N]T to []const T" {
     var x1: []const u8 = "hello";
     var x2: []const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
-    expect(std.mem.eql(u8, x1, x2));
+    try expect(std.mem.eql(u8, x1, x2));
 
     var y: []const f32 = &[2]f32{ 1.2, 3.4 };
-    expect(y[0] == 1.2);
+    try expect(y[0] == 1.2);
 }
 
 // Likewise, it works when the destination type is an error union.
 test "[N]T to E![]const T" {
     var x1: anyerror![]const u8 = "hello";
     var x2: anyerror![]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
-    expect(std.mem.eql(u8, try x1, try x2));
+    try expect(std.mem.eql(u8, try x1, try x2));
 
     var y: anyerror![]const f32 = &[2]f32{ 1.2, 3.4 };
-    expect((try y)[0] == 1.2);
+    try expect((try y)[0] == 1.2);
 }
 
 // Likewise, it works when the destination type is an optional.
 test "[N]T to ?[]const T" {
     var x1: ?[]const u8 = "hello";
     var x2: ?[]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
-    expect(std.mem.eql(u8, x1.?, x2.?));
+    try expect(std.mem.eql(u8, x1.?, x2.?));
 
     var y: ?[]const f32 = &[2]f32{ 1.2, 3.4 };
-    expect(y.?[0] == 1.2);
+    try expect(y.?[0] == 1.2);
 }
 
 // In this cast, the array length becomes the slice length.
 test "*[N]T to []T" {
     var buf: [5]u8 = "hello".*;
     const x: []u8 = &buf;
-    expect(std.mem.eql(u8, x, "hello"));
+    try expect(std.mem.eql(u8, x, "hello"));
 
     const buf2 = [2]f32{ 1.2, 3.4 };
     const x2: []const f32 = &buf2;
-    expect(std.mem.eql(f32, x2, &[2]f32{ 1.2, 3.4 }));
+    try expect(std.mem.eql(f32, x2, &[2]f32{ 1.2, 3.4 }));
 }
 
 // Single-item pointers to arrays can be coerced to many-item pointers.
 test "*[N]T to [*]T" {
     var buf: [5]u8 = "hello".*;
     const x: [*]u8 = &buf;
-    expect(x[4] == 'o');
+    try expect(x[4] == 'o');
     // x[5] would be an uncaught out of bounds pointer dereference!
 }
 
@@ -5306,7 +5307,7 @@ test "*[N]T to [*]T" {
 test "*[N]T to ?[*]T" {
     var buf: [5]u8 = "hello".*;
     const x: ?[*]u8 = &buf;
-    expect(x.?[4] == 'o');
+    try expect(x.?[4] == 'o');
 }
 
 // Single-item pointers can be cast to len-1 single-item arrays.
@@ -5314,7 +5315,7 @@ test "*T to *[1]T" {
     var x: i32 = 1234;
     const y: *[1]i32 = &x;
     const z: [*]i32 = y;
-    expect(z[0] == 1234);
+    try expect(z[0] == 1234);
 }
       {#code_end#}
       {#see_also|C Pointers#}
@@ -5331,8 +5332,8 @@ test "coerce to optionals" {
     const x: ?i32 = 1234;
     const y: ?i32 = null;
 
-    expect(x.? == 1234);
-    expect(y == null);
+    try expect(x.? == 1234);
+    try expect(y == null);
 }
       {#code_end#}
       <p>It works nested inside the {#link|Error Union Type#}, too:</p>
@@ -5344,8 +5345,8 @@ test "coerce to optionals wrapped in error union" {
     const x: anyerror!?i32 = 1234;
     const y: anyerror!?i32 = null;
 
-    expect((try x).? == 1234);
-    expect((try y) == null);
+    try expect((try x).? == 1234);
+    try expect((try y) == null);
 }
       {#code_end#}
       {#header_close#}
@@ -5361,8 +5362,8 @@ test "coercion to error unions" {
     const x: anyerror!i32 = 1234;
     const y: anyerror!i32 = error.Failure;
 
-    expect((try x) == 1234);
-    std.testing.expectError(error.Failure, y);
+    try expect((try x) == 1234);
+    try std.testing.expectError(error.Failure, y);
 }
       {#code_end#}
       {#header_close#}
@@ -5377,7 +5378,7 @@ const expect = std.testing.expect;
 test "coercing large integer type to smaller one when value is comptime known to fit" {
     const x: u64 = 255;
     const y: u8 = x;
-    expect(y == 255);
+    try expect(y == 255);
 }
       {#code_end#}
       {#header_close#}
@@ -5405,11 +5406,11 @@ const U = union(E) {
 test "coercion between unions and enums" {
     var u = U{ .two = 12.34 };
     var e: E = u;
-    expect(e == E.two);
+    try expect(e == E.two);
 
     const three = E.three;
     var another_u: U = three;
-    expect(another_u == E.three);
+    try expect(another_u == E.three);
 }
       {#code_end#}
       {#see_also|union|enum#}
@@ -5482,37 +5483,37 @@ test "peer resolve int widening" {
     var a: i8 = 12;
     var b: i16 = 34;
     var c = a + b;
-    expect(c == 46);
-    expect(@TypeOf(c) == i16);
+    try expect(c == 46);
+    try expect(@TypeOf(c) == i16);
 }
 
 test "peer resolve arrays of different size to const slice" {
-    expect(mem.eql(u8, boolToStr(true), "true"));
-    expect(mem.eql(u8, boolToStr(false), "false"));
-    comptime expect(mem.eql(u8, boolToStr(true), "true"));
-    comptime expect(mem.eql(u8, boolToStr(false), "false"));
+    try expect(mem.eql(u8, boolToStr(true), "true"));
+    try expect(mem.eql(u8, boolToStr(false), "false"));
+    comptime try expect(mem.eql(u8, boolToStr(true), "true"));
+    comptime try expect(mem.eql(u8, boolToStr(false), "false"));
 }
 fn boolToStr(b: bool) []const u8 {
     return if (b) "true" else "false";
 }
 
 test "peer resolve array and const slice" {
-    testPeerResolveArrayConstSlice(true);
-    comptime testPeerResolveArrayConstSlice(true);
+    try testPeerResolveArrayConstSlice(true);
+    comptime try testPeerResolveArrayConstSlice(true);
 }
-fn testPeerResolveArrayConstSlice(b: bool) void {
+fn testPeerResolveArrayConstSlice(b: bool) !void {
     const value1 = if (b) "aoeu" else @as([]const u8, "zz");
     const value2 = if (b) @as([]const u8, "zz") else "aoeu";
-    expect(mem.eql(u8, value1, "aoeu"));
-    expect(mem.eql(u8, value2, "zz"));
+    try expect(mem.eql(u8, value1, "aoeu"));
+    try expect(mem.eql(u8, value2, "zz"));
 }
 
 test "peer type resolution: ?T and T" {
-    expect(peerTypeTAndOptionalT(true, false).? == 0);
-    expect(peerTypeTAndOptionalT(false, false).? == 3);
+    try expect(peerTypeTAndOptionalT(true, false).? == 0);
+    try expect(peerTypeTAndOptionalT(false, false).? == 3);
     comptime {
-        expect(peerTypeTAndOptionalT(true, false).? == 0);
-        expect(peerTypeTAndOptionalT(false, false).? == 3);
+        try expect(peerTypeTAndOptionalT(true, false).? == 0);
+        try expect(peerTypeTAndOptionalT(false, false).? == 3);
     }
 }
 fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
@@ -5524,11 +5525,11 @@ fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
 }
 
 test "peer type resolution: *[0]u8 and []const u8" {
-    expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
-    expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
+    try expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
+    try expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
     comptime {
-        expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
-        expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
+        try expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
+        try expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
     }
 }
 fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
@@ -5542,14 +5543,14 @@ test "peer type resolution: *[0]u8, []const u8, and anyerror![]u8" {
     {
         var data = "hi".*;
         const slice = data[0..];
-        expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-        expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+        try expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        try expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
     comptime {
         var data = "hi".*;
         const slice = data[0..];
-        expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-        expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+        try expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        try expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
 }
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
@@ -5563,8 +5564,8 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
 test "peer type resolution: *const T and ?*T" {
     const a = @intToPtr(*const usize, 0x123456780);
     const b = @intToPtr(?*usize, 0x123456780);
-    expect(a == b);
-    expect(b == a);
+    try expect(a == b);
+    try expect(b == a);
 }
       {#code_end#}
       {#header_close#}
@@ -5620,11 +5621,11 @@ test "turn HashMap into a set with void" {
     try map.put(1, {});
     try map.put(2, {});
 
-    expect(map.contains(2));
-    expect(!map.contains(3));
+    try expect(map.contains(2));
+    try expect(!map.contains(3));
 
     _ = map.remove(2);
-    expect(!map.contains(2));
+    try expect(!map.contains(2));
 }
       {#code_end#}
       <p>Note that this is different from using a dummy value for the hash map value.
@@ -5679,7 +5680,7 @@ test "pointer to empty struct" {
     var b = Empty{};
     var ptr_a = &a;
     var ptr_b = &b;
-    comptime expect(ptr_a == ptr_b);
+    comptime try expect(ptr_a == ptr_b);
 }
       {#code_end#}
       <p>The type being pointed to can only ever be one value; therefore loads and stores are
@@ -5714,7 +5715,7 @@ test "@intToPtr for pointer to zero bit type" {
 usingnamespace @import("std");
 
 test "using std namespace" {
-    testing.expect(true);
+    try testing.expect(true);
 }
       {#code_end#}
       <p>
@@ -5826,7 +5827,7 @@ fn max(comptime T: type, a: T, b: T) T {
     }
 }
 test "try to compare bools" {
-    @import("std").testing.expect(max(bool, false, true) == true);
+    try @import("std").testing.expect(max(bool, false, true) == true);
 }
       {#code_end#}
       <p>
@@ -5894,9 +5895,9 @@ fn performFn(comptime prefix_char: u8, start_value: i32) i32 {
 }
 
 test "perform fn" {
-    expect(performFn('t', 1) == 6);
-    expect(performFn('o', 0) == 1);
-    expect(performFn('w', 99) == 99);
+    try expect(performFn('t', 1) == 6);
+    try expect(performFn('o', 0) == 1);
+    try expect(performFn('w', 99) == 99);
 }
       {#code_end#}
       <p>
@@ -5988,11 +5989,11 @@ fn fibonacci(index: u32) u32 {
 
 test "fibonacci" {
     // test fibonacci at run-time
-    expect(fibonacci(7) == 13);
+    try expect(fibonacci(7) == 13);
 
     // test fibonacci at compile-time
     comptime {
-        expect(fibonacci(7) == 13);
+        try expect(fibonacci(7) == 13);
     }
 }
       {#code_end#}
@@ -6009,7 +6010,7 @@ fn fibonacci(index: u32) u32 {
 
 test "fibonacci" {
     comptime {
-        expect(fibonacci(7) == 13);
+        try expect(fibonacci(7) == 13);
     }
 }
       {#code_end#}
@@ -6032,7 +6033,7 @@ fn fibonacci(index: i32) i32 {
 
 test "fibonacci" {
     comptime {
-        expect(fibonacci(7) == 13);
+        try expect(fibonacci(7) == 13);
     }
 }
       {#code_end#}
@@ -6045,7 +6046,7 @@ test "fibonacci" {
       <p>
       What if we fix the base case, but put the wrong value in the {#syntax#}expect{#endsyntax#} line?
       </p>
-      {#code_begin|test_err|encountered @panic at compile-time#}
+      {#code_begin|test_err|test "fibonacci"... FAIL (TestUnexpectedResult)#}
 const expect = @import("std").testing.expect;
 
 fn fibonacci(index: i32) i32 {
@@ -6055,7 +6056,7 @@ fn fibonacci(index: i32) i32 {
 
 test "fibonacci" {
     comptime {
-        expect(fibonacci(7) == 99999);
+        try expect(fibonacci(7) == 99999);
     }
 }
       {#code_end#}
@@ -6105,7 +6106,7 @@ fn sum(numbers: []const i32) i32 {
 }
 
 test "variable values" {
-    @import("std").testing.expect(sum_of_first_25_primes == 1060);
+    try @import("std").testing.expect(sum_of_first_25_primes == 1060);
 }
       {#code_end#}
       <p>
@@ -6513,7 +6514,7 @@ comptime {
 extern fn my_func(a: i32, b: i32) i32;
 
 test "global assembly" {
-    expect(my_func(12, 34) == 46);
+    try expect(my_func(12, 34) == 46);
 }
       {#code_end#}
       {#header_close#}
@@ -6554,7 +6555,7 @@ var x: i32 = 1;
 
 test "suspend with no resume" {
     var frame = async func();
-    expect(x == 2);
+    try expect(x == 2);
 }
 
 fn func() void {
@@ -6581,14 +6582,14 @@ var result = false;
 
 test "async function suspend with block" {
     _ = async testSuspendBlock();
-    expect(!result);
+    try expect(!result);
     resume the_frame;
-    expect(result);
+    try expect(result);
 }
 
 fn testSuspendBlock() void {
     suspend {
-        comptime expect(@TypeOf(@frame()) == *@Frame(testSuspendBlock));
+        comptime try expect(@TypeOf(@frame()) == *@Frame(testSuspendBlock));
         the_frame = @frame();
     }
     result = true;
@@ -6617,7 +6618,7 @@ const expect = std.testing.expect;
 test "resume from suspend" {
     var my_result: i32 = 1;
     _ = async testResumeFromSuspend(&my_result);
-    std.testing.expect(my_result == 2);
+    try std.testing.expect(my_result == 2);
 }
 fn testResumeFromSuspend(my_result: *i32) void {
     suspend {
@@ -6653,7 +6654,7 @@ test "async and await" {
 
 fn amain() void {
     var frame = async func();
-    comptime expect(@TypeOf(frame) == @Frame(func));
+    comptime try expect(@TypeOf(frame) == @Frame(func));
 
     const ptr: anyframe->void = &frame;
     const any_ptr: anyframe = ptr;
@@ -6694,8 +6695,8 @@ test "async function await" {
     seq('f');
     resume the_frame;
     seq('i');
-    expect(final_result == 1234);
-    expect(std.mem.eql(u8, &seq_points, "abcdefghi"));
+    try expect(final_result == 1234);
+    try expect(std.mem.eql(u8, &seq_points, "abcdefghi"));
 }
 fn amain() void {
     seq('b');
@@ -6909,9 +6910,9 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
       for the current target to match the C ABI. When the child type of a pointer has
       this alignment, the alignment can be omitted from the type.
       </p>
-      <pre>{#syntax#}const expect = @import("std").testing.expect;
+      <pre>{#syntax#}const expect = @import("std").debug.assert;
 comptime {
-    expect(*u32 == *align(@alignOf(u32)) u32);
+    assert(*u32 == *align(@alignOf(u32)) u32);
 }{#endsyntax#}</pre>
       <p>
       The result is a target-specific compile time constant. It is guaranteed to be
@@ -6957,9 +6958,9 @@ test "async fn pointer in a struct field" {
     var foo = Foo{ .bar = func };
     var bytes: [64]u8 align(@alignOf(@Frame(func))) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
-    expect(data == 2);
+    try expect(data == 2);
     resume f;
-    expect(data == 4);
+    try expect(data == 4);
 }
 
 fn func(y: *i32) void {
@@ -7146,7 +7147,7 @@ fn func(y: *i32) void {
 const expect = @import("std").testing.expect;
 
 test "noinline function call" {
-    expect(@call(.{}, add, .{3, 9}) == 12);
+    try expect(@call(.{}, add, .{3, 9}) == 12);
 }
 
 fn add(a: i32, b: i32) i32 {
@@ -7621,17 +7622,17 @@ test "field access by string" {
     @field(p, "x") = 4;
     @field(p, "y") = @field(p, "x") + 1;
 
-    expect(@field(p, "x") == 4);
-    expect(@field(p, "y") == 5);
+    try expect(@field(p, "x") == 4);
+    try expect(@field(p, "y") == 5);
 }
 
 test "decl access by string" {
     const expect = std.testing.expect;
 
-    expect(@field(Point, "z") == 1);
+    try expect(@field(Point, "z") == 1);
 
     @field(Point, "z") = 2;
-    expect(@field(Point, "z") == 2);
+    try expect(@field(Point, "z") == 2);
 }
       {#code_end#}
 
@@ -7747,16 +7748,16 @@ const Foo = struct {
 };
 
 test "@hasDecl" {
-    expect(@hasDecl(Foo, "blah"));
+    try expect(@hasDecl(Foo, "blah"));
 
     // Even though `hi` is private, @hasDecl returns true because this test is
     // in the same file scope as Foo. It would return false if Foo was declared
     // in a different file.
-    expect(@hasDecl(Foo, "hi"));
+    try expect(@hasDecl(Foo, "hi"));
 
     // @hasDecl is for declarations; not fields.
-    expect(!@hasDecl(Foo, "nope"));
-    expect(!@hasDecl(Foo, "nope1234"));
+    try expect(!@hasDecl(Foo, "nope"));
+    try expect(!@hasDecl(Foo, "nope1234"));
 }
       {#code_end#}
       {#see_also|@hasField#}
@@ -7937,8 +7938,8 @@ test "@wasmMemoryGrow" {
     if (builtin.arch != .wasm32) return error.SkipZigTest;
 
     var prev = @wasmMemorySize(0);
-    expect(prev == @wasmMemoryGrow(0, 1));
-    expect(prev + 1 == @wasmMemorySize(0));
+    try expect(prev == @wasmMemoryGrow(0, 1));
+    try expect(prev + 1 == @wasmMemorySize(0));
 }
       {#code_end#}
       {#see_also|@wasmMemorySize#}
@@ -8279,8 +8280,8 @@ const expect = std.testing.expect;
 test "vector @splat" {
     const scalar: u32 = 5;
     const result = @splat(4, scalar);
-    comptime expect(@TypeOf(result) == std.meta.Vector(4, u32));
-    expect(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
+    comptime try expect(@TypeOf(result) == std.meta.Vector(4, u32));
+    try expect(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
       <p>
@@ -8322,10 +8323,10 @@ test "vector @reduce" {
     const value: std.meta.Vector(4, i32) = [_]i32{ 1, -1, 1, -1 };
     const result = value > @splat(4, @as(i32, 0));
     // result is { true, false, true, false };
-    comptime expect(@TypeOf(result) == std.meta.Vector(4, bool));
+    comptime try expect(@TypeOf(result) == std.meta.Vector(4, bool));
     const is_all_true = @reduce(.And, result);
-    comptime expect(@TypeOf(is_all_true) == bool);
-    expect(is_all_true == false);
+    comptime try expect(@TypeOf(is_all_true) == bool);
+    try expect(is_all_true == false);
 }
       {#code_end#}
       {#see_also|Vectors|@setFloatMode#}
@@ -8341,16 +8342,16 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "@src" {
-    doTheTest();
+    try doTheTest();
 }
 
-fn doTheTest() void {
+fn doTheTest() !void {
     const src = @src();
 
-    expect(src.line == 9);
-    expect(src.column == 17);
-    expect(std.mem.endsWith(u8, src.fn_name, "doTheTest"));
-    expect(std.mem.endsWith(u8, src.file, "test.zig"));
+    try expect(src.line == 9);
+    try expect(src.column == 17);
+    try expect(std.mem.endsWith(u8, src.fn_name, "doTheTest"));
+    try expect(std.mem.endsWith(u8, src.file, "test.zig"));
 }
       {#code_end#}
       {#header_close#}
@@ -8527,7 +8528,7 @@ const expect = std.testing.expect;
 test "@This()" {
     var items = [_]i32{ 1, 2, 3, 4 };
     const list = List(i32){ .items = items[0..] };
-    expect(list.length() == 4);
+    try expect(list.length() == 4);
 }
 
 fn List(comptime T: type) type {
@@ -8573,7 +8574,7 @@ const expect = std.testing.expect;
 test "integer truncation" {
     var a: u16 = 0xabcd;
     var b: u8 = @truncate(u8, a);
-    expect(b == 0xcd);
+    try expect(b == 0xcd);
 }
       {#code_end#}
       <p>
@@ -8661,8 +8662,8 @@ const expect = std.testing.expect;
 test "no runtime side effects" {
     var data: i32 = 0;
     const T = @TypeOf(foo(i32, &data));
-    comptime expect(T == i32);
-    expect(data == 0);
+    comptime try expect(T == i32);
+    try expect(data == 0);
 }
 
 fn foo(comptime T: type, ptr: *T) T {
@@ -8972,9 +8973,9 @@ const maxInt = std.math.maxInt;
 test "wraparound addition and subtraction" {
     const x: i32 = maxInt(i32);
     const min_val = x +% 1;
-    expect(min_val == minInt(i32));
+    try expect(min_val == minInt(i32));
     const max_val = min_val -% 1;
-    expect(max_val == maxInt(i32));
+    try expect(max_val == maxInt(i32));
 }
       {#code_end#}
       {#header_close#}
@@ -9405,7 +9406,7 @@ test "using an allocator" {
     var buffer: [100]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(&buffer).allocator;
     const result = try concat(allocator, "foo", "bar");
-    expect(std.mem.eql(u8, "foobar", result));
+    try expect(std.mem.eql(u8, "foobar", result));
 }
 
 fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
@@ -9675,7 +9676,7 @@ const builtin = std.builtin;
 const expect = std.testing.expect;
 
 test "builtin.is_test" {
-    expect(builtin.is_test);
+    try expect(builtin.is_test);
 }
       {#code_end#}
       <p>
@@ -9720,13 +9721,13 @@ test "assert in release fast mode" {
       <p>
       Better practice for checking the output when testing is to use {#syntax#}std.testing.expect{#endsyntax#}:
       </p>
-      {#code_begin|test_err|test failure#}
+      {#code_begin|test_err|test "expect in release fast mode"... FAIL (TestUnexpectedResult)#}
       {#code_release_fast#}
 const std = @import("std");
 const expect = std.testing.expect;
 
 test "expect in release fast mode" {
-    expect(false);
+    try expect(false);
 }
       {#code_end#}
       <p>See the rest of the {#syntax#}std.testing{#endsyntax#} namespace for more available functions.</p>

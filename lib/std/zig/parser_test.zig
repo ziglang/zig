@@ -988,7 +988,7 @@ test "zig fmt: while else err prong with no block" {
         \\    const result = while (returnError()) |value| {
         \\        break value;
         \\    } else |err| @as(i32, 2);
-        \\    expect(result == 2);
+        \\    try expect(result == 2);
         \\}
         \\
     );
@@ -5135,7 +5135,7 @@ test "recovery: missing while rbrace" {
 
 const std = @import("std");
 const mem = std.mem;
-const warn = std.debug.warn;
+const print = std.debug.print;
 const io = std.io;
 const maxInt = std.math.maxInt;
 
@@ -5177,13 +5177,13 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         var failing_allocator = std.testing.FailingAllocator.init(&fixed_allocator.allocator, maxInt(usize));
         var anything_changed: bool = undefined;
         const result_source = try testParse(source, &failing_allocator.allocator, &anything_changed);
-        std.testing.expectEqualStrings(expected_source, result_source);
+        try std.testing.expectEqualStrings(expected_source, result_source);
         const changes_expected = source.ptr != expected_source.ptr;
         if (anything_changed != changes_expected) {
-            warn("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
+            print("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
             return error.TestFailed;
         }
-        std.testing.expect(anything_changed == changes_expected);
+        try std.testing.expect(anything_changed == changes_expected);
         failing_allocator.allocator.free(result_source);
         break :x failing_allocator.index;
     };
@@ -5198,7 +5198,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         } else |err| switch (err) {
             error.OutOfMemory => {
                 if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
-                    warn(
+                    print(
                         "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\n",
                         .{
                             fail_index,
@@ -5212,8 +5212,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
                     return error.MemoryLeakDetected;
                 }
             },
-            error.ParseError => @panic("test failed"),
-            else => @panic("test failed"),
+            else => return err,
         }
     }
 }
@@ -5227,8 +5226,8 @@ fn testError(source: []const u8, expected_errors: []const Error) !void {
     var tree = try std.zig.parse(std.testing.allocator, source);
     defer tree.deinit(std.testing.allocator);
 
-    std.testing.expectEqual(expected_errors.len, tree.errors.len);
+    try std.testing.expectEqual(expected_errors.len, tree.errors.len);
     for (expected_errors) |expected, i| {
-        std.testing.expectEqual(expected, tree.errors[i].tag);
+        try std.testing.expectEqual(expected, tree.errors[i].tag);
     }
 }

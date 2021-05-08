@@ -92,9 +92,9 @@ test "crypto.utils.timingSafeEql" {
     var b: [100]u8 = undefined;
     std.crypto.random.bytes(a[0..]);
     std.crypto.random.bytes(b[0..]);
-    testing.expect(!timingSafeEql([100]u8, a, b));
+    try testing.expect(!timingSafeEql([100]u8, a, b));
     mem.copy(u8, a[0..], b[0..]);
-    testing.expect(timingSafeEql([100]u8, a, b));
+    try testing.expect(timingSafeEql([100]u8, a, b));
 }
 
 test "crypto.utils.timingSafeEql (vectors)" {
@@ -104,22 +104,22 @@ test "crypto.utils.timingSafeEql (vectors)" {
     std.crypto.random.bytes(b[0..]);
     const v1: std.meta.Vector(100, u8) = a;
     const v2: std.meta.Vector(100, u8) = b;
-    testing.expect(!timingSafeEql(std.meta.Vector(100, u8), v1, v2));
+    try testing.expect(!timingSafeEql(std.meta.Vector(100, u8), v1, v2));
     const v3: std.meta.Vector(100, u8) = a;
-    testing.expect(timingSafeEql(std.meta.Vector(100, u8), v1, v3));
+    try testing.expect(timingSafeEql(std.meta.Vector(100, u8), v1, v3));
 }
 
 test "crypto.utils.timingSafeCompare" {
     var a = [_]u8{10} ** 32;
     var b = [_]u8{10} ** 32;
-    testing.expectEqual(timingSafeCompare(u8, &a, &b, .Big), .eq);
-    testing.expectEqual(timingSafeCompare(u8, &a, &b, .Little), .eq);
+    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Big), .eq);
+    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Little), .eq);
     a[31] = 1;
-    testing.expectEqual(timingSafeCompare(u8, &a, &b, .Big), .lt);
-    testing.expectEqual(timingSafeCompare(u8, &a, &b, .Little), .lt);
+    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Big), .lt);
+    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Little), .lt);
     a[0] = 20;
-    testing.expectEqual(timingSafeCompare(u8, &a, &b, .Big), .gt);
-    testing.expectEqual(timingSafeCompare(u8, &a, &b, .Little), .lt);
+    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Big), .gt);
+    try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Little), .lt);
 }
 
 test "crypto.utils.secureZero" {
@@ -129,5 +129,5 @@ test "crypto.utils.secureZero" {
     mem.set(u8, a[0..], 0);
     secureZero(u8, b[0..]);
 
-    testing.expectEqualSlices(u8, a[0..], b[0..]);
+    try testing.expectEqualSlices(u8, a[0..], b[0..]);
 }

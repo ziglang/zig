@@ -662,13 +662,13 @@ fn testWriteWatchWriteDelete(allocator: *Allocator) !void {
 
     const read_contents = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024);
     defer allocator.free(read_contents);
-    testing.expectEqualSlices(u8, contents, read_contents);
+    try testing.expectEqualSlices(u8, contents, read_contents);
 
     // now watch the file
     var watch = try Watch(void).init(allocator, 0);
     defer watch.deinit();
 
-    testing.expect((try watch.addFile(file_path, {})) == null);
+    try testing.expect((try watch.addFile(file_path, {})) == null);
 
     var ev = async watch.channel.get();
     var ev_consumed = false;
@@ -698,7 +698,7 @@ fn testWriteWatchWriteDelete(allocator: *Allocator) !void {
     const contents_updated = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024);
     defer allocator.free(contents_updated);
 
-    testing.expectEqualSlices(u8,
+    try testing.expectEqualSlices(u8,
         \\line 1
         \\lorem ipsum
     , contents_updated);

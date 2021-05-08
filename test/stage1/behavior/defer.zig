@@ -24,18 +24,18 @@ fn runSomeErrorDefers(x: bool) !bool {
 }
 
 test "mixing normal and error defers" {
-    expect(runSomeErrorDefers(true) catch unreachable);
-    expect(result[0] == 'c');
-    expect(result[1] == 'a');
+    try expect(runSomeErrorDefers(true) catch unreachable);
+    try expect(result[0] == 'c');
+    try expect(result[1] == 'a');
 
     const ok = runSomeErrorDefers(false) catch |err| x: {
-        expect(err == error.FalseNotAllowed);
+        try expect(err == error.FalseNotAllowed);
         break :x true;
     };
-    expect(ok);
-    expect(result[0] == 'c');
-    expect(result[1] == 'b');
-    expect(result[2] == 'a');
+    try expect(ok);
+    try expect(result[0] == 'c');
+    try expect(result[1] == 'b');
+    try expect(result[2] == 'a');
 }
 
 test "break and continue inside loop inside defer expression" {
@@ -50,7 +50,7 @@ fn testBreakContInDefer(x: usize) void {
             if (i < 5) continue;
             if (i == 5) break;
         }
-        expect(i == 5);
+        expect(i == 5) catch @panic("test failure");
     }
 }
 
@@ -62,11 +62,11 @@ test "defer and labeled break" {
         break :blk;
     }
 
-    expect(i == 1);
+    try expect(i == 1);
 }
 
 test "errdefer does not apply to fn inside fn" {
-    if (testNestedFnErrDefer()) |_| @panic("expected error") else |e| expect(e == error.Bad);
+    if (testNestedFnErrDefer()) |_| @panic("expected error") else |e| try expect(e == error.Bad);
 }
 
 fn testNestedFnErrDefer() anyerror!void {
@@ -82,8 +82,8 @@ fn testNestedFnErrDefer() anyerror!void {
 
 test "return variable while defer expression in scope to modify it" {
     const S = struct {
-        fn doTheTest() void {
-            expect(notNull().? == 1);
+        fn doTheTest() !void {
+            try expect(notNull().? == 1);
         }
 
         fn notNull() ?u8 {
@@ -93,22 +93,22 @@ test "return variable while defer expression in scope to modify it" {
         }
     };
 
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "errdefer with payload" {
     const S = struct {
         fn foo() !i32 {
             errdefer |a| {
-                expectEqual(error.One, a);
+                expectEqual(error.One, a) catch @panic("test failure");
             }
             return error.One;
         }
-        fn doTheTest() void {
-            expectError(error.One, foo());
+        fn doTheTest() !void {
+            try expectError(error.One, foo());
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }

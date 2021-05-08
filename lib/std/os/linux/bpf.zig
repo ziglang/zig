@@ -737,11 +737,11 @@ pub const Insn = packed struct {
 };
 
 test "insn bitsize" {
-    expectEqual(@bitSizeOf(Insn), 64);
+    try expectEqual(@bitSizeOf(Insn), 64);
 }
 
-fn expect_opcode(code: u8, insn: Insn) void {
-    expectEqual(code, insn.code);
+fn expect_opcode(code: u8, insn: Insn) !void {
+    try expectEqual(code, insn.code);
 }
 
 // The opcodes were grabbed from https://github.com/iovisor/bpf-docs/blob/master/eBPF.md
@@ -750,108 +750,108 @@ test "opcodes" {
     // loading 64-bit immediates (imm is only 32 bits wide)
 
     // alu instructions
-    expect_opcode(0x07, Insn.add(.r1, 0));
-    expect_opcode(0x0f, Insn.add(.r1, .r2));
-    expect_opcode(0x17, Insn.sub(.r1, 0));
-    expect_opcode(0x1f, Insn.sub(.r1, .r2));
-    expect_opcode(0x27, Insn.mul(.r1, 0));
-    expect_opcode(0x2f, Insn.mul(.r1, .r2));
-    expect_opcode(0x37, Insn.div(.r1, 0));
-    expect_opcode(0x3f, Insn.div(.r1, .r2));
-    expect_opcode(0x47, Insn.alu_or(.r1, 0));
-    expect_opcode(0x4f, Insn.alu_or(.r1, .r2));
-    expect_opcode(0x57, Insn.alu_and(.r1, 0));
-    expect_opcode(0x5f, Insn.alu_and(.r1, .r2));
-    expect_opcode(0x67, Insn.lsh(.r1, 0));
-    expect_opcode(0x6f, Insn.lsh(.r1, .r2));
-    expect_opcode(0x77, Insn.rsh(.r1, 0));
-    expect_opcode(0x7f, Insn.rsh(.r1, .r2));
-    expect_opcode(0x87, Insn.neg(.r1));
-    expect_opcode(0x97, Insn.mod(.r1, 0));
-    expect_opcode(0x9f, Insn.mod(.r1, .r2));
-    expect_opcode(0xa7, Insn.xor(.r1, 0));
-    expect_opcode(0xaf, Insn.xor(.r1, .r2));
-    expect_opcode(0xb7, Insn.mov(.r1, 0));
-    expect_opcode(0xbf, Insn.mov(.r1, .r2));
-    expect_opcode(0xc7, Insn.arsh(.r1, 0));
-    expect_opcode(0xcf, Insn.arsh(.r1, .r2));
+    try expect_opcode(0x07, Insn.add(.r1, 0));
+    try expect_opcode(0x0f, Insn.add(.r1, .r2));
+    try expect_opcode(0x17, Insn.sub(.r1, 0));
+    try expect_opcode(0x1f, Insn.sub(.r1, .r2));
+    try expect_opcode(0x27, Insn.mul(.r1, 0));
+    try expect_opcode(0x2f, Insn.mul(.r1, .r2));
+    try expect_opcode(0x37, Insn.div(.r1, 0));
+    try expect_opcode(0x3f, Insn.div(.r1, .r2));
+    try expect_opcode(0x47, Insn.alu_or(.r1, 0));
+    try expect_opcode(0x4f, Insn.alu_or(.r1, .r2));
+    try expect_opcode(0x57, Insn.alu_and(.r1, 0));
+    try expect_opcode(0x5f, Insn.alu_and(.r1, .r2));
+    try expect_opcode(0x67, Insn.lsh(.r1, 0));
+    try expect_opcode(0x6f, Insn.lsh(.r1, .r2));
+    try expect_opcode(0x77, Insn.rsh(.r1, 0));
+    try expect_opcode(0x7f, Insn.rsh(.r1, .r2));
+    try expect_opcode(0x87, Insn.neg(.r1));
+    try expect_opcode(0x97, Insn.mod(.r1, 0));
+    try expect_opcode(0x9f, Insn.mod(.r1, .r2));
+    try expect_opcode(0xa7, Insn.xor(.r1, 0));
+    try expect_opcode(0xaf, Insn.xor(.r1, .r2));
+    try expect_opcode(0xb7, Insn.mov(.r1, 0));
+    try expect_opcode(0xbf, Insn.mov(.r1, .r2));
+    try expect_opcode(0xc7, Insn.arsh(.r1, 0));
+    try expect_opcode(0xcf, Insn.arsh(.r1, .r2));
 
     // atomic instructions: might be more of these not documented in the wild
-    expect_opcode(0xdb, Insn.xadd(.r1, .r2));
+    try expect_opcode(0xdb, Insn.xadd(.r1, .r2));
 
     // TODO: byteswap instructions
-    expect_opcode(0xd4, Insn.le(.half_word, .r1));
-    expectEqual(@intCast(i32, 16), Insn.le(.half_word, .r1).imm);
-    expect_opcode(0xd4, Insn.le(.word, .r1));
-    expectEqual(@intCast(i32, 32), Insn.le(.word, .r1).imm);
-    expect_opcode(0xd4, Insn.le(.double_word, .r1));
-    expectEqual(@intCast(i32, 64), Insn.le(.double_word, .r1).imm);
-    expect_opcode(0xdc, Insn.be(.half_word, .r1));
-    expectEqual(@intCast(i32, 16), Insn.be(.half_word, .r1).imm);
-    expect_opcode(0xdc, Insn.be(.word, .r1));
-    expectEqual(@intCast(i32, 32), Insn.be(.word, .r1).imm);
-    expect_opcode(0xdc, Insn.be(.double_word, .r1));
-    expectEqual(@intCast(i32, 64), Insn.be(.double_word, .r1).imm);
+    try expect_opcode(0xd4, Insn.le(.half_word, .r1));
+    try expectEqual(@intCast(i32, 16), Insn.le(.half_word, .r1).imm);
+    try expect_opcode(0xd4, Insn.le(.word, .r1));
+    try expectEqual(@intCast(i32, 32), Insn.le(.word, .r1).imm);
+    try expect_opcode(0xd4, Insn.le(.double_word, .r1));
+    try expectEqual(@intCast(i32, 64), Insn.le(.double_word, .r1).imm);
+    try expect_opcode(0xdc, Insn.be(.half_word, .r1));
+    try expectEqual(@intCast(i32, 16), Insn.be(.half_word, .r1).imm);
+    try expect_opcode(0xdc, Insn.be(.word, .r1));
+    try expectEqual(@intCast(i32, 32), Insn.be(.word, .r1).imm);
+    try expect_opcode(0xdc, Insn.be(.double_word, .r1));
+    try expectEqual(@intCast(i32, 64), Insn.be(.double_word, .r1).imm);
 
     // memory instructions
-    expect_opcode(0x18, Insn.ld_dw1(.r1, 0));
-    expect_opcode(0x00, Insn.ld_dw2(0));
+    try expect_opcode(0x18, Insn.ld_dw1(.r1, 0));
+    try expect_opcode(0x00, Insn.ld_dw2(0));
 
     //   loading a map fd
-    expect_opcode(0x18, Insn.ld_map_fd1(.r1, 0));
-    expectEqual(@intCast(u4, PSEUDO_MAP_FD), Insn.ld_map_fd1(.r1, 0).src);
-    expect_opcode(0x00, Insn.ld_map_fd2(0));
+    try expect_opcode(0x18, Insn.ld_map_fd1(.r1, 0));
+    try expectEqual(@intCast(u4, PSEUDO_MAP_FD), Insn.ld_map_fd1(.r1, 0).src);
+    try expect_opcode(0x00, Insn.ld_map_fd2(0));
 
-    expect_opcode(0x38, Insn.ld_abs(.double_word, .r1, .r2, 0));
-    expect_opcode(0x20, Insn.ld_abs(.word, .r1, .r2, 0));
-    expect_opcode(0x28, Insn.ld_abs(.half_word, .r1, .r2, 0));
-    expect_opcode(0x30, Insn.ld_abs(.byte, .r1, .r2, 0));
+    try expect_opcode(0x38, Insn.ld_abs(.double_word, .r1, .r2, 0));
+    try expect_opcode(0x20, Insn.ld_abs(.word, .r1, .r2, 0));
+    try expect_opcode(0x28, Insn.ld_abs(.half_word, .r1, .r2, 0));
+    try expect_opcode(0x30, Insn.ld_abs(.byte, .r1, .r2, 0));
 
-    expect_opcode(0x58, Insn.ld_ind(.double_word, .r1, .r2, 0));
-    expect_opcode(0x40, Insn.ld_ind(.word, .r1, .r2, 0));
-    expect_opcode(0x48, Insn.ld_ind(.half_word, .r1, .r2, 0));
-    expect_opcode(0x50, Insn.ld_ind(.byte, .r1, .r2, 0));
+    try expect_opcode(0x58, Insn.ld_ind(.double_word, .r1, .r2, 0));
+    try expect_opcode(0x40, Insn.ld_ind(.word, .r1, .r2, 0));
+    try expect_opcode(0x48, Insn.ld_ind(.half_word, .r1, .r2, 0));
+    try expect_opcode(0x50, Insn.ld_ind(.byte, .r1, .r2, 0));
 
-    expect_opcode(0x79, Insn.ldx(.double_word, .r1, .r2, 0));
-    expect_opcode(0x61, Insn.ldx(.word, .r1, .r2, 0));
-    expect_opcode(0x69, Insn.ldx(.half_word, .r1, .r2, 0));
-    expect_opcode(0x71, Insn.ldx(.byte, .r1, .r2, 0));
+    try expect_opcode(0x79, Insn.ldx(.double_word, .r1, .r2, 0));
+    try expect_opcode(0x61, Insn.ldx(.word, .r1, .r2, 0));
+    try expect_opcode(0x69, Insn.ldx(.half_word, .r1, .r2, 0));
+    try expect_opcode(0x71, Insn.ldx(.byte, .r1, .r2, 0));
 
-    expect_opcode(0x62, Insn.st(.word, .r1, 0, 0));
-    expect_opcode(0x6a, Insn.st(.half_word, .r1, 0, 0));
-    expect_opcode(0x72, Insn.st(.byte, .r1, 0, 0));
+    try expect_opcode(0x62, Insn.st(.word, .r1, 0, 0));
+    try expect_opcode(0x6a, Insn.st(.half_word, .r1, 0, 0));
+    try expect_opcode(0x72, Insn.st(.byte, .r1, 0, 0));
 
-    expect_opcode(0x63, Insn.stx(.word, .r1, 0, .r2));
-    expect_opcode(0x6b, Insn.stx(.half_word, .r1, 0, .r2));
-    expect_opcode(0x73, Insn.stx(.byte, .r1, 0, .r2));
-    expect_opcode(0x7b, Insn.stx(.double_word, .r1, 0, .r2));
+    try expect_opcode(0x63, Insn.stx(.word, .r1, 0, .r2));
+    try expect_opcode(0x6b, Insn.stx(.half_word, .r1, 0, .r2));
+    try expect_opcode(0x73, Insn.stx(.byte, .r1, 0, .r2));
+    try expect_opcode(0x7b, Insn.stx(.double_word, .r1, 0, .r2));
 
     // branch instructions
-    expect_opcode(0x05, Insn.ja(0));
-    expect_opcode(0x15, Insn.jeq(.r1, 0, 0));
-    expect_opcode(0x1d, Insn.jeq(.r1, .r2, 0));
-    expect_opcode(0x25, Insn.jgt(.r1, 0, 0));
-    expect_opcode(0x2d, Insn.jgt(.r1, .r2, 0));
-    expect_opcode(0x35, Insn.jge(.r1, 0, 0));
-    expect_opcode(0x3d, Insn.jge(.r1, .r2, 0));
-    expect_opcode(0xa5, Insn.jlt(.r1, 0, 0));
-    expect_opcode(0xad, Insn.jlt(.r1, .r2, 0));
-    expect_opcode(0xb5, Insn.jle(.r1, 0, 0));
-    expect_opcode(0xbd, Insn.jle(.r1, .r2, 0));
-    expect_opcode(0x45, Insn.jset(.r1, 0, 0));
-    expect_opcode(0x4d, Insn.jset(.r1, .r2, 0));
-    expect_opcode(0x55, Insn.jne(.r1, 0, 0));
-    expect_opcode(0x5d, Insn.jne(.r1, .r2, 0));
-    expect_opcode(0x65, Insn.jsgt(.r1, 0, 0));
-    expect_opcode(0x6d, Insn.jsgt(.r1, .r2, 0));
-    expect_opcode(0x75, Insn.jsge(.r1, 0, 0));
-    expect_opcode(0x7d, Insn.jsge(.r1, .r2, 0));
-    expect_opcode(0xc5, Insn.jslt(.r1, 0, 0));
-    expect_opcode(0xcd, Insn.jslt(.r1, .r2, 0));
-    expect_opcode(0xd5, Insn.jsle(.r1, 0, 0));
-    expect_opcode(0xdd, Insn.jsle(.r1, .r2, 0));
-    expect_opcode(0x85, Insn.call(.unspec));
-    expect_opcode(0x95, Insn.exit());
+    try expect_opcode(0x05, Insn.ja(0));
+    try expect_opcode(0x15, Insn.jeq(.r1, 0, 0));
+    try expect_opcode(0x1d, Insn.jeq(.r1, .r2, 0));
+    try expect_opcode(0x25, Insn.jgt(.r1, 0, 0));
+    try expect_opcode(0x2d, Insn.jgt(.r1, .r2, 0));
+    try expect_opcode(0x35, Insn.jge(.r1, 0, 0));
+    try expect_opcode(0x3d, Insn.jge(.r1, .r2, 0));
+    try expect_opcode(0xa5, Insn.jlt(.r1, 0, 0));
+    try expect_opcode(0xad, Insn.jlt(.r1, .r2, 0));
+    try expect_opcode(0xb5, Insn.jle(.r1, 0, 0));
+    try expect_opcode(0xbd, Insn.jle(.r1, .r2, 0));
+    try expect_opcode(0x45, Insn.jset(.r1, 0, 0));
+    try expect_opcode(0x4d, Insn.jset(.r1, .r2, 0));
+    try expect_opcode(0x55, Insn.jne(.r1, 0, 0));
+    try expect_opcode(0x5d, Insn.jne(.r1, .r2, 0));
+    try expect_opcode(0x65, Insn.jsgt(.r1, 0, 0));
+    try expect_opcode(0x6d, Insn.jsgt(.r1, .r2, 0));
+    try expect_opcode(0x75, Insn.jsge(.r1, 0, 0));
+    try expect_opcode(0x7d, Insn.jsge(.r1, .r2, 0));
+    try expect_opcode(0xc5, Insn.jslt(.r1, 0, 0));
+    try expect_opcode(0xcd, Insn.jslt(.r1, .r2, 0));
+    try expect_opcode(0xd5, Insn.jsle(.r1, 0, 0));
+    try expect_opcode(0xdd, Insn.jsle(.r1, .r2, 0));
+    try expect_opcode(0x85, Insn.call(.unspec));
+    try expect_opcode(0x95, Insn.exit());
 }
 
 pub const Cmd = extern enum(usize) {
@@ -1596,7 +1596,7 @@ test "map lookup, update, and delete" {
     var value = std.mem.zeroes([value_size]u8);
 
     // fails looking up value that doesn't exist
-    expectError(error.NotFound, map_lookup_elem(map, &key, &value));
+    try expectError(error.NotFound, map_lookup_elem(map, &key, &value));
 
     // succeed at updating and looking up element
     try map_update_elem(map, &key, &value, 0);
@@ -1604,14 +1604,14 @@ test "map lookup, update, and delete" {
 
     // fails inserting more than max entries
     const second_key = [key_size]u8{ 0, 0, 0, 1 };
-    expectError(error.ReachedMaxEntries, map_update_elem(map, &second_key, &value, 0));
+    try expectError(error.ReachedMaxEntries, map_update_elem(map, &second_key, &value, 0));
 
     // succeed at deleting an existing elem
     try map_delete_elem(map, &key);
-    expectError(error.NotFound, map_lookup_elem(map, &key, &value));
+    try expectError(error.NotFound, map_lookup_elem(map, &key, &value));
 
     // fail at deleting a non-existing elem
-    expectError(error.NotFound, map_delete_elem(map, &key));
+    try expectError(error.NotFound, map_delete_elem(map, &key));
 }
 
 pub fn prog_load(
@@ -1662,5 +1662,5 @@ test "prog_load" {
     const prog = try prog_load(.socket_filter, &good_prog, null, "MIT", 0);
     defer std.os.close(prog);
 
-    expectError(error.UnsafeProgram, prog_load(.socket_filter, &bad_prog, null, "MIT", 0));
+    try expectError(error.UnsafeProgram, prog_load(.socket_filter, &bad_prog, null, "MIT", 0));
 }

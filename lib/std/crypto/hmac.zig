@@ -84,26 +84,26 @@ const htest = @import("test.zig");
 test "hmac md5" {
     var out: [HmacMd5.mac_length]u8 = undefined;
     HmacMd5.create(out[0..], "", "");
-    htest.assertEqual("74e6f7298a9c2d168935f58c001bad88", out[0..]);
+    try htest.assertEqual("74e6f7298a9c2d168935f58c001bad88", out[0..]);
 
     HmacMd5.create(out[0..], "The quick brown fox jumps over the lazy dog", "key");
-    htest.assertEqual("80070713463e7749b90c2dc24911e275", out[0..]);
+    try htest.assertEqual("80070713463e7749b90c2dc24911e275", out[0..]);
 }
 
 test "hmac sha1" {
     var out: [HmacSha1.mac_length]u8 = undefined;
     HmacSha1.create(out[0..], "", "");
-    htest.assertEqual("fbdb1d1b18aa6c08324b7d64b71fb76370690e1d", out[0..]);
+    try htest.assertEqual("fbdb1d1b18aa6c08324b7d64b71fb76370690e1d", out[0..]);
 
     HmacSha1.create(out[0..], "The quick brown fox jumps over the lazy dog", "key");
-    htest.assertEqual("de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9", out[0..]);
+    try htest.assertEqual("de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9", out[0..]);
 }
 
 test "hmac sha256" {
     var out: [sha2.HmacSha256.mac_length]u8 = undefined;
     sha2.HmacSha256.create(out[0..], "", "");
-    htest.assertEqual("b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad", out[0..]);
+    try htest.assertEqual("b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad", out[0..]);
 
     sha2.HmacSha256.create(out[0..], "The quick brown fox jumps over the lazy dog", "key");
-    htest.assertEqual("f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8", out[0..]);
+    try htest.assertEqual("f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8", out[0..]);
 }

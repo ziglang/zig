@@ -9,13 +9,13 @@ test "integer widening" {
     var d: u64 = c;
     var e: u64 = d;
     var f: u128 = e;
-    expect(f == a);
+    try expect(f == a);
 }
 
 test "implicit unsigned integer to signed integer" {
     var a: u8 = 250;
     var b: i16 = a;
-    expect(b == 250);
+    try expect(b == 250);
 }
 
 test "float widening" {
@@ -23,9 +23,9 @@ test "float widening" {
     var b: f32 = a;
     var c: f64 = b;
     var d: f128 = c;
-    expect(a == b);
-    expect(b == c);
-    expect(c == d);
+    try expect(a == b);
+    try expect(b == c);
+    try expect(c == d);
 }
 
 test "float widening f16 to f128" {
@@ -35,5 +35,5 @@ test "float widening f16 to f128" {
 
     var x: f16 = 12.34;
     var y: f128 = x;
-    expect(x == y);
+    try expect(x == y);
 }

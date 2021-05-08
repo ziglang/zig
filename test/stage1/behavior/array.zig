@@ -21,8 +21,8 @@ test "arrays" {
         i += 1;
     }
 
-    expect(accumulator == 15);
-    expect(getArrayLen(&array) == 5);
+    try expect(accumulator == 15);
+    try expect(getArrayLen(&array) == 5);
 }
 fn getArrayLen(a: []const u32) usize {
     return a.len;
@@ -30,37 +30,37 @@ fn getArrayLen(a: []const u32) usize {
 
 test "array with sentinels" {
     const S = struct {
-        fn doTheTest(is_ct: bool) void {
+        fn doTheTest(is_ct: bool) !void {
             if (is_ct) {
                 var zero_sized: [0:0xde]u8 = [_:0xde]u8{};
                 // Disabled at runtime because of
                 // https://github.com/ziglang/zig/issues/4372
-                expectEqual(@as(u8, 0xde), zero_sized[0]);
+                try expectEqual(@as(u8, 0xde), zero_sized[0]);
                 var reinterpreted = @ptrCast(*[1]u8, &zero_sized);
-                expectEqual(@as(u8, 0xde), reinterpreted[0]);
+                try expectEqual(@as(u8, 0xde), reinterpreted[0]);
             }
             var arr: [3:0x55]u8 = undefined;
             // Make sure the sentinel pointer is pointing after the last element
             if (!is_ct) {
                 const sentinel_ptr = @ptrToInt(&arr[3]);
                 const last_elem_ptr = @ptrToInt(&arr[2]);
-                expectEqual(@as(usize, 1), sentinel_ptr - last_elem_ptr);
+                try expectEqual(@as(usize, 1), sentinel_ptr - last_elem_ptr);
             }
             // Make sure the sentinel is writeable
             arr[3] = 0x55;
         }
     };
 
-    S.doTheTest(false);
-    comptime S.doTheTest(true);
+    try S.doTheTest(false);
+    comptime try S.doTheTest(true);
 }
 
 test "void arrays" {
     var array: [4]void = undefined;
     array[0] = void{};
     array[1] = array[2];
-    expect(@sizeOf(@TypeOf(array)) == 0);
-    expect(array.len == 4);
+    try expect(@sizeOf(@TypeOf(array)) == 0);
+    try expect(array.len == 4);
 }
 
 test "array literal" {
@@ -71,12 +71,12 @@ test "array literal" {
         1,
     };
 
-    expect(hex_mult.len == 4);
-    expect(hex_mult[1] == 256);
+    try expect(hex_mult.len == 4);
+    try expect(hex_mult[1] == 256);
 }
 
 test "array dot len const expr" {
-    expect(comptime x: {
+    try expect(comptime x: {
         break :x some_array.len == 4;
     });
 }
@@ -100,11 +100,11 @@ test "nested arrays" {
         "thing",
     };
     for (array_of_strings) |s, i| {
-        if (i == 0) expect(mem.eql(u8, s, "hello"));
-        if (i == 1) expect(mem.eql(u8, s, "this"));
-        if (i == 2) expect(mem.eql(u8, s, "is"));
-        if (i == 3) expect(mem.eql(u8, s, "my"));
-        if (i == 4) expect(mem.eql(u8, s, "thing"));
+        if (i == 0) try expect(mem.eql(u8, s, "hello"));
+        if (i == 1) try expect(mem.eql(u8, s, "this"));
+        if (i == 2) try expect(mem.eql(u8, s, "is"));
+        if (i == 3) try expect(mem.eql(u8, s, "my"));
+        if (i == 4) try expect(mem.eql(u8, s, "thing"));
     }
 }
 
@@ -122,9 +122,9 @@ test "set global var array via slice embedded in struct" {
     s.a[1].b = 2;
     s.a[2].b = 3;
 
-    expect(s_array[0].b == 1);
-    expect(s_array[1].b == 2);
-    expect(s_array[2].b == 3);
+    try expect(s_array[0].b == 1);
+    try expect(s_array[1].b == 2);
+    try expect(s_array[2].b == 3);
 }
 
 test "array literal with specified size" {
@@ -132,34 +132,34 @@ test "array literal with specified size" {
         1,
         2,
     };
-    expect(array[0] == 1);
-    expect(array[1] == 2);
+    try expect(array[0] == 1);
+    try expect(array[1] == 2);
 }
 
 test "array len field" {
     var arr = [4]u8{ 0, 0, 0, 0 };
     var ptr = &arr;
-    expect(arr.len == 4);
-    comptime expect(arr.len == 4);
-    expect(ptr.len == 4);
-    comptime expect(ptr.len == 4);
+    try expect(arr.len == 4);
+    comptime try expect(arr.len == 4);
+    try expect(ptr.len == 4);
+    comptime try expect(ptr.len == 4);
 }
 
 test "single-item pointer to array indexing and slicing" {
-    testSingleItemPtrArrayIndexSlice();
-    comptime testSingleItemPtrArrayIndexSlice();
+    try testSingleItemPtrArrayIndexSlice();
+    comptime try testSingleItemPtrArrayIndexSlice();
 }
 
-fn testSingleItemPtrArrayIndexSlice() void {
+fn testSingleItemPtrArrayIndexSlice() !void {
     {
         var array: [4]u8 = "aaaa".*;
         doSomeMangling(&array);
-        expect(mem.eql(u8, "azya", &array));
+        try expect(mem.eql(u8, "azya", &array));
     }
     {
         var array = "aaaa".*;
         doSomeMangling(&array);
-        expect(mem.eql(u8, "azya", &array));
+        try expect(mem.eql(u8, "azya", &array));
     }
 }
 
@@ -169,15 +169,15 @@ fn doSomeMangling(array: *[4]u8) void {
 }
 
 test "implicit cast single-item pointer" {
-    testImplicitCastSingleItemPtr();
-    comptime testImplicitCastSingleItemPtr();
+    try testImplicitCastSingleItemPtr();
+    comptime try testImplicitCastSingleItemPtr();
 }
 
-fn testImplicitCastSingleItemPtr() void {
+fn testImplicitCastSingleItemPtr() !void {
     var byte: u8 = 100;
     const slice = @as(*[1]u8, &byte)[0..];
     slice[0] += 1;
-    expect(byte == 101);
+    try expect(byte == 101);
 }
 
 fn testArrayByValAtComptime(b: [2]u8) u8 {
@@ -192,7 +192,7 @@ test "comptime evalutating function that takes array by value" {
 
 test "implicit comptime in array type size" {
     var arr: [plusOne(10)]bool = undefined;
-    expect(arr.len == 11);
+    try expect(arr.len == 11);
 }
 
 fn plusOne(x: u32) u32 {
@@ -202,52 +202,52 @@ fn plusOne(x: u32) u32 {
 test "runtime initialize array elem and then implicit cast to slice" {
     var two: i32 = 2;
     const x: []const i32 = &[_]i32{two};
-    expect(x[0] == 2);
+    try expect(x[0] == 2);
 }
 
 test "array literal as argument to function" {
     const S = struct {
-        fn entry(two: i32) void {
-            foo(&[_]i32{
+        fn entry(two: i32) !void {
+            try foo(&[_]i32{
                 1,
                 2,
                 3,
             });
-            foo(&[_]i32{
+            try foo(&[_]i32{
                 1,
                 two,
                 3,
             });
-            foo2(true, &[_]i32{
+            try foo2(true, &[_]i32{
                 1,
                 2,
                 3,
             });
-            foo2(true, &[_]i32{
+            try foo2(true, &[_]i32{
                 1,
                 two,
                 3,
             });
         }
-        fn foo(x: []const i32) void {
-            expect(x[0] == 1);
-            expect(x[1] == 2);
-            expect(x[2] == 3);
+        fn foo(x: []const i32) !void {
+            try expect(x[0] == 1);
+            try expect(x[1] == 2);
+            try expect(x[2] == 3);
         }
-        fn foo2(trash: bool, x: []const i32) void {
-            expect(trash);
-            expect(x[0] == 1);
-            expect(x[1] == 2);
-            expect(x[2] == 3);
+        fn foo2(trash: bool, x: []const i32) !void {
+            try expect(trash);
+            try expect(x[0] == 1);
+            try expect(x[1] == 2);
+            try expect(x[2] == 3);
         }
     };
-    S.entry(2);
-    comptime S.entry(2);
+    try S.entry(2);
+    comptime try S.entry(2);
 }
 
 test "double nested array to const slice cast in array literal" {
     const S = struct {
-        fn entry(two: i32) void {
+        fn entry(two: i32) !void {
             const cases = [_][]const []const i32{
                 &[_][]const i32{&[_]i32{1}},
                 &[_][]const i32{&[_]i32{ 2, 3 }},
@@ -256,18 +256,18 @@ test "double nested array to const slice cast in array literal" {
                     &[_]i32{ 5, 6, 7 },
                 },
             };
-            check(&cases);
+            try check(&cases);
 
             const cases2 = [_][]const i32{
                 &[_]i32{1},
                 &[_]i32{ two, 3 },
             };
-            expect(cases2.len == 2);
-            expect(cases2[0].len == 1);
-            expect(cases2[0][0] == 1);
-            expect(cases2[1].len == 2);
-            expect(cases2[1][0] == 2);
-            expect(cases2[1][1] == 3);
+            try expect(cases2.len == 2);
+            try expect(cases2[0].len == 1);
+            try expect(cases2[0][0] == 1);
+            try expect(cases2[1].len == 2);
+            try expect(cases2[1][0] == 2);
+            try expect(cases2[1][1] == 3);
 
             const cases3 = [_][]const []const i32{
                 &[_][]const i32{&[_]i32{1}},
@@ -277,37 +277,37 @@ test "double nested array to const slice cast in array literal" {
                     &[_]i32{ 5, 6, 7 },
                 },
             };
-            check(&cases3);
+            try check(&cases3);
         }
 
-        fn check(cases: []const []const []const i32) void {
-            expect(cases.len == 3);
-            expect(cases[0].len == 1);
-            expect(cases[0][0].len == 1);
-            expect(cases[0][0][0] == 1);
-            expect(cases[1].len == 1);
-            expect(cases[1][0].len == 2);
-            expect(cases[1][0][0] == 2);
-            expect(cases[1][0][1] == 3);
-            expect(cases[2].len == 2);
-            expect(cases[2][0].len == 1);
-            expect(cases[2][0][0] == 4);
-            expect(cases[2][1].len == 3);
-            expect(cases[2][1][0] == 5);
-            expect(cases[2][1][1] == 6);
-            expect(cases[2][1][2] == 7);
+        fn check(cases: []const []const []const i32) !void {
+            try expect(cases.len == 3);
+            try expect(cases[0].len == 1);
+            try expect(cases[0][0].len == 1);
+            try expect(cases[0][0][0] == 1);
+            try expect(cases[1].len == 1);
+            try expect(cases[1][0].len == 2);
+            try expect(cases[1][0][0] == 2);
+            try expect(cases[1][0][1] == 3);
+            try expect(cases[2].len == 2);
+            try expect(cases[2][0].len == 1);
+            try expect(cases[2][0][0] == 4);
+            try expect(cases[2][1].len == 3);
+            try expect(cases[2][1][0] == 5);
+            try expect(cases[2][1][1] == 6);
+            try expect(cases[2][1][2] == 7);
         }
     };
-    S.entry(2);
-    comptime S.entry(2);
+    try S.entry(2);
+    comptime try S.entry(2);
 }
 
 test "read/write through global variable array of struct fields initialized via array mult" {
     const S = struct {
-        fn doTheTest() void {
-            expect(storage[0].term == 1);
+        fn doTheTest() !void {
+            try expect(storage[0].term == 1);
             storage[0] = MyStruct{ .term = 123 };
-            expect(storage[0].term == 123);
+            try expect(storage[0].term == 123);
         }
 
         pub const MyStruct = struct {
@@ -316,34 +316,34 @@ test "read/write through global variable array of struct fields initialized via 
 
         var storage: [1]MyStruct = [_]MyStruct{MyStruct{ .term = 1 }} ** 1;
     };
-    S.doTheTest();
+    try S.doTheTest();
 }
 
 test "implicit cast zero sized array ptr to slice" {
     {
         var b = "".*;
         const c: []const u8 = &b;
-        expect(c.len == 0);
+        try expect(c.len == 0);
     }
     {
         var b: [0]u8 = "".*;
         const c: []const u8 = &b;
-        expect(c.len == 0);
+        try expect(c.len == 0);
     }
 }
 
 test "anonymous list literal syntax" {
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var array: [4]u8 = .{ 1, 2, 3, 4 };
-            expect(array[0] == 1);
-            expect(array[1] == 2);
-            expect(array[2] == 3);
-            expect(array[3] == 4);
+            try expect(array[0] == 1);
+            try expect(array[1] == 2);
+            try expect(array[2] == 3);
+            try expect(array[3] == 4);
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "anonymous literal in array" {
@@ -352,51 +352,51 @@ test "anonymous literal in array" {
             a: usize = 2,
             b: usize = 4,
         };
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var array: [2]Foo = .{
                 .{ .a = 3 },
                 .{ .b = 3 },
             };
-            expect(array[0].a == 3);
-            expect(array[0].b == 4);
-            expect(array[1].a == 2);
-            expect(array[1].b == 3);
+            try expect(array[0].a == 3);
+            try expect(array[0].b == 4);
+            try expect(array[1].a == 2);
+            try expect(array[1].b == 3);
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "access the null element of a null terminated array" {
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var array: [4:0]u8 = .{ 'a', 'o', 'e', 'u' };
-            expect(array[4] == 0);
+            try expect(array[4] == 0);
             var len: usize = 4;
-            expect(array[len] == 0);
+            try expect(array[len] == 0);
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "type deduction for array subscript expression" {
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var array = [_]u8{ 0x55, 0xAA };
             var v0 = true;
-            expectEqual(@as(u8, 0xAA), array[if (v0) 1 else 0]);
+            try expectEqual(@as(u8, 0xAA), array[if (v0) 1 else 0]);
             var v1 = false;
-            expectEqual(@as(u8, 0x55), array[if (v1) 1 else 0]);
+            try expectEqual(@as(u8, 0x55), array[if (v1) 1 else 0]);
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "sentinel element count towards the ABI size calculation" {
     const S = struct {
-        fn doTheTest() void {
+        fn doTheTest() !void {
             const T = packed struct {
                 fill_pre: u8 = 0x55,
                 data: [0:0]u8 = undefined,
@@ -404,14 +404,14 @@ test "sentinel element count towards the ABI size calculation" {
             };
             var x = T{};
             var as_slice = mem.asBytes(&x);
-            expectEqual(@as(usize, 3), as_slice.len);
-            expectEqual(@as(u8, 0x55), as_slice[0]);
-            expectEqual(@as(u8, 0xAA), as_slice[2]);
+            try expectEqual(@as(usize, 3), as_slice.len);
+            try expectEqual(@as(u8, 0x55), as_slice[0]);
+            try expectEqual(@as(u8, 0xAA), as_slice[2]);
         }
     };
 
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "zero-sized array with recursive type definition" {
@@ -429,61 +429,61 @@ test "zero-sized array with recursive type definition" {
     };
 
     var t: S = .{ .list = .{ .s = undefined } };
-    expectEqual(@as(usize, 0), t.list.x);
+    try expectEqual(@as(usize, 0), t.list.x);
 }
 
 test "type coercion of anon struct literal to array" {
     const S = struct {
-        const U = union{
+        const U = union {
             a: u32,
             b: bool,
             c: []const u8,
         };
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var x1: u8 = 42;
             const t1 = .{ x1, 56, 54 };
             var arr1: [3]u8 = t1;
-            expect(arr1[0] == 42);
-            expect(arr1[1] == 56);
-            expect(arr1[2] == 54);
-            
+            try expect(arr1[0] == 42);
+            try expect(arr1[1] == 56);
+            try expect(arr1[2] == 54);
+
             var x2: U = .{ .a = 42 };
             const t2 = .{ x2, .{ .b = true }, .{ .c = "hello" } };
             var arr2: [3]U = t2;
-            expect(arr2[0].a == 42);
-            expect(arr2[1].b == true);
-            expect(mem.eql(u8, arr2[2].c, "hello"));
+            try expect(arr2[0].a == 42);
+            try expect(arr2[1].b == true);
+            try expect(mem.eql(u8, arr2[2].c, "hello"));
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "type coercion of pointer to anon struct literal to pointer to array" {
     const S = struct {
-        const U = union{
+        const U = union {
             a: u32,
             b: bool,
             c: []const u8,
         };
 
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var x1: u8 = 42;
             const t1 = &.{ x1, 56, 54 };
-            var arr1: *const[3]u8 = t1;
-            expect(arr1[0] == 42);
-            expect(arr1[1] == 56);
-            expect(arr1[2] == 54);
-            
+            var arr1: *const [3]u8 = t1;
+            try expect(arr1[0] == 42);
+            try expect(arr1[1] == 56);
+            try expect(arr1[2] == 54);
+
             var x2: U = .{ .a = 42 };
             const t2 = &.{ x2, .{ .b = true }, .{ .c = "hello" } };
             var arr2: *const [3]U = t2;
-            expect(arr2[0].a == 42);
-            expect(arr2[1].b == true);
-            expect(mem.eql(u8, arr2[2].c, "hello"));
+            try expect(arr2[0].a == 42);
+            try expect(arr2[1].b == true);
+            try expect(mem.eql(u8, arr2[2].c, "hello"));
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }

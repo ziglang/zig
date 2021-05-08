@@ -404,15 +404,15 @@ test "Trie node count" {
     var trie = Trie.init(gpa);
     defer trie.deinit();
 
-    testing.expectEqual(trie.node_count, 0);
-    testing.expect(trie.root == null);
+    try testing.expectEqual(trie.node_count, 0);
+    try testing.expect(trie.root == null);
 
     try trie.put(.{
         .name = "_main",
         .vmaddr_offset = 0,
         .export_flags = 0,
     });
-    testing.expectEqual(trie.node_count, 2);
+    try testing.expectEqual(trie.node_count, 2);
 
     // Inserting the same node shouldn't update the trie.
     try trie.put(.{
@@ -420,14 +420,14 @@ test "Trie node count" {
         .vmaddr_offset = 0,
         .export_flags = 0,
     });
-    testing.expectEqual(trie.node_count, 2);
+    try testing.expectEqual(trie.node_count, 2);
 
     try trie.put(.{
         .name = "__mh_execute_header",
         .vmaddr_offset = 0x1000,
         .export_flags = 0,
     });
-    testing.expectEqual(trie.node_count, 4);
+    try testing.expectEqual(trie.node_count, 4);
 
     // Inserting the same node shouldn't update the trie.
     try trie.put(.{
@@ -435,13 +435,13 @@ test "Trie node count" {
         .vmaddr_offset = 0x1000,
         .export_flags = 0,
     });
-    testing.expectEqual(trie.node_count, 4);
+    try testing.expectEqual(trie.node_count, 4);
     try trie.put(.{
         .name = "_main",
         .vmaddr_offset = 0,
         .export_flags = 0,
     });
-    testing.expectEqual(trie.node_count, 4);
+    try testing.expectEqual(trie.node_count, 4);
 }
 
 test "Trie basic" {
@@ -455,8 +455,8 @@ test "Trie basic" {
         .vmaddr_offset = 0,
         .export_flags = 0,
     });
-    testing.expect(trie.root.?.edges.items.len == 1);
-    testing.expect(mem.eql(u8, trie.root.?.edges.items[0].label, "_st"));
+    try testing.expect(trie.root.?.edges.items.len == 1);
+    try testing.expect(mem.eql(u8, trie.root.?.edges.items[0].label, "_st"));
 
     {
         // root --- _st ---> node --- art ---> node
@@ -465,12 +465,12 @@ test "Trie basic" {
             .vmaddr_offset = 0,
             .export_flags = 0,
         });
-        testing.expect(trie.root.?.edges.items.len == 1);
+        try testing.expect(trie.root.?.edges.items.len == 1);
 
         const nextEdge = &trie.root.?.edges.items[0];
-        testing.expect(mem.eql(u8, nextEdge.label, "_st"));
-        testing.expect(nextEdge.to.edges.items.len == 1);
-        testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "art"));
+        try testing.expect(mem.eql(u8, nextEdge.label, "_st"));
+        try testing.expect(nextEdge.to.edges.items.len == 1);
+        try testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "art"));
     }
     {
         // root --- _ ---> node --- st ---> node --- art ---> node
@@ -481,16 +481,16 @@ test "Trie basic" {
             .vmaddr_offset = 0,
             .export_flags = 0,
         });
-        testing.expect(trie.root.?.edges.items.len == 1);
+        try testing.expect(trie.root.?.edges.items.len == 1);
 
         const nextEdge = &trie.root.?.edges.items[0];
-        testing.expect(mem.eql(u8, nextEdge.label, "_"));
-        testing.expect(nextEdge.to.edges.items.len == 2);
-        testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "st"));
-        testing.expect(mem.eql(u8, nextEdge.to.edges.items[1].label, "main"));
+        try testing.expect(mem.eql(u8, nextEdge.label, "_"));
+        try testing.expect(nextEdge.to.edges.items.len == 2);
+        try testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "st"));
+        try testing.expect(mem.eql(u8, nextEdge.to.edges.items[1].label, "main"));
 
         const nextNextEdge = &nextEdge.to.edges.items[0];
-        testing.expect(mem.eql(u8, nextNextEdge.to.edges.items[0].label, "art"));
+        try testing.expect(mem.eql(u8, nextNextEdge.to.edges.items[0].label, "art"));
     }
 }
 
@@ -529,15 +529,15 @@ test "write Trie to a byte stream" {
     var stream = std.io.fixedBufferStream(buffer);
     {
         const nwritten = try trie.write(stream.writer());
-        testing.expect(nwritten == trie.size);
-        testing.expect(mem.eql(u8, buffer, &exp_buffer));
+        try testing.expect(nwritten == trie.size);
+        try testing.expect(mem.eql(u8, buffer, &exp_buffer));
     }
     {
         // Writing finalized trie again should yield the same result.
         try stream.seekTo(0);
         const nwritten = try trie.write(stream.writer());
-        testing.expect(nwritten == trie.size);
-        testing.expect(mem.eql(u8, buffer, &exp_buffer));
+        try testing.expect(nwritten == trie.size);
+        try testing.expect(mem.eql(u8, buffer, &exp_buffer));
     }
 }
 
@@ -560,7 +560,7 @@ test "parse Trie from byte stream" {
     defer trie.deinit();
     const nread = try trie.read(in_stream.reader());
 
-    testing.expect(nread == in_buffer.len);
+    try testing.expect(nread == in_buffer.len);
 
     try trie.finalize();
 
@@ -569,6 +569,6 @@ test "parse Trie from byte stream" {
     var out_stream = std.io.fixedBufferStream(out_buffer);
     const nwritten = try trie.write(out_stream.writer());
 
-    testing.expect(nwritten == trie.size);
-    testing.expect(mem.eql(u8, &in_buffer, out_buffer));
+    try testing.expect(nwritten == trie.size);
+    try testing.expect(mem.eql(u8, &in_buffer, out_buffer));
 }

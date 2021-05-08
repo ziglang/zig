@@ -239,18 +239,18 @@ fn testHashDeepRecursive(key: anytype) u64 {
 
 test "typeContainsSlice" {
     comptime {
-        testing.expect(!typeContainsSlice(meta.Tag(std.builtin.TypeInfo)));
+        try testing.expect(!typeContainsSlice(meta.Tag(std.builtin.TypeInfo)));
 
-        testing.expect(typeContainsSlice([]const u8));
-        testing.expect(!typeContainsSlice(u8));
+        try testing.expect(typeContainsSlice([]const u8));
+        try testing.expect(!typeContainsSlice(u8));
         const A = struct { x: []const u8 };
         const B = struct { a: A };
         const C = struct { b: B };
         const D = struct { x: u8 };
-        testing.expect(typeContainsSlice(A));
-        testing.expect(typeContainsSlice(B));
-        testing.expect(typeContainsSlice(C));
-        testing.expect(!typeContainsSlice(D));
+        try testing.expect(typeContainsSlice(A));
+        try testing.expect(typeContainsSlice(B));
+        try testing.expect(typeContainsSlice(C));
+        try testing.expect(!typeContainsSlice(D));
     }
 }
 
@@ -261,17 +261,17 @@ test "hash pointer" {
     const c = &array[2];
     const d = a;
 
-    testing.expect(testHashShallow(a) == testHashShallow(d));
-    testing.expect(testHashShallow(a) != testHashShallow(c));
-    testing.expect(testHashShallow(a) != testHashShallow(b));
+    try testing.expect(testHashShallow(a) == testHashShallow(d));
+    try testing.expect(testHashShallow(a) != testHashShallow(c));
+    try testing.expect(testHashShallow(a) != testHashShallow(b));
 
-    testing.expect(testHashDeep(a) == testHashDeep(a));
-    testing.expect(testHashDeep(a) == testHashDeep(c));
-    testing.expect(testHashDeep(a) == testHashDeep(b));
+    try testing.expect(testHashDeep(a) == testHashDeep(a));
+    try testing.expect(testHashDeep(a) == testHashDeep(c));
+    try testing.expect(testHashDeep(a) == testHashDeep(b));
 
-    testing.expect(testHashDeepRecursive(a) == testHashDeepRecursive(a));
-    testing.expect(testHashDeepRecursive(a) == testHashDeepRecursive(c));
-    testing.expect(testHashDeepRecursive(a) == testHashDeepRecursive(b));
+    try testing.expect(testHashDeepRecursive(a) == testHashDeepRecursive(a));
+    try testing.expect(testHashDeepRecursive(a) == testHashDeepRecursive(c));
+    try testing.expect(testHashDeepRecursive(a) == testHashDeepRecursive(b));
 }
 
 test "hash slice shallow" {
@@ -286,10 +286,10 @@ test "hash slice shallow" {
     const a = array1[runtime_zero..];
     const b = array2[runtime_zero..];
     const c = array1[runtime_zero..3];
-    testing.expect(testHashShallow(a) == testHashShallow(a));
-    testing.expect(testHashShallow(a) != testHashShallow(array1));
-    testing.expect(testHashShallow(a) != testHashShallow(b));
-    testing.expect(testHashShallow(a) != testHashShallow(c));
+    try testing.expect(testHashShallow(a) == testHashShallow(a));
+    try testing.expect(testHashShallow(a) != testHashShallow(array1));
+    try testing.expect(testHashShallow(a) != testHashShallow(b));
+    try testing.expect(testHashShallow(a) != testHashShallow(c));
 }
 
 test "hash slice deep" {
@@ -302,10 +302,10 @@ test "hash slice deep" {
     const a = array1[0..];
     const b = array2[0..];
     const c = array1[0..3];
-    testing.expect(testHashDeep(a) == testHashDeep(a));
-    testing.expect(testHashDeep(a) == testHashDeep(array1));
-    testing.expect(testHashDeep(a) == testHashDeep(b));
-    testing.expect(testHashDeep(a) != testHashDeep(c));
+    try testing.expect(testHashDeep(a) == testHashDeep(a));
+    try testing.expect(testHashDeep(a) == testHashDeep(array1));
+    try testing.expect(testHashDeep(a) == testHashDeep(b));
+    try testing.expect(testHashDeep(a) != testHashDeep(c));
 }
 
 test "hash struct deep" {
@@ -331,28 +331,28 @@ test "hash struct deep" {
     defer allocator.destroy(bar.c);
     defer allocator.destroy(baz.c);
 
-    testing.expect(testHashDeep(foo) == testHashDeep(bar));
-    testing.expect(testHashDeep(foo) != testHashDeep(baz));
-    testing.expect(testHashDeep(bar) != testHashDeep(baz));
+    try testing.expect(testHashDeep(foo) == testHashDeep(bar));
+    try testing.expect(testHashDeep(foo) != testHashDeep(baz));
+    try testing.expect(testHashDeep(bar) != testHashDeep(baz));
 
     var hasher = Wyhash.init(0);
     const h = testHashDeep(foo);
     autoHash(&hasher, foo.a);
     autoHash(&hasher, foo.b);
     autoHash(&hasher, foo.c.*);
-    testing.expectEqual(h, hasher.final());
+    try testing.expectEqual(h, hasher.final());
 
     const h2 = testHashDeepRecursive(&foo);
-    testing.expect(h2 != testHashDeep(&foo));
-    testing.expect(h2 == testHashDeep(foo));
+    try testing.expect(h2 != testHashDeep(&foo));
+    try testing.expect(h2 == testHashDeep(foo));
 }
 
 test "testHash optional" {
     const a: ?u32 = 123;
     const b: ?u32 = null;
-    testing.expectEqual(testHash(a), testHash(@as(u32, 123)));
-    testing.expect(testHash(a) != testHash(b));
-    testing.expectEqual(testHash(b), 0);
+    try testing.expectEqual(testHash(a), testHash(@as(u32, 123)));
+    try testing.expect(testHash(a) != testHash(b));
+    try testing.expectEqual(testHash(b), 0);
 }
 
 test "testHash array" {
@@ -362,7 +362,7 @@ test "testHash array" {
     autoHash(&hasher, @as(u32, 1));
     autoHash(&hasher, @as(u32, 2));
     autoHash(&hasher, @as(u32, 3));
-    testing.expectEqual(h, hasher.final());
+    try testing.expectEqual(h, hasher.final());
 }
 
 test "testHash struct" {
@@ -377,7 +377,7 @@ test "testHash struct" {
     autoHash(&hasher, @as(u32, 1));
     autoHash(&hasher, @as(u32, 2));
     autoHash(&hasher, @as(u32, 3));
-    testing.expectEqual(h, hasher.final());
+    try testing.expectEqual(h, hasher.final());
 }
 
 test "testHash union" {
@@ -390,12 +390,12 @@ test "testHash union" {
     const a = Foo{ .A = 18 };
     var b = Foo{ .B = true };
     const c = Foo{ .C = 18 };
-    testing.expect(testHash(a) == testHash(a));
-    testing.expect(testHash(a) != testHash(b));
-    testing.expect(testHash(a) != testHash(c));
+    try testing.expect(testHash(a) == testHash(a));
+    try testing.expect(testHash(a) != testHash(b));
+    try testing.expect(testHash(a) != testHash(c));
 
     b = Foo{ .A = 18 };
-    testing.expect(testHash(a) == testHash(b));
+    try testing.expect(testHash(a) == testHash(b));
 }
 
 test "testHash vector" {
@@ -404,13 +404,13 @@ test "testHash vector" {
 
     const a: meta.Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
     const b: meta.Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
-    testing.expect(testHash(a) == testHash(a));
-    testing.expect(testHash(a) != testHash(b));
+    try testing.expect(testHash(a) == testHash(a));
+    try testing.expect(testHash(a) != testHash(b));
 
     const c: meta.Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
     const d: meta.Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
-    testing.expect(testHash(c) == testHash(c));
-    testing.expect(testHash(c) != testHash(d));
+    try testing.expect(testHash(c) == testHash(c));
+    try testing.expect(testHash(c) != testHash(d));
 }
 
 test "testHash error union" {
@@ -422,7 +422,7 @@ test "testHash error union" {
     };
     const f = Foo{};
     const g: Errors!Foo = Errors.Test;
-    testing.expect(testHash(f) != testHash(g));
-    testing.expect(testHash(f) == testHash(Foo{}));
-    testing.expect(testHash(g) == testHash(Errors.Test));
+    try testing.expect(testHash(f) != testHash(g));
+    try testing.expect(testHash(f) == testHash(Foo{}));
+    try testing.expect(testHash(g) == testHash(Errors.Test));
 }

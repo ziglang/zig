@@ -705,14 +705,14 @@ pub const TestContext = struct {
                     defer file.close();
                     const out = try file.reader().readAllAlloc(arena, 5 * 1024 * 1024);
 
-                    std.testing.expectEqualStrings(expected_output, out);
+                    try std.testing.expectEqualStrings(expected_output, out);
                 },
                 .CompareObjectFile => |expected_output| {
                     var file = try tmp.dir.openFile(bin_name, .{ .read = true });
                     defer file.close();
                     const out = try file.reader().readAllAlloc(arena, 5 * 1024 * 1024);
 
-                    std.testing.expectEqualStrings(expected_output, out);
+                    try std.testing.expectEqualStrings(expected_output, out);
                 },
                 .Error => |case_error_list| {
                     var test_node = update_node.start("assert", 0);
@@ -939,7 +939,7 @@ pub const TestContext = struct {
                             return error.ZigTestFailed;
                         },
                     }
-                    std.testing.expectEqualStrings(expected_stdout, exec_result.stdout);
+                    try std.testing.expectEqualStrings(expected_stdout, exec_result.stdout);
                     // We allow stderr to have garbage in it because wasmtime prints a
                     // warning about --invoke even though we don't pass it.
                     //std.testing.expectEqualStrings("", exec_result.stderr);

@@ -40,7 +40,7 @@ test "write a file, read it, then delete it" {
 
     {
         // Make sure the exclusive flag is honored.
-        expectError(File.OpenError.PathAlreadyExists, tmp.dir.createFile(tmp_file_name, .{ .exclusive = true }));
+        try expectError(File.OpenError.PathAlreadyExists, tmp.dir.createFile(tmp_file_name, .{ .exclusive = true }));
     }
 
     {
@@ -49,16 +49,16 @@ test "write a file, read it, then delete it" {
 
         const file_size = try file.getEndPos();
         const expected_file_size: u64 = "begin".len + data.len + "end".len;
-        expectEqual(expected_file_size, file_size);
+        try expectEqual(expected_file_size, file_size);
 
         var buf_stream = io.bufferedReader(file.reader());
         const st = buf_stream.reader();
         const contents = try st.readAllAlloc(std.testing.allocator, 2 * 1024);
         defer std.testing.allocator.free(contents);
 
-        expect(mem.eql(u8, contents[0.."begin".len], "begin"));
-        expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], &data));
-        expect(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
+        try expect(mem.eql(u8, contents[0.."begin".len], "begin"));
+        try expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], &data));
+        try expect(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
     }
     try tmp.dir.deleteFile(tmp_file_name);
 }
@@ -90,20 +90,20 @@ test "BitStreams with File Stream" {
 
         var out_bits: usize = undefined;
 
-        expect(1 == try bit_stream.readBits(u2, 1, &out_bits));
-        expect(out_bits == 1);
-        expect(2 == try bit_stream.readBits(u5, 2, &out_bits));
-        expect(out_bits == 2);
-        expect(3 == try bit_stream.readBits(u128, 3, &out_bits));
-        expect(out_bits == 3);
-        expect(4 == try bit_stream.readBits(u8, 4, &out_bits));
-        expect(out_bits == 4);
-        expect(5 == try bit_stream.readBits(u9, 5, &out_bits));
-        expect(out_bits == 5);
-        expect(1 == try bit_stream.readBits(u1, 1, &out_bits));
-        expect(out_bits == 1);
+        try expect(1 == try bit_stream.readBits(u2, 1, &out_bits));
+        try expect(out_bits == 1);
+        try expect(2 == try bit_stream.readBits(u5, 2, &out_bits));
+        try expect(out_bits == 2);
+        try expect(3 == try bit_stream.readBits(u128, 3, &out_bits));
+        try expect(out_bits == 3);
+        try expect(4 == try bit_stream.readBits(u8, 4, &out_bits));
+        try expect(out_bits == 4);
+        try expect(5 == try bit_stream.readBits(u9, 5, &out_bits));
+        try expect(out_bits == 5);
+        try expect(1 == try bit_stream.readBits(u1, 1, &out_bits));
+        try expect(out_bits == 1);
 
-        expectError(error.EndOfStream, bit_stream.readBitsNoEof(u1, 1));
+        try expectError(error.EndOfStream, bit_stream.readBitsNoEof(u1, 1));
     }
     try tmp.dir.deleteFile(tmp_file_name);
 }
@@ -123,16 +123,16 @@ test "File seek ops" {
 
     // Seek to the end
     try file.seekFromEnd(0);
-    expect((try file.getPos()) == try file.getEndPos());
+    try expect((try file.getPos()) == try file.getEndPos());
     // Negative delta
     try file.seekBy(-4096);
-    expect((try file.getPos()) == 4096);
+    try expect((try file.getPos()) == 4096);
     // Positive delta
     try file.seekBy(10);
-    expect((try file.getPos()) == 4106);
+    try expect((try file.getPos()) == 4106);
     // Absolute position
     try file.seekTo(1234);
-    expect((try file.getPos()) == 1234);
+    try expect((try file.getPos()) == 1234);
 }
 
 test "setEndPos" {
@@ -147,18 +147,18 @@ test "setEndPos" {
     }
 
     // Verify that the file size changes and the file offset is not moved
-    std.testing.expect((try file.getEndPos()) == 0);
-    std.testing.expect((try file.getPos()) == 0);
+    try std.testing.expect((try file.getEndPos()) == 0);
+    try std.testing.expect((try file.getPos()) == 0);
     try file.setEndPos(8192);
-    std.testing.expect((try file.getEndPos()) == 8192);
-    std.testing.expect((try file.getPos()) == 0);
+    try std.testing.expect((try file.getEndPos()) == 8192);
+    try std.testing.expect((try file.getPos()) == 0);
     try file.seekTo(100);
     try file.setEndPos(4096);
-    std.testing.expect((try file.getEndPos()) == 4096);
-    std.testing.expect((try file.getPos()) == 100);
+    try std.testing.expect((try file.getEndPos()) == 4096);
+    try std.testing.expect((try file.getPos()) == 100);
     try file.setEndPos(0);
-    std.testing.expect((try file.getEndPos()) == 0);
-    std.testing.expect((try file.getPos()) == 100);
+    try std.testing.expect((try file.getEndPos()) == 0);
+    try std.testing.expect((try file.getPos()) == 100);
 }
 
 test "updateTimes" {
@@ -178,6 +178,6 @@ test "updateTimes" {
         stat_old.mtime - 5 * std.time.ns_per_s,
     );
     var stat_new = try file.stat();
-    expect(stat_new.atime < stat_old.atime);
-    expect(stat_new.mtime < stat_old.mtime);
+    try expect(stat_new.atime < stat_old.atime);
+    try expect(stat_new.mtime < stat_old.mtime);
 }

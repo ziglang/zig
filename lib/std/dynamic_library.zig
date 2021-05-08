@@ -408,7 +408,7 @@ test "dynamic_library" {
     };
 
     const dynlib = DynLib.open(libname) catch |err| {
-        testing.expect(err == error.FileNotFound);
+        try testing.expect(err == error.FileNotFound);
         return;
     };
 }

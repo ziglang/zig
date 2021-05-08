@@ -23,6 +23,6 @@ test "complex.casinh" {
     const a = Complex(f32).new(5, 3);
     const c = asinh(a);
 
-    testing.expect(math.approxEqAbs(f32, c.re, 2.459831, epsilon));
-    testing.expect(math.approxEqAbs(f32, c.im, 0.533999, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.re, 2.459831, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.im, 0.533999, epsilon));
 }

@@ -130,14 +130,14 @@ test "complex.catan32" {
     const a = Complex(f32).new(5, 3);
     const c = atan(a);
 
-    testing.expect(math.approxEqAbs(f32, c.re, 1.423679, epsilon));
-    testing.expect(math.approxEqAbs(f32, c.im, 0.086569, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.re, 1.423679, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.im, 0.086569, epsilon));
 }
 
 test "complex.catan64" {
     const a = Complex(f64).new(5, 3);
     const c = atan(a);
 
-    testing.expect(math.approxEqAbs(f64, c.re, 1.423679, epsilon));
-    testing.expect(math.approxEqAbs(f64, c.im, 0.086569, epsilon));
+    try testing.expect(math.approxEqAbs(f64, c.re, 1.423679, epsilon));
+    try testing.expect(math.approxEqAbs(f64, c.im, 0.086569, epsilon));
 }

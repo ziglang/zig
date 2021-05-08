@@ -10,10 +10,10 @@ const Value = struct {
 };
 
 test "optional if after an if in a switch prong of a switch with 2 prongs in an else" {
-    foo(false, true);
+    try foo(false, true);
 }
 
-fn foo(a: bool, b: bool) void {
+fn foo(a: bool, b: bool) !void {
     var prefix_op = PrefixOp{
         .AddrOf = Value{ .align_expr = 1234 },
     };
@@ -22,7 +22,7 @@ fn foo(a: bool, b: bool) void {
             PrefixOp.AddrOf => |addr_of_info| {
                 if (b) {}
                 if (addr_of_info.align_expr) |align_expr| {
-                    expect(align_expr == 1234);
+                    try expect(align_expr == 1234);
                 }
             },
             PrefixOp.Return => {},

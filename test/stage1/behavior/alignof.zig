@@ -10,29 +10,29 @@ const Foo = struct {
 };
 
 test "@alignOf(T) before referencing T" {
-    comptime expect(@alignOf(Foo) != maxInt(usize));
+    comptime try expect(@alignOf(Foo) != maxInt(usize));
     if (builtin.arch == builtin.Arch.x86_64) {
-        comptime expect(@alignOf(Foo) == 4);
+        comptime try expect(@alignOf(Foo) == 4);
     }
 }
 
 test "comparison of @alignOf(T) against zero" {
     {
         const T = struct { x: u32 };
-        expect(!(@alignOf(T) == 0));
-        expect(@alignOf(T) != 0);
-        expect(!(@alignOf(T) < 0));
-        expect(!(@alignOf(T) <= 0));
-        expect(@alignOf(T) > 0);
-        expect(@alignOf(T) >= 0);
+        try expect(!(@alignOf(T) == 0));
+        try expect(@alignOf(T) != 0);
+        try expect(!(@alignOf(T) < 0));
+        try expect(!(@alignOf(T) <= 0));
+        try expect(@alignOf(T) > 0);
+        try expect(@alignOf(T) >= 0);
     }
     {
         const T = struct {};
-        expect(@alignOf(T) == 0);
-        expect(!(@alignOf(T) != 0));
-        expect(!(@alignOf(T) < 0));
-        expect(@alignOf(T) <= 0);
-        expect(!(@alignOf(T) > 0));
-        expect(@alignOf(T) >= 0);
+        try expect(@alignOf(T) == 0);
+        try expect(!(@alignOf(T) != 0));
+        try expect(!(@alignOf(T) < 0));
+        try expect(@alignOf(T) <= 0);
+        try expect(!(@alignOf(T) > 0));
+        try expect(@alignOf(T) >= 0);
     }
 }

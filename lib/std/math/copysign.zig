@@ -62,36 +62,36 @@ fn copysign128(x: f128, y: f128) f128 {
 }
 
 test "math.copysign" {
-    expect(copysign(f16, 1.0, 1.0) == copysign16(1.0, 1.0));
-    expect(copysign(f32, 1.0, 1.0) == copysign32(1.0, 1.0));
-    expect(copysign(f64, 1.0, 1.0) == copysign64(1.0, 1.0));
-    expect(copysign(f128, 1.0, 1.0) == copysign128(1.0, 1.0));
+    try expect(copysign(f16, 1.0, 1.0) == copysign16(1.0, 1.0));
+    try expect(copysign(f32, 1.0, 1.0) == copysign32(1.0, 1.0));
+    try expect(copysign(f64, 1.0, 1.0) == copysign64(1.0, 1.0));
+    try expect(copysign(f128, 1.0, 1.0) == copysign128(1.0, 1.0));
 }
 
 test "math.copysign16" {
-    expect(copysign16(5.0, 1.0) == 5.0);
-    expect(copysign16(5.0, -1.0) == -5.0);
-    expect(copysign16(-5.0, -1.0) == -5.0);
-    expect(copysign16(-5.0, 1.0) == 5.0);
+    try expect(copysign16(5.0, 1.0) == 5.0);
+    try expect(copysign16(5.0, -1.0) == -5.0);
+    try expect(copysign16(-5.0, -1.0) == -5.0);
+    try expect(copysign16(-5.0, 1.0) == 5.0);
 }
 
 test "math.copysign32" {
-    expect(copysign32(5.0, 1.0) == 5.0);
-    expect(copysign32(5.0, -1.0) == -5.0);
-    expect(copysign32(-5.0, -1.0) == -5.0);
-    expect(copysign32(-5.0, 1.0) == 5.0);
+    try expect(copysign32(5.0, 1.0) == 5.0);
+    try expect(copysign32(5.0, -1.0) == -5.0);
+    try expect(copysign32(-5.0, -1.0) == -5.0);
+    try expect(copysign32(-5.0, 1.0) == 5.0);
 }
 
 test "math.copysign64" {
-    expect(copysign64(5.0, 1.0) == 5.0);
-    expect(copysign64(5.0, -1.0) == -5.0);
-    expect(copysign64(-5.0, -1.0) == -5.0);
-    expect(copysign64(-5.0, 1.0) == 5.0);
+    try expect(copysign64(5.0, 1.0) == 5.0);
+    try expect(copysign64(5.0, -1.0) == -5.0);
+    try expect(copysign64(-5.0, -1.0) == -5.0);
+    try expect(copysign64(-5.0, 1.0) == 5.0);
 }
 
 test "math.copysign128" {
-    expect(copysign128(5.0, 1.0) == 5.0);
-    expect(copysign128(5.0, -1.0) == -5.0);
-    expect(copysign128(-5.0, -1.0) == -5.0);
-    expect(copysign128(-5.0, 1.0) == 5.0);
+    try expect(copysign128(5.0, 1.0) == 5.0);
+    try expect(copysign128(5.0, -1.0) == -5.0);
+    try expect(copysign128(-5.0, -1.0) == -5.0);
+    try expect(copysign128(-5.0, 1.0) == 5.0);
 }

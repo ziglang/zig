@@ -499,12 +499,12 @@ test {
 
 test "ip: convert to and from ipv6" {
     try testing.expectFmt("::7f00:1", "{}", .{IPv4.localhost.toIPv6()});
-    testing.expect(!IPv4.localhost.toIPv6().mapsToIPv4());
+    try testing.expect(!IPv4.localhost.toIPv6().mapsToIPv4());
 
     try testing.expectFmt("::ffff:127.0.0.1", "{}", .{IPv4.localhost.mapToIPv6()});
-    testing.expect(IPv4.localhost.mapToIPv6().mapsToIPv4());
+    try testing.expect(IPv4.localhost.mapToIPv6().mapsToIPv4());
 
-    testing.expect(IPv4.localhost.toIPv6().toIPv4() == null);
+    try testing.expect(IPv4.localhost.toIPv6().toIPv4() == null);
     try testing.expectFmt("127.0.0.1", "{}", .{IPv4.localhost.mapToIPv6().toIPv4()});
 }
 

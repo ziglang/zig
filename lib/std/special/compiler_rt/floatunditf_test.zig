@@ -5,7 +5,7 @@
 // and substantial portions of the software.
 const __floatunditf = @import("floatunditf.zig").__floatunditf;
 
-fn test__floatunditf(a: u64, expected_hi: u64, expected_lo: u64) void {
+fn test__floatunditf(a: u64, expected_hi: u64, expected_lo: u64) !void {
     const x = __floatunditf(a);
 
     const x_repr = @bitCast(u128, x);
@@ -26,12 +26,12 @@ fn test__floatunditf(a: u64, expected_hi: u64, expected_lo: u64) void {
 }
 
 test "floatunditf" {
-    test__floatunditf(0xffffffffffffffff, 0x403effffffffffff, 0xfffe000000000000);
-    test__floatunditf(0xfffffffffffffffe, 0x403effffffffffff, 0xfffc000000000000);
-    test__floatunditf(0x8000000000000000, 0x403e000000000000, 0x0);
-    test__floatunditf(0x7fffffffffffffff, 0x403dffffffffffff, 0xfffc000000000000);
-    test__floatunditf(0x123456789abcdef1, 0x403b23456789abcd, 0xef10000000000000);
-    test__floatunditf(0x2, 0x4000000000000000, 0x0);
-    test__floatunditf(0x1, 0x3fff000000000000, 0x0);
-    test__floatunditf(0x0, 0x0, 0x0);
+    try test__floatunditf(0xffffffffffffffff, 0x403effffffffffff, 0xfffe000000000000);
+    try test__floatunditf(0xfffffffffffffffe, 0x403effffffffffff, 0xfffc000000000000);
+    try test__floatunditf(0x8000000000000000, 0x403e000000000000, 0x0);
+    try test__floatunditf(0x7fffffffffffffff, 0x403dffffffffffff, 0xfffc000000000000);
+    try test__floatunditf(0x123456789abcdef1, 0x403b23456789abcd, 0xef10000000000000);
+    try test__floatunditf(0x2, 0x4000000000000000, 0x0);
+    try test__floatunditf(0x1, 0x3fff000000000000, 0x0);
+    try test__floatunditf(0x0, 0x0, 0x0);
 }

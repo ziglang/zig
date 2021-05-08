@@ -29,41 +29,41 @@ test "non-exhaustive enum" {
             b,
             _,
         };
-        fn doTheTest(y: u8) void {
+        fn doTheTest(y: u8) !void {
             var e: E = .b;
-            expect(switch (e) {
+            try expect(switch (e) {
                 .a => false,
                 .b => true,
                 _ => false,
             });
             e = @intToEnum(E, 12);
-            expect(switch (e) {
+            try expect(switch (e) {
                 .a => false,
                 .b => false,
                 _ => true,
             });
 
-            expect(switch (e) {
+            try expect(switch (e) {
                 .a => false,
                 .b => false,
                 else => true,
             });
             e = .b;
-            expect(switch (e) {
+            try expect(switch (e) {
                 .a => false,
                 else => true,
             });
 
-            expect(@typeInfo(E).Enum.fields.len == 2);
+            try expect(@typeInfo(E).Enum.fields.len == 2);
             e = @intToEnum(E, 12);
-            expect(@enumToInt(e) == 12);
+            try expect(@enumToInt(e) == 12);
             e = @intToEnum(E, y);
-            expect(@enumToInt(e) == 52);
-            expect(@typeInfo(E).Enum.is_exhaustive == false);
+            try expect(@enumToInt(e) == 52);
+            try expect(@typeInfo(E).Enum.is_exhaustive == false);
         }
     };
-    S.doTheTest(52);
-    comptime S.doTheTest(52);
+    try S.doTheTest(52);
+    comptime try S.doTheTest(52);
 }
 
 test "empty non-exhaustive enum" {
@@ -71,19 +71,19 @@ test "empty non-exhaustive enum" {
         const E = enum(u8) {
             _,
         };
-        fn doTheTest(y: u8) void {
+        fn doTheTest(y: u8) !void {
             var e = @intToEnum(E, y);
-            expect(switch (e) {
+            try expect(switch (e) {
                 _ => true,
             });
-            expect(@enumToInt(e) == y);
+            try expect(@enumToInt(e) == y);
 
-            expect(@typeInfo(E).Enum.fields.len == 0);
-            expect(@typeInfo(E).Enum.is_exhaustive == false);
+            try expect(@typeInfo(E).Enum.fields.len == 0);
+            try expect(@typeInfo(E).Enum.is_exhaustive == false);
         }
     };
-    S.doTheTest(42);
-    comptime S.doTheTest(42);
+    try S.doTheTest(42);
+    comptime try S.doTheTest(42);
 }
 
 test "single field non-exhaustive enum" {
@@ -92,35 +92,35 @@ test "single field non-exhaustive enum" {
             a,
             _,
         };
-        fn doTheTest(y: u8) void {
+        fn doTheTest(y: u8) !void {
             var e: E = .a;
-            expect(switch (e) {
+            try expect(switch (e) {
                 .a => true,
                 _ => false,
             });
             e = @intToEnum(E, 12);
-            expect(switch (e) {
+            try expect(switch (e) {
                 .a => false,
                 _ => true,
             });
 
-            expect(switch (e) {
+            try expect(switch (e) {
                 .a => false,
                 else => true,
             });
             e = .a;
-            expect(switch (e) {
+            try expect(switch (e) {
                 .a => true,
                 else => false,
             });
 
-            expect(@enumToInt(@intToEnum(E, y)) == y);
-            expect(@typeInfo(E).Enum.fields.len == 1);
-            expect(@typeInfo(E).Enum.is_exhaustive == false);
+            try expect(@enumToInt(@intToEnum(E, y)) == y);
+            try expect(@typeInfo(E).Enum.fields.len == 1);
+            try expect(@typeInfo(E).Enum.is_exhaustive == false);
         }
     };
-    S.doTheTest(23);
-    comptime S.doTheTest(23);
+    try S.doTheTest(23);
+    comptime try S.doTheTest(23);
 }
 
 test "enum type" {
@@ -133,16 +133,16 @@ test "enum type" {
     };
     const bar = Bar.B;
 
-    expect(bar == Bar.B);
-    expect(@typeInfo(Foo).Union.fields.len == 3);
-    expect(@typeInfo(Bar).Enum.fields.len == 4);
-    expect(@sizeOf(Foo) == @sizeOf(FooNoVoid));
-    expect(@sizeOf(Bar) == 1);
+    try expect(bar == Bar.B);
+    try expect(@typeInfo(Foo).Union.fields.len == 3);
+    try expect(@typeInfo(Bar).Enum.fields.len == 4);
+    try expect(@sizeOf(Foo) == @sizeOf(FooNoVoid));
+    try expect(@sizeOf(Bar) == 1);
 }
 
 test "enum as return value" {
     switch (returnAnInt(13)) {
-        Foo.One => |value| expect(value == 13),
+        Foo.One => |value| try expect(value == 13),
         else => unreachable,
     }
 }
@@ -206,22 +206,22 @@ const Number = enum {
 };
 
 test "enum to int" {
-    shouldEqual(Number.Zero, 0);
-    shouldEqual(Number.One, 1);
-    shouldEqual(Number.Two, 2);
-    shouldEqual(Number.Three, 3);
-    shouldEqual(Number.Four, 4);
+    try shouldEqual(Number.Zero, 0);
+    try shouldEqual(Number.One, 1);
+    try shouldEqual(Number.Two, 2);
+    try shouldEqual(Number.Three, 3);
+    try shouldEqual(Number.Four, 4);
 }
 
-fn shouldEqual(n: Number, expected: u3) void {
-    expect(@enumToInt(n) == expected);
+fn shouldEqual(n: Number, expected: u3) !void {
+    try expect(@enumToInt(n) == expected);
 }
 
 test "int to enum" {
-    testIntToEnumEval(3);
+    try testIntToEnumEval(3);
 }
-fn testIntToEnumEval(x: i32) void {
-    expect(@intToEnum(IntToEnumNumber, @intCast(u3, x)) == IntToEnumNumber.Three);
+fn testIntToEnumEval(x: i32) !void {
+    try expect(@intToEnum(IntToEnumNumber, @intCast(u3, x)) == IntToEnumNumber.Three);
 }
 const IntToEnumNumber = enum {
     Zero,
@@ -232,18 +232,18 @@ const IntToEnumNumber = enum {
 };
 
 test "@tagName" {
-    expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
-    comptime expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
+    try expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
+    comptime try expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
 }
 
 test "@tagName extern enum with duplicates" {
-    expect(mem.eql(u8, testEnumTagNameBare(ExternDuplicates.B), "A"));
-    comptime expect(mem.eql(u8, testEnumTagNameBare(ExternDuplicates.B), "A"));
+    try expect(mem.eql(u8, testEnumTagNameBare(ExternDuplicates.B), "A"));
+    comptime try expect(mem.eql(u8, testEnumTagNameBare(ExternDuplicates.B), "A"));
 }
 
 test "@tagName non-exhaustive enum" {
-    expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
-    comptime expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
+    try expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
+    comptime try expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
 }
 
 fn testEnumTagNameBare(n: anytype) []const u8 {
@@ -269,8 +269,8 @@ const NonExhaustive = enum(u8) {
 
 test "enum alignment" {
     comptime {
-        expect(@alignOf(AlignTestEnum) >= @alignOf([9]u8));
-        expect(@alignOf(AlignTestEnum) >= @alignOf(u64));
+        try expect(@alignOf(AlignTestEnum) >= @alignOf([9]u8));
+        try expect(@alignOf(AlignTestEnum) >= @alignOf(u64));
     }
 }
 
@@ -806,10 +806,10 @@ const ValueCount257 = enum {
 
 test "enum sizes" {
     comptime {
-        expect(@sizeOf(ValueCount1) == 0);
-        expect(@sizeOf(ValueCount2) == 1);
-        expect(@sizeOf(ValueCount256) == 1);
-        expect(@sizeOf(ValueCount257) == 2);
+        try expect(@sizeOf(ValueCount1) == 0);
+        try expect(@sizeOf(ValueCount2) == 1);
+        try expect(@sizeOf(ValueCount256) == 1);
+        try expect(@sizeOf(ValueCount257) == 2);
     }
 }
 
@@ -828,12 +828,12 @@ test "set enum tag type" {
     {
         var x = Small.One;
         x = Small.Two;
-        comptime expect(Tag(Small) == u2);
+        comptime try expect(Tag(Small) == u2);
     }
     {
         var x = Small2.One;
         x = Small2.Two;
-        comptime expect(Tag(Small2) == u2);
+        comptime try expect(Tag(Small2) == u2);
     }
 }
 
@@ -880,17 +880,17 @@ const bit_field_1 = BitFieldOfEnums{
 
 test "bit field access with enum fields" {
     var data = bit_field_1;
-    expect(getA(&data) == A.Two);
-    expect(getB(&data) == B.Three3);
-    expect(getC(&data) == C.Four4);
-    comptime expect(@sizeOf(BitFieldOfEnums) == 1);
+    try expect(getA(&data) == A.Two);
+    try expect(getB(&data) == B.Three3);
+    try expect(getC(&data) == C.Four4);
+    comptime try expect(@sizeOf(BitFieldOfEnums) == 1);
 
     data.b = B.Four3;
-    expect(data.b == B.Four3);
+    try expect(data.b == B.Four3);
 
     data.a = A.Three;
-    expect(data.a == A.Three);
-    expect(data.b == B.Four3);
+    try expect(data.a == A.Three);
+    try expect(data.b == B.Four3);
 }
 
 fn getA(data: *const BitFieldOfEnums) A {
@@ -906,12 +906,12 @@ fn getC(data: *const BitFieldOfEnums) C {
 }
 
 test "casting enum to its tag type" {
-    testCastEnumTag(Small2.Two);
-    comptime testCastEnumTag(Small2.Two);
+    try testCastEnumTag(Small2.Two);
+    comptime try testCastEnumTag(Small2.Two);
 }
 
-fn testCastEnumTag(value: Small2) void {
-    expect(@enumToInt(value) == 1);
+fn testCastEnumTag(value: Small2) !void {
+    try expect(@enumToInt(value) == 1);
 }
 
 const MultipleChoice = enum(u32) {
@@ -922,13 +922,13 @@ const MultipleChoice = enum(u32) {
 };
 
 test "enum with specified tag values" {
-    testEnumWithSpecifiedTagValues(MultipleChoice.C);
-    comptime testEnumWithSpecifiedTagValues(MultipleChoice.C);
+    try testEnumWithSpecifiedTagValues(MultipleChoice.C);
+    comptime try testEnumWithSpecifiedTagValues(MultipleChoice.C);
 }
 
-fn testEnumWithSpecifiedTagValues(x: MultipleChoice) void {
-    expect(@enumToInt(x) == 60);
-    expect(1234 == switch (x) {
+fn testEnumWithSpecifiedTagValues(x: MultipleChoice) !void {
+    try expect(@enumToInt(x) == 60);
+    try expect(1234 == switch (x) {
         MultipleChoice.A => 1,
         MultipleChoice.B => 2,
         MultipleChoice.C => @as(u32, 1234),
@@ -949,13 +949,13 @@ const MultipleChoice2 = enum(u32) {
 };
 
 test "enum with specified and unspecified tag values" {
-    testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
-    comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
+    try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
+    comptime try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
 }
 
-fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
-    expect(@enumToInt(x) == 1000);
-    expect(1234 == switch (x) {
+fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
+    try expect(@enumToInt(x) == 1000);
+    try expect(1234 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
         MultipleChoice2.C => 3,
@@ -969,8 +969,8 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
 }
 
 test "cast integer literal to enum" {
-    expect(@intToEnum(MultipleChoice2, 0) == MultipleChoice2.Unspecified1);
-    expect(@intToEnum(MultipleChoice2, 40) == MultipleChoice2.B);
+    try expect(@intToEnum(MultipleChoice2, 0) == MultipleChoice2.Unspecified1);
+    try expect(@intToEnum(MultipleChoice2, 40) == MultipleChoice2.B);
 }
 
 const EnumWithOneMember = enum {
@@ -1008,14 +1008,14 @@ const EnumWithTagValues = enum(u4) {
     D = 1 << 3,
 };
 test "enum with tag values don't require parens" {
-    expect(@enumToInt(EnumWithTagValues.C) == 0b0100);
+    try expect(@enumToInt(EnumWithTagValues.C) == 0b0100);
 }
 
 test "enum with 1 field but explicit tag type should still have the tag type" {
     const Enum = enum(u8) {
         B = 2,
     };
-    comptime @import("std").testing.expect(@sizeOf(Enum) == @sizeOf(u8));
+    comptime try expect(@sizeOf(Enum) == @sizeOf(u8));
 }
 
 test "empty extern enum with members" {
@@ -1024,7 +1024,7 @@ test "empty extern enum with members" {
         B,
         C,
     };
-    expect(@sizeOf(E) == @sizeOf(c_int));
+    try expect(@sizeOf(E) == @sizeOf(c_int));
 }
 
 test "tag name with assigned enum values" {
@@ -1033,7 +1033,7 @@ test "tag name with assigned enum values" {
         B = 0,
     };
     var b = LocalFoo.B;
-    expect(mem.eql(u8, @tagName(b), "B"));
+    try expect(mem.eql(u8, @tagName(b), "B"));
 }
 
 test "enum literal equality" {
@@ -1041,8 +1041,8 @@ test "enum literal equality" {
     const y = .ok;
     const z = .hi;
 
-    expect(x != y);
-    expect(x == z);
+    try expect(x != y);
+    try expect(x == z);
 }
 
 test "enum literal cast to enum" {
@@ -1054,7 +1054,7 @@ test "enum literal cast to enum" {
 
     var color1: Color = .Auto;
     var color2 = Color.Auto;
-    expect(color1 == color2);
+    try expect(color1 == color2);
 }
 
 test "peer type resolution with enum literal" {
@@ -1063,8 +1063,8 @@ test "peer type resolution with enum literal" {
         two,
     };
 
-    expect(Items.two == .two);
-    expect(.two == Items.two);
+    try expect(Items.two == .two);
+    try expect(.two == Items.two);
 }
 
 test "enum literal in array literal" {
@@ -1078,8 +1078,8 @@ test "enum literal in array literal" {
         .two,
     };
 
-    expect(array[0] == .one);
-    expect(array[1] == .two);
+    try expect(array[0] == .one);
+    try expect(array[1] == .two);
 }
 
 test "signed integer as enum tag" {
@@ -1089,9 +1089,9 @@ test "signed integer as enum tag" {
         A2 = 1,
     };
 
-    expect(@enumToInt(SignedEnum.A0) == -1);
-    expect(@enumToInt(SignedEnum.A1) == 0);
-    expect(@enumToInt(SignedEnum.A2) == 1);
+    try expect(@enumToInt(SignedEnum.A0) == -1);
+    try expect(@enumToInt(SignedEnum.A1) == 0);
+    try expect(@enumToInt(SignedEnum.A2) == 1);
 }
 
 test "enum value allocation" {
@@ -1101,9 +1101,9 @@ test "enum value allocation" {
         A2,
     };
 
-    expect(@enumToInt(LargeEnum.A0) == 0x80000000);
-    expect(@enumToInt(LargeEnum.A1) == 0x80000001);
-    expect(@enumToInt(LargeEnum.A2) == 0x80000002);
+    try expect(@enumToInt(LargeEnum.A0) == 0x80000000);
+    try expect(@enumToInt(LargeEnum.A1) == 0x80000001);
+    try expect(@enumToInt(LargeEnum.A2) == 0x80000002);
 }
 
 test "enum literal casting to tagged union" {
@@ -1130,32 +1130,32 @@ test "enum with one member and custom tag type" {
     const E = enum(u2) {
         One,
     };
-    expect(@enumToInt(E.One) == 0);
+    try expect(@enumToInt(E.One) == 0);
     const E2 = enum(u2) {
         One = 2,
     };
-    expect(@enumToInt(E2.One) == 2);
+    try expect(@enumToInt(E2.One) == 2);
 }
 
 test "enum literal casting to optional" {
     var bar: ?Bar = undefined;
     bar = .B;
 
-    expect(bar.? == Bar.B);
+    try expect(bar.? == Bar.B);
 }
 
 test "enum literal casting to error union with payload enum" {
     var bar: error{B}!Bar = undefined;
     bar = .B; // should never cast to the error set
 
-    expect((try bar) == Bar.B);
+    try expect((try bar) == Bar.B);
 }
 
 test "enum with one member and u1 tag type @enumToInt" {
     const Enum = enum(u1) {
         Test,
     };
-    expect(@enumToInt(Enum.Test) == 0);
+    try expect(@enumToInt(Enum.Test) == 0);
 }
 
 test "enum with comptime_int tag type" {
@@ -1164,19 +1164,19 @@ test "enum with comptime_int tag type" {
         Two = 2,
         Three = 1,
     };
-    comptime expect(Tag(Enum) == comptime_int);
+    comptime try expect(Tag(Enum) == comptime_int);
 }
 
 test "enum with one member default to u0 tag type" {
     const E0 = enum {
         X,
     };
-    comptime expect(Tag(E0) == u0);
+    comptime try expect(Tag(E0) == u0);
 }
 
 test "tagName on enum literals" {
-    expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
-    comptime expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
+    try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
+    comptime try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
 }
 
 test "method call on an enum" {
@@ -1193,12 +1193,12 @@ test "method call on an enum" {
                 return self.* == .two and foo == bool;
             }
         };
-        fn doTheTest() void {
+        fn doTheTest() !void {
             var e = E.two;
-            expect(e.method());
-            expect(e.generic_method(bool));
+            try expect(e.method());
+            try expect(e.generic_method(bool));
         }
     };
-    S.doTheTest();
-    comptime S.doTheTest();
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }

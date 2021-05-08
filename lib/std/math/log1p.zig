@@ -188,48 +188,48 @@ fn log1p_64(x: f64) f64 {
 }
 
 test "math.log1p" {
-    expect(log1p(@as(f32, 0.0)) == log1p_32(0.0));
-    expect(log1p(@as(f64, 0.0)) == log1p_64(0.0));
+    try expect(log1p(@as(f32, 0.0)) == log1p_32(0.0));
+    try expect(log1p(@as(f64, 0.0)) == log1p_64(0.0));
 }
 
 test "math.log1p_32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f32, log1p_32(0.0), 0.0, epsilon));
-    expect(math.approxEqAbs(f32, log1p_32(0.2), 0.182322, epsilon));
-    expect(math.approxEqAbs(f32, log1p_32(0.8923), 0.637793, epsilon));
-    expect(math.approxEqAbs(f32, log1p_32(1.5), 0.916291, epsilon));
-    expect(math.approxEqAbs(f32, log1p_32(37.45), 3.649359, epsilon));
-    expect(math.approxEqAbs(f32, log1p_32(89.123), 4.501175, epsilon));
-    expect(math.approxEqAbs(f32, log1p_32(123123.234375), 11.720949, epsilon));
+    try expect(math.approxEqAbs(f32, log1p_32(0.0), 0.0, epsilon));
+    try expect(math.approxEqAbs(f32, log1p_32(0.2), 0.182322, epsilon));
+    try expect(math.approxEqAbs(f32, log1p_32(0.8923), 0.637793, epsilon));
+    try expect(math.approxEqAbs(f32, log1p_32(1.5), 0.916291, epsilon));
+    try expect(math.approxEqAbs(f32, log1p_32(37.45), 3.649359, epsilon));
+    try expect(math.approxEqAbs(f32, log1p_32(89.123), 4.501175, epsilon));
+    try expect(math.approxEqAbs(f32, log1p_32(123123.234375), 11.720949, epsilon));
 }
 
 test "math.log1p_64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEqAbs(f64, log1p_64(0.0), 0.0, epsilon));
-    expect(math.approxEqAbs(f64, log1p_64(0.2), 0.182322, epsilon));
-    expect(math.approxEqAbs(f64, log1p_64(0.8923), 0.637793, epsilon));
-    expect(math.approxEqAbs(f64, log1p_64(1.5), 0.916291, epsilon));
-    expect(math.approxEqAbs(f64, log1p_64(37.45), 3.649359, epsilon));
-    expect(math.approxEqAbs(f64, log1p_64(89.123), 4.501175, epsilon));
-    expect(math.approxEqAbs(f64, log1p_64(123123.234375), 11.720949, epsilon));
+    try expect(math.approxEqAbs(f64, log1p_64(0.0), 0.0, epsilon));
+    try expect(math.approxEqAbs(f64, log1p_64(0.2), 0.182322, epsilon));
+    try expect(math.approxEqAbs(f64, log1p_64(0.8923), 0.637793, epsilon));
+    try expect(math.approxEqAbs(f64, log1p_64(1.5), 0.916291, epsilon));
+    try expect(math.approxEqAbs(f64, log1p_64(37.45), 3.649359, epsilon));
+    try expect(math.approxEqAbs(f64, log1p_64(89.123), 4.501175, epsilon));
+    try expect(math.approxEqAbs(f64, log1p_64(123123.234375), 11.720949, epsilon));
 }
 
 test "math.log1p_32.special" {
-    expect(math.isPositiveInf(log1p_32(math.inf(f32))));
-    expect(log1p_32(0.0) == 0.0);
-    expect(log1p_32(-0.0) == -0.0);
-    expect(math.isNegativeInf(log1p_32(-1.0)));
-    expect(math.isNan(log1p_32(-2.0)));
-    expect(math.isNan(log1p_32(math.nan(f32))));
+    try expect(math.isPositiveInf(log1p_32(math.inf(f32))));
+    try expect(log1p_32(0.0) == 0.0);
+    try expect(log1p_32(-0.0) == -0.0);
+    try expect(math.isNegativeInf(log1p_32(-1.0)));
+    try expect(math.isNan(log1p_32(-2.0)));
+    try expect(math.isNan(log1p_32(math.nan(f32))));
 }
 
 test "math.log1p_64.special" {
-    expect(math.isPositiveInf(log1p_64(math.inf(f64))));
-    expect(log1p_64(0.0) == 0.0);
-    expect(log1p_64(-0.0) == -0.0);
-    expect(math.isNegativeInf(log1p_64(-1.0)));
-    expect(math.isNan(log1p_64(-2.0)));
-    expect(math.isNan(log1p_64(math.nan(f64))));
+    try expect(math.isPositiveInf(log1p_64(math.inf(f64))));
+    try expect(log1p_64(0.0) == 0.0);
+    try expect(log1p_64(-0.0) == -0.0);
+    try expect(math.isNegativeInf(log1p_64(-1.0)));
+    try expect(math.isNan(log1p_64(-2.0)));
+    try expect(math.isNan(log1p_64(math.nan(f64))));
 }
