@@ -302,8 +302,8 @@ fn posixCallMainAndExit() noreturn {
         // no, seriously, give me that stack space, I wasn't joking.
         {
             var i: usize = 0;
-            var at_phnum: usize = undefined;
             var at_phdr: usize = undefined;
+            var at_phnum: usize = undefined;
             while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
                 switch (auxv[i].a_type) {
                     std.elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
@@ -311,36 +311,40 @@ fn posixCallMainAndExit() noreturn {
                     else => continue,
                 }
             }
-            const phdrs = (@intToPtr([*]std.elf.Phdr, at_phdr))[0..at_phnum];
-            for (phdrs) |*phdr| {
-                switch (phdr.p_type) {
-                    std.elf.PT_GNU_STACK => {
-                        const wanted_stack_size = phdr.p_memsz;
-                        assert(wanted_stack_size % std.mem.page_size == 0);
-
-                        std.os.setrlimit(.STACK, .{
-                            .cur = wanted_stack_size,
-                            .max = wanted_stack_size,
-                        }) catch {
-                            // If this is a debug build, it will be useful to find out
-                            // why this failed. If it is a release build, we allow the
-                            // stack overflow to cause a segmentation fault. Memory safety
-                            // is not compromised, however, depending on runtime state,
-                            // the application may crash due to provided stack space not
-                            // matching the known upper bound.
-                            if (builtin.mode == .Debug) {
-                                @panic("unable to increase stack size");
-                            }
-                        };
-                        break;
-                    },
-                    else => {},
-                }
-            }
+            expandStackSize(at_phdr, at_phnum);
         }
     }
 
     std.os.exit(@call(.{ .modifier = .always_inline }, callMainWithArgs, .{ argc, argv, envp }));
+}
+
+fn expandStackSize(at_phdr: usize, at_phnum: usize) void {
+    const phdrs = (@intToPtr([*]std.elf.Phdr, at_phdr))[0..at_phnum];
+    for (phdrs) |*phdr| {
+        switch (phdr.p_type) {
+            std.elf.PT_GNU_STACK => {
+                const wanted_stack_size = phdr.p_memsz;
+                assert(wanted_stack_size % std.mem.page_size == 0);
+
+                std.os.setrlimit(.STACK, .{
+                    .cur = wanted_stack_size,
+                    .max = wanted_stack_size,
+                }) catch {
+                    // If this is a debug build, it will be useful to find out
+                    // why this failed. If it is a release build, we allow the
+                    // stack overflow to cause a segmentation fault. Memory safety
+                    // is not compromised, however, depending on runtime state,
+                    // the application may crash due to provided stack space not
+                    // matching the known upper bound.
+                    if (builtin.mode == .Debug) {
+                        @panic("unable to increase stack size");
+                    }
+                };
+                break;
+            },
+            else => {},
+        }
+    }
 }
 
 fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
@@ -356,6 +360,13 @@ fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) 
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
+
+    if (builtin.os.tag == .linux) {
+        const at_phdr = std.c.getauxval(std.elf.AT_PHDR);
+        const at_phnum = std.c.getauxval(std.elf.AT_PHNUM);
+        expandStackSize(at_phdr, at_phnum);
+    }
+
     return @call(.{ .modifier = .always_inline }, callMainWithArgs, .{ @intCast(usize, c_argc), c_argv, envp });
 }
 
