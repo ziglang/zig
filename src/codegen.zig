@@ -22,37 +22,6 @@ const RegisterManager = @import("register_manager.zig").RegisterManager;
 
 const X8664Encoder = @import("codegen/x86_64.zig").Encoder;
 
-/// The codegen-related data that is stored in `ir.Inst.Block` instructions.
-pub const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Reloc) = undefined,
-    /// The first break instruction encounters `null` here and chooses a
-    /// machine code value for the block result, populating this field.
-    /// Following break instructions encounter that value and use it for
-    /// the location to store their block results.
-    mcv: AnyMCValue = undefined,
-};
-
-/// Architecture-independent MCValue. Here, we have a type that is the same size as
-/// the architecture-specific MCValue. Next to the declaration of MCValue is a
-/// comptime assert that makes sure we guessed correctly about the size. This only
-/// exists so that we can bitcast an arch-independent field to and from the real MCValue.
-pub const AnyMCValue = extern struct {
-    a: usize,
-    b: u64,
-};
-
-pub const Reloc = union(enum) {
-    /// The value is an offset into the `Function` `code` from the beginning.
-    /// To perform the reloc, write 32-bit signed little-endian integer
-    /// which is a relative jump, based on the address following the reloc.
-    rel32: usize,
-    /// A branch in the ARM instruction set
-    arm_branch: struct {
-        pos: usize,
-        cond: @import("codegen/arm.zig").Condition,
-    },
-};
-
 pub const Result = union(enum) {
     /// The `code` parameter passed to `generateSymbol` has the value appended.
     appended: void,
@@ -317,6 +286,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// across each runtime branch upon joining.
         branch_stack: *std.ArrayList(Branch),
 
+        blocks: std.AutoHashMapUnmanaged(*ir.Inst.Block, BlockData) = .{},
+
         register_manager: RegisterManager(Self, Register, &callee_preserved_regs) = .{},
         /// Maps offset to what is stored there.
         stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
@@ -415,6 +386,27 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             size: u32,
         };
 
+        const BlockData = struct {
+            relocs: std.ArrayListUnmanaged(Reloc),
+            /// The first break instruction encounters `null` here and chooses a
+            /// machine code value for the block result, populating this field.
+            /// Following break instructions encounter that value and use it for
+            /// the location to store their block results.
+            mcv: MCValue,
+        };
+
+        const Reloc = union(enum) {
+            /// The value is an offset into the `Function` `code` from the beginning.
+            /// To perform the reloc, write 32-bit signed little-endian integer
+            /// which is a relative jump, based on the address following the reloc.
+            rel32: usize,
+            /// A branch in the ARM instruction set
+            arm_branch: struct {
+                pos: usize,
+                cond: @import("codegen/arm.zig").Condition,
+            },
+        };
+
         const Self = @This();
 
         fn generateSymbol(
@@ -463,6 +455,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .end_di_column = module_fn.rbrace_column,
             };
             defer function.stack.deinit(bin_file.allocator);
+            defer function.blocks.deinit(bin_file.allocator);
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
             var call_info = function.resolveCallingConventionValues(src_loc.lazy, fn_type) catch |err| switch (err) {
@@ -3025,7 +3018,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genBlock(self: *Self, inst: *ir.Inst.Block) !MCValue {
-            inst.codegen = .{
+            try self.blocks.putNoClobber(self.gpa, inst, .{
                 // A block is a setup to be able to jump to the end.
                 .relocs = .{},
                 // It also acts as a receptical for break operands.
@@ -3033,15 +3026,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 // break instruction will choose a MCValue for the block result and overwrite
                 // this field. Following break instructions will use that MCValue to put their
                 // block results.
-                .mcv = @bitCast(AnyMCValue, MCValue{ .none = {} }),
-            };
-            defer inst.codegen.relocs.deinit(self.gpa);
+                .mcv = MCValue{ .none = {} },
+            });
+            const block_data = &self.blocks.getEntry(inst).?.value;
+            defer block_data.relocs.deinit(self.gpa);
 
             try self.genBody(inst.body);
 
-            for (inst.codegen.relocs.items) |reloc| try self.performReloc(inst.base.src, reloc);
+            for (block_data.relocs.items) |reloc| try self.performReloc(inst.base.src, reloc);
 
-            return @bitCast(MCValue, inst.codegen.mcv);
+            return @bitCast(MCValue, block_data.mcv);
         }
 
         fn genSwitch(self: *Self, inst: *ir.Inst.SwitchBr) !MCValue {
@@ -3115,11 +3109,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn br(self: *Self, src: LazySrcLoc, block: *ir.Inst.Block, operand: *ir.Inst) !MCValue {
+            const block_data = &self.blocks.getEntry(block).?.value;
+
             if (operand.ty.hasCodeGenBits()) {
                 const operand_mcv = try self.resolveInst(operand);
-                const block_mcv = @bitCast(MCValue, block.codegen.mcv);
+                const block_mcv = block_data.mcv;
                 if (block_mcv == .none) {
-                    block.codegen.mcv = @bitCast(AnyMCValue, operand_mcv);
+                    block_data.mcv = operand_mcv;
                 } else {
                     try self.setRegOrMem(src, block.base.ty, block_mcv, operand_mcv);
                 }
@@ -3128,8 +3124,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn brVoid(self: *Self, src: LazySrcLoc, block: *ir.Inst.Block) !MCValue {
+            const block_data = &self.blocks.getEntry(block).?.value;
+
             // Emit a jump with a relocation. It will be patched up after the block ends.
-            try block.codegen.relocs.ensureCapacity(self.gpa, block.codegen.relocs.items.len + 1);
+            try block_data.relocs.ensureCapacity(self.gpa, block_data.relocs.items.len + 1);
 
             switch (arch) {
                 .i386, .x86_64 => {
@@ -3138,11 +3136,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     try self.code.resize(self.code.items.len + 5);
                     self.code.items[self.code.items.len - 5] = 0xe9; // jmp rel32
                     // Leave the jump offset undefined
-                    block.codegen.relocs.appendAssumeCapacity(.{ .rel32 = self.code.items.len - 4 });
+                    block_data.relocs.appendAssumeCapacity(.{ .rel32 = self.code.items.len - 4 });
                 },
                 .arm, .armeb => {
                     try self.code.resize(self.code.items.len + 4);
-                    block.codegen.relocs.appendAssumeCapacity(.{
+                    block_data.relocs.appendAssumeCapacity(.{
                         .arm_branch = .{
                             .pos = self.code.items.len - 4,
                             .cond = .al,

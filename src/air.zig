@@ -395,8 +395,6 @@ pub const Inst = struct {
 
         base: Inst,
         body: Body,
-        /// This memory is reserved for codegen code to do whatever it needs to here.
-        codegen: codegen.BlockData = .{},
 
         pub fn operandCount(self: *const Block) usize {
             return 0;
