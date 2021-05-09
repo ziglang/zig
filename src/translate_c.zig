@@ -447,7 +447,13 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
             // TODO https://github.com/ziglang/zig/issues/3756
             // TODO https://github.com/ziglang/zig/issues/1802
             const name = if (isZigPrimitiveType(decl_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ decl_name, c.getMangle() }) else decl_name;
-            try c.unnamed_typedefs.putNoClobber(c.gpa, addr, name);
+            const result = try c.unnamed_typedefs.getOrPut(c.gpa, addr);
+            if (result.found_existing) {
+                // One typedef can declare multiple names.
+                // Don't put this one in `decl_table` so it's processed later.
+                return;
+            }
+            result.entry.value = name;
             // Put this typedef in the decl_table to avoid redefinitions.
             try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), name);
         }
