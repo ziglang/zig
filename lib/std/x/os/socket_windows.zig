@@ -24,7 +24,7 @@ pub const Socket = struct {
     pub fn init(domain: u32, socket_type: u32, protocol: u32) !Socket {
         var filtered_socket_type = socket_type & ~@as(u32, os.SOCK_CLOEXEC);
 
-        var filtered_flags = ws2_32.WSA_FLAG_OVERLAPPED;
+        var filtered_flags: u32 = ws2_32.WSA_FLAG_OVERLAPPED;
         if (socket_type & os.SOCK_CLOEXEC != 0) {
             filtered_flags |= ws2_32.WSA_FLAG_NO_HANDLE_INHERIT;
         }
@@ -169,7 +169,7 @@ pub const Socket = struct {
         }
 
         const socket = Socket.from(rc);
-        const socket_address = Socket.Address.fromNative(@alignCast(4, @ptrCast(*ws2_32.sockaddr, &address)));
+        const socket_address = Socket.Address.fromNative(@ptrCast(*ws2_32.sockaddr, &address));
 
         return Socket.Connection.from(socket, socket_address);
     }
@@ -275,7 +275,7 @@ pub const Socket = struct {
             };
         }
 
-        return Socket.Address.fromNative(@alignCast(4, @ptrCast(*os.sockaddr, &address)));
+        return Socket.Address.fromNative(@ptrCast(*os.sockaddr, &address));
     }
 
     /// Query the address that the socket is connected to.
@@ -295,7 +295,7 @@ pub const Socket = struct {
             };
         }
 
-        return Socket.Address.fromNative(@alignCast(4, @ptrCast(*os.sockaddr, &address)));
+        return Socket.Address.fromNative(@ptrCast(*os.sockaddr, &address));
     }
 
     /// Query and return the latest cached error on the socket.
@@ -314,8 +314,8 @@ pub const Socket = struct {
     }
 
     /// Set a socket option.
-    pub fn setOption(self: Socket, level: u32, name: u32, value: []const u8) !void {
-        const rc = ws2_32.setsockopt(self.fd, @intCast(i32, level), @intCast(i32, name), value.ptr, @intCast(i32, value.len));
+    pub fn setOption(self: Socket, level: u32, code: u32, value: []const u8) !void {
+        const rc = ws2_32.setsockopt(self.fd, @intCast(i32, level), @intCast(i32, code), value.ptr, @intCast(i32, value.len));
         if (rc == ws2_32.SOCKET_ERROR) {
             return switch (ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
@@ -375,6 +375,9 @@ pub const Socket = struct {
         return self.setOption(ws2_32.SOL_SOCKET, ws2_32.SO_RCVBUF, mem.asBytes(&size));
     }
 
+    /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
+    /// set on a non-blocking socket.
+    /// 
     /// Set a timeout on the socket that is to occur if no messages are successfully written
     /// to its bound destination after a specified number of milliseconds. A subsequent write
     /// to the socket will thereafter return `error.WouldBlock` should the timeout be exceeded.
@@ -382,6 +385,9 @@ pub const Socket = struct {
         return self.setOption(ws2_32.SOL_SOCKET, ws2_32.SO_SNDTIMEO, mem.asBytes(&milliseconds));
     }
 
+    /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
+    /// set on a non-blocking socket.
+    /// 
     /// Set a timeout on the socket that is to occur if no messages are successfully read
     /// from its bound destination after a specified number of milliseconds. A subsequent
     /// read from the socket will thereafter return `error.WouldBlock` should the timeout be

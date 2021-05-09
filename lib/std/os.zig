@@ -2758,9 +2758,9 @@ pub const ShutdownHow = enum { recv, send, both };
 pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
     if (builtin.os.tag == .windows) {
         const result = windows.ws2_32.shutdown(sock, switch (how) {
-            .recv => windows.SD_RECEIVE,
-            .send => windows.SD_SEND,
-            .both => windows.SD_BOTH,
+            .recv => windows.ws2_32.SD_RECEIVE,
+            .send => windows.ws2_32.SD_SEND,
+            .both => windows.ws2_32.SD_BOTH,
         });
         if (0 != result) switch (windows.ws2_32.WSAGetLastError()) {
             .WSAECONNABORTED => return error.ConnectionAborted,

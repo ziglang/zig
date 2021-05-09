@@ -150,7 +150,7 @@ pub const Client = struct {
     /// Read multiple I/O vectors with a prepended message header from the socket
     /// with a set of flags specified. It returns the number of bytes that were
     /// read into the buffer provided.
-    pub fn readVectorized(self: cLIENT, msg: *os.msghdr, flags: u32) !usize {
+    pub fn readVectorized(self: Client, msg: *os.msghdr, flags: u32) !usize {
         return self.socket.readVectorized(msg, flags);
     }
 

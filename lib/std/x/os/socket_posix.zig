@@ -59,7 +59,7 @@ pub const Socket = struct {
         var address_len: u32 = @sizeOf(os.sockaddr_storage);
 
         const socket = Socket{ .fd = try os.accept(self.fd, @ptrCast(*os.sockaddr, &address), &address_len, flags) };
-        const socket_address = Socket.Address.fromNative(@alignCast(4, @ptrCast(*os.sockaddr, &address)));
+        const socket_address = Socket.Address.fromNative(@ptrCast(*os.sockaddr, &address));
 
         return Socket.Connection.from(socket, socket_address);
     }
@@ -95,7 +95,7 @@ pub const Socket = struct {
         var address: os.sockaddr_storage = undefined;
         var address_len: u32 = @sizeOf(os.sockaddr_storage);
         try os.getsockname(self.fd, @ptrCast(*os.sockaddr, &address), &address_len);
-        return Socket.Address.fromNative(@alignCast(4, @ptrCast(*os.sockaddr, &address)));
+        return Socket.Address.fromNative(@ptrCast(*os.sockaddr, &address));
     }
 
     /// Query the address that the socket is connected to.
@@ -103,7 +103,7 @@ pub const Socket = struct {
         var address: os.sockaddr_storage = undefined;
         var address_len: u32 = @sizeOf(os.sockaddr_storage);
         try os.getpeername(self.fd, @ptrCast(*os.sockaddr, &address), &address_len);
-        return Socket.Address.fromNative(@alignCast(4, @ptrCast(*os.sockaddr, &address)));
+        return Socket.Address.fromNative(@ptrCast(*os.sockaddr, &address));
     }
 
     /// Query and return the latest cached error on the socket.
@@ -146,8 +146,8 @@ pub const Socket = struct {
     }
 
     /// Set a socket option.
-    pub fn setOption(self: Socket, level: u32, name: u32, value: []const u8) !void {
-        return os.setsockopt(self.fd, level, name, value);
+    pub fn setOption(self: Socket, level: u32, code: u32, value: []const u8) !void {
+        return os.setsockopt(self.fd, level, code, value);
     }
 
     /// Have close() or shutdown() syscalls block until all queued messages in the socket have been successfully
@@ -208,6 +208,9 @@ pub const Socket = struct {
         return self.setOption(os.SOL_SOCKET, os.SO_RCVBUF, mem.asBytes(&size));
     }
 
+    /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
+    /// set on a non-blocking socket.
+    /// 
     /// Set a timeout on the socket that is to occur if no messages are successfully written
     /// to its bound destination after a specified number of milliseconds. A subsequent write
     /// to the socket will thereafter return `error.WouldBlock` should the timeout be exceeded.
@@ -220,6 +223,9 @@ pub const Socket = struct {
         return self.setOption(os.SOL_SOCKET, os.SO_SNDTIMEO, mem.asBytes(&timeout));
     }
 
+    /// WARNING: Timeouts only affect blocking sockets. It is undefined behavior if a timeout is
+    /// set on a non-blocking socket.
+    /// 
     /// Set a timeout on the socket that is to occur if no messages are successfully read
     /// from its bound destination after a specified number of milliseconds. A subsequent
     /// read from the socket will thereafter return `error.WouldBlock` should the timeout be
