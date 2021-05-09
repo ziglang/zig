@@ -691,10 +691,11 @@ test "std.meta.TagPayload" {
 }
 
 /// Compares two of any type for equality. Containers are compared on a field-by-field basis,
-/// where possible. Pointers are not followed.
+/// where possible, or using the `eql()` function, if defined. Pointers are not followed.
 pub fn eql(a: anytype, b: @TypeOf(a)) bool {
     const T = @TypeOf(a);
 
+    if (comptime std.meta.trait.hasFn("eql")(@TypeOf(a))) return a.eql(b);
     switch (@typeInfo(T)) {
         .Struct => |info| {
             inline for (info.fields) |field_info| {
@@ -818,6 +819,20 @@ test "std.meta.eql" {
 
     try testing.expect(eql(v1, v2));
     try testing.expect(!eql(v1, v3));
+
+    const S2 = struct {
+        x: u2,
+
+        pub fn eql(a: @This(), b: @This()) bool {
+            return a.x + b.x == 3;
+        }
+    };
+
+    var b1 = S2{ .x = 0 };
+    var b2 = S2{ .x = 1 };
+    var b3 = S2{ .x = 2 };
+    try testing.expect(!eql(b1, b2));
+    try testing.expect(eql(b2, b3));
 }
 
 test "intToEnum with error return" {
