@@ -1533,7 +1533,8 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                             }
                             if (rel.target == .section) {
                                 const source_sect = object.sections.items[rel.target.section];
-                                args.source_sect_addr = source_sect.inner.addr;
+                                args.source_source_sect_addr = sect.inner.addr;
+                                args.source_target_sect_addr = source_sect.inner.addr;
                             }
 
                             rebases: {
@@ -1588,7 +1589,8 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                         else => |tt| {
                             if (tt == .signed and rel.target == .section) {
                                 const source_sect = object.sections.items[rel.target.section];
-                                args.source_sect_addr = source_sect.inner.addr;
+                                args.source_source_sect_addr = sect.inner.addr;
+                                args.source_target_sect_addr = source_sect.inner.addr;
                             }
                             args.target_addr = try self.relocTargetAddr(@intCast(u16, object_id), rel.target);
                         },
