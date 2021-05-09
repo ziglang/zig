@@ -3864,10 +3864,15 @@ fn analyzeArithmetic(
             // incase rhs is 0, simply return lhs without doing any calculations
             // TODO Once division is implemented we should throw an error when dividing by 0.
             if (rhs_val.compareWithZero(.eq)) {
-                return sema.mod.constInst(sema.arena, src, .{
-                    .ty = scalar_type,
-                    .val = lhs_val,
-                });
+                switch (zir_tag) {
+                    .add, .addwrap, .sub, .subwrap => {
+                        return sema.mod.constInst(sema.arena, src, .{
+                            .ty = scalar_type,
+                            .val = lhs_val,
+                        });
+                    },
+                    else => {},
+                }
             }
 
             const value = switch (zir_tag) {
@@ -3883,6 +3888,13 @@ fn analyzeArithmetic(
                         try Module.intSub(sema.arena, lhs_val, rhs_val)
                     else
                         try Module.floatSub(sema.arena, scalar_type, src, lhs_val, rhs_val);
+                    break :blk val;
+                },
+                .mul => blk: {
+                    const val = if (is_int)
+                        try Module.intMul(sema.arena, lhs_val, rhs_val)
+                    else
+                        try Module.floatMul(sema.arena, scalar_type, src, lhs_val, rhs_val);
                     break :blk val;
                 },
                 else => return sema.mod.fail(&block.base, src, "TODO Implement arithmetic operand '{s}'", .{@tagName(zir_tag)}),

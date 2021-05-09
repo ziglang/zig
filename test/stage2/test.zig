@@ -319,6 +319,81 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
+        var case = ctx.exe("multiplying numbers at runtime and comptime", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    mul(3, 4);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn mul(a: u32, b: u32) void {
+            \\    if (a * b != 12) unreachable;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        // comptime function call
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    exit();
+            \\}
+            \\
+            \\fn mul(a: u32, b: u32) u32 {
+            \\    return a * b;
+            \\}
+            \\
+            \\const x = mul(3, 4);
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (x - 12)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        // Inline function call
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    var x: usize = 5;
+            \\    const y = mul(2, 3, x);
+            \\    exit(y - 30);
+            \\}
+            \\
+            \\fn mul(a: usize, b: usize, c: usize) callconv(.Inline) usize {
+            \\    return a * b * c;
+            \\}
+            \\
+            \\fn exit(code: usize) noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (code)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+
+    {
         var case = ctx.exe("assert function", linux_x64);
         case.addCompareOutput(
             \\export fn _start() noreturn {
@@ -700,7 +775,8 @@ pub fn addCases(ctx: *TestContext) !void {
         // Spilling registers to the stack.
         case.addCompareOutput(
             \\export fn _start() noreturn {
-            \\    assert(add(3, 4) == 791);
+            \\    assert(add(3, 4) == 1221);
+            \\    assert(mul(3, 4) == 21609);
             \\
             \\    exit();
             \\}
@@ -716,19 +792,47 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        const i = g + h; // 100
             \\        const j = i + d; // 110
             \\        const k = i + j; // 210
-            \\        const l = k + c; // 217
-            \\        const m = l + d; // 227
-            \\        const n = m + e; // 241
-            \\        const o = n + f; // 265
-            \\        const p = o + g; // 303
-            \\        const q = p + h; // 365
-            \\        const r = q + i; // 465
-            \\        const s = r + j; // 575
-            \\        const t = s + k; // 785
-            \\        break :blk t;
+            \\        const l = j + k; // 320
+            \\        const m = l + c; // 327
+            \\        const n = m + d; // 337
+            \\        const o = n + e; // 351
+            \\        const p = o + f; // 375
+            \\        const q = p + g; // 413
+            \\        const r = q + h; // 475
+            \\        const s = r + i; // 575
+            \\        const t = s + j; // 685
+            \\        const u = t + k; // 895
+            \\        const v = u + l; // 1215
+            \\        break :blk v;
             \\    };
-            \\    const y = x + a; // 788
-            \\    const z = y + a; // 791
+            \\    const y = x + a; // 1218
+            \\    const z = y + a; // 1221
+            \\    return z;
+            \\}
+            \\
+            \\fn mul(a: u32, b: u32) u32 {
+            \\    const x: u32 = blk: {
+            \\        const c = a * a * a * a; // 81
+            \\        const d = a * a * a * b; // 108
+            \\        const e = a * a * b * a; // 108
+            \\        const f = a * a * b * b; // 144
+            \\        const g = a * b * a * a; // 108
+            \\        const h = a * b * a * b; // 144
+            \\        const i = a * b * b * a; // 144
+            \\        const j = a * b * b * b; // 192
+            \\        const k = b * a * a * a; // 108
+            \\        const l = b * a * a * b; // 144
+            \\        const m = b * a * b * a; // 144
+            \\        const n = b * a * b * b; // 192
+            \\        const o = b * b * a * a; // 144
+            \\        const p = b * b * a * b; // 192
+            \\        const q = b * b * b * a; // 192
+            \\        const r = b * b * b * b; // 256
+            \\        const s = c + d + e + f + g + h + i + j + k + l + m + n + o + p + q + r; // 2401
+            \\        break :blk s;
+            \\    };
+            \\    const y = x * a; // 7203
+            \\    const z = y * a; // 21609
             \\    return z;
             \\}
             \\
