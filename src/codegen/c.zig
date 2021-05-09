@@ -33,6 +33,11 @@ pub const CValue = union(enum) {
     decl_ref: *Decl,
 };
 
+const BlockData = struct {
+    block_id: usize,
+    result: CValue,
+};
+
 pub const CValueMap = std.AutoHashMap(*Inst, CValue);
 pub const TypedefMap = std.HashMap(Type, struct { name: []const u8, rendered: []u8 }, Type.hash, Type.eql, std.hash_map.default_max_load_percentage);
 
@@ -83,6 +88,7 @@ pub const Object = struct {
     gpa: *mem.Allocator,
     code: std.ArrayList(u8),
     value_map: CValueMap,
+    blocks: std.AutoHashMapUnmanaged(*ir.Inst.Block, BlockData) = .{},
     next_arg_index: usize = 0,
     next_local_index: usize = 0,
     next_block_index: usize = 0,
@@ -939,8 +945,6 @@ fn genBlock(o: *Object, inst: *Inst.Block) !CValue {
     o.next_block_index += 1;
     const writer = o.writer();
 
-    // store the block id in relocs.capacity as it is not  used for anything else in the C backend.
-    inst.codegen.relocs.capacity = block_id;
     const result = if (inst.base.ty.tag() != .void and !inst.base.isUnused()) blk: {
         // allocate a location for the result
         const local = try o.allocLocal(inst.base.ty, .Mut);
@@ -948,7 +952,11 @@ fn genBlock(o: *Object, inst: *Inst.Block) !CValue {
         break :blk local;
     } else CValue{ .none = {} };
 
-    inst.codegen.mcv = @bitCast(@import("../codegen.zig").AnyMCValue, result);
+    try o.blocks.putNoClobber(o.gpa, inst, .{
+        .block_id = block_id,
+        .result = result,
+    });
+
     try genBody(o, inst.body);
     try o.indent_writer.insertNewline();
     // label must be followed by an expression, add an empty one.
@@ -957,7 +965,7 @@ fn genBlock(o: *Object, inst: *Inst.Block) !CValue {
 }
 
 fn genBr(o: *Object, inst: *Inst.Br) !CValue {
-    const result = @bitCast(CValue, inst.block.codegen.mcv);
+    const result = o.blocks.get(inst.block).?.result;
     const writer = o.writer();
 
     // If result is .none then the value of the block is unused.
@@ -973,7 +981,7 @@ fn genBr(o: *Object, inst: *Inst.Br) !CValue {
 }
 
 fn genBrVoid(o: *Object, block: *Inst.Block) !CValue {
-    try o.writer().print("goto zig_block_{d};\n", .{block.codegen.relocs.capacity});
+    try o.writer().print("goto zig_block_{d};\n", .{o.blocks.get(block).?.block_id});
     return CValue.none;
 }
 

@@ -125,6 +125,7 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
         object.value_map.deinit();
+        object.blocks.deinit(module.gpa);
         object.code.deinit();
         object.dg.fwd_decl.deinit();
         var it = object.dg.typedefs.iterator();
