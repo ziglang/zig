@@ -582,7 +582,7 @@ test "x86_64 Encoder helpers" {
             Register.edi.low_id(),
         );
 
-        testing.expectEqualSlices(u8, &[_]u8{ 0x0f, 0xaf, 0xc7 }, code.items);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0x0f, 0xaf, 0xc7 }, code.items);
     }
 
     // simple mov
@@ -602,7 +602,7 @@ test "x86_64 Encoder helpers" {
             Register.eax.low_id(),
         );
 
-        testing.expectEqualSlices(u8, &[_]u8{ 0x89, 0xf8 }, code.items);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0x89, 0xf8 }, code.items);
     }
 
     // signed integer addition of 32-bit sign extended immediate to 64 bit register
@@ -629,7 +629,7 @@ test "x86_64 Encoder helpers" {
         );
         encoder.imm32(2147483647);
 
-        testing.expectEqualSlices(u8, &[_]u8{ 0x48, 0x81, 0xc1, 0xff, 0xff, 0xff, 0x7f }, code.items);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0x48, 0x81, 0xc1, 0xff, 0xff, 0xff, 0x7f }, code.items);
     }
 }
 
