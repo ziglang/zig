@@ -640,7 +640,7 @@ pub const socklen_t = c_uint;
 pub const sockaddr_storage = extern struct {
     ss_len: u8,
     ss_family: sa_family_t,
-    __ss_pad1: [6]u8,
+    __ss_pad1: [5]u8,
     __ss_align: i64,
     __ss_pad2: [112]u8,
 };
