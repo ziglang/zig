@@ -1749,6 +1749,38 @@ fn MAKELANGID(p: c_ushort, s: c_ushort) callconv(.Inline) LANGID {
     return (s << 10) | p;
 }
 
+/// Loads a Winsock extension function in runtime specified by a GUID.
+pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid: GUID) !T {
+    var function: T = undefined;
+    var num_bytes: DWORD = undefined;
+
+    const rc = ws2_32.WSAIoctl(
+        sock,
+        ws2_32.SIO_GET_EXTENSION_FUNCTION_POINTER,
+        @ptrCast(*const c_void, &guid),
+        @sizeOf(GUID),
+        &function,
+        @sizeOf(T),
+        &num_bytes,
+        null,
+        null,
+    );
+
+    if (rc == ws2_32.SOCKET_ERROR) {
+        return switch (ws2_32.WSAGetLastError()) {
+            .WSAEOPNOTSUPP => error.OperationNotSupported,
+            .WSAENOTSOCK => error.FileDescriptorNotASocket,
+            else => |err| unexpectedWSAError(err),
+        };
+    }
+
+    if (num_bytes != @sizeOf(T)) {
+        return error.ShortRead;
+    }
+
+    return function;
+}
+
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
 pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {

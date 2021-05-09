@@ -266,10 +266,54 @@ pub const SENDER_DEFAULT_LATE_JOINER_PERCENTAGE = 0;
 pub const SENDER_MAX_LATE_JOINER_PERCENTAGE = 75;
 pub const BITS_PER_BYTE = 8;
 pub const LOG2_BITS_PER_BYTE = 3;
+
 pub const SOCKET_DEFAULT2_QM_POLICY = GUID.parse("{aec2ef9c-3a4d-4d3e-8842-239942e39a47}");
 pub const REAL_TIME_NOTIFICATION_CAPABILITY = GUID.parse("{6b59819a-5cae-492d-a901-2a3c2c50164f}");
 pub const REAL_TIME_NOTIFICATION_CAPABILITY_EX = GUID.parse("{6843da03-154a-4616-a508-44371295f96b}");
 pub const ASSOCIATE_NAMERES_CONTEXT = GUID.parse("{59a38b67-d4fe-46e1-ba3c-87ea74ca3049}");
+
+pub const WSAID_CONNECTEX = GUID{
+    .Data1 = 0x25a207b9,
+    .Data2 = 0xddf3,
+    .Data3 = 0x4660,
+    .Data4 = [8]u8{ 0x8e, 0xe9, 0x76, 0xe5, 0x8c, 0x74, 0x06, 0x3e },
+};
+
+pub const WSAID_ACCEPTEX = GUID{
+    .Data1 = 0xb5367df1,
+    .Data2 = 0xcbac,
+    .Data3 = 0x11cf,
+    .Data4 = [8]u8{ 0x95, 0xca, 0x00, 0x80, 0x5f, 0x48, 0xa1, 0x92 },
+};
+
+pub const WSAID_GETACCEPTEXSOCKADDRS = GUID{
+    .Data1 = 0xb5367df2,
+    .Data2 = 0xcbac,
+    .Data3 = 0x11cf,
+    .Data4 = [8]u8{ 0x95, 0xca, 0x00, 0x80, 0x5f, 0x48, 0xa1, 0x92 },
+};
+
+pub const WSAID_WSARECVMSG = GUID{
+    .Data1 = 0xf689d7c8,
+    .Data2 = 0x6f1f,
+    .Data3 = 0x436b,
+    .Data4 = [8]u8{ 0x8a, 0x53, 0xe5, 0x4f, 0xe3, 0x51, 0xc3, 0x22 },
+};
+
+pub const WSAID_WSAPOLL = GUID{
+    .Data1 = 0x18C76F85,
+    .Data2 = 0xDC66,
+    .Data3 = 0x4964,
+    .Data4 = [8]u8{ 0x97, 0x2E, 0x23, 0xC2, 0x72, 0x38, 0x31, 0x2B },
+};
+
+pub const WSAID_WSASENDMSG = GUID{
+    .Data1 = 0xa441e712,
+    .Data2 = 0x754f,
+    .Data3 = 0x43ca,
+    .Data4 = [8]u8{ 0x84, 0xa7, 0x0d, 0xee, 0x44, 0xcf, 0x60, 0x6d },
+};
+
 pub const TCP_INITIAL_RTO_DEFAULT_RTT = 0;
 pub const TCP_INITIAL_RTO_DEFAULT_MAX_SYN_RETRANSMISSIONS = 0;
 pub const SOCKET_SETTINGS_GUARANTEE_ENCRYPTION = 1;
@@ -485,6 +529,7 @@ pub const IOC_UNIX = 0;
 pub const IOC_WS2 = 134217728;
 pub const IOC_PROTOCOL = 268435456;
 pub const IOC_VENDOR = 402653184;
+pub const SIO_GET_EXTENSION_FUNCTION_POINTER = IOC_OUT | IOC_IN | IOC_WS2 | 6;
 pub const SIO_BSP_HANDLE = IOC_OUT | IOC_WS2 | 27;
 pub const SIO_BSP_HANDLE_SELECT = IOC_OUT | IOC_WS2 | 28;
 pub const SIO_BSP_HANDLE_POLL = IOC_OUT | IOC_WS2 | 29;
@@ -1115,9 +1160,9 @@ pub const LPFN_GETACCEPTEXSOCKADDRS = fn (
     RemoteSockaddrLength: *i32,
 ) callconv(WINAPI) void;
 
-pub const LFN_WSASENDMSG = fn (
+pub const LPFN_WSASENDMSG = fn (
     s: SOCKET,
-    lpMsg: *WSAMSG_const,
+    lpMsg: *const WSAMSG_const,
     dwFlags: u32,
     lpNumberOfBytesSent: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
@@ -1927,7 +1972,7 @@ pub extern "ws2_32" fn WSAHtons(
 pub extern "ws2_32" fn WSAIoctl(
     s: SOCKET,
     dwIoControlCode: u32,
-    lpvInBuffer: ?*c_void,
+    lpvInBuffer: ?*const c_void,
     cbInBuffer: u32,
     lpvOutbuffer: ?*c_void,
     cbOutbuffer: u32,
@@ -1992,7 +2037,7 @@ pub extern "ws2_32" fn WSASend(
     s: SOCKET,
     lpBuffers: [*]WSABUF,
     dwBufferCount: u32,
-    lpNumberOfBytesSent: ?*U32,
+    lpNumberOfBytesSent: ?*u32,
     dwFlags: u32,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPWSAOVERLAPPED_COMPLETION_ROUTINE,
@@ -2000,7 +2045,7 @@ pub extern "ws2_32" fn WSASend(
 
 pub extern "ws2_32" fn WSASendMsg(
     s: SOCKET,
-    lpMsg: *WSAMSG_const,
+    lpMsg: *const WSAMSG_const,
     dwFlags: u32,
     lpNumberOfBytesSent: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
