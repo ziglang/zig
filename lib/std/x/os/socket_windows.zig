@@ -374,8 +374,6 @@ pub fn Mixin(comptime Socket: type) type {
                     .WSAEFAULT => unreachable,
                     .WSAENOTSOCK => return error.FileDescriptorNotASocket,
                     .WSAEINVAL => return error.SocketNotBound,
-                    .WSAENOTCONN => return error.SocketNotConnected,
-                    .WSAESHUTDOWN => return error.AlreadyShutdown,
                     else => |err| windows.unexpectedWSAError(err),
                 };
             }
