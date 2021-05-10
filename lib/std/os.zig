@@ -3408,7 +3408,7 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
         @compileError("fstat is not yet implemented on Windows");
     }
 
-    var stat: Stat = undefined;
+    var stat = mem.zeroes(Stat);
     switch (errno(system.fstat(fd, &stat))) {
         0 => return stat,
         EINVAL => unreachable,
@@ -3459,7 +3459,7 @@ pub fn fstatatWasi(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!S
 /// Same as `fstatat` but `pathname` is null-terminated.
 /// See also `fstatat`.
 pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
-    var stat: Stat = undefined;
+    var stat = mem.zeroes(Stat);
     switch (errno(system.fstatat(dirfd, pathname, &stat, flags))) {
         0 => return stat,
         EINVAL => unreachable,
