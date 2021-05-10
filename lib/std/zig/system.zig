@@ -982,12 +982,15 @@ pub const NativeTargetInfo = struct {
             else => {},
         }
 
+        switch (std.Target.current.os.tag) {
+            .linux => return linux.detectNativeCpuAndFeatures(),
+            .macos => return macos.detectNativeCpuAndFeatures(),
+            else => {},
+        }
+
         // This architecture does not have CPU model & feature detection yet.
         // See https://github.com/ziglang/zig/issues/4591
-        if (std.Target.current.os.tag != .linux)
-            return null;
-
-        return linux.detectNativeCpuAndFeatures();
+        return null;
     }
 };
 
