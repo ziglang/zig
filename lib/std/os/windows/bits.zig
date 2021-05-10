@@ -1619,10 +1619,6 @@ pub const MOUNTMGR_MOUNT_POINTS = extern struct {
 };
 pub const IOCTL_MOUNTMGR_QUERY_POINTS: ULONG = 0x6d0008;
 
-pub const SD_RECEIVE = 0;
-pub const SD_SEND = 1;
-pub const SD_BOTH = 2;
-
 pub const OBJECT_INFORMATION_CLASS = extern enum {
     ObjectBasicInformation = 0,
     ObjectNameInformation = 1,
@@ -1642,3 +1638,14 @@ pub const SRWLOCK = usize;
 pub const SRWLOCK_INIT: SRWLOCK = 0;
 pub const CONDITION_VARIABLE = usize;
 pub const CONDITION_VARIABLE_INIT: CONDITION_VARIABLE = 0;
+
+pub const FILE_SKIP_COMPLETION_PORT_ON_SUCCESS = 0x1;
+pub const FILE_SKIP_SET_EVENT_ON_HANDLE = 0x2;
+
+pub const CTRL_C_EVENT: DWORD = 0;
+pub const CTRL_BREAK_EVENT: DWORD = 1;
+pub const CTRL_CLOSE_EVENT: DWORD = 2;
+pub const CTRL_LOGOFF_EVENT: DWORD = 5;
+pub const CTRL_SHUTDOWN_EVENT: DWORD = 6;
+
+pub const HANDLER_ROUTINE = fn (dwCtrlType: DWORD) callconv(.C) BOOL;

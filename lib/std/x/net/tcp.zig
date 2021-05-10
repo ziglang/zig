@@ -6,6 +6,7 @@
 
 const std = @import("../../std.zig");
 
+const io = std.io;
 const os = std.os;
 const ip = std.x.net.ip;
 
@@ -58,6 +59,28 @@ pub const Domain = extern enum(u16) {
 pub const Client = struct {
     socket: Socket,
 
+    /// Implements `std.io.Reader`.
+    pub const Reader = struct {
+        client: Client,
+        flags: u32,
+
+        /// Implements `readFn` for `std.io.Reader`.
+        pub fn read(self: Client.Reader, buffer: []u8) !usize {
+            return self.client.read(buffer, self.flags);
+        }
+    };
+
+    /// Implements `std.io.Writer`.
+    pub const Writer = struct {
+        client: Client,
+        flags: u32,
+
+        /// Implements `writeFn` for `std.io.Writer`.
+        pub fn write(self: Client.Writer, buffer: []const u8) !usize {
+            return self.client.write(buffer, self.flags);
+        }
+    };
+
     /// Opens a new client.
     pub fn init(domain: tcp.Domain, flags: u32) !Client {
         return Client{
@@ -89,41 +112,46 @@ pub const Client = struct {
         return self.socket.connect(address.into());
     }
 
-    /// Read data from the socket into the buffer provided. It returns the
-    /// number of bytes read into the buffer provided.
-    pub fn read(self: Client, buf: []u8) !usize {
-        return self.socket.read(buf);
+    /// Extracts the error set of a function.
+    /// TODO: remove after Socket.{read, write} error unions are well-defined across different platforms
+    fn ErrorSetOf(comptime Function: anytype) type {
+        return @typeInfo(@typeInfo(@TypeOf(Function)).Fn.return_type.?).ErrorUnion.error_set;
+    }
+
+    /// Wrap `tcp.Client` into `std.io.Reader`.
+    pub fn reader(self: Client, flags: u32) io.Reader(Client.Reader, ErrorSetOf(Client.Reader.read), Client.Reader.read) {
+        return .{ .context = .{ .client = self, .flags = flags } };
+    }
+
+    /// Wrap `tcp.Client` into `std.io.Writer`.
+    pub fn writer(self: Client, flags: u32) io.Writer(Client.Writer, ErrorSetOf(Client.Writer.write), Client.Writer.write) {
+        return .{ .context = .{ .client = self, .flags = flags } };
     }
 
     /// Read data from the socket into the buffer provided with a set of flags
     /// specified. It returns the number of bytes read into the buffer provided.
-    pub fn recv(self: Client, buf: []u8, flags: u32) !usize {
-        return self.socket.recv(buf, flags);
-    }
-
-    /// Write a buffer of data provided to the socket. It returns the number
-    /// of bytes that are written to the socket.
-    pub fn write(self: Client, buf: []const u8) !usize {
-        return self.socket.write(buf);
-    }
-
-    /// Writes multiple I/O vectors to the socket. It returns the number
-    /// of bytes that are written to the socket.
-    pub fn writev(self: Client, buffers: []const os.iovec_const) !usize {
-        return self.socket.writev(buffers);
+    pub fn read(self: Client, buf: []u8, flags: u32) !usize {
+        return self.socket.read(buf, flags);
     }
 
     /// Write a buffer of data provided to the socket with a set of flags specified.
     /// It returns the number of bytes that are written to the socket.
-    pub fn send(self: Client, buf: []const u8, flags: u32) !usize {
-        return self.socket.send(buf, flags);
+    pub fn write(self: Client, buf: []const u8, flags: u32) !usize {
+        return self.socket.write(buf, flags);
     }
 
     /// Writes multiple I/O vectors with a prepended message header to the socket
     /// with a set of flags specified. It returns the number of bytes that are
     /// written to the socket.
-    pub fn sendmsg(self: Client, msg: os.msghdr_const, flags: u32) !usize {
-        return self.socket.sendmsg(msg, flags);
+    pub fn writeVectorized(self: Client, msg: os.msghdr_const, flags: u32) !usize {
+        return self.socket.writeVectorized(msg, flags);
+    }
+
+    /// Read multiple I/O vectors with a prepended message header from the socket
+    /// with a set of flags specified. It returns the number of bytes that were
+    /// read into the buffer provided.
+    pub fn readVectorized(self: Client, msg: *os.msghdr, flags: u32) !usize {
+        return self.socket.readVectorized(msg, flags);
     }
 
     /// Query and return the latest cached error on the client's underlying socket.
@@ -146,12 +174,41 @@ pub const Client = struct {
         return ip.Address.from(try self.socket.getLocalAddress());
     }
 
+    /// Query the address that the socket is connected to.
+    pub fn getRemoteAddress(self: Client) !ip.Address {
+        return ip.Address.from(try self.socket.getRemoteAddress());
+    }
+
+    /// Have close() or shutdown() syscalls block until all queued messages in the client have been successfully
+    /// sent, or if the timeout specified in seconds has been reached. It returns `error.UnsupportedSocketOption`
+    /// if the host does not support the option for a socket to linger around up until a timeout specified in
+    /// seconds.
+    pub fn setLinger(self: Client, timeout_seconds: ?u16) !void {
+        return self.socket.setLinger(timeout_seconds);
+    }
+
+    /// Have keep-alive messages be sent periodically. The timing in which keep-alive messages are sent are
+    /// dependant on operating system settings. It returns `error.UnsupportedSocketOption` if the host does
+    /// not support periodically sending keep-alive messages on connection-oriented sockets. 
+    pub fn setKeepAlive(self: Client, enabled: bool) !void {
+        return self.socket.setKeepAlive(enabled);
+    }
+
     /// Disable Nagle's algorithm on a TCP socket. It returns `error.UnsupportedSocketOption` if
     /// the host does not support sockets disabling Nagle's algorithm.
     pub fn setNoDelay(self: Client, enabled: bool) !void {
         if (comptime @hasDecl(os, "TCP_NODELAY")) {
             const bytes = mem.asBytes(&@as(usize, @boolToInt(enabled)));
-            return os.setsockopt(self.socket.fd, os.IPPROTO_TCP, os.TCP_NODELAY, bytes);
+            return self.socket.setOption(os.IPPROTO_TCP, os.TCP_NODELAY, bytes);
+        }
+        return error.UnsupportedSocketOption;
+    }
+
+    /// Enables TCP Quick ACK on a TCP socket to immediately send rather than delay ACKs when necessary. It returns
+    /// `error.UnsupportedSocketOption` if the host does not support TCP Quick ACK.
+    pub fn setQuickACK(self: Client, enabled: bool) !void {
+        if (comptime @hasDecl(os, "TCP_QUICKACK")) {
+            return self.socket.setOption(os.IPPROTO_TCP, os.TCP_QUICKACK, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
         return error.UnsupportedSocketOption;
     }
@@ -169,7 +226,7 @@ pub const Client = struct {
     /// Set a timeout on the socket that is to occur if no messages are successfully written
     /// to its bound destination after a specified number of milliseconds. A subsequent write
     /// to the socket will thereafter return `error.WouldBlock` should the timeout be exceeded.
-    pub fn setWriteTimeout(self: Client, milliseconds: usize) !void {
+    pub fn setWriteTimeout(self: Client, milliseconds: u32) !void {
         return self.socket.setWriteTimeout(milliseconds);
     }
 
@@ -177,7 +234,7 @@ pub const Client = struct {
     /// from its bound destination after a specified number of milliseconds. A subsequent
     /// read from the socket will thereafter return `error.WouldBlock` should the timeout be
     /// exceeded.
-    pub fn setReadTimeout(self: Client, milliseconds: usize) !void {
+    pub fn setReadTimeout(self: Client, milliseconds: u32) !void {
         return self.socket.setReadTimeout(milliseconds);
     }
 };
@@ -251,16 +308,7 @@ pub const Listener = struct {
     /// support TCP Fast Open.
     pub fn setFastOpen(self: Listener, enabled: bool) !void {
         if (comptime @hasDecl(os, "TCP_FASTOPEN")) {
-            return os.setsockopt(self.socket.fd, os.IPPROTO_TCP, os.TCP_FASTOPEN, mem.asBytes(&@as(usize, @boolToInt(enabled))));
-        }
-        return error.UnsupportedSocketOption;
-    }
-
-    /// Enables TCP Quick ACK on a TCP socket to immediately send rather than delay ACKs when necessary. It returns
-    /// `error.UnsupportedSocketOption` if the host does not support TCP Quick ACK.
-    pub fn setQuickACK(self: Listener, enabled: bool) !void {
-        if (comptime @hasDecl(os, "TCP_QUICKACK")) {
-            return os.setsockopt(self.socket.fd, os.IPPROTO_TCP, os.TCP_QUICKACK, mem.asBytes(&@as(usize, @boolToInt(enabled))));
+            return self.socket.setOption(os.IPPROTO_TCP, os.TCP_FASTOPEN, mem.asBytes(&@as(u32, @boolToInt(enabled))));
         }
         return error.UnsupportedSocketOption;
     }
@@ -322,7 +370,7 @@ test "tcp/client: set read timeout of 1 millisecond on blocking client" {
     defer conn.deinit();
 
     var buf: [1]u8 = undefined;
-    try testing.expectError(error.WouldBlock, client.read(&buf));
+    try testing.expectError(error.WouldBlock, client.reader(0).read(&buf));
 }
 
 test "tcp/listener: bind to unspecified ipv4 address" {

@@ -2758,9 +2758,9 @@ pub const ShutdownHow = enum { recv, send, both };
 pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
     if (builtin.os.tag == .windows) {
         const result = windows.ws2_32.shutdown(sock, switch (how) {
-            .recv => windows.SD_RECEIVE,
-            .send => windows.SD_SEND,
-            .both => windows.SD_BOTH,
+            .recv => windows.ws2_32.SD_RECEIVE,
+            .send => windows.ws2_32.SD_SEND,
+            .both => windows.ws2_32.SD_BOTH,
         });
         if (0 != result) switch (windows.ws2_32.WSAGetLastError()) {
             .WSAECONNABORTED => return error.ConnectionAborted,
@@ -3204,6 +3204,35 @@ pub fn getsockname(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
         return;
     } else {
         const rc = system.getsockname(sock, addr, addrlen);
+        switch (errno(rc)) {
+            0 => return,
+            else => |err| return unexpectedErrno(err),
+
+            EBADF => unreachable, // always a race condition
+            EFAULT => unreachable,
+            EINVAL => unreachable, // invalid parameters
+            ENOTSOCK => return error.FileDescriptorNotASocket,
+            ENOBUFS => return error.SystemResources,
+        }
+    }
+}
+
+pub fn getpeername(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSockNameError!void {
+    if (builtin.os.tag == .windows) {
+        const rc = windows.getpeername(sock, addr, addrlen);
+        if (rc == windows.ws2_32.SOCKET_ERROR) {
+            switch (windows.ws2_32.WSAGetLastError()) {
+                .WSANOTINITIALISED => unreachable,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAEFAULT => unreachable, // addr or addrlen have invalid pointers or addrlen points to an incorrect value
+                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                .WSAEINVAL => return error.SocketNotBound,
+                else => |err| return windows.unexpectedWSAError(err),
+            }
+        }
+        return;
+    } else {
+        const rc = system.getpeername(sock, addr, addrlen);
         switch (errno(rc)) {
             0 => return,
             else => |err| return unexpectedErrno(err),
@@ -5722,7 +5751,7 @@ pub const SetSockOptError = error{
 /// Set a socket's options.
 pub fn setsockopt(fd: socket_t, level: u32, optname: u32, opt: []const u8) SetSockOptError!void {
     if (builtin.os.tag == .windows) {
-        const rc = windows.ws2_32.setsockopt(fd, level, optname, opt.ptr, @intCast(socklen_t, opt.len));
+        const rc = windows.ws2_32.setsockopt(fd, @intCast(i32, level), @intCast(i32, optname), opt.ptr, @intCast(i32, opt.len));
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
