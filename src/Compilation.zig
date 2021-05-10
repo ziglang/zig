@@ -848,7 +848,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             arena,
             options.zig_lib_directory.path.?,
             options.target,
-            options.is_native_os,
+            options.is_native_abi,
             link_libc,
             options.libc_installation,
         );
@@ -2885,7 +2885,7 @@ fn detectLibCIncludeDirs(
     arena: *Allocator,
     zig_lib_dir: []const u8,
     target: Target,
-    is_native_os: bool,
+    is_native_abi: bool,
     link_libc: bool,
     libc_installation: ?*const LibCInstallation,
 ) !LibCDirs {
@@ -2898,6 +2898,12 @@ fn detectLibCIncludeDirs(
 
     if (libc_installation) |lci| {
         return detectLibCFromLibCInstallation(arena, target, lci);
+    }
+
+    if (is_native_abi) {
+        const libc = try arena.create(LibCInstallation);
+        libc.* = try LibCInstallation.findNative(.{ .allocator = arena });
+        return detectLibCFromLibCInstallation(arena, target, libc);
     }
 
     if (target_util.canBuildLibC(target)) {
@@ -2948,12 +2954,6 @@ fn detectLibCIncludeDirs(
             .libc_include_dir_list = list,
             .libc_installation = null,
         };
-    }
-
-    if (is_native_os) {
-        const libc = try arena.create(LibCInstallation);
-        libc.* = try LibCInstallation.findNative(.{ .allocator = arena });
-        return detectLibCFromLibCInstallation(arena, target, libc);
     }
 
     return LibCDirs{
