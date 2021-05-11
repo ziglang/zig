@@ -1650,9 +1650,15 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 if (self.base.options.libc_installation != null) {
                     const needs_grouping = self.base.options.link_mode == .Static;
                     if (needs_grouping) try argv.append("--start-group");
-                    try argv.append("-lm");
-                    try argv.append("-lpthread");
-                    try argv.append("-lc");
+                    // This matches the order of glibc.libs
+                    try argv.appendSlice(&[_][]const u8{
+                        "-lm",
+                        "-lpthread",
+                        "-lc",
+                        "-ldl",
+                        "-lrt",
+                        "-lutil",
+                    });
                     if (needs_grouping) try argv.append("--end-group");
                 } else if (target.isGnuLibC()) {
                     try argv.append(comp.libunwind_static_lib.?.full_object_path);
