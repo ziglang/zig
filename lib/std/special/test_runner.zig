@@ -84,6 +84,9 @@ pub fn main() anyerror!void {
                 test_node.end();
                 progress.log("{s}... FAIL ({s})\n", .{ test_fn.name, @errorName(err) });
                 if (progress.terminal == null) std.debug.print("FAIL ({s})\n", .{@errorName(err)});
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
             },
         }
     }
