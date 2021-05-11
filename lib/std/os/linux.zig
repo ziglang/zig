@@ -59,6 +59,20 @@ const require_aligned_register_pair =
     std.Target.current.cpu.arch.isThumb();
 
 // Split a 64bit value into a {LSB,MSB} pair.
+// The LE/BE variants specify the endianness to assume.
+fn splitValueLE64(val: i64) [2]u32 {
+    const u = @bitCast(u64, val);
+    return [2]u32{
+        @truncate(u32, u),
+        @truncate(u32, u >> 32),
+    };
+}
+fn splitValueBE64(val: i64) [2]u32 {
+    return [2]u32{
+        @truncate(u32, u >> 32),
+        @truncate(u32, u),
+    };
+}
 fn splitValue64(val: i64) [2]u32 {
     const u = @bitCast(u64, val);
     switch (builtin.endian) {
@@ -310,7 +324,7 @@ pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
 }
 
 pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: i64) usize {
-    const offset_halves = splitValue64(offset);
+    const offset_halves = splitValueLE64(offset);
     return syscall5(
         .preadv,
         @bitCast(usize, @as(isize, fd)),
@@ -343,7 +357,7 @@ pub fn writev(fd: i32, iov: [*]const iovec_const, count: usize) usize {
 }
 
 pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: i64) usize {
-    const offset_halves = splitValue64(offset);
+    const offset_halves = splitValueLE64(offset);
     return syscall5(
         .pwritev,
         @bitCast(usize, @as(isize, fd)),
