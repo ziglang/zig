@@ -530,7 +530,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return p.y - p.x - p.x;
             \\}
         , &.{
-            ":6:10: error: no field named 'z' in struct 'Point'",
+            ":6:10: error: no field named 'z' in struct 'test_case.Point'",
             ":1:15: note: struct declared here",
         });
         case.addCompareOutput(
