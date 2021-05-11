@@ -1995,17 +1995,17 @@ test "parse into struct with duplicate field" {
     const ballast = try testing.allocator.alloc(u64, 1);
     defer testing.allocator.free(ballast);
 
-    const options = ParseOptions{ 
+    const options = ParseOptions{
         .allocator = testing.allocator,
         .duplicate_field_behavior = .UseLast,
     };
     const str = "{ \"a\": 1, \"a\": 0.25 }";
-    
+
     const T1 = struct { a: *u64 };
-    testing.expectError(error.UnexpectedToken, parse(T1, &TokenStream.init(str), options));
+    try testing.expectError(error.UnexpectedToken, parse(T1, &TokenStream.init(str), options));
 
     const T2 = struct { a: f64 };
-    testing.expectEqual(T2{ .a = 0.25 }, try parse(T2, &TokenStream.init(str), options));
+    try testing.expectEqual(T2{ .a = 0.25 }, try parse(T2, &TokenStream.init(str), options));
 }
 
 /// A non-stream JSON parser which constructs a tree of Value's.
