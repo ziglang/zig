@@ -3759,16 +3759,18 @@ pub fn constIntBig(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, b
     }
 }
 
-pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
+/// Takes ownership of `name` even if it returns an error.
+pub fn createAnonymousDeclNamed(
+    mod: *Module,
+    scope: *Scope,
+    typed_value: TypedValue,
+    name: [:0]u8,
+) !*Decl {
+    errdefer mod.gpa.free(name);
+
     const scope_decl = scope.ownerDecl().?;
     const namespace = scope_decl.namespace;
     try namespace.anon_decls.ensureUnusedCapacity(mod.gpa, 1);
-
-    const name_index = mod.getNextAnonNameIndex();
-    const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
-        scope_decl.name, name_index,
-    });
-    errdefer mod.gpa.free(name);
 
     const new_decl = try mod.allocateNewDecl(namespace, scope_decl.src_node);
 
@@ -3793,7 +3795,16 @@ pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue)
     return new_decl;
 }
 
-fn getNextAnonNameIndex(mod: *Module) usize {
+pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
+    const scope_decl = scope.ownerDecl().?;
+    const name_index = mod.getNextAnonNameIndex();
+    const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
+        scope_decl.name, name_index,
+    });
+    return mod.createAnonymousDeclNamed(scope, typed_value, name);
+}
+
+pub fn getNextAnonNameIndex(mod: *Module) usize {
     return @atomicRmw(usize, &mod.next_anon_name_index, .Add, 1, .Monotonic);
 }
 

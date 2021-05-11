@@ -719,10 +719,11 @@ fn zirStructDecl(
     const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
     const struct_val = try Value.Tag.ty.create(&new_decl_arena.allocator, struct_ty);
-    const new_decl = try sema.mod.createAnonymousDecl(&block.base, .{
+    const type_name = try sema.createTypeName(block, small.name_strategy);
+    const new_decl = try sema.mod.createAnonymousDeclNamed(&block.base, .{
         .ty = Type.initTag(.type),
         .val = struct_val,
-    });
+    }, type_name);
     struct_obj.* = .{
         .owner_decl = new_decl,
         .fields = .{},
@@ -742,6 +743,32 @@ fn zirStructDecl(
     try sema.analyzeStructDecl(new_decl, inst, struct_obj);
     try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclVal(block, src, new_decl);
+}
+
+fn createTypeName(sema: *Sema, block: *Scope.Block, name_strategy: Zir.Inst.NameStrategy) ![:0]u8 {
+    switch (name_strategy) {
+        .anon => {
+            // It would be neat to have "struct:line:column" but this name has
+            // to survive incremental updates, where it may have been shifted down
+            // or up to a different line, but unchanged, and thus not unnecessarily
+            // semantically analyzed.
+            const name_index = sema.mod.getNextAnonNameIndex();
+            return std.fmt.allocPrintZ(sema.gpa, "{s}__anon_{d}", .{
+                sema.owner_decl.name, name_index,
+            });
+        },
+        .parent => return sema.gpa.dupeZ(u8, mem.spanZ(sema.owner_decl.name)),
+        .func => {
+            const name_index = sema.mod.getNextAnonNameIndex();
+            const name = try std.fmt.allocPrintZ(sema.gpa, "{s}__anon_{d}", .{
+                sema.owner_decl.name, name_index,
+            });
+            log.warn("TODO: handle NameStrategy.func correctly instead of using anon name '{s}'", .{
+                name,
+            });
+            return name;
+        },
+    }
 }
 
 fn zirEnumDecl(
@@ -807,10 +834,11 @@ fn zirEnumDecl(
     };
     const enum_ty = Type.initPayload(&enum_ty_payload.base);
     const enum_val = try Value.Tag.ty.create(&new_decl_arena.allocator, enum_ty);
-    const new_decl = try sema.mod.createAnonymousDecl(&block.base, .{
+    const type_name = try sema.createTypeName(block, small.name_strategy);
+    const new_decl = try sema.mod.createAnonymousDeclNamed(&block.base, .{
         .ty = Type.initTag(.type),
         .val = enum_val,
-    });
+    }, type_name);
     enum_obj.* = .{
         .owner_decl = new_decl,
         .tag_ty = tag_ty,
@@ -957,10 +985,11 @@ fn zirUnionDecl(
     const union_obj = try new_decl_arena.allocator.create(Module.Union);
     const union_ty = try Type.Tag.@"union".create(&new_decl_arena.allocator, union_obj);
     const union_val = try Value.Tag.ty.create(&new_decl_arena.allocator, union_ty);
-    const new_decl = try sema.mod.createAnonymousDecl(&block.base, .{
+    const type_name = try sema.createTypeName(block, small.name_strategy);
+    const new_decl = try sema.mod.createAnonymousDeclNamed(&block.base, .{
         .ty = Type.initTag(.type),
         .val = union_val,
-    });
+    }, type_name);
     union_obj.* = .{
         .owner_decl = new_decl,
         .tag_ty = Type.initTag(.@"null"),
@@ -1021,10 +1050,11 @@ fn zirErrorSetDecl(
     const error_set = try new_decl_arena.allocator.create(Module.ErrorSet);
     const error_set_ty = try Type.Tag.error_set.create(&new_decl_arena.allocator, error_set);
     const error_set_val = try Value.Tag.ty.create(&new_decl_arena.allocator, error_set_ty);
-    const new_decl = try sema.mod.createAnonymousDecl(&block.base, .{
+    const type_name = try sema.createTypeName(block, name_strategy);
+    const new_decl = try sema.mod.createAnonymousDeclNamed(&block.base, .{
         .ty = Type.initTag(.type),
         .val = error_set_val,
-    });
+    }, type_name);
     const names = try new_decl_arena.allocator.alloc([]const u8, fields.len);
     for (fields) |str_index, i| {
         names[i] = try new_decl_arena.allocator.dupe(u8, sema.code.nullTerminatedString(str_index));
