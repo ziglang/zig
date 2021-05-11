@@ -482,7 +482,7 @@ pub const File = struct {
     /// order to handle partial reads from the underlying OS layer.
     /// See https://github.com/ziglang/zig/issues/7699
     pub fn readvAll(self: File, iovecs: []os.iovec) ReadError!usize {
-        if (iovecs.len == 0) return;
+        if (iovecs.len == 0) return 0;
 
         var i: usize = 0;
         var off: usize = 0;
@@ -524,8 +524,8 @@ pub const File = struct {
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial reads from the underlying OS layer.
     /// See https://github.com/ziglang/zig/issues/7699
-    pub fn preadvAll(self: File, iovecs: []const os.iovec, offset: u64) PReadError!void {
-        if (iovecs.len == 0) return;
+    pub fn preadvAll(self: File, iovecs: []os.iovec, offset: u64) PReadError!usize {
+        if (iovecs.len == 0) return 0;
 
         var i: usize = 0;
         var off: usize = 0;

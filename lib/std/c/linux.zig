@@ -61,6 +61,23 @@ pub const EAI = extern enum(c_int) {
     _,
 };
 
+pub extern "c" fn fallocate64(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
+pub extern "c" fn fopen64(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
+pub extern "c" fn fstat64(fd: fd_t, buf: *libc_stat) c_int;
+pub extern "c" fn fstatat64(dirfd: fd_t, path: [*:0]const u8, stat_buf: *libc_stat, flags: u32) c_int;
+pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
+pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
+pub extern "c" fn lseek64(fd: fd_t, offset: i64, whence: c_int) i64;
+pub extern "c" fn mmap64(addr: ?*align(std.mem.page_size) c_void, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *c_void;
+pub extern "c" fn open64(path: [*:0]const u8, oflag: c_uint, ...) c_int;
+pub extern "c" fn openat64(fd: c_int, path: [*:0]const u8, oflag: c_uint, ...) c_int;
+pub extern "c" fn pread64(fd: fd_t, buf: [*]u8, nbyte: usize, offset: i64) isize;
+pub extern "c" fn preadv64(fd: c_int, iov: [*]const iovec, iovcnt: c_uint, offset: i64) isize;
+pub extern "c" fn pwrite64(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: i64) isize;
+pub extern "c" fn pwritev64(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, offset: i64) isize;
+pub extern "c" fn sendfile64(out_fd: fd_t, in_fd: fd_t, offset: ?*i64, count: usize) isize;
+pub extern "c" fn setrlimit64(resource: rlimit_resource, rlim: *const rlimit) c_int;
+
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn sched_getaffinity(pid: c_int, size: usize, set: *cpu_set_t) c_int;
 pub extern "c" fn eventfd(initval: c_uint, flags: c_uint) c_int;
@@ -89,8 +106,6 @@ pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 
 pub extern "c" fn fallocate(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
-
-pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
 
 pub extern "c" fn sendfile(
     out_fd: fd_t,

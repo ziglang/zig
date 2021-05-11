@@ -520,6 +520,89 @@ test "makePath, put some files in it, deleteTree" {
     }
 }
 
+test "writev, readv" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const line1 = "line1\n";
+    const line2 = "line2\n";
+
+    var buf1: [line1.len]u8 = undefined;
+    var buf2: [line2.len]u8 = undefined;
+    var write_vecs = [_]std.os.iovec_const{
+        .{
+            .iov_base = line1,
+            .iov_len = line1.len,
+        },
+        .{
+            .iov_base = line2,
+            .iov_len = line2.len,
+        },
+    };
+    var read_vecs = [_]std.os.iovec{
+        .{
+            .iov_base = &buf2,
+            .iov_len = buf2.len,
+        },
+        .{
+            .iov_base = &buf1,
+            .iov_len = buf1.len,
+        },
+    };
+
+    var src_file = try tmp.dir.createFile("test.txt", .{ .read = true });
+    defer src_file.close();
+
+    try src_file.writevAll(&write_vecs);
+    try testing.expectEqual(@as(u64, line1.len + line2.len), try src_file.getEndPos());
+    try src_file.seekTo(0);
+    const read = try src_file.readvAll(&read_vecs);
+    try testing.expectEqual(@as(usize, line1.len + line2.len), read);
+    try testing.expectEqualStrings(&buf1, "line2\n");
+    try testing.expectEqualStrings(&buf2, "line1\n");
+}
+
+test "pwritev, preadv" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const line1 = "line1\n";
+    const line2 = "line2\n";
+
+    var buf1: [line1.len]u8 = undefined;
+    var buf2: [line2.len]u8 = undefined;
+    var write_vecs = [_]std.os.iovec_const{
+        .{
+            .iov_base = line1,
+            .iov_len = line1.len,
+        },
+        .{
+            .iov_base = line2,
+            .iov_len = line2.len,
+        },
+    };
+    var read_vecs = [_]std.os.iovec{
+        .{
+            .iov_base = &buf2,
+            .iov_len = buf2.len,
+        },
+        .{
+            .iov_base = &buf1,
+            .iov_len = buf1.len,
+        },
+    };
+
+    var src_file = try tmp.dir.createFile("test.txt", .{ .read = true });
+    defer src_file.close();
+
+    try src_file.pwritevAll(&write_vecs, 16);
+    try testing.expectEqual(@as(u64, 16 + line1.len + line2.len), try src_file.getEndPos());
+    const read = try src_file.preadvAll(&read_vecs, 16);
+    try testing.expectEqual(@as(usize, line1.len + line2.len), read);
+    try testing.expectEqualStrings(&buf1, "line2\n");
+    try testing.expectEqualStrings(&buf2, "line1\n");
+}
+
 test "access file" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 

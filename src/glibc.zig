@@ -40,10 +40,11 @@ pub const ABI = struct {
     }
 };
 
+// The order of the elements in this array defines the linking order.
 pub const libs = [_]Lib{
-    .{ .name = "c", .sover = 6 },
     .{ .name = "m", .sover = 6 },
     .{ .name = "pthread", .sover = 0 },
+    .{ .name = "c", .sover = 6 },
     .{ .name = "dl", .sover = 2 },
     .{ .name = "rt", .sover = 1 },
     .{ .name = "ld", .sover = 2 },

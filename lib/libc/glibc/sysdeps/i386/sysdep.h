@@ -61,7 +61,7 @@ lose: SYSCALL_PIC_SETUP							      \
 
 # define SETUP_PIC_REG(reg) \
   .ifndef GET_PC_THUNK(reg);						      \
-  .section .gnu.linkonce.t.GET_PC_THUNK(reg),"ax",@progbits;		      \
+  .section .text.GET_PC_THUNK(reg),"axG",@progbits,GET_PC_THUNK(reg),comdat;  \
   .globl GET_PC_THUNK(reg);						      \
   .hidden GET_PC_THUNK(reg);						      \
   .p2align 4;								      \
@@ -97,8 +97,9 @@ GET_PC_THUNK(reg):							      \
 
 # define SETUP_PIC_REG_STR(reg)						\
   ".ifndef " GET_PC_THUNK_STR (reg) "\n"				\
-  ".section .gnu.linkonce.t." GET_PC_THUNK_STR (reg) ",\"ax\",@progbits\n" \
+  "section .text." GET_PC_THUNK_STR (reg) ",\"axG\",@progbits," 	\
   ".globl " GET_PC_THUNK_STR (reg) "\n"					\
+  GET_PC_THUNK_STR (reg) ",comdat\n" \
   ".hidden " GET_PC_THUNK_STR (reg) "\n"				\
   ".p2align 4\n"							\
   ".type " GET_PC_THUNK_STR (reg) ",@function\n"			\
