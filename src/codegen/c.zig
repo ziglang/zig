@@ -61,12 +61,13 @@ fn formatIdent(
     for (ident) |c, i| {
         switch (c) {
             'a'...'z', 'A'...'Z', '_' => try writer.writeByte(c),
+            '.' => try writer.writeByte('_'),
             '0'...'9' => if (i == 0) {
-                try writer.print("${x:2}", .{c});
+                try writer.print("_{x:2}", .{c});
             } else {
                 try writer.writeByte(c);
             },
-            else => try writer.print("${x:2}", .{c}),
+            else => try writer.print("_{x:2}", .{c}),
         }
     }
 }
@@ -599,7 +600,6 @@ pub fn genDecl(o: *Object) !void {
         }
         try w.writeAll(";");
         try o.indent_writer.insertNewline();
-
     } else {
         const writer = o.writer();
         try writer.writeAll("static ");
