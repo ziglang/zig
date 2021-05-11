@@ -1676,8 +1676,21 @@ pub fn totalErrorCount(self: *Compilation) usize {
 
     if (self.bin_file.options.module) |module| {
         total += module.failed_exports.items().len +
-            module.failed_files.items().len +
             @boolToInt(module.failed_root_src_file != null);
+
+        for (module.failed_files.items()) |entry| {
+            if (entry.value) |_| {
+                total += 1;
+            } else {
+                const file = entry.key;
+                assert(file.zir_loaded);
+                const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
+                assert(payload_index != 0);
+                const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
+                total += header.data.items_len;
+            }
+        }
+
         // Skip errors for Decls within files that failed parsing.
         // When a parse error is introduced, we keep all the semantic analysis for
         // the previous parse success, including compile errors, but we cannot
