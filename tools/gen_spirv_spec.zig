@@ -114,7 +114,8 @@ pub fn main() !void {
     try render(buf.writer(), registry);
 
     const tree = try std.zig.parse(allocator, buf.items);
-    _ = try std.zig.render(allocator, std.io.getStdOut().writer(), tree);
+    const formatted = try tree.render(allocator);
+    try std.io.getStdOut().writeAll(formatted);
 }
 
 fn render(writer: Writer, registry: Registry) !void {
