@@ -350,16 +350,12 @@ pub fn analyzeBody(
             .trunc => try sema.zirUnaryMath(block, inst),
             .round => try sema.zirUnaryMath(block, inst),
 
-            .struct_decl             => try sema.zirStructDecl(block, inst, .Auto),
-            .struct_decl_packed      => try sema.zirStructDecl(block, inst, .Packed),
-            .struct_decl_extern      => try sema.zirStructDecl(block, inst, .Extern),
-            .enum_decl               => try sema.zirEnumDecl(block, inst, false),
-            .enum_decl_nonexhaustive => try sema.zirEnumDecl(block, inst, true),
-            .union_decl              => try sema.zirUnionDecl(block, inst, .Auto),
-            .union_decl_packed       => try sema.zirUnionDecl(block, inst, .Packed),
-            .union_decl_extern       => try sema.zirUnionDecl(block, inst, .Extern),
-            .opaque_decl             => try sema.zirOpaqueDecl(block, inst),
-            .error_set_decl          => try sema.zirErrorSetDecl(block, inst),
+            .opaque_decl         => try sema.zirOpaqueDecl(block, inst, .parent),
+            .opaque_decl_anon    => try sema.zirOpaqueDecl(block, inst, .anon),
+            .opaque_decl_func    => try sema.zirOpaqueDecl(block, inst, .func),
+            .error_set_decl      => try sema.zirErrorSetDecl(block, inst, .parent),
+            .error_set_decl_anon => try sema.zirErrorSetDecl(block, inst, .anon),
+            .error_set_decl_func => try sema.zirErrorSetDecl(block, inst, .func),
 
             .add     => try sema.zirArithmetic(block, inst),
             .addwrap => try sema.zirArithmetic(block, inst),
@@ -515,6 +511,9 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
         // zig fmt: off
         .func               => return sema.zirFuncExtended(      block, extended, inst),
         .variable           => return sema.zirVarExtended(       block, extended),
+        .struct_decl        => return sema.zirStructDecl(        block, extended, inst),
+        .enum_decl          => return sema.zirEnumDecl(          block, extended),
+        .union_decl         => return sema.zirUnionDecl(         block, extended, inst),
         .ret_ptr            => return sema.zirRetPtr(            block, extended),
         .ret_type           => return sema.zirRetType(           block, extended),
         .this               => return sema.zirThis(              block, extended),
@@ -686,21 +685,34 @@ pub fn analyzeStructDecl(
     inst: Zir.Inst.Index,
     struct_obj: *Module.Struct,
 ) InnerError!void {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.StructDecl, inst_data.payload_index);
-    const decls_len = extra.data.decls_len;
+    const extended = sema.code.instructions.items(.data)[inst].extended;
+    assert(extended.opcode == .struct_decl);
+    const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
 
-    _ = try sema.mod.scanNamespace(&struct_obj.namespace, extra.end, decls_len, new_decl);
+    var extra_index: usize = extended.operand;
+    extra_index += @boolToInt(small.has_src_node);
+    extra_index += @boolToInt(small.has_body_len);
+    extra_index += @boolToInt(small.has_fields_len);
+    const decls_len = if (small.has_decls_len) blk: {
+        const decls_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
+
+    _ = try sema.mod.scanNamespace(&struct_obj.namespace, extra_index, decls_len, new_decl);
 }
 
 fn zirStructDecl(
     sema: *Sema,
     block: *Scope.Block,
+    extended: Zir.Inst.Extended.InstData,
     inst: Zir.Inst.Index,
-    layout: std.builtin.TypeInfo.ContainerLayout,
 ) InnerError!*Inst {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
+    const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
+    const src: LazySrcLoc = if (small.has_src_node) blk: {
+        const node_offset = @bitCast(i32, sema.code.extra[extended.operand]);
+        break :blk .{ .node_offset = node_offset };
+    } else sema.src;
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
 
@@ -714,9 +726,9 @@ fn zirStructDecl(
     struct_obj.* = .{
         .owner_decl = new_decl,
         .fields = .{},
-        .node_offset = inst_data.src_node,
+        .node_offset = src.node_offset,
         .zir_index = inst,
-        .layout = layout,
+        .layout = small.layout,
         .status = .none,
         .namespace = .{
             .parent = sema.owner_decl.namespace,
@@ -735,27 +747,53 @@ fn zirStructDecl(
 fn zirEnumDecl(
     sema: *Sema,
     block: *Scope.Block,
-    inst: Zir.Inst.Index,
-    nonexhaustive: bool,
+    extended: Zir.Inst.Extended.InstData,
 ) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = sema.gpa;
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const extra = sema.code.extraData(Zir.Inst.EnumDecl, inst_data.payload_index);
-    const fields_len = extra.data.fields_len;
-    const decls_len = extra.data.decls_len;
+    const small = @bitCast(Zir.Inst.EnumDecl.Small, extended.small);
+    var extra_index: usize = extended.operand;
+
+    const src: LazySrcLoc = if (small.has_src_node) blk: {
+        const node_offset = @bitCast(i32, sema.code.extra[extra_index]);
+        extra_index += 1;
+        break :blk .{ .node_offset = node_offset };
+    } else sema.src;
+
+    const tag_type_ref = if (small.has_tag_type) blk: {
+        const tag_type_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        break :blk tag_type_ref;
+    } else .none;
+
+    const body_len = if (small.has_body_len) blk: {
+        const body_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        break :blk body_len;
+    } else 0;
+
+    const fields_len = if (small.has_fields_len) blk: {
+        const fields_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        break :blk fields_len;
+    } else 0;
+
+    const decls_len = if (small.has_decls_len) blk: {
+        const decls_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
 
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
 
     const tag_ty = blk: {
-        if (extra.data.tag_type != .none) {
+        if (tag_type_ref != .none) {
             // TODO better source location
             // TODO (needs AstGen fix too) move this eval to the block so it gets allocated
             // in the new decl arena.
-            break :blk try sema.resolveType(block, src, extra.data.tag_type);
+            break :blk try sema.resolveType(block, src, tag_type_ref);
         }
         const bits = std.math.log2_int_ceil(usize, fields_len);
         break :blk try Type.Tag.int_unsigned.create(&new_decl_arena.allocator, bits);
@@ -764,7 +802,7 @@ fn zirEnumDecl(
     const enum_obj = try new_decl_arena.allocator.create(Module.EnumFull);
     const enum_ty_payload = try new_decl_arena.allocator.create(Type.Payload.EnumFull);
     enum_ty_payload.* = .{
-        .base = .{ .tag = if (nonexhaustive) .enum_nonexhaustive else .enum_full },
+        .base = .{ .tag = if (small.nonexhaustive) .enum_nonexhaustive else .enum_full },
         .data = enum_obj,
     };
     const enum_ty = Type.initPayload(&enum_ty_payload.base);
@@ -778,7 +816,7 @@ fn zirEnumDecl(
         .tag_ty = tag_ty,
         .fields = .{},
         .values = .{},
-        .node_offset = inst_data.src_node,
+        .node_offset = src.node_offset,
         .namespace = .{
             .parent = sema.owner_decl.namespace,
             .ty = enum_ty,
@@ -789,14 +827,9 @@ fn zirEnumDecl(
         &enum_obj.namespace, new_decl, new_decl.name,
     });
 
-    var extra_index: usize = try sema.mod.scanNamespace(
-        &enum_obj.namespace,
-        extra.end,
-        decls_len,
-        new_decl,
-    );
+    extra_index = try sema.mod.scanNamespace(&enum_obj.namespace, extra_index, decls_len, new_decl);
 
-    const body = sema.code.extra[extra_index..][0..extra.data.body_len];
+    const body = sema.code.extra[extra_index..][0..body_len];
     if (fields_len == 0) {
         assert(body.len == 0);
         try new_decl.finalizeNewArena(&new_decl_arena);
@@ -894,16 +927,30 @@ fn zirEnumDecl(
 fn zirUnionDecl(
     sema: *Sema,
     block: *Scope.Block,
+    extended: Zir.Inst.Extended.InstData,
     inst: Zir.Inst.Index,
-    layout: std.builtin.TypeInfo.ContainerLayout,
 ) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const extra = sema.code.extraData(Zir.Inst.UnionDecl, inst_data.payload_index);
-    const decls_len = extra.data.decls_len;
+    const small = @bitCast(Zir.Inst.UnionDecl.Small, extended.small);
+    var extra_index: usize = extended.operand;
+
+    const src: LazySrcLoc = if (small.has_src_node) blk: {
+        const node_offset = @bitCast(i32, sema.code.extra[extra_index]);
+        extra_index += 1;
+        break :blk .{ .node_offset = node_offset };
+    } else sema.src;
+
+    extra_index += @boolToInt(small.has_tag_type);
+    extra_index += @boolToInt(small.has_body_len);
+    extra_index += @boolToInt(small.has_fields_len);
+
+    const decls_len = if (small.has_decls_len) blk: {
+        const decls_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
 
@@ -918,9 +965,9 @@ fn zirUnionDecl(
         .owner_decl = new_decl,
         .tag_ty = Type.initTag(.@"null"),
         .fields = .{},
-        .node_offset = inst_data.src_node,
+        .node_offset = src.node_offset,
         .zir_index = inst,
-        .layout = layout,
+        .layout = small.layout,
         .status = .none,
         .namespace = .{
             .parent = sema.owner_decl.namespace,
@@ -932,13 +979,18 @@ fn zirUnionDecl(
         &union_obj.namespace, new_decl, new_decl.name,
     });
 
-    _ = try sema.mod.scanNamespace(&union_obj.namespace, extra.end, decls_len, new_decl);
+    _ = try sema.mod.scanNamespace(&union_obj.namespace, extra_index, decls_len, new_decl);
 
     try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclVal(block, src, new_decl);
 }
 
-fn zirOpaqueDecl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirOpaqueDecl(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: Zir.Inst.Index,
+    name_strategy: Zir.Inst.NameStrategy,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -949,7 +1001,12 @@ fn zirOpaqueDecl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirOpaqueDecl", .{});
 }
 
-fn zirErrorSetDecl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirErrorSetDecl(
+    sema: *Sema,
+    block: *Scope.Block,
+    inst: Zir.Inst.Index,
+    name_strategy: Zir.Inst.NameStrategy,
+) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 

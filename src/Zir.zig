@@ -296,34 +296,16 @@ pub const Inst = struct {
         /// only the taken branch is analyzed. The then block and else block must
         /// terminate with an "inline" variant of a noreturn instruction.
         condbr_inline,
-        /// A struct type definition. Contains references to ZIR instructions for
-        /// the field types, defaults, and alignments.
-        /// Uses the `pl_node` union field. Payload is `StructDecl`.
-        struct_decl,
-        /// Same as `struct_decl`, except has the `packed` layout.
-        struct_decl_packed,
-        /// Same as `struct_decl`, except has the `extern` layout.
-        struct_decl_extern,
-        /// A union type definition. Contains references to ZIR instructions for
-        /// the field types and optional type tag expression.
-        /// Uses the `pl_node` union field. Payload is `UnionDecl`.
-        union_decl,
-        /// Same as `union_decl`, except has the `packed` layout.
-        union_decl_packed,
-        /// Same as `union_decl`, except has the `extern` layout.
-        union_decl_extern,
-        /// An enum type definition. Contains references to ZIR instructions for
-        /// the field value expressions and optional type tag expression.
-        /// Uses the `pl_node` union field. Payload is `EnumDecl`.
-        enum_decl,
-        /// Same as `enum_decl`, except the enum is non-exhaustive.
-        enum_decl_nonexhaustive,
         /// An opaque type definition. Provides an AST node only.
         /// Uses the `pl_node` union field. Payload is `OpaqueDecl`.
         opaque_decl,
+        opaque_decl_anon,
+        opaque_decl_func,
         /// An error set type definition. Contains a list of field names.
         /// Uses the `pl_node` union field. Payload is `ErrorSetDecl`.
         error_set_decl,
+        error_set_decl_anon,
+        error_set_decl_func,
         /// Declares the beginning of a statement. Used for debug info.
         /// Uses the `dbg_stmt` union field. The line and column are offset
         /// from the parent declaration.
@@ -1011,16 +993,12 @@ pub const Inst = struct {
                 .cmp_gt,
                 .cmp_neq,
                 .coerce_result_ptr,
-                .struct_decl,
-                .struct_decl_packed,
-                .struct_decl_extern,
-                .union_decl,
-                .union_decl_packed,
-                .union_decl_extern,
-                .enum_decl,
-                .enum_decl_nonexhaustive,
                 .opaque_decl,
+                .opaque_decl_anon,
+                .opaque_decl_func,
                 .error_set_decl,
+                .error_set_decl_anon,
+                .error_set_decl_func,
                 .dbg_stmt,
                 .decl_ref,
                 .decl_val,
@@ -1271,16 +1249,12 @@ pub const Inst = struct {
                 .coerce_result_ptr = .bin,
                 .condbr = .pl_node,
                 .condbr_inline = .pl_node,
-                .struct_decl = .pl_node,
-                .struct_decl_packed = .pl_node,
-                .struct_decl_extern = .pl_node,
-                .union_decl = .pl_node,
-                .union_decl_packed = .pl_node,
-                .union_decl_extern = .pl_node,
-                .enum_decl = .pl_node,
-                .enum_decl_nonexhaustive = .pl_node,
                 .opaque_decl = .pl_node,
+                .opaque_decl_anon = .pl_node,
+                .opaque_decl_func = .pl_node,
                 .error_set_decl = .pl_node,
+                .error_set_decl_anon = .pl_node,
+                .error_set_decl_func = .pl_node,
                 .dbg_stmt = .dbg_stmt,
                 .decl_ref = .str_tok,
                 .decl_val = .str_tok,
@@ -1507,6 +1481,21 @@ pub const Inst = struct {
         /// `operand` is payload index to `ExtendedVar`.
         /// `small` is `ExtendedVar.Small`.
         variable,
+        /// A struct type definition. Contains references to ZIR instructions for
+        /// the field types, defaults, and alignments.
+        /// `operand` is payload index to `StructDecl`.
+        /// `small` is `StructDecl.Small`.
+        struct_decl,
+        /// An enum type definition. Contains references to ZIR instructions for
+        /// the field value expressions and optional type tag expression.
+        /// `operand` is payload index to `EnumDecl`.
+        /// `small` is `EnumDecl.Small`.
+        enum_decl,
+        /// A union type definition. Contains references to ZIR instructions for
+        /// the field types and optional type tag expression.
+        /// `operand` is payload index to `UnionDecl`.
+        /// `small` is `UnionDecl.Small`.
+        union_decl,
         /// Obtains a pointer to the return value.
         /// `operand` is `src_node: i32`.
         ret_ptr,
@@ -2251,9 +2240,9 @@ pub const Inst = struct {
         body_len: u32,
 
         pub const SrcLocs = struct {
-            /// Absolute line number in the source file.
+            /// Absolute line index in the source file.
             lbrace_line: u32,
-            /// Absolute line number in the source file.
+            /// Absolute line index in the source file.
             rbrace_line: u32,
             /// lbrace_column is least significant bits u16
             /// rbrace_column is most significant bits u16
@@ -2414,13 +2403,17 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. decl_bits: u32 // for every 8 decls
+    /// 0. src_node: i32, // if has_src_node
+    /// 1. body_len: u32, // if has_body_len
+    /// 2. fields_len: u32, // if has_fields_len
+    /// 3. decls_len: u32, // if has_decls_len
+    /// 4. decl_bits: u32 // for every 8 decls
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection expression
-    /// 1. decl: { // for every decls_len
+    /// 5. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
@@ -2433,14 +2426,14 @@ pub const Inst = struct {
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
     ///    }
-    /// 2. inst: Index // for every body_len
-    /// 3. flags: u32 // for every 8 fields
+    /// 6. inst: Index // for every body_len
+    /// 7. flags: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has an align expression
     ///      0b00X0: whether corresponding field has a default expression
     ///      0b0X00: whether corresponding field is comptime
     ///      0bX000: unused
-    /// 4. fields: { // for every fields_len
+    /// 8. fields: { // for every fields_len
     ///        field_name: u32,
     ///        field_type: Ref,
     ///        - if none, means `anytype`.
@@ -2448,19 +2441,42 @@ pub const Inst = struct {
     ///        default_value: Ref, // if corresponding bit is set
     ///    }
     pub const StructDecl = struct {
-        body_len: u32,
-        fields_len: u32,
-        decls_len: u32,
+        pub const Small = packed struct {
+            has_src_node: bool,
+            has_body_len: bool,
+            has_fields_len: bool,
+            has_decls_len: bool,
+            name_strategy: NameStrategy,
+            layout: std.builtin.TypeInfo.ContainerLayout,
+            _: u8 = undefined,
+        };
+    };
+
+    pub const NameStrategy = enum(u2) {
+        /// Use the same name as the parent declaration name.
+        /// e.g. `const Foo = struct {...};`.
+        parent,
+        /// Use the name of the currently executing comptime function call,
+        /// with the current parameters. e.g. `ArrayList(i32)`.
+        func,
+        /// Create an anonymous name for this declaration.
+        /// Like this: "ParentDeclName_struct_69"
+        anon,
     };
 
     /// Trailing:
-    /// 0. decl_bits: u32 // for every 8 decls
+    /// 0. src_node: i32, // if has_src_node
+    /// 1. tag_type: Ref, // if has_tag_type
+    /// 2. body_len: u32, // if has_body_len
+    /// 3. fields_len: u32, // if has_fields_len
+    /// 4. decls_len: u32, // if has_decls_len
+    /// 5. decl_bits: u32 // for every 8 decls
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection expression
-    /// 1. decl: { // for every decls_len
+    /// 6. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
@@ -2473,29 +2489,39 @@ pub const Inst = struct {
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
     ///    }
-    /// 2. inst: Index // for every body_len
-    /// 3. has_bits: u32 // for every 32 fields
+    /// 7. inst: Index // for every body_len
+    /// 8. has_bits: u32 // for every 32 fields
     ///    - the bit is whether corresponding field has an value expression
-    /// 4. fields: { // for every fields_len
+    /// 9. fields: { // for every fields_len
     ///        field_name: u32,
     ///        value: Ref, // if corresponding bit is set
     ///    }
     pub const EnumDecl = struct {
-        /// Can be `Ref.none`.
-        tag_type: Ref,
-        body_len: u32,
-        fields_len: u32,
-        decls_len: u32,
+        pub const Small = packed struct {
+            has_src_node: bool,
+            has_tag_type: bool,
+            has_body_len: bool,
+            has_fields_len: bool,
+            has_decls_len: bool,
+            name_strategy: NameStrategy,
+            nonexhaustive: bool,
+            _: u8 = undefined,
+        };
     };
 
     /// Trailing:
-    /// 0. decl_bits: u32 // for every 8 decls
+    /// 0. src_node: i32, // if has_src_node
+    /// 1. tag_type: Ref, // if has_tag_type
+    /// 2. body_len: u32, // if has_body_len
+    /// 3. fields_len: u32, // if has_fields_len
+    /// 4. decls_len: u32, // if has_decls_len
+    /// 5. decl_bits: u32 // for every 8 decls
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection expression
-    /// 1. decl: { // for every decls_len
+    /// 6. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
@@ -2508,29 +2534,33 @@ pub const Inst = struct {
     ///        align: Ref, // if corresponding bit is set
     ///        link_section: Ref, // if corresponding bit is set
     ///    }
-    /// 2. inst: Index // for every body_len
-    /// 3. has_bits: u32 // for every 8 fields
+    /// 7. inst: Index // for every body_len
+    /// 8. has_bits: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has a type expression
     ///      0b00X0: whether corresponding field has a align expression
     ///      0b0X00: whether corresponding field has a tag value expression
-    ///      0bX000: unused(*)
-    ///    * the first unused bit (the unused bit of the first field) is used
-    ///      to indicate whether auto enum tag is enabled.
-    ///      0 = union(tag_type)
-    ///      1 = union(enum(tag_type))
-    /// 4. fields: { // for every fields_len
+    ///      0bX000: unused
+    /// 9. fields: { // for every fields_len
     ///        field_name: u32, // null terminated string index
     ///        field_type: Ref, // if corresponding bit is set
     ///        align: Ref, // if corresponding bit is set
     ///        tag_value: Ref, // if corresponding bit is set
     ///    }
     pub const UnionDecl = struct {
-        /// Can be `Ref.none`.
-        tag_type: Ref,
-        body_len: u32,
-        fields_len: u32,
-        decls_len: u32,
+        pub const Small = packed struct {
+            has_src_node: bool,
+            has_tag_type: bool,
+            has_body_len: bool,
+            has_fields_len: bool,
+            has_decls_len: bool,
+            name_strategy: NameStrategy,
+            layout: std.builtin.TypeInfo.ContainerLayout,
+            /// false: union(tag_type)
+            ///  true: union(enum(tag_type))
+            auto_enum_tag: bool,
+            _: u6 = undefined,
+        };
     };
 
     /// Trailing:
@@ -2901,8 +2931,6 @@ const Writer = struct {
             .field_type => try self.writeFieldType(stream, inst),
             .field_type_ref => try self.writeFieldTypeRef(stream, inst),
 
-            .error_set_decl => try self.writePlNodeErrorSetDecl(stream, inst),
-
             .add,
             .addwrap,
             .array_cat,
@@ -2980,21 +3008,13 @@ const Writer = struct {
             .condbr_inline,
             => try self.writePlNodeCondBr(stream, inst),
 
-            .struct_decl,
-            .struct_decl_packed,
-            .struct_decl_extern,
-            => try self.writeStructDecl(stream, inst),
+            .opaque_decl => try self.writeOpaqueDecl(stream, inst, .parent),
+            .opaque_decl_anon => try self.writeOpaqueDecl(stream, inst, .anon),
+            .opaque_decl_func => try self.writeOpaqueDecl(stream, inst, .func),
 
-            .union_decl,
-            .union_decl_packed,
-            .union_decl_extern,
-            => try self.writeUnionDecl(stream, inst),
-
-            .enum_decl,
-            .enum_decl_nonexhaustive,
-            => try self.writeEnumDecl(stream, inst),
-
-            .opaque_decl => try self.writeOpaqueDecl(stream, inst),
+            .error_set_decl => try self.writeErrorSetDecl(stream, inst, .parent),
+            .error_set_decl_anon => try self.writeErrorSetDecl(stream, inst, .anon),
+            .error_set_decl_func => try self.writeErrorSetDecl(stream, inst, .func),
 
             .switch_block => try self.writePlNodeSwitchBr(stream, inst, .none),
             .switch_block_else => try self.writePlNodeSwitchBr(stream, inst, .@"else"),
@@ -3079,6 +3099,10 @@ const Writer = struct {
             .mul_with_overflow,
             .shl_with_overflow,
             => try self.writeOverflowArithmetic(stream, extended),
+
+            .struct_decl => try self.writeStructDecl(stream, extended),
+            .union_decl => try self.writeUnionDecl(stream, extended),
+            .enum_decl => try self.writeEnumDecl(stream, extended),
 
             .alloc,
             .builtin_extern,
@@ -3315,25 +3339,6 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writePlNodeErrorSetDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Inst.ErrorSetDecl, inst_data.payload_index);
-        const fields = self.code.extra[extra.end..][0..extra.data.fields_len];
-
-        try stream.writeAll("{\n");
-        self.indent += 2;
-        for (fields) |str_index| {
-            const name = self.code.nullTerminatedString(str_index);
-            try stream.writeByteNTimes(' ', self.indent);
-            try stream.print("{},\n", .{std.zig.fmtId(name)});
-        }
-        self.indent -= 2;
-        try stream.writeByteNTimes(' ', self.indent);
-        try stream.writeAll("}) ");
-
-        try self.writeSrc(stream, inst_data.src());
-    }
-
     fn writeNodeMultiOp(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Inst.NodeMultiOp, extended.operand);
         const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
@@ -3483,33 +3488,56 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeStructDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Inst.StructDecl, inst_data.payload_index);
-        const fields_len = extra.data.fields_len;
-        const decls_len = extra.data.decls_len;
+    fn writeStructDecl(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
+        const small = @bitCast(Inst.StructDecl.Small, extended.small);
 
-        var extra_index: usize = undefined;
+        var extra_index: usize = extended.operand;
+
+        const src_node: ?i32 = if (small.has_src_node) blk: {
+            const src_node = @bitCast(i32, self.code.extra[extra_index]);
+            extra_index += 1;
+            break :blk src_node;
+        } else null;
+
+        const body_len = if (small.has_body_len) blk: {
+            const body_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk body_len;
+        } else 0;
+
+        const fields_len = if (small.has_fields_len) blk: {
+            const fields_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk fields_len;
+        } else 0;
+
+        const decls_len = if (small.has_decls_len) blk: {
+            const decls_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk decls_len;
+        } else 0;
+
+        try stream.print("{s}, {s}, ", .{
+            @tagName(small.name_strategy), @tagName(small.layout),
+        });
 
         if (decls_len == 0) {
             try stream.writeAll("{}, ");
-            extra_index = extra.end;
         } else {
             try stream.writeAll("{\n");
             self.indent += 2;
-            extra_index = try self.writeDecls(stream, decls_len, extra.end);
+            extra_index = try self.writeDecls(stream, decls_len, extra_index);
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("}, ");
         }
 
-        const body = self.code.extra[extra_index..][0..extra.data.body_len];
+        const body = self.code.extra[extra_index..][0..body_len];
         extra_index += body.len;
 
         if (fields_len == 0) {
             assert(body.len == 0);
-            try stream.writeAll("{}, {}) ");
-            extra_index = extra.end;
+            try stream.writeAll("{}, {})");
         } else {
             self.indent += 2;
             if (body.len == 0) {
@@ -3575,41 +3603,70 @@ const Writer = struct {
 
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.writeAll("}) ");
+            try stream.writeAll("})");
         }
-        try self.writeSrc(stream, inst_data.src());
+        try self.writeSrcNode(stream, src_node);
     }
 
-    fn writeUnionDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Inst.UnionDecl, inst_data.payload_index);
-        const fields_len = extra.data.fields_len;
-        const decls_len = extra.data.decls_len;
-        const tag_type_ref = extra.data.tag_type;
+    fn writeUnionDecl(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
+        const small = @bitCast(Inst.UnionDecl.Small, extended.small);
 
-        var extra_index: usize = undefined;
+        var extra_index: usize = extended.operand;
+
+        const src_node: ?i32 = if (small.has_src_node) blk: {
+            const src_node = @bitCast(i32, self.code.extra[extra_index]);
+            extra_index += 1;
+            break :blk src_node;
+        } else null;
+
+        const tag_type_ref = if (small.has_tag_type) blk: {
+            const tag_type_ref = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+            extra_index += 1;
+            break :blk tag_type_ref;
+        } else .none;
+
+        const body_len = if (small.has_body_len) blk: {
+            const body_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk body_len;
+        } else 0;
+
+        const fields_len = if (small.has_fields_len) blk: {
+            const fields_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk fields_len;
+        } else 0;
+
+        const decls_len = if (small.has_decls_len) blk: {
+            const decls_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk decls_len;
+        } else 0;
+
+        try stream.print("{s}, {s}, ", .{
+            @tagName(small.name_strategy), @tagName(small.layout),
+        });
+        try self.writeFlag(stream, "autoenum, ", small.auto_enum_tag);
 
         if (decls_len == 0) {
             try stream.writeAll("{}, ");
-            extra_index = extra.end;
         } else {
             try stream.writeAll("{\n");
             self.indent += 2;
-            extra_index = try self.writeDecls(stream, decls_len, extra.end);
+            extra_index = try self.writeDecls(stream, decls_len, extra_index);
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("}, ");
         }
 
         assert(fields_len != 0);
-        var first_has_auto_enum: ?bool = null;
 
         if (tag_type_ref != .none) {
             try self.writeInstRef(stream, tag_type_ref);
             try stream.writeAll(", ");
         }
 
-        const body = self.code.extra[extra_index..][0..extra.data.body_len];
+        const body = self.code.extra[extra_index..][0..body_len];
         extra_index += body.len;
 
         self.indent += 2;
@@ -3642,12 +3699,10 @@ const Writer = struct {
             cur_bit_bag >>= 1;
             const has_value = @truncate(u1, cur_bit_bag) != 0;
             cur_bit_bag >>= 1;
-            const has_auto_enum = @truncate(u1, cur_bit_bag) != 0;
+            const unused = @truncate(u1, cur_bit_bag) != 0;
             cur_bit_bag >>= 1;
 
-            if (first_has_auto_enum == null) {
-                first_has_auto_enum = has_auto_enum;
-            }
+            _ = unused;
 
             const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
             extra_index += 1;
@@ -3681,10 +3736,8 @@ const Writer = struct {
 
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
-        try stream.writeAll("}");
-        try self.writeFlag(stream, ", autoenum", first_has_auto_enum.?);
-        try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
+        try stream.writeAll("})");
+        try self.writeSrcNode(stream, src_node);
     }
 
     fn writeDecls(self: *Writer, stream: anytype, decls_len: u32, extra_start: usize) !usize {
@@ -3776,22 +3829,49 @@ const Writer = struct {
         return extra_index;
     }
 
-    fn writeEnumDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Inst.EnumDecl, inst_data.payload_index);
-        const fields_len = extra.data.fields_len;
-        const decls_len = extra.data.decls_len;
-        const tag_type_ref = extra.data.tag_type;
+    fn writeEnumDecl(self: *Writer, stream: anytype, extended: Inst.Extended.InstData) !void {
+        const small = @bitCast(Inst.EnumDecl.Small, extended.small);
+        var extra_index: usize = extended.operand;
 
-        var extra_index: usize = undefined;
+        const src_node: ?i32 = if (small.has_src_node) blk: {
+            const src_node = @bitCast(i32, self.code.extra[extra_index]);
+            extra_index += 1;
+            break :blk src_node;
+        } else null;
+
+        const tag_type_ref = if (small.has_tag_type) blk: {
+            const tag_type_ref = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+            extra_index += 1;
+            break :blk tag_type_ref;
+        } else .none;
+
+        const body_len = if (small.has_body_len) blk: {
+            const body_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk body_len;
+        } else 0;
+
+        const fields_len = if (small.has_fields_len) blk: {
+            const fields_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk fields_len;
+        } else 0;
+
+        const decls_len = if (small.has_decls_len) blk: {
+            const decls_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk decls_len;
+        } else 0;
+
+        try stream.print("{s}, ", .{@tagName(small.name_strategy)});
+        try self.writeFlag(stream, "nonexhaustive, ", small.nonexhaustive);
 
         if (decls_len == 0) {
             try stream.writeAll("{}, ");
-            extra_index = extra.end;
         } else {
             try stream.writeAll("{\n");
             self.indent += 2;
-            extra_index = try self.writeDecls(stream, decls_len, extra.end);
+            extra_index = try self.writeDecls(stream, decls_len, extra_index);
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("}, ");
@@ -3802,12 +3882,12 @@ const Writer = struct {
             try stream.writeAll(", ");
         }
 
-        const body = self.code.extra[extra_index..][0..extra.data.body_len];
+        const body = self.code.extra[extra_index..][0..body_len];
         extra_index += body.len;
 
         if (fields_len == 0) {
             assert(body.len == 0);
-            try stream.writeAll("{}, {}) ");
+            try stream.writeAll("{}, {})");
         } else {
             self.indent += 2;
             if (body.len == 0) {
@@ -3851,15 +3931,22 @@ const Writer = struct {
             }
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.writeAll("}) ");
+            try stream.writeAll("})");
         }
-        try self.writeSrc(stream, inst_data.src());
+        try self.writeSrcNode(stream, src_node);
     }
 
-    fn writeOpaqueDecl(self: *Writer, stream: anytype, inst: Inst.Index) !void {
+    fn writeOpaqueDecl(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+        name_strategy: Inst.NameStrategy,
+    ) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Inst.OpaqueDecl, inst_data.payload_index);
         const decls_len = extra.data.decls_len;
+
+        try stream.print("{s}, ", .{@tagName(name_strategy)});
 
         if (decls_len == 0) {
             try stream.writeAll("}) ");
@@ -3871,6 +3958,32 @@ const Writer = struct {
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("}) ");
         }
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeErrorSetDecl(
+        self: *Writer,
+        stream: anytype,
+        inst: Inst.Index,
+        name_strategy: Inst.NameStrategy,
+    ) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Inst.ErrorSetDecl, inst_data.payload_index);
+        const fields = self.code.extra[extra.end..][0..extra.data.fields_len];
+
+        try stream.print("{s}, ", .{@tagName(name_strategy)});
+
+        try stream.writeAll("{\n");
+        self.indent += 2;
+        for (fields) |str_index| {
+            const name = self.code.nullTerminatedString(str_index);
+            try stream.writeByteNTimes(' ', self.indent);
+            try stream.print("{},\n", .{std.zig.fmtId(name)});
+        }
+        self.indent -= 2;
+        try stream.writeByteNTimes(' ', self.indent);
+        try stream.writeAll("}) ");
+
         try self.writeSrc(stream, inst_data.src());
     }
 
@@ -4337,6 +4450,13 @@ const Writer = struct {
         });
     }
 
+    fn writeSrcNode(self: *Writer, stream: anytype, src_node: ?i32) !void {
+        const node_offset = src_node orelse return;
+        const src: LazySrcLoc = .{ .node_offset = node_offset };
+        try stream.writeAll(" ");
+        return self.writeSrc(stream, src);
+    }
+
     fn writeBody(self: *Writer, stream: anytype, body: []const Inst.Index) !void {
         for (body) |inst| {
             try stream.writeByteNTimes(' ', self.indent);
@@ -4389,75 +4509,86 @@ pub const DeclIterator = struct {
 pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
     const tags = zir.instructions.items(.tag);
     const datas = zir.instructions.items(.data);
-    const decl_info: struct {
-        extra_index: usize,
-        decls_len: u32,
-    } = switch (tags[decl_inst]) {
-        .struct_decl,
-        .struct_decl_packed,
-        .struct_decl_extern,
-        => blk: {
-            const inst_data = datas[decl_inst].pl_node;
-            const extra = zir.extraData(Inst.StructDecl, inst_data.payload_index);
-            break :blk .{
-                .extra_index = extra.end,
-                .decls_len = extra.data.decls_len,
-            };
-        },
-
-        .union_decl,
-        .union_decl_packed,
-        .union_decl_extern,
-        => blk: {
-            const inst_data = datas[decl_inst].pl_node;
-            const extra = zir.extraData(Inst.UnionDecl, inst_data.payload_index);
-            break :blk .{
-                .extra_index = extra.end,
-                .decls_len = extra.data.decls_len,
-            };
-        },
-
-        .enum_decl,
-        .enum_decl_nonexhaustive,
-        => blk: {
-            const inst_data = datas[decl_inst].pl_node;
-            const extra = zir.extraData(Inst.EnumDecl, inst_data.payload_index);
-            break :blk .{
-                .extra_index = extra.end,
-                .decls_len = extra.data.decls_len,
-            };
-        },
-
-        .opaque_decl => blk: {
+    switch (tags[decl_inst]) {
+        .opaque_decl,
+        .opaque_decl_anon,
+        .opaque_decl_func,
+        => {
             const inst_data = datas[decl_inst].pl_node;
             const extra = zir.extraData(Inst.OpaqueDecl, inst_data.payload_index);
-            break :blk .{
-                .extra_index = extra.end,
-                .decls_len = extra.data.decls_len,
-            };
+            return declIteratorInner(zir, extra.end, extra.data.decls_len);
         },
 
         // Functions are allowed and yield no iterations.
+        // There is one case matching this in the extended instruction set below.
         .func,
         .func_inferred,
-        .extended, // assume also a function
-        => .{
-            .extra_index = 0,
-            .decls_len = 0,
+        => return declIteratorInner(zir, 0, 0),
+
+        .extended => {
+            const extended = datas[decl_inst].extended;
+            switch (extended.opcode) {
+                .func => return declIteratorInner(zir, 0, 0),
+                .struct_decl => {
+                    const small = @bitCast(Inst.StructDecl.Small, extended.small);
+                    var extra_index: usize = extended.operand;
+                    extra_index += @boolToInt(small.has_src_node);
+                    extra_index += @boolToInt(small.has_body_len);
+                    extra_index += @boolToInt(small.has_fields_len);
+                    const decls_len = if (small.has_decls_len) decls_len: {
+                        const decls_len = zir.extra[extra_index];
+                        extra_index += 1;
+                        break :decls_len decls_len;
+                    } else 0;
+
+                    return declIteratorInner(zir, extra_index, decls_len);
+                },
+                .enum_decl => {
+                    const small = @bitCast(Inst.EnumDecl.Small, extended.small);
+                    var extra_index: usize = extended.operand;
+                    extra_index += @boolToInt(small.has_src_node);
+                    extra_index += @boolToInt(small.has_tag_type);
+                    extra_index += @boolToInt(small.has_body_len);
+                    extra_index += @boolToInt(small.has_fields_len);
+                    const decls_len = if (small.has_decls_len) decls_len: {
+                        const decls_len = zir.extra[extra_index];
+                        extra_index += 1;
+                        break :decls_len decls_len;
+                    } else 0;
+
+                    return declIteratorInner(zir, extra_index, decls_len);
+                },
+                .union_decl => {
+                    const small = @bitCast(Inst.UnionDecl.Small, extended.small);
+                    var extra_index: usize = extended.operand;
+                    extra_index += @boolToInt(small.has_src_node);
+                    extra_index += @boolToInt(small.has_tag_type);
+                    extra_index += @boolToInt(small.has_body_len);
+                    extra_index += @boolToInt(small.has_fields_len);
+                    const decls_len = if (small.has_decls_len) decls_len: {
+                        const decls_len = zir.extra[extra_index];
+                        extra_index += 1;
+                        break :decls_len decls_len;
+                    } else 0;
+
+                    return declIteratorInner(zir, extra_index, decls_len);
+                },
+                else => unreachable,
+            }
         },
-
         else => unreachable,
-    };
+    }
+}
 
-    const bit_bags_count = std.math.divCeil(usize, decl_info.decls_len, 8) catch unreachable;
-
+pub fn declIteratorInner(zir: Zir, extra_index: usize, decls_len: u32) DeclIterator {
+    const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
     return .{
         .zir = zir,
-        .extra_index = decl_info.extra_index + bit_bags_count,
-        .bit_bag_index = decl_info.extra_index,
+        .extra_index = extra_index + bit_bags_count,
+        .bit_bag_index = extra_index,
         .cur_bit_bag = undefined,
         .decl_i = 0,
-        .decls_len = decl_info.decls_len,
+        .decls_len = decls_len,
     };
 }
 
@@ -4480,15 +4611,10 @@ fn findDeclsInner(
 
     switch (tags[inst]) {
         // Decl instructions are interesting but have no body.
-        .struct_decl,
-        .struct_decl_packed,
-        .struct_decl_extern,
-        .union_decl,
-        .union_decl_packed,
-        .union_decl_extern,
-        .enum_decl,
-        .enum_decl_nonexhaustive,
+        // TODO yes they do have a body actually. recurse over them just like block instructions.
         .opaque_decl,
+        .opaque_decl_anon,
+        .opaque_decl_func,
         => return list.append(inst),
 
         // Functions instructions are interesting and have a body.
@@ -4505,19 +4631,28 @@ fn findDeclsInner(
         },
         .extended => {
             const extended = datas[inst].extended;
-            if (extended.opcode != .func) return;
+            switch (extended.opcode) {
+                .func => {
+                    try list.append(inst);
 
-            try list.append(inst);
+                    const extra = zir.extraData(Inst.ExtendedFunc, extended.operand);
+                    const small = @bitCast(Inst.ExtendedFunc.Small, extended.small);
+                    var extra_index: usize = extra.end;
+                    extra_index += @boolToInt(small.has_lib_name);
+                    extra_index += @boolToInt(small.has_cc);
+                    extra_index += @boolToInt(small.has_align);
+                    extra_index += extra.data.param_types_len;
+                    const body = zir.extra[extra_index..][0..extra.data.body_len];
+                    return zir.findDeclsBody(list, body);
+                },
 
-            const extra = zir.extraData(Inst.ExtendedFunc, extended.operand);
-            const small = @bitCast(Inst.ExtendedFunc.Small, extended.small);
-            var extra_index: usize = extra.end;
-            extra_index += @boolToInt(small.has_lib_name);
-            extra_index += @boolToInt(small.has_cc);
-            extra_index += @boolToInt(small.has_align);
-            extra_index += extra.data.param_types_len;
-            const body = zir.extra[extra_index..][0..extra.data.body_len];
-            return zir.findDeclsBody(list, body);
+                .struct_decl,
+                .union_decl,
+                .enum_decl,
+                => return list.append(inst),
+
+                else => return,
+            }
         },
 
         // Block instructions, recurse over the bodies.

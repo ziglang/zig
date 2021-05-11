@@ -263,7 +263,7 @@ pub const TypeInfo = union(enum) {
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
-    pub const ContainerLayout = enum {
+    pub const ContainerLayout = enum(u2) {
         Auto,
         Extern,
         Packed,

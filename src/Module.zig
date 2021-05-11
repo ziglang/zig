@@ -75,6 +75,8 @@ failed_files: std.AutoArrayHashMapUnmanaged(*Scope.File, ?*ErrorMsg) = .{},
 /// The ErrorMsg memory is owned by the `Export`, using Module's general purpose allocator.
 failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
 
+next_anon_name_index: usize = 0,
+
 /// Candidates for deletion. After a semantic analysis update completes, this list
 /// contains Decls that need to be deleted if they end up having no references to them.
 deletion_set: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
@@ -884,7 +886,10 @@ pub const Scope = struct {
         /// Declaration order is preserved via entry order.
         /// Key memory is owned by `decl.name`.
         /// TODO save memory with https://github.com/ziglang/zig/issues/8619.
+        /// Anonymous decls are not stored here; they are kept in `anon_decls` instead.
         decls: std.StringArrayHashMapUnmanaged(*Decl) = .{},
+
+        anon_decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
 
         pub fn deinit(ns: *Namespace, mod: *Module) void {
             ns.clearDecls(mod);
@@ -899,15 +904,27 @@ pub const Scope = struct {
             var decls = ns.decls;
             ns.decls = .{};
 
+            var anon_decls = ns.anon_decls;
+            ns.anon_decls = .{};
+
             for (decls.items()) |entry| {
                 entry.value.destroy(mod);
             }
             decls.deinit(gpa);
+
+            for (anon_decls.items()) |entry| {
+                entry.key.destroy(mod);
+            }
+            anon_decls.deinit(gpa);
         }
 
         pub fn removeDecl(ns: *Namespace, child: *Decl) void {
-            // Preserve declaration order.
-            _ = ns.decls.orderedRemove(mem.spanZ(child.name));
+            if (child.zir_decl_index == 0) {
+                _ = ns.anon_decls.swapRemove(child);
+            } else {
+                // Preserve declaration order.
+                _ = ns.decls.orderedRemove(mem.spanZ(child.name));
+            }
         }
 
         // This renders e.g. "std.fs.Dir.OpenOptions"
@@ -2607,8 +2624,12 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
         }
 
         if (decl.getInnerNamespace()) |namespace| {
-            for (namespace.decls.items()) |*entry| {
+            for (namespace.decls.items()) |entry| {
                 const sub_decl = entry.value;
+                try decl_stack.append(gpa, sub_decl);
+            }
+            for (namespace.anon_decls.items()) |entry| {
+                const sub_decl = entry.key;
                 try decl_stack.append(gpa, sub_decl);
             }
         }
@@ -3741,37 +3762,25 @@ pub fn constIntBig(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, b
 pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue) !*Decl {
     const scope_decl = scope.ownerDecl().?;
     const namespace = scope_decl.namespace;
-    try namespace.decls.ensureUnusedCapacity(mod.gpa, 1);
+    try namespace.anon_decls.ensureUnusedCapacity(mod.gpa, 1);
 
-    // Find a unique name for the anon decl.
-    var name_buf = std.ArrayList(u8).init(mod.gpa);
-    defer name_buf.deinit();
+    const name_index = mod.getNextAnonNameIndex();
+    const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
+        scope_decl.name, name_index,
+    });
+    errdefer mod.gpa.free(name);
 
-    try name_buf.appendSlice(mem.spanZ(scope_decl.name));
-    var name_index: usize = namespace.decls.count();
+    const new_decl = try mod.allocateNewDecl(namespace, scope_decl.src_node);
 
-    const new_decl = while (true) {
-        const gop = namespace.decls.getOrPutAssumeCapacity(name_buf.items);
-        if (!gop.found_existing) {
-            const name = try name_buf.toOwnedSliceSentinel(0);
-            const new_decl = try mod.allocateNewDecl(namespace, scope_decl.src_node);
-            new_decl.name = name;
-            gop.entry.key = name;
-            gop.entry.value = new_decl;
-            break gop.entry.value;
-        }
-
-        name_buf.clearRetainingCapacity();
-        try name_buf.writer().print("{s}__anon_{d}", .{ scope_decl.name, name_index });
-        name_index += 1;
-    } else unreachable; // TODO should not need else unreachable on while(true)
-
+    new_decl.name = name;
     new_decl.src_line = scope_decl.src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
+
+    namespace.anon_decls.putAssumeCapacityNoClobber(new_decl, {});
 
     // TODO: This generates the Decl into the machine code file if it is of a
     // type that is non-zero size. We should be able to further improve the
@@ -3782,6 +3791,10 @@ pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue)
     }
 
     return new_decl;
+}
+
+fn getNextAnonNameIndex(mod: *Module) usize {
+    return @atomicRmw(usize, &mod.next_anon_name_index, .Add, 1, .Monotonic);
 }
 
 /// This looks up a bare identifier in the given scope. This will walk up the tree of namespaces
@@ -4394,18 +4407,38 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) InnerError!void {
 
     const gpa = mod.gpa;
     const zir = struct_obj.owner_decl.namespace.file_scope.zir;
-    const inst_data = zir.instructions.items(.data)[struct_obj.zir_index].pl_node;
-    const src = inst_data.src();
-    const extra = zir.extraData(Zir.Inst.StructDecl, inst_data.payload_index);
-    const fields_len = extra.data.fields_len;
-    const decls_len = extra.data.decls_len;
+    const extended = zir.instructions.items(.data)[struct_obj.zir_index].extended;
+    assert(extended.opcode == .struct_decl);
+    const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
+    var extra_index: usize = extended.operand;
+
+    const src: LazySrcLoc = .{ .node_offset = struct_obj.node_offset };
+    extra_index += @boolToInt(small.has_src_node);
+
+    const body_len = if (small.has_body_len) blk: {
+        const body_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk body_len;
+    } else 0;
+
+    const fields_len = if (small.has_fields_len) blk: {
+        const fields_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk fields_len;
+    } else 0;
+
+    const decls_len = if (small.has_decls_len) decls_len: {
+        const decls_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :decls_len decls_len;
+    } else 0;
 
     // Skip over decls.
-    var decls_it = zir.declIterator(struct_obj.zir_index);
+    var decls_it = zir.declIteratorInner(extra_index, decls_len);
     while (decls_it.next()) |_| {}
-    var extra_index = decls_it.extra_index;
+    extra_index = decls_it.extra_index;
 
-    const body = zir.extra[extra_index..][0..extra.data.body_len];
+    const body = zir.extra[extra_index..][0..body_len];
     if (fields_len == 0) {
         assert(body.len == 0);
         return;
@@ -4525,18 +4558,44 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
 
     const gpa = mod.gpa;
     const zir = union_obj.owner_decl.namespace.file_scope.zir;
-    const inst_data = zir.instructions.items(.data)[union_obj.zir_index].pl_node;
-    const src = inst_data.src();
-    const extra = zir.extraData(Zir.Inst.UnionDecl, inst_data.payload_index);
-    const fields_len = extra.data.fields_len;
-    const decls_len = extra.data.decls_len;
+    const extended = zir.instructions.items(.data)[union_obj.zir_index].extended;
+    assert(extended.opcode == .union_decl);
+    const small = @bitCast(Zir.Inst.UnionDecl.Small, extended.small);
+    var extra_index: usize = extended.operand;
+
+    const src: LazySrcLoc = .{ .node_offset = union_obj.node_offset };
+    extra_index += @boolToInt(small.has_src_node);
+
+    const tag_type_ref = if (small.has_tag_type) blk: {
+        const tag_type_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+        extra_index += 1;
+        break :blk tag_type_ref;
+    } else .none;
+
+    const body_len = if (small.has_body_len) blk: {
+        const body_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk body_len;
+    } else 0;
+
+    const fields_len = if (small.has_fields_len) blk: {
+        const fields_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk fields_len;
+    } else 0;
+
+    const decls_len = if (small.has_decls_len) decls_len: {
+        const decls_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :decls_len decls_len;
+    } else 0;
 
     // Skip over decls.
-    var decls_it = zir.declIterator(union_obj.zir_index);
+    var decls_it = zir.declIteratorInner(extra_index, decls_len);
     while (decls_it.next()) |_| {}
-    var extra_index = decls_it.extra_index;
+    extra_index = decls_it.extra_index;
 
-    const body = zir.extra[extra_index..][0..extra.data.body_len];
+    const body = zir.extra[extra_index..][0..body_len];
     if (fields_len == 0) {
         assert(body.len == 0);
         return;
@@ -4580,8 +4639,6 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
         _ = try sema.analyzeBody(&block, body);
     }
 
-    var auto_enum_tag: ?bool = null;
-
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
     const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
@@ -4602,10 +4659,6 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
         cur_bit_bag >>= 1;
         const unused = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
-
-        if (auto_enum_tag == null) {
-            auto_enum_tag = unused;
-        }
 
         const field_name_zir = zir.nullTerminatedString(zir.extra[extra_index]);
         extra_index += 1;
@@ -4653,7 +4706,7 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
         }
     }
 
-    // TODO resolve the union tag type
+    // TODO resolve the union tag_type_ref
 }
 
 /// Called from `performAllTheWork`, after all AstGen workers have finished,
