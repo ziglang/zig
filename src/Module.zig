@@ -227,6 +227,10 @@ pub const Decl = struct {
     },
     /// Whether `typed_value`, `align_val`, and `linksection_val` are populated.
     has_tv: bool,
+    /// If `true` it means the `Decl` is the resource owner of the type/value associated
+    /// with it. That means when `Decl` is destroyed, the cleanup code should additionally
+    /// check if the value owns a `Namespace`, and destroy that too.
+    owns_tv: bool,
     /// This flag is set when this Decl is added to `Module.deletion_set`, and cleared
     /// when removed.
     deletion_flag: bool,
@@ -278,9 +282,7 @@ pub const Decl = struct {
         decl.clearName(gpa);
         if (decl.has_tv) {
             if (decl.getInnerNamespace()) |namespace| {
-                if (namespace.getDecl() == decl) {
-                    namespace.clearDecls(module);
-                }
+                namespace.clearDecls(module);
             }
             decl.clearValues(gpa);
         }
@@ -307,6 +309,7 @@ pub const Decl = struct {
             arena_state.promote(gpa).deinit();
             decl.value_arena = null;
             decl.has_tv = false;
+            decl.owns_tv = false;
         }
     }
 
@@ -441,36 +444,36 @@ pub const Decl = struct {
     /// If the Decl has a value and it is a struct, return it,
     /// otherwise null.
     pub fn getStruct(decl: *Decl) ?*Struct {
-        if (!decl.has_tv) return null;
+        if (!decl.owns_tv) return null;
         const ty = (decl.val.castTag(.ty) orelse return null).data;
         const struct_obj = (ty.castTag(.@"struct") orelse return null).data;
-        if (struct_obj.owner_decl != decl) return null;
+        assert(struct_obj.owner_decl == decl);
         return struct_obj;
     }
 
     /// If the Decl has a value and it is a union, return it,
     /// otherwise null.
     pub fn getUnion(decl: *Decl) ?*Union {
-        if (!decl.has_tv) return null;
+        if (!decl.owns_tv) return null;
         const ty = (decl.val.castTag(.ty) orelse return null).data;
         const union_obj = (ty.cast(Type.Payload.Union) orelse return null).data;
-        if (union_obj.owner_decl != decl) return null;
+        assert(union_obj.owner_decl == decl);
         return union_obj;
     }
 
     /// If the Decl has a value and it is a function, return it,
     /// otherwise null.
     pub fn getFunction(decl: *Decl) ?*Fn {
-        if (!decl.has_tv) return null;
+        if (!decl.owns_tv) return null;
         const func = (decl.val.castTag(.function) orelse return null).data;
-        if (func.owner_decl != decl) return null;
+        assert(func.owner_decl == decl);
         return func;
     }
 
     pub fn getVariable(decl: *Decl) ?*Var {
-        if (!decl.has_tv) return null;
+        if (!decl.owns_tv) return null;
         const variable = (decl.val.castTag(.variable) orelse return null).data;
-        if (variable.owner_decl != decl) return null;
+        assert(variable.owner_decl == decl);
         return variable;
     }
 
@@ -478,29 +481,28 @@ pub const Decl = struct {
     /// enum, or opaque.
     /// Only returns it if the Decl is the owner.
     pub fn getInnerNamespace(decl: *Decl) ?*Scope.Namespace {
-        if (!decl.has_tv) return null;
+        if (!decl.owns_tv) return null;
         const ty = (decl.val.castTag(.ty) orelse return null).data;
         switch (ty.tag()) {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
-                if (struct_obj.owner_decl != decl) return null;
+                assert(struct_obj.owner_decl == decl);
                 return &struct_obj.namespace;
             },
             .enum_full => {
                 const enum_obj = ty.castTag(.enum_full).?.data;
-                if (enum_obj.owner_decl != decl) return null;
+                assert(enum_obj.owner_decl == decl);
                 return &enum_obj.namespace;
             },
             .empty_struct => {
-                // design flaw, can't verify the owner is this decl
-                @panic("TODO can't implement getInnerNamespace for this type");
+                return ty.castTag(.empty_struct).?.data;
             },
             .@"opaque" => {
                 @panic("TODO opaque types");
             },
             .@"union", .union_tagged => {
                 const union_obj = ty.cast(Type.Payload.Union).?.data;
-                if (union_obj.owner_decl != decl) return null;
+                assert(union_obj.owner_decl == decl);
                 return &union_obj.namespace;
             },
 
@@ -554,7 +556,11 @@ pub const Decl = struct {
 
             .complete,
             .outdated,
-            => true,
+            => {
+                if (!decl.owns_tv)
+                    return false;
+                return decl.ty.hasCodeGenBits();
+            },
         };
     }
 };
@@ -2838,6 +2844,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
     new_decl.ty = struct_ty;
     new_decl.val = struct_val;
     new_decl.has_tv = true;
+    new_decl.owns_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
 
@@ -2948,7 +2955,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     errdefer decl_arena.deinit();
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
-    if (decl_tv.val.tag() == .function) {
+    if (decl_tv.val.castTag(.function)) |fn_payload| {
         var prev_type_has_bits = false;
         var prev_is_inline = false;
         var type_changed = true;
@@ -2956,10 +2963,8 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         if (decl.has_tv) {
             prev_type_has_bits = decl.ty.hasCodeGenBits();
             type_changed = !decl.ty.eql(decl_tv.ty);
-            if (decl.val.castTag(.function)) |payload| {
-                const prev_func = payload.data;
+            if (decl.getFunction()) |prev_func| {
                 prev_is_inline = prev_func.state == .inline_only;
-                prev_func.deinit(gpa);
             }
             decl.clearValues(gpa);
         }
@@ -2969,6 +2974,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         decl.align_val = try align_val.copy(&decl_arena.allocator);
         decl.linksection_val = try linksection_val.copy(&decl_arena.allocator);
         decl.has_tv = true;
+        decl.owns_tv = fn_payload.data.owner_decl == decl;
         decl_arena_state.* = decl_arena.state;
         decl.value_arena = decl_arena_state;
         decl.analysis = .complete;
@@ -3004,6 +3010,25 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             decl.clearValues(gpa);
         }
 
+        decl.owns_tv = false;
+        var queue_linker_work = false;
+        if (decl_tv.val.castTag(.variable)) |payload| {
+            const variable = payload.data;
+            if (variable.owner_decl == decl) {
+                decl.owns_tv = true;
+                queue_linker_work = true;
+
+                const copied_init = try variable.init.copy(&decl_arena.allocator);
+                variable.init = copied_init;
+            }
+        } else if (decl_tv.val.castTag(.extern_fn)) |payload| {
+            const owner_decl = payload.data;
+            if (decl == owner_decl) {
+                decl.owns_tv = true;
+                queue_linker_work = true;
+            }
+        }
+
         decl.ty = try decl_tv.ty.copy(&decl_arena.allocator);
         decl.val = try decl_tv.val.copy(&decl_arena.allocator);
         decl.align_val = try align_val.copy(&decl_arena.allocator);
@@ -3014,13 +3039,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         decl.analysis = .complete;
         decl.generation = mod.generation;
 
-        if (decl.is_exported) {
-            const export_src = src; // TODO point to the export token
-            // The scope needs to have the decl in it.
-            try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
-        }
-
-        if (decl.val.tag() == .extern_fn) {
+        if (queue_linker_work and decl.ty.hasCodeGenBits()) {
             try mod.comp.bin_file.allocateDeclIndexes(decl);
             try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
 
@@ -3028,6 +3047,13 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
                 try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
             }
         }
+
+        if (decl.is_exported) {
+            const export_src = src; // TODO point to the export token
+            // The scope needs to have the decl in it.
+            try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
+        }
+
 
         return type_changed;
     }
@@ -3531,6 +3557,7 @@ fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node
         .src_node = src_node,
         .src_line = undefined,
         .has_tv = false,
+        .owns_tv = false,
         .ty = undefined,
         .val = undefined,
         .align_val = undefined,
@@ -3779,6 +3806,7 @@ pub fn createAnonymousDeclNamed(
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
     new_decl.has_tv = true;
+    new_decl.owns_tv = true;
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
 

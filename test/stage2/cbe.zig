@@ -517,7 +517,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &.{
             ":3:21: error: missing struct field: x",
-            ":1:15: note: struct 'Point' declared here",
+            ":1:15: note: struct 'test_case.Point' declared here",
         });
         case.addError(
             \\const Point = struct { x: i32, y: i32 };

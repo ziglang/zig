@@ -1,13 +1,3 @@
- * The next problem is that when trying to deinitialize everything, when we
-   deinit a Decl that is the owner of a Namespace, there may still be other Decl
-   objects that reference that Namespace. They want to check if they are the owner
-   in order to find out if they should destroy it. But they can't check if they are
-   the owner because the owner_decl field is destroyed.
-   So there's a memory management problem to solve. We could easily solve this with
-   ref counting or whatever but the goal is to not introduce extra overhead / unnecessary
-   fields just to help figure out how to free stuff. So come up with some way to make 
-   this sound, and easily debuggable when something goes wrong.
-
  * get stage2 tests passing
  * modify stage2 tests so that only 1 uses _start and the rest use
    pub fn main

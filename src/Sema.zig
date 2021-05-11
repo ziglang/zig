@@ -5867,7 +5867,7 @@ fn zirVarExtended(
         extra_index += 1;
         const init_tv = try sema.resolveInstConst(block, init_src, init_ref);
         break :blk init_tv.val;
-    } else Value.initTag(.null_value);
+    } else Value.initTag(.unreachable_value);
 
     if (!var_ty.isValidVarType(small.is_extern)) {
         return sema.mod.fail(&block.base, mut_src, "variable of type '{}' must be const", .{
