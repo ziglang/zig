@@ -708,7 +708,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    const b = @intToEnum(E, 3);
             \\}
         , &.{
-            ":3:15: error: enum 'E' has no tag with value 3",
+            ":3:15: error: enum 'test_case.E' has no tag with value 3",
             ":1:11: note: enum declared here",
         });
 
@@ -724,7 +724,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , &.{
             ":4:5: error: switch must handle all possibilities",
             ":4:5: note: unhandled enumeration value: 'b'",
-            ":1:11: note: enum 'E' declared here",
+            ":1:11: note: enum 'test_case.E' declared here",
         });
 
         case.addError(
@@ -779,7 +779,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var x = E.d;
             \\}
         , &.{
-            ":3:14: error: enum 'E' has no member named 'd'",
+            ":3:14: error: enum 'test_case.E' has no member named 'd'",
             ":1:11: note: enum declared here",
         });
 
@@ -789,7 +789,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var x: E = .d;
             \\}
         , &.{
-            ":3:17: error: enum 'E' has no field named 'd'",
+            ":3:17: error: enum 'test_case.E' has no field named 'd'",
             ":1:11: note: enum declared here",
         });
     }

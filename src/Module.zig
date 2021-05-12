@@ -283,7 +283,9 @@ pub const Decl = struct {
     pub fn destroy(decl: *Decl, module: *Module) void {
         const gpa = module.gpa;
         log.debug("destroy {*} ({s})", .{ decl, decl.name });
-        decl.clearName(gpa);
+        if (decl.deletion_flag) {
+            module.deletion_set.swapRemoveAssertDiscard(decl);
+        }
         if (decl.has_tv) {
             if (decl.getInnerNamespace()) |namespace| {
                 namespace.clearDecls(module);
@@ -292,6 +294,7 @@ pub const Decl = struct {
         }
         decl.dependants.deinit(gpa);
         decl.dependencies.deinit(gpa);
+        decl.clearName(gpa);
         if (module.emit_h != null) {
             const decl_plus_emit_h = @fieldParentPtr(DeclPlusEmitH, "decl", decl);
             decl_plus_emit_h.emit_h.fwd_decl.deinit(gpa);
@@ -545,28 +548,6 @@ pub const Decl = struct {
 
     fn removeDependency(decl: *Decl, other: *Decl) void {
         decl.dependencies.removeAssertDiscard(other);
-    }
-
-    fn hasLinkAllocation(decl: Decl) bool {
-        return switch (decl.analysis) {
-            .unreferenced,
-            .in_progress,
-            .dependency_failure,
-            .file_failure,
-            .sema_failure,
-            .sema_failure_retryable,
-            .codegen_failure,
-            .codegen_failure_retryable,
-            => false,
-
-            .complete,
-            .outdated,
-            => {
-                if (!decl.owns_tv)
-                    return false;
-                return decl.ty.hasCodeGenBits();
-            },
-        };
     }
 };
 
@@ -927,6 +908,32 @@ pub const Scope = struct {
                 entry.key.destroy(mod);
             }
             anon_decls.deinit(gpa);
+        }
+
+        pub fn deleteAllDecls(
+            ns: *Namespace,
+            mod: *Module,
+            outdated_decls: ?*std.AutoArrayHashMap(*Decl, void),
+        ) !void {
+            const gpa = mod.gpa;
+
+            log.debug("deleteAllDecls {*}", .{ns});
+
+            while (ns.decls.count() != 0) {
+                const last_entry = ns.decls.entries.items[ns.decls.entries.items.len - 1];
+                const child_decl = last_entry.value;
+                try mod.deleteDecl(child_decl, outdated_decls);
+            }
+            ns.decls.deinit(gpa);
+            ns.decls = .{};
+
+            while (ns.anon_decls.count() != 0) {
+                const last_entry = ns.anon_decls.entries.items[ns.anon_decls.entries.items.len - 1];
+                const child_decl = last_entry.key;
+                try mod.deleteDecl(child_decl, outdated_decls);
+            }
+            ns.anon_decls.deinit(gpa);
+            ns.anon_decls = .{};
         }
 
         pub fn removeDecl(ns: *Namespace, child: *Decl) void {
@@ -2646,7 +2653,7 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
             }
         }
 
-        if (!decl.has_tv) continue;
+        if (!decl.owns_tv) continue;
 
         if (decl.getStruct()) |struct_obj| {
             struct_obj.zir_index = inst_map.get(struct_obj.zir_index) orelse {
@@ -3401,17 +3408,19 @@ pub fn deleteDecl(
     mod: *Module,
     decl: *Decl,
     outdated_decls: ?*std.AutoArrayHashMap(*Decl, void),
-) !void {
+) Allocator.Error!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     log.debug("deleting {*} ({s})", .{ decl, decl.name });
 
+    const gpa = mod.gpa;
+    try mod.deletion_set.ensureUnusedCapacity(gpa, decl.dependencies.count());
+
     if (outdated_decls) |map| {
         _ = map.swapRemove(decl);
         try map.ensureUnusedCapacity(decl.dependants.count());
     }
-    try mod.deletion_set.ensureUnusedCapacity(mod.gpa, decl.dependencies.count());
 
     // Remove from the namespace it resides in.
     decl.namespace.removeDecl(decl);
@@ -3443,18 +3452,23 @@ pub fn deleteDecl(
         }
     }
     if (mod.failed_decls.swapRemove(decl)) |entry| {
-        entry.value.destroy(mod.gpa);
+        entry.value.destroy(gpa);
     }
     if (mod.emit_h) |emit_h| {
         if (emit_h.failed_decls.swapRemove(decl)) |entry| {
-            entry.value.destroy(mod.gpa);
+            entry.value.destroy(gpa);
         }
         emit_h.decl_table.removeAssertDiscard(decl);
     }
     _ = mod.compile_log_decls.swapRemove(decl);
     mod.deleteDeclExports(decl);
-    if (decl.hasLinkAllocation()) {
-        mod.comp.bin_file.freeDecl(decl);
+    mod.comp.bin_file.freeDecl(decl);
+
+    if (decl.has_tv) {
+        if (decl.getInnerNamespace()) |namespace| {
+            try namespace.deleteAllDecls(mod, outdated_decls);
+        }
+        decl.clearValues(gpa);
     }
 
     decl.destroy(mod);
@@ -3825,6 +3839,12 @@ pub fn constIntBig(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, b
             .val = try Value.Tag.int_big_negative.create(arena, big_int.limbs),
         });
     }
+}
+
+pub fn deleteAnonDecl(mod: *Module, scope: *Scope, decl: *Decl) void {
+    const scope_decl = scope.ownerDecl().?;
+    scope_decl.namespace.anon_decls.swapRemoveAssertDiscard(decl);
+    decl.destroy(mod);
 }
 
 /// Takes ownership of `name` even if it returns an error.
@@ -4814,6 +4834,8 @@ pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
         for (file.outdated_decls.items) |decl| {
             outdated_decls.putAssumeCapacity(decl, {});
         }
+        file.outdated_decls.clearRetainingCapacity();
+
         // Handle explicitly deleted decls from the source code. This is one of two
         // places that Decl deletions happen. The other is in `Compilation`, after
         // `performAllTheWork`, where we iterate over `Module.deletion_set` and
@@ -4824,12 +4846,9 @@ pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
         // deletion set at this time.
         for (file.deleted_decls.items) |decl| {
             log.debug("deleted from source: {*} ({s})", .{ decl, decl.name });
-            if (decl.deletion_flag) {
-                log.debug("{*} ({s}) redundantly in deletion set; removing", .{ decl, decl.name });
-                mod.deletion_set.removeAssertDiscard(decl);
-            }
             try mod.deleteDecl(decl, &outdated_decls);
         }
+        file.deleted_decls.clearRetainingCapacity();
     }
     // Finally we can queue up re-analysis tasks after we have processed
     // the deleted decls.

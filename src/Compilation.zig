@@ -1616,14 +1616,12 @@ pub fn update(self: *Compilation) !void {
             // Process the deletion set. We use a while loop here because the
             // deletion set may grow as we call `deleteDecl` within this loop,
             // and more unreferenced Decls are revealed.
-            var entry_i: usize = 0;
-            while (entry_i < module.deletion_set.entries.items.len) : (entry_i += 1) {
-                const decl = module.deletion_set.entries.items[entry_i].key;
+            while (module.deletion_set.entries.items.len != 0) {
+                const decl = module.deletion_set.entries.items[0].key;
                 assert(decl.deletion_flag);
-                assert(decl.dependants.items().len == 0);
+                assert(decl.dependants.count() == 0);
                 try module.deleteDecl(decl, null);
             }
-            module.deletion_set.shrinkRetainingCapacity(0);
         }
     }
 
