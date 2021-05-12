@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 
 /// Create an interval of type T.
 /// See https://en.wikipedia.org/wiki/Interval_(mathematics) for more info.
+/// Initializer is responsible for ensuring from <= to
 pub fn Interval(comptime T: type) type {
     comptime std.debug.assert(std.meta.trait.isNumber(T)); // Interval must be instantiated with a number type.
     return struct {
