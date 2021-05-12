@@ -94,18 +94,18 @@ fn runTestMatrix(left: bool, right: bool) !void {
     }
 }
 
-test "closed closed" {
+test "contains: closed closed" {
     try runTestMatrix(false, false);
 }
 
-test "open closed" {
+test "contains: open closed" {
     try runTestMatrix(true, false);
 }
 
-test "closed open" {
+test "contains: closed open" {
     try runTestMatrix(false, true);
 }
 
-test "open open" {
+test "contains: open open" {
     try runTestMatrix(true, true);
 }
