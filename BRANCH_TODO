@@ -62,3 +62,6 @@
    - avoid the global atomic integer for the number because of contention
 
  * AstGen memory leak with `block_gz.labeled_store_to_block_ptr_list.append`
+
+ * in SwitchProng resolve, make sure AST tree gets loaded.
+   It will be unloaded if using cached ZIR.

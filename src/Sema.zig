@@ -715,6 +715,7 @@ fn zirStructDecl(
     } else sema.src;
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+    errdefer new_decl_arena.deinit();
 
     const struct_obj = try new_decl_arena.allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(&new_decl_arena.allocator, struct_obj);
@@ -779,6 +780,7 @@ fn zirEnumDecl(
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = sema.mod;
     const gpa = sema.gpa;
     const small = @bitCast(Zir.Inst.EnumDecl.Small, extended.small);
     var extra_index: usize = extended.operand;
@@ -814,6 +816,7 @@ fn zirEnumDecl(
     } else 0;
 
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+    errdefer new_decl_arena.deinit();
 
     const tag_ty = blk: {
         if (tag_type_ref != .none) {
@@ -835,7 +838,7 @@ fn zirEnumDecl(
     const enum_ty = Type.initPayload(&enum_ty_payload.base);
     const enum_val = try Value.Tag.ty.create(&new_decl_arena.allocator, enum_ty);
     const type_name = try sema.createTypeName(block, small.name_strategy);
-    const new_decl = try sema.mod.createAnonymousDeclNamed(&block.base, .{
+    const new_decl = try mod.createAnonymousDeclNamed(&block.base, .{
         .ty = Type.initTag(.type),
         .val = enum_val,
     }, type_name);
@@ -855,7 +858,7 @@ fn zirEnumDecl(
         &enum_obj.namespace, new_decl, new_decl.name,
     });
 
-    extra_index = try sema.mod.scanNamespace(&enum_obj.namespace, extra_index, decls_len, new_decl);
+    extra_index = try mod.scanNamespace(&enum_obj.namespace, extra_index, decls_len, new_decl);
 
     const body = sema.code.extra[extra_index..][0..body_len];
     if (fields_len == 0) {
@@ -883,7 +886,7 @@ fn zirEnumDecl(
         // Within the field type, default value, and alignment expressions, the "owner decl"
         // should be the enum itself. Thus we need a new Sema.
         var enum_sema: Sema = .{
-            .mod = sema.mod,
+            .mod = mod,
             .gpa = gpa,
             .arena = &new_decl_arena.allocator,
             .code = sema.code,
@@ -932,7 +935,18 @@ fn zirEnumDecl(
         const field_name = try new_decl_arena.allocator.dupe(u8, field_name_zir);
 
         const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
-        assert(!gop.found_existing);
+        if (gop.found_existing) {
+            const tree = try sema.getAstTree(block);
+            const field_src = enumFieldSrcLoc(block.src_decl, tree.*, src.node_offset, field_i);
+            const other_tag_src = enumFieldSrcLoc(block.src_decl, tree.*, src.node_offset, gop.index);
+            const msg = msg: {
+                const msg = try mod.errMsg(&block.base, field_src, "duplicate enum tag", .{});
+                errdefer msg.destroy(gpa);
+                try mod.errNote(&block.base, other_tag_src, msg, "other tag here", .{});
+                break :msg msg;
+            };
+            return mod.failWithOwnedErrorMsg(&block.base, msg);
+        }
 
         if (has_tag_value) {
             const tag_val_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
@@ -981,6 +995,7 @@ fn zirUnionDecl(
     } else 0;
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+    errdefer new_decl_arena.deinit();
 
     const union_obj = try new_decl_arena.allocator.create(Module.Union);
     const union_ty = try Type.Tag.@"union".create(&new_decl_arena.allocator, union_obj);
@@ -1046,6 +1061,7 @@ fn zirErrorSetDecl(
     const fields = sema.code.extra[extra.end..][0..extra.data.fields_len];
 
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
+    errdefer new_decl_arena.deinit();
 
     const error_set = try new_decl_arena.allocator.create(Module.ErrorSet);
     const error_set_ty = try Type.Tag.error_set.create(&new_decl_arena.allocator, error_set);
@@ -7445,4 +7461,54 @@ fn typeHasOnePossibleValue(
         .inferred_alloc_const => unreachable,
         .inferred_alloc_mut => unreachable,
     };
+}
+
+fn getAstTree(sema: *Sema, block: *Scope.Block) InnerError!*const std.zig.ast.Tree {
+    return block.src_decl.namespace.file_scope.getTree(sema.gpa) catch |err| {
+        log.err("unable to load AST to report compile error: {s}", .{@errorName(err)});
+        return error.AnalysisFail;
+    };
+}
+
+fn enumFieldSrcLoc(
+    decl: *Decl,
+    tree: std.zig.ast.Tree,
+    node_offset: i32,
+    field_index: usize,
+) LazySrcLoc {
+    @setCold(true);
+    const enum_node = decl.relativeToNodeIndex(node_offset);
+    const node_tags = tree.nodes.items(.tag);
+    var buffer: [2]std.zig.ast.Node.Index = undefined;
+    const container_decl = switch (node_tags[enum_node]) {
+        .container_decl,
+        .container_decl_trailing,
+        => tree.containerDecl(enum_node),
+
+        .container_decl_two,
+        .container_decl_two_trailing,
+        => tree.containerDeclTwo(&buffer, enum_node),
+
+        .container_decl_arg,
+        .container_decl_arg_trailing,
+        => tree.containerDeclArg(enum_node),
+
+        else => unreachable,
+    };
+    var it_index: usize = 0;
+    for (container_decl.ast.members) |member_node| {
+        switch (node_tags[member_node]) {
+            .container_field_init,
+            .container_field_align,
+            .container_field,
+            => {
+                if (it_index == field_index) {
+                    return .{ .node_offset = decl.nodeIndexToRelative(member_node) };
+                }
+                it_index += 1;
+            },
+
+            else => continue,
+        }
+    } else unreachable;
 }
