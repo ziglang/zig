@@ -77,7 +77,7 @@ test "y_trailing_comma_after_empty" {
 }
 
 test "n_object_closed_missing_value" {
-    err(
+    try err(
         \\{"a":}
     );
 }

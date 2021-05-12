@@ -1207,9 +1207,9 @@ test "json.token mismatched close" {
 
 test "json.token premature object close" {
     var p = TokenStream.init("{ \"key\": }");
-    checkNext(&p, .ObjectBegin);
-    checkNext(&p, .String);
-    testing.expectError(error.InvalidValueBegin, p.next());
+    try checkNext(&p, .ObjectBegin);
+    try checkNext(&p, .String);
+    try testing.expectError(error.InvalidValueBegin, p.next());
 }
 
 /// Validate a JSON string. This does not limit number precision so a decoder may not necessarily
