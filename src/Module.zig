@@ -822,7 +822,7 @@ pub const Scope = struct {
     pub fn namespace(scope: *Scope) *Namespace {
         switch (scope.tag) {
             .block => return scope.cast(Block).?.sema.owner_decl.namespace,
-            .file => return scope.cast(File).?.namespace.?,
+            .file => return scope.cast(File).?.root_decl.?.namespace,
             .namespace => return scope.cast(Namespace).?,
             .decl_ref => return scope.cast(DeclRef).?.decl.namespace,
         }
@@ -998,10 +998,8 @@ pub const Scope = struct {
         zir: Zir,
         /// Package that this file is a part of, managed externally.
         pkg: *Package,
-        /// The namespace of the struct that represents this file.
-        /// Populated only when `have_decl` is true.
-        /// Owned by its owner Decl Value.
-        namespace: ?*Namespace,
+        /// The Decl of the struct that represents this File.
+        root_decl: ?*Decl,
 
         /// Used by change detection algorithm, after astgen, contains the
         /// set of decls that existed in the previous ZIR but not in the new one.
@@ -1049,8 +1047,8 @@ pub const Scope = struct {
             log.debug("deinit File {s}", .{file.sub_file_path});
             file.deleted_decls.deinit(gpa);
             file.outdated_decls.deinit(gpa);
-            if (file.namespace) |ns| {
-                ns.getDecl().destroy(mod);
+            if (file.root_decl) |root_decl| {
+                root_decl.destroy(mod);
             }
             gpa.free(file.sub_file_path);
             file.unload(gpa);
@@ -2576,11 +2574,11 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
                 gpa.destroy(file_prev_zir);
                 file.prev_zir = null;
                 try updateZirRefs(gpa, file, prev_zir);
-            } else if (file.namespace) |ns| {
+            } else if (file.root_decl) |root_decl| {
                 // First time the File has succeeded ZIR. We must mark it outdated since
                 // we have already tried to semantically analyze it.
                 try file.outdated_decls.resize(gpa, 1);
-                file.outdated_decls.items[0] = ns.getDecl();
+                file.outdated_decls.items[0] = root_decl;
             }
         } else {
             try updateZirRefs(gpa, file, prev_zir);
@@ -2626,7 +2624,7 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
     var decl_stack: std.ArrayListUnmanaged(*Decl) = .{};
     defer decl_stack.deinit(gpa);
 
-    const root_decl = file.namespace.?.getDecl();
+    const root_decl = file.root_decl.?;
     try decl_stack.append(gpa, root_decl);
 
     file.deleted_decls.clearRetainingCapacity();
@@ -2848,7 +2846,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (file.namespace != null) return;
+    if (file.root_decl != null) return;
 
     const gpa = mod.gpa;
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
@@ -2870,8 +2868,8 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
             .file_scope = file,
         },
     };
-    file.namespace = &struct_obj.namespace;
     const new_decl = try mod.allocateNewDecl(&struct_obj.namespace, 0);
+    file.root_decl = new_decl;
     struct_obj.owner_decl = new_decl;
     new_decl.src_line = 0;
     new_decl.name = try file.fullyQualifiedNameZ(gpa);
@@ -2917,9 +2915,12 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
         };
         defer block_scope.instructions.deinit(gpa);
 
-        try sema.analyzeStructDecl(new_decl, main_struct_inst, struct_obj);
-
-        new_decl.analysis = .complete;
+        if (sema.analyzeStructDecl(new_decl, main_struct_inst, struct_obj)) |_| {
+            new_decl.analysis = .complete;
+        } else |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.AnalysisFail => {},
+        }
     } else {
         new_decl.analysis = .file_failure;
     }
@@ -2964,6 +2965,9 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         log.debug("semaDecl root {*} ({s})", .{ decl, decl.name });
         const main_struct_inst = zir.getMainStruct();
         const struct_obj = decl.getStruct().?;
+        // This might not have gotten set in `semaFile` if the first time had
+        // a ZIR failure, so we set it here in case.
+        struct_obj.zir_index = main_struct_inst;
         try sema.analyzeStructDecl(decl, main_struct_inst, struct_obj);
         decl.analysis = .complete;
         decl.generation = mod.generation;
@@ -3165,7 +3169,7 @@ pub fn importPkg(mod: *Module, cur_pkg: *Package, pkg: *Package) !ImportFileResu
         .zir = undefined,
         .status = .never_loaded,
         .pkg = pkg,
-        .namespace = null,
+        .root_decl = null,
     };
     return ImportFileResult{
         .file = new_file,
@@ -3231,7 +3235,7 @@ pub fn importFile(
         .zir = undefined,
         .status = .never_loaded,
         .pkg = cur_file.pkg,
-        .namespace = null,
+        .root_decl = null,
     };
     return ImportFileResult{
         .file = new_file,

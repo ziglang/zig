@@ -3656,7 +3656,7 @@ pub fn cmdAstgen(
         .tree = undefined,
         .zir = undefined,
         .pkg = undefined,
-        .namespace = undefined,
+        .root_decl = null,
     };
 
     const source = try arena.allocSentinel(u8, stat.size, 0);
@@ -3766,7 +3766,7 @@ pub fn cmdChangelist(
         .tree = undefined,
         .zir = undefined,
         .pkg = undefined,
-        .namespace = undefined,
+        .root_decl = null,
     };
 
     const source = try arena.allocSentinel(u8, stat.size, 0);
