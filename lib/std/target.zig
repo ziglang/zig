@@ -267,7 +267,7 @@ pub const Target = struct {
                     .macos => return .{
                         .semver = .{
                             .min = .{ .major = 10, .minor = 13 },
-                            .max = .{ .major = 11, .minor = 1 },
+                            .max = .{ .major = 11, .minor = 2 },
                         },
                     },
                     .ios => return .{
@@ -291,19 +291,19 @@ pub const Target = struct {
                     .netbsd => return .{
                         .semver = .{
                             .min = .{ .major = 8, .minor = 0 },
-                            .max = .{ .major = 9, .minor = 0 },
+                            .max = .{ .major = 9, .minor = 1 },
                         },
                     },
                     .openbsd => return .{
                         .semver = .{
                             .min = .{ .major = 6, .minor = 8 },
-                            .max = .{ .major = 6, .minor = 8 },
+                            .max = .{ .major = 6, .minor = 9 },
                         },
                     },
                     .dragonfly => return .{
                         .semver = .{
                             .min = .{ .major = 5, .minor = 8 },
-                            .max = .{ .major = 5, .minor = 8 },
+                            .max = .{ .major = 6, .minor = 0 },
                         },
                     },
 
