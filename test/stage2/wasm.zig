@@ -58,7 +58,10 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
         // This is what you get when you take the bits of the IEE-754
         // representation of 42.0 and reinterpret them as an unsigned
-        // integer. Guess that's a bug in wasmtime.
+        // integer.
+        // Bug is fixed in wasmtime v0.26 but updating to v0.26 is blocked
+        // on this issue:
+        // https://github.com/ziglang/zig/issues/8742
             "1109917696\n",
         );
 
