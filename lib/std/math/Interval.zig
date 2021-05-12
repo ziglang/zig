@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 
 /// Create an interval of type T.
 /// See https://en.wikipedia.org/wiki/Interval_(mathematics) for more info.
@@ -38,6 +38,10 @@ pub fn Interval(comptime T: type) type {
                 else => unreachable,
             };
             if (self.from.n) |_| {} else {
+                if (self.to.n) |_| {} else {
+                    // handle (-inf, +inf)
+                    return true;
+                }
                 // handle (-inf,
                 const to = self.to.n orelse max;
                 const right = if (self.to.open) x < to else x <= to;
@@ -57,8 +61,6 @@ pub fn Interval(comptime T: type) type {
         }
     };
 }
-
-//
 
 fn runTest(comptime T: type, from: ?T, to: ?T, left: bool, right: bool) !void {
     var x = Interval(T){
