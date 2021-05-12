@@ -29,6 +29,10 @@ page_size: ?u16 = null,
 file: ?fs.File = null,
 out_path: ?[]const u8 = null,
 
+// TODO these args will become obselete once Zld is coalesced with incremental
+// linker.
+stack_size: u64 = 0,
+
 objects: std.ArrayListUnmanaged(*Object) = .{},
 archives: std.ArrayListUnmanaged(*Archive) = .{},
 
@@ -172,7 +176,11 @@ pub fn closeFiles(self: Zld) void {
     if (self.file) |f| f.close();
 }
 
-pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
+const LinkArgs = struct {
+    stack_size: ?u64 = null,
+};
+
+pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: LinkArgs) !void {
     if (files.len == 0) return error.NoInputFiles;
     if (out_path.len == 0) return error.EmptyOutputPath;
 
@@ -206,6 +214,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8) !void {
         .read = true,
         .mode = if (std.Target.current.os.tag == .windows) 0 else 0o777,
     });
+    self.stack_size = args.stack_size orelse 0;
 
     try self.populateMetadata();
     try self.parseInputFiles(files);
@@ -1533,7 +1542,8 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                             }
                             if (rel.target == .section) {
                                 const source_sect = object.sections.items[rel.target.section];
-                                args.source_sect_addr = source_sect.inner.addr;
+                                args.source_source_sect_addr = sect.inner.addr;
+                                args.source_target_sect_addr = source_sect.inner.addr;
                             }
 
                             rebases: {
@@ -1588,7 +1598,8 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                         else => |tt| {
                             if (tt == .signed and rel.target == .section) {
                                 const source_sect = object.sections.items[rel.target.section];
-                                args.source_sect_addr = source_sect.inner.addr;
+                                args.source_source_sect_addr = sect.inner.addr;
+                                args.source_target_sect_addr = source_sect.inner.addr;
                             }
                             args.target_addr = try self.relocTargetAddr(@intCast(u16, object_id), rel.target);
                         },
@@ -2202,6 +2213,7 @@ fn setEntryPoint(self: *Zld) !void {
     const entry_sym = sym.cast(Symbol.Regular) orelse unreachable;
     const ec = &self.load_commands.items[self.main_cmd_index.?].Main;
     ec.entryoff = @intCast(u32, entry_sym.address - seg.inner.vmaddr);
+    ec.stacksize = self.stack_size;
 }
 
 fn writeRebaseInfoTable(self: *Zld) !void {

@@ -321,3 +321,5 @@ pub const O_NOATIME = 0o1000000;
 pub const O_PATH = 0o10000000;
 pub const O_TMPFILE = 0o20200000;
 pub const O_NDELAY = O_NONBLOCK;
+
+pub const IFNAMESIZE = 30;

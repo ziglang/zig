@@ -14,12 +14,15 @@ var log_err_count: usize = 0;
 var args_buffer: [std.fs.MAX_PATH_BYTES + std.mem.page_size]u8 = undefined;
 var args_allocator = std.heap.FixedBufferAllocator.init(&args_buffer);
 
-pub fn main() anyerror!void {
+fn processArgs() void {
     const args = std.process.argsAlloc(&args_allocator.allocator) catch {
         @panic("Too many bytes passed over the CLI to the test runner");
     };
     std.testing.zig_exe_path = args[1];
+}
 
+pub fn main() anyerror!void {
+    processArgs();
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
     var skip_count: usize = 0;
@@ -84,6 +87,9 @@ pub fn main() anyerror!void {
                 test_node.end();
                 progress.log("{s}... FAIL ({s})\n", .{ test_fn.name, @errorName(err) });
                 if (progress.terminal == null) std.debug.print("FAIL ({s})\n", .{@errorName(err)});
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
             },
         }
     }

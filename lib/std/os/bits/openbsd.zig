@@ -246,6 +246,14 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 };
 
+pub const sockaddr_storage = extern struct {
+    len: u8,
+    family: sa_family_t,
+    __pad1: [5]u8,
+    __align: i64,
+    __pad2: [112]u8,
+};
+
 pub const sockaddr_in = extern struct {
     len: u8 = @sizeOf(sockaddr_in),
     family: sa_family_t = AF_INET,
@@ -289,15 +297,6 @@ pub const AI_NUMERICSERV = 16;
 
 /// only if any address is assigned
 pub const AI_ADDRCONFIG = 64;
-
-pub const CTL_KERN = 1;
-pub const CTL_DEBUG = 5;
-pub const CTL_HW = 6;
-
-pub const KERN_PROC_ARGS = 55;
-pub const KERN_PROC_ARGV = 1;
-
-pub const HW_NCPUONLINE = 25;
 
 pub const PATH_MAX = 1024;
 
@@ -1229,3 +1228,144 @@ pub const POLLNORM = POLLRDNORM;
 pub const POLLWRNORM = POLLOUT;
 pub const POLLRDBAND = 0x0080;
 pub const POLLWRBAND = 0x0100;
+
+// sysctl mib
+pub const CTL_UNSPEC = 0;
+pub const CTL_KERN = 1;
+pub const CTL_VM = 2;
+pub const CTL_FS = 3;
+pub const CTL_NET = 4;
+pub const CTL_DEBUG = 5;
+pub const CTL_HW = 6;
+pub const CTL_MACHDEP = 7;
+
+pub const CTL_DDB = 9;
+pub const CTL_VFS = 10;
+
+pub const KERN_OSTYPE = 1;
+pub const KERN_OSRELEASE = 2;
+pub const KERN_OSREV = 3;
+pub const KERN_VERSION = 4;
+pub const KERN_MAXVNODES = 5;
+pub const KERN_MAXPROC = 6;
+pub const KERN_MAXFILES = 7;
+pub const KERN_ARGMAX = 8;
+pub const KERN_SECURELVL = 9;
+pub const KERN_HOSTNAME = 10;
+pub const KERN_HOSTID = 11;
+pub const KERN_CLOCKRATE = 12;
+
+pub const KERN_PROF = 16;
+pub const KERN_POSIX1 = 17;
+pub const KERN_NGROUPS = 18;
+pub const KERN_JOB_CONTROL = 19;
+pub const KERN_SAVED_IDS = 20;
+pub const KERN_BOOTTIME = 21;
+pub const KERN_DOMAINNAME = 22;
+pub const KERN_MAXPARTITIONS = 23;
+pub const KERN_RAWPARTITION = 24;
+pub const KERN_MAXTHREAD = 25;
+pub const KERN_NTHREADS = 26;
+pub const KERN_OSVERSION = 27;
+pub const KERN_SOMAXCONN = 28;
+pub const KERN_SOMINCONN = 29;
+
+pub const KERN_NOSUIDCOREDUMP = 32;
+pub const KERN_FSYNC = 33;
+pub const KERN_SYSVMSG = 34;
+pub const KERN_SYSVSEM = 35;
+pub const KERN_SYSVSHM = 36;
+
+pub const KERN_MSGBUFSIZE = 38;
+pub const KERN_MALLOCSTATS = 39;
+pub const KERN_CPTIME = 40;
+pub const KERN_NCHSTATS = 41;
+pub const KERN_FORKSTAT = 42;
+pub const KERN_NSELCOLL = 43;
+pub const KERN_TTY = 44;
+pub const KERN_CCPU = 45;
+pub const KERN_FSCALE = 46;
+pub const KERN_NPROCS = 47;
+pub const KERN_MSGBUF = 48;
+pub const KERN_POOL = 49;
+pub const KERN_STACKGAPRANDOM = 50;
+pub const KERN_SYSVIPC_INFO = 51;
+pub const KERN_ALLOWKMEM = 52;
+pub const KERN_WITNESSWATCH = 53;
+pub const KERN_SPLASSERT = 54;
+pub const KERN_PROC_ARGS = 55;
+pub const KERN_NFILES = 56;
+pub const KERN_TTYCOUNT = 57;
+pub const KERN_NUMVNODES = 58;
+pub const KERN_MBSTAT = 59;
+pub const KERN_WITNESS = 60;
+pub const KERN_SEMINFO = 61;
+pub const KERN_SHMINFO = 62;
+pub const KERN_INTRCNT = 63;
+pub const KERN_WATCHDOG = 64;
+pub const KERN_ALLOWDT = 65;
+pub const KERN_PROC = 66;
+pub const KERN_MAXCLUSTERS = 67;
+pub const KERN_EVCOUNT = 68;
+pub const KERN_TIMECOUNTER = 69;
+pub const KERN_MAXLOCKSPERUID = 70;
+pub const KERN_CPTIME2 = 71;
+pub const KERN_CACHEPCT = 72;
+pub const KERN_FILE = 73;
+pub const KERN_WXABORT = 74;
+pub const KERN_CONSDEV = 75;
+pub const KERN_NETLIVELOCKS = 76;
+pub const KERN_POOL_DEBUG = 77;
+pub const KERN_PROC_CWD = 78;
+pub const KERN_PROC_NOBROADCASTKILL = 79;
+pub const KERN_PROC_VMMAP = 80;
+pub const KERN_GLOBAL_PTRACE = 81;
+pub const KERN_CONSBUFSIZE = 82;
+pub const KERN_CONSBUF = 83;
+pub const KERN_AUDIO = 84;
+pub const KERN_CPUSTATS = 85;
+pub const KERN_PFSTATUS = 86;
+pub const KERN_TIMEOUT_STATS = 87;
+pub const KERN_UTC_OFFSET = 88;
+pub const KERN_VIDEO = 89;
+
+pub const HW_MACHINE = 1;
+pub const HW_MODEL = 2;
+pub const HW_NCPU = 3;
+pub const HW_BYTEORDER = 4;
+pub const HW_PHYSMEM = 5;
+pub const HW_USERMEM = 6;
+pub const HW_PAGESIZE = 7;
+pub const HW_DISKNAMES = 8;
+pub const HW_DISKSTATS = 9;
+pub const HW_DISKCOUNT = 10;
+pub const HW_SENSORS = 11;
+pub const HW_CPUSPEED = 12;
+pub const HW_SETPERF = 13;
+pub const HW_VENDOR = 14;
+pub const HW_PRODUCT = 15;
+pub const HW_VERSION = 16;
+pub const HW_SERIALNO = 17;
+pub const HW_UUID = 18;
+pub const HW_PHYSMEM64 = 19;
+pub const HW_USERMEM64 = 20;
+pub const HW_NCPUFOUND = 21;
+pub const HW_ALLOWPOWERDOWN = 22;
+pub const HW_PERFPOLICY = 23;
+pub const HW_SMT = 24;
+pub const HW_NCPUONLINE = 25;
+
+pub const KERN_PROC_ALL = 0;
+pub const KERN_PROC_PID = 1;
+pub const KERN_PROC_PGRP = 2;
+pub const KERN_PROC_SESSION = 3;
+pub const KERN_PROC_TTY = 4;
+pub const KERN_PROC_UID = 5;
+pub const KERN_PROC_RUID = 6;
+pub const KERN_PROC_KTHREAD = 7;
+pub const KERN_PROC_SHOW_THREADS = 0x40000000;
+
+pub const KERN_PROC_ARGV = 1;
+pub const KERN_PROC_NARGV = 2;
+pub const KERN_PROC_ENV = 3;
+pub const KERN_PROC_NENV = 4;

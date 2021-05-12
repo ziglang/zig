@@ -33,16 +33,19 @@ pub const Signed = struct {
     pub fn resolve(signed: Signed, args: Relocation.ResolveArgs) !void {
         const target_addr = target_addr: {
             if (signed.base.target == .section) {
-                const source_target = @intCast(i64, signed.base.offset) + signed.addend + 4 + signed.correction;
-                const source_disp = source_target - @intCast(i64, args.source_sect_addr.?);
+                const source_target = @intCast(i64, args.source_source_sect_addr.?) + @intCast(i64, signed.base.offset) + signed.addend + 4;
+                const source_disp = source_target - @intCast(i64, args.source_target_sect_addr.?);
                 break :target_addr @intCast(i64, args.target_addr) + source_disp;
             }
             break :target_addr @intCast(i64, args.target_addr) + signed.addend;
         };
-        const displacement = try math.cast(i32, target_addr - @intCast(i64, args.source_addr) - signed.correction - 4);
+        const displacement = try math.cast(
+            i32,
+            target_addr - @intCast(i64, args.source_addr) - signed.correction - 4,
+        );
 
-        log.debug("    | calculated addend 0x{x}", .{signed.addend});
-        log.debug("    | calculated correction 0x{x}", .{signed.correction});
+        log.debug("    | addend 0x{x}", .{signed.addend});
+        log.debug("    | correction 0x{x}", .{signed.correction});
         log.debug("    | displacement 0x{x}", .{displacement});
 
         mem.writeIntLittle(u32, signed.base.code[0..4], @bitCast(u32, displacement));
@@ -172,20 +175,14 @@ pub const Parser = struct {
 
         const offset = @intCast(u32, rel.r_address);
         const inst = parser.code[offset..][0..4];
-        const addend = mem.readIntLittle(i32, inst);
-
-        const correction: i4 = correction: {
-            if (is_extern) break :correction 0;
-
-            const corr: i4 = switch (rel_type) {
-                .X86_64_RELOC_SIGNED => 0,
-                .X86_64_RELOC_SIGNED_1 => 1,
-                .X86_64_RELOC_SIGNED_2 => 2,
-                .X86_64_RELOC_SIGNED_4 => 4,
-                else => unreachable,
-            };
-            break :correction corr;
+        const correction: i4 = switch (rel_type) {
+            .X86_64_RELOC_SIGNED => 0,
+            .X86_64_RELOC_SIGNED_1 => 1,
+            .X86_64_RELOC_SIGNED_2 => 2,
+            .X86_64_RELOC_SIGNED_4 => 4,
+            else => unreachable,
         };
+        const addend = mem.readIntLittle(i32, inst) + correction;
 
         var signed = try parser.allocator.create(Signed);
         errdefer parser.allocator.destroy(signed);

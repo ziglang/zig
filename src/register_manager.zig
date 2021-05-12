@@ -1,5 +1,6 @@
 const std = @import("std");
 const math = std.math;
+const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ir = @import("ir.zig");
@@ -66,8 +67,13 @@ pub fn RegisterManager(
         }
 
         /// Returns `null` if all registers are allocated.
-        pub fn tryAllocRegs(self: *Self, comptime count: comptime_int, insts: [count]*ir.Inst) ?[count]Register {
-            if (self.tryAllocRegsWithoutTracking(count)) |regs| {
+        pub fn tryAllocRegs(
+            self: *Self,
+            comptime count: comptime_int,
+            insts: [count]*ir.Inst,
+            exceptions: []Register,
+        ) ?[count]Register {
+            if (self.tryAllocRegsWithoutTracking(count, exceptions)) |regs| {
                 for (regs) |reg, i| {
                     const index = reg.allocIndex().?; // allocIndex() on a callee-preserved reg should never return null
                     self.registers[index] = insts[i];
@@ -81,21 +87,30 @@ pub fn RegisterManager(
         }
 
         /// Returns `null` if all registers are allocated.
-        pub fn tryAllocReg(self: *Self, inst: *ir.Inst) ?Register {
-            return if (tryAllocRegs(self, 1, .{inst})) |regs| regs[0] else null;
+        pub fn tryAllocReg(self: *Self, inst: *ir.Inst, exceptions: []Register) ?Register {
+            return if (tryAllocRegs(self, 1, .{inst}, exceptions)) |regs| regs[0] else null;
         }
 
-        pub fn allocRegs(self: *Self, comptime count: comptime_int, insts: [count]*ir.Inst) ![count]Register {
+        pub fn allocRegs(
+            self: *Self,
+            comptime count: comptime_int,
+            insts: [count]*ir.Inst,
+            exceptions: []Register,
+        ) ![count]Register {
             comptime assert(count > 0 and count <= callee_preserved_regs.len);
+            assert(count + exceptions.len <= callee_preserved_regs.len);
 
-            return self.tryAllocRegs(count, insts) orelse blk: {
+            return self.tryAllocRegs(count, insts, exceptions) orelse blk: {
                 // We'll take over the first count registers. Spill
                 // the instructions that were previously there to a
                 // stack allocations.
                 var regs: [count]Register = undefined;
-                std.mem.copy(Register, &regs, callee_preserved_regs[0..count]);
+                var i: usize = 0;
+                for (callee_preserved_regs) |reg| {
+                    if (i >= count) break;
+                    if (mem.indexOfScalar(Register, exceptions, reg) != null) continue;
+                    regs[i] = reg;
 
-                for (regs) |reg, i| {
                     const index = reg.allocIndex().?; // allocIndex() on a callee-preserved reg should never return null
                     if (self.isRegFree(reg)) {
                         self.markRegUsed(reg);
@@ -104,21 +119,28 @@ pub fn RegisterManager(
                         try self.getFunction().spillInstruction(spilled_inst.src, reg, spilled_inst);
                     }
                     self.registers[index] = insts[i];
+
+                    i += 1;
                 }
 
                 break :blk regs;
             };
         }
 
-        pub fn allocReg(self: *Self, inst: *ir.Inst) !Register {
-            return (try self.allocRegs(1, .{inst}))[0];
+        pub fn allocReg(self: *Self, inst: *ir.Inst, exceptions: []Register) !Register {
+            return (try self.allocRegs(1, .{inst}, exceptions))[0];
         }
 
         /// Does not track the registers.
         /// Returns `null` if not enough registers are free.
-        pub fn tryAllocRegsWithoutTracking(self: *Self, comptime count: comptime_int) ?[count]Register {
+        pub fn tryAllocRegsWithoutTracking(
+            self: *Self,
+            comptime count: comptime_int,
+            exceptions: []Register,
+        ) ?[count]Register {
             comptime if (callee_preserved_regs.len == 0) return null;
             comptime assert(count > 0 and count <= callee_preserved_regs.len);
+            assert(count + exceptions.len <= callee_preserved_regs.len);
 
             const free_registers = @popCount(FreeRegInt, self.free_registers);
             if (free_registers < count) return null;
@@ -127,30 +149,35 @@ pub fn RegisterManager(
             var i: usize = 0;
             for (callee_preserved_regs) |reg| {
                 if (i >= count) break;
+                if (mem.indexOfScalar(Register, exceptions, reg) != null) continue;
                 if (self.isRegFree(reg)) {
                     regs[i] = reg;
                     i += 1;
                 }
             }
-            return regs;
+
+            return if (i < count) null else regs;
         }
 
         /// Does not track the register.
         /// Returns `null` if all registers are allocated.
-        pub fn tryAllocRegWithoutTracking(self: *Self) ?Register {
-            return if (self.tryAllocRegsWithoutTracking(1)) |regs| regs[0] else null;
+        pub fn tryAllocRegWithoutTracking(self: *Self, exceptions: []Register) ?Register {
+            return if (self.tryAllocRegsWithoutTracking(1, exceptions)) |regs| regs[0] else null;
         }
 
         /// Does not track the registers
-        pub fn allocRegsWithoutTracking(self: *Self, comptime count: comptime_int) ![count]Register {
-            return self.tryAllocRegsWithoutTracking(count) orelse blk: {
+        pub fn allocRegsWithoutTracking(self: *Self, comptime count: comptime_int, exceptions: []Register) ![count]Register {
+            return self.tryAllocRegsWithoutTracking(count, exceptions) orelse blk: {
                 // We'll take over the first count registers. Spill
                 // the instructions that were previously there to a
                 // stack allocations.
                 var regs: [count]Register = undefined;
-                std.mem.copy(Register, &regs, callee_preserved_regs[0..count]);
+                var i: usize = 0;
+                for (callee_preserved_regs) |reg| {
+                    if (i >= count) break;
+                    if (mem.indexOfScalar(Register, exceptions, reg) != null) continue;
+                    regs[i] = reg;
 
-                for (regs) |reg, i| {
                     const index = reg.allocIndex().?; // allocIndex() on a callee-preserved reg should never return null
                     if (!self.isRegFree(reg)) {
                         const spilled_inst = self.registers[index].?;
@@ -158,6 +185,8 @@ pub fn RegisterManager(
                         self.registers[index] = null;
                         self.markRegFree(reg);
                     }
+
+                    i += 1;
                 }
 
                 break :blk regs;
@@ -165,8 +194,8 @@ pub fn RegisterManager(
         }
 
         /// Does not track the register.
-        pub fn allocRegWithoutTracking(self: *Self) !Register {
-            return (try self.allocRegsWithoutTracking(1))[0];
+        pub fn allocRegWithoutTracking(self: *Self, exceptions: []Register) !Register {
+            return (try self.allocRegsWithoutTracking(1, exceptions))[0];
         }
 
         /// Allocates the specified register with the specified
@@ -270,9 +299,9 @@ test "tryAllocReg: no spilling" {
     try std.testing.expect(!function.register_manager.isRegAllocated(.r2));
     try std.testing.expect(!function.register_manager.isRegAllocated(.r3));
 
-    try std.testing.expectEqual(@as(?MockRegister, .r2), function.register_manager.tryAllocReg(&mock_instruction));
-    try std.testing.expectEqual(@as(?MockRegister, .r3), function.register_manager.tryAllocReg(&mock_instruction));
-    try std.testing.expectEqual(@as(?MockRegister, null), function.register_manager.tryAllocReg(&mock_instruction));
+    try std.testing.expectEqual(@as(?MockRegister, .r2), function.register_manager.tryAllocReg(&mock_instruction, &.{}));
+    try std.testing.expectEqual(@as(?MockRegister, .r3), function.register_manager.tryAllocReg(&mock_instruction, &.{}));
+    try std.testing.expectEqual(@as(?MockRegister, null), function.register_manager.tryAllocReg(&mock_instruction, &.{}));
 
     try std.testing.expect(function.register_manager.isRegAllocated(.r2));
     try std.testing.expect(function.register_manager.isRegAllocated(.r3));
@@ -301,16 +330,16 @@ test "allocReg: spilling" {
     try std.testing.expect(!function.register_manager.isRegAllocated(.r2));
     try std.testing.expect(!function.register_manager.isRegAllocated(.r3));
 
-    try std.testing.expectEqual(@as(?MockRegister, .r2), try function.register_manager.allocReg(&mock_instruction));
-    try std.testing.expectEqual(@as(?MockRegister, .r3), try function.register_manager.allocReg(&mock_instruction));
+    try std.testing.expectEqual(@as(?MockRegister, .r2), try function.register_manager.allocReg(&mock_instruction, &.{}));
+    try std.testing.expectEqual(@as(?MockRegister, .r3), try function.register_manager.allocReg(&mock_instruction, &.{}));
 
     // Spill a register
-    try std.testing.expectEqual(@as(?MockRegister, .r2), try function.register_manager.allocReg(&mock_instruction));
+    try std.testing.expectEqual(@as(?MockRegister, .r2), try function.register_manager.allocReg(&mock_instruction, &.{}));
     try std.testing.expectEqualSlices(MockRegister, &[_]MockRegister{.r2}, function.spilled.items);
 
     // No spilling necessary
     function.register_manager.freeReg(.r3);
-    try std.testing.expectEqual(@as(?MockRegister, .r3), try function.register_manager.allocReg(&mock_instruction));
+    try std.testing.expectEqual(@as(?MockRegister, .r3), try function.register_manager.allocReg(&mock_instruction, &.{}));
     try std.testing.expectEqualSlices(MockRegister, &[_]MockRegister{.r2}, function.spilled.items);
 }
 

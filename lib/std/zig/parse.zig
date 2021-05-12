@@ -639,7 +639,7 @@ const Parser = struct {
         };
     }
 
-    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? CallConv? EXCLAMATIONMARK? (Keyword_anytype / TypeExpr)
+    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
     fn parseFnProto(p: *Parser) !Node.Index {
         const fn_token = p.eatToken(.keyword_fn) orelse return null_node;
 

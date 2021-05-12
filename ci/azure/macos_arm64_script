@@ -3,24 +3,31 @@
 set -x
 set -e
 
-brew update && brew install s3cmd ninja gnu-tar
+brew update && brew install s3cmd
 
 ZIGDIR="$(pwd)"
+
+HOST_ARCH="x86_64"
+HOST_TARGET="$HOST_ARCH-macos-gnu"
+HOST_MCPU="baseline"
+HOST_CACHE_BASENAME="zig+llvm+lld+clang-$HOST_TARGET-0.8.0-dev.2168+2d1196773"
+HOST_PREFIX="$HOME/$HOST_CACHE_BASENAME"
+
 ARCH="aarch64"
-# {product}-{os}{sdk_version}-{arch}-{llvm_version}-{cmake_build_type}
-CACHE_HOST_BASENAME="ci-llvm-macos10.15-x86_64-12.0.0.1-release"
-CACHE_ARM64_BASENAME="ci-llvm-macos11.0-arm64-12.0.0.1-release"
-PREFIX_HOST="$HOME/$CACHE_HOST_BASENAME"
-PREFIX_ARM64="$HOME/$CACHE_ARM64_BASENAME"
+TARGET="$ARCH-macos-gnu"
+MCPU="cyclone"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.0-dev.2168+2d1196773"
+PREFIX="$HOME/$CACHE_BASENAME"
+
 JOBS="-j2"
 
-rm -rf $PREFIX
+rm -rf $HOST_PREFIX $PREFIX
 cd $HOME
-wget -nv "https://ziglang.org/deps/$CACHE_HOST_BASENAME.tar.xz"
-wget -nv "https://ziglang.org/deps/$CACHE_ARM64_BASENAME.tar.xz"
 
-gtar xf "$CACHE_HOST_BASENAME.tar.xz"
-gtar xf "$CACHE_ARM64_BASENAME.tar.xz"
+wget -nv "https://ziglang.org/deps/$HOST_CACHE_BASENAME.tar.xz"
+wget -nv "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
+tar xf "$HOST_CACHE_BASENAME.tar.xz"
+tar xf "$CACHE_BASENAME.tar.xz"
 
 cd $ZIGDIR
 
@@ -30,83 +37,75 @@ git config core.abbrev 9
 git fetch --unshallow || true
 git fetch --tags
 
-# Select xcode: latest version found on vmImage macOS-10.15 .
-DEVELOPER_DIR=/Applications/Xcode_12.4.app
+# Build host zig compiler in debug so that we can get the
+# current version when packaging
 
-export ZIG_LOCAL_CACHE_DIR="$ZIGDIR/zig-cache"
-export ZIG_GLOBAL_CACHE_DIR="$ZIGDIR/zig-cache"
+ZIG="$HOST_PREFIX/bin/zig"
 
-# Build zig for host and use `Debug` type to make builds a little faster.
+export CC="$ZIG cc -target $HOST_TARGET -mcpu=$HOST_MCPU"
+export CXX="$ZIG c++ -target $HOST_TARGET -mcpu=$HOST_MCPU"
 
-cd $ZIGDIR
 mkdir build.host
 cd build.host
-cmake -G "Ninja" .. \
+cmake .. \
   -DCMAKE_INSTALL_PREFIX="$(pwd)/release" \
-  -DCMAKE_PREFIX_PATH="$PREFIX_HOST" \
-  -DCMAKE_BUILD_TYPE="Debug" \
-  -DZIG_STATIC="OFF"
+  -DCMAKE_PREFIX_PATH="$HOST_PREFIX" \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DZIG_TARGET_TRIPLE="$HOST_TARGET" \
+  -DZIG_TARGET_MCPU="$HOST_MCPU" \
+  -DZIG_STATIC=ON
 
-# Build but do not install.
-ninja $JOBS
+unset CC
+unset CXX
 
-ZIG_EXE="$ZIGDIR/build.host/zig"
+make $JOBS install
 
-# Build zig for arm64 target.
-# - use `Release` type for published tarballs
-# - ad-hoc codesign with linker
-# - note: apple quarantine of downloads (eg. via safari) still apply
-
+# Build zig compiler cross-compiled for arm64
 cd $ZIGDIR
-mkdir build.arm64
-cd build.arm64
-cmake -G "Ninja" .. \
+
+ZIG="$ZIGDIR/build.host/release/bin/zig"
+
+export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+
+mkdir build
+cd build
+cmake .. \
   -DCMAKE_INSTALL_PREFIX="$(pwd)/release" \
-  -DCMAKE_PREFIX_PATH="$PREFIX_ARM64" \
-  -DCMAKE_BUILD_TYPE="Release" \
-  -DCMAKE_CROSSCOMPILING="True" \
-  -DCMAKE_SYSTEM_NAME="Darwin" \
-  -DCMAKE_C_FLAGS="-arch arm64" \
-  -DCMAKE_CXX_FLAGS="-arch arm64" \
-  -DCMAKE_EXE_LINKER_FLAGS="-lz -Xlinker -adhoc_codesign" \
-  -DZIG_USE_LLVM_CONFIG="OFF" \
-  -DZIG_EXECUTABLE="$ZIG_EXE" \
-  -DZIG_TARGET_TRIPLE="${ARCH}-macos" \
-  -DZIG_STATIC="OFF"
+  -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DZIG_TARGET_TRIPLE="$TARGET" \
+  -DZIG_TARGET_MCPU="$MCPU" \
+  -DZIG_EXECUTABLE="$ZIG" \
+  -DZIG_STATIC=ON
 
-ninja $JOBS install
+unset CC
+unset CXX
 
-# Disable test because binary is foreign arch.
-#release/bin/zig build test
+make $JOBS install
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   mv ../LICENSE release/
 
   # We do not run test suite but still need langref.
   mkdir -p release/docs
-  $ZIG_EXE run ../doc/docgen.zig -- $ZIG_EXE ../doc/langref.html.in release/docs/langref.html
+  $ZIG run ../doc/docgen.zig -- $ZIG ../doc/langref.html.in release/docs/langref.html
 
   # Produce the experimental std lib documentation.
   mkdir -p release/docs/std
-  $ZIG_EXE test ../lib/std/std.zig \
+  $ZIG test ../lib/std/std.zig \
     --override-lib-dir ../lib \
     -femit-docs=release/docs/std \
     -fno-emit-bin
 
-  # Remove the unnecessary bin dir in $prefix/bin/zig
   mv release/bin/zig release/
   rmdir release/bin
 
-  # Remove the unnecessary zig dir in $prefix/lib/zig/std/std.zig
-  mv release/lib/zig release/lib2
-  rmdir release/lib
-  mv release/lib2 release/lib
-
-  VERSION=$($ZIG_EXE version)
+  VERSION=$(../build.host/release/bin/zig version)
   DIRNAME="zig-macos-$ARCH-$VERSION"
   TARBALL="$DIRNAME.tar.xz"
-  gtar cJf "$TARBALL" release/ --owner=root --sort=name --transform="s,^release,${DIRNAME},"
-  ln "$TARBALL" "$BUILD_ARTIFACTSTAGINGDIRECTORY/."
+  mv release "$DIRNAME"
+  tar cfJ "$TARBALL" "$DIRNAME"
 
   mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
   s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
@@ -114,12 +113,13 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   SHASUM=$(shasum -a 256 $TARBALL | cut '-d ' -f1)
   BYTESIZE=$(wc -c < $TARBALL)
 
-  JSONFILE="tarball.json"
+  JSONFILE="macos-$GITBRANCH.json"
   touch $JSONFILE
   echo "{\"tarball\": \"$TARBALL\"," >>$JSONFILE
   echo "\"shasum\": \"$SHASUM\"," >>$JSONFILE
   echo "\"size\": \"$BYTESIZE\"}" >>$JSONFILE
 
+  s3cmd put -P --add-header="Cache-Control: max-age=0, must-revalidate" "$JSONFILE" "s3://ziglang.org/builds/$JSONFILE"
   s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/$ARCH-macos-$VERSION.json"
 
   # `set -x` causes these variables to be mangled.

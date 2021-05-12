@@ -7,21 +7,21 @@ brew update && brew install s3cmd
 
 ZIGDIR="$(pwd)"
 ARCH="x86_64"
-CACHE_BASENAME="zig+llvm+lld+clang-$ARCH-macos-gnu-0.8.0-dev.1939+5a3ea9bec"
+TARGET="$ARCH-macos-gnu"
+MCPU="baseline"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.0-dev.2168+2d1196773"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j2"
 
 rm -rf $PREFIX
 cd $HOME
+
 wget -nv "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
 tar xf "$CACHE_BASENAME.tar.xz"
 
 ZIG="$PREFIX/bin/zig"
-NATIVE_LIBC_TXT="$HOME/native_libc.txt"
-$ZIG libc >"$NATIVE_LIBC_TXT"
-export ZIG_LIBC="$NATIVE_LIBC_TXT"
-export CC="$ZIG cc"
-export CXX="$ZIG c++"
+export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
 cd $ZIGDIR
 
@@ -37,22 +37,21 @@ cmake .. \
   -DCMAKE_INSTALL_PREFIX="$(pwd)/release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
-  -DZIG_TARGET_TRIPLE="$ARCH-native-gnu" \
-  -DZIG_TARGET_MCPU="baseline" \
+  -DZIG_TARGET_TRIPLE="$TARGET" \
+  -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
 # so that installation and testing do not get affected by them.
 unset CC
 unset CXX
-unset ZIG_LIBC
 
 make $JOBS install
 
 # Here we rebuild zig but this time using the Zig binary we just now produced to
 # build zig1.o rather than relying on the one built with stage0. See
 # https://github.com/ziglang/zig/issues/6830 for more details.
-cmake .. -DZIG_EXECUTABLE="$(pwd)/release/bin/zig" -DZIG_TARGET_MCPU="x86_64_v2"
+cmake .. -DZIG_EXECUTABLE="$(pwd)/release/bin/zig"
 make $JOBS install
 
 for step in test-toolchain test-std docs; do

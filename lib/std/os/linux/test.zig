@@ -20,7 +20,7 @@ test "fallocate" {
 
     try expect((try file.stat()).size == 0);
 
-    const len: u64 = 65536;
+    const len: i64 = 65536;
     switch (linux.getErrno(linux.fallocate(file.handle, 0, 0, len))) {
         0 => {},
         linux.ENOSYS => return error.SkipZigTest,

@@ -387,17 +387,6 @@ pub fn PriorityDequeue(comptime T: type) type {
                     return;
                 },
             };
-            self.len = new_len;
-        }
-
-        /// Reduce length to `new_len`.
-        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
-            assert(new_len <= self.items.len);
-
-            // Cannot shrink to smaller than the current queue size without invalidating the heap property
-            assert(new_len >= self.len);
-
-            self.len = new_len;
         }
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
@@ -836,7 +825,7 @@ test "std.PriorityDequeue: iterator while empty" {
     try expectEqual(it.next(), null);
 }
 
-test "std.PriorityDequeue: shrinkRetainingCapacity and shrinkAndFree" {
+test "std.PriorityDequeue: shrinkAndFree" {
     var queue = PDQ.init(testing.allocator, lessThanComparison);
     defer queue.deinit();
 
@@ -846,10 +835,6 @@ test "std.PriorityDequeue: shrinkRetainingCapacity and shrinkAndFree" {
     try queue.add(1);
     try queue.add(2);
     try queue.add(3);
-    try expect(queue.capacity() >= 4);
-    try expectEqual(@as(usize, 3), queue.len);
-
-    queue.shrinkRetainingCapacity(3);
     try expect(queue.capacity() >= 4);
     try expectEqual(@as(usize, 3), queue.len);
 

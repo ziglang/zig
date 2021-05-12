@@ -603,6 +603,7 @@ test "span" {
     try testing.expectEqual(@as(?[:0]u16, null), span(@as(?[*:0]u16, null)));
 }
 
+/// Deprecated: use std.mem.span() or std.mem.sliceTo()
 /// Same as `span`, except when there is both a sentinel and an array
 /// length or slice length, scans the memory for the sentinel value
 /// rather than using the length.
@@ -629,6 +630,192 @@ test "spanZ" {
     try testing.expect(eql(u16, spanZ(ptr), &[_]u16{ 1, 2 }));
     try testing.expect(eql(u16, spanZ(&array), &[_]u16{ 1, 2, 3, 4, 5 }));
     try testing.expectEqual(@as(?[:0]u16, null), spanZ(@as(?[*:0]u16, null)));
+}
+
+/// Helper for the return type of sliceTo()
+fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
+    switch (@typeInfo(T)) {
+        .Optional => |optional_info| {
+            return ?SliceTo(optional_info.child, end);
+        },
+        .Pointer => |ptr_info| {
+            var new_ptr_info = ptr_info;
+            new_ptr_info.size = .Slice;
+            switch (ptr_info.size) {
+                .One => switch (@typeInfo(ptr_info.child)) {
+                    .Array => |array_info| {
+                        new_ptr_info.child = array_info.child;
+                        // The return type must only be sentinel terminated if we are guaranteed
+                        // to find the value searched for, which is only the case if it matches
+                        // the sentinel of the type passed.
+                        if (array_info.sentinel) |sentinel| {
+                            if (end == sentinel) {
+                                new_ptr_info.sentinel = end;
+                            } else {
+                                new_ptr_info.sentinel = null;
+                            }
+                        }
+                    },
+                    else => {},
+                },
+                .Many, .Slice => {
+                    // The return type must only be sentinel terminated if we are guaranteed
+                    // to find the value searched for, which is only the case if it matches
+                    // the sentinel of the type passed.
+                    if (ptr_info.sentinel) |sentinel| {
+                        if (end == sentinel) {
+                            new_ptr_info.sentinel = end;
+                        } else {
+                            new_ptr_info.sentinel = null;
+                        }
+                    }
+                },
+                .C => {
+                    new_ptr_info.sentinel = end;
+                    // C pointers are always allowzero, but we don't want the return type to be.
+                    assert(new_ptr_info.is_allowzero);
+                    new_ptr_info.is_allowzero = false;
+                },
+            }
+            return @Type(std.builtin.TypeInfo{ .Pointer = new_ptr_info });
+        },
+        else => {},
+    }
+    @compileError("invalid type given to std.mem.sliceTo: " ++ @typeName(T));
+}
+
+/// Takes a pointer to an array, an array, a sentinel-terminated pointer, or a slice and
+/// iterates searching for the first occurrence of `end`, returning the scanned slice.
+/// If `end` is not found, the full length of the array/slice/sentinel terminated pointer is returned.
+/// If the pointer type is sentinel terminated and `end` matches that terminator, the
+/// resulting slice is also sentinel terminated.
+/// Pointer properties such as mutability and alignment are preserved.
+/// C pointers are assumed to be non-null.
+pub fn sliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) SliceTo(@TypeOf(ptr), end) {
+    if (@typeInfo(@TypeOf(ptr)) == .Optional) {
+        const non_null = ptr orelse return null;
+        return sliceTo(non_null, end);
+    }
+    const Result = SliceTo(@TypeOf(ptr), end);
+    const length = lenSliceTo(ptr, end);
+    if (@typeInfo(Result).Pointer.sentinel) |s| {
+        return ptr[0..length :s];
+    } else {
+        return ptr[0..length];
+    }
+}
+
+test "sliceTo" {
+    try testing.expectEqualSlices(u8, "aoeu", sliceTo("aoeu", 0));
+
+    {
+        var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+        try testing.expectEqualSlices(u16, &array, sliceTo(&array, 0));
+        try testing.expectEqualSlices(u16, array[0..3], sliceTo(array[0..3], 0));
+        try testing.expectEqualSlices(u16, array[0..2], sliceTo(&array, 3));
+        try testing.expectEqualSlices(u16, array[0..2], sliceTo(array[0..3], 3));
+
+        const sentinel_ptr = @ptrCast([*:5]u16, &array);
+        try testing.expectEqualSlices(u16, array[0..2], sliceTo(sentinel_ptr, 3));
+        try testing.expectEqualSlices(u16, array[0..4], sliceTo(sentinel_ptr, 99));
+
+        const optional_sentinel_ptr = @ptrCast(?[*:5]u16, &array);
+        try testing.expectEqualSlices(u16, array[0..2], sliceTo(optional_sentinel_ptr, 3).?);
+        try testing.expectEqualSlices(u16, array[0..4], sliceTo(optional_sentinel_ptr, 99).?);
+
+        const c_ptr = @as([*c]u16, &array);
+        try testing.expectEqualSlices(u16, array[0..2], sliceTo(c_ptr, 3));
+
+        const slice: []u16 = &array;
+        try testing.expectEqualSlices(u16, array[0..2], sliceTo(slice, 3));
+        try testing.expectEqualSlices(u16, &array, sliceTo(slice, 99));
+
+        const sentinel_slice: [:5]u16 = array[0..4 :5];
+        try testing.expectEqualSlices(u16, array[0..2], sliceTo(sentinel_slice, 3));
+        try testing.expectEqualSlices(u16, array[0..4], sliceTo(sentinel_slice, 99));
+    }
+    {
+        var sentinel_array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
+        try testing.expectEqualSlices(u16, sentinel_array[0..2], sliceTo(&sentinel_array, 3));
+        try testing.expectEqualSlices(u16, &sentinel_array, sliceTo(&sentinel_array, 0));
+        try testing.expectEqualSlices(u16, &sentinel_array, sliceTo(&sentinel_array, 99));
+    }
+
+    try testing.expectEqual(@as(?[]u8, null), sliceTo(@as(?[]u8, null), 0));
+}
+
+/// Private helper for sliceTo(). If you want the length, use sliceTo(foo, x).len
+fn lenSliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) usize {
+    switch (@typeInfo(@TypeOf(ptr))) {
+        .Pointer => |ptr_info| switch (ptr_info.size) {
+            .One => switch (@typeInfo(ptr_info.child)) {
+                .Array => |array_info| {
+                    if (array_info.sentinel) |sentinel| {
+                        if (sentinel == end) {
+                            return indexOfSentinel(array_info.child, end, ptr);
+                        }
+                    }
+                    return indexOfScalar(array_info.child, ptr, end) orelse array_info.len;
+                },
+                else => {},
+            },
+            .Many => if (ptr_info.sentinel) |sentinel| {
+                // We may be looking for something other than the sentinel,
+                // but iterating past the sentinel would be a bug so we need
+                // to check for both.
+                var i: usize = 0;
+                while (ptr[i] != end and ptr[i] != sentinel) i += 1;
+                return i;
+            },
+            .C => {
+                assert(ptr != null);
+                return indexOfSentinel(ptr_info.child, end, ptr);
+            },
+            .Slice => {
+                if (ptr_info.sentinel) |sentinel| {
+                    if (sentinel == end) {
+                        return indexOfSentinel(ptr_info.child, sentinel, ptr);
+                    }
+                }
+                return indexOfScalar(ptr_info.child, ptr, end) orelse ptr.len;
+            },
+        },
+        else => {},
+    }
+    @compileError("invalid type given to std.mem.sliceTo: " ++ @typeName(@TypeOf(ptr)));
+}
+
+test "lenSliceTo" {
+    try testing.expect(lenSliceTo("aoeu", 0) == 4);
+
+    {
+        var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
+        try testing.expectEqual(@as(usize, 5), lenSliceTo(&array, 0));
+        try testing.expectEqual(@as(usize, 3), lenSliceTo(array[0..3], 0));
+        try testing.expectEqual(@as(usize, 2), lenSliceTo(&array, 3));
+        try testing.expectEqual(@as(usize, 2), lenSliceTo(array[0..3], 3));
+
+        const sentinel_ptr = @ptrCast([*:5]u16, &array);
+        try testing.expectEqual(@as(usize, 2), lenSliceTo(sentinel_ptr, 3));
+        try testing.expectEqual(@as(usize, 4), lenSliceTo(sentinel_ptr, 99));
+
+        const c_ptr = @as([*c]u16, &array);
+        try testing.expectEqual(@as(usize, 2), lenSliceTo(c_ptr, 3));
+
+        const slice: []u16 = &array;
+        try testing.expectEqual(@as(usize, 2), lenSliceTo(slice, 3));
+        try testing.expectEqual(@as(usize, 5), lenSliceTo(slice, 99));
+
+        const sentinel_slice: [:5]u16 = array[0..4 :5];
+        try testing.expectEqual(@as(usize, 2), lenSliceTo(sentinel_slice, 3));
+        try testing.expectEqual(@as(usize, 4), lenSliceTo(sentinel_slice, 99));
+    }
+    {
+        var sentinel_array: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
+        try testing.expectEqual(@as(usize, 2), lenSliceTo(&sentinel_array, 3));
+        try testing.expectEqual(@as(usize, 5), lenSliceTo(&sentinel_array, 0));
+        try testing.expectEqual(@as(usize, 5), lenSliceTo(&sentinel_array, 99));
+    }
 }
 
 /// Takes a pointer to an array, an array, a vector, a sentinel-terminated pointer,
@@ -689,6 +876,7 @@ test "len" {
     }
 }
 
+/// Deprecated: use std.mem.len() or std.mem.sliceTo().len
 /// Takes a pointer to an array, an array, a sentinel-terminated pointer,
 /// or a slice, and returns the length.
 /// In the case of a sentinel-terminated array, it scans the array

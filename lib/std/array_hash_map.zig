@@ -18,11 +18,11 @@ const builtin = std.builtin;
 const hash_map = @This();
 
 pub fn AutoArrayHashMap(comptime K: type, comptime V: type) type {
-    return ArrayHashMap(K, V, getAutoHashFn(K), getAutoEqlFn(K), autoEqlIsCheap(K));
+    return ArrayHashMap(K, V, getAutoHashFn(K), getAutoEqlFn(K), !autoEqlIsCheap(K));
 }
 
 pub fn AutoArrayHashMapUnmanaged(comptime K: type, comptime V: type) type {
-    return ArrayHashMapUnmanaged(K, V, getAutoHashFn(K), getAutoEqlFn(K), autoEqlIsCheap(K));
+    return ArrayHashMapUnmanaged(K, V, getAutoHashFn(K), getAutoEqlFn(K), !autoEqlIsCheap(K));
 }
 
 /// Builtin hashmap for strings as keys.
@@ -1318,7 +1318,7 @@ test "reIndex" {
         try al.append(std.testing.allocator, .{
             .key = i,
             .value = i * 10,
-            .hash = hash(i),
+            .hash = {},
         });
     }
 
@@ -1345,7 +1345,7 @@ test "fromOwnedArrayList" {
         try al.append(std.testing.allocator, .{
             .key = i,
             .value = i * 10,
-            .hash = hash(i),
+            .hash = {},
         });
     }
 
@@ -1360,6 +1360,18 @@ test "fromOwnedArrayList" {
         try testing.expect(gop.entry.value == i * 10);
         try testing.expect(gop.index == i);
     }
+}
+
+test "auto store_hash" {
+    const HasCheapEql = AutoArrayHashMap(i32, i32);
+    const HasExpensiveEql = AutoArrayHashMap([32]i32, i32);
+    try testing.expect(meta.fieldInfo(HasCheapEql.Entry, .hash).field_type == void);
+    try testing.expect(meta.fieldInfo(HasExpensiveEql.Entry, .hash).field_type != void);
+
+    const HasCheapEqlUn = AutoArrayHashMapUnmanaged(i32, i32);
+    const HasExpensiveEqlUn = AutoArrayHashMapUnmanaged([32]i32, i32);
+    try testing.expect(meta.fieldInfo(HasCheapEqlUn.Entry, .hash).field_type == void);
+    try testing.expect(meta.fieldInfo(HasExpensiveEqlUn.Entry, .hash).field_type != void);
 }
 
 pub fn getHashPtrAddrFn(comptime K: type) (fn (K) u32) {

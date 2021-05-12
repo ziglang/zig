@@ -9,7 +9,7 @@ sudo apt-get install -y cmake s3cmd tidy
 ZIGDIR="$(pwd)"
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.0-dev.1939+5a3ea9bec"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.0-dev.2168+2d1196773"
 PREFIX="$HOME/$CACHE_BASENAME"
 MCPU="baseline"
 JOBS="-j$(nproc)"
@@ -25,8 +25,10 @@ wget -nv "https://ziglang.org/deps/$QEMUBASE.tar.xz"
 tar xf "$QEMUBASE.tar.xz"
 export PATH="$(pwd)/$QEMUBASE/bin:$PATH"
 
-WASMTIME="wasmtime-v0.20.0-x86_64-linux"
-wget -nv "https://github.com/bytecodealliance/wasmtime/releases/download/v0.20.0/$WASMTIME.tar.xz"
+# Bump to v0.23 once this issue is resolved:
+# https://github.com/ziglang/zig/issues/8742
+WASMTIME="wasmtime-v0.22.1-x86_64-linux"
+wget -nv "https://github.com/bytecodealliance/wasmtime/releases/download/v0.22.1/$WASMTIME.tar.xz"
 tar xf "$WASMTIME.tar.xz"
 export PATH="$(pwd)/$WASMTIME:$PATH"
 

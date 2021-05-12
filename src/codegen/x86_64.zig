@@ -1,4 +1,9 @@
 const std = @import("std");
+const testing = std.testing;
+const mem = std.mem;
+const assert = std.debug.assert;
+const ArrayList = std.ArrayList;
+const Allocator = std.mem.Allocator;
 const Type = @import("../Type.zig");
 const DW = std.dwarf;
 
@@ -68,6 +73,11 @@ pub const Register = enum(u8) {
         return @truncate(u4, @enumToInt(self));
     }
 
+    /// Like id, but only returns the lower 3 bits.
+    pub fn low_id(self: Register) u3 {
+        return @truncate(u3, @enumToInt(self));
+    }
+
     /// Returns the index into `callee_preserved_regs`.
     pub fn allocIndex(self: Register) ?u4 {
         return switch (self) {
@@ -135,6 +145,493 @@ pub const Register = enum(u8) {
 pub const callee_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
 pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
 pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
+
+/// Encoding helper functions for x86_64 instructions
+///
+/// Many of these helpers do very little, but they can help make things
+/// slightly more readable with more descriptive field names / function names.
+///
+/// Some of them also have asserts to ensure that we aren't doing dumb things.
+/// For example, trying to use register 4 (esp) in an indirect modr/m byte is illegal,
+/// you need to encode it with an SIB byte.
+///
+/// Note that ALL of these helper functions will assume capacity,
+/// so ensure that the `code` has sufficient capacity before using them.
+/// The `init` method is the recommended way to ensure capacity.
+pub const Encoder = struct {
+    /// Non-owning reference to the code array
+    code: *ArrayList(u8),
+
+    const Self = @This();
+
+    /// Wrap `code` in Encoder to make it easier to call these helper functions
+    ///
+    /// maximum_inst_size should contain the maximum number of bytes
+    /// that the encoded instruction will take.
+    /// This is because the helper functions will assume capacity
+    /// in order to avoid bounds checking.
+    pub fn init(code: *ArrayList(u8), maximum_inst_size: u8) !Self {
+        try code.ensureCapacity(code.items.len + maximum_inst_size);
+        return Self{ .code = code };
+    }
+
+    /// Directly write a number to the code array with big endianness
+    pub fn writeIntBig(self: Self, comptime T: type, value: T) void {
+        mem.writeIntBig(
+            T,
+            self.code.addManyAsArrayAssumeCapacity(@divExact(@typeInfo(T).Int.bits, 8)),
+            value,
+        );
+    }
+
+    /// Directly write a number to the code array with little endianness
+    pub fn writeIntLittle(self: Self, comptime T: type, value: T) void {
+        mem.writeIntLittle(
+            T,
+            self.code.addManyAsArrayAssumeCapacity(@divExact(@typeInfo(T).Int.bits, 8)),
+            value,
+        );
+    }
+
+    // --------
+    // Prefixes
+    // --------
+
+    pub const LegacyPrefixes = packed struct {
+        /// LOCK
+        prefix_f0: bool = false,
+        /// REPNZ, REPNE, REP, Scalar Double-precision
+        prefix_f2: bool = false,
+        /// REPZ, REPE, REP, Scalar Single-precision
+        prefix_f3: bool = false,
+
+        /// CS segment override or Branch not taken
+        prefix_2e: bool = false,
+        /// DS segment override
+        prefix_36: bool = false,
+        /// ES segment override
+        prefix_26: bool = false,
+        /// FS segment override
+        prefix_64: bool = false,
+        /// GS segment override
+        prefix_65: bool = false,
+
+        /// Branch taken
+        prefix_3e: bool = false,
+
+        /// Operand size override (enables 16 bit operation)
+        prefix_66: bool = false,
+
+        /// Address size override (enables 16 bit address size)
+        prefix_67: bool = false,
+
+        padding: u5 = 0,
+    };
+
+    /// Encodes legacy prefixes
+    pub fn legacyPrefixes(self: Self, prefixes: LegacyPrefixes) void {
+        if (@bitCast(u16, prefixes) != 0) {
+            // Hopefully this path isn't taken very often, so we'll do it the slow way for now
+
+            // LOCK
+            if (prefixes.prefix_f0) self.code.appendAssumeCapacity(0xf0);
+            // REPNZ, REPNE, REP, Scalar Double-precision
+            if (prefixes.prefix_f2) self.code.appendAssumeCapacity(0xf2);
+            // REPZ, REPE, REP, Scalar Single-precision
+            if (prefixes.prefix_f3) self.code.appendAssumeCapacity(0xf3);
+
+            // CS segment override or Branch not taken
+            if (prefixes.prefix_2e) self.code.appendAssumeCapacity(0x2e);
+            // DS segment override
+            if (prefixes.prefix_36) self.code.appendAssumeCapacity(0x36);
+            // ES segment override
+            if (prefixes.prefix_26) self.code.appendAssumeCapacity(0x26);
+            // FS segment override
+            if (prefixes.prefix_64) self.code.appendAssumeCapacity(0x64);
+            // GS segment override
+            if (prefixes.prefix_65) self.code.appendAssumeCapacity(0x65);
+
+            // Branch taken
+            if (prefixes.prefix_3e) self.code.appendAssumeCapacity(0x3e);
+
+            // Operand size override
+            if (prefixes.prefix_66) self.code.appendAssumeCapacity(0x66);
+
+            // Address size override
+            if (prefixes.prefix_67) self.code.appendAssumeCapacity(0x67);
+        }
+    }
+
+    /// Use 16 bit operand size
+    ///
+    /// Note that this flag is overridden by REX.W, if both are present.
+    pub fn prefix16BitMode(self: Self) void {
+        self.code.appendAssumeCapacity(0x66);
+    }
+
+    /// From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB
+    pub const Rex = struct {
+        /// Wide, enables 64-bit operation
+        w: bool = false,
+        /// Extends the reg field in the ModR/M byte
+        r: bool = false,
+        /// Extends the index field in the SIB byte
+        x: bool = false,
+        /// Extends the r/m field in the ModR/M byte,
+        ///      or the base field in the SIB byte,
+        ///      or the reg field in the Opcode byte
+        b: bool = false,
+    };
+
+    /// Encodes a REX prefix byte given all the fields
+    ///
+    /// Use this byte whenever you need 64 bit operation,
+    /// or one of reg, index, r/m, base, or opcode-reg might be extended.
+    ///
+    /// See struct `Rex` for a description of each field.
+    ///
+    /// Does not add a prefix byte if none of the fields are set!
+    pub fn rex(self: Self, byte: Rex) void {
+        var value: u8 = 0b0100_0000;
+
+        if (byte.w) value |= 0b1000;
+        if (byte.r) value |= 0b0100;
+        if (byte.x) value |= 0b0010;
+        if (byte.b) value |= 0b0001;
+
+        if (value != 0b0100_0000) {
+            self.code.appendAssumeCapacity(value);
+        }
+    }
+
+    // ------
+    // Opcode
+    // ------
+
+    /// Encodes a 1 byte opcode
+    pub fn opcode_1byte(self: Self, opcode: u8) void {
+        self.code.appendAssumeCapacity(opcode);
+    }
+
+    /// Encodes a 2 byte opcode
+    ///
+    /// e.g. IMUL has the opcode 0x0f 0xaf, so you use
+    ///
+    /// encoder.opcode_2byte(0x0f, 0xaf);
+    pub fn opcode_2byte(self: Self, prefix: u8, opcode: u8) void {
+        self.code.appendAssumeCapacity(prefix);
+        self.code.appendAssumeCapacity(opcode);
+    }
+
+    /// Encodes a 1 byte opcode with a reg field
+    ///
+    /// Remember to add a REX prefix byte if reg is extended!
+    pub fn opcode_withReg(self: Self, opcode: u8, reg: u3) void {
+        assert(opcode & 0b111 == 0);
+        self.code.appendAssumeCapacity(opcode | reg);
+    }
+
+    // ------
+    // ModR/M
+    // ------
+
+    /// Construct a ModR/M byte given all the fields
+    ///
+    /// Remember to add a REX prefix byte if reg or rm are extended!
+    pub fn modRm(self: Self, mod: u2, reg_or_opx: u3, rm: u3) void {
+        self.code.appendAssumeCapacity(
+            @as(u8, mod) << 6 | @as(u8, reg_or_opx) << 3 | rm,
+        );
+    }
+
+    /// Construct a ModR/M byte using direct r/m addressing
+    /// r/m effective address: r/m
+    ///
+    /// Note reg's effective address is always just reg for the ModR/M byte.
+    /// Remember to add a REX prefix byte if reg or rm are extended!
+    pub fn modRm_direct(self: Self, reg_or_opx: u3, rm: u3) void {
+        self.modRm(0b11, reg_or_opx, rm);
+    }
+
+    /// Construct a ModR/M byte using indirect r/m addressing
+    /// r/m effective address: [r/m]
+    ///
+    /// Note reg's effective address is always just reg for the ModR/M byte.
+    /// Remember to add a REX prefix byte if reg or rm are extended!
+    pub fn modRm_indirectDisp0(self: Self, reg_or_opx: u3, rm: u3) void {
+        assert(rm != 4 and rm != 5);
+        self.modRm(0b00, reg_or_opx, rm);
+    }
+
+    /// Construct a ModR/M byte using indirect SIB addressing
+    /// r/m effective address: [SIB]
+    ///
+    /// Note reg's effective address is always just reg for the ModR/M byte.
+    /// Remember to add a REX prefix byte if reg or rm are extended!
+    pub fn modRm_SIBDisp0(self: Self, reg_or_opx: u3) void {
+        self.modRm(0b00, reg_or_opx, 0b100);
+    }
+
+    /// Construct a ModR/M byte using RIP-relative addressing
+    /// r/m effective address: [RIP + disp32]
+    ///
+    /// Note reg's effective address is always just reg for the ModR/M byte.
+    /// Remember to add a REX prefix byte if reg or rm are extended!
+    pub fn modRm_RIPDisp32(self: Self, reg_or_opx: u3) void {
+        self.modRm(0b00, reg_or_opx, 0b101);
+    }
+
+    /// Construct a ModR/M byte using indirect r/m with a 8bit displacement
+    /// r/m effective address: [r/m + disp8]
+    ///
+    /// Note reg's effective address is always just reg for the ModR/M byte.
+    /// Remember to add a REX prefix byte if reg or rm are extended!
+    pub fn modRm_indirectDisp8(self: Self, reg_or_opx: u3, rm: u3) void {
+        assert(rm != 4);
+        self.modRm(0b01, reg_or_opx, rm);
+    }
+
+    /// Construct a ModR/M byte using indirect SIB with a 8bit displacement
+    /// r/m effective address: [SIB + disp8]
+    ///
+    /// Note reg's effective address is always just reg for the ModR/M byte.
+    /// Remember to add a REX prefix byte if reg or rm are extended!
+    pub fn modRm_SIBDisp8(self: Self, reg_or_opx: u3) void {
+        self.modRm(0b01, reg_or_opx, 0b100);
+    }
+
+    /// Construct a ModR/M byte using indirect r/m with a 32bit displacement
+    /// r/m effective address: [r/m + disp32]
+    ///
+    /// Note reg's effective address is always just reg for the ModR/M byte.
+    /// Remember to add a REX prefix byte if reg or rm are extended!
+    pub fn modRm_indirectDisp32(self: Self, reg_or_opx: u3, rm: u3) void {
+        assert(rm != 4);
+        self.modRm(0b10, reg_or_opx, rm);
+    }
+
+    /// Construct a ModR/M byte using indirect SIB with a 32bit displacement
+    /// r/m effective address: [SIB + disp32]
+    ///
+    /// Note reg's effective address is always just reg for the ModR/M byte.
+    /// Remember to add a REX prefix byte if reg or rm are extended!
+    pub fn modRm_SIBDisp32(self: Self, reg_or_opx: u3) void {
+        self.modRm(0b10, reg_or_opx, 0b100);
+    }
+
+    // ---
+    // SIB
+    // ---
+
+    /// Construct a SIB byte given all the fields
+    ///
+    /// Remember to add a REX prefix byte if index or base are extended!
+    pub fn sib(self: Self, scale: u2, index: u3, base: u3) void {
+        self.code.appendAssumeCapacity(
+            @as(u8, scale) << 6 | @as(u8, index) << 3 | base,
+        );
+    }
+
+    /// Construct a SIB byte with scale * index + base, no frills.
+    /// r/m effective address: [base + scale * index]
+    ///
+    /// Remember to add a REX prefix byte if index or base are extended!
+    pub fn sib_scaleIndexBase(self: Self, scale: u2, index: u3, base: u3) void {
+        assert(base != 5);
+
+        self.sib(scale, index, base);
+    }
+
+    /// Construct a SIB byte with scale * index + disp32
+    /// r/m effective address: [scale * index + disp32]
+    ///
+    /// Remember to add a REX prefix byte if index or base are extended!
+    pub fn sib_scaleIndexDisp32(self: Self, scale: u2, index: u3) void {
+        assert(index != 4);
+
+        // scale is actually ignored
+        // index = 4 means no index
+        // base = 5 means no base, if mod == 0.
+        self.sib(scale, index, 5);
+    }
+
+    /// Construct a SIB byte with just base
+    /// r/m effective address: [base]
+    ///
+    /// Remember to add a REX prefix byte if index or base are extended!
+    pub fn sib_base(self: Self, base: u3) void {
+        assert(base != 5);
+
+        // scale is actually ignored
+        // index = 4 means no index
+        self.sib(0, 4, base);
+    }
+
+    /// Construct a SIB byte with just disp32
+    /// r/m effective address: [disp32]
+    ///
+    /// Remember to add a REX prefix byte if index or base are extended!
+    pub fn sib_disp32(self: Self) void {
+        // scale is actually ignored
+        // index = 4 means no index
+        // base = 5 means no base, if mod == 0.
+        self.sib(0, 4, 5);
+    }
+
+    /// Construct a SIB byte with scale * index + base + disp8
+    /// r/m effective address: [base + scale * index + disp8]
+    ///
+    /// Remember to add a REX prefix byte if index or base are extended!
+    pub fn sib_scaleIndexBaseDisp8(self: Self, scale: u2, index: u3, base: u3) void {
+        self.sib(scale, index, base);
+    }
+
+    /// Construct a SIB byte with base + disp8, no index
+    /// r/m effective address: [base + disp8]
+    ///
+    /// Remember to add a REX prefix byte if index or base are extended!
+    pub fn sib_baseDisp8(self: Self, base: u3) void {
+        // scale is ignored
+        // index = 4 means no index
+        self.sib(0, 4, base);
+    }
+
+    /// Construct a SIB byte with scale * index + base + disp32
+    /// r/m effective address: [base + scale * index + disp32]
+    ///
+    /// Remember to add a REX prefix byte if index or base are extended!
+    pub fn sib_scaleIndexBaseDisp32(self: Self, scale: u2, index: u3, base: u3) void {
+        self.sib(scale, index, base);
+    }
+
+    /// Construct a SIB byte with base + disp32, no index
+    /// r/m effective address: [base + disp32]
+    ///
+    /// Remember to add a REX prefix byte if index or base are extended!
+    pub fn sib_baseDisp32(self: Self, base: u3) void {
+        // scale is ignored
+        // index = 4 means no index
+        self.sib(0, 4, base);
+    }
+
+    // -------------------------
+    // Trivial (no bit fiddling)
+    // -------------------------
+
+    /// Encode an 8 bit immediate
+    ///
+    /// It is sign-extended to 64 bits by the cpu.
+    pub fn imm8(self: Self, imm: i8) void {
+        self.code.appendAssumeCapacity(@bitCast(u8, imm));
+    }
+
+    /// Encode an 8 bit displacement
+    ///
+    /// It is sign-extended to 64 bits by the cpu.
+    pub fn disp8(self: Self, disp: i8) void {
+        self.code.appendAssumeCapacity(@bitCast(u8, disp));
+    }
+
+    /// Encode an 16 bit immediate
+    ///
+    /// It is sign-extended to 64 bits by the cpu.
+    pub fn imm16(self: Self, imm: i16) void {
+        self.writeIntLittle(i16, imm);
+    }
+
+    /// Encode an 32 bit immediate
+    ///
+    /// It is sign-extended to 64 bits by the cpu.
+    pub fn imm32(self: Self, imm: i32) void {
+        self.writeIntLittle(i32, imm);
+    }
+
+    /// Encode an 32 bit displacement
+    ///
+    /// It is sign-extended to 64 bits by the cpu.
+    pub fn disp32(self: Self, disp: i32) void {
+        self.writeIntLittle(i32, disp);
+    }
+
+    /// Encode an 64 bit immediate
+    ///
+    /// It is sign-extended to 64 bits by the cpu.
+    pub fn imm64(self: Self, imm: u64) void {
+        self.writeIntLittle(u64, imm);
+    }
+};
+
+test "x86_64 Encoder helpers" {
+    var code = ArrayList(u8).init(testing.allocator);
+    defer code.deinit();
+
+    // simple integer multiplication
+
+    // imul eax,edi
+    // 0faf   c7
+    {
+        try code.resize(0);
+        const encoder = try Encoder.init(&code, 4);
+        encoder.rex(.{
+            .r = Register.eax.isExtended(),
+            .b = Register.edi.isExtended(),
+        });
+        encoder.opcode_2byte(0x0f, 0xaf);
+        encoder.modRm_direct(
+            Register.eax.low_id(),
+            Register.edi.low_id(),
+        );
+
+        try testing.expectEqualSlices(u8, &[_]u8{ 0x0f, 0xaf, 0xc7 }, code.items);
+    }
+
+    // simple mov
+
+    // mov eax,edi
+    // 89    f8
+    {
+        try code.resize(0);
+        const encoder = try Encoder.init(&code, 3);
+        encoder.rex(.{
+            .r = Register.edi.isExtended(),
+            .b = Register.eax.isExtended(),
+        });
+        encoder.opcode_1byte(0x89);
+        encoder.modRm_direct(
+            Register.edi.low_id(),
+            Register.eax.low_id(),
+        );
+
+        try testing.expectEqualSlices(u8, &[_]u8{ 0x89, 0xf8 }, code.items);
+    }
+
+    // signed integer addition of 32-bit sign extended immediate to 64 bit register
+
+    // add rcx, 2147483647
+    //
+    // Using the following opcode: REX.W + 81 /0 id, we expect the following encoding
+    //
+    // 48       :  REX.W set for 64 bit operand (*r*cx)
+    // 81       :  opcode for "<arithmetic> with immediate"
+    // c1       :  id = rcx,
+    //          :  c1 = 11  <-- mod = 11 indicates r/m is register (rcx)
+    //          :       000 <-- opcode_extension = 0 because opcode extension is /0. /0 specifies ADD
+    //          :       001 <-- 001 is rcx
+    // ffffff7f :  2147483647
+    {
+        try code.resize(0);
+        const encoder = try Encoder.init(&code, 7);
+        encoder.rex(.{ .w = true }); // use 64 bit operation
+        encoder.opcode_1byte(0x81);
+        encoder.modRm_direct(
+            0,
+            Register.rcx.low_id(),
+        );
+        encoder.imm32(2147483647);
+
+        try testing.expectEqualSlices(u8, &[_]u8{ 0x48, 0x81, 0xc1, 0xff, 0xff, 0xff, 0x7f }, code.items);
+    }
+}
 
 // TODO add these registers to the enum and populate dwarfLocOp
 //    // Return Address register. This is stored in `0(%rsp, "")` and is not a physical register.

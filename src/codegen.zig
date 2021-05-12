@@ -20,6 +20,8 @@ const build_options = @import("build_options");
 const LazySrcLoc = Module.LazySrcLoc;
 const RegisterManager = @import("register_manager.zig").RegisterManager;
 
+const X8664Encoder = @import("codegen/x86_64.zig").Encoder;
+
 /// The codegen-related data that is stored in `ir.Inst.Block` instructions.
 pub const BlockData = struct {
     relocs: std.ArrayListUnmanaged(Reloc) = undefined,
@@ -905,7 +907,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // TODO separate architectures with registers from
                     // stack-based architectures (spu_2)
                     if (callee_preserved_regs.len > 0) {
-                        if (self.register_manager.tryAllocReg(inst)) |reg| {
+                        if (self.register_manager.tryAllocReg(inst, &.{})) |reg| {
                             return MCValue{ .register = registerAlias(reg, abi_size) };
                         }
                     }
@@ -917,6 +919,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         pub fn spillInstruction(self: *Self, src: LazySrcLoc, reg: Register, inst: *ir.Inst) !void {
             const stack_mcv = try self.allocRegOrMem(inst, false);
+            log.debug("spilling {*} to stack mcv {any}", .{ inst, stack_mcv });
             const reg_mcv = self.getResolvedInstValue(inst);
             assert(reg == toCanonicalReg(reg_mcv.register));
             const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -928,7 +931,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// allocated. A second call to `copyToTmpRegister` may return the same register.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
         fn copyToTmpRegister(self: *Self, src: LazySrcLoc, ty: Type, mcv: MCValue) !Register {
-            const reg = try self.register_manager.allocRegWithoutTracking();
+            const reg = try self.register_manager.allocRegWithoutTracking(&.{});
             try self.genSetReg(src, ty, reg, mcv);
             return reg;
         }
@@ -937,7 +940,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// `reg_owner` is the instruction that gets associated with the register in the register table.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
         fn copyToNewRegister(self: *Self, reg_owner: *ir.Inst, mcv: MCValue) !MCValue {
-            const reg = try self.register_manager.allocReg(reg_owner);
+            const reg = try self.register_manager.allocReg(reg_owner, &.{});
             try self.genSetReg(reg_owner.src, reg_owner.ty, reg, mcv);
             return MCValue{ .register = reg };
         }
@@ -1017,7 +1020,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         },
                         .val = Value.initTag(.bool_true),
                     };
-                    return try self.genX8664BinMath(&inst.base, inst.operand, &imm.base, 6, 0x30);
+                    return try self.genX8664BinMath(&inst.base, inst.operand, &imm.base);
                 },
                 .arm, .armeb => {
                     var imm = ir.Inst.Constant{
@@ -1041,7 +1044,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 return MCValue.dead;
             switch (arch) {
                 .x86_64 => {
-                    return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 0, 0x00);
+                    return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs);
                 },
                 .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .add),
                 else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
@@ -1062,6 +1065,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (inst.base.isUnused())
                 return MCValue.dead;
             switch (arch) {
+                .x86_64 => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs),
                 .arm, .armeb => return try self.genArmMul(&inst.base, inst.lhs, inst.rhs),
                 else => return self.fail(inst.base.src, "TODO implement mul for {}", .{self.target.cpu.arch}),
             }
@@ -1340,7 +1344,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 return MCValue.dead;
             switch (arch) {
                 .x86_64 => {
-                    return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 5, 0x28);
+                    return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs);
                 },
                 .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .sub),
                 else => return self.fail(inst.base.src, "TODO implement sub for {}", .{self.target.cpu.arch}),
@@ -1356,54 +1360,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genArmBinOp(self: *Self, inst: *ir.Inst, op_lhs: *ir.Inst, op_rhs: *ir.Inst, op: ir.Inst.Tag) !MCValue {
-            const lhs = try self.resolveInst(op_lhs);
-            const rhs = try self.resolveInst(op_rhs);
-
-            // Destination must be a register
-            var dst_mcv: MCValue = undefined;
-            var lhs_mcv: MCValue = undefined;
-            var rhs_mcv: MCValue = undefined;
-            if (self.reuseOperand(inst, 0, lhs)) {
-                // LHS is the destination
-                // RHS is the source
-                lhs_mcv = if (lhs != .register) try self.copyToNewRegister(inst, lhs) else lhs;
-                rhs_mcv = rhs;
-                dst_mcv = lhs_mcv;
-            } else if (self.reuseOperand(inst, 1, rhs)) {
-                // RHS is the destination
-                // LHS is the source
-                lhs_mcv = lhs;
-                rhs_mcv = if (rhs != .register) try self.copyToNewRegister(inst, rhs) else rhs;
-                dst_mcv = rhs_mcv;
-            } else {
-                // TODO save 1 copy instruction by directly allocating the destination register
-                // LHS is the destination
-                // RHS is the source
-                lhs_mcv = try self.copyToNewRegister(inst, lhs);
-                rhs_mcv = rhs;
-                dst_mcv = lhs_mcv;
-            }
-
-            try self.genArmBinOpCode(inst.src, dst_mcv.register, lhs_mcv, rhs_mcv, op);
-            return dst_mcv;
-        }
-
-        fn genArmBinOpCode(
-            self: *Self,
-            src: LazySrcLoc,
-            dst_reg: Register,
-            lhs_mcv: MCValue,
-            rhs_mcv: MCValue,
-            op: ir.Inst.Tag,
-        ) !void {
-            assert(lhs_mcv == .register or lhs_mcv == .register);
-
-            const swap_lhs_and_rhs = rhs_mcv == .register and lhs_mcv != .register;
-            const op1 = if (swap_lhs_and_rhs) rhs_mcv.register else lhs_mcv.register;
-            const op2 = if (swap_lhs_and_rhs) lhs_mcv else rhs_mcv;
-
-            const operand = switch (op2) {
+        fn armOperandShouldBeRegister(self: *Self, src: LazySrcLoc, mcv: MCValue) !bool {
+            return switch (mcv) {
                 .none => unreachable,
                 .undef => unreachable,
                 .dead, .unreach => unreachable,
@@ -1415,15 +1373,142 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     if (imm > std.math.maxInt(u32)) return self.fail(src, "TODO ARM binary arithmetic immediate larger than u32", .{});
 
                     // Load immediate into register if it doesn't fit
-                    // as an operand
-                    break :blk Instruction.Operand.fromU32(@intCast(u32, imm)) orelse
-                        Instruction.Operand.reg(try self.copyToTmpRegister(src, Type.initTag(.u32), op2), Instruction.Operand.Shift.none);
+                    // in an operand
+                    break :blk Instruction.Operand.fromU32(@intCast(u32, imm)) == null;
                 },
+                .register => true,
+                .stack_offset,
+                .embedded_in_code,
+                .memory,
+                => true,
+            };
+        }
+
+        fn genArmBinOp(self: *Self, inst: *ir.Inst, op_lhs: *ir.Inst, op_rhs: *ir.Inst, op: ir.Inst.Tag) !MCValue {
+            const lhs = try self.resolveInst(op_lhs);
+            const rhs = try self.resolveInst(op_rhs);
+
+            const lhs_is_register = lhs == .register;
+            const rhs_is_register = rhs == .register;
+            const lhs_should_be_register = try self.armOperandShouldBeRegister(op_lhs.src, lhs);
+            const rhs_should_be_register = try self.armOperandShouldBeRegister(op_rhs.src, rhs);
+            const reuse_lhs = lhs_is_register and self.reuseOperand(inst, 0, lhs);
+            const reuse_rhs = !reuse_lhs and rhs_is_register and self.reuseOperand(inst, 1, rhs);
+
+            // Destination must be a register
+            var dst_mcv: MCValue = undefined;
+            var lhs_mcv = lhs;
+            var rhs_mcv = rhs;
+            var swap_lhs_and_rhs = false;
+
+            // Allocate registers for operands and/or destination
+            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+            if (reuse_lhs) {
+                // Allocate 0 or 1 registers
+                if (!rhs_is_register and rhs_should_be_register) {
+                    rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(op_rhs, &.{lhs.register}) };
+                    branch.inst_table.putAssumeCapacity(op_rhs, rhs_mcv);
+                }
+                dst_mcv = lhs;
+            } else if (reuse_rhs) {
+                // Allocate 0 or 1 registers
+                if (!lhs_is_register and lhs_should_be_register) {
+                    lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(op_lhs, &.{rhs.register}) };
+                    branch.inst_table.putAssumeCapacity(op_lhs, lhs_mcv);
+                }
+                dst_mcv = rhs;
+
+                swap_lhs_and_rhs = true;
+            } else {
+                // Allocate 1 or 2 registers
+                if (lhs_should_be_register and rhs_should_be_register) {
+                    if (lhs_is_register and rhs_is_register) {
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{ lhs.register, rhs.register }) };
+                    } else if (lhs_is_register) {
+                        // Move RHS to register
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{lhs.register}) };
+                        rhs_mcv = dst_mcv;
+                    } else if (rhs_is_register) {
+                        // Move LHS to register
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{rhs.register}) };
+                        lhs_mcv = dst_mcv;
+                    } else {
+                        // Move LHS and RHS to register
+                        const regs = try self.register_manager.allocRegs(2, .{ inst, op_rhs }, &.{});
+                        lhs_mcv = MCValue{ .register = regs[0] };
+                        rhs_mcv = MCValue{ .register = regs[1] };
+                        dst_mcv = lhs_mcv;
+
+                        branch.inst_table.putAssumeCapacity(op_rhs, rhs_mcv);
+                    }
+                } else if (lhs_should_be_register) {
+                    // RHS is immediate
+                    if (lhs_is_register) {
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{lhs.register}) };
+                    } else {
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
+                        lhs_mcv = dst_mcv;
+                    }
+                } else if (rhs_should_be_register) {
+                    // LHS is immediate
+                    if (rhs_is_register) {
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{rhs.register}) };
+                    } else {
+                        dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{}) };
+                        rhs_mcv = dst_mcv;
+                    }
+
+                    swap_lhs_and_rhs = true;
+                } else unreachable; // binary operation on two immediates
+            }
+
+            // Move the operands to the newly allocated registers
+            if (lhs_mcv == .register and !lhs_is_register) {
+                try self.genSetReg(op_lhs.src, op_lhs.ty, lhs_mcv.register, lhs);
+            }
+            if (rhs_mcv == .register and !rhs_is_register) {
+                try self.genSetReg(op_rhs.src, op_rhs.ty, rhs_mcv.register, rhs);
+            }
+
+            try self.genArmBinOpCode(
+                inst.src,
+                dst_mcv.register,
+                lhs_mcv,
+                rhs_mcv,
+                swap_lhs_and_rhs,
+                op,
+            );
+            return dst_mcv;
+        }
+
+        fn genArmBinOpCode(
+            self: *Self,
+            src: LazySrcLoc,
+            dst_reg: Register,
+            lhs_mcv: MCValue,
+            rhs_mcv: MCValue,
+            swap_lhs_and_rhs: bool,
+            op: ir.Inst.Tag,
+        ) !void {
+            assert(lhs_mcv == .register or rhs_mcv == .register);
+
+            const op1 = if (swap_lhs_and_rhs) rhs_mcv.register else lhs_mcv.register;
+            const op2 = if (swap_lhs_and_rhs) lhs_mcv else rhs_mcv;
+
+            const operand = switch (op2) {
+                .none => unreachable,
+                .undef => unreachable,
+                .dead, .unreach => unreachable,
+                .compare_flags_unsigned => unreachable,
+                .compare_flags_signed => unreachable,
+                .ptr_stack_offset => unreachable,
+                .ptr_embedded_in_code => unreachable,
+                .immediate => |imm| Instruction.Operand.fromU32(@intCast(u32, imm)).?,
                 .register => |reg| Instruction.Operand.reg(reg, Instruction.Operand.Shift.none),
                 .stack_offset,
                 .embedded_in_code,
                 .memory,
-                => Instruction.Operand.reg(try self.copyToTmpRegister(src, Type.initTag(.u32), op2), Instruction.Operand.Shift.none),
+                => unreachable,
             };
 
             switch (op) {
@@ -1485,8 +1570,20 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return dst_mcv;
         }
 
+        /// Perform "binary" operators, excluding comparisons.
+        /// Currently, the following ops are supported:
         /// ADD, SUB, XOR, OR, AND
-        fn genX8664BinMath(self: *Self, inst: *ir.Inst, op_lhs: *ir.Inst, op_rhs: *ir.Inst, opx: u8, mr: u8) !MCValue {
+        fn genX8664BinMath(self: *Self, inst: *ir.Inst, op_lhs: *ir.Inst, op_rhs: *ir.Inst) !MCValue {
+            // We'll handle these ops in two steps.
+            // 1) Prepare an output location (register or memory)
+            //    This location will be the location of the operand that dies (if one exists)
+            //    or just a temporary register (if one doesn't exist)
+            // 2) Perform the op with the other argument
+            // 3) Sometimes, the output location is memory but the op doesn't support it.
+            //    In this case, copy that location to a register, then perform the op to that register instead.
+            //
+            // TODO: make this algorithm less bad
+
             try self.code.ensureCapacity(self.code.items.len + 8);
 
             const lhs = try self.resolveInst(op_lhs);
@@ -1547,18 +1644,109 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 else => {},
             }
 
-            try self.genX8664BinMathCode(inst.src, inst.ty, dst_mcv, src_mcv, opx, mr);
+            // Now for step 2, we perform the actual op
+            switch (inst.tag) {
+                // TODO: Generate wrapping and non-wrapping versions separately
+                .add, .addwrap => try self.genX8664BinMathCode(inst.src, inst.ty, dst_mcv, src_mcv, 0, 0x00),
+                .bool_or, .bit_or => try self.genX8664BinMathCode(inst.src, inst.ty, dst_mcv, src_mcv, 1, 0x08),
+                .bool_and, .bit_and => try self.genX8664BinMathCode(inst.src, inst.ty, dst_mcv, src_mcv, 4, 0x20),
+                .sub, .subwrap => try self.genX8664BinMathCode(inst.src, inst.ty, dst_mcv, src_mcv, 5, 0x28),
+                .xor, .not => try self.genX8664BinMathCode(inst.src, inst.ty, dst_mcv, src_mcv, 6, 0x30),
+
+                .mul, .mulwrap => try self.genX8664Imul(inst.src, inst.ty, dst_mcv, src_mcv),
+                else => unreachable,
+            }
 
             return dst_mcv;
         }
 
+        /// Wrap over Instruction.encodeInto to translate errors
+        fn encodeX8664Instruction(
+            self: *Self,
+            src: LazySrcLoc,
+            inst: Instruction,
+        ) !void {
+            inst.encodeInto(self.code) catch |err| {
+                if (err == error.OutOfMemory)
+                    return error.OutOfMemory
+                else
+                    return self.fail(src, "Instruction.encodeInto failed because {s}", .{@errorName(err)});
+            };
+        }
+
+        /// This function encodes a binary operation for x86_64
+        /// intended for use with the following opcode ranges
+        /// because they share the same structure.
+        ///
+        /// Thus not all binary operations can be used here
+        /// -- multiplication needs to be done with imul,
+        /// which doesn't have as convenient an interface.
+        ///
+        /// "opx"-style instructions use the opcode extension field to indicate which instruction to execute:
+        ///
+        /// opx = /0: add
+        /// opx = /1: or
+        /// opx = /2: adc
+        /// opx = /3: sbb
+        /// opx = /4: and
+        /// opx = /5: sub
+        /// opx = /6: xor
+        /// opx = /7: cmp
+        ///
+        /// opcode  | operand shape
+        /// --------+----------------------
+        /// 80 /opx | *r/m8*,        imm8
+        /// 81 /opx | *r/m16/32/64*, imm16/32
+        /// 83 /opx | *r/m16/32/64*, imm8
+        ///
+        /// "mr"-style instructions use the low bits of opcode to indicate shape of instruction:
+        ///
+        /// mr = 00: add
+        /// mr = 08: or
+        /// mr = 10: adc
+        /// mr = 18: sbb
+        /// mr = 20: and
+        /// mr = 28: sub
+        /// mr = 30: xor
+        /// mr = 38: cmp
+        ///
+        /// opcode | operand shape
+        /// -------+-------------------------
+        /// mr + 0 | *r/m8*,        r8
+        /// mr + 1 | *r/m16/32/64*, r16/32/64
+        /// mr + 2 | *r8*,          r/m8
+        /// mr + 3 | *r16/32/64*,   r/m16/32/64
+        /// mr + 4 | *AL*,          imm8
+        /// mr + 5 | *rAX*,         imm16/32
+        ///
+        /// TODO: rotates and shifts share the same structure, so we can potentially implement them
+        ///       at a later date with very similar code.
+        ///       They have "opx"-style instructions, but no "mr"-style instructions.
+        ///
+        /// opx = /0: rol,
+        /// opx = /1: ror,
+        /// opx = /2: rcl,
+        /// opx = /3: rcr,
+        /// opx = /4: shl sal,
+        /// opx = /5: shr,
+        /// opx = /6: sal shl,
+        /// opx = /7: sar,
+        ///
+        /// opcode  | operand shape
+        /// --------+------------------
+        /// c0 /opx | *r/m8*,        imm8
+        /// c1 /opx | *r/m16/32/64*, imm8
+        /// d0 /opx | *r/m8*,        1
+        /// d1 /opx | *r/m16/32/64*, 1
+        /// d2 /opx | *r/m8*,        CL    (for context, CL is register 1)
+        /// d3 /opx | *r/m16/32/64*, CL    (for context, CL is register 1)
         fn genX8664BinMathCode(
             self: *Self,
             src: LazySrcLoc,
             dst_ty: Type,
             dst_mcv: MCValue,
             src_mcv: MCValue,
-            opx: u8,
+            opx: u3,
             mr: u8,
         ) !void {
             switch (dst_mcv) {
@@ -1577,30 +1765,84 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .ptr_stack_offset => unreachable,
                         .ptr_embedded_in_code => unreachable,
                         .register => |src_reg| {
-                            self.rex(.{ .b = dst_reg.isExtended(), .r = src_reg.isExtended(), .w = dst_reg.size() == 64 });
-                            self.code.appendSliceAssumeCapacity(&[_]u8{ mr + 0x1, 0xC0 | (@as(u8, src_reg.id() & 0b111) << 3) | @as(u8, dst_reg.id() & 0b111) });
+                            // for register, register use mr + 1
+                            // addressing mode: *r/m16/32/64*, r16/32/64
+                            const abi_size = dst_ty.abiSize(self.target.*);
+                            const encoder = try X8664Encoder.init(self.code, 3);
+                            encoder.rex(.{
+                                .w = abi_size == 8,
+                                .r = src_reg.isExtended(),
+                                .b = dst_reg.isExtended(),
+                            });
+                            encoder.opcode_1byte(mr + 1);
+                            encoder.modRm_direct(
+                                src_reg.low_id(),
+                                dst_reg.low_id(),
+                            );
                         },
                         .immediate => |imm| {
-                            const imm32 = @intCast(u31, imm); // This case must be handled before calling genX8664BinMathCode.
-                            // 81 /opx id
-                            if (imm32 <= math.maxInt(u7)) {
-                                self.rex(.{ .b = dst_reg.isExtended(), .w = dst_reg.size() == 64 });
-                                self.code.appendSliceAssumeCapacity(&[_]u8{
-                                    0x83,
-                                    0xC0 | (opx << 3) | @truncate(u3, dst_reg.id()),
-                                    @intCast(u8, imm32),
+                            // register, immediate use opx = 81 or 83 addressing modes:
+                            // opx = 81: r/m16/32/64, imm16/32
+                            // opx = 83: r/m16/32/64, imm8
+                            const imm32 = @intCast(i32, imm); // This case must be handled before calling genX8664BinMathCode.
+                            if (imm32 <= math.maxInt(i8)) {
+                                const abi_size = dst_ty.abiSize(self.target.*);
+                                const encoder = try X8664Encoder.init(self.code, 4);
+                                encoder.rex(.{
+                                    .w = abi_size == 8,
+                                    .b = dst_reg.isExtended(),
                                 });
+                                encoder.opcode_1byte(0x83);
+                                encoder.modRm_direct(
+                                    opx,
+                                    dst_reg.low_id(),
+                                );
+                                encoder.imm8(@intCast(i8, imm32));
                             } else {
-                                self.rex(.{ .r = dst_reg.isExtended(), .w = dst_reg.size() == 64 });
-                                self.code.appendSliceAssumeCapacity(&[_]u8{
-                                    0x81,
-                                    0xC0 | (opx << 3) | @truncate(u3, dst_reg.id()),
+                                const abi_size = dst_ty.abiSize(self.target.*);
+                                const encoder = try X8664Encoder.init(self.code, 7);
+                                encoder.rex(.{
+                                    .w = abi_size == 8,
+                                    .b = dst_reg.isExtended(),
                                 });
-                                std.mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), imm32);
+                                encoder.opcode_1byte(0x81);
+                                encoder.modRm_direct(
+                                    opx,
+                                    dst_reg.low_id(),
+                                );
+                                encoder.imm32(@intCast(i32, imm32));
                             }
                         },
-                        .embedded_in_code, .memory, .stack_offset => {
+                        .embedded_in_code, .memory => {
                             return self.fail(src, "TODO implement x86 ADD/SUB/CMP source memory", .{});
+                        },
+                        .stack_offset => |off| {
+                            // register, indirect use mr + 3
+                            // addressing mode: *r16/32/64*, r/m16/32/64
+                            const abi_size = dst_ty.abiSize(self.target.*);
+                            const adj_off = off + abi_size;
+                            if (off > math.maxInt(i32)) {
+                                return self.fail(src, "stack offset too large", .{});
+                            }
+                            const encoder = try X8664Encoder.init(self.code, 7);
+                            encoder.rex(.{
+                                .w = abi_size == 8,
+                                .r = dst_reg.isExtended(),
+                            });
+                            encoder.opcode_1byte(mr + 3);
+                            if (adj_off <= std.math.maxInt(i8)) {
+                                encoder.modRm_indirectDisp8(
+                                    dst_reg.low_id(),
+                                    Register.ebp.low_id(),
+                                );
+                                encoder.disp8(-@intCast(i8, adj_off));
+                            } else {
+                                encoder.modRm_indirectDisp32(
+                                    dst_reg.low_id(),
+                                    Register.ebp.low_id(),
+                                );
+                                encoder.disp32(-@intCast(i32, adj_off));
+                            }
                         },
                         .compare_flags_unsigned => {
                             return self.fail(src, "TODO implement x86 ADD/SUB/CMP source compare flag (unsigned)", .{});
@@ -1640,27 +1882,183 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
+        /// Performs integer multiplication between dst_mcv and src_mcv, storing the result in dst_mcv.
+        fn genX8664Imul(
+            self: *Self,
+            src: LazySrcLoc,
+            dst_ty: Type,
+            dst_mcv: MCValue,
+            src_mcv: MCValue,
+        ) !void {
+            switch (dst_mcv) {
+                .none => unreachable,
+                .undef => unreachable,
+                .dead, .unreach, .immediate => unreachable,
+                .compare_flags_unsigned => unreachable,
+                .compare_flags_signed => unreachable,
+                .ptr_stack_offset => unreachable,
+                .ptr_embedded_in_code => unreachable,
+                .register => |dst_reg| {
+                    switch (src_mcv) {
+                        .none => unreachable,
+                        .undef => try self.genSetReg(src, dst_ty, dst_reg, .undef),
+                        .dead, .unreach => unreachable,
+                        .ptr_stack_offset => unreachable,
+                        .ptr_embedded_in_code => unreachable,
+                        .register => |src_reg| {
+                            // register, register
+                            //
+                            // Use the following imul opcode
+                            // 0F AF /r: IMUL r32/64, r/m32/64
+                            const abi_size = dst_ty.abiSize(self.target.*);
+                            const encoder = try X8664Encoder.init(self.code, 4);
+                            encoder.rex(.{
+                                .w = abi_size == 8,
+                                .r = dst_reg.isExtended(),
+                                .b = src_reg.isExtended(),
+                            });
+                            encoder.opcode_2byte(0x0f, 0xaf);
+                            encoder.modRm_direct(
+                                dst_reg.low_id(),
+                                src_reg.low_id(),
+                            );
+                        },
+                        .immediate => |imm| {
+                            // register, immediate:
+                            // depends on size of immediate.
+                            //
+                            // immediate fits in i8:
+                            // 6B /r ib: IMUL r32/64, r/m32/64, imm8
+                            //
+                            // immediate fits in i32:
+                            // 69 /r id: IMUL r32/64, r/m32/64, imm32
+                            //
+                            // immediate is huge:
+                            // split into 2 instructions
+                            // 1) copy the 64 bit immediate into a tmp register
+                            // 2) perform register,register mul
+                            // 0F AF /r: IMUL r32/64, r/m32/64
+                            if (math.minInt(i8) <= imm and imm <= math.maxInt(i8)) {
+                                const abi_size = dst_ty.abiSize(self.target.*);
+                                const encoder = try X8664Encoder.init(self.code, 4);
+                                encoder.rex(.{
+                                    .w = abi_size == 8,
+                                    .r = dst_reg.isExtended(),
+                                    .b = dst_reg.isExtended(),
+                                });
+                                encoder.opcode_1byte(0x6B);
+                                encoder.modRm_direct(
+                                    dst_reg.low_id(),
+                                    dst_reg.low_id(),
+                                );
+                                encoder.imm8(@intCast(i8, imm));
+                            } else if (math.minInt(i32) <= imm and imm <= math.maxInt(i32)) {
+                                const abi_size = dst_ty.abiSize(self.target.*);
+                                const encoder = try X8664Encoder.init(self.code, 7);
+                                encoder.rex(.{
+                                    .w = abi_size == 8,
+                                    .r = dst_reg.isExtended(),
+                                    .b = dst_reg.isExtended(),
+                                });
+                                encoder.opcode_1byte(0x69);
+                                encoder.modRm_direct(
+                                    dst_reg.low_id(),
+                                    dst_reg.low_id(),
+                                );
+                                encoder.imm32(@intCast(i32, imm));
+                            } else {
+                                const src_reg = try self.copyToTmpRegister(src, dst_ty, src_mcv);
+                                return self.genX8664Imul(src, dst_ty, dst_mcv, MCValue{ .register = src_reg });
+                            }
+                        },
+                        .embedded_in_code, .memory, .stack_offset => {
+                            return self.fail(src, "TODO implement x86 multiply source memory", .{});
+                        },
+                        .compare_flags_unsigned => {
+                            return self.fail(src, "TODO implement x86 multiply source compare flag (unsigned)", .{});
+                        },
+                        .compare_flags_signed => {
+                            return self.fail(src, "TODO implement x86 multiply source compare flag (signed)", .{});
+                        },
+                    }
+                },
+                .stack_offset => |off| {
+                    switch (src_mcv) {
+                        .none => unreachable,
+                        .undef => return self.genSetStack(src, dst_ty, off, .undef),
+                        .dead, .unreach => unreachable,
+                        .ptr_stack_offset => unreachable,
+                        .ptr_embedded_in_code => unreachable,
+                        .register => |src_reg| {
+                            // copy dst to a register
+                            const dst_reg = try self.copyToTmpRegister(src, dst_ty, dst_mcv);
+                            // multiply into dst_reg
+                            // register, register
+                            // Use the following imul opcode
+                            // 0F AF /r: IMUL r32/64, r/m32/64
+                            const abi_size = dst_ty.abiSize(self.target.*);
+                            const encoder = try X8664Encoder.init(self.code, 4);
+                            encoder.rex(.{
+                                .w = abi_size == 8,
+                                .r = dst_reg.isExtended(),
+                                .b = src_reg.isExtended(),
+                            });
+                            encoder.opcode_2byte(0x0f, 0xaf);
+                            encoder.modRm_direct(
+                                dst_reg.low_id(),
+                                src_reg.low_id(),
+                            );
+                            // copy dst_reg back out
+                            return self.genSetStack(src, dst_ty, off, MCValue{ .register = dst_reg });
+                        },
+                        .immediate => |imm| {
+                            return self.fail(src, "TODO implement x86 multiply source immediate", .{});
+                        },
+                        .embedded_in_code, .memory, .stack_offset => {
+                            return self.fail(src, "TODO implement x86 multiply source memory", .{});
+                        },
+                        .compare_flags_unsigned => {
+                            return self.fail(src, "TODO implement x86 multiply source compare flag (unsigned)", .{});
+                        },
+                        .compare_flags_signed => {
+                            return self.fail(src, "TODO implement x86 multiply source compare flag (signed)", .{});
+                        },
+                    }
+                },
+                .embedded_in_code, .memory => {
+                    return self.fail(src, "TODO implement x86 multiply destination memory", .{});
+                },
+            }
+        }
+
         fn genX8664ModRMRegToStack(self: *Self, src: LazySrcLoc, ty: Type, off: u32, reg: Register, opcode: u8) !void {
             const abi_size = ty.abiSize(self.target.*);
             const adj_off = off + abi_size;
-            try self.code.ensureCapacity(self.code.items.len + 7);
-            self.rex(.{ .w = reg.size() == 64, .r = reg.isExtended() });
-            const reg_id: u8 = @truncate(u3, reg.id());
-            if (adj_off <= 128) {
-                // example: 48 89 55 7f           mov    QWORD PTR [rbp+0x7f],rdx
-                const RM = @as(u8, 0b01_000_101) | (reg_id << 3);
-                const negative_offset = @intCast(i8, -@intCast(i32, adj_off));
-                const twos_comp = @bitCast(u8, negative_offset);
-                self.code.appendSliceAssumeCapacity(&[_]u8{ opcode, RM, twos_comp });
-            } else if (adj_off <= 2147483648) {
-                // example: 48 89 95 80 00 00 00  mov    QWORD PTR [rbp+0x80],rdx
-                const RM = @as(u8, 0b10_000_101) | (reg_id << 3);
-                const negative_offset = @intCast(i32, -@intCast(i33, adj_off));
-                const twos_comp = @bitCast(u32, negative_offset);
-                self.code.appendSliceAssumeCapacity(&[_]u8{ opcode, RM });
-                mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), twos_comp);
-            } else {
+            if (off > math.maxInt(i32)) {
                 return self.fail(src, "stack offset too large", .{});
+            }
+
+            const i_adj_off = -@intCast(i32, adj_off);
+            const encoder = try X8664Encoder.init(self.code, 7);
+            encoder.rex(.{
+                .w = abi_size == 8,
+                .r = reg.isExtended(),
+            });
+            encoder.opcode_1byte(opcode);
+            if (i_adj_off < std.math.maxInt(i8)) {
+                // example: 48 89 55 7f           mov    QWORD PTR [rbp+0x7f],rdx
+                encoder.modRm_indirectDisp8(
+                    reg.low_id(),
+                    Register.ebp.low_id(),
+                );
+                encoder.disp8(@intCast(i8, i_adj_off));
+            } else {
+                // example: 48 89 95 80 00 00 00  mov    QWORD PTR [rbp+0x80],rdx
+                encoder.modRm_indirectDisp32(
+                    reg.low_id(),
+                    Register.ebp.low_id(),
+                );
+                encoder.disp32(i_adj_off);
             }
         }
 
@@ -2106,12 +2504,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         log.debug("got_addr = 0x{x}", .{got_addr});
                         switch (arch) {
                             .x86_64 => {
-                                try self.genSetReg(inst.base.src, Type.initTag(.u32), .rax, .{ .memory = got_addr });
+                                try self.genSetReg(inst.base.src, Type.initTag(.u64), .rax, .{ .memory = got_addr });
                                 // callq *%rax
+                                try self.code.ensureCapacity(self.code.items.len + 2);
                                 self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
                             },
                             .aarch64 => {
-                                try self.genSetReg(inst.base.src, Type.initTag(.u32), .x30, .{ .memory = got_addr });
+                                try self.genSetReg(inst.base.src, Type.initTag(.u64), .x30, .{ .memory = got_addr });
                                 // blr x30
                                 writeInt(u32, try self.code.addManyAsArray(4), Instruction.blr(.x30).toU32());
                             },
@@ -2276,10 +2675,42 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     const lhs = try self.resolveInst(inst.lhs);
                     const rhs = try self.resolveInst(inst.rhs);
 
-                    const src_mcv = rhs;
-                    const dst_mcv = if (lhs != .register) try self.copyToNewRegister(inst.lhs, lhs) else lhs;
+                    const lhs_is_register = lhs == .register;
+                    const rhs_is_register = rhs == .register;
+                    // lhs should always be a register
+                    const rhs_should_be_register = try self.armOperandShouldBeRegister(inst.rhs.src, rhs);
 
-                    try self.genArmBinOpCode(inst.base.src, dst_mcv.register, dst_mcv, src_mcv, .cmp_eq);
+                    var lhs_mcv = lhs;
+                    var rhs_mcv = rhs;
+
+                    // Allocate registers
+                    if (rhs_should_be_register) {
+                        if (!lhs_is_register and !rhs_is_register) {
+                            const regs = try self.register_manager.allocRegs(2, .{ inst.rhs, inst.lhs }, &.{});
+                            lhs_mcv = MCValue{ .register = regs[0] };
+                            rhs_mcv = MCValue{ .register = regs[1] };
+                        } else if (!rhs_is_register) {
+                            rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(inst.rhs, &.{}) };
+                        }
+                    }
+                    if (!lhs_is_register) {
+                        lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(inst.lhs, &.{}) };
+                    }
+
+                    // Move the operands to the newly allocated registers
+                    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+                    if (lhs_mcv == .register and !lhs_is_register) {
+                        try self.genSetReg(inst.lhs.src, inst.lhs.ty, lhs_mcv.register, lhs);
+                        branch.inst_table.putAssumeCapacity(inst.lhs, lhs);
+                    }
+                    if (rhs_mcv == .register and !rhs_is_register) {
+                        try self.genSetReg(inst.rhs.src, inst.rhs.ty, rhs_mcv.register, rhs);
+                        branch.inst_table.putAssumeCapacity(inst.rhs, rhs);
+                    }
+
+                    // The destination register is not present in the cmp instruction
+                    try self.genArmBinOpCode(inst.base.src, undefined, lhs_mcv, rhs_mcv, false, .cmp_eq);
+
                     const info = inst.lhs.ty.intInfo(self.target.*);
                     return switch (info.signedness) {
                         .signed => MCValue{ .compare_flags_signed = op },
@@ -2335,15 +2766,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .register => |reg| blk: {
                             // test reg, 1
                             // TODO detect al, ax, eax
-                            try self.code.ensureCapacity(self.code.items.len + 4);
-                            // TODO audit this codegen: we force w = true here to make
-                            // the value affect the big register
-                            self.rex(.{ .b = reg.isExtended(), .w = true });
-                            self.code.appendSliceAssumeCapacity(&[_]u8{
-                                0xf6,
-                                @as(u8, 0xC0) | (0 << 3) | @truncate(u3, reg.id()),
-                                0x01,
+                            const encoder = try X8664Encoder.init(self.code, 4);
+                            encoder.rex(.{
+                                // TODO audit this codegen: we force w = true here to make
+                                // the value affect the big register
+                                .w = true,
+                                .b = reg.isExtended(),
                             });
+                            encoder.opcode_1byte(0xf6);
+                            encoder.modRm_direct(
+                                0,
+                                reg.low_id(),
+                            );
+                            encoder.disp8(1);
                             break :blk 0x84;
                         },
                         else => return self.fail(inst.base.src, "TODO implement condbr {s} when condition is {s}", .{ self.target.cpu.arch, @tagName(cond) }),
@@ -2653,9 +3088,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (arch) {
                 .x86_64 => switch (inst.base.tag) {
                     // lhs AND rhs
-                    .bool_and => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 4, 0x20),
+                    .bool_and => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs),
                     // lhs OR rhs
-                    .bool_or => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 1, 0x08),
+                    .bool_or => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs),
                     else => unreachable, // Not a boolean operation
                 },
                 .arm, .armeb => switch (inst.base.tag) {
@@ -2859,39 +3294,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
                 },
                 else => return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{}),
-            }
-        }
-
-        /// Encodes a REX prefix as specified, and appends it to the instruction
-        /// stream. This only modifies the instruction stream if at least one bit
-        /// is set true, which has a few implications:
-        ///
-        /// * The length of the instruction buffer will be modified *if* the
-        /// resulting REX is meaningful, but will remain the same if it is not.
-        /// * Deliberately inserting a "meaningless REX" requires explicit usage of
-        /// 0x40, and cannot be done via this function.
-        /// W => 64 bit mode
-        /// R => extension to the MODRM.reg field
-        /// X => extension to the SIB.index field
-        /// B => extension to the MODRM.rm field or the SIB.base field
-        fn rex(self: *Self, arg: struct { b: bool = false, w: bool = false, x: bool = false, r: bool = false }) void {
-            comptime assert(arch == .x86_64);
-            //  From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB.
-            var value: u8 = 0x40;
-            if (arg.b) {
-                value |= 0x1;
-            }
-            if (arg.x) {
-                value |= 0x2;
-            }
-            if (arg.r) {
-                value |= 0x4;
-            }
-            if (arg.w) {
-                value |= 0x8;
-            }
-            if (value != 0x40) {
-                self.code.appendAssumeCapacity(value);
             }
         }
 
@@ -3442,20 +3844,25 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     .compare_flags_unsigned => |op| {
-                        try self.code.ensureCapacity(self.code.items.len + 3);
+                        const encoder = try X8664Encoder.init(self.code, 7);
                         // TODO audit this codegen: we force w = true here to make
                         // the value affect the big register
-                        self.rex(.{ .b = reg.isExtended(), .w = true });
-                        const opcode: u8 = switch (op) {
+                        encoder.rex(.{
+                            .w = true,
+                            .b = reg.isExtended(),
+                        });
+                        encoder.opcode_2byte(0x0f, switch (op) {
                             .gte => 0x93,
                             .gt => 0x97,
                             .neq => 0x95,
                             .lt => 0x92,
                             .lte => 0x96,
                             .eq => 0x94,
-                        };
-                        const id = @as(u8, reg.id() & 0b111);
-                        self.code.appendSliceAssumeCapacity(&[_]u8{ 0x0f, opcode, 0xC0 | id });
+                        });
+                        encoder.modRm_direct(
+                            0,
+                            reg.low_id(),
+                        );
                     },
                     .compare_flags_signed => |op| {
                         return self.fail(src, "TODO set register with compare flags value (signed)", .{});
@@ -3465,40 +3872,43 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // register is the fastest way to zero a register.
                         if (x == 0) {
                             // The encoding for `xor r32, r32` is `0x31 /r`.
-                            // Section 3.1.1.1 of the Intel x64 Manual states that "/r indicates that the
-                            // ModR/M byte of the instruction contains a register operand and an r/m operand."
-                            //
-                            // R/M bytes are composed of two bits for the mode, then three bits for the register,
-                            // then three bits for the operand. Since we're zeroing a register, the two three-bit
-                            // values will be identical, and the mode is three (the raw register value).
-                            //
+                            const encoder = try X8664Encoder.init(self.code, 3);
+
                             // If we're accessing e.g. r8d, we need to use a REX prefix before the actual operation. Since
                             // this is a 32-bit operation, the W flag is set to zero. X is also zero, as we're not using a SIB.
                             // Both R and B are set, as we're extending, in effect, the register bits *and* the operand.
-                            try self.code.ensureCapacity(self.code.items.len + 3);
-                            self.rex(.{ .r = reg.isExtended(), .b = reg.isExtended() });
-                            const id = @as(u8, reg.id() & 0b111);
-                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x31, 0xC0 | id << 3 | id });
+                            encoder.rex(.{
+                                .r = reg.isExtended(),
+                                .b = reg.isExtended(),
+                            });
+                            encoder.opcode_1byte(0x31);
+                            // Section 3.1.1.1 of the Intel x64 Manual states that "/r indicates that the
+                            // ModR/M byte of the instruction contains a register operand and an r/m operand."
+                            encoder.modRm_direct(
+                                reg.low_id(),
+                                reg.low_id(),
+                            );
+
                             return;
                         }
-                        if (x <= math.maxInt(u32)) {
+                        if (x <= math.maxInt(i32)) {
                             // Next best case: if we set the lower four bytes, the upper four will be zeroed.
                             //
                             // The encoding for `mov IMM32 -> REG` is (0xB8 + R) IMM.
-                            if (reg.isExtended()) {
-                                // Just as with XORing, we need a REX prefix. This time though, we only
-                                // need the B bit set, as we're extending the opcode's register field,
-                                // and there is no Mod R/M byte.
-                                //
-                                // Thus, we need b01000001, or 0x41.
-                                try self.code.resize(self.code.items.len + 6);
-                                self.code.items[self.code.items.len - 6] = 0x41;
-                            } else {
-                                try self.code.resize(self.code.items.len + 5);
-                            }
-                            self.code.items[self.code.items.len - 5] = 0xB8 | @as(u8, reg.id() & 0b111);
-                            const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
-                            mem.writeIntLittle(u32, imm_ptr, @intCast(u32, x));
+
+                            const encoder = try X8664Encoder.init(self.code, 6);
+                            // Just as with XORing, we need a REX prefix. This time though, we only
+                            // need the B bit set, as we're extending the opcode's register field,
+                            // and there is no Mod R/M byte.
+                            encoder.rex(.{
+                                .b = reg.isExtended(),
+                            });
+                            encoder.opcode_withReg(0xB8, reg.low_id());
+
+                            // no ModR/M byte
+
+                            // IMM
+                            encoder.imm32(@intCast(i32, x));
                             return;
                         }
                         // Worst case: we need to load the 64-bit register with the IMM. GNU's assemblers calls
@@ -3508,79 +3918,98 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // This encoding is, in fact, the *same* as the one used for 32-bit loads. The only
                         // difference is that we set REX.W before the instruction, which extends the load to
                         // 64-bit and uses the full bit-width of the register.
-                        //
-                        // Since we always need a REX here, let's just check if we also need to set REX.B.
-                        //
-                        // In this case, the encoding of the REX byte is 0b0100100B
-                        try self.code.ensureCapacity(self.code.items.len + 10);
-                        self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended() });
-                        self.code.items.len += 9;
-                        self.code.items[self.code.items.len - 9] = 0xB8 | @as(u8, reg.id() & 0b111);
-                        const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
-                        mem.writeIntLittle(u64, imm_ptr, x);
+                        {
+                            const encoder = try X8664Encoder.init(self.code, 10);
+                            encoder.rex(.{
+                                .w = true,
+                                .b = reg.isExtended(),
+                            });
+                            encoder.opcode_withReg(0xB8, reg.low_id());
+                            encoder.imm64(x);
+                        }
                     },
                     .embedded_in_code => |code_offset| {
                         // We need the offset from RIP in a signed i32 twos complement.
                         // The instruction is 7 bytes long and RIP points to the next instruction.
-                        try self.code.ensureCapacity(self.code.items.len + 7);
-                        // 64-bit LEA is encoded as REX.W 8D /r. If the register is extended, the REX byte is modified,
-                        // but the operation size is unchanged. Since we're using a disp32, we want mode 0 and lower three
-                        // bits as five.
-                        // REX 0x8D 0b00RRR101, where RRR is the lower three bits of the id.
-                        self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended() });
-                        self.code.items.len += 6;
-                        const rip = self.code.items.len;
+
+                        // 64-bit LEA is encoded as REX.W 8D /r.
+                        const rip = self.code.items.len + 7;
                         const big_offset = @intCast(i64, code_offset) - @intCast(i64, rip);
                         const offset = @intCast(i32, big_offset);
-                        self.code.items[self.code.items.len - 6] = 0x8D;
-                        self.code.items[self.code.items.len - 5] = 0b101 | (@as(u8, reg.id() & 0b111) << 3);
-                        const imm_ptr = self.code.items[self.code.items.len - 4 ..][0..4];
-                        mem.writeIntLittle(i32, imm_ptr, offset);
+                        const encoder = try X8664Encoder.init(self.code, 7);
+
+                        // byte 1, always exists because w = true
+                        encoder.rex(.{
+                            .w = true,
+                            .r = reg.isExtended(),
+                        });
+                        // byte 2
+                        encoder.opcode_1byte(0x8D);
+                        // byte 3
+                        encoder.modRm_RIPDisp32(reg.low_id());
+                        // byte 4-7
+                        encoder.disp32(offset);
+
+                        // Double check that we haven't done any math errors
+                        assert(rip == self.code.items.len);
                     },
                     .register => |src_reg| {
                         // If the registers are the same, nothing to do.
                         if (src_reg.id() == reg.id())
                             return;
 
-                        // This is a variant of 8B /r. Since we're using 64-bit moves, we require a REX.
-                        // This is thus three bytes: REX 0x8B R/M.
-                        // If the destination is extended, the R field must be 1.
-                        // If the *source* is extended, the B field must be 1.
-                        // Since the register is being accessed directly, the R/M mode is three. The reg field (the middle
-                        // three bits) contain the destination, and the R/M field (the lower three bits) contain the source.
-                        try self.code.ensureCapacity(self.code.items.len + 3);
-                        self.rex(.{ .w = reg.size() == 64, .r = reg.isExtended(), .b = src_reg.isExtended() });
-                        const R = 0xC0 | (@as(u8, reg.id() & 0b111) << 3) | @as(u8, src_reg.id() & 0b111);
-                        self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8B, R });
+                        // This is a variant of 8B /r.
+                        const abi_size = ty.abiSize(self.target.*);
+                        const encoder = try X8664Encoder.init(self.code, 3);
+                        encoder.rex(.{
+                            .w = abi_size == 8,
+                            .r = reg.isExtended(),
+                            .b = src_reg.isExtended(),
+                        });
+                        encoder.opcode_1byte(0x8B);
+                        encoder.modRm_direct(reg.low_id(), src_reg.low_id());
                     },
                     .memory => |x| {
                         if (self.bin_file.options.pie) {
                             // RIP-relative displacement to the entry in the GOT table.
+                            const abi_size = ty.abiSize(self.target.*);
+                            const encoder = try X8664Encoder.init(self.code, 10);
+
+                            // LEA reg, [<offset>]
+
+                            // We encode the instruction FIRST because prefixes may or may not appear.
+                            // After we encode the instruction, we will know that the displacement bytes
+                            // for [<offset>] will be at self.code.items.len - 4.
+                            encoder.rex(.{
+                                .w = true, // force 64 bit because loading an address (to the GOT)
+                                .r = reg.isExtended(),
+                            });
+                            encoder.opcode_1byte(0x8D);
+                            encoder.modRm_RIPDisp32(reg.low_id());
+                            encoder.disp32(0);
+
                             // TODO we should come up with our own, backend independent relocation types
                             // which each backend (Elf, MachO, etc.) would then translate into an actual
                             // fixup when linking.
                             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                                 try macho_file.pie_fixups.append(self.bin_file.allocator, .{
                                     .target_addr = x,
-                                    .offset = self.code.items.len + 3,
+                                    .offset = self.code.items.len - 4,
                                     .size = 4,
                                 });
                             } else {
                                 return self.fail(src, "TODO implement genSetReg for PIE GOT indirection on this platform", .{});
                             }
-                            try self.code.ensureCapacity(self.code.items.len + 7);
-                            self.rex(.{ .w = reg.size() == 64, .r = reg.isExtended() });
-                            self.code.appendSliceAssumeCapacity(&[_]u8{
-                                0x8D,
-                                0x05 | (@as(u8, reg.id() & 0b111) << 3),
-                            });
-                            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), 0);
 
-                            try self.code.ensureCapacity(self.code.items.len + 3);
-                            self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended(), .r = reg.isExtended() });
-                            const RM = (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, reg.id());
-                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8B, RM });
-                        } else if (x <= math.maxInt(u32)) {
+                            // MOV reg, [reg]
+                            encoder.rex(.{
+                                .w = abi_size == 8,
+                                .r = reg.isExtended(),
+                                .b = reg.isExtended(),
+                            });
+                            encoder.opcode_1byte(0x8B);
+                            encoder.modRm_indirectDisp0(reg.low_id(), reg.low_id());
+                        } else if (x <= math.maxInt(i32)) {
                             // Moving from memory to a register is a variant of `8B /r`.
                             // Since we're using 64-bit moves, we require a REX.
                             // This variant also requires a SIB, as it would otherwise be RIP-relative.
@@ -3588,14 +4017,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // The SIB must be 0x25, to indicate a disp32 with no scaled index.
                             // 0b00RRR100, where RRR is the lower three bits of the register ID.
                             // The instruction is thus eight bytes; REX 0x8B 0b00RRR100 0x25 followed by a four-byte disp32.
-                            try self.code.ensureCapacity(self.code.items.len + 8);
-                            self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended() });
-                            self.code.appendSliceAssumeCapacity(&[_]u8{
-                                0x8B,
-                                0x04 | (@as(u8, reg.id() & 0b111) << 3), // R
-                                0x25,
+                            const abi_size = ty.abiSize(self.target.*);
+                            const encoder = try X8664Encoder.init(self.code, 8);
+                            encoder.rex(.{
+                                .w = abi_size == 8,
+                                .r = reg.isExtended(),
                             });
-                            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), @intCast(u32, x));
+                            encoder.opcode_1byte(0x8B);
+                            // effective address = [SIB]
+                            encoder.modRm_SIBDisp0(reg.low_id());
+                            // SIB = disp32
+                            encoder.sib_disp32();
+                            encoder.disp32(@intCast(i32, x));
                         } else {
                             // If this is RAX, we can use a direct load; otherwise, we need to load the address, then indirectly load
                             // the value.
@@ -3603,12 +4036,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // REX.W 0xA1 moffs64*
                                 // moffs64* is a 64-bit offset "relative to segment base", which really just means the
                                 // absolute address for all practical purposes.
-                                try self.code.resize(self.code.items.len + 10);
-                                // REX.W == 0x48
-                                self.code.items[self.code.items.len - 10] = 0x48;
-                                self.code.items[self.code.items.len - 9] = 0xA1;
-                                const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
-                                mem.writeIntLittle(u64, imm_ptr, x);
+
+                                const encoder = try X8664Encoder.init(self.code, 10);
+                                encoder.rex(.{
+                                    .w = true,
+                                });
+                                encoder.opcode_1byte(0xA1);
+                                encoder.writeIntLittle(u64, x);
                             } else {
                                 // This requires two instructions; a move imm as used above, followed by an indirect load using the register
                                 // as the address and the register as the destination.
@@ -3625,40 +4059,41 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // Now, the register contains the address of the value to load into it
                                 // Currently, we're only allowing 64-bit registers, so we need the `REX.W 8B /r` variant.
                                 // TODO: determine whether to allow other sized registers, and if so, handle them properly.
-                                // This operation requires three bytes: REX 0x8B R/M
-                                try self.code.ensureCapacity(self.code.items.len + 3);
-                                // For this operation, we want R/M mode *zero* (use register indirectly), and the two register
-                                // values must match. Thus, it's 00ABCABC where ABC is the lower three bits of the register ID.
-                                //
-                                // Furthermore, if this is an extended register, both B and R must be set in the REX byte, as *both*
-                                // register operands need to be marked as extended.
-                                self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended(), .r = reg.isExtended() });
-                                const RM = (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, reg.id());
-                                self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8B, RM });
+
+                                // mov reg, [reg]
+                                const abi_size = ty.abiSize(self.target.*);
+                                const encoder = try X8664Encoder.init(self.code, 3);
+                                encoder.rex(.{
+                                    .w = abi_size == 8,
+                                    .r = reg.isExtended(),
+                                    .b = reg.isExtended(),
+                                });
+                                encoder.opcode_1byte(0x8B);
+                                encoder.modRm_indirectDisp0(reg.low_id(), reg.low_id());
                             }
                         }
                     },
                     .stack_offset => |unadjusted_off| {
-                        try self.code.ensureCapacity(self.code.items.len + 7);
-                        const size_bytes = @divExact(reg.size(), 8);
-                        const off = unadjusted_off + size_bytes;
-                        self.rex(.{ .w = reg.size() == 64, .r = reg.isExtended() });
-                        const reg_id: u8 = @truncate(u3, reg.id());
-                        if (off <= 128) {
-                            // Example: 48 8b 4d 7f           mov    rcx,QWORD PTR [rbp+0x7f]
-                            const RM = @as(u8, 0b01_000_101) | (reg_id << 3);
-                            const negative_offset = @intCast(i8, -@intCast(i32, off));
-                            const twos_comp = @bitCast(u8, negative_offset);
-                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8b, RM, twos_comp });
-                        } else if (off <= 2147483648) {
-                            // Example: 48 8b 8d 80 00 00 00  mov    rcx,QWORD PTR [rbp+0x80]
-                            const RM = @as(u8, 0b10_000_101) | (reg_id << 3);
-                            const negative_offset = @intCast(i32, -@intCast(i33, off));
-                            const twos_comp = @bitCast(u32, negative_offset);
-                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8b, RM });
-                            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), twos_comp);
-                        } else {
+                        const abi_size = ty.abiSize(self.target.*);
+                        const off = unadjusted_off + abi_size;
+                        if (off < std.math.minInt(i32) or off > std.math.maxInt(i32)) {
                             return self.fail(src, "stack offset too large", .{});
+                        }
+                        const ioff = -@intCast(i32, off);
+                        const encoder = try X8664Encoder.init(self.code, 3);
+                        encoder.rex(.{
+                            .w = abi_size == 8,
+                            .r = reg.isExtended(),
+                        });
+                        encoder.opcode_1byte(0x8B);
+                        if (std.math.minInt(i8) <= ioff and ioff <= std.math.maxInt(i8)) {
+                            // Example: 48 8b 4d 7f           mov    rcx,QWORD PTR [rbp+0x7f]
+                            encoder.modRm_indirectDisp8(reg.low_id(), Register.ebp.low_id());
+                            encoder.disp8(@intCast(i8, ioff));
+                        } else {
+                            // Example: 48 8b 8d 80 00 00 00  mov    rcx,QWORD PTR [rbp+0x80]
+                            encoder.modRm_indirectDisp32(reg.low_id(), Register.ebp.low_id());
+                            encoder.disp32(ioff);
                         }
                     },
                 },

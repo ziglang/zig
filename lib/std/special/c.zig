@@ -228,7 +228,7 @@ export fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8
     return dest;
 }
 
-export fn memcmp(vl: ?[*]const u8, vr: ?[*]const u8, n: usize) callconv(.C) isize {
+export fn memcmp(vl: ?[*]const u8, vr: ?[*]const u8, n: usize) callconv(.C) c_int {
     @setRuntimeSafety(false);
 
     var index: usize = 0;
@@ -253,7 +253,7 @@ test "memcmp" {
     try std.testing.expect(memcmp(base_arr[0..], arr3[0..], base_arr.len) < 0);
 }
 
-export fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) callconv(.C) isize {
+export fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) callconv(.C) c_int {
     @setRuntimeSafety(false);
 
     var index: usize = 0;

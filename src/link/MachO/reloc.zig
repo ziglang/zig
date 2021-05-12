@@ -29,7 +29,8 @@ pub const Relocation = struct {
         source_addr: u64,
         target_addr: u64,
         subtractor: ?u64 = null,
-        source_sect_addr: ?u64 = null,
+        source_source_sect_addr: ?u64 = null,
+        source_target_sect_addr: ?u64 = null,
     };
 
     pub fn resolve(base: *Relocation, args: ResolveArgs) !void {
@@ -39,8 +40,10 @@ pub const Relocation = struct {
         log.debug("    | target address 0x{x}", .{args.target_addr});
         if (args.subtractor) |sub|
             log.debug("    | subtractor address 0x{x}", .{sub});
-        if (args.source_sect_addr) |addr|
-            log.debug("    | source section address 0x{x}", .{addr});
+        if (args.source_source_sect_addr) |addr|
+            log.debug("    | source source section address 0x{x}", .{addr});
+        if (args.source_target_sect_addr) |addr|
+            log.debug("    | source target section address 0x{x}", .{addr});
 
         return switch (base.@"type") {
             .unsigned => @fieldParentPtr(Unsigned, "base", base).resolve(args),
@@ -104,7 +107,7 @@ pub const Unsigned = struct {
 
     pub fn resolve(unsigned: Unsigned, args: Relocation.ResolveArgs) !void {
         const addend = if (unsigned.base.target == .section)
-            unsigned.addend - @intCast(i64, args.source_sect_addr.?)
+            unsigned.addend - @intCast(i64, args.source_target_sect_addr.?)
         else
             unsigned.addend;
 

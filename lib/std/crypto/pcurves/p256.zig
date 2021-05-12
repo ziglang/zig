@@ -49,21 +49,26 @@ pub const P256 = struct {
     }
 
     /// Create a point from affine coordinates after checking that they match the curve equation.
-    pub fn fromAffineCoordinates(x: Fe, y: Fe) EncodingError!P256 {
+    pub fn fromAffineCoordinates(p: AffineCoordinates) EncodingError!P256 {
+        const x = p.x;
+        const y = p.y;
         const x3AxB = x.sq().mul(x).sub(x).sub(x).sub(x).add(B);
         const yy = y.sq();
-        if (!x3AxB.equivalent(yy)) {
+        const on_curve = @boolToInt(x3AxB.equivalent(yy));
+        const is_identity = @boolToInt(x.equivalent(AffineCoordinates.identityElement.x)) & @boolToInt(y.equivalent(AffineCoordinates.identityElement.y));
+        if ((on_curve | is_identity) == 0) {
             return error.InvalidEncoding;
         }
-        const p: P256 = .{ .x = x, .y = y, .z = Fe.one };
-        return p;
+        var ret = P256{ .x = x, .y = y, .z = Fe.one };
+        ret.z.cMov(P256.identityElement.z, is_identity);
+        return ret;
     }
 
     /// Create a point from serialized affine coordinates.
     pub fn fromSerializedAffineCoordinates(xs: [32]u8, ys: [32]u8, endian: builtin.Endian) (NonCanonicalError || EncodingError)!P256 {
         const x = try Fe.fromBytes(xs, endian);
         const y = try Fe.fromBytes(ys, endian);
-        return fromAffineCoordinates(x, y);
+        return fromAffineCoordinates(.{ .x = x, .y = y });
     }
 
     /// Recover the Y coordinate from the X coordinate.
@@ -96,7 +101,7 @@ pub const P256 = struct {
                 if (encoded.len != 64) return error.InvalidEncoding;
                 const x = try Fe.fromBytes(encoded[0..32].*, .Big);
                 const y = try Fe.fromBytes(encoded[32..64].*, .Big);
-                return P256.fromAffineCoordinates(x, y);
+                return P256.fromAffineCoordinates(.{ .x = x, .y = y });
             },
             else => return error.InvalidEncoding,
         }
@@ -177,7 +182,7 @@ pub const P256 = struct {
 
     /// Add P256 points, the second being specified using affine coordinates.
     // Algorithm 5 from https://eprint.iacr.org/2015/1060.pdf
-    pub fn addMixed(p: P256, q: struct { x: Fe, y: Fe }) P256 {
+    pub fn addMixed(p: P256, q: AffineCoordinates) P256 {
         var t0 = p.x.mul(q.x);
         var t1 = p.y.mul(q.y);
         var t3 = q.x.add(q.y);
@@ -194,9 +199,9 @@ pub const P256 = struct {
         Z3 = X3.dbl();
         X3 = X3.add(Z3);
         Z3 = t1.sub(X3);
-        X3 = t1.dbl();
+        X3 = t1.add(X3);
         Y3 = B.mul(Y3);
-        t1 = p.z.add(p.z);
+        t1 = p.z.dbl();
         var t2 = t1.add(p.z);
         Y3 = Y3.sub(t2);
         Y3 = Y3.sub(t0);
@@ -214,14 +219,16 @@ pub const P256 = struct {
         Z3 = t4.mul(Z3);
         t1 = t3.mul(t0);
         Z3 = Z3.add(t1);
-        return .{
+        var ret = P256{
             .x = X3,
             .y = Y3,
             .z = Z3,
         };
+        ret.cMov(p, @boolToInt(q.x.isZero()));
+        return ret;
     }
 
-    // Add P256 points.
+    /// Add P256 points.
     // Algorithm 4 from https://eprint.iacr.org/2015/1060.pdf
     pub fn add(p: P256, q: P256) P256 {
         var t0 = p.x.mul(q.x);
@@ -274,18 +281,19 @@ pub const P256 = struct {
         };
     }
 
-    // Subtract P256 points.
+    /// Subtract P256 points.
     pub fn sub(p: P256, q: P256) P256 {
         return p.add(q.neg());
     }
 
     /// Return affine coordinates.
-    pub fn affineCoordinates(p: P256) struct { x: Fe, y: Fe } {
+    pub fn affineCoordinates(p: P256) AffineCoordinates {
         const zinv = p.z.invert();
-        const ret = .{
+        var ret = AffineCoordinates{
             .x = p.x.mul(zinv),
             .y = p.y.mul(zinv),
         };
+        ret.cMov(AffineCoordinates.identityElement, @boolToInt(p.x.isZero()));
         return ret;
     }
 
@@ -382,11 +390,21 @@ pub const P256 = struct {
         return pc;
     }
 
+    const basePointPc = comptime pc: {
+        @setEvalBranchQuota(50000);
+        break :pc precompute(P256.basePoint, 15);
+    };
+
+    const basePointPc8 = comptime pc: {
+        @setEvalBranchQuota(50000);
+        break :pc precompute(P256.basePoint, 8);
+    };
+
     /// Multiply an elliptic curve point by a scalar.
     /// Return error.IdentityElement if the result is the identity element.
     pub fn mul(p: P256, s_: [32]u8, endian: builtin.Endian) IdentityElementError!P256 {
         const s = if (endian == .Little) s_ else Fe.orderSwap(s_);
-        const pc = if (p.is_base) precompute(P256.basePoint, 15) else pc: {
+        const pc = if (p.is_base) basePointPc else pc: {
             try p.rejectIdentity();
             const xpc = precompute(p, 15);
             break :pc xpc;
@@ -398,12 +416,26 @@ pub const P256 = struct {
     /// This can be used for signature verification.
     pub fn mulPublic(p: P256, s_: [32]u8, endian: builtin.Endian) IdentityElementError!P256 {
         const s = if (endian == .Little) s_ else Fe.orderSwap(s_);
-        const pc = if (p.is_base) precompute(P256.basePoint, 8) else pc: {
+        const pc = if (p.is_base) basePointPc8 else pc: {
             try p.rejectIdentity();
             const xpc = precompute(p, 8);
             break :pc xpc;
         };
         return pcMul(pc, s, true);
+    }
+};
+
+/// A point in affine coordinates.
+pub const AffineCoordinates = struct {
+    x: P256.Fe,
+    y: P256.Fe,
+
+    /// Identity element in affine coordinates.
+    pub const identityElement = AffineCoordinates{ .x = P256.identityElement.x, .y = P256.identityElement.y };
+
+    fn cMov(p: *AffineCoordinates, a: AffineCoordinates, c: u1) void {
+        p.x.cMov(a.x, c);
+        p.y.cMov(a.y, c);
     }
 };
 
