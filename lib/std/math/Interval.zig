@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../std.zig");
 
 /// Create an interval of type T.
 /// See https://en.wikipedia.org/wiki/Interval_(mathematics) for more info.
@@ -14,9 +14,18 @@ pub fn Interval(comptime T: type) type {
         /// open determines if the interval should be open (exclusive) or closed (inclusive). 
         to: Endpoint,
 
-        pub const Endpoint = struct {
-            n: ?T,
-            open: bool,
+        pub const Endpoint = union(enum) {
+            Infinity,
+            Closed: T,
+            Open: T,
+
+            pub fn n(self: Endpoint) ?T {
+                return switch (self) {
+                    .Infinity => null,
+                    .Closed => |x| x,
+                    .Open => |x| x,
+                };
+            }
         };
 
         pub const Self = @This();
@@ -37,52 +46,50 @@ pub fn Interval(comptime T: type) type {
                 // .ComptimeFloat => x + 2,
                 else => unreachable,
             };
-            if (self.from.n) |_| {} else {
-                if (self.to.n) |_| {} else {
+            if (self.from == .Infinity) {
+                if (self.to == .Infinity) {
                     // handle (-inf, +inf)
                     return true;
                 }
                 // handle (-inf,
-                const to = self.to.n orelse max;
-                const right = if (self.to.open) x < to else x <= to;
+                const to = self.to.n() orelse max;
+                const right = if (self.to == .Open) x < to else x <= to;
                 return right;
             }
-            if (self.to.n) |_| {} else {
+            if (self.to == .Infinity) {
                 // handle +inf)
-                const from = self.from.n orelse min;
-                const left = if (self.from.open) x > from else x >= from;
+                const from = self.from.n() orelse min;
+                const left = if (self.from == .Open) x > from else x >= from;
                 return left;
             }
-            const from = self.from.n orelse min;
-            const to = self.to.n orelse max;
-            const left = if (self.from.open) x > from else x >= from;
-            const right = if (self.to.open) x < to else x <= to;
+            const from = self.from.n() orelse min;
+            const to = self.to.n() orelse max;
+            const left = if (self.from == .Open) x > from else x >= from;
+            const right = if (self.to == .Open) x < to else x <= to;
             return left and right;
         }
     };
 }
 
-fn runTest(comptime T: type, from: ?T, to: ?T, left: bool, right: bool) !void {
-    var x = Interval(T){
-        .from = .{ .n = from, .open = left },
-        .to = .{ .n = to, .open = right },
-    };
-    const inf_left = if (x.from.n) |_| false else true;
-    const inf_right = if (x.to.n) |_| false else true;
+fn runTest(comptime T: type, from: Interval(T).Endpoint, to: Interval(T).Endpoint) !void {
+    var x = Interval(T){ .from = from, .to = to };
 
-    try std.testing.expect(x.contains(0) == (inf_left));
-    try std.testing.expect(x.contains(1) == (inf_left or !x.from.open));
+    try std.testing.expect(x.contains(0) == (x.from == .Infinity));
+    try std.testing.expect(x.contains(1) == (x.from != .Open));
     try std.testing.expect(x.contains(2) == (true));
-    try std.testing.expect(x.contains(3) == (inf_right or !x.to.open));
-    try std.testing.expect(x.contains(4) == (inf_right));
+    try std.testing.expect(x.contains(3) == (x.to != .Open));
+    try std.testing.expect(x.contains(4) == (x.to == .Infinity));
 }
 
 fn runTestMatrix(left: bool, right: bool) !void {
     inline for (.{ usize, isize, f32, f64 }) |T| {
-        try runTest(T, 1, 3, left, right);
-        try runTest(T, null, 3, left, right);
-        try runTest(T, 1, null, left, right);
-        try runTest(T, null, null, left, right);
+        const l: Interval(T).Endpoint = if (left) .{ .Open = 1 } else .{ .Closed = 1 };
+        const r: Interval(T).Endpoint = if (right) .{ .Open = 3 } else .{ .Closed = 3 };
+        const i: Interval(T).Endpoint = .{ .Infinity = {} };
+        try runTest(T, l, r);
+        try runTest(T, i, r);
+        try runTest(T, l, i);
+        try runTest(T, i, i);
     }
 }
 
