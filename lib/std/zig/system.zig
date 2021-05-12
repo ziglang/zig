@@ -208,11 +208,6 @@ pub const NativeTargetInfo = struct {
 
     dynamic_linker: DynamicLinker = DynamicLinker{},
 
-    /// Only some architectures have CPU detection implemented. This field reveals whether
-    /// CPU detection actually occurred. When this is `true` it means that the reported
-    /// CPU is baseline only because of a missing implementation for that architecture.
-    cpu_detection_unimplemented: bool = false,
-
     pub const DynamicLinker = Target.DynamicLinker;
 
     pub const DetectError = error{
@@ -367,8 +362,6 @@ pub const NativeTargetInfo = struct {
             os.version_range.linux.glibc = glibc;
         }
 
-        var cpu_detection_unimplemented = false;
-
         // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
         // native CPU architecture as being different than the current target), we use this:
         const cpu_arch = cross_target.getCpuArch();
@@ -382,7 +375,6 @@ pub const NativeTargetInfo = struct {
                 Target.Cpu.baseline(cpu_arch),
             .explicit => |model| model.toCpu(cpu_arch),
         } orelse backup_cpu_detection: {
-            cpu_detection_unimplemented = true;
             break :backup_cpu_detection Target.Cpu.baseline(cpu_arch);
         };
         var result = try detectAbiAndDynamicLinker(allocator, cpu, os, cross_target);
@@ -419,7 +411,6 @@ pub const NativeTargetInfo = struct {
             else => {},
         }
         cross_target.updateCpuFeatures(&result.target.cpu.features);
-        result.cpu_detection_unimplemented = cpu_detection_unimplemented;
         return result;
     }
 
