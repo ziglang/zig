@@ -768,15 +768,6 @@ pub const dl_phdr_info = extern struct {
     dlpi_phdr: [*]std.elf.Phdr,
     dlpi_phnum: u16,
 };
-pub const msghdr = extern struct {
-    msg_name: ?*c_void,
-    msg_namelen: socklen_t,
-    msg_iov: [*c]iovec,
-    msg_iovlen: c_int,
-    msg_control: ?*c_void,
-    msg_controllen: socklen_t,
-    msg_flags: c_int,
-};
 pub const cmsghdr = extern struct {
     cmsg_len: socklen_t,
     cmsg_level: c_int,

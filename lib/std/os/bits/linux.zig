@@ -1180,12 +1180,12 @@ pub const sockaddr_un = extern struct {
 };
 
 pub const mmsghdr = extern struct {
-    msg_hdr: msghdr,
+    msg_hdr: std.x.os.Socket.Message,
     msg_len: u32,
 };
 
 pub const mmsghdr_const = extern struct {
-    msg_hdr: msghdr_const,
+    msg_hdr: std.x.os.Socket.Message,
     msg_len: u32,
 };
 

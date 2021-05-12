@@ -3,6 +3,7 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
+const std = @import("../../std.zig");
 usingnamespace @import("bits.zig");
 
 pub const SOCKET = *opaque {};
@@ -1093,27 +1094,6 @@ pub const WSABUF = extern struct {
     buf: [*]u8,
 };
 
-pub const msghdr = WSAMSG;
-pub const msghdr_const = WSAMSG_const;
-
-pub const WSAMSG_const = extern struct {
-    name: *const sockaddr,
-    namelen: INT,
-    lpBuffers: [*]WSABUF,
-    dwBufferCount: DWORD,
-    Control: WSABUF,
-    dwFlags: DWORD,
-};
-
-pub const WSAMSG = extern struct {
-    name: *sockaddr,
-    namelen: INT,
-    lpBuffers: [*]WSABUF,
-    dwBufferCount: DWORD,
-    Control: WSABUF,
-    dwFlags: DWORD,
-};
-
 pub const WSAPOLLFD = pollfd;
 
 pub const pollfd = extern struct {
@@ -1163,7 +1143,7 @@ pub const LPFN_GETACCEPTEXSOCKADDRS = fn (
 
 pub const LPFN_WSASENDMSG = fn (
     s: SOCKET,
-    lpMsg: *const WSAMSG_const,
+    lpMsg: *const std.x.os.Socket.Message,
     dwFlags: u32,
     lpNumberOfBytesSent: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
@@ -1172,7 +1152,7 @@ pub const LPFN_WSASENDMSG = fn (
 
 pub const LPFN_WSARECVMSG = fn (
     s: SOCKET,
-    lpMsg: *WSAMSG,
+    lpMsg: *std.x.os.Socket.Message,
     lpdwNumberOfBytesRecv: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPWSAOVERLAPPED_COMPLETION_ROUTINE,
@@ -2046,7 +2026,7 @@ pub extern "ws2_32" fn WSASend(
 
 pub extern "ws2_32" fn WSASendMsg(
     s: SOCKET,
-    lpMsg: *const WSAMSG_const,
+    lpMsg: *const std.x.os.Socket.Message,
     dwFlags: u32,
     lpNumberOfBytesSent: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
@@ -2055,7 +2035,7 @@ pub extern "ws2_32" fn WSASendMsg(
 
 pub extern "ws2_32" fn WSARecvMsg(
     s: SOCKET,
-    lpMsg: *WSAMSG,
+    lpMsg: *std.x.os.Socket.Message,
     lpdwNumberOfBytesRecv: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPWSAOVERLAPPED_COMPLETION_ROUTINE,

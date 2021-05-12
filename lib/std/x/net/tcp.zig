@@ -18,6 +18,7 @@ const testing = std.testing;
 const IPv4 = std.x.os.IPv4;
 const IPv6 = std.x.os.IPv6;
 const Socket = std.x.os.Socket;
+const Buffer = std.x.os.Buffer;
 
 /// A generic TCP socket abstraction.
 const tcp = @This();
@@ -82,12 +83,13 @@ pub const Client = struct {
     };
 
     /// Opens a new client.
-    pub fn init(domain: tcp.Domain, flags: u32) !Client {
+    pub fn init(domain: tcp.Domain, flags: std.enums.EnumFieldStruct(Socket.InitFlags, bool, false)) !Client {
         return Client{
             .socket = try Socket.init(
                 @enumToInt(domain),
-                os.SOCK_STREAM | flags,
+                os.SOCK_STREAM,
                 os.IPPROTO_TCP,
+                flags,
             ),
         };
     }
@@ -143,14 +145,14 @@ pub const Client = struct {
     /// Writes multiple I/O vectors with a prepended message header to the socket
     /// with a set of flags specified. It returns the number of bytes that are
     /// written to the socket.
-    pub fn writeVectorized(self: Client, msg: os.msghdr_const, flags: u32) !usize {
+    pub fn writeVectorized(self: Client, msg: Socket.Message, flags: u32) !usize {
         return self.socket.writeVectorized(msg, flags);
     }
 
     /// Read multiple I/O vectors with a prepended message header from the socket
     /// with a set of flags specified. It returns the number of bytes that were
     /// read into the buffer provided.
-    pub fn readVectorized(self: Client, msg: *os.msghdr, flags: u32) !usize {
+    pub fn readVectorized(self: Client, msg: *Socket.Message, flags: u32) !usize {
         return self.socket.readVectorized(msg, flags);
     }
 
@@ -244,12 +246,13 @@ pub const Listener = struct {
     socket: Socket,
 
     /// Opens a new listener.
-    pub fn init(domain: tcp.Domain, flags: u32) !Listener {
+    pub fn init(domain: tcp.Domain, flags: std.enums.EnumFieldStruct(Socket.InitFlags, bool, false)) !Listener {
         return Listener{
             .socket = try Socket.init(
                 @enumToInt(domain),
-                os.SOCK_STREAM | flags,
+                os.SOCK_STREAM,
                 os.IPPROTO_TCP,
+                flags,
             ),
         };
     }
@@ -278,7 +281,7 @@ pub const Listener = struct {
 
     /// Accept a pending incoming connection queued to the kernel backlog
     /// of the listener's socket.
-    pub fn accept(self: Listener, flags: u32) !tcp.Connection {
+    pub fn accept(self: Listener, flags: std.enums.EnumFieldStruct(Socket.InitFlags, bool, false)) !tcp.Connection {
         return tcp.Connection.from(try self.socket.accept(flags));
     }
 
@@ -324,7 +327,7 @@ pub const Listener = struct {
 test "tcp: create client/listener pair" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    const listener = try tcp.Listener.init(.ip, os.SOCK_CLOEXEC);
+    const listener = try tcp.Listener.init(.ip, .{ .close_on_exec = true });
     defer listener.deinit();
 
     try listener.bind(ip.Address.initIPv4(IPv4.unspecified, 0));
@@ -336,19 +339,19 @@ test "tcp: create client/listener pair" {
         .ipv6 => |*ipv6| ipv6.host = IPv6.localhost,
     }
 
-    const client = try tcp.Client.init(.ip, os.SOCK_CLOEXEC);
+    const client = try tcp.Client.init(.ip, .{ .close_on_exec = true });
     defer client.deinit();
 
     try client.connect(binded_address);
 
-    const conn = try listener.accept(os.SOCK_CLOEXEC);
+    const conn = try listener.accept(.{ .close_on_exec = true });
     defer conn.deinit();
 }
 
-test "tcp/client: set read timeout of 1 millisecond on blocking client" {
+test "tcp/client: 1ms read timeout" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    const listener = try tcp.Listener.init(.ip, os.SOCK_CLOEXEC);
+    const listener = try tcp.Listener.init(.ip, .{ .close_on_exec = true });
     defer listener.deinit();
 
     try listener.bind(ip.Address.initIPv4(IPv4.unspecified, 0));
@@ -360,23 +363,62 @@ test "tcp/client: set read timeout of 1 millisecond on blocking client" {
         .ipv6 => |*ipv6| ipv6.host = IPv6.localhost,
     }
 
-    const client = try tcp.Client.init(.ip, os.SOCK_CLOEXEC);
+    const client = try tcp.Client.init(.ip, .{ .close_on_exec = true });
     defer client.deinit();
 
     try client.connect(binded_address);
     try client.setReadTimeout(1);
 
-    const conn = try listener.accept(os.SOCK_CLOEXEC);
+    const conn = try listener.accept(.{ .close_on_exec = true });
     defer conn.deinit();
 
     var buf: [1]u8 = undefined;
     try testing.expectError(error.WouldBlock, client.reader(0).read(&buf));
 }
 
+test "tcp/client: read and write multiple vectors" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const listener = try tcp.Listener.init(.ip, .{ .close_on_exec = true });
+    defer listener.deinit();
+
+    try listener.bind(ip.Address.initIPv4(IPv4.unspecified, 0));
+    try listener.listen(128);
+
+    var binded_address = try listener.getLocalAddress();
+    switch (binded_address) {
+        .ipv4 => |*ipv4| ipv4.host = IPv4.localhost,
+        .ipv6 => |*ipv6| ipv6.host = IPv6.localhost,
+    }
+
+    const client = try tcp.Client.init(.ip, .{ .close_on_exec = true });
+    defer client.deinit();
+
+    try client.connect(binded_address);
+
+    const conn = try listener.accept(.{ .close_on_exec = true });
+    defer conn.deinit();
+
+    const message = "hello world";
+    _ = try conn.client.writeVectorized(Socket.Message.fromBuffers(&[_]Buffer{
+        Buffer.from(message[0 .. message.len / 2]),
+        Buffer.from(message[message.len / 2 ..]),
+    }), 0);
+
+    var buf: [message.len]u8 = undefined;
+    var msg = Socket.Message.fromBuffers(&[_]Buffer{
+        Buffer.from(buf[0 .. message.len / 2]),
+        Buffer.from(buf[message.len / 2 ..]),
+    });
+    _ = try client.readVectorized(&msg, 0);
+
+    try testing.expectEqualStrings(message, &buf);
+}
+
 test "tcp/listener: bind to unspecified ipv4 address" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    const listener = try tcp.Listener.init(.ip, os.SOCK_CLOEXEC);
+    const listener = try tcp.Listener.init(.ip, .{ .close_on_exec = true });
     defer listener.deinit();
 
     try listener.bind(ip.Address.initIPv4(IPv4.unspecified, 0));
@@ -389,7 +431,7 @@ test "tcp/listener: bind to unspecified ipv4 address" {
 test "tcp/listener: bind to unspecified ipv6 address" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    const listener = try tcp.Listener.init(.ipv6, os.SOCK_CLOEXEC);
+    const listener = try tcp.Listener.init(.ipv6, .{ .close_on_exec = true });
     defer listener.deinit();
 
     try listener.bind(ip.Address.initIPv6(IPv6.unspecified, 0));

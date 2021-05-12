@@ -4994,7 +4994,7 @@ pub fn sendmsg(
     /// The file descriptor of the sending socket.
     sockfd: socket_t,
     /// Message header and iovecs
-    msg: msghdr_const,
+    msg: std.x.os.Socket.Message,
     flags: u32,
 ) SendMsgError!usize {
     while (true) {
