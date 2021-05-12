@@ -55,10 +55,10 @@ cmake .. \
   -DZIG_TARGET_MCPU="$HOST_MCPU" \
   -DZIG_STATIC=ON
 
-make $JOBS install
-
 unset CC
 unset CXX
+
+make $JOBS install
 
 # Build zig compiler cross-compiled for arm64
 cd $ZIGDIR
@@ -79,10 +79,10 @@ cmake .. \
   -DZIG_EXECUTABLE="$ZIG" \
   -DZIG_STATIC=ON
 
-make $JOBS install
-
 unset CC
 unset CXX
+
+make $JOBS install
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   mv ../LICENSE release/
