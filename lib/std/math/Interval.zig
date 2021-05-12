@@ -27,6 +27,19 @@ pub fn Interval(comptime T: type) type {
                     .Open => |x| x,
                 };
             }
+
+            pub fn eql(self: Endpoint, other: Endpoint) bool {
+                if (self == .Infinity and other == .Infinity) {
+                    return true;
+                }
+                if (self == .Closed and other == .Closed) {
+                    return self.Closed == other.Closed;
+                }
+                if (self == .Open and other == .Open) {
+                    return self.Open == other.Open;
+                }
+                return false;
+            }
         };
 
         pub const Self = @This();
@@ -68,6 +81,10 @@ pub fn Interval(comptime T: type) type {
             const left = if (self.from == .Open) x > from else x >= from;
             const right = if (self.to == .Open) x < to else x <= to;
             return left and right;
+        }
+
+        pub fn eql(self: Self, other: Self) bool {
+            return self.from.eql(other.from) and self.to.eql(other.to);
         }
     };
 }
@@ -186,4 +203,11 @@ test "contains: i1 edge" {
     const d = Interval(i1){ .from = .{ .Open = -1 }, .to = .{ .Open = 0 } };
     try std.testing.expect(!d.contains(-1));
     try std.testing.expect(!d.contains(0));
+}
+
+test "eql" {
+    const a = Interval(i1){ .from = .{ .Closed = -1 }, .to = .{ .Closed = 0 } };
+    const b = Interval(i1){ .from = .{ .Closed = -1 }, .to = .{ .Closed = 0 } };
+
+    try std.testing.expect(a.eql(b));
 }
