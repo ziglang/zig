@@ -75,11 +75,11 @@ pub fn Interval(comptime T: type) type {
 fn runTest(comptime T: type, from: Interval(T).Endpoint, to: Interval(T).Endpoint) !void {
     var x = Interval(T){ .from = from, .to = to };
 
-    try std.testing.expect(x.contains(0) == (x.from == .Infinity));
-    try std.testing.expect(x.contains(1) == (x.from != .Open));
-    try std.testing.expect(x.contains(2) == (true));
-    try std.testing.expect(x.contains(3) == (x.to != .Open));
-    try std.testing.expect(x.contains(4) == (x.to == .Infinity));
+    try std.testing.expectEqual(x.contains(0), x.from == .Infinity);
+    try std.testing.expectEqual(x.contains(1), x.from != .Open);
+    try std.testing.expectEqual(x.contains(2), true);
+    try std.testing.expectEqual(x.contains(3), x.to != .Open);
+    try std.testing.expectEqual(x.contains(4), x.to == .Infinity);
 }
 
 fn runTestMatrix(left: bool, right: bool) !void {
