@@ -501,6 +501,8 @@ pub const Dir = struct {
         },
         .linux => struct {
             dir: Dir,
+            // The if guard is solely there to prevent compile errors from missing `os.linux.dirent64`
+            // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
             buf: [8192]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(os.linux.dirent64)),
             index: usize,
             end_index: usize,
