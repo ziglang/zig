@@ -109,3 +109,81 @@ test "contains: closed open" {
 test "contains: open open" {
     try runTestMatrix(true, true);
 }
+
+test "contains: u8 edge" {
+    const a = Interval(u8){ .from = .{ .Closed = 0 }, .to = .{ .Closed = 255 } };
+    try std.testing.expect(a.contains(0));
+    try std.testing.expect(a.contains(1));
+    try std.testing.expect(a.contains(254));
+    try std.testing.expect(a.contains(255));
+
+    const b = Interval(u8){ .from = .{ .Open = 0 }, .to = .{ .Open = 255 } };
+    try std.testing.expect(!b.contains(0));
+    try std.testing.expect(b.contains(1));
+    try std.testing.expect(b.contains(254));
+    try std.testing.expect(!b.contains(255));
+}
+
+test "contains: i8 edge" {
+    const a = Interval(i8){ .from = .{ .Closed = -128 }, .to = .{ .Closed = 127 } };
+    try std.testing.expect(a.contains(-128));
+    try std.testing.expect(a.contains(-127));
+    try std.testing.expect(a.contains(126));
+    try std.testing.expect(a.contains(127));
+
+    const b = Interval(i8){ .from = .{ .Open = -128 }, .to = .{ .Open = 127 } };
+    try std.testing.expect(!b.contains(-128));
+    try std.testing.expect(b.contains(-127));
+    try std.testing.expect(b.contains(126));
+    try std.testing.expect(!b.contains(127));
+}
+
+test "contains: u0 edge" {
+    const a = Interval(u0){ .from = .{ .Closed = 0 }, .to = .{ .Closed = 0 } };
+    try std.testing.expect(a.contains(0));
+
+    const b = Interval(u0){ .from = .{ .Open = 0 }, .to = .{ .Closed = 0 } };
+    try std.testing.expect(!b.contains(0));
+
+    const c = Interval(u0){ .from = .{ .Closed = 0 }, .to = .{ .Open = 0 } };
+    try std.testing.expect(!c.contains(0));
+
+    const d = Interval(u0){ .from = .{ .Open = 0 }, .to = .{ .Open = 0 } };
+    try std.testing.expect(!d.contains(0));
+}
+
+test "contains: u1 edge" {
+    const a = Interval(u1){ .from = .{ .Closed = 0 }, .to = .{ .Closed = 1 } };
+    try std.testing.expect(a.contains(0));
+    try std.testing.expect(a.contains(1));
+
+    const b = Interval(u1){ .from = .{ .Open = 0 }, .to = .{ .Closed = 1 } };
+    try std.testing.expect(!b.contains(0));
+    try std.testing.expect(b.contains(1));
+
+    const c = Interval(u1){ .from = .{ .Closed = 0 }, .to = .{ .Open = 1 } };
+    try std.testing.expect(c.contains(0));
+    try std.testing.expect(!c.contains(1));
+
+    const d = Interval(u1){ .from = .{ .Open = 0 }, .to = .{ .Open = 1 } };
+    try std.testing.expect(!d.contains(0));
+    try std.testing.expect(!d.contains(1));
+}
+
+test "contains: i1 edge" {
+    const a = Interval(i1){ .from = .{ .Closed = -1 }, .to = .{ .Closed = 0 } };
+    try std.testing.expect(a.contains(-1));
+    try std.testing.expect(a.contains(0));
+
+    const b = Interval(i1){ .from = .{ .Open = -1 }, .to = .{ .Closed = 0 } };
+    try std.testing.expect(!b.contains(-1));
+    try std.testing.expect(b.contains(0));
+
+    const c = Interval(i1){ .from = .{ .Closed = -1 }, .to = .{ .Open = 0 } };
+    try std.testing.expect(c.contains(-1));
+    try std.testing.expect(!c.contains(0));
+
+    const d = Interval(i1){ .from = .{ .Open = -1 }, .to = .{ .Open = 0 } };
+    try std.testing.expect(!d.contains(-1));
+    try std.testing.expect(!d.contains(0));
+}
