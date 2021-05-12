@@ -4387,7 +4387,7 @@ fn zirImport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
         },
     };
     try mod.semaFile(result.file);
-    return mod.constType(sema.arena, src, result.file.namespace.ty);
+    return mod.constType(sema.arena, src, result.file.namespace.?.ty);
 }
 
 fn zirShl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
@@ -7285,7 +7285,7 @@ fn getBuiltinType(
     const opt_builtin_inst = try sema.analyzeNamespaceLookup(
         block,
         src,
-        std_file.namespace,
+        std_file.namespace.?,
         "builtin",
     );
     const builtin_inst = try sema.analyzeLoad(block, src, opt_builtin_inst.?, src);

@@ -12,9 +12,6 @@
      their indexes starting at 0 so that we can use an array to store Sema
      results rather than a map.
 
- * keep track of file dependencies/dependants
- * unload files from memory when a dependency is dropped
-
  * implement the new AstGen compile errors
 
  * get rid of failed_root_src_file

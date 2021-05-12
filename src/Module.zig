@@ -199,8 +199,12 @@ pub const Decl = struct {
         /// This Decl corresponds to an AST Node that has not been referenced yet, and therefore
         /// because of Zig's lazy declaration analysis, it will remain unanalyzed until referenced.
         unreferenced,
-        /// Semantic analysis for this Decl is running right now. This state detects dependency loops.
+        /// Semantic analysis for this Decl is running right now.
+        /// This state detects dependency loops.
         in_progress,
+        /// The file corresponding to this Decl had a parse error or ZIR error.
+        /// There will be a corresponding ErrorMsg in Module.failed_files.
+        file_failure,
         /// This Decl might be OK but it depends on another one which did not successfully complete
         /// semantic analysis.
         dependency_failure,
@@ -548,6 +552,7 @@ pub const Decl = struct {
             .unreferenced,
             .in_progress,
             .dependency_failure,
+            .file_failure,
             .sema_failure,
             .sema_failure_retryable,
             .codegen_failure,
@@ -836,7 +841,7 @@ pub const Scope = struct {
     pub fn namespace(scope: *Scope) *Namespace {
         switch (scope.tag) {
             .block => return scope.cast(Block).?.sema.owner_decl.namespace,
-            .file => return scope.cast(File).?.namespace,
+            .file => return scope.cast(File).?.namespace.?,
             .namespace => return scope.cast(Namespace).?,
             .decl_ref => return scope.cast(DeclRef).?.decl.namespace,
         }
@@ -965,7 +970,6 @@ pub const Scope = struct {
             parse_failure,
             astgen_failure,
             success_zir,
-            success_air,
         },
         source_loaded: bool,
         tree_loaded: bool,
@@ -988,9 +992,9 @@ pub const Scope = struct {
         /// Package that this file is a part of, managed externally.
         pkg: *Package,
         /// The namespace of the struct that represents this file.
-        /// Populated only when status is `success_air`.
+        /// Populated only when `have_decl` is true.
         /// Owned by its owner Decl Value.
-        namespace: *Namespace,
+        namespace: ?*Namespace,
 
         /// Used by change detection algorithm, after astgen, contains the
         /// set of decls that existed in the previous ZIR but not in the new one.
@@ -999,6 +1003,12 @@ pub const Scope = struct {
         /// set of decls that existed both in the previous ZIR and in the new one,
         /// but their source code has been modified.
         outdated_decls: std.ArrayListUnmanaged(*Decl) = .{},
+
+        /// The most recent successful ZIR for this file, with no errors.
+        /// This is only populated when a previously successful ZIR
+        /// newly introduces compile errors during an update. When ZIR is
+        /// successful, this field is unloaded.
+        prev_zir: ?*Zir = null,
 
         pub fn unload(file: *File, gpa: *Allocator) void {
             file.unloadTree(gpa);
@@ -1032,11 +1042,15 @@ pub const Scope = struct {
             log.debug("deinit File {s}", .{file.sub_file_path});
             file.deleted_decls.deinit(gpa);
             file.outdated_decls.deinit(gpa);
-            if (file.status == .success_air) {
-                file.namespace.getDecl().destroy(mod);
+            if (file.namespace) |ns| {
+                ns.getDecl().destroy(mod);
             }
             gpa.free(file.sub_file_path);
             file.unload(gpa);
+            if (file.prev_zir) |prev_zir| {
+                prev_zir.deinit(gpa);
+                gpa.destroy(prev_zir);
+            }
             file.* = undefined;
         }
 
@@ -2370,7 +2384,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
             }
             return;
         },
-        .parse_failure, .astgen_failure, .success_zir, .success_air => {
+        .parse_failure, .astgen_failure, .success_zir => {
             const unchanged_metadata =
                 stat.size == file.stat_size and
                 stat.mtime == file.stat_mtime and
@@ -2411,7 +2425,7 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
 
     // Move previous ZIR to a local variable so we can compare it with the new one.
     var prev_zir = file.zir;
-    const prev_zir_loaded = file.zir_loaded;
+    var prev_zir_loaded = file.zir_loaded;
     file.zir_loaded = false;
     file.zir = undefined;
     defer if (prev_zir_loaded) prev_zir.deinit(gpa);
@@ -2536,8 +2550,34 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
         // We do not need to hold any locks at this time because all the Decl and Namespace
         // objects being touched are specific to this File, and the only other concurrent
         // tasks are touching other File objects.
-        try updateZirRefs(gpa, file, prev_zir);
-
+        if (file.zir.hasCompileErrors()) {
+            // In this case, we keep the previous ZIR loaded so that we can use it
+            // for the update next time it does not have any compile errors. This avoids
+            // needlessly tossing out semantic analysis work when a ZIR error is
+            // temporarily introduced.
+            if (!prev_zir.hasCompileErrors()) {
+                assert(file.prev_zir == null);
+                const prev_zir_ptr = try gpa.create(Zir);
+                file.prev_zir = prev_zir_ptr;
+                prev_zir_ptr.* = prev_zir;
+                prev_zir_loaded = false;
+            }
+        } else if (prev_zir.hasCompileErrors()) {
+            if (file.prev_zir) |file_prev_zir| {
+                prev_zir.deinit(gpa);
+                prev_zir = file_prev_zir.*;
+                gpa.destroy(file_prev_zir);
+                file.prev_zir = null;
+                try updateZirRefs(gpa, file, prev_zir);
+            } else if (file.namespace) |ns| {
+                // First time the File has succeeded ZIR. We must mark it outdated since
+                // we have already tried to semantically analyze it.
+                try file.outdated_decls.resize(gpa, 1);
+                file.outdated_decls.items[0] = ns.getDecl();
+            }
+        } else {
+            try updateZirRefs(gpa, file, prev_zir);
+        }
         // At this point, `file.outdated_decls` and `file.deleted_decls` are populated,
         // and semantic analysis will deal with them properly.
     }
@@ -2579,7 +2619,7 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
     var decl_stack: std.ArrayListUnmanaged(*Decl) = .{};
     defer decl_stack.deinit(gpa);
 
-    const root_decl = file.namespace.getDecl();
+    const root_decl = file.namespace.?.getDecl();
     try decl_stack.append(gpa, root_decl);
 
     file.deleted_decls.clearRetainingCapacity();
@@ -2712,6 +2752,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
     const subsequent_analysis = switch (decl.analysis) {
         .in_progress => unreachable,
 
+        .file_failure,
         .sema_failure,
         .sema_failure_retryable,
         .codegen_failure,
@@ -2773,6 +2814,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
                     .in_progress => unreachable,
                     .outdated => continue, // already queued for update
 
+                    .file_failure,
                     .dependency_failure,
                     .sema_failure,
                     .sema_failure_retryable,
@@ -2793,24 +2835,13 @@ pub fn semaPkg(mod: *Module, pkg: *Package) !void {
     return mod.semaFile(file);
 }
 
+/// Regardless of the file status, will create a `Decl` so that we
+/// can track dependencies and re-analyze when the file becomes outdated.
 pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    switch (file.status) {
-        .never_loaded => unreachable,
-
-        .retryable_failure,
-        .parse_failure,
-        .astgen_failure,
-        => return error.AnalysisFail,
-
-        .success_zir => {},
-        .success_air => return,
-    }
-
-    assert(file.zir_loaded);
-    const main_struct_inst = file.zir.getMainStruct();
+    if (file.namespace != null) return;
 
     const gpa = mod.gpa;
     var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
@@ -2823,7 +2854,7 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
         .owner_decl = undefined, // set below
         .fields = .{},
         .node_offset = 0, // it's the struct for the root file
-        .zir_index = main_struct_inst,
+        .zir_index = undefined, // set below
         .layout = .Auto,
         .status = .none,
         .namespace = .{
@@ -2845,39 +2876,48 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
     new_decl.val = struct_val;
     new_decl.has_tv = true;
     new_decl.owns_tv = true;
-    new_decl.analysis = .complete;
+    new_decl.analysis = .in_progress;
     new_decl.generation = mod.generation;
 
-    var sema_arena = std.heap.ArenaAllocator.init(gpa);
-    defer sema_arena.deinit();
+    if (file.status == .success_zir) {
+        assert(file.zir_loaded);
+        const main_struct_inst = file.zir.getMainStruct();
+        struct_obj.zir_index = main_struct_inst;
 
-    var sema: Sema = .{
-        .mod = mod,
-        .gpa = gpa,
-        .arena = &sema_arena.allocator,
-        .code = file.zir,
-        // TODO use a map because this array is too big
-        .inst_map = try sema_arena.allocator.alloc(*ir.Inst, file.zir.instructions.len),
-        .owner_decl = new_decl,
-        .namespace = &struct_obj.namespace,
-        .func = null,
-        .owner_func = null,
-        .param_inst_list = &.{},
-    };
-    var block_scope: Scope.Block = .{
-        .parent = null,
-        .sema = &sema,
-        .src_decl = new_decl,
-        .instructions = .{},
-        .inlining = null,
-        .is_comptime = true,
-    };
-    defer block_scope.instructions.deinit(gpa);
+        var sema_arena = std.heap.ArenaAllocator.init(gpa);
+        defer sema_arena.deinit();
 
-    try sema.analyzeStructDecl(new_decl, main_struct_inst, struct_obj);
+        var sema: Sema = .{
+            .mod = mod,
+            .gpa = gpa,
+            .arena = &sema_arena.allocator,
+            .code = file.zir,
+            // TODO use a map because this array is too big
+            .inst_map = try sema_arena.allocator.alloc(*ir.Inst, file.zir.instructions.len),
+            .owner_decl = new_decl,
+            .namespace = &struct_obj.namespace,
+            .func = null,
+            .owner_func = null,
+            .param_inst_list = &.{},
+        };
+        var block_scope: Scope.Block = .{
+            .parent = null,
+            .sema = &sema,
+            .src_decl = new_decl,
+            .instructions = .{},
+            .inlining = null,
+            .is_comptime = true,
+        };
+        defer block_scope.instructions.deinit(gpa);
+
+        try sema.analyzeStructDecl(new_decl, main_struct_inst, struct_obj);
+
+        new_decl.analysis = .complete;
+    } else {
+        new_decl.analysis = .file_failure;
+    }
+
     try new_decl.finalizeNewArena(&new_decl_arena);
-
-    file.status = .success_air;
 }
 
 /// Returns `true` if the Decl type changed.
@@ -2886,6 +2926,10 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
 fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const tracy = trace(@src());
     defer tracy.end();
+
+    if (decl.namespace.file_scope.status != .success_zir) {
+        return error.AnalysisFail;
+    }
 
     const gpa = mod.gpa;
     const zir = decl.namespace.file_scope.zir;
@@ -2914,8 +2958,6 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         const main_struct_inst = zir.getMainStruct();
         const struct_obj = decl.getStruct().?;
         try sema.analyzeStructDecl(decl, main_struct_inst, struct_obj);
-        assert(decl.namespace.file_scope.status == .success_zir);
-        decl.namespace.file_scope.status = .success_air;
         decl.analysis = .complete;
         decl.generation = mod.generation;
         return false;
@@ -3117,7 +3159,7 @@ pub fn importPkg(mod: *Module, cur_pkg: *Package, pkg: *Package) !ImportFileResu
         .zir = undefined,
         .status = .never_loaded,
         .pkg = pkg,
-        .namespace = undefined,
+        .namespace = null,
     };
     return ImportFileResult{
         .file = new_file,
@@ -3183,7 +3225,7 @@ pub fn importFile(
         .zir = undefined,
         .status = .never_loaded,
         .pkg = cur_file.pkg,
-        .namespace = undefined,
+        .namespace = null,
     };
     return ImportFileResult{
         .file = new_file,
@@ -4337,7 +4379,7 @@ pub fn optimizeMode(mod: Module) std.builtin.Mode {
 
 fn lockAndClearFileCompileError(mod: *Module, file: *Scope.File) void {
     switch (file.status) {
-        .success_zir, .success_air, .retryable_failure => {},
+        .success_zir, .retryable_failure => {},
         .never_loaded, .parse_failure, .astgen_failure => {
             const lock = mod.comp.mutex.acquire();
             defer lock.release();

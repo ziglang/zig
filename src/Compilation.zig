@@ -1902,6 +1902,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             .in_progress => unreachable,
             .outdated => unreachable,
 
+            .file_failure,
             .sema_failure,
             .codegen_failure,
             .dependency_failure,
@@ -1970,6 +1971,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             .in_progress => unreachable,
             .outdated => unreachable,
 
+            .file_failure,
             .sema_failure,
             .dependency_failure,
             .sema_failure_retryable,
