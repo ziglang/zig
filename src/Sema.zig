@@ -2044,7 +2044,7 @@ fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError
 
 fn lookupIdentifier(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, name: []const u8) !*Decl {
     const mod = sema.mod;
-    const decl = mod.lookupIdentifier(&sema.namespace.base, name) orelse {
+    const decl = (try mod.lookupIdentifier(&sema.namespace.base, name)) orelse {
         // TODO insert a "dependency on the non-existence of a decl" here to make this
         // compile error go away when the decl is introduced. This data should be in a global
         // sparse map since it is only relevant when a compile error occurs.
@@ -4359,7 +4359,7 @@ fn zirHasDecl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError
         "expected struct, enum, union, or opaque, found '{}'",
         .{container_type},
     );
-    if (mod.lookupInNamespace(namespace, decl_name, true)) |decl| {
+    if (try mod.lookupInNamespace(namespace, decl_name, true)) |decl| {
         if (decl.is_pub or decl.namespace.file_scope == block.base.namespace().file_scope) {
             return mod.constBool(arena, src, true);
         }
@@ -6279,7 +6279,7 @@ fn analyzeNamespaceLookup(
 ) InnerError!?*Inst {
     const mod = sema.mod;
     const gpa = sema.gpa;
-    if (mod.lookupInNamespace(namespace, decl_name, true)) |decl| {
+    if (try mod.lookupInNamespace(namespace, decl_name, true)) |decl| {
         if (!decl.is_pub and decl.namespace.file_scope != block.getFileScope()) {
             const msg = msg: {
                 const msg = try mod.errMsg(&block.base, src, "'{s}' is not marked 'pub'", .{

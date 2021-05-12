@@ -3096,7 +3096,6 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
             try mod.analyzeExport(&block_scope.base, export_src, mem.spanZ(decl.name), decl);
         }
 
-
         return type_changed;
     }
 }
@@ -3881,10 +3880,14 @@ pub fn getNextAnonNameIndex(mod: *Module) usize {
 /// This looks up a bare identifier in the given scope. This will walk up the tree of namespaces
 /// in scope and check each one for the identifier.
 /// TODO emit a compile error if more than one decl would be matched.
-pub fn lookupIdentifier(mod: *Module, scope: *Scope, ident_name: []const u8) ?*Decl {
+pub fn lookupIdentifier(
+    mod: *Module,
+    scope: *Scope,
+    ident_name: []const u8,
+) error{AnalysisFail}!?*Decl {
     var namespace = scope.namespace();
     while (true) {
-        if (mod.lookupInNamespace(namespace, ident_name, false)) |decl| {
+        if (try mod.lookupInNamespace(namespace, ident_name, false)) |decl| {
             return decl;
         }
         namespace = namespace.parent orelse break;
@@ -3899,7 +3902,12 @@ pub fn lookupInNamespace(
     namespace: *Scope.Namespace,
     ident_name: []const u8,
     only_pub_usingnamespaces: bool,
-) ?*Decl {
+) error{AnalysisFail}!?*Decl {
+    const owner_decl = namespace.getDecl();
+    if (owner_decl.analysis == .file_failure) {
+        return error.AnalysisFail;
+    }
+
     // TODO the decl doing the looking up needs to create a decl dependency
     // TODO implement usingnamespace
     if (namespace.decls.get(ident_name)) |decl| {
