@@ -9,89 +9,68 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/scalbnf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/scalbn.c
 
-const std = @import("../std.zig");
+const std = @import("std");
 const math = std.math;
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 
 /// Returns x * 2^n.
 pub fn scalbn(x: anytype, n: i32) @TypeOf(x) {
-    const T = @TypeOf(x);
-    return switch (T) {
-        f32 => scalbn32(x, n),
-        f64 => scalbn64(x, n),
-        else => @compileError("scalbn not implemented for " ++ @typeName(T)),
-    };
-}
+    var x_ = x;
+    var n_ = n;
 
-fn scalbn32(x: f32, n_: i32) f32 {
-    var y = x;
-    var n = n_;
+    const T = @TypeOf(x_);
+    if (@typeInfo(T) != .Float) {
+        @compileError("scalbn not implemented for " ++ @typeName(T));
+    }
 
-    if (n > 127) {
-        y *= 0x1.0p127;
-        n -= 127;
-        if (n > 127) {
-            y *= 0x1.0p127;
-            n -= 127;
-            if (n > 127) {
-                n = 127;
-            }
+    // calculate float limits
+    const TBits = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const mantissa_size = @ctz(TBits, @bitCast(TBits, @as(T, 1.0)));
+    const exponent_max = @intCast(@TypeOf(n_), @bitCast(TBits, @as(T, 1.0)) >> mantissa_size);
+    const exponent_min = (-exponent_max) + 1; // +1 as lowest is reserved for subnormals
+
+    // scale `n_` within floating point limits, if possible
+    // second pass is possible due to subnormal range
+    // third pass always results in +/-0.0 or +/-inf
+    const scale_max = @bitCast(T, @intCast(TBits, exponent_max * 2) << mantissa_size);
+    const scale_min = @bitCast(T, @as(TBits, 0b1) << mantissa_size);
+    if (n_ > exponent_max) {
+        x_ *= scale_max;
+        n_ -= exponent_max;
+        if (n_ > exponent_max) {
+            x_ *= scale_max;
+            n_ -= exponent_max;
+            if (n_ > exponent_max) n_ = exponent_max;
         }
-    } else if (n < -126) {
-        y *= 0x1.0p-126 * 0x1.0p24;
-        n += 126 - 24;
-        if (n < -126) {
-            y *= 0x1.0p-126 * 0x1.0p24;
-            n += 126 - 24;
-            if (n < -126) {
-                n = -126;
-            }
+    } else if (n_ < exponent_min) {
+        x_ *= scale_min;
+        n_ -= exponent_min;
+        if (n_ < exponent_min) {
+            x_ *= scale_min;
+            n_ -= exponent_min;
+            if (n_ < exponent_min) n_ = exponent_min;
         }
     }
 
-    const u = @intCast(u32, n +% 0x7F) << 23;
-    return y * @bitCast(f32, u);
-}
-
-fn scalbn64(x: f64, n_: i32) f64 {
-    var y = x;
-    var n = n_;
-
-    if (n > 1023) {
-        y *= 0x1.0p1023;
-        n -= 1023;
-        if (n > 1023) {
-            y *= 0x1.0p1023;
-            n -= 1023;
-            if (n > 1023) {
-                n = 1023;
-            }
-        }
-    } else if (n < -1022) {
-        y *= 0x1.0p-1022 * 0x1.0p53;
-        n += 1022 - 53;
-        if (n < -1022) {
-            y *= 0x1.0p-1022 * 0x1.0p53;
-            n += 1022 - 53;
-            if (n < -1022) {
-                n = -1022;
-            }
-        }
-    }
-
-    const u = @intCast(u64, n +% 0x3FF) << 52;
-    return y * @bitCast(f64, u);
+    return x_ * @bitCast(T, @intCast(TBits, n_ + exponent_max) << mantissa_size);
 }
 
 test "math.scalbn" {
-    try expect(scalbn(@as(f32, 1.5), 4) == scalbn32(1.5, 4));
-    try expect(scalbn(@as(f64, 1.5), 4) == scalbn64(1.5, 4));
-}
+    // basic usage
+    try expect(scalbn(@as(f16, 1.5), 4) == 24.0);
+    try expect(scalbn(@as(f32, 1.5), 4) == 24.0);
+    try expect(scalbn(@as(f64, 1.5), 4) == 24.0);
+    try expect(scalbn(@as(f128, 1.5), 4) == 24.0);
+    try expect(scalbn(@as(c_longdouble, 1.5), 4) == 24.0);
 
-test "math.scalbn32" {
-    try expect(scalbn32(1.5, 4) == 24.0);
-}
+    // subnormals
+    try expect(math.isNormal(scalbn(@as(f32, 1.0), -126)));
+    try expect(!math.isNormal(scalbn(@as(f32, 1.0), -127)));
 
-test "math.scalbn64" {
-    try expect(scalbn64(1.5, 4) == 24.0);
+    // float limits
+    try expect(scalbn(@as(f32, math.f32_max), -128 - 149) > 0.0);
+    try expect(scalbn(@as(f32, math.f32_max), -128 - 149 - 1) == 0.0);
+    try expect(!math.isPositiveInf(scalbn(@as(f32, math.f32_true_min), 127 + 149)));
+    try expect(math.isPositiveInf(scalbn(@as(f32, math.f32_true_min), 127 + 149 + 1)));
 }
