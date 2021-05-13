@@ -344,20 +344,7 @@ fn addCmakeCfgOptionsToExe(
         try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
         try addCxxKnownPath(b, cfg, exe, "libc++abi.a", null, need_cpp_includes);
     } else if (exe.target.isDarwin()) {
-        if (addCxxKnownPath(b, cfg, exe, "libgcc_eh.a", "", need_cpp_includes)) {
-            // Compiler is GCC.
-            try addCxxKnownPath(b, cfg, exe, "libstdc++.a", null, need_cpp_includes);
-            exe.linkSystemLibrary("pthread");
-            // TODO LLD cannot perform this link.
-            // Set ZIG_SYSTEM_LINKER_HACK env var to use system linker ld instead.
-            // See https://github.com/ziglang/zig/issues/1535
-        } else |err| switch (err) {
-            error.RequiredLibraryNotFound => {
-                // System compiler, not gcc.
-                exe.linkSystemLibrary("c++");
-            },
-            else => |e| return e,
-        }
+        exe.linkSystemLibrary("c++");
     }
 
     if (cfg.dia_guids_lib.len != 0) {
