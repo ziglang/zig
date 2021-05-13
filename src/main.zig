@@ -520,6 +520,7 @@ fn buildOutputType(
     var ensure_libcpp_on_non_freestanding = false;
     var link_libc = false;
     var link_libcpp = false;
+    var link_libunwind = false;
     var want_native_include_dirs = false;
     var enable_cache: ?bool = null;
     var want_pic: ?bool = null;
@@ -1532,6 +1533,11 @@ fn buildOutputType(
                 _ = system_libs.orderedRemove(i);
                 continue;
             }
+            if (mem.eql(u8, lib_name, "unwind")) {
+                link_libunwind = true;
+                _ = system_libs.orderedRemove(i);
+                continue;
+            }
             if (std.fs.path.isAbsolute(lib_name)) {
                 fatal("cannot use absolute path as a system library: {s}", .{lib_name});
             }
@@ -1847,6 +1853,7 @@ fn buildOutputType(
         .system_libs = system_libs.items,
         .link_libc = link_libc,
         .link_libcpp = link_libcpp,
+        .link_libunwind = link_libunwind,
         .want_pic = want_pic,
         .want_pie = want_pie,
         .want_lto = want_lto,

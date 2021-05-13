@@ -1643,9 +1643,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             if (self.base.options.link_libcpp) {
                 try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
                 try argv.append(comp.libcxx_static_lib.?.full_object_path);
-                if (target_util.libcNeedsLibUnwind(target)) {
-                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
-                }
+            }
+
+            // libunwind dep
+            if (self.base.options.link_libunwind) {
+                try argv.append(comp.libunwind_static_lib.?.full_object_path);
             }
 
             // libc dep
