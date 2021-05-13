@@ -390,12 +390,12 @@ pub const P256 = struct {
         return pc;
     }
 
-    const basePointPc = comptime pc: {
+    const basePointPc = pc: {
         @setEvalBranchQuota(50000);
         break :pc precompute(P256.basePoint, 15);
     };
 
-    const basePointPc8 = comptime pc: {
+    const basePointPc8 = pc: {
         @setEvalBranchQuota(50000);
         break :pc precompute(P256.basePoint, 8);
     };
