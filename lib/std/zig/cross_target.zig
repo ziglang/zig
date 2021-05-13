@@ -606,6 +606,7 @@ pub const CrossTarget = struct {
         qemu: []const u8,
         wine: []const u8,
         wasmtime: []const u8,
+        darling: []const u8,
         unavailable,
     };
 
@@ -666,6 +667,15 @@ pub const CrossTarget = struct {
             .wasi => switch (cpu_arch.ptrBitWidth()) {
                 32 => return Executor{ .wasmtime = "wasmtime" },
                 else => return .unavailable,
+            },
+            .macos => {
+                // TODO loosen this check once upstream adds QEMU-based emulation
+                // layer for non-host architectures:
+                // https://github.com/darlinghq/darling/issues/863
+                if (cpu_arch != Target.current.cpu.arch) {
+                    return .unavailable;
+                }
+                return Executor{ .darling = "darling" };
             },
             else => return .unavailable,
         }

@@ -503,6 +503,7 @@ pub fn addPkgTests(
     is_wine_enabled: bool,
     is_qemu_enabled: bool,
     is_wasmtime_enabled: bool,
+    is_darling_enabled: bool,
     glibc_dir: ?[]const u8,
 ) *build.Step {
     const step = b.step(b.fmt("test-{s}", .{name}), desc);
@@ -564,6 +565,7 @@ pub fn addPkgTests(
         these_tests.enable_wine = is_wine_enabled;
         these_tests.enable_qemu = is_qemu_enabled;
         these_tests.enable_wasmtime = is_wasmtime_enabled;
+        these_tests.enable_darling = is_darling_enabled;
         these_tests.glibc_multi_install_dir = glibc_dir;
         these_tests.addIncludeDir("test");
 
