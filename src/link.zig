@@ -63,6 +63,7 @@ pub const Options = struct {
     system_linker_hack: bool,
     link_libc: bool,
     link_libcpp: bool,
+    link_libunwind: bool,
     function_sections: bool,
     eh_frame_hdr: bool,
     emit_relocs: bool,
