@@ -2428,13 +2428,21 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
 
     mod.lockAndClearFileCompileError(file);
 
-    // Move previous ZIR to a local variable so we can compare it with the new one.
-    var prev_zir = file.zir;
-    var prev_zir_loaded = file.zir_loaded;
-    file.zir_loaded = false;
-    file.zir = undefined;
-    defer if (prev_zir_loaded) prev_zir.deinit(gpa);
-
+    // If the previous ZIR does not have compile errors, keep it around
+    // in case parsing or new ZIR fails. In case of successful ZIR update
+    // at the end of this function we will free it.
+    // We keep the previous ZIR loaded so that we can use it
+    // for the update next time it does not have any compile errors. This avoids
+    // needlessly tossing out semantic analysis work when an error is
+    // temporarily introduced.
+    if (file.zir_loaded and !file.zir.hasCompileErrors()) {
+        assert(file.prev_zir == null);
+        const prev_zir_ptr = try gpa.create(Zir);
+        file.prev_zir = prev_zir_ptr;
+        prev_zir_ptr.* = file.zir;
+        file.zir = undefined;
+        file.zir_loaded = false;
+    }
     file.unload(gpa);
 
     if (stat.size > std.math.maxInt(u32))
@@ -2546,48 +2554,6 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
         });
     };
 
-    if (prev_zir_loaded) {
-        // Iterate over all Namespace objects contained within this File, looking at the
-        // previous and new ZIR together and update the references to point
-        // to the new one. For example, Decl name, Decl zir_decl_index, and Namespace
-        // decl_table keys need to get updated to point to the new memory, even if the
-        // underlying source code is unchanged.
-        // We do not need to hold any locks at this time because all the Decl and Namespace
-        // objects being touched are specific to this File, and the only other concurrent
-        // tasks are touching other File objects.
-        if (file.zir.hasCompileErrors()) {
-            // In this case, we keep the previous ZIR loaded so that we can use it
-            // for the update next time it does not have any compile errors. This avoids
-            // needlessly tossing out semantic analysis work when a ZIR error is
-            // temporarily introduced.
-            if (!prev_zir.hasCompileErrors()) {
-                assert(file.prev_zir == null);
-                const prev_zir_ptr = try gpa.create(Zir);
-                file.prev_zir = prev_zir_ptr;
-                prev_zir_ptr.* = prev_zir;
-                prev_zir_loaded = false;
-            }
-        } else if (prev_zir.hasCompileErrors()) {
-            if (file.prev_zir) |file_prev_zir| {
-                prev_zir.deinit(gpa);
-                prev_zir = file_prev_zir.*;
-                gpa.destroy(file_prev_zir);
-                file.prev_zir = null;
-                try updateZirRefs(gpa, file, prev_zir);
-            } else if (file.root_decl) |root_decl| {
-                // First time the File has succeeded ZIR. We must mark it outdated since
-                // we have already tried to semantically analyze it.
-                try file.outdated_decls.resize(gpa, 1);
-                file.outdated_decls.items[0] = root_decl;
-            }
-        } else {
-            try updateZirRefs(gpa, file, prev_zir);
-        }
-        // At this point, `file.outdated_decls` and `file.deleted_decls` are populated,
-        // and semantic analysis will deal with them properly.
-    }
-
-    // TODO don't report compile errors until Sema @importFile
     if (file.zir.hasCompileErrors()) {
         {
             const lock = comp.mutex.acquire();
@@ -2596,6 +2562,30 @@ pub fn astGenFile(mod: *Module, file: *Scope.File, prog_node: *std.Progress.Node
         }
         file.status = .astgen_failure;
         return error.AnalysisFail;
+    }
+
+    if (file.prev_zir) |prev_zir| {
+        // Iterate over all Namespace objects contained within this File, looking at the
+        // previous and new ZIR together and update the references to point
+        // to the new one. For example, Decl name, Decl zir_decl_index, and Namespace
+        // decl_table keys need to get updated to point to the new memory, even if the
+        // underlying source code is unchanged.
+        // We do not need to hold any locks at this time because all the Decl and Namespace
+        // objects being touched are specific to this File, and the only other concurrent
+        // tasks are touching other File objects.
+        try updateZirRefs(gpa, file, prev_zir.*);
+        // At this point, `file.outdated_decls` and `file.deleted_decls` are populated,
+        // and semantic analysis will deal with them properly.
+        // No need to keep previous ZIR.
+        prev_zir.deinit(gpa);
+        gpa.destroy(prev_zir);
+        file.prev_zir = null;
+    } else if (file.root_decl) |root_decl| {
+        // This is an update, but it is the first time the File has succeeded
+        // ZIR. We must mark it outdated since we have already tried to
+        // semantically analyze it.
+        try file.outdated_decls.resize(gpa, 1);
+        file.outdated_decls.items[0] = root_decl;
     }
 }
 
@@ -2640,14 +2630,26 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
         // Anonymous decls should not be marked outdated. They will be re-generated
         // if their owner decl is marked outdated.
         if (decl.zir_decl_index != 0) {
-            const old_hash = decl.contentsHashZir(old_zir);
-            decl.zir_decl_index = extra_map.get(decl.zir_decl_index) orelse {
+            const old_zir_decl_index = decl.zir_decl_index;
+            const new_zir_decl_index = extra_map.get(old_zir_decl_index) orelse {
+                log.debug("updateZirRefs {s}: delete {*} ({s})", .{
+                    file.sub_file_path, decl, decl.name,
+                });
                 try file.deleted_decls.append(gpa, decl);
                 continue;
             };
+            const old_hash = decl.contentsHashZir(old_zir);
+            decl.zir_decl_index = new_zir_decl_index;
             const new_hash = decl.contentsHashZir(new_zir);
             if (!std.zig.srcHashEql(old_hash, new_hash)) {
+                log.debug("updateZirRefs {s}: outdated {*} ({s}) {d} => {d}", .{
+                    file.sub_file_path, decl, decl.name, old_zir_decl_index, new_zir_decl_index,
+                });
                 try file.outdated_decls.append(gpa, decl);
+            } else {
+                log.debug("updateZirRefs {s}: unchanged {*} ({s}) {d} => {d}", .{
+                    file.sub_file_path, decl, decl.name, old_zir_decl_index, new_zir_decl_index,
+                });
             }
         }
 
@@ -3376,7 +3378,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
     }
     gpa.free(decl_name);
     const decl = gop.entry.value;
-    log.debug("scan existing {*} ({s}) of {*}", .{ decl, decl_name, namespace });
+    log.debug("scan existing {*} ({s}) of {*}", .{ decl, decl.name, namespace });
     // Update the AST node of the decl; even if its contents are unchanged, it may
     // have been re-ordered.
     const prev_src_node = decl.src_node;
