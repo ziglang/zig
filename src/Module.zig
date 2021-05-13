@@ -2992,7 +2992,7 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
     const body = zir.extra[extra.end..][0..extra.data.body_len];
     const break_index = try sema.analyzeBody(&block_scope, body);
     const result_ref = zir_datas[break_index].@"break".operand;
-    const src = inst_data.src();
+    const src: LazySrcLoc = .{ .node_offset = 0 };
     const decl_tv = try sema.resolveInstConst(&block_scope, src, result_ref);
     const align_val = blk: {
         const align_ref = decl.zirAlignRef();
@@ -3729,7 +3729,7 @@ pub fn analyzeExport(
 
     if (mod.symbol_exports.get(symbol_name)) |other_export| {
         new_export.status = .failed_retryable;
-        try mod.failed_exports.ensureCapacity(mod.gpa, mod.failed_exports.items().len + 1);
+        try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
         const msg = try mod.errMsg(
             scope,
             src,
