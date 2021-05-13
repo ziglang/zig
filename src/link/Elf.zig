@@ -1648,6 +1648,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             // libc dep
             if (self.base.options.link_libc) {
                 if (self.base.options.libc_installation != null) {
+                    if (target_util.libcNeedsLibUnwind(target)) {
+                        try argv.append(comp.libunwind_static_lib.?.full_object_path);
+                    }
                     const needs_grouping = self.base.options.link_mode == .Static;
                     if (needs_grouping) try argv.append("--start-group");
                     // This matches the order of glibc.libs
