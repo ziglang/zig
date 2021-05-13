@@ -1573,7 +1573,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                     //     .UseLast => {},
                                     // }
                                     if (options.duplicate_field_behavior == .UseFirst) {
-                                        break;
+                                        // do nothing, check of fields_seen[i] below will parse value without overwriting field
                                     } else if (options.duplicate_field_behavior == .Error) {
                                         return error.DuplicateJSONField;
                                     } else if (options.duplicate_field_behavior == .UseLast) {
@@ -1586,7 +1586,11 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                         return error.UnexpectedValue;
                                     }
                                 } else {
-                                    @field(r, field.name) = try parse(field.field_type, tokens, options);
+                                    if (fields_seen[i]) {
+                                        parseFree(field.field_type, try parse(field.field_type, tokens, options), options);
+                                    } else {
+                                        @field(r, field.name) = try parse(field.field_type, tokens, options);
+                                    }
                                 }
                                 fields_seen[i] = true;
                                 found = true;
@@ -2013,6 +2017,9 @@ test "parse into struct with duplicate field" {
 
     const T2 = struct { a: f64 };
     try testing.expectEqual(T2{ .a = 0.25 }, try parse(T2, &TokenStream.init(str), options));
+    try testing.expectEqual(T2{ .a = 1.0 }, try parse(T2, &TokenStream.init(str),
+        .{ .duplicate_field_behavior = .UseFirst }
+    ));
 }
 
 /// A non-stream JSON parser which constructs a tree of Value's.
