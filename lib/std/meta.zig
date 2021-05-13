@@ -175,13 +175,7 @@ pub fn Elem(comptime T: type) type {
             },
             .Many, .C, .Slice => return info.child,
         },
-        .Optional => |info| switch (@typeInfo(info.child)) {
-            .Pointer => |ptr_info| switch (ptr_info.size) {
-                .Many => return ptr_info.child,
-                else => {},
-            },
-            else => {},
-        },
+        .Optional => |info| return Elem(info.child),
         else => {},
     }
     @compileError("Expected pointer, slice, array or vector type, found '" ++ @typeName(T) ++ "'");
