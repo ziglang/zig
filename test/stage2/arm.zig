@@ -11,7 +11,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("linux_arm hello world", linux_arm);
         // Regular old hello world
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print();
             \\    exit();
             \\}
@@ -50,7 +50,7 @@ pub fn addCases(ctx: *TestContext) !void {
         // be in a specific order because otherwise the write to r0
         // would overwrite the len parameter which resides in r0
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print(id(14));
             \\    exit();
             \\}
@@ -89,7 +89,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("non-leaf functions", linux_arm);
         // Testing non-leaf functions
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    foo();
             \\    exit();
             \\}
@@ -119,7 +119,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Add two numbers
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print(2, 4);
             \\    print(1, 7);
             \\    exit();
@@ -152,7 +152,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Subtract two numbers
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print(10, 5);
             \\    print(4, 3);
             \\    exit();
@@ -185,7 +185,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Bitwise And
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print(8, 9);
             \\    print(3, 7);
             \\    exit();
@@ -218,7 +218,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Bitwise Or
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print(4, 2);
             \\    print(3, 7);
             \\    exit();
@@ -251,7 +251,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Bitwise Xor
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print(42, 42);
             \\    print(3, 5);
             \\    exit();
@@ -287,7 +287,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("if statements", linux_arm);
         // Simple if statement in assert
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var x: u32 = 123;
             \\    var y: u32 = 42;
             \\    assert(x > y);
@@ -316,7 +316,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("while loops", linux_arm);
         // Simple while loop with assert
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var x: u32 = 2020;
             \\    var i: u32 = 0;
             \\    while (x > 0) {
@@ -349,7 +349,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("integer multiplication", linux_arm);
         // Simple u32 integer multiplication
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    assert(mul(1, 1) == 1);
             \\    assert(mul(42, 1) == 42);
             \\    assert(mul(1, 42) == 42);
@@ -385,7 +385,7 @@ pub fn addCases(ctx: *TestContext) !void {
         // callee preserved register, otherwise it will be overwritten
         // by the first parameter to baz.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    assert(foo() == 43);
             \\    exit();
             \\}
@@ -423,7 +423,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("recursive fibonacci", linux_arm);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    assert(fib(0) == 0);
             \\    assert(fib(1) == 1);
             \\    assert(fib(2) == 1);
@@ -462,7 +462,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("spilling registers", linux_arm);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    assert(add(3, 4) == 791);
             \\    exit();
             \\}

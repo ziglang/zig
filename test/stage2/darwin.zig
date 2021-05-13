@@ -17,7 +17,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
             // Incorrect return type
             case.addError(
-                \\export fn _start() noreturn {
+                \\pub export fn _start() noreturn {
                 \\}
             , &[_][]const u8{":2:1: error: expected noreturn, found void"});
 
@@ -26,7 +26,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 \\extern "c" fn write(usize, usize, usize) usize;
                 \\extern "c" fn exit(usize) noreturn;
                 \\
-                \\export fn _start() noreturn {
+                \\pub export fn _start() noreturn {
                 \\    print();
                 \\
                 \\    exit(0);
@@ -46,7 +46,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 \\extern "c" fn write(usize, usize, usize) usize;
                 \\extern "c" fn exit(usize) noreturn;
                 \\
-                \\export fn _start() noreturn {
+                \\pub export fn _start() noreturn {
                 \\    print();
                 \\
                 \\    exit(0);
@@ -66,7 +66,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 \\extern "c" fn write(usize, usize, usize) usize;
                 \\extern "c" fn exit(usize) noreturn;
                 \\
-                \\export fn _start() noreturn {
+                \\pub export fn _start() noreturn {
                 \\    print();
                 \\    print();
                 \\
@@ -92,7 +92,7 @@ pub fn addCases(ctx: *TestContext) !void {
             case.addCompareOutput(
                 \\extern "c" fn exit(usize) noreturn;
                 \\
-                \\export fn _start() noreturn {
+                \\pub export fn _start() noreturn {
                 \\    exit(0);
                 \\}
             ,
@@ -103,7 +103,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 \\extern "c" fn exit(usize) noreturn;
                 \\extern "c" fn write(usize, usize, usize) usize;
                 \\
-                \\export fn _start() noreturn {
+                \\pub export fn _start() noreturn {
                 \\    _ = write(1, @ptrToInt("Hey!\n"), 5);
                 \\    exit(0);
                 \\}

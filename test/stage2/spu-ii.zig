@@ -15,7 +15,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    unreachable;
             \\}
             \\
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    killEmulator();
             \\}
         , "");
