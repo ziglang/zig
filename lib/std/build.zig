@@ -2480,9 +2480,19 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("--test-cmd");
                 try zig_args.append(bin_name);
                 if (glibc_dir_arg) |dir| {
-                    const full_dir = try fs.path.join(builder.allocator, &[_][]const u8{
-                        dir,
-                        try self.target.linuxTriple(builder.allocator),
+                    // TODO look into making this a call to `linuxTriple`. This
+                    // needs the directory to be called "i686" rather than
+                    // "i386" which is why we do it manually here.
+                    const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
+                    const cpu_arch = self.target.getCpuArch();
+                    const os_tag = self.target.getOsTag();
+                    const abi = self.target.getAbi();
+                    const cpu_arch_name: []const u8 = if (cpu_arch == .i386)
+                        "i686"
+                    else
+                        @tagName(cpu_arch);
+                    const full_dir = try std.fmt.allocPrint(builder.allocator, fmt_str, .{
+                        dir, cpu_arch_name, @tagName(os_tag), @tagName(abi),
                     });
 
                     try zig_args.append("--test-cmd");
