@@ -3023,7 +3023,6 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
         .Exe => true,
     };
     return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
-        comp.bin_file.options.libc_installation == null and
         target_util.libcNeedsLibUnwind(comp.getTarget());
 }
 
