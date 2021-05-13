@@ -623,7 +623,7 @@ pub const StreamingParser = struct {
 
             .ObjectSeparator => switch (c) {
                 ':' => {
-                    p.state = .ValueBegin;
+                    p.state = .ValueBeginNoClosing;
                     p.after_string_state = .ValueEnd;
                 },
                 0x09, 0x0A, 0x0D, 0x20 => {
@@ -1203,6 +1203,13 @@ test "json.token mismatched close" {
     try checkNext(&p, .Number);
     try checkNext(&p, .Number);
     try testing.expectError(error.UnexpectedClosingBrace, p.next());
+}
+
+test "json.token premature object close" {
+    var p = TokenStream.init("{ \"key\": }");
+    try checkNext(&p, .ObjectBegin);
+    try checkNext(&p, .String);
+    try testing.expectError(error.InvalidValueBegin, p.next());
 }
 
 /// Validate a JSON string. This does not limit number precision so a decoder may not necessarily
