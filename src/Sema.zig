@@ -1461,6 +1461,11 @@ fn zirStoreToBlockPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) In
     defer tracy.end();
 
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    if (bin_inst.lhs == .none) {
+        // This is an elided instruction, but AstGen was not smart enough
+        // to omit it.
+        return;
+    }
     const ptr = try sema.resolveInst(bin_inst.lhs);
     const value = try sema.resolveInst(bin_inst.rhs);
     const ptr_ty = try sema.mod.simplePtrType(sema.arena, value.ty, true, .One);

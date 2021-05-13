@@ -484,6 +484,8 @@ pub const Inst = struct {
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the block type. The LHS is the pointer to store to.
         /// Uses the `bin` union field.
+        /// If the pointer is none, it means this instruction has been elided in
+        /// AstGen, but AstGen was unable to actually omit it from the ZIR code.
         store_to_block_ptr,
         /// Same as `store` but the type of the value being stored will be used to infer
         /// the pointer type.
