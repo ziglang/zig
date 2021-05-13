@@ -905,6 +905,11 @@ pub const TypedefNameDecl = opaque {
     extern fn ZigClangTypedefNameDecl_getLocation(*const TypedefNameDecl) SourceLocation;
 };
 
+pub const FileScopeAsmDecl = opaque {
+    pub const getAsmString = ZigClangFileScopeAsmDecl_getAsmString;
+    extern fn ZigClangFileScopeAsmDecl_getAsmString(*const FileScopeAsmDecl) *const StringLiteral;
+};
+
 pub const TypedefType = opaque {
     pub const getDecl = ZigClangTypedefType_getDecl;
     extern fn ZigClangTypedefType_getDecl(*const TypedefType) *const TypedefNameDecl;

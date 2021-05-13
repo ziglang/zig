@@ -124,6 +124,7 @@ struct ZigClangEnumType;
 struct ZigClangExpr;
 struct ZigClangFieldDecl;
 struct ZigClangFileID;
+struct ZigClangFileScopeAsmDecl;
 struct ZigClangFloatingLiteral;
 struct ZigClangForStmt;
 struct ZigClangFullSourceLoc;
@@ -999,6 +1000,8 @@ ZIG_EXTERN_C const char* ZigClangVarDecl_getSectionAttribute(const struct ZigCla
 ZIG_EXTERN_C unsigned ZigClangVarDecl_getAlignedAttribute(const struct ZigClangVarDecl *self, const ZigClangASTContext* ctx);
 ZIG_EXTERN_C unsigned ZigClangFunctionDecl_getAlignedAttribute(const struct ZigClangFunctionDecl *self, const ZigClangASTContext* ctx);
 ZIG_EXTERN_C unsigned ZigClangFieldDecl_getAlignedAttribute(const struct ZigClangFieldDecl *self, const ZigClangASTContext* ctx);
+
+ZIG_EXTERN_C const struct ZigClangStringLiteral *ZigClangFileScopeAsmDecl_getAsmString(const struct ZigClangFileScopeAsmDecl *self);
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangParmVarDecl_getOriginalType(const struct ZigClangParmVarDecl *self);
 
