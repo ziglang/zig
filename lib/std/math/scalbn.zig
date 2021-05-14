@@ -77,6 +77,7 @@ test "math.scalbn" {
     try expect(!math.isNormal(scalbn(@as(f64, 1.0), -1023)));
     try expect(math.isNormal(scalbn(@as(f128, 1.0), -16382)));
     try expect(!math.isNormal(scalbn(@as(f128, 1.0), -16383)));
+    // unreliable due to lack of native f16 support, see talk on PR #8733
     // try expect(scalbn(@as(f16, 0x1.1FFp-1), -14 - 9) == math.f16_true_min);
     try expect(scalbn(@as(f32, 0x1.3FFFFFp-1), -126 - 22) == math.f32_true_min);
     try expect(scalbn(@as(f64, 0x1.7FFFFFFFFFFFFp-1), -1022 - 51) == math.f64_true_min);
@@ -91,6 +92,6 @@ test "math.scalbn" {
     try expect(math.isPositiveInf(scalbn(@as(f32, math.f32_true_min), 127 + 149 + 1)));
     try expect(!math.isPositiveInf(scalbn(@as(f64, math.f64_true_min), 1023 + 1074)));
     try expect(math.isPositiveInf(scalbn(@as(f64, math.f64_true_min), 1023 + 1074 + 1)));
-    // try expect(!math.isPositiveInf(scalbn(@as(f128, math.f128_true_min), 16383 + 16494)));
-    // try expect(math.isPositiveInf(scalbn(@as(f128, math.f128_true_min), 16383 + 16494 + 1)));
+    try expect(!math.isPositiveInf(scalbn(@as(f128, math.f128_true_min), 16383 + 16494)));
+    try expect(math.isPositiveInf(scalbn(@as(f128, math.f128_true_min), 16383 + 16494 + 1)));
 }
