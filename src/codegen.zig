@@ -952,7 +952,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// allocated. A second call to `copyToTmpRegister` may return the same register.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
         fn copyToTmpRegister(self: *Self, src: LazySrcLoc, ty: Type, mcv: MCValue) !Register {
-            const reg = try self.register_manager.allocRegWithoutTracking(&.{});
+            const reg = try self.register_manager.allocReg(null, &.{});
             try self.genSetReg(src, ty, reg, mcv);
             return reg;
         }
@@ -2228,7 +2228,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             switch (mc_arg) {
                                 .none => continue,
                                 .register => |reg| {
-                                    try self.register_manager.getRegWithoutTracking(reg);
+                                    try self.register_manager.getReg(reg, null);
                                     try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
                                 },
                                 .stack_offset => {
@@ -2370,7 +2370,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 .compare_flags_signed => unreachable,
                                 .compare_flags_unsigned => unreachable,
                                 .register => |reg| {
-                                    try self.register_manager.getRegWithoutTracking(reg);
+                                    try self.register_manager.getReg(reg, null);
                                     try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
                                 },
                                 .stack_offset => {
@@ -2433,7 +2433,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 .compare_flags_signed => unreachable,
                                 .compare_flags_unsigned => unreachable,
                                 .register => |reg| {
-                                    try self.register_manager.getRegWithoutTracking(reg);
+                                    try self.register_manager.getReg(reg, null);
                                     try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
                                 },
                                 .stack_offset => {
@@ -2486,7 +2486,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .register => |reg| {
                             // TODO prevent this macho if block to be generated for all archs
                             switch (arch) {
-                                .x86_64, .aarch64 => try self.register_manager.getRegWithoutTracking(reg),
+                                .x86_64, .aarch64 => try self.register_manager.getReg(reg, null),
                                 else => unreachable,
                             }
                             try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
@@ -3190,7 +3190,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         const arg = inst.args[i];
                         const arg_mcv = try self.resolveInst(arg);
-                        try self.register_manager.getRegWithoutTracking(reg);
+                        try self.register_manager.getReg(reg, null);
                         try self.genSetReg(inst.base.src, arg.ty, reg, arg_mcv);
                     }
 
@@ -3223,7 +3223,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         const arg = inst.args[i];
                         const arg_mcv = try self.resolveInst(arg);
-                        try self.register_manager.getRegWithoutTracking(reg);
+                        try self.register_manager.getReg(reg, null);
                         try self.genSetReg(inst.base.src, arg.ty, reg, arg_mcv);
                     }
 
@@ -3258,7 +3258,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         const arg = inst.args[i];
                         const arg_mcv = try self.resolveInst(arg);
-                        try self.register_manager.getRegWithoutTracking(reg);
+                        try self.register_manager.getReg(reg, null);
                         try self.genSetReg(inst.base.src, arg.ty, reg, arg_mcv);
                     }
 
@@ -3291,7 +3291,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         const arg = inst.args[i];
                         const arg_mcv = try self.resolveInst(arg);
-                        try self.register_manager.getRegWithoutTracking(reg);
+                        try self.register_manager.getReg(reg, null);
                         try self.genSetReg(inst.base.src, arg.ty, reg, arg_mcv);
                     }
 
