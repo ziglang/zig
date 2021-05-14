@@ -395,3 +395,9 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
         },
     };
 }
+
+pub fn clangMightShellOutForAssembly(target: std.Target) bool {
+    // Clang defaults to using the system assembler over the internal one
+    // when targeting a non-BSD OS.
+    return target.cpu.arch.isSPARC();
+}

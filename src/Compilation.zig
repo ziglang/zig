@@ -2695,9 +2695,7 @@ pub fn addCCArgs(
         try argv.appendSlice(&[_][]const u8{ "-MD", "-MV", "-MF", p });
     }
 
-    if (target.cpu.arch.isSPARC()) {
-        // Clang defaults to using the system assembler over the internal one
-        // when targeting a non-BSD OS.
+    if (target_util.clangMightShellOutForAssembly(target)) {
         try argv.append("-integrated-as");
     }
 
