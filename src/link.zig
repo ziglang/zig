@@ -352,6 +352,7 @@ pub const File = struct {
         base.releaseLock();
         if (base.file) |f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
+        base.options.system_libs.deinit(base.allocator);
         switch (base.tag) {
             .coff => {
                 const parent = @fieldParentPtr(Coff, "base", base);
