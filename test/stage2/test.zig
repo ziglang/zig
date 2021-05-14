@@ -1201,7 +1201,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
     , &[_][]const u8{
         ":3:1: error: redeclaration of 'entry'",
-        ":2:1: note: previously declared here",
+        ":2:1: note: other declaration here",
         ":6:9: error: local shadows declaration of 'foo'",
         ":5:1: note: declared here",
     });
@@ -1211,8 +1211,8 @@ pub fn addCases(ctx: *TestContext) !void {
         \\var foo = false;
         \\var foo = true;
     , &[_][]const u8{
-        ":3:5: error: redeclaration of 'foo'",
-        ":2:1: note: previously declared here",
+        ":3:1: error: redeclaration of 'foo'",
+        ":2:1: note: other declaration here",
     });
 
     ctx.compileError("compileError", linux_x64,
@@ -1231,8 +1231,8 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    unreachable;
             \\}
         , &[_][]const u8{
-            ":3:9: error: redefinition of 'i'",
-            ":2:9: note: previous definition is here",
+            ":3:9: error: redeclaration of 'i'",
+            ":2:9: note: previously declared here",
         });
         case.addError(
             \\var testing: i64 = 10;
@@ -1240,7 +1240,10 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var testing: i64 = 20;
             \\    unreachable;
             \\}
-        , &[_][]const u8{":3:9: error: redefinition of 'testing'"});
+        , &[_][]const u8{
+            ":3:9: error: local shadows declaration of 'testing'",
+            ":1:1: note: declared here",
+        });
     }
 
     {
@@ -1421,10 +1424,12 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("bad inferred variable type", linux_x64);
         case.addError(
-            \\export fn foo() void {
+            \\pub fn main() void {
             \\    var x = null;
             \\}
-        , &[_][]const u8{":2:9: error: variable of type '@Type(.Null)' must be const or comptime"});
+        , &[_][]const u8{
+            ":2:9: error: variable of type '@Type(.Null)' must be const or comptime",
+        });
     }
 
     {
