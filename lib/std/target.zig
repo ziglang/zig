@@ -431,6 +431,7 @@ pub const Target = struct {
     pub const powerpc = @import("target/powerpc.zig");
     pub const riscv = @import("target/riscv.zig");
     pub const sparc = @import("target/sparc.zig");
+    pub const spirv = @import("target/spirv.zig");
     pub const systemz = @import("target/systemz.zig");
     pub const ve = @import("target/ve.zig");
     pub const wasm = @import("target/wasm.zig");
@@ -594,7 +595,7 @@ pub const Target = struct {
             pub const Set = struct {
                 ints: [usize_count]usize,
 
-                pub const needed_bit_count = 172;
+                pub const needed_bit_count = 288;
                 pub const byte_count = (needed_bit_count + 7) / 8;
                 pub const usize_count = (byte_count + (@sizeOf(usize) - 1)) / @sizeOf(usize);
                 pub const Index = std.math.Log2Int(std.meta.Int(.unsigned, usize_count * @bitSizeOf(usize)));
@@ -818,6 +819,13 @@ pub const Target = struct {
             pub fn isSPARC(arch: Arch) bool {
                 return switch (arch) {
                     .sparc, .sparcel, .sparcv9 => true,
+                    else => false,
+                };
+            }
+
+            pub fn isSPIRV(arch: Arch) bool {
+                return switch (arch) {
+                    .spirv32, .spirv64 => true,
                     else => false,
                 };
             }
@@ -1116,6 +1124,7 @@ pub const Target = struct {
                     .amdgcn => &amdgpu.all_features,
                     .riscv32, .riscv64 => &riscv.all_features,
                     .sparc, .sparcv9, .sparcel => &sparc.all_features,
+                    .spirv32, .spirv64 => &spirv.all_features,
                     .s390x => &systemz.all_features,
                     .i386, .x86_64 => &x86.all_features,
                     .nvptx, .nvptx64 => &nvptx.all_features,
@@ -1323,6 +1332,9 @@ pub const Target = struct {
         }
         if (cpu_arch.isWasm()) {
             return .wasm;
+        }
+        if (cpu_arch.isSPIRV()) {
+            return .spirv;
         }
         return .elf;
     }
