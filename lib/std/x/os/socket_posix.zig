@@ -87,7 +87,7 @@ pub fn Mixin(comptime Socket: type) type {
         /// read into the buffer provided.
         pub fn readVectorized(self: Socket, msg: *Socket.Message, flags: u32) !usize {
             while (true) {
-                const rc = os.system.recvmsg(self.fd, msg, flags);
+                const rc = os.system.recvmsg(self.fd, msg, @intCast(c_int, flags));
                 return switch (os.errno(rc)) {
                     0 => @intCast(usize, rc),
                     os.EBADF => unreachable, // always a race condition
