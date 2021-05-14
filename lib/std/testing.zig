@@ -29,11 +29,11 @@ pub var zig_exe_path: []const u8 = undefined;
 /// and then aborts when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void {
     if (actual_error_union) |actual_payload| {
-        std.debug.print("expected error.{s}, found {any}", .{ @errorName(expected_error), actual_payload });
+        std.debug.print("expected error.{s}, found {any}\n", .{ @errorName(expected_error), actual_payload });
         return error.TestUnexpectedError;
     } else |actual_error| {
         if (expected_error != actual_error) {
-            std.debug.print("expected error.{s}, found error.{s}", .{
+            std.debug.print("expected error.{s}, found error.{s}\n", .{
                 @errorName(expected_error),
                 @errorName(actual_error),
             });
@@ -62,7 +62,7 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
 
         .Type => {
             if (actual != expected) {
-                std.debug.print("expected type {s}, found type {s}", .{ @typeName(expected), @typeName(actual) });
+                std.debug.print("expected type {s}, found type {s}\n", .{ @typeName(expected), @typeName(actual) });
                 return error.TestExpectedEqual;
             }
         },
@@ -78,7 +78,7 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
         .ErrorSet,
         => {
             if (actual != expected) {
-                std.debug.print("expected {}, found {}", .{ expected, actual });
+                std.debug.print("expected {}, found {}\n", .{ expected, actual });
                 return error.TestExpectedEqual;
             }
         },
@@ -87,17 +87,17 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
             switch (pointer.size) {
                 .One, .Many, .C => {
                     if (actual != expected) {
-                        std.debug.print("expected {*}, found {*}", .{ expected, actual });
+                        std.debug.print("expected {*}, found {*}\n", .{ expected, actual });
                         return error.TestExpectedEqual;
                     }
                 },
                 .Slice => {
                     if (actual.ptr != expected.ptr) {
-                        std.debug.print("expected slice ptr {*}, found {*}", .{ expected.ptr, actual.ptr });
+                        std.debug.print("expected slice ptr {*}, found {*}\n", .{ expected.ptr, actual.ptr });
                         return error.TestExpectedEqual;
                     }
                     if (actual.len != expected.len) {
-                        std.debug.print("expected slice len {}, found {}", .{ expected.len, actual.len });
+                        std.debug.print("expected slice len {}, found {}\n", .{ expected.len, actual.len });
                         return error.TestExpectedEqual;
                     }
                 },
@@ -110,7 +110,7 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
             var i: usize = 0;
             while (i < vectorType.len) : (i += 1) {
                 if (!std.meta.eql(expected[i], actual[i])) {
-                    std.debug.print("index {} incorrect. expected {}, found {}", .{ i, expected[i], actual[i] });
+                    std.debug.print("index {} incorrect. expected {}, found {}\n", .{ i, expected[i], actual[i] });
                     return error.TestExpectedEqual;
                 }
             }
@@ -153,12 +153,12 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
                 if (actual) |actual_payload| {
                     try expectEqual(expected_payload, actual_payload);
                 } else {
-                    std.debug.print("expected {any}, found null", .{expected_payload});
+                    std.debug.print("expected {any}, found null\n", .{expected_payload});
                     return error.TestExpectedEqual;
                 }
             } else {
                 if (actual) |actual_payload| {
-                    std.debug.print("expected null, found {any}", .{actual_payload});
+                    std.debug.print("expected null, found {any}\n", .{actual_payload});
                     return error.TestExpectedEqual;
                 }
             }
@@ -169,12 +169,12 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
                 if (actual) |actual_payload| {
                     try expectEqual(expected_payload, actual_payload);
                 } else |actual_err| {
-                    std.debug.print("expected {any}, found {}", .{ expected_payload, actual_err });
+                    std.debug.print("expected {any}, found {}\n", .{ expected_payload, actual_err });
                     return error.TestExpectedEqual;
                 }
             } else |expected_err| {
                 if (actual) |actual_payload| {
-                    std.debug.print("expected {}, found {any}", .{ expected_err, actual_payload });
+                    std.debug.print("expected {}, found {any}\n", .{ expected_err, actual_payload });
                     return error.TestExpectedEqual;
                 } else |actual_err| {
                     try expectEqual(expected_err, actual_err);
@@ -225,7 +225,7 @@ pub fn expectApproxEqAbs(expected: anytype, actual: @TypeOf(expected), tolerance
 
     switch (@typeInfo(T)) {
         .Float => if (!math.approxEqAbs(T, expected, actual, tolerance)) {
-            std.debug.print("actual {}, not within absolute tolerance {} of expected {}", .{ actual, tolerance, expected });
+            std.debug.print("actual {}, not within absolute tolerance {} of expected {}\n", .{ actual, tolerance, expected });
             return error.TestExpectedApproxEqAbs;
         },
 
@@ -257,7 +257,7 @@ pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance
 
     switch (@typeInfo(T)) {
         .Float => if (!math.approxEqRel(T, expected, actual, tolerance)) {
-            std.debug.print("actual {}, not within relative tolerance {} of expected {}", .{ actual, tolerance, expected });
+            std.debug.print("actual {}, not within relative tolerance {} of expected {}\n", .{ actual, tolerance, expected });
             return error.TestExpectedApproxEqRel;
         },
 
@@ -292,13 +292,13 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     // If the child type is u8 and no weird bytes, we could print it as strings
     // Even for the length difference, it would be useful to see the values of the slices probably.
     if (expected.len != actual.len) {
-        std.debug.print("slice lengths differ. expected {d}, found {d}", .{ expected.len, actual.len });
+        std.debug.print("slice lengths differ. expected {d}, found {d}\n", .{ expected.len, actual.len });
         return error.TestExpectedEqual;
     }
     var i: usize = 0;
     while (i < expected.len) : (i += 1) {
         if (!std.meta.eql(expected[i], actual[i])) {
-            std.debug.print("index {} incorrect. expected {any}, found {any}", .{ i, expected[i], actual[i] });
+            std.debug.print("index {} incorrect. expected {any}, found {any}\n", .{ i, expected[i], actual[i] });
             return error.TestExpectedEqual;
         }
     }
