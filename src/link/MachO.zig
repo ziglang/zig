@@ -1369,15 +1369,32 @@ pub fn updateDeclExports(
                 continue;
             }
         }
-        const n_desc = switch (exp.options.linkage) {
-            .Internal => macho.REFERENCE_FLAG_PRIVATE_DEFINED,
-            .Strong => blk: {
-                if (mem.eql(u8, exp.options.name, "_start")) {
+
+        var n_type: u8 = macho.N_SECT | macho.N_EXT;
+        var n_desc: u16 = 0;
+
+        switch (exp.options.linkage) {
+            .Internal => {
+                // Symbol should be hidden, or in MachO lingo, private extern.
+                // We should also mark the symbol as Weak: n_desc == N_WEAK_DEF.
+                // TODO work out when to add N_WEAK_REF.
+                n_type |= macho.N_PEXT;
+                n_desc |= macho.N_WEAK_DEF;
+            },
+            .Strong => {
+                // Check if the export is _main, and note if os.
+                // Otherwise, don't do anything since we already have all the flags
+                // set that we need for global (strong) linkage.
+                // n_type == N_SECT | N_EXT
+                if (mem.eql(u8, exp.options.name, "_main")) {
                     self.entry_addr = decl_sym.n_value;
                 }
-                break :blk macho.REFERENCE_FLAG_DEFINED;
             },
-            .Weak => macho.N_WEAK_REF,
+            .Weak => {
+                // Weak linkage is specified as part of n_desc field.
+                // Symbol's n_type is like for a symbol with strong linkage.
+                n_desc |= macho.N_WEAK_DEF;
+            },
             .LinkOnce => {
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
@@ -1386,8 +1403,8 @@ pub fn updateDeclExports(
                 );
                 continue;
             },
-        };
-        const n_type = decl_sym.n_type | macho.N_EXT;
+        }
+
         if (exp.link.macho.sym_index) |i| {
             const sym = &self.globals.items[i];
             sym.* = .{
