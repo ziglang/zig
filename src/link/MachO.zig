@@ -1193,7 +1193,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
         if (need_realloc) {
             const vaddr = try self.growTextBlock(&decl.link.macho, code.len, required_alignment);
-            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl.name, symbol.n_value, vaddr });
+
+            log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ decl.name, symbol.n_value, vaddr });
+
             if (vaddr != symbol.n_value) {
                 log.debug(" (writing new offset table entry)", .{});
                 self.offset_table.items[decl.link.macho.offset_table_index] = .{
@@ -1203,6 +1205,8 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
                 };
                 try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
             }
+
+            symbol.n_value = vaddr;
         } else if (code.len < decl.link.macho.size) {
             self.shrinkTextBlock(&decl.link.macho, code.len);
         }
@@ -1219,7 +1223,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const decl_name = mem.spanZ(decl.name);
         const name_str_index = try self.makeString(decl_name);
         const addr = try self.allocateTextBlock(&decl.link.macho, code.len, required_alignment);
+
         log.debug("allocated text block for {s} at 0x{x}", .{ decl_name, addr });
+
         errdefer self.freeTextBlock(&decl.link.macho);
 
         symbol.* = .{
