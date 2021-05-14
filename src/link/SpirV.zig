@@ -118,8 +118,8 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     const module = self.base.options.module.?;
     const target = comp.getTarget();
 
-    var spirv_module = codegen.SPIRVModule.init(target, self.base.allocator);
-    defer spirv_module.deinit();
+    var spv = codegen.SPIRVModule.init(self.base.allocator);
+    defer spv.deinit();
 
     // Allocate an ID for every declaration before generating code,
     // so that we can access them before processing them.
@@ -132,19 +132,41 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
             if (decl.typed_value != .most_recent)
                 continue;
 
-            decl.fn_link.spirv.id = spirv_module.allocResultId();
+            decl.fn_link.spirv.id = spv.allocResultId();
             log.debug("Allocating id {} to '{s}'", .{ decl.fn_link.spirv.id, std.mem.spanZ(decl.name) });
         }
     }
 
     // Now, actually generate the code for all declarations.
     {
+        // We are just going to re-use this same DeclGen for every Decl, and we are just going to
+        // change the decl. Otherwise, we would have to keep a separate `types`, and re-construct this
+        // structure every time.
+        var decl_gen = codegen.DeclGen{
+            .module = module,
+            .spv = &spv,
+            .types = codegen.TypeMap.init(self.base.allocator),
+            .decl = undefined,
+            .error_msg = undefined,
+        };
+
+        defer decl_gen.types.deinit();
+
         for (module.decl_table.items()) |entry| {
             const decl = entry.value;
             if (decl.typed_value != .most_recent)
                 continue;
 
-            try spirv_module.gen(decl);
+            decl_gen.decl = decl;
+            decl_gen.error_msg = null;
+
+            decl_gen.gen() catch |err| switch (err) {
+                error.AnalysisFail => {
+                    try module.failed_decls.put(module.gpa, decl, decl_gen.error_msg.?);
+                    return;
+                },
+                else => |e| return e,
+            };
         }
     }
 
@@ -155,7 +177,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
         spec.magic_number,
         (spec.version.major << 16) | (spec.version.minor << 8),
         0, // TODO: Register Zig compiler magic number.
-        spirv_module.resultIdBound(), // ID bound.
+        spv.resultIdBound(), // ID bound.
         0, // Schema (currently reserved for future use in the SPIR-V spec).
     });
 
@@ -166,8 +188,8 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     // follows the SPIR-V logical module format!
     var all_buffers = [_]std.os.iovec_const{
         wordsToIovConst(binary.items),
-        wordsToIovConst(spirv_module.types_and_globals.items),
-        wordsToIovConst(spirv_module.fn_decls.items),
+        wordsToIovConst(spv.types_and_globals.items),
+        wordsToIovConst(spv.fn_decls.items),
     };
 
     const file = self.base.file.?;
