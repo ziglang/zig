@@ -212,9 +212,9 @@ pub const Socket = struct {
             name_len: c_uint = 0,
 
             buffers: usize = undefined,
-            buffers_len: c_int,
+            buffers_len: c_int = undefined,
 
-            control: usize = null,
+            control: usize = @ptrToInt(@as(?[*]u8, null)),
             control_len: c_uint = 0,
 
             flags: c_int = 0,

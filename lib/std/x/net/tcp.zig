@@ -405,14 +405,14 @@ test "tcp/client: read and write multiple vectors" {
         Buffer.from(message[message.len / 2 ..]),
     }), 0);
 
-    var buf: [message.len]u8 = undefined;
+    var buf: [message.len + 1]u8 = undefined;
     var msg = Socket.Message.fromBuffers(&[_]Buffer{
         Buffer.from(buf[0 .. message.len / 2]),
         Buffer.from(buf[message.len / 2 ..]),
     });
     _ = try client.readVectorized(&msg, 0);
 
-    try testing.expectEqualStrings(message, &buf);
+    try testing.expectEqualStrings(message, buf[0..message.len]);
 }
 
 test "tcp/listener: bind to unspecified ipv4 address" {
