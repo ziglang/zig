@@ -1,8 +1,6 @@
  * get stage2 tests passing
    - after the error from an empty file, "has no member main" is invalidated
      but the comptime block incorrectly does not get re-run
-   - redundant comptime wrong source loc
-   - redeclaration of 'foo' not showing 'previously declared here'
    - segfault in one of the tests
    - memory leaks
  * modify stage2 tests so that only 1 uses _start and the rest use

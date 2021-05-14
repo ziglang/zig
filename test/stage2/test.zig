@@ -1137,7 +1137,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var a: comptime u32 = 0;
             \\}
         ,
-            &.{":2:21: error: redundant comptime keyword in already comptime scope"},
+            &.{":2:12: error: redundant comptime keyword in already comptime scope"},
         );
         case.addError(
             \\pub export fn _start() void {
@@ -1146,7 +1146,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    }
             \\}
         ,
-            &.{":3:31: error: redundant comptime keyword in already comptime scope"},
+            &.{":3:22: error: redundant comptime keyword in already comptime scope"},
         );
     }
     {
@@ -1195,9 +1195,15 @@ pub fn addCases(ctx: *TestContext) !void {
         \\// dummy comment
         \\fn entry() void {}
         \\fn entry() void {}
+        \\
+        \\fn foo() void {
+        \\    var foo = 1234;
+        \\}
     , &[_][]const u8{
-        ":3:4: error: redeclaration of 'entry'",
+        ":3:1: error: redeclaration of 'entry'",
         ":2:1: note: previously declared here",
+        ":6:9: error: local shadows declaration of 'foo'",
+        ":5:1: note: declared here",
     });
 
     ctx.compileError("global variable redeclaration", linux_x64,
