@@ -41,7 +41,34 @@ pub fn addCases(ctx: *TestContext) !void {
                 "Hello, World!\n",
             );
 
-            // Now change the message only
+            // Print it 4 times and force growth and realloc.
+            case.addCompareOutput(
+                \\extern "c" fn write(usize, usize, usize) usize;
+                \\extern "c" fn exit(usize) noreturn;
+                \\
+                \\export fn _start() noreturn {
+                \\    print();
+                \\    print();
+                \\    print();
+                \\    print();
+                \\
+                \\    exit(0);
+                \\}
+                \\
+                \\fn print() void {
+                \\    const msg = @ptrToInt("Hello, World!\n");
+                \\    const len = 14;
+                \\    _ = write(1, msg, len);
+                \\}
+            ,
+                \\Hello, World!
+                \\Hello, World!
+                \\Hello, World!
+                \\Hello, World!
+                \\
+            );
+
+            // Print it once, and change the message.
             case.addCompareOutput(
                 \\extern "c" fn write(usize, usize, usize) usize;
                 \\extern "c" fn exit(usize) noreturn;
