@@ -1573,11 +1573,16 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                     //     .UseLast => {},
                                     // }
                                     if (options.duplicate_field_behavior == .UseFirst) {
+                                        // unconditonally ignore value. for comptime fields, this skips check against default_value
+                                        parseFree(field.field_type, try parse(field.field_type, tokens, options), options);
+                                        found = true;
                                         break;
                                     } else if (options.duplicate_field_behavior == .Error) {
                                         return error.DuplicateJSONField;
                                     } else if (options.duplicate_field_behavior == .UseLast) {
-                                        parseFree(field.field_type, @field(r, field.name), options);
+                                        if (!field.is_comptime) {
+                                            parseFree(field.field_type, @field(r, field.name), options);
+                                        }
                                         fields_seen[i] = false;
                                     }
                                 }
@@ -1731,7 +1736,9 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
         },
         .Struct => |structInfo| {
             inline for (structInfo.fields) |field| {
-                parseFree(field.field_type, @field(value, field.name), options);
+                if (!field.is_comptime) {
+                    parseFree(field.field_type, @field(value, field.name), options);
+                }
             }
         },
         .Array => |arrayInfo| {
@@ -1908,14 +1915,19 @@ test "parse with comptime field" {
             },
         };
 
-        const r = try std.json.parse(T, &std.json.TokenStream.init(
+        const options = ParseOptions{
+            .allocator = std.testing.allocator,
+        };
+
+        const r = try parse(T, &TokenStream.init(
             \\{
             \\  "kind": "float",
             \\  "b": 1.0
             \\}
-        ), .{
-            .allocator = std.testing.allocator,
-        });
+        ), options);
+
+        // check that parseFree doesn't try to free comptime fields
+        parseFree(T, r, options);
     }
 }
 
@@ -2002,17 +2014,33 @@ test "parse into struct with duplicate field" {
     const ballast = try testing.allocator.alloc(u64, 1);
     defer testing.allocator.free(ballast);
 
-    const options = ParseOptions{
+    const options_first = ParseOptions{ 
+        .allocator = testing.allocator,
+        .duplicate_field_behavior = .UseFirst
+    };
+
+    const options_last = ParseOptions{ 
         .allocator = testing.allocator,
         .duplicate_field_behavior = .UseLast,
     };
+
     const str = "{ \"a\": 1, \"a\": 0.25 }";
 
     const T1 = struct { a: *u64 };
-    try testing.expectError(error.UnexpectedToken, parse(T1, &TokenStream.init(str), options));
+    // both .UseFirst and .UseLast should fail because second "a" value isn't a u64
+    try testing.expectError(error.UnexpectedToken, parse(T1, &TokenStream.init(str), options_first));
+    try testing.expectError(error.UnexpectedToken, parse(T1, &TokenStream.init(str), options_last));
 
     const T2 = struct { a: f64 };
-    try testing.expectEqual(T2{ .a = 0.25 }, try parse(T2, &TokenStream.init(str), options));
+    try testing.expectEqual(T2{ .a = 1.0 }, try parse(T2, &TokenStream.init(str), options_first));
+    try testing.expectEqual(T2{ .a = 0.25 }, try parse(T2, &TokenStream.init(str), options_last));
+
+    const T3 = struct { comptime a: f64 = 1.0 };
+    // .UseFirst should succeed because second "a" value is unconditionally ignored (even though != 1.0)
+    const t3 = T3{ .a = 1.0 };
+    try testing.expectEqual(t3, try parse(T3, &TokenStream.init(str), options_first));
+    // .UseLast should fail because second "a" value is 0.25 which is not equal to default value of 1.0
+    try testing.expectError(error.UnexpectedValue, parse(T3, &TokenStream.init(str), options_last));
 }
 
 /// A non-stream JSON parser which constructs a tree of Value's.
