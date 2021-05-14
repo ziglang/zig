@@ -199,7 +199,7 @@ fn testAtomicRmwInt() !void {
 
 test "atomics with different types" {
     try testAtomicsWithType(bool, true, false);
-    inline for (.{ u1, i5, u15 }) |T| {
+    inline for (.{ u1, i4, u5, i15, u24 }) |T| {
         var x: T = 0;
         try testAtomicsWithType(T, 0, 1);
     }
