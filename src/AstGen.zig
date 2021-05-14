@@ -4588,12 +4588,12 @@ fn finishThenElseBlock(
             } else {
                 _ = try else_scope.addBreak(break_tag, main_block, .void_value);
             }
-            const block_ref = parent_gz.indexToRef(main_block);
             if (strat.elide_store_to_block_ptr_instructions) {
-                try setCondBrPayloadElideBlockStorePtr(condbr, cond, then_scope, else_scope, block_ref);
+                try setCondBrPayloadElideBlockStorePtr(condbr, cond, then_scope, else_scope, block_scope.rl_ptr);
             } else {
                 try setCondBrPayload(condbr, cond, then_scope, else_scope);
             }
+            const block_ref = parent_gz.indexToRef(main_block);
             switch (rl) {
                 .ref => return block_ref,
                 else => return rvalue(parent_gz, parent_scope, rl, block_ref, node),
@@ -4909,7 +4909,7 @@ fn setCondBrPayloadElideBlockStorePtr(
     cond: Zir.Inst.Ref,
     then_scope: *GenZir,
     else_scope: *GenZir,
-    main_block: Zir.Inst.Ref,
+    block_ptr: Zir.Inst.Ref,
 ) !void {
     const astgen = then_scope.astgen;
 
@@ -4930,7 +4930,7 @@ fn setCondBrPayloadElideBlockStorePtr(
 
     for (then_scope.instructions.items) |src_inst| {
         if (zir_tags[src_inst] == .store_to_block_ptr) {
-            if (zir_datas[src_inst].bin.lhs == main_block) {
+            if (zir_datas[src_inst].bin.lhs == block_ptr) {
                 astgen.extra.items[then_body_len_index] -= 1;
                 continue;
             }
@@ -4939,7 +4939,7 @@ fn setCondBrPayloadElideBlockStorePtr(
     }
     for (else_scope.instructions.items) |src_inst| {
         if (zir_tags[src_inst] == .store_to_block_ptr) {
-            if (zir_datas[src_inst].bin.lhs == main_block) {
+            if (zir_datas[src_inst].bin.lhs == block_ptr) {
                 astgen.extra.items[else_body_len_index] -= 1;
                 continue;
             }

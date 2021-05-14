@@ -193,14 +193,9 @@ pub const Object = struct {
             try stderr.print(
                 \\Zig is expecting LLVM to understand this target: '{s}'
                 \\However LLVM responded with: "{s}"
-                \\Zig is unable to continue. This is a bug in Zig:
-                \\https://github.com/ziglang/zig/issues/438
                 \\
             ,
-                .{
-                    llvm_target_triple,
-                    error_message,
-                },
+                .{ llvm_target_triple, error_message },
             );
             return error.InvalidLLVMTriple;
         }
@@ -431,6 +426,7 @@ pub const DeclGen = struct {
     }
 
     fn getLLVMType(self: *DeclGen, t: Type) error{ OutOfMemory, CodegenFail }!*const llvm.Type {
+        log.debug("getLLVMType for {}", .{t});
         switch (t.zigTypeTag()) {
             .Void => return self.context().voidType(),
             .NoReturn => return self.context().voidType(),
@@ -465,7 +461,27 @@ pub const DeclGen = struct {
                     return self.todo("implement optional pointers as actual pointers", .{});
                 }
             },
-            else => return self.todo("implement getLLVMType for type '{}'", .{t}),
+            .ComptimeInt => unreachable,
+            .ComptimeFloat => unreachable,
+            .Type => unreachable,
+            .Undefined => unreachable,
+            .Null => unreachable,
+            .EnumLiteral => unreachable,
+
+            .BoundFn => @panic("TODO remove BoundFn from the language"),
+
+            .Float,
+            .Struct,
+            .ErrorUnion,
+            .ErrorSet,
+            .Enum,
+            .Union,
+            .Fn,
+            .Opaque,
+            .Frame,
+            .AnyFrame,
+            .Vector,
+            => return self.todo("implement getLLVMType for type '{}'", .{t}),
         }
     }
 
