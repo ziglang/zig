@@ -2121,8 +2121,11 @@ fn runOrTest(
                     if (!watch) return cleanExit();
                     return;
                 },
-                .run => fatal("unable to execute {s}: non-native", .{exe_path}),
-                else => unreachable,
+                else => {
+                    std.log.err("unable to execute {s}: non-native", .{exe_path});
+                    if (!watch) process.exit(1);
+                    return;
+                },
             }
         }
         // when testing pass the zig_exe_path to argv
