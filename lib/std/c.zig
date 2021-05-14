@@ -166,7 +166,7 @@ pub extern "c" fn sendto(
     dest_addr: ?*const sockaddr,
     addrlen: socklen_t,
 ) isize;
-pub extern "c" fn sendmsg(sockfd: fd_t, msg: *const std.x.os.Socket.Message, flags: c_int) isize;
+pub extern "c" fn sendmsg(sockfd: fd_t, msg: *const std.x.os.Socket.Message, flags: u32) isize;
 
 pub extern "c" fn recv(sockfd: fd_t, arg1: ?*c_void, arg2: usize, arg3: c_int) isize;
 pub extern "c" fn recvfrom(
@@ -177,7 +177,7 @@ pub extern "c" fn recvfrom(
     noalias src_addr: ?*sockaddr,
     noalias addrlen: ?*socklen_t,
 ) isize;
-pub extern "c" fn recvmsg(sockfd: fd_t, msg: *std.x.os.Socket.Message, flags: c_int) isize;
+pub extern "c" fn recvmsg(sockfd: fd_t, msg: *std.x.os.Socket.Message, flags: u32) isize;
 
 pub usingnamespace switch (builtin.os.tag) {
     .netbsd => struct {
