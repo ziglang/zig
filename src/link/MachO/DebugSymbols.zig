@@ -909,20 +909,14 @@ pub fn updateDeclLineNumber(self: *DebugSymbols, module: *Module, decl: *const M
     const node_datas = tree.nodes.items(.data);
     const token_starts = tree.tokens.items(.start);
 
-    // TODO Look into improving the performance here by adding a token-index-to-line
-    // lookup table. Currently this involves scanning over the source code for newlines.
-    const fn_decl = decl.src_node;
-    assert(node_tags[fn_decl] == .fn_decl);
-    const block = node_datas[fn_decl].rhs;
-    const lbrace = tree.firstToken(block);
-    const line_delta = std.zig.lineDelta(tree.source, 0, token_starts[lbrace]);
-    const casted_line_off = @intCast(u28, line_delta);
+    const func = decl.val.castTag(.function).?.data;
+    const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
 
     const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
     const shdr = &dwarf_segment.sections.items[self.debug_line_section_index.?];
     const file_pos = shdr.offset + decl.fn_link.macho.off + getRelocDbgLineOff();
     var data: [4]u8 = undefined;
-    leb.writeUnsignedFixed(4, &data, casted_line_off);
+    leb.writeUnsignedFixed(4, &data, line_off);
     try self.file.pwriteAll(&data, file_pos);
 }
 
@@ -952,21 +946,8 @@ pub fn initDeclDebugBuffers(
             // For functions we need to add a prologue to the debug line program.
             try dbg_line_buffer.ensureCapacity(26);
 
-            const line_off: u28 = blk: {
-                const tree = decl.namespace.file_scope.tree;
-                const node_tags = tree.nodes.items(.tag);
-                const node_datas = tree.nodes.items(.data);
-                const token_starts = tree.tokens.items(.start);
-
-                // TODO Look into improving the performance here by adding a token-index-to-line
-                // lookup table. Currently this involves scanning over the source code for newlines.
-                const fn_decl = decl.src_node;
-                assert(node_tags[fn_decl] == .fn_decl);
-                const block = node_datas[fn_decl].rhs;
-                const lbrace = tree.firstToken(block);
-                const line_delta = std.zig.lineDelta(tree.source, 0, token_starts[lbrace]);
-                break :blk @intCast(u28, line_delta);
-            };
+            const func = decl.val.castTag(.function).?.data;
+            const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
 
             dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{
                 DW.LNS_extended_op,
@@ -1161,6 +1142,9 @@ pub fn commitDeclDebugInfo(
         },
         else => {},
     }
+
+    if (dbg_info_buffer.items.len == 0)
+        return;
 
     // Now we emit the .debug_info types of the Decl. These will count towards the size of
     // the buffer, so we have to do it before computing the offset, and we can't perform the actual
