@@ -24,7 +24,9 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("hello world with updates", linux_x64);
 
-        case.addError("", &[_][]const u8{"error: no entry point found"});
+        case.addError("", &[_][]const u8{
+            ":84:9: error: struct 'test_case.test_case' has no member named 'main'",
+        });
 
         // Incorrect return type
         case.addError(
@@ -321,7 +323,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("multiplying numbers at runtime and comptime", linux_x64);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    mul(3, 4);
             \\
             \\    exit();
@@ -345,7 +347,7 @@ pub fn addCases(ctx: *TestContext) !void {
         );
         // comptime function call
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    exit();
             \\}
             \\
@@ -369,7 +371,7 @@ pub fn addCases(ctx: *TestContext) !void {
         );
         // Inline function call
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    var x: usize = 5;
             \\    const y = mul(2, 3, x);
             \\    exit(y - 30);
