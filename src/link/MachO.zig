@@ -363,18 +363,30 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     self.base.file = file;
 
     // Create dSYM bundle.
-    const d_sym_path = try fmt.allocPrint(allocator, "{s}.dSYM/Contents/Resources/DWARF/", .{sub_path});
-    defer allocator.free(d_sym_path);
-    var d_sym_bundle = try options.emit.?.directory.handle.makeOpenPath(d_sym_path, .{});
-    defer d_sym_bundle.close();
-    const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
-        .truncate = false,
-        .read = true,
-    });
-    self.d_sym = .{
-        .base = self,
-        .file = d_sym_file,
-    };
+    if (options.module) |mod| {
+        const dir = mod.zig_cache_artifact_directory;
+        log.debug("creating {s}.dSYM bundle in {s}", .{ sub_path, dir.path });
+
+        const d_sym_path = try fmt.allocPrint(
+            allocator,
+            "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
+            .{sub_path},
+        );
+        defer allocator.free(d_sym_path);
+
+        var d_sym_bundle = try dir.handle.makeOpenPath(d_sym_path, .{});
+        defer d_sym_bundle.close();
+
+        const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
+            .truncate = false,
+            .read = true,
+        });
+
+        self.d_sym = .{
+            .base = self,
+            .file = d_sym_file,
+        };
+    }
 
     // Index 0 is always a null symbol.
     try self.locals.append(allocator, .{
@@ -387,7 +399,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
     switch (options.output_mode) {
         .Exe => {},
-        .Obj => {},
+        .Obj => return error.TODOImplementWritingObjFiles,
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 
