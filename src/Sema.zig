@@ -2147,11 +2147,20 @@ fn analyzeCall(
         );
     }
 
-    if (modifier == .compile_time) {
-        return sema.mod.fail(&block.base, call_src, "TODO implement comptime function calls", .{});
-    }
-    if (modifier != .auto) {
-        return sema.mod.fail(&block.base, call_src, "TODO implement call with modifier {}", .{modifier});
+    switch (modifier) {
+        .auto,
+        .always_inline,
+        .compile_time,
+        => {},
+
+        .async_kw,
+        .never_tail,
+        .never_inline,
+        .no_async,
+        .always_tail,
+        => return sema.mod.fail(&block.base, call_src, "TODO implement call with modifier {}", .{
+            modifier,
+        }),
     }
 
     // TODO handle function calls of generic functions
