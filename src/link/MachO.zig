@@ -363,8 +363,8 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     self.base.file = file;
 
     // Create dSYM bundle.
-    if (options.module) |mod| {
-        const dir = mod.zig_cache_artifact_directory;
+    if (!options.strip and options.module != null) {
+        const dir = options.module.?.zig_cache_artifact_directory;
         log.debug("creating {s}.dSYM bundle in {s}", .{ sub_path, dir.path });
 
         const d_sym_path = try fmt.allocPrint(
@@ -399,7 +399,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
     switch (options.output_mode) {
         .Exe => {},
-        .Obj => return error.TODOImplementWritingObjFiles,
+        .Obj => {},
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 
