@@ -117,6 +117,7 @@ pub const DeclGen = struct {
             return already_generated;
         }
 
+        const target = self.module.getTarget();
         const code = &self.spv.types_and_globals;
         const result_id = self.spv.allocResultId();
 
@@ -126,7 +127,7 @@ pub const DeclGen = struct {
             .Int => {
                 const int_info = ty.intInfo(self.module.getTarget());
                 const backing_bits = self.backingIntBits(int_info.bits) orelse
-                    return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement fallback for integer of {} bits", .{ int_info.bits });
+                    return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement fallback for {}", .{ ty });
 
                 try writeInstruction(code, .OpTypeInt, &[_]u32{
                     result_id,
@@ -137,14 +138,32 @@ pub const DeclGen = struct {
                     },
                 });
             },
-            // TODO: Capabilities.
-            .Float => try writeInstruction(code, .OpTypeFloat, &[_]u32{ result_id, ty.floatBits(self.module.getTarget()) }),
+            .Float => {
+                // We can (and want) not really emulate floating points with other floating point types like with the integer types,
+                // so if the float is not supported, just return an error.
+                const bits = ty.floatBits(target);
+                const supported = switch (bits) {
+                    16 => Target.spirv.featureSetHas(target.cpu.features, .Float16),
+                    32 => true,
+                    64 => Target.spirv.featureSetHas(target.cpu.features, .Float64),
+                    else => false
+                };
+
+                if (!supported) {
+                    return self.fail(.{.node_offset = 0}, "Floating point width of {} bits is not supported for the current SPIR-V feature set", .{ bits });
+                }
+
+                try writeInstruction(code, .OpTypeFloat, &.{
+                    result_id,
+                    bits
+                });
+            },
             .Fn => {
                 // We only support zig-calling-convention functions, no varargs.
                 if (ty.fnCallingConvention() != .Unspecified)
-                    return self.fail(.{.node_offset = 0}, "Invalid calling convention for SPIR-V", .{});
+                    return self.fail(.{.node_offset = 0}, "Unsupported calling convention for SPIR-V", .{});
                 if (ty.fnIsVarArgs())
-                    return self.fail(.{.node_offset = 0}, "VarArgs are not supported for SPIR-V", .{});
+                    return self.fail(.{.node_offset = 0}, "VarArgs unsupported for SPIR-V", .{});
 
                 // In order to avoid a temporary here, first generate all the required types and then simply look them up
                 // when generating the function type.
