@@ -30,13 +30,13 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: Endian) type {
     const min_io_bits = ((int_bits + 7) / 8) * 8;
 
     //in the worst case, this is the number of bytes we need to touch
-    // to read or write a value, as bits
+    // to read or write a value, as bits. To calculate for int_bits > 1,
+    // set aside 2 bits to touch the first and last bytes, then divide
+    // by 8 to see how many bytes can be filled up inbetween.
     const max_io_bits = switch (int_bits) {
         0 => 0,
         1 => 8,
-        2...9 => 16,
-        10...65535 => ((int_bits / 8) + 2) * 8,
-        else => unreachable,
+        else => ((int_bits - 2) / 8 + 2) * 8,
     };
 
     //we bitcast the desired Int type to an unsigned version of itself
@@ -378,12 +378,20 @@ test "PackedIntArray" {
     }
 }
 
+test "PackedIntIo" {
+    const bytes = [_]u8 { 0b01101_000, 0b01011_110, 0b00011_101 };
+    try testing.expectEqual(@as(u15,  0x2bcd), PackedIntIo(u15, .Little).get(&bytes, 0, 3));
+    try testing.expectEqual(@as(u16,  0xabcd), PackedIntIo(u16, .Little).get(&bytes, 0, 3));
+    try testing.expectEqual(@as(u17, 0x1abcd), PackedIntIo(u17, .Little).get(&bytes, 0, 3));
+    try testing.expectEqual(@as(u18, 0x3abcd), PackedIntIo(u18, .Little).get(&bytes, 0, 3));
+}
+
 test "PackedIntArray init" {
     if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
     const PackedArray = PackedIntArray(u3, 8);
     var packed_array = PackedArray.init([_]u3{ 0, 1, 2, 3, 4, 5, 6, 7 });
     var i = @as(usize, 0);
-    while (i < packed_array.len()) : (i += 1) testing.expectEqual(@intCast(u3, i), packed_array.get(i));
+    while (i < packed_array.len()) : (i += 1) try testing.expectEqual(@intCast(u3, i), packed_array.get(i));
 }
 
 test "PackedIntArray initAllTo" {
@@ -391,7 +399,7 @@ test "PackedIntArray initAllTo" {
     const PackedArray = PackedIntArray(u3, 8);
     var packed_array = PackedArray.initAllTo(5);
     var i = @as(usize, 0);
-    while (i < packed_array.len()) : (i += 1) testing.expectEqual(@as(u3, 5), packed_array.get(i));
+    while (i < packed_array.len()) : (i += 1) try testing.expectEqual(@as(u3, 5), packed_array.get(i));
 }
 
 test "PackedIntSlice" {
