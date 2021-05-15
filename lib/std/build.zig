@@ -285,10 +285,12 @@ pub const Builder = struct {
         return run_step;
     }
 
+    /// Allocator.dupe without the need to handle out of memory.
     pub fn dupe(self: *Builder, bytes: []const u8) []u8 {
         return self.allocator.dupe(u8, bytes) catch unreachable;
     }
 
+    /// Duplicates an array of strings without the need to handle out of memory.
     pub fn dupeStrings(self: *Builder, strings: []const []const u8) [][]u8 {
         const array = self.allocator.alloc([]u8, strings.len) catch unreachable;
         for (strings) |s, i| {
@@ -297,6 +299,7 @@ pub const Builder = struct {
         return array;
     }
 
+    /// Duplicates a path and converts all slashes to the OS's canonical path separator.
     pub fn dupePath(self: *Builder, bytes: []const u8) []u8 {
         const the_copy = self.dupe(bytes);
         for (the_copy) |*byte| {
@@ -308,6 +311,7 @@ pub const Builder = struct {
         return the_copy;
     }
 
+    /// Duplicates a package recursively.
     pub fn dupePkg(self: *Builder, package: Pkg) Pkg {
         var the_copy = Pkg{
             .name = self.dupe(package.name),
@@ -3121,7 +3125,8 @@ pub const InstallDir = union(enum) {
     /// A path relative to the prefix
     custom: []const u8,
 
-    fn dupe(self: InstallDir, builder: *Builder) InstallDir {
+    /// Duplicates the install directory including the path if set to custom.
+    pub fn dupe(self: InstallDir, builder: *Builder) InstallDir {
         if (self == .custom) {
             // Written with this temporary to avoid RLS problems
             const duped_path = builder.dupe(self.custom);
@@ -3136,6 +3141,7 @@ pub const InstalledFile = struct {
     dir: InstallDir,
     path: []const u8,
 
+    /// Duplicates the installed file path and directory.
     pub fn dupe(self: InstalledFile, builder: *Builder) InstalledFile {
         return .{
             .dir = self.dir.dupe(builder),
