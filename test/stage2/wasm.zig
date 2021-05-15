@@ -384,4 +384,20 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "5\n");
     }
+
+    {
+        var case = ctx.exe("wasm enum values", wasi);
+
+        case.addCompareOutput(
+            \\const Number = enum { One, Two, Three };
+            \\
+            \\export fn _start() i32 {
+            \\    var number1 = Number.One;
+            \\    var number2: Number = .Two;
+            \\    const number3 = @intToEnum(Number, 2);
+            \\
+            \\    return @enumToInt(number3);
+            \\}
+        , "2\n");
+    }
 }
