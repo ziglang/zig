@@ -41,14 +41,11 @@ root_pkg: *Package,
 global_zir_cache: Compilation.Directory,
 /// Used by AstGen worker to load and store ZIR cache.
 local_zir_cache: Compilation.Directory,
-/// It's rare for a decl to be exported, so we save memory by having a sparse map of
-/// Decl pointers to details about them being exported.
-/// The Export memory is owned by the `export_owners` table; the slice itself is owned by this table.
-/// The slice is guaranteed to not be empty.
+/// It's rare for a decl to be exported, so we save memory by having a sparse
+/// map of Decl pointers to details about them being exported.
+/// The Export memory is owned by the `export_owners` table; the slice itself
+/// is owned by this table. The slice is guaranteed to not be empty.
 decl_exports: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
-/// We track which export is associated with the given symbol name for quick
-/// detection of symbol collisions.
-symbol_exports: std.StringArrayHashMapUnmanaged(*Export) = .{},
 /// This models the Decls that perform exports, so that `decl_exports` can be updated when a Decl
 /// is modified. Note that the key of this table is not the Decl being exported, but the Decl that
 /// is performing the export of another Decl.
@@ -144,6 +141,14 @@ pub const Export = struct {
         failed_retryable,
         complete,
     },
+
+    pub fn getSrcLoc(exp: Export) SrcLoc {
+        return .{
+            .file_scope = exp.owner_decl.namespace.file_scope,
+            .parent_decl_node = exp.owner_decl.src_node,
+            .lazy = exp.src,
+        };
+    }
 };
 
 /// When Module emit_h field is non-null, each Decl is allocated via this struct, so that
@@ -2184,8 +2189,6 @@ pub fn deinit(mod: *Module) void {
     }
     mod.export_owners.deinit(gpa);
 
-    mod.symbol_exports.deinit(gpa);
-
     var it = mod.global_error_set.iterator();
     while (it.next()) |entry| {
         gpa.free(entry.key);
@@ -2779,7 +2782,10 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
             for (decl.dependencies.items()) |entry| {
                 const dep = entry.key;
                 dep.removeDependant(decl);
-                if (dep.dependants.items().len == 0 and !dep.deletion_flag) {
+                if (dep.dependants.count() == 0 and !dep.deletion_flag) {
+                    log.debug("insert {*} ({s}) dependant {*} ({s}) into deletion set", .{
+                        decl, decl.name, dep, dep.name,
+                    });
                     // We don't perform a deletion here, because this Decl or another one
                     // may end up referencing it before the update is complete.
                     dep.deletion_flag = true;
@@ -2795,11 +2801,18 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
     };
 
     const type_changed = mod.semaDecl(decl) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.AnalysisFail => return error.AnalysisFail,
+        error.AnalysisFail => {
+            if (decl.analysis == .in_progress) {
+                // If this decl caused the compile error, the analysis field would
+                // be changed to indicate it was this Decl's fault. Because this
+                // did not happen, we infer here that it was a dependency failure.
+                decl.analysis = .dependency_failure;
+            }
+            return error.AnalysisFail;
+        },
         else => {
             decl.analysis = .sema_failure_retryable;
-            try mod.failed_decls.ensureCapacity(mod.gpa, mod.failed_decls.items().len + 1);
+            try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
             mod.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
                 mod.gpa,
                 decl.srcLoc(),
@@ -2818,7 +2831,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
                 const dep = entry.key;
                 switch (dep.analysis) {
                     .unreferenced => unreachable,
-                    .in_progress => unreachable,
+                    .in_progress => continue, // already doing analysis, ok
                     .outdated => continue, // already queued for update
 
                     .file_failure,
@@ -3115,8 +3128,14 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
 
 /// Returns the depender's index of the dependee.
 pub fn declareDeclDependency(mod: *Module, depender: *Decl, dependee: *Decl) !void {
-    try depender.dependencies.ensureCapacity(mod.gpa, depender.dependencies.count() + 1);
-    try dependee.dependants.ensureCapacity(mod.gpa, dependee.dependants.count() + 1);
+    if (depender == dependee) return;
+
+    log.debug("{*} ({s}) depends on {*} ({s})", .{
+        depender, depender.name, dependee, dependee.name,
+    });
+
+    try depender.dependencies.ensureUnusedCapacity(mod.gpa, 1);
+    try dependee.dependants.ensureUnusedCapacity(mod.gpa, 1);
 
     if (dependee.deletion_flag) {
         dependee.deletion_flag = false;
@@ -3513,7 +3532,6 @@ fn deleteDeclExports(mod: *Module, decl: *Decl) void {
         if (mod.failed_exports.swapRemove(exp)) |entry| {
             entry.value.destroy(mod.gpa);
         }
-        _ = mod.symbol_exports.swapRemove(exp.options.name);
         mod.gpa.free(exp.options.name);
         mod.gpa.destroy(exp);
     }
@@ -3726,38 +3744,6 @@ pub fn analyzeExport(
     de_gop.entry.value = try mod.gpa.realloc(de_gop.entry.value, de_gop.entry.value.len + 1);
     de_gop.entry.value[de_gop.entry.value.len - 1] = new_export;
     errdefer de_gop.entry.value = mod.gpa.shrink(de_gop.entry.value, de_gop.entry.value.len - 1);
-
-    if (mod.symbol_exports.get(symbol_name)) |other_export| {
-        new_export.status = .failed_retryable;
-        try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-        const msg = try mod.errMsg(
-            scope,
-            src,
-            "exported symbol collision: {s}",
-            .{symbol_name},
-        );
-        errdefer msg.destroy(mod.gpa);
-        const other_src_loc: SrcLoc = .{
-            .file_scope = other_export.owner_decl.namespace.file_scope,
-            .parent_decl_node = other_export.owner_decl.src_node,
-            .lazy = other_export.src,
-        };
-        try mod.errNoteNonLazy(other_src_loc, msg, "other symbol here", .{});
-        mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
-        new_export.status = .failed;
-        return;
-    }
-
-    try mod.symbol_exports.putNoClobber(mod.gpa, symbol_name, new_export);
-    mod.comp.bin_file.updateDeclExports(mod, exported_decl, de_gop.entry.value) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => {
-            new_export.status = .failed_retryable;
-            try mod.failed_exports.ensureCapacity(mod.gpa, mod.failed_exports.items().len + 1);
-            const msg = try mod.errMsg(scope, src, "unable to export: {s}", .{@errorName(err)});
-            mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
-        },
-    };
 }
 pub fn constInst(mod: *Module, arena: *Allocator, src: LazySrcLoc, typed_value: TypedValue) !*ir.Inst {
     const const_inst = try arena.create(ir.Inst.Constant);
@@ -3901,59 +3887,6 @@ pub fn createAnonymousDecl(mod: *Module, scope: *Scope, typed_value: TypedValue)
 
 pub fn getNextAnonNameIndex(mod: *Module) usize {
     return @atomicRmw(usize, &mod.next_anon_name_index, .Add, 1, .Monotonic);
-}
-
-/// This looks up a bare identifier in the given scope. This will walk up the tree of namespaces
-/// in scope and check each one for the identifier.
-/// TODO emit a compile error if more than one decl would be matched.
-pub fn lookupIdentifier(
-    mod: *Module,
-    scope: *Scope,
-    ident_name: []const u8,
-) error{AnalysisFail}!?*Decl {
-    var namespace = scope.namespace();
-    while (true) {
-        if (try mod.lookupInNamespace(namespace, ident_name, false)) |decl| {
-            return decl;
-        }
-        namespace = namespace.parent orelse break;
-    }
-    return null;
-}
-
-/// This looks up a member of a specific namespace. It is affected by `usingnamespace` but
-/// only for ones in the specified namespace.
-pub fn lookupInNamespace(
-    mod: *Module,
-    namespace: *Scope.Namespace,
-    ident_name: []const u8,
-    only_pub_usingnamespaces: bool,
-) error{AnalysisFail}!?*Decl {
-    const owner_decl = namespace.getDecl();
-    if (owner_decl.analysis == .file_failure) {
-        return error.AnalysisFail;
-    }
-
-    // TODO the decl doing the looking up needs to create a decl dependency
-    // TODO implement usingnamespace
-    if (namespace.decls.get(ident_name)) |decl| {
-        return decl;
-    }
-    return null;
-    //// TODO handle decl collision with usingnamespace
-    //// on each usingnamespace decl here.
-    //{
-    //    var it = namespace.usingnamespace_set.iterator();
-    //    while (it.next()) |entry| {
-    //        const other_ns = entry.key;
-    //        const other_is_pub = entry.value;
-    //        if (only_pub_usingnamespaces and !other_is_pub) continue;
-    //        // TODO handle cycles
-    //        if (mod.lookupInNamespace(other_ns, ident_name, true)) |decl| {
-    //            return decl;
-    //        }
-    //    }
-    //}
 }
 
 pub fn makeIntType(arena: *Allocator, signedness: std.builtin.Signedness, bits: u16) !Type {
@@ -4920,5 +4853,52 @@ pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
     // the deleted decls.
     for (outdated_decls.items()) |entry| {
         try mod.markOutdatedDecl(entry.key);
+    }
+}
+
+/// Called from `Compilation.update`, after everything is done, just before
+/// reporting compile errors. In this function we emit exported symbol collision
+/// errors and communicate exported symbols to the linker backend.
+pub fn processExports(mod: *Module) !void {
+    const gpa = mod.gpa;
+    // Map symbol names to `Export` for name collision detection.
+    var symbol_exports: std.StringArrayHashMapUnmanaged(*Export) = .{};
+    defer symbol_exports.deinit(gpa);
+
+    for (mod.decl_exports.items()) |entry| {
+        const exported_decl = entry.key;
+        const exports = entry.value;
+        for (exports) |new_export| {
+            const gop = try symbol_exports.getOrPut(gpa, new_export.options.name);
+            if (gop.found_existing) {
+                new_export.status = .failed_retryable;
+                try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
+                const src_loc = new_export.getSrcLoc();
+                const msg = try ErrorMsg.create(gpa, src_loc, "exported symbol collision: {s}", .{
+                    new_export.options.name,
+                });
+                errdefer msg.destroy(gpa);
+                const other_export = gop.entry.value;
+                const other_src_loc = other_export.getSrcLoc();
+                try mod.errNoteNonLazy(other_src_loc, msg, "other symbol here", .{});
+                mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
+                new_export.status = .failed;
+            } else {
+                gop.entry.value = new_export;
+            }
+        }
+        mod.comp.bin_file.updateDeclExports(mod, exported_decl, exports) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => {
+                const new_export = exports[0];
+                new_export.status = .failed_retryable;
+                try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
+                const src_loc = new_export.getSrcLoc();
+                const msg = try ErrorMsg.create(gpa, src_loc, "unable to export: {s}", .{
+                    @errorName(err),
+                });
+                mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
+            },
+        };
     }
 }

@@ -1622,6 +1622,8 @@ pub fn update(self: *Compilation) !void {
                 assert(decl.dependants.count() == 0);
                 try module.deleteDecl(decl, null);
             }
+
+            try module.processExports();
         }
     }
 

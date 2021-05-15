@@ -676,7 +676,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         case.addError(
             \\const E1 = enum { a, b, c, b, d };
-            \\export fn foo() void {
+            \\pub export fn main() c_int {
             \\    const x = E1.a;
             \\}
         , &.{
@@ -685,7 +685,7 @@ pub fn addCases(ctx: *TestContext) !void {
         });
 
         case.addError(
-            \\export fn foo() void {
+            \\pub export fn main() c_int {
             \\    const a = true;
             \\    const b = @enumToInt(a);
             \\}
@@ -694,7 +694,7 @@ pub fn addCases(ctx: *TestContext) !void {
         });
 
         case.addError(
-            \\export fn foo() void {
+            \\pub export fn main() c_int {
             \\    const a = 1;
             \\    const b = @intToEnum(bool, a);
             \\}
@@ -704,7 +704,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         case.addError(
             \\const E = enum { a, b, c };
-            \\export fn foo() void {
+            \\pub export fn main() c_int {
             \\    const b = @intToEnum(E, 3);
             \\}
         , &.{
@@ -714,7 +714,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         case.addError(
             \\const E = enum { a, b, c };
-            \\export fn foo() void {
+            \\pub export fn main() c_int {
             \\    var x: E = .a;
             \\    switch (x) {
             \\        .a => {},
@@ -729,7 +729,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         case.addError(
             \\const E = enum { a, b, c };
-            \\export fn foo() void {
+            \\pub export fn main() c_int {
             \\    var x: E = .a;
             \\    switch (x) {
             \\        .a => {},
@@ -745,7 +745,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         case.addError(
             \\const E = enum { a, b, c };
-            \\export fn foo() void {
+            \\pub export fn main() c_int {
             \\    var x: E = .a;
             \\    switch (x) {
             \\        .a => {},
@@ -760,7 +760,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         case.addError(
             \\const E = enum { a, b, c };
-            \\export fn foo() void {
+            \\pub export fn main() c_int {
             \\    var x: E = .a;
             \\    switch (x) {
             \\        .a => {},
@@ -775,7 +775,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         case.addError(
             \\const E = enum { a, b, c };
-            \\export fn foo() void {
+            \\pub export fn main() c_int {
             \\    var x = E.d;
             \\}
         , &.{
@@ -785,7 +785,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
         case.addError(
             \\const E = enum { a, b, c };
-            \\export fn foo() void {
+            \\pub export fn main() c_int {
             \\    var x: E = .d;
             \\}
         , &.{

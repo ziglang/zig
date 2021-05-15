@@ -1,8 +1,7 @@
  * get stage2 tests passing
-   - after the error from an empty file, "has no member main" is invalidated
-     but the comptime block incorrectly does not get re-run
-   - segfault in one of the tests
-   - memory leaks
+   - spu-ii test is saying "unimplemented" for some reason
+   - compile log test has wrong source loc
+   - extern variable has no type: TODO implement generateSymbol for int type 'i32'
  * modify stage2 tests so that only 1 uses _start and the rest use
    pub fn main
  * modify stage2 CBE tests so that only 1 uses pub export main and the
@@ -71,3 +70,7 @@
    It will be unloaded if using cached ZIR.
  
  * make AstGen smart enough to omit elided store_to_block_ptr instructions
+
+ * repl: if you try `run` with -ofmt=c you get an access denied error because it
+   tries to execute the .c file as a child process instead of executing `zig run`
+   on it.

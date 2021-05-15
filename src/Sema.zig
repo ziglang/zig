@@ -2070,15 +2070,43 @@ fn zirDeclVal(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError
 }
 
 fn lookupIdentifier(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, name: []const u8) !*Decl {
-    const mod = sema.mod;
-    const decl = (try mod.lookupIdentifier(&sema.namespace.base, name)) orelse {
-        // TODO insert a "dependency on the non-existence of a decl" here to make this
-        // compile error go away when the decl is introduced. This data should be in a global
-        // sparse map since it is only relevant when a compile error occurs.
-        return mod.fail(&block.base, src, "use of undeclared identifier '{s}'", .{name});
-    };
-    _ = try mod.declareDeclDependency(sema.owner_decl, decl);
-    return decl;
+    // TODO emit a compile error if more than one decl would be matched.
+    var namespace = sema.namespace;
+    while (true) {
+        if (try sema.lookupInNamespace(namespace, name)) |decl| {
+            return decl;
+        }
+        namespace = namespace.parent orelse break;
+    }
+    return sema.mod.fail(&block.base, src, "use of undeclared identifier '{s}'", .{name});
+}
+
+/// This looks up a member of a specific namespace. It is affected by `usingnamespace` but
+/// only for ones in the specified namespace.
+fn lookupInNamespace(
+    sema: *Sema,
+    namespace: *Scope.Namespace,
+    ident_name: []const u8,
+) InnerError!?*Decl {
+    const namespace_decl = namespace.getDecl();
+    if (namespace_decl.analysis == .file_failure) {
+        try sema.mod.declareDeclDependency(sema.owner_decl, namespace_decl);
+        return error.AnalysisFail;
+    }
+
+    // TODO implement usingnamespace
+    if (namespace.decls.get(ident_name)) |decl| {
+        try sema.mod.declareDeclDependency(sema.owner_decl, decl);
+        return decl;
+    }
+    log.debug("{*} ({s}) depends on non-existence of '{s}' in {*} ({s})", .{
+        sema.owner_decl, sema.owner_decl.name, ident_name, namespace_decl, namespace_decl.name,
+    });
+    // TODO This dependency is too strong. Really, it should only be a dependency
+    // on the non-existence of `ident_name` in the namespace. We can lessen the number of
+    // outdated declarations by making this dependency more sophisticated.
+    try sema.mod.declareDeclDependency(sema.owner_decl, namespace_decl);
+    return null;
 }
 
 fn zirCall(
@@ -4395,7 +4423,7 @@ fn zirHasDecl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError
         "expected struct, enum, union, or opaque, found '{}'",
         .{container_type},
     );
-    if (try mod.lookupInNamespace(namespace, decl_name, true)) |decl| {
+    if (try sema.lookupInNamespace(namespace, decl_name)) |decl| {
         if (decl.is_pub or decl.namespace.file_scope == block.base.namespace().file_scope) {
             return mod.constBool(arena, src, true);
         }
@@ -4423,7 +4451,9 @@ fn zirImport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
         },
     };
     try mod.semaFile(result.file);
-    return mod.constType(sema.arena, src, result.file.root_decl.?.ty);
+    const file_root_decl = result.file.root_decl.?;
+    try sema.mod.declareDeclDependency(sema.owner_decl, file_root_decl);
+    return mod.constType(sema.arena, src, file_root_decl.ty);
 }
 
 fn zirShl(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
@@ -6327,7 +6357,7 @@ fn analyzeNamespaceLookup(
 ) InnerError!?*Inst {
     const mod = sema.mod;
     const gpa = sema.gpa;
-    if (try mod.lookupInNamespace(namespace, decl_name, true)) |decl| {
+    if (try sema.lookupInNamespace(namespace, decl_name)) |decl| {
         if (!decl.is_pub and decl.namespace.file_scope != block.getFileScope()) {
             const msg = msg: {
                 const msg = try mod.errMsg(&block.base, src, "'{s}' is not marked 'pub'", .{
@@ -6752,7 +6782,7 @@ fn analyzeDeclVal(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, decl: *Decl
 }
 
 fn analyzeDeclRef(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, decl: *Decl) InnerError!*Inst {
-    _ = try sema.mod.declareDeclDependency(sema.owner_decl, decl);
+    try sema.mod.declareDeclDependency(sema.owner_decl, decl);
     sema.mod.ensureDeclAnalyzed(decl) catch |err| {
         if (sema.func) |func| {
             func.state = .dependency_failure;
@@ -7544,3 +7574,4 @@ fn enumFieldSrcLoc(
         }
     } else unreachable;
 }
+
