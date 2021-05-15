@@ -57,6 +57,7 @@ pub const DeclGen = struct {
     module: *Module,
     spv: *SPIRVModule,
 
+    args: std.ArrayList(u32),
     types: TypeMap,
 
     decl: *Decl,
@@ -213,7 +214,17 @@ pub const DeclGen = struct {
                 prototype_id,
             });
 
-            // TODO: Parameters
+            const params = tv.ty.fnParamLen();
+            var i: usize = 0;
+
+            try self.args.ensureCapacity(params);
+            while (i < params) : (i += 1) {
+                const param_type_id = self.types.get(tv.ty.fnParamType(i)).?;
+                const arg_result_id = self.spv.allocResultId();
+                try writeInstruction(&self.spv.fn_decls, .OpFunctionParameter, &[_]u32{ param_type_id, arg_result_id });
+                self.args.appendAssumeCapacity(arg_result_id);
+            }
+
             // TODO: Body
 
             try writeInstruction(&self.spv.fn_decls, .OpFunctionEnd, &[_]u32{});

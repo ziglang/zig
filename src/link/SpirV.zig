@@ -140,23 +140,26 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     // Now, actually generate the code for all declarations.
     {
         // We are just going to re-use this same DeclGen for every Decl, and we are just going to
-        // change the decl. Otherwise, we would have to keep a separate `types`, and re-construct this
+        // change the decl. Otherwise, we would have to keep a separate `args` and `types`, and re-construct this
         // structure every time.
         var decl_gen = codegen.DeclGen{
             .module = module,
             .spv = &spv,
+            .args = std.ArrayList(u32).init(self.base.allocator),
             .types = codegen.TypeMap.init(self.base.allocator),
             .decl = undefined,
             .error_msg = undefined,
         };
 
         defer decl_gen.types.deinit();
+        defer decl_gen.args.deinit();
 
         for (module.decl_table.items()) |entry| {
             const decl = entry.value;
             if (decl.typed_value != .most_recent)
                 continue;
 
+            decl_gen.args.items.len = 0;
             decl_gen.decl = decl;
             decl_gen.error_msg = null;
 
