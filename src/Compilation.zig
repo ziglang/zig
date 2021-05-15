@@ -2895,7 +2895,7 @@ fn detectLibCIncludeDirs(
 
     if (is_native_abi) {
         const libc = try arena.create(LibCInstallation);
-        libc.* = try LibCInstallation.findNative(.{ .allocator = arena });
+        libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true });
         return detectLibCFromLibCInstallation(arena, target, libc);
     }
 
