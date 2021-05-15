@@ -12,9 +12,13 @@ const LazySrcLoc = Module.LazySrcLoc;
 
 pub const TypeMap = std.HashMap(Type, u32, Type.hash, Type.eql, std.hash_map.default_max_load_percentage);
 
-pub fn writeInstruction(code: *std.ArrayList(u32), instr: spec.Opcode, args: []const u32) !void {
-    const word_count = @intCast(u32, args.len + 1);
-    try code.append((word_count << 16) | @enumToInt(instr));
+pub fn writeOpcode(code: *std.ArrayList(u32), opcode: spec.Opcode, arg_count: u32) !void {
+    const word_count = arg_count + 1;
+    try code.append((word_count << 16) | @enumToInt(opcode));
+}
+
+pub fn writeInstruction(code: *std.ArrayList(u32), opcode: spec.Opcode, args: []const u32) !void {
+    try writeOpcode(code, opcode, @intCast(u32, args.len));
     try code.appendSlice(args);
 }
 
@@ -58,7 +62,12 @@ pub const DeclGen = struct {
     decl: *Decl,
     error_msg: ?*Module.ErrorMsg,
 
-    fn fail(self: *DeclGen, src: LazySrcLoc, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
+    const Error = error{
+        AnalysisFail,
+        OutOfMemory
+    };
+
+    fn fail(self: *DeclGen, src: LazySrcLoc, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
         const src_loc = src.toSrcLocWithDecl(self.decl);
         self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, format, args);
@@ -102,24 +111,25 @@ pub const DeclGen = struct {
         return null;
     }
 
-    pub fn getOrGenType(self: *DeclGen, t: Type) !u32 {
+    fn getOrGenType(self: *DeclGen, ty: Type) Error!u32 {
         // We can't use getOrPut here so we can recursively generate types.
-        if (self.types.get(t)) |already_generated| {
+        if (self.types.get(ty)) |already_generated| {
             return already_generated;
         }
 
-        const result = self.spv.allocResultId();
+        const code = &self.spv.types_and_globals;
+        const result_id = self.spv.allocResultId();
 
-        switch (t.zigTypeTag()) {
-            .Void => try writeInstruction(&self.spv.types_and_globals, .OpTypeVoid, &[_]u32{ result }),
-            .Bool => try writeInstruction(&self.spv.types_and_globals, .OpTypeBool, &[_]u32{ result }),
+        switch (ty.zigTypeTag()) {
+            .Void => try writeInstruction(code, .OpTypeVoid, &[_]u32{ result_id }),
+            .Bool => try writeInstruction(code, .OpTypeBool, &[_]u32{ result_id }),
             .Int => {
-                const int_info = t.intInfo(self.module.getTarget());
+                const int_info = ty.intInfo(self.module.getTarget());
                 const backing_bits = self.backingIntBits(int_info.bits) orelse
                     return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement fallback for integer of {} bits", .{ int_info.bits });
 
-                try writeInstruction(&self.spv.types_and_globals, .OpTypeInt, &[_]u32{
-                    result,
+                try writeInstruction(code, .OpTypeInt, &[_]u32{
+                    result_id,
                     backing_bits,
                     switch (int_info.signedness) {
                         .unsigned => 0,
@@ -128,7 +138,34 @@ pub const DeclGen = struct {
                 });
             },
             // TODO: Capabilities.
-            .Float => try writeInstruction(&self.spv.types_and_globals, .OpTypeFloat, &[_]u32{ result, t.floatBits(self.module.getTarget()) }),
+            .Float => try writeInstruction(code, .OpTypeFloat, &[_]u32{ result_id, ty.floatBits(self.module.getTarget()) }),
+            .Fn => {
+                // We only support zig-calling-convention functions, no varargs.
+                if (ty.fnCallingConvention() != .Unspecified)
+                    return self.fail(.{.node_offset = 0}, "Invalid calling convention for SPIR-V", .{});
+                if (ty.fnIsVarArgs())
+                    return self.fail(.{.node_offset = 0}, "VarArgs are not supported for SPIR-V", .{});
+
+                // In order to avoid a temporary here, first generate all the required types and then simply look them up
+                // when generating the function type.
+                const params = ty.fnParamLen();
+                var i: usize = 0;
+                while (i < params) : (i += 1) {
+                    _ = try self.getOrGenType(ty.fnParamType(i));
+                }
+
+                const return_type_id = try self.getOrGenType(ty.fnReturnType());
+
+                // result id + result type id + parameter type ids.
+                try writeOpcode(code, .OpTypeFunction, 2 + @intCast(u32, ty.fnParamLen()) );
+                try code.appendSlice(&.{ result_id, return_type_id });
+
+                i = 0;
+                while (i < params) : (i += 1) {
+                    const param_type_id = self.types.get(ty.fnParamType(i)).?;
+                    try code.append(param_type_id);
+                }
+            },
             .Null,
             .Undefined,
             .EnumLiteral,
@@ -139,23 +176,21 @@ pub const DeclGen = struct {
 
             .BoundFn => unreachable, // this type will be deleted from the language.
 
-            else => |tag| return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement type with tag {}", .{ tag }),
+            else => |tag| return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement type {}", .{ tag }),
         }
 
-        try self.types.put(t, result);
-        return result;
+        try self.types.put(ty, result_id);
+        return result_id;
     }
 
     pub fn gen(self: *DeclGen) !void {
-        const typed_value = self.decl.typed_value.most_recent.typed_value;
+        const tv = self.decl.typed_value.most_recent.typed_value;
 
-        switch (typed_value.ty.zigTypeTag()) {
-            .Fn => {
-                log.debug("Generating code for function '{s}'", .{ std.mem.spanZ(self.decl.name) });
-
-                _ = try self.getOrGenType(typed_value.ty.fnReturnType());
-            },
-            else => |tag| return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: generate decl with tag {}", .{ tag }),
+        if (tv.val.castTag(.function)) |func_payload| {
+            std.debug.assert(tv.ty.zigTypeTag() == .Fn);
+            _ = try self.getOrGenType(tv.ty);
+        } else {
+            return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: generate decl type {}", .{ tv.ty.zigTypeTag() });
         }
     }
 };
