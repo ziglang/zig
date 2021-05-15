@@ -31,7 +31,7 @@ pub const SPIRVModule = struct {
 
     pub fn init(allocator: *Allocator) SPIRVModule {
         return .{
-            .next_result_id = 0,
+            .next_result_id = 1, // 0 is an invalid SPIR-V result ID.
             .types_and_globals = std.ArrayList(u32).init(allocator),
             .fn_decls = std.ArrayList(u32).init(allocator),
         };
@@ -146,17 +146,14 @@ pub const DeclGen = struct {
                     16 => Target.spirv.featureSetHas(target.cpu.features, .Float16),
                     32 => true,
                     64 => Target.spirv.featureSetHas(target.cpu.features, .Float64),
-                    else => false
+                    else => false,
                 };
 
                 if (!supported) {
                     return self.fail(.{.node_offset = 0}, "Floating point width of {} bits is not supported for the current SPIR-V feature set", .{ bits });
                 }
 
-                try writeInstruction(code, .OpTypeFloat, &.{
-                    result_id,
-                    bits
-                });
+                try writeInstruction(code, .OpTypeFloat, &[_]u32{ result_id, bits });
             },
             .Fn => {
                 // We only support zig-calling-convention functions, no varargs.
@@ -195,7 +192,7 @@ pub const DeclGen = struct {
 
             .BoundFn => unreachable, // this type will be deleted from the language.
 
-            else => |tag| return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement type {}", .{ tag }),
+            else => |tag| return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement type {}", .{ tag }),
         }
 
         try self.types.put(ty, result_id);
@@ -203,11 +200,23 @@ pub const DeclGen = struct {
     }
 
     pub fn gen(self: *DeclGen) !void {
+        const result_id = self.decl.fn_link.spirv.id;
         const tv = self.decl.typed_value.most_recent.typed_value;
 
         if (tv.val.castTag(.function)) |func_payload| {
             std.debug.assert(tv.ty.zigTypeTag() == .Fn);
-            _ = try self.getOrGenType(tv.ty);
+            const prototype_id = try self.getOrGenType(tv.ty);
+            try writeInstruction(&self.spv.fn_decls, .OpFunction, &[_]u32{
+                self.types.get(tv.ty.fnReturnType()).?, // This type should be generated along with the prototype.
+                result_id,
+                @bitCast(u32, spec.FunctionControl{}), // TODO: We can set inline here if the type requires it.
+                prototype_id,
+            });
+
+            // TODO: Parameters
+            // TODO: Body
+
+            try writeInstruction(&self.spv.fn_decls, .OpFunctionEnd, &[_]u32{});
         } else {
             return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: generate decl type {}", .{ tv.ty.zigTypeTag() });
         }
