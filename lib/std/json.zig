@@ -1708,6 +1708,9 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
 }
 
 pub fn parse(comptime T: type, tokens: *TokenStream, options: ParseOptions) !T {
+    if (comptime std.meta.trait.hasFn("jsonParse")(T)) {
+        return T.jsonParse(tokens, options);
+    }
     const token = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
     return parseInternal(T, token, tokens, options);
 }
@@ -2014,12 +2017,12 @@ test "parse into struct with duplicate field" {
     const ballast = try testing.allocator.alloc(u64, 1);
     defer testing.allocator.free(ballast);
 
-    const options_first = ParseOptions{ 
+    const options_first = ParseOptions{
         .allocator = testing.allocator,
-        .duplicate_field_behavior = .UseFirst
+        .duplicate_field_behavior = .UseFirst,
     };
 
-    const options_last = ParseOptions{ 
+    const options_last = ParseOptions{
         .allocator = testing.allocator,
         .duplicate_field_behavior = .UseLast,
     };
@@ -2041,6 +2044,25 @@ test "parse into struct with duplicate field" {
     try testing.expectEqual(t3, try parse(T3, &TokenStream.init(str), options_first));
     // .UseLast should fail because second "a" value is 0.25 which is not equal to default value of 1.0
     try testing.expectError(error.UnexpectedValue, parse(T3, &TokenStream.init(str), options_last));
+}
+
+test "parse struct with custom parser" {
+    const T = struct {
+        const Self = @This();
+        a: bool,
+        b: u64,
+
+        pub fn jsonParse(tokens: *TokenStream, options: ParseOptions) !Self {
+            return Self{
+                .a = true,
+                .b = try parse(u64, tokens, options),
+            };
+        }
+    };
+
+    const r = try parse(T, &TokenStream.init("42"), .{});
+    try testing.expect(r.a);
+    try testing.expectEqual(@as(u64, 42), r.b);
 }
 
 /// A non-stream JSON parser which constructs a tree of Value's.
@@ -2627,6 +2649,9 @@ pub fn stringify(
     out_stream: anytype,
 ) @TypeOf(out_stream).Error!void {
     const T = @TypeOf(value);
+    if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
+        return value.jsonStringify(options, out_stream);
+    }
     switch (@typeInfo(T)) {
         .Float, .ComptimeFloat => {
             return std.fmt.formatFloatScientific(value, std.fmt.FormatOptions{}, out_stream);
@@ -2648,17 +2673,9 @@ pub fn stringify(
             }
         },
         .Enum => {
-            if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
-                return value.jsonStringify(options, out_stream);
-            }
-
             @compileError("Unable to stringify enum '" ++ @typeName(T) ++ "'");
         },
         .Union => {
-            if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
-                return value.jsonStringify(options, out_stream);
-            }
-
             const info = @typeInfo(T).Union;
             if (info.tag_type) |UnionTagType| {
                 inline for (info.fields) |u_field| {
@@ -2671,10 +2688,6 @@ pub fn stringify(
             }
         },
         .Struct => |S| {
-            if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
-                return value.jsonStringify(options, out_stream);
-            }
-
             try out_stream.writeByte('{');
             comptime var field_output = false;
             var child_options = options;
