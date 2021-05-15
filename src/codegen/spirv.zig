@@ -143,6 +143,13 @@ pub const DeclGen = struct {
             32;
     }
 
+    /// Checks whether the type is "composite int", an integer consisting of multiple native integers. These are represented by
+    /// arrays of largestSupportedIntBits().
+    /// Asserts `ty` is an integer.
+    fn isCompositeInt(self: *DeclGen, ty: Type) bool {
+        return self.backingIntBits(ty) == null;
+    }
+
     /// Generate a constant representing `val`.
     /// TODO: Deduplication?
     fn genConstant(self: *DeclGen, ty: Type, val: Value) Error!u32 {
@@ -159,6 +166,37 @@ pub const DeclGen = struct {
             .Bool => {
                 const opcode: spec.Opcode = if (val.toBool()) .OpConstantTrue else .OpConstantFalse;
                 try writeInstruction(code, opcode, &[_]u32{ result_type_id, result_id });
+            },
+            .Float => {
+                // At this point we are guaranteed that the target floating point type is supported, otherwise the function
+                // would have exited at getOrGenType(ty).
+
+                // f16 and f32 require one word of storage. f64 requires 2, low-order first.
+
+                switch (val.tag()) {
+                    .float_16 => try writeInstruction(code, .OpConstant, &[_]u32{
+                        result_type_id,
+                        result_id,
+                        @bitCast(u16, val.castTag(.float_16).?.data)
+                    }),
+                    .float_32 => try writeInstruction(code, .OpConstant, &[_]u32{
+                        result_type_id,
+                        result_id,
+                        @bitCast(u32, val.castTag(.float_32).?.data)
+                    }),
+                    .float_64 => {
+                        const float_bits = @bitCast(u64, val.castTag(.float_64).?.data);
+                        try writeInstruction(code, .OpConstant, &[_]u32{
+                            result_type_id,
+                            result_id,
+                            @truncate(u32, float_bits),
+                            @truncate(u32, float_bits >> 32),
+                        });
+                    },
+                    .float_128 => unreachable, // Filtered out in the call to getOrGenType.
+                    // TODO: What tags do we need to handle here anyway?
+                    else => return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: float constant generation of value {s}\n", .{ val.tag() }),
+                }
             },
             else => return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: constant generation of type {s}\n", .{ ty.zigTypeTag() }),
         }
@@ -180,8 +218,10 @@ pub const DeclGen = struct {
             .Void => try writeInstruction(code, .OpTypeVoid, &[_]u32{ result_id }),
             .Bool => try writeInstruction(code, .OpTypeBool, &[_]u32{ result_id }),
             .Int => {
-                const backing_bits = self.backingIntBits(ty) orelse
-                    return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement fallback for {}", .{ ty });
+                const backing_bits = self.backingIntBits(ty) orelse {
+                    // Integers too big for any native type are represented as "composite integers": An array of largestSupportedIntBits.
+                    return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement composite ints {}", .{ ty });
+                };
 
                 // TODO: If backing_bits != int_info.bits, a duplicate type might be generated here.
                 try writeInstruction(code, .OpTypeInt, &[_]u32{
@@ -238,7 +278,7 @@ pub const DeclGen = struct {
                 // Although not 100% the same, Zig vectors map quite neatly to SPIR-V vectors (including many integer and float operations
                 // which work on them), so simply use those.
                 // Note: SPIR-V vectors only support bools, ints and floats, so pointer vectors need to be supported another way.
-                // "big integers" (larger than the largest supported native type) can probably be represented by an array of vectors.
+                // "composite integers" (larger than the largest supported native type) can probably be represented by an array of vectors.
 
                 // TODO: Vectors are not yet supported by the self-hosted compiler itself it seems.
                 return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement type Vector", .{});
@@ -310,7 +350,6 @@ pub const DeclGen = struct {
             // TODO: Breakpoints won't be supported in SPIR-V, but the compiler seems to insert them
             // throughout the IR.
             .breakpoint => null,
-            // TODO: What does this entail?
             .dbg_stmt => null,
             .ret => self.genRet(inst.castTag(.ret).?),
             .retvoid => self.genRetVoid(),
