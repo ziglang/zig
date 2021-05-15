@@ -1,16 +1,19 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const log = std.log.scoped(.codegen);
-
 const Target = std.Target;
+const log = std.log.scoped(.codegen);
 
 const spec = @import("spirv/spec.zig");
 const Module = @import("../Module.zig");
 const Decl = Module.Decl;
 const Type = @import("../type.zig").Type;
+const Value = @import("../value.zig").Value;
 const LazySrcLoc = Module.LazySrcLoc;
+const ir = @import("../ir.zig");
+const Inst = ir.Inst;
 
 pub const TypeMap = std.HashMap(Type, u32, Type.hash, Type.eql, std.hash_map.default_max_load_percentage);
+pub const ValueMap = std.AutoHashMap(*Inst, u32);
 
 pub fn writeOpcode(code: *std.ArrayList(u32), opcode: spec.Opcode, arg_count: u32) !void {
     const word_count = arg_count + 1;
@@ -26,19 +29,19 @@ pub fn writeInstruction(code: *std.ArrayList(u32), opcode: spec.Opcode, args: []
 /// such as code for the different logical sections, and the next result-id.
 pub const SPIRVModule = struct {
     next_result_id: u32,
-    types_and_globals: std.ArrayList(u32),
+    types_globals_constants: std.ArrayList(u32),
     fn_decls: std.ArrayList(u32),
 
     pub fn init(allocator: *Allocator) SPIRVModule {
         return .{
             .next_result_id = 1, // 0 is an invalid SPIR-V result ID.
-            .types_and_globals = std.ArrayList(u32).init(allocator),
+            .types_globals_constants = std.ArrayList(u32).init(allocator),
             .fn_decls = std.ArrayList(u32).init(allocator),
         };
     }
 
     pub fn deinit(self: *SPIRVModule) void {
-        self.types_and_globals.deinit();
+        self.types_globals_constants.deinit();
         self.fn_decls.deinit();
     }
 
@@ -58,7 +61,10 @@ pub const DeclGen = struct {
     spv: *SPIRVModule,
 
     args: std.ArrayList(u32),
+    next_arg_index: u32,
+
     types: TypeMap,
+    values: ValueMap,
 
     decl: *Decl,
     error_msg: ?*Module.ErrorMsg,
@@ -75,6 +81,14 @@ pub const DeclGen = struct {
         return error.AnalysisFail;
     }
 
+    fn resolve(self: *DeclGen, inst: *Inst) !u32 {
+        if (inst.value()) |val| {
+            return self.genConstant(inst.ty, val);
+        }
+
+        return self.values.get(inst).?; // Instruction does not dominate all uses!
+    }
+
     /// SPIR-V requires enabling specific integer sizes through capabilities, and so if they are not enabled, we need
     /// to emulate them in other instructions/types. This function returns, given an integer bit width (signed or unsigned, sign
     /// included), the width of the underlying type which represents it, given the enabled features for the current target.
@@ -82,13 +96,16 @@ pub const DeclGen = struct {
     /// that size. In this case, multiple elements of the largest type should be used.
     /// The backing type will be chosen as the smallest supported integer larger or equal to it in number of bits.
     /// The result is valid to be used with OpTypeInt.
+    /// asserts `ty` is an integer.
     /// TODO: The extension SPV_INTEL_arbitrary_precision_integers allows any integer size (at least up to 32 bits).
     /// TODO: This probably needs an ABI-version as well (especially in combination with SPV_INTEL_arbitrary_precision_integers).
-    fn backingIntBits(self: *DeclGen, bits: u32) ?u32 {
-        // TODO: Figure out what to do with u0/i0.
-        std.debug.assert(bits != 0);
-
+    /// TODO: Should the result of this function be cached?
+    fn backingIntBits(self: *DeclGen, ty: Type) ?u32 {
         const target = self.module.getTarget();
+        const int_info = ty.intInfo(target);
+
+        // TODO: Figure out what to do with u0/i0.
+        std.debug.assert(int_info.bits != 0);
 
         // 8, 16 and 64-bit integers require the Int8, Int16 and Inr64 capabilities respectively.
         const ints = [_]struct{ bits: u32, feature: ?Target.spirv.Feature } {
@@ -104,12 +121,49 @@ pub const DeclGen = struct {
             else
                 true;
 
-            if (bits <= int.bits and has_feature) {
+            if (int_info.bits <= int.bits and has_feature) {
                 return int.bits;
             }
         }
 
         return null;
+    }
+
+    /// Return the amount of bits in the largest supported integer type. This is either 32 (always supported), or 64 (if
+    /// the Int64 capability is enabled).
+    /// Note: The extension SPV_INTEL_arbitrary_precision_integers allows any integer size (at least up to 32 bits).
+    /// In theory that could also be used, but since the spec says that it only guarantees support up to 32-bit ints there
+    /// is no way of knowing whether those are actually supported.
+    /// TODO: Maybe this should be cached?
+    fn largestSupportedIntBits(self: *DeclGen) u32 {
+        const target = self.module.getTarget();
+        return if (Target.spirv.featureSetHas(target.cpu.features, .Int64))
+            64
+        else
+            32;
+    }
+
+    /// Generate a constant representing `val`.
+    /// TODO: Deduplication?
+    fn genConstant(self: *DeclGen, ty: Type, val: Value) Error!u32 {
+        const code = &self.spv.types_globals_constants;
+        const result_id = self.spv.allocResultId();
+        const result_type_id = try self.getOrGenType(ty);
+
+        if (val.isUndef()) {
+            try writeInstruction(code, .OpUndef, &[_]u32{ result_type_id, result_id });
+            return result_id;
+        }
+
+        switch (ty.zigTypeTag()) {
+            .Bool => {
+                const opcode: spec.Opcode = if (val.toBool()) .OpConstantTrue else .OpConstantFalse;
+                try writeInstruction(code, opcode, &[_]u32{ result_type_id, result_id });
+            },
+            else => return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: constant generation of type {s}\n", .{ ty.zigTypeTag() }),
+        }
+
+        return result_id;
     }
 
     fn getOrGenType(self: *DeclGen, ty: Type) Error!u32 {
@@ -119,24 +173,21 @@ pub const DeclGen = struct {
         }
 
         const target = self.module.getTarget();
-        const code = &self.spv.types_and_globals;
+        const code = &self.spv.types_globals_constants;
         const result_id = self.spv.allocResultId();
 
         switch (ty.zigTypeTag()) {
             .Void => try writeInstruction(code, .OpTypeVoid, &[_]u32{ result_id }),
             .Bool => try writeInstruction(code, .OpTypeBool, &[_]u32{ result_id }),
             .Int => {
-                const int_info = ty.intInfo(self.module.getTarget());
-                const backing_bits = self.backingIntBits(int_info.bits) orelse
+                const backing_bits = self.backingIntBits(ty) orelse
                     return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement fallback for {}", .{ ty });
 
+                // TODO: If backing_bits != int_info.bits, a duplicate type might be generated here.
                 try writeInstruction(code, .OpTypeInt, &[_]u32{
                     result_id,
                     backing_bits,
-                    switch (int_info.signedness) {
-                        .unsigned => 0,
-                        .signed => 1,
-                    },
+                    @boolToInt(ty.isSignedInt()),
                 });
             },
             .Float => {
@@ -183,6 +234,15 @@ pub const DeclGen = struct {
                     try code.append(param_type_id);
                 }
             },
+            .Vector => {
+                // Although not 100% the same, Zig vectors map quite neatly to SPIR-V vectors (including many integer and float operations
+                // which work on them), so simply use those.
+                // Note: SPIR-V vectors only support bools, ints and floats, so pointer vectors need to be supported another way.
+                // "big integers" (larger than the largest supported native type) can probably be represented by an array of vectors.
+
+                // TODO: Vectors are not yet supported by the self-hosted compiler itself it seems.
+                return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement type Vector", .{});
+            },
             .Null,
             .Undefined,
             .EnumLiteral,
@@ -193,10 +253,10 @@ pub const DeclGen = struct {
 
             .BoundFn => unreachable, // this type will be deleted from the language.
 
-            else => |tag| return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement type {}", .{ tag }),
+            else => |tag| return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement type {}s", .{ tag }),
         }
 
-        try self.types.put(ty, result_id);
+        try self.types.putNoClobber(ty, result_id);
         return result_id;
     }
 
@@ -225,11 +285,61 @@ pub const DeclGen = struct {
                 self.args.appendAssumeCapacity(arg_result_id);
             }
 
-            // TODO: Body
+            // TODO: This could probably be done in a better way...
+            const root_block_id = self.spv.allocResultId();
+            _ = try writeInstruction(&self.spv.fn_decls, .OpLabel, &[_]u32{root_block_id});
+            try self.genBody(func_payload.data.body);
 
             try writeInstruction(&self.spv.fn_decls, .OpFunctionEnd, &[_]u32{});
         } else {
             return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: generate decl type {}", .{ tv.ty.zigTypeTag() });
         }
+    }
+
+    fn genBody(self: *DeclGen, body: ir.Body) !void {
+        for (body.instructions) |inst| {
+            const maybe_result_id = try self.genInst(inst);
+            if (maybe_result_id) |result_id|
+                try self.values.putNoClobber(inst, result_id);
+        }
+    }
+
+    fn genInst(self: *DeclGen, inst: *Inst) !?u32 {
+        return switch (inst.tag) {
+            .arg => self.genArg(),
+            // TODO: Breakpoints won't be supported in SPIR-V, but the compiler seems to insert them
+            // throughout the IR.
+            .breakpoint => null,
+            // TODO: What does this entail?
+            .dbg_stmt => null,
+            .ret => self.genRet(inst.castTag(.ret).?),
+            .retvoid => self.genRetVoid(),
+            .unreach => self.genUnreach(),
+            else => self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement inst {}", .{inst.tag}),
+        };
+    }
+
+    fn genArg(self: *DeclGen) u32 {
+        defer self.next_arg_index += 1;
+        return self.args.items[self.next_arg_index];
+    }
+
+    fn genRet(self: *DeclGen, inst: *Inst.UnOp) !?u32 {
+        const operand_id = try self.resolve(inst.operand);
+        // TODO: This instruction needs to be the last in a block. Is that guaranteed?
+        try writeInstruction(&self.spv.fn_decls, .OpReturnValue, &[_]u32{ operand_id });
+        return null;
+    }
+
+    fn genRetVoid(self: *DeclGen) !?u32 {
+        // TODO: This instruction needs to be the last in a block. Is that guaranteed?
+        try writeInstruction(&self.spv.fn_decls, .OpReturn, &[_]u32{});
+        return null;
+    }
+
+    fn genUnreach(self: *DeclGen) !?u32 {
+        // TODO: This instruction needs to be the last in a block. Is that guaranteed?
+        try writeInstruction(&self.spv.fn_decls, .OpUnreachable, &[_]u32{});
+        return null;
     }
 };

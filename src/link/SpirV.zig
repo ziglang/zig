@@ -146,11 +146,14 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
             .module = module,
             .spv = &spv,
             .args = std.ArrayList(u32).init(self.base.allocator),
+            .next_arg_index = undefined,
             .types = codegen.TypeMap.init(self.base.allocator),
+            .values = codegen.ValueMap.init(self.base.allocator),
             .decl = undefined,
             .error_msg = undefined,
         };
 
+        defer decl_gen.values.deinit();
         defer decl_gen.types.deinit();
         defer decl_gen.args.deinit();
 
@@ -160,6 +163,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
                 continue;
 
             decl_gen.args.items.len = 0;
+            decl_gen.next_arg_index = 0;
             decl_gen.decl = decl;
             decl_gen.error_msg = null;
 
@@ -191,7 +195,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     // follows the SPIR-V logical module format!
     var all_buffers = [_]std.os.iovec_const{
         wordsToIovConst(binary.items),
-        wordsToIovConst(spv.types_and_globals.items),
+        wordsToIovConst(spv.types_globals_constants.items),
         wordsToIovConst(spv.fn_decls.items),
     };
 
