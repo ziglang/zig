@@ -557,7 +557,14 @@ pub const Context = struct {
                 return self.fail(src, "Integer bit size not supported by wasm: '{d}'", .{info.bits});
             },
             .Bool, .Pointer => wasm.Valtype.i32,
-            else => self.fail(src, "TODO - Wasm valtype for type '{s}'", .{ty.tag()}),
+            .Enum => switch (ty.tag()) {
+                .enum_simple => wasm.Valtype.i32,
+                else => self.typeToValtype(
+                    src,
+                    ty.cast(Type.Payload.EnumFull).?.data.tag_ty,
+                ),
+            },
+            else => self.fail(src, "TODO - Wasm valtype for type '{s}'", .{ty.zigTypeTag()}),
         };
     }
 
@@ -586,7 +593,7 @@ pub const Context = struct {
                 try writer.writeByte(wasm.opcode(.local_get));
                 try leb.writeULEB128(writer, idx);
             },
-            .constant => |inst| try self.emitConstant(inst.castTag(.constant).?), // creates a new constant onto the stack
+            .constant => |inst| try self.emitConstant(inst.src, inst.value().?, inst.ty), // creates a new constant onto the stack
         }
     }
 
@@ -707,14 +714,15 @@ pub const Context = struct {
             .add => self.genBinOp(inst.castTag(.add).?, .add),
             .alloc => self.genAlloc(inst.castTag(.alloc).?),
             .arg => self.genArg(inst.castTag(.arg).?),
+            .bitcast => self.genBitcast(inst.castTag(.bitcast).?),
+            .bit_and => self.genBinOp(inst.castTag(.bit_and).?, .@"and"),
+            .bit_or => self.genBinOp(inst.castTag(.bit_or).?, .@"or"),
             .block => self.genBlock(inst.castTag(.block).?),
+            .bool_and => self.genBinOp(inst.castTag(.bool_and).?, .@"and"),
+            .bool_or => self.genBinOp(inst.castTag(.bool_or).?, .@"or"),
             .breakpoint => self.genBreakpoint(inst.castTag(.breakpoint).?),
             .br => self.genBr(inst.castTag(.br).?),
             .call => self.genCall(inst.castTag(.call).?),
-            .bit_or => self.genBinOp(inst.castTag(.bit_or).?, .@"or"),
-            .bit_and => self.genBinOp(inst.castTag(.bit_and).?, .@"and"),
-            .bool_or => self.genBinOp(inst.castTag(.bool_or).?, .@"or"),
-            .bool_and => self.genBinOp(inst.castTag(.bool_and).?, .@"and"),
             .cmp_eq => self.genCmp(inst.castTag(.cmp_eq).?, .eq),
             .cmp_gte => self.genCmp(inst.castTag(.cmp_gte).?, .gte),
             .cmp_gt => self.genCmp(inst.castTag(.cmp_gt).?, .gt),
@@ -724,18 +732,18 @@ pub const Context = struct {
             .condbr => self.genCondBr(inst.castTag(.condbr).?),
             .constant => unreachable,
             .dbg_stmt => WValue.none,
+            .div => self.genBinOp(inst.castTag(.div).?, .div),
             .load => self.genLoad(inst.castTag(.load).?),
             .loop => self.genLoop(inst.castTag(.loop).?),
             .mul => self.genBinOp(inst.castTag(.mul).?, .mul),
-            .div => self.genBinOp(inst.castTag(.div).?, .div),
-            .xor => self.genBinOp(inst.castTag(.xor).?, .xor),
             .not => self.genNot(inst.castTag(.not).?),
             .ret => self.genRet(inst.castTag(.ret).?),
             .retvoid => WValue.none,
             .store => self.genStore(inst.castTag(.store).?),
             .sub => self.genBinOp(inst.castTag(.sub).?, .sub),
             .unreach => self.genUnreachable(inst.castTag(.unreach).?),
-            else => self.fail(inst.src, "TODO: Implement wasm inst: {s}", .{inst.tag}),
+            .xor => self.genBinOp(inst.castTag(.xor).?, .xor),
+            else => self.fail(.{ .node_offset = 0 }, "TODO: Implement wasm inst: {s}", .{inst.tag}),
         };
     }
 
@@ -830,44 +838,44 @@ pub const Context = struct {
         return .none;
     }
 
-    fn emitConstant(self: *Context, inst: *Inst.Constant) InnerError!void {
+    fn emitConstant(self: *Context, src: LazySrcLoc, value: Value, ty: Type) InnerError!void {
         const writer = self.code.writer();
-        switch (inst.base.ty.zigTypeTag()) {
+        switch (ty.zigTypeTag()) {
             .Int => {
                 // write opcode
                 const opcode: wasm.Opcode = buildOpcode(.{
                     .op = .@"const",
-                    .valtype1 = try self.typeToValtype(inst.base.src, inst.base.ty),
+                    .valtype1 = try self.typeToValtype(src, ty),
                 });
                 try writer.writeByte(wasm.opcode(opcode));
                 // write constant
-                switch (inst.base.ty.intInfo(self.target).signedness) {
-                    .signed => try leb.writeILEB128(writer, inst.val.toSignedInt()),
-                    .unsigned => try leb.writeILEB128(writer, inst.val.toUnsignedInt()),
+                switch (ty.intInfo(self.target).signedness) {
+                    .signed => try leb.writeILEB128(writer, value.toSignedInt()),
+                    .unsigned => try leb.writeILEB128(writer, value.toUnsignedInt()),
                 }
             },
             .Bool => {
                 // write opcode
                 try writer.writeByte(wasm.opcode(.i32_const));
                 // write constant
-                try leb.writeILEB128(writer, inst.val.toSignedInt());
+                try leb.writeILEB128(writer, value.toSignedInt());
             },
             .Float => {
                 // write opcode
                 const opcode: wasm.Opcode = buildOpcode(.{
                     .op = .@"const",
-                    .valtype1 = try self.typeToValtype(inst.base.src, inst.base.ty),
+                    .valtype1 = try self.typeToValtype(src, ty),
                 });
                 try writer.writeByte(wasm.opcode(opcode));
                 // write constant
-                switch (inst.base.ty.floatBits(self.target)) {
-                    0...32 => try writer.writeIntLittle(u32, @bitCast(u32, inst.val.toFloat(f32))),
-                    64 => try writer.writeIntLittle(u64, @bitCast(u64, inst.val.toFloat(f64))),
-                    else => |bits| return self.fail(inst.base.src, "Wasm TODO: emitConstant for float with {d} bits", .{bits}),
+                switch (ty.floatBits(self.target)) {
+                    0...32 => try writer.writeIntLittle(u32, @bitCast(u32, value.toFloat(f32))),
+                    64 => try writer.writeIntLittle(u64, @bitCast(u64, value.toFloat(f64))),
+                    else => |bits| return self.fail(src, "Wasm TODO: emitConstant for float with {d} bits", .{bits}),
                 }
             },
             .Pointer => {
-                if (inst.val.castTag(.decl_ref)) |payload| {
+                if (value.castTag(.decl_ref)) |payload| {
                     const decl = payload.data;
 
                     // offset into the offset table within the 'data' section
@@ -880,10 +888,32 @@ pub const Context = struct {
                     try writer.writeByte(wasm.opcode(.i32_load));
                     try leb.writeULEB128(writer, @as(u32, 0));
                     try leb.writeULEB128(writer, @as(u32, 0));
-                } else return self.fail(inst.base.src, "Wasm TODO: emitConstant for other const pointer tag {s}", .{inst.val.tag()});
+                } else return self.fail(src, "Wasm TODO: emitConstant for other const pointer tag {s}", .{value.tag()});
             },
             .Void => {},
-            else => |ty| return self.fail(inst.base.src, "Wasm TODO: emitConstant for zigTypeTag {s}", .{ty}),
+            .Enum => {
+                if (value.castTag(.enum_field_index)) |field_index| {
+                    switch (ty.tag()) {
+                        .enum_simple => {
+                            try writer.writeByte(wasm.opcode(.i32_const));
+                            try leb.writeULEB128(writer, field_index.data);
+                        },
+                        .enum_full, .enum_nonexhaustive => {
+                            const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
+                            if (enum_full.values.count() != 0) {
+                                const tag_val = enum_full.values.entries.items[field_index.data].key;
+                                try self.emitConstant(src, tag_val, enum_full.tag_ty);
+                            }
+                        },
+                        else => unreachable,
+                    }
+                } else {
+                    var int_tag_buffer: Type.Payload.Bits = undefined;
+                    const int_tag_ty = ty.intTagType(&int_tag_buffer);
+                    try self.emitConstant(src, value, int_tag_ty);
+                }
+            },
+            else => |zig_type| return self.fail(src, "Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
         }
     }
 
@@ -984,6 +1014,13 @@ pub const Context = struct {
         try self.emitWValue(lhs);
         try self.emitWValue(rhs);
 
+        const signedness: std.builtin.Signedness = blk: {
+            // by default we tell the operand type is unsigned (i.e. bools and enum values)
+            if (inst.lhs.ty.zigTypeTag() != .Int) break :blk .unsigned;
+
+            // incase of an actual integer, we emit the correct signedness
+            break :blk inst.lhs.ty.intInfo(self.target).signedness;
+        };
         const opcode: wasm.Opcode = buildOpcode(.{
             .valtype1 = try self.typeToValtype(inst.base.src, inst.lhs.ty),
             .op = switch (op) {
@@ -994,7 +1031,7 @@ pub const Context = struct {
                 .gte => .ge,
                 .gt => .gt,
             },
-            .signedness = inst.lhs.ty.intInfo(self.target).signedness,
+            .signedness = signedness,
         });
         try self.code.append(wasm.opcode(opcode));
         return WValue{ .code_offset = offset };
@@ -1044,5 +1081,9 @@ pub const Context = struct {
     fn genUnreachable(self: *Context, unreach: *Inst.NoOp) InnerError!WValue {
         try self.code.append(wasm.opcode(.@"unreachable"));
         return .none;
+    }
+
+    fn genBitcast(self: *Context, bitcast: *Inst.UnOp) InnerError!WValue {
+        return self.resolveInst(bitcast.operand);
     }
 };
