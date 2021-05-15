@@ -758,6 +758,7 @@ pub const Context = struct {
         // TODO: Implement tail calls
         const operand = self.resolveInst(inst.operand);
         try self.emitWValue(operand);
+        try self.code.append(wasm.opcode(.@"return"));
         return .none;
     }
 
@@ -903,6 +904,9 @@ pub const Context = struct {
                             if (enum_full.values.count() != 0) {
                                 const tag_val = enum_full.values.entries.items[field_index.data].key;
                                 try self.emitConstant(src, tag_val, enum_full.tag_ty);
+                            } else {
+                                try writer.writeByte(wasm.opcode(.i32_const));
+                                try leb.writeULEB128(writer, field_index.data);
                             }
                         },
                         else => unreachable,
