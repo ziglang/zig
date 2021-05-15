@@ -1661,7 +1661,8 @@ fn zirCompileLog(
     const writer = managed.writer();
 
     const extra = sema.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
-    const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+    const src_node = extra.data.src_node;
+    const src: LazySrcLoc = .{ .node_offset = src_node };
     const args = sema.code.refSlice(extra.end, extended.small);
 
     for (args) |arg_ref, i| {
@@ -1678,7 +1679,7 @@ fn zirCompileLog(
 
     const gop = try sema.mod.compile_log_decls.getOrPut(sema.gpa, sema.owner_decl);
     if (!gop.found_existing) {
-        gop.entry.value = src.toSrcLoc(&block.base);
+        gop.entry.value = src_node;
     }
     return sema.mod.constInst(sema.arena, src, .{
         .ty = Type.initTag(.void),

@@ -1810,8 +1810,9 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
         const compile_log_items = module.compile_log_decls.items();
         if (errors.items.len == 0 and compile_log_items.len != 0) {
             // First one will be the error; subsequent ones will be notes.
+            const src_loc = compile_log_items[0].key.nodeOffsetSrcLoc(compile_log_items[0].value);
             const err_msg = Module.ErrorMsg{
-                .src_loc = compile_log_items[0].value,
+                .src_loc = src_loc,
                 .msg = "found compile log statement",
                 .notes = try self.gpa.alloc(Module.ErrorMsg, compile_log_items.len - 1),
             };
@@ -1819,7 +1820,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
 
             for (compile_log_items[1..]) |entry, i| {
                 err_msg.notes[i] = .{
-                    .src_loc = entry.value,
+                    .src_loc = entry.key.nodeOffsetSrcLoc(entry.value),
                     .msg = "also here",
                 };
             }

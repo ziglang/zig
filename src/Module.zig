@@ -64,7 +64,8 @@ import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 /// a Decl can have a failed_decls entry but have analysis status of success.
 failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ErrorMsg) = .{},
 /// Keep track of one `@compileLog` callsite per owner Decl.
-compile_log_decls: std.AutoArrayHashMapUnmanaged(*Decl, SrcLoc) = .{},
+/// The value is the AST node index offset from the Decl.
+compile_log_decls: std.AutoArrayHashMapUnmanaged(*Decl, i32) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Scope.File`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*Scope.File, ?*ErrorMsg) = .{},
@@ -407,10 +408,14 @@ pub const Decl = struct {
     }
 
     pub fn srcLoc(decl: Decl) SrcLoc {
+        return decl.nodeOffsetSrcLoc(0);
+    }
+
+    pub fn nodeOffsetSrcLoc(decl: Decl, node_offset: i32) SrcLoc {
         return .{
             .file_scope = decl.getFileScope(),
             .parent_decl_node = decl.src_node,
-            .lazy = .{ .node_offset = 0 },
+            .lazy = .{ .node_offset = node_offset },
         };
     }
 
