@@ -306,6 +306,7 @@ const RED = "\x1b[31;1m";
 const GREEN = "\x1b[32;1m";
 const CYAN = "\x1b[36;1m";
 const WHITE = "\x1b[37;1m";
+const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
@@ -476,8 +477,9 @@ pub const TTY = struct {
                     .Red => out_stream.writeAll(RED) catch return,
                     .Green => out_stream.writeAll(GREEN) catch return,
                     .Cyan => out_stream.writeAll(CYAN) catch return,
-                    .White, .Bold => out_stream.writeAll(WHITE) catch return,
+                    .White => out_stream.writeAll(WHITE) catch return,
                     .Dim => out_stream.writeAll(DIM) catch return,
+                    .Bold => out_stream.writeAll(BOLD) catch return,
                     .Reset => out_stream.writeAll(RESET) catch return,
                 },
                 .windows_api => if (builtin.os.tag == .windows) {
@@ -629,7 +631,7 @@ fn printLineInfo(
     comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
-        tty_config.setColor(out_stream, .White);
+        tty_config.setColor(out_stream, .Bold);
 
         if (line_info) |*li| {
             try out_stream.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
