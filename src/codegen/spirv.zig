@@ -84,6 +84,9 @@ pub const DeclGen = struct {
     const ArithmeticTypeInfo = struct {
         /// A classification of the inner type.
         const Class = enum {
+            /// A boolean.
+            bool,
+
             /// A regular, **native**, integer.
             /// This is only returned when the backend supports this int as a native type (when
             /// the relevant capability is enabled).
@@ -196,6 +199,12 @@ pub const DeclGen = struct {
         const target = self.module.getTarget();
 
         return switch (ty.zigTypeTag()) {
+            .Bool => ArithmeticTypeInfo{
+                .bits = 1, // Doesn't matter for this class.
+                .is_vector = false,
+                .signedness = .unsigned, // Technically, but doesn't matter for this class.
+                .class = .bool,
+            },
             .Float => ArithmeticTypeInfo{
                 .bits = ty.floatBits(target),
                 .is_vector = false,
@@ -436,6 +445,12 @@ pub const DeclGen = struct {
             .bit_and => try self.genBinOp(inst.castTag(.bit_and).?),
             .bit_or => try self.genBinOp(inst.castTag(.bit_or).?),
             .xor => try self.genBinOp(inst.castTag(.xor).?),
+            .cmp_eq => try self.genBinOp(inst.castTag(.cmp_eq).?),
+            .cmp_neq => try self.genBinOp(inst.castTag(.cmp_neq).?),
+            .cmp_gt => try self.genBinOp(inst.castTag(.cmp_gt).?),
+            .cmp_gte => try self.genBinOp(inst.castTag(.cmp_gte).?),
+            .cmp_lt => try self.genBinOp(inst.castTag(.cmp_lt).?),
+            .cmp_lte => try self.genBinOp(inst.castTag(.cmp_lte).?),
             .arg => self.genArg(),
             // TODO: Breakpoints won't be supported in SPIR-V, but the compiler seems to insert them
             // throughout the IR.
@@ -458,18 +473,23 @@ pub const DeclGen = struct {
 
         // TODO: Is the result the same as the argument types?
         // This is supposed to be the case for SPIR-V.
-        std.debug.assert(inst.base.ty.eql(inst.lhs.ty) and inst.base.ty.eql(inst.rhs.ty));
+        std.debug.assert(inst.rhs.ty.eql(inst.lhs.ty));
+        std.debug.assert(inst.base.ty.tag() == .bool or inst.base.ty.eql(inst.lhs.ty));
 
         // Binary operations are generally applicable to both scalar and vector operations in SPIR-V, but int and float
         // versions of operations require different opcodes.
-        const info = try self.arithmeticTypeInfo(inst.base.ty);
+        // For operations which produce bools, the information of inst.base.ty is not useful, so just pick either operand
+        // instead.
+        const info = try self.arithmeticTypeInfo(inst.lhs.ty);
 
         if (info.class == .composite_integer)
             return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: binary operations for composite integers", .{});
 
+        const is_bool = info.class == .bool;
         const is_float = info.class == .float;
         const is_signed = info.signedness == .signed;
-        // **Note**: All these operations must be valid for vectors of floats and integers as well!
+        // **Note**: All these operations must be valid for vectors of floats, integers and bools as well!
+        // For floating points, we generally want ordered operations (which return false if either operand is nan).
         const opcode = switch (inst.base.tag) {
             // The regular integer operations are all defined for wrapping. Since theyre only relevant for integers,
             // we can just switch on both cases here.
@@ -478,11 +498,24 @@ pub const DeclGen = struct {
             .mul, .mulwrap => if (is_float) Opcode.OpFMul else Opcode.OpIMul,
             // TODO: Trap if divisor is 0?
             // TODO: Figure out of OpSDiv for unsigned/OpUDiv for signed does anything useful.
+            //  => Those are probably for divTrunc and divFloor, though the compiler does not yet generate those.
+            //  => TODO: Figure out how those work on the SPIR-V side.
+            //  => TODO: Test these.
             .div => if (is_float) Opcode.OpFDiv else if (is_signed) Opcode.OpSDiv else Opcode.OpUDiv,
             // Only integer versions for these.
             .bit_and => Opcode.OpBitwiseAnd,
             .bit_or => Opcode.OpBitwiseOr,
             .xor => Opcode.OpBitwiseXor,
+            // Int/bool/float -> bool operations.
+            .cmp_eq => if (is_float) Opcode.OpFOrdEqual else if (is_bool) Opcode.OpLogicalEqual else Opcode.OpIEqual,
+            .cmp_neq => if (is_float) Opcode.OpFOrdNotEqual else if (is_bool) Opcode.OpLogicalNotEqual else Opcode.OpINotEqual,
+            // Int/float -> bool operations.
+            // TODO: Verify that these OpFOrd type operations produce the right value.
+            // TODO: Is there a more fundamental difference between OpU and OpS operations here than just the type?
+            .cmp_gt => if (is_float) Opcode.OpFOrdGreaterThan else if (is_signed) Opcode.OpSGreaterThan else Opcode.OpUGreaterThan,
+            .cmp_gte => if (is_float) Opcode.OpFOrdGreaterThanEqual else if (is_signed) Opcode.OpSGreaterThanEqual else Opcode.OpUGreaterThanEqual,
+            .cmp_lt => if (is_float) Opcode.OpFOrdLessThan else if (is_signed) Opcode.OpSLessThan else Opcode.OpULessThan,
+            .cmp_lte => if (is_float) Opcode.OpFOrdLessThanEqual else if (is_signed) Opcode.OpSLessThanEqual else Opcode.OpULessThanEqual,
             else => unreachable,
         };
 
