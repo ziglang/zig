@@ -20,7 +20,7 @@ pub fn Interval(comptime T: type) type {
             closed: T,
             open: T,
 
-            pub fn n(self: Endpoint) ?T {
+            fn n(self: Endpoint) ?T {
                 return switch (self) {
                     .infinity => null,
                     .closed => |x| x,
