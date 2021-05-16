@@ -362,8 +362,8 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
     self.base.file = file;
 
-    // Create dSYM bundle.
     if (!options.strip and options.module != null) {
+        // Create dSYM bundle.
         const dir = options.module.?.zig_cache_artifact_directory;
         log.debug("creating {s}.dSYM bundle in {s}", .{ sub_path, dir.path });
 
@@ -1228,7 +1228,11 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             self.shrinkTextBlock(&decl.link.macho, code.len);
         }
         decl.link.macho.size = code.len;
-        symbol.n_strx = try self.updateString(symbol.n_strx, mem.spanZ(decl.name));
+
+        const new_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{mem.spanZ(decl.name)});
+        defer self.base.allocator.free(new_name);
+
+        symbol.n_strx = try self.updateString(symbol.n_strx, new_name);
         symbol.n_type = macho.N_SECT;
         symbol.n_sect = @intCast(u8, self.text_section_index.?) + 1;
         symbol.n_desc = 0;
@@ -1237,7 +1241,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         if (self.d_sym) |*ds|
             try ds.writeLocalSymbol(decl.link.macho.local_sym_index);
     } else {
-        const decl_name = mem.spanZ(decl.name);
+        const decl_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{mem.spanZ(decl.name)});
+        defer self.base.allocator.free(decl_name);
+
         const name_str_index = try self.makeString(decl_name);
         const addr = try self.allocateTextBlock(&decl.link.macho, code.len, required_alignment);
 
@@ -1376,6 +1382,9 @@ pub fn updateDeclExports(
     const decl_sym = &self.locals.items[decl.link.macho.local_sym_index];
 
     for (exports) |exp| {
+        const exp_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{exp.options.name});
+        defer self.base.allocator.free(exp_name);
+
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, "__text")) {
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
@@ -1403,7 +1412,7 @@ pub fn updateDeclExports(
                 // Otherwise, don't do anything since we already have all the flags
                 // set that we need for global (strong) linkage.
                 // n_type == N_SECT | N_EXT
-                if (mem.eql(u8, exp.options.name, "_main")) {
+                if (mem.eql(u8, exp_name, "_main")) {
                     self.entry_addr = decl_sym.n_value;
                 }
             },
@@ -1425,14 +1434,14 @@ pub fn updateDeclExports(
         if (exp.link.macho.sym_index) |i| {
             const sym = &self.globals.items[i];
             sym.* = .{
-                .n_strx = try self.updateString(sym.n_strx, exp.options.name),
+                .n_strx = try self.updateString(sym.n_strx, exp_name),
                 .n_type = n_type,
                 .n_sect = @intCast(u8, self.text_section_index.?) + 1,
                 .n_desc = n_desc,
                 .n_value = decl_sym.n_value,
             };
         } else {
-            const name_str_index = try self.makeString(exp.options.name);
+            const name_str_index = try self.makeString(exp_name);
             const i = if (self.globals_free_list.popOrNull()) |i| i else blk: {
                 _ = self.globals.addOneAssumeCapacity();
                 self.export_info_dirty = true;
@@ -2235,9 +2244,12 @@ fn makeString(self: *MachO, bytes: []const u8) !u32 {
 
     try self.string_table.ensureCapacity(self.base.allocator, self.string_table.items.len + bytes.len + 1);
     const offset = @intCast(u32, self.string_table.items.len);
+
     log.debug("writing new string '{s}' into string table at offset 0x{x}", .{ bytes, offset });
+
     self.string_table.appendSliceAssumeCapacity(bytes);
     self.string_table.appendAssumeCapacity(0);
+
     try self.string_table_directory.putNoClobber(
         self.base.allocator,
         try self.base.allocator.dupe(u8, bytes),

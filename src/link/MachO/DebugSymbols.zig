@@ -534,8 +534,8 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
         mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), text_section.size);
 
         // Sentinel.
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), 0);
-        mem.writeIntLittle(u32, di_buf.addManyAsArrayAssumeCapacity(4), 0);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), 0);
+        mem.writeIntLittle(u64, di_buf.addManyAsArrayAssumeCapacity(8), 0);
 
         // Go back and populate the initial length.
         const init_len = di_buf.items.len - after_init_len;
@@ -1054,6 +1054,32 @@ pub fn commitDeclDebugInfo(
             {
                 const ptr = dbg_info_buffer.items[getRelocDbgInfoSubprogramHighPC()..][0..4];
                 mem.writeIntLittle(u32, ptr, @intCast(u32, text_block.size));
+            }
+
+            {
+                // Advance line and PC.
+                // TODO encapsulate logic in a helper function.
+                try dbg_line_buffer.append(DW.LNS_advance_pc);
+                try leb.writeULEB128(dbg_line_buffer.writer(), text_block.size);
+
+                try dbg_line_buffer.append(DW.LNS_advance_line);
+                const line_off: u28 = blk: {
+                    const tree = decl.container.file_scope.tree;
+                    const node_tags = tree.nodes.items(.tag);
+                    const node_datas = tree.nodes.items(.data);
+                    const token_starts = tree.tokens.items(.start);
+
+                    // TODO Look into improving the performance here by adding a token-index-to-line
+                    // lookup table. Currently this involves scanning over the source code for newlines.
+                    const fn_decl = decl.src_node;
+                    assert(node_tags[fn_decl] == .fn_decl);
+                    const block = node_datas[fn_decl].rhs;
+                    const lbrace = tree.firstToken(block);
+                    const rbrace = tree.lastToken(block);
+                    const line_delta = std.zig.lineDelta(tree.source, token_starts[lbrace], token_starts[rbrace]);
+                    break :blk @intCast(u28, line_delta);
+                };
+                try leb.writeULEB128(dbg_line_buffer.writer(), line_off);
             }
 
             try dbg_line_buffer.appendSlice(&[_]u8{ DW.LNS_extended_op, 1, DW.LNE_end_sequence });
