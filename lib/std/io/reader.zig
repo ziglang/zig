@@ -19,7 +19,7 @@ pub fn Reader(
     comptime readFn: fn (context: Context, buffer: []u8) ReadError!usize,
 ) type {
     return struct {
-        pub const Error = ReadError;
+        pub const Error = error{EndOfStream} || ReadError;
 
         context: Context,
 
@@ -46,7 +46,7 @@ pub fn Reader(
         }
 
         /// If the number read would be smaller than `buf.len`, `error.EndOfStream` is returned instead.
-        pub fn readNoEof(self: Self, buf: []u8) !void {
+        pub fn readNoEof(self: Self, buf: []u8) Error!void {
             const amt_read = try self.readAll(buf);
             if (amt_read < buf.len) return error.EndOfStream;
         }
@@ -200,7 +200,7 @@ pub fn Reader(
         /// Reads from the stream until specified byte is found, discarding all data,
         /// including the delimiter.
         /// If end-of-stream is found, this function succeeds.
-        pub fn skipUntilDelimiterOrEof(self: Self, delimiter: u8) !void {
+        pub fn skipUntilDelimiterOrEof(self: Self, delimiter: u8) Error!void {
             while (true) {
                 const byte = self.readByte() catch |err| switch (err) {
                     error.EndOfStream => return,
@@ -211,7 +211,7 @@ pub fn Reader(
         }
 
         /// Reads 1 byte from the stream or returns `error.EndOfStream`.
-        pub fn readByte(self: Self) !u8 {
+        pub fn readByte(self: Self) Error!u8 {
             var result: [1]u8 = undefined;
             const amt_read = try self.read(result[0..]);
             if (amt_read < 1) return error.EndOfStream;
@@ -219,46 +219,46 @@ pub fn Reader(
         }
 
         /// Same as `readByte` except the returned byte is signed.
-        pub fn readByteSigned(self: Self) !i8 {
+        pub fn readByteSigned(self: Self) Error!i8 {
             return @bitCast(i8, try self.readByte());
         }
 
         /// Reads exactly `num_bytes` bytes and returns as an array.
         /// `num_bytes` must be comptime-known
-        pub fn readBytesNoEof(self: Self, comptime num_bytes: usize) ![num_bytes]u8 {
+        pub fn readBytesNoEof(self: Self, comptime num_bytes: usize) Error![num_bytes]u8 {
             var bytes: [num_bytes]u8 = undefined;
             try self.readNoEof(&bytes);
             return bytes;
         }
 
         /// Reads a native-endian integer
-        pub fn readIntNative(self: Self, comptime T: type) !T {
+        pub fn readIntNative(self: Self, comptime T: type) Error!T {
             const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readIntNative(T, &bytes);
         }
 
         /// Reads a foreign-endian integer
-        pub fn readIntForeign(self: Self, comptime T: type) !T {
+        pub fn readIntForeign(self: Self, comptime T: type) Error!T {
             const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readIntForeign(T, &bytes);
         }
 
-        pub fn readIntLittle(self: Self, comptime T: type) !T {
+        pub fn readIntLittle(self: Self, comptime T: type) Error!T {
             const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readIntLittle(T, &bytes);
         }
 
-        pub fn readIntBig(self: Self, comptime T: type) !T {
+        pub fn readIntBig(self: Self, comptime T: type) Error!T {
             const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readIntBig(T, &bytes);
         }
 
-        pub fn readInt(self: Self, comptime T: type, endian: builtin.Endian) !T {
+        pub fn readInt(self: Self, comptime T: type, endian: builtin.Endian) Error!T {
             const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readInt(T, &bytes, endian);
         }
 
-        pub fn readVarInt(self: Self, comptime ReturnType: type, endian: builtin.Endian, size: usize) !ReturnType {
+        pub fn readVarInt(self: Self, comptime ReturnType: type, endian: builtin.Endian, size: usize) Error!ReturnType {
             assert(size <= @sizeOf(ReturnType));
             var bytes_buf: [@sizeOf(ReturnType)]u8 = undefined;
             const bytes = bytes_buf[0..size];
@@ -273,7 +273,7 @@ pub fn Reader(
 
         // `num_bytes` is a `u64` to match `off_t`
         /// Reads `num_bytes` bytes from the stream and discards them
-        pub fn skipBytes(self: Self, num_bytes: u64, comptime options: SkipBytesOptions) !void {
+        pub fn skipBytes(self: Self, num_bytes: u64, comptime options: SkipBytesOptions) Error!void {
             var buf: [options.buf_size]u8 = undefined;
             var remaining = num_bytes;
 
@@ -285,7 +285,7 @@ pub fn Reader(
         }
 
         /// Reads `slice.len` bytes from the stream and returns if they are the same as the passed slice
-        pub fn isBytes(self: Self, slice: []const u8) !bool {
+        pub fn isBytes(self: Self, slice: []const u8) Error!bool {
             var i: usize = 0;
             var matches = true;
             while (i < slice.len) : (i += 1) {
@@ -296,7 +296,7 @@ pub fn Reader(
             return matches;
         }
 
-        pub fn readStruct(self: Self, comptime T: type) !T {
+        pub fn readStruct(self: Self, comptime T: type) Error!T {
             // Only extern and packed structs have defined in-memory layout.
             comptime assert(@typeInfo(T).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);
             var res: [1]T = undefined;
