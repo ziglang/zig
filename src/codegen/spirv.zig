@@ -453,6 +453,7 @@ pub const DeclGen = struct {
             .cmp_lte => try self.genBinOp(inst.castTag(.cmp_lte).?),
             .bool_and => try self.genBinOp(inst.castTag(.bool_and).?),
             .bool_or => try self.genBinOp(inst.castTag(.bool_or).?),
+            .not => try self.genUnOp(inst.castTag(.not).?),
             .arg => self.genArg(),
             // TODO: Breakpoints won't be supported in SPIR-V, but the compiler seems to insert them
             // throughout the IR.
@@ -527,12 +528,31 @@ pub const DeclGen = struct {
         try writeInstruction(&self.spv.fn_decls, opcode, &[_]u32{ result_type_id, result_id, lhs_id, rhs_id });
 
         // TODO: Trap on overflow? Probably going to be annoying.
-        // TODO: Look into NoSignedWrap/NoUnsignedWrap extensions.
+        // TODO: Look into SPV_KHR_no_integer_wrap_decoration which provides NoSignedWrap/NoUnsignedWrap.
 
         if (info.class != .strange_integer)
             return result_id;
 
         return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: strange integer operation mask", .{});
+    }
+
+    fn genUnOp(self: *DeclGen, inst: *Inst.UnOp) !u32 {
+        const operand_id = try self.resolve(inst.operand);
+
+        const result_id = self.spv.allocResultId();
+        const result_type_id = try self.getOrGenType(inst.base.ty);
+
+        const info = try self.arithmeticTypeInfo(inst.operand.ty);
+
+        const opcode = switch (inst.base.tag) {
+            // Bool -> bool
+            .not => Opcode.OpLogicalNot,
+            else => unreachable,
+        };
+
+        try writeInstruction(&self.spv.fn_decls, opcode, &[_]u32{ result_type_id, result_id, operand_id });
+
+        return result_id;
     }
 
     fn genArg(self: *DeclGen) u32 {
