@@ -74,6 +74,44 @@ pub const DeclGen = struct {
         OutOfMemory
     };
 
+    /// This structure is used to return information about a type typically used for arithmetic operations.
+    /// These types may either be integers, floats, or a vector of these. Most scalar operations also work on vectors,
+    /// so we can easily represent those as arithmetic types.
+    /// If the type is a scalar, 'inner type' refers to the scalar type. Otherwise, if its a vector, it refers
+    /// to the vector's element type.
+    const ArithmeticTypeInfo = struct {
+        /// A classification of the inner type.
+        const Class = enum {
+            /// A regular, **native**, integer operation.
+            /// This is only returned when the backend supports this int as a native type (when
+            /// the relevant capability is enabled).
+            integer,
+
+            /// A regular float. These are all required to be natively supported. Floating points for
+            /// which the relevant capability is not enabled are not emulated.
+            float,
+
+            /// An integer of a 'strange' size (which' bit size is not the same as its backing type. **Note**: this
+            /// may **also** include power-of-2 integers for which the relevant capability is not enabled), but still
+            /// within the limits of the largest natively supported integer type.
+            strange_integer,
+
+            /// An integer with more bits than the largest natively supported integer type.
+            composite_integer,
+        };
+
+        /// The number of bits in the inner type.
+        /// Note: this is the actual number of bits of the type, not the size of the backing integer.
+        bits: u32,
+
+        /// Whether the type is a vector.
+        is_vector: bool,
+
+        /// A classification of the inner type. These four scenarios
+        /// will all have to be handled slightly different.
+        class: Class,
+    };
+
     fn fail(self: *DeclGen, src: LazySrcLoc, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
         const src_loc = src.toSrcLocWithDecl(self.decl);
@@ -96,16 +134,14 @@ pub const DeclGen = struct {
     /// that size. In this case, multiple elements of the largest type should be used.
     /// The backing type will be chosen as the smallest supported integer larger or equal to it in number of bits.
     /// The result is valid to be used with OpTypeInt.
-    /// asserts `ty` is an integer.
     /// TODO: The extension SPV_INTEL_arbitrary_precision_integers allows any integer size (at least up to 32 bits).
     /// TODO: This probably needs an ABI-version as well (especially in combination with SPV_INTEL_arbitrary_precision_integers).
     /// TODO: Should the result of this function be cached?
-    fn backingIntBits(self: *DeclGen, ty: Type) ?u32 {
+    fn backingIntBits(self: *DeclGen, bits: u32) ?u32 {
         const target = self.module.getTarget();
-        const int_info = ty.intInfo(target);
 
         // TODO: Figure out what to do with u0/i0.
-        std.debug.assert(int_info.bits != 0);
+        std.debug.assert(bits != 0);
 
         // 8, 16 and 64-bit integers require the Int8, Int16 and Inr64 capabilities respectively.
         const ints = [_]struct{ bits: u32, feature: ?Target.spirv.Feature } {
@@ -121,7 +157,7 @@ pub const DeclGen = struct {
             else
                 true;
 
-            if (int_info.bits <= int.bits and has_feature) {
+            if (bits <= int.bits and has_feature) {
                 return int.bits;
             }
         }
@@ -148,6 +184,34 @@ pub const DeclGen = struct {
     /// Asserts `ty` is an integer.
     fn isCompositeInt(self: *DeclGen, ty: Type) bool {
         return self.backingIntBits(ty) == null;
+    }
+
+    fn arithmeticTypeInfo(self: *DeclGen, ty: Type) !ArithmeticTypeInfo {
+        const target = self.module.getTarget();
+
+        return switch (ty.zigTypeTag()) {
+            .Float => ArithmeticTypeInfo{ .bits = ty.floatBits(target), .is_vector = false, .class = .float },
+            .Int => blk: {
+                const int_info = ty.intInfo(target);
+                // TODO: Maybe it's useful to also return this value.
+                const maybe_backing_bits = self.backingIntBits(int_info.bits);
+                break :blk ArithmeticTypeInfo{
+                    .bits = int_info.bits,
+                    .is_vector = false,
+                    .class = if (maybe_backing_bits) |backing_bits|
+                            if (backing_bits == int_info.bits)
+                                ArithmeticTypeInfo.Class.integer
+                            else
+                                ArithmeticTypeInfo.Class.strange_integer
+                        else
+                            .composite_integer
+                };
+            },
+            // As of yet, there is no vector support in the self-hosted compiler.
+            .Vector => self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement arithmeticTypeInfo for Vector", .{}),
+            // TODO: For which types is this the case?
+            else => self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement arithmeticTypeInfo for {}", .{ty}),
+        };
     }
 
     /// Generate a constant representing `val`.
@@ -218,7 +282,8 @@ pub const DeclGen = struct {
             .Void => try writeInstruction(code, .OpTypeVoid, &[_]u32{ result_id }),
             .Bool => try writeInstruction(code, .OpTypeBool, &[_]u32{ result_id }),
             .Int => {
-                const backing_bits = self.backingIntBits(ty) orelse {
+                const int_info = ty.intInfo(target);
+                const backing_bits = self.backingIntBits(int_info.bits) orelse {
                     // Integers too big for any native type are represented as "composite integers": An array of largestSupportedIntBits.
                     return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement composite ints {}", .{ ty });
                 };
@@ -227,7 +292,10 @@ pub const DeclGen = struct {
                 try writeInstruction(code, .OpTypeInt, &[_]u32{
                     result_id,
                     backing_bits,
-                    @boolToInt(ty.isSignedInt()),
+                    switch (int_info.signedness) {
+                        .unsigned => 0,
+                        .signed => 1,
+                    },
                 });
             },
             .Float => {
@@ -346,6 +414,7 @@ pub const DeclGen = struct {
 
     fn genInst(self: *DeclGen, inst: *Inst) !?u32 {
         return switch (inst.tag) {
+            .add => try self.genBinOp(inst.castTag(.add).?),
             .arg => self.genArg(),
             // TODO: Breakpoints won't be supported in SPIR-V, but the compiler seems to insert them
             // throughout the IR.
@@ -356,6 +425,41 @@ pub const DeclGen = struct {
             .unreach => self.genUnreach(),
             else => self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement inst {}", .{inst.tag}),
         };
+    }
+
+    fn genBinOp(self: *DeclGen, inst: *Inst.BinOp) !u32 {
+        // TODO: Will lhs and rhs have the same type?
+        const lhs_id = try self.resolve(inst.lhs);
+        const rhs_id = try self.resolve(inst.rhs);
+
+        const binop_result_id = self.spv.allocResultId();
+        const result_type_id = try self.getOrGenType(inst.base.ty);
+
+        // TODO: Is the result the same as the argument types?
+        // This is supposed to be the case for SPIR-V.
+        std.debug.assert(inst.base.ty.eql(inst.lhs.ty) and inst.base.ty.eql(inst.rhs.ty));
+
+        // Binary operations are generally applicable to both scalar and vector operations in SPIR-V, but int and float
+        // versions of operations require different opcodes.
+        const info = try self.arithmeticTypeInfo(inst.base.ty);
+
+        if (info.class == .composite_integer)
+            return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: binary operations for composite integers", .{});
+
+        // Fetch the integer and float opcodes for each operation.
+        // Doing it this way removes a bit of code clutter.
+        const opcodes: [2]spec.Opcode = switch (inst.base.tag) {
+            .add => .{.OpIAdd, .OpFAdd},
+            else => unreachable,
+        };
+
+        const opcode = if (info.class == .float) opcodes[1] else opcodes[0];
+        try writeInstruction(&self.spv.fn_decls, opcode, &[_]u32{ result_type_id, binop_result_id, lhs_id, rhs_id });
+
+        if (info.class != .strange_integer)
+            return binop_result_id;
+
+        return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: strange integer operation mask", .{});
     }
 
     fn genArg(self: *DeclGen) u32 {
