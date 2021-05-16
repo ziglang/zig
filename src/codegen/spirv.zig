@@ -4,6 +4,8 @@ const Target = std.Target;
 const log = std.log.scoped(.codegen);
 
 const spec = @import("spirv/spec.zig");
+const Opcode = spec.Opcode;
+
 const Module = @import("../Module.zig");
 const Decl = Module.Decl;
 const Type = @import("../type.zig").Type;
@@ -15,12 +17,12 @@ const Inst = ir.Inst;
 pub const TypeMap = std.HashMap(Type, u32, Type.hash, Type.eql, std.hash_map.default_max_load_percentage);
 pub const ValueMap = std.AutoHashMap(*Inst, u32);
 
-pub fn writeOpcode(code: *std.ArrayList(u32), opcode: spec.Opcode, arg_count: u32) !void {
+pub fn writeOpcode(code: *std.ArrayList(u32), opcode: Opcode, arg_count: u32) !void {
     const word_count = arg_count + 1;
     try code.append((word_count << 16) | @enumToInt(opcode));
 }
 
-pub fn writeInstruction(code: *std.ArrayList(u32), opcode: spec.Opcode, args: []const u32) !void {
+pub fn writeInstruction(code: *std.ArrayList(u32), opcode: Opcode, args: []const u32) !void {
     try writeOpcode(code, opcode, @intCast(u32, args.len));
     try code.appendSlice(args);
 }
@@ -102,10 +104,13 @@ pub const DeclGen = struct {
 
         /// The number of bits in the inner type.
         /// Note: this is the actual number of bits of the type, not the size of the backing integer.
-        bits: u32,
+        bits: u16,
 
         /// Whether the type is a vector.
         is_vector: bool,
+
+        /// Whether the inner type is signed. Only relevant for integers.
+        signedness: std.builtin.Signedness,
 
         /// A classification of the inner type. These four scenarios
         /// will all have to be handled slightly different.
@@ -137,14 +142,14 @@ pub const DeclGen = struct {
     /// TODO: The extension SPV_INTEL_arbitrary_precision_integers allows any integer size (at least up to 32 bits).
     /// TODO: This probably needs an ABI-version as well (especially in combination with SPV_INTEL_arbitrary_precision_integers).
     /// TODO: Should the result of this function be cached?
-    fn backingIntBits(self: *DeclGen, bits: u32) ?u32 {
+    fn backingIntBits(self: *DeclGen, bits: u16) ?u16 {
         const target = self.module.getTarget();
 
         // TODO: Figure out what to do with u0/i0.
         std.debug.assert(bits != 0);
 
         // 8, 16 and 64-bit integers require the Int8, Int16 and Inr64 capabilities respectively.
-        const ints = [_]struct{ bits: u32, feature: ?Target.spirv.Feature } {
+        const ints = [_]struct{ bits: u16, feature: ?Target.spirv.Feature } {
             .{ .bits = 8, .feature = .Int8 },
             .{ .bits = 16, .feature = .Int16 },
             .{ .bits = 32, .feature = null },
@@ -171,7 +176,7 @@ pub const DeclGen = struct {
     /// In theory that could also be used, but since the spec says that it only guarantees support up to 32-bit ints there
     /// is no way of knowing whether those are actually supported.
     /// TODO: Maybe this should be cached?
-    fn largestSupportedIntBits(self: *DeclGen) u32 {
+    fn largestSupportedIntBits(self: *DeclGen) u16 {
         const target = self.module.getTarget();
         return if (Target.spirv.featureSetHas(target.cpu.features, .Int64))
             64
@@ -190,7 +195,12 @@ pub const DeclGen = struct {
         const target = self.module.getTarget();
 
         return switch (ty.zigTypeTag()) {
-            .Float => ArithmeticTypeInfo{ .bits = ty.floatBits(target), .is_vector = false, .class = .float },
+            .Float => ArithmeticTypeInfo{
+                .bits = ty.floatBits(target),
+                .is_vector = false,
+                .signedness = .signed, // I guess technically it is.
+                .class = .float
+            },
             .Int => blk: {
                 const int_info = ty.intInfo(target);
                 // TODO: Maybe it's useful to also return this value.
@@ -198,6 +208,7 @@ pub const DeclGen = struct {
                 break :blk ArithmeticTypeInfo{
                     .bits = int_info.bits,
                     .is_vector = false,
+                    .signedness = int_info.signedness,
                     .class = if (maybe_backing_bits) |backing_bits|
                             if (backing_bits == int_info.bits)
                                 ArithmeticTypeInfo.Class.integer
@@ -228,7 +239,7 @@ pub const DeclGen = struct {
 
         switch (ty.zigTypeTag()) {
             .Bool => {
-                const opcode: spec.Opcode = if (val.toBool()) .OpConstantTrue else .OpConstantFalse;
+                const opcode: Opcode = if (val.toBool()) .OpConstantTrue else .OpConstantFalse;
                 try writeInstruction(code, opcode, &[_]u32{ result_type_id, result_id });
             },
             .Float => {
@@ -414,7 +425,10 @@ pub const DeclGen = struct {
 
     fn genInst(self: *DeclGen, inst: *Inst) !?u32 {
         return switch (inst.tag) {
-            .add => try self.genBinOp(inst.castTag(.add).?),
+            .add, .addwrap => try self.genBinOp(inst.castTag(.add).?),
+            .sub, .subwrap => try self.genBinOp(inst.castTag(.sub).?),
+            .mul, .mulwrap => try self.genBinOp(inst.castTag(.mul).?),
+            .div => try self.genBinOp(inst.castTag(.div).?),
             .arg => self.genArg(),
             // TODO: Breakpoints won't be supported in SPIR-V, but the compiler seems to insert them
             // throughout the IR.
@@ -446,15 +460,26 @@ pub const DeclGen = struct {
         if (info.class == .composite_integer)
             return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: binary operations for composite integers", .{});
 
-        // Fetch the integer and float opcodes for each operation.
-        // Doing it this way removes a bit of code clutter.
-        const opcodes: [2]spec.Opcode = switch (inst.base.tag) {
-            .add => .{.OpIAdd, .OpFAdd},
+        const is_float = info.class == .float;
+        const is_signed = info.signedness == .signed;
+        // **Note**: All these operations must be valid for vectors of floats and integers as well!
+        const opcode = switch (inst.base.tag) {
+            // The regular integer operations are all defined for wrapping. Since theyre only relevant for integers,
+            // we can just switch on both cases here.
+            .add, .addwrap => if (is_float) Opcode.OpFAdd else Opcode.OpIAdd,
+            .sub, .subwrap => if (is_float) Opcode.OpFSub else Opcode.OpISub,
+            .mul, .mulwrap => if (is_float) Opcode.OpFMul else Opcode.OpIMul,
+            // TODO: Trap if divisor is 0?
+            // TODO: Figure out of OpSDiv for unsigned/OpUDiv for signed does anything useful.
+            .div => if (is_float) Opcode.OpFDiv else if (is_signed) Opcode.OpSDiv else Opcode.OpUDiv,
+
             else => unreachable,
         };
 
-        const opcode = if (info.class == .float) opcodes[1] else opcodes[0];
         try writeInstruction(&self.spv.fn_decls, opcode, &[_]u32{ result_type_id, binop_result_id, lhs_id, rhs_id });
+
+        // TODO: Trap on overflow? Probably going to be annoying.
+        // TODO: Look into NoSignedWrap/NoUnsignedWrap extensions.
 
         if (info.class != .strange_integer)
             return binop_result_id;
