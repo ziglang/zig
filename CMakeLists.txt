@@ -550,7 +550,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/codegen/llvm.zig"
     "${CMAKE_SOURCE_DIR}/src/codegen/llvm/bindings.zig"
     "${CMAKE_SOURCE_DIR}/src/codegen/riscv64.zig"
-    "${CMAKE_SOURCE_DIR}/src/codegen/spu-mk2.zig"
     "${CMAKE_SOURCE_DIR}/src/codegen/wasm.zig"
     "${CMAKE_SOURCE_DIR}/src/codegen/x86_64.zig"
     "${CMAKE_SOURCE_DIR}/src/glibc.zig"
