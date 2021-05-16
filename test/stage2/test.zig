@@ -1293,9 +1293,10 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = foo;
             \\}
             \\extern var foo: i32;
+            \\pub export fn _start() void {}
         , &[_][]const u8{":2:9: error: unable to resolve comptime value"});
         case.addError(
-            \\export fn entry() void {
+            \\pub export fn _start() void {
             \\    _ = foo;
             \\}
             \\extern var foo;

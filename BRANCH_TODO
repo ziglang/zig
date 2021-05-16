@@ -1,7 +1,5 @@
  * get stage2 tests passing
    - spu-ii test is saying "unimplemented" for some reason
-   - compile log test has wrong source loc
-   - extern variable has no type: TODO implement generateSymbol for int type 'i32'
  * modify stage2 tests so that only 1 uses _start and the rest use
    pub fn main
  * modify stage2 CBE tests so that only 1 uses pub export main and the

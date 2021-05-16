@@ -212,20 +212,50 @@ pub fn generateSymbol(
         },
         .Int => {
             // TODO populate .debug_info for the integer
+            const endian = bin_file.options.target.cpu.arch.endian();
             const info = typed_value.ty.intInfo(bin_file.options.target);
-            if (info.bits == 8 and info.signedness == .unsigned) {
-                const x = typed_value.val.toUnsignedInt();
-                try code.append(@intCast(u8, x));
+            if (info.bits <= 8) {
+                const x = @intCast(u8, typed_value.val.toUnsignedInt());
+                try code.append(x);
                 return Result{ .appended = {} };
             }
-            return Result{
-                .fail = try ErrorMsg.create(
-                    bin_file.allocator,
-                    src_loc,
-                    "TODO implement generateSymbol for int type '{}'",
-                    .{typed_value.ty},
-                ),
-            };
+            if (info.bits > 64) {
+                return Result{
+                    .fail = try ErrorMsg.create(
+                        bin_file.allocator,
+                        src_loc,
+                        "TODO implement generateSymbol for big ints ('{}')",
+                        .{typed_value.ty},
+                    ),
+                };
+            }
+            switch (info.signedness) {
+                .unsigned => {
+                    if (info.bits <= 16) {
+                        const x = @intCast(u16, typed_value.val.toUnsignedInt());
+                        mem.writeInt(u16, try code.addManyAsArray(2), x, endian);
+                    } else if (info.bits <= 32) {
+                        const x = @intCast(u32, typed_value.val.toUnsignedInt());
+                        mem.writeInt(u32, try code.addManyAsArray(4), x, endian);
+                    } else {
+                        const x = typed_value.val.toUnsignedInt();
+                        mem.writeInt(u64, try code.addManyAsArray(8), x, endian);
+                    }
+                },
+                .signed => {
+                    if (info.bits <= 16) {
+                        const x = @intCast(i16, typed_value.val.toSignedInt());
+                        mem.writeInt(i16, try code.addManyAsArray(2), x, endian);
+                    } else if (info.bits <= 32) {
+                        const x = @intCast(i32, typed_value.val.toSignedInt());
+                        mem.writeInt(i32, try code.addManyAsArray(4), x, endian);
+                    } else {
+                        const x = typed_value.val.toSignedInt();
+                        mem.writeInt(i64, try code.addManyAsArray(8), x, endian);
+                    }
+                },
+            }
+            return Result{ .appended = {} };
         },
         else => |t| {
             return Result{

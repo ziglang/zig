@@ -2196,6 +2196,12 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
+    if (decl.val.castTag(.variable)) |payload| {
+        const variable = payload.data;
+        if (variable.is_extern) {
+            return; // TODO Should we do more when front-end analyzed extern decl?
+        }
+    }
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -2287,9 +2293,10 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     } else {
         // TODO implement .debug_info for global variables
     }
+    const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
         .ty = decl.ty,
-        .val = decl.val,
+        .val = decl_val,
     }, &code_buffer, .{
         .dwarf = .{
             .dbg_line = &dbg_line_buffer,

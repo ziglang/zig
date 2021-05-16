@@ -171,7 +171,7 @@ pub const Encoder = struct {
     /// This is because the helper functions will assume capacity
     /// in order to avoid bounds checking.
     pub fn init(code: *ArrayList(u8), maximum_inst_size: u8) !Self {
-        try code.ensureCapacity(code.items.len + maximum_inst_size);
+        try code.ensureUnusedCapacity(maximum_inst_size);
         return Self{ .code = code };
     }
 
