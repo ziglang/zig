@@ -1563,28 +1563,63 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const lhs = try self.resolveInst(op_lhs);
             const rhs = try self.resolveInst(op_rhs);
 
+            const lhs_is_register = lhs == .register;
+            const rhs_is_register = rhs == .register;
+            const reuse_lhs = lhs_is_register and self.reuseOperand(inst, 0, lhs);
+            const reuse_rhs = !reuse_lhs and rhs_is_register and self.reuseOperand(inst, 1, rhs);
+
             // Destination must be a register
             // LHS must be a register
             // RHS must be a register
             var dst_mcv: MCValue = undefined;
-            var lhs_mcv: MCValue = undefined;
-            var rhs_mcv: MCValue = undefined;
-            if (self.reuseOperand(inst, 0, lhs)) {
-                // LHS is the destination
-                lhs_mcv = if (lhs != .register) try self.copyToNewRegister(inst, lhs) else lhs;
-                rhs_mcv = if (rhs != .register) try self.copyToNewRegister(inst, rhs) else rhs;
-                dst_mcv = lhs_mcv;
-            } else if (self.reuseOperand(inst, 1, rhs)) {
-                // RHS is the destination
-                lhs_mcv = if (lhs != .register) try self.copyToNewRegister(inst, lhs) else lhs;
-                rhs_mcv = if (rhs != .register) try self.copyToNewRegister(inst, rhs) else rhs;
-                dst_mcv = rhs_mcv;
+            var lhs_mcv: MCValue = lhs;
+            var rhs_mcv: MCValue = rhs;
+
+            // Allocate registers for operands and/or destination
+            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+            if (reuse_lhs) {
+                // Allocate 0 or 1 registers
+                if (!rhs_is_register) {
+                    rhs_mcv = MCValue{ .register = try self.register_manager.allocReg(op_rhs, &.{lhs.register}) };
+                    branch.inst_table.putAssumeCapacity(op_rhs, rhs_mcv);
+                }
+                dst_mcv = lhs;
+            } else if (reuse_rhs) {
+                // Allocate 0 or 1 registers
+                if (!lhs_is_register) {
+                    lhs_mcv = MCValue{ .register = try self.register_manager.allocReg(op_lhs, &.{rhs.register}) };
+                    branch.inst_table.putAssumeCapacity(op_lhs, lhs_mcv);
+                }
+                dst_mcv = rhs;
             } else {
-                // TODO save 1 copy instruction by directly allocating the destination register
-                // LHS is the destination
-                lhs_mcv = try self.copyToNewRegister(inst, lhs);
-                rhs_mcv = if (rhs != .register) try self.copyToNewRegister(inst, rhs) else rhs;
-                dst_mcv = lhs_mcv;
+                // Allocate 1 or 2 registers
+                if (lhs_is_register and rhs_is_register) {
+                    dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{ lhs.register, rhs.register }) };
+                } else if (lhs_is_register) {
+                    // Move RHS to register
+                    dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{lhs.register}) };
+                    rhs_mcv = dst_mcv;
+                } else if (rhs_is_register) {
+                    // Move LHS to register
+                    dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, &.{rhs.register}) };
+                    lhs_mcv = dst_mcv;
+                } else {
+                    // Move LHS and RHS to register
+                    const regs = try self.register_manager.allocRegs(2, .{ inst, op_rhs }, &.{});
+                    lhs_mcv = MCValue{ .register = regs[0] };
+                    rhs_mcv = MCValue{ .register = regs[1] };
+                    dst_mcv = lhs_mcv;
+
+                    branch.inst_table.putAssumeCapacity(op_rhs, rhs_mcv);
+                }
+            }
+
+            // Move the operands to the newly allocated registers
+            if (!lhs_is_register) {
+                try self.genSetReg(op_lhs.src, op_lhs.ty, lhs_mcv.register, lhs);
+            }
+            if (!rhs_is_register) {
+                try self.genSetReg(op_rhs.src, op_rhs.ty, rhs_mcv.register, rhs);
             }
 
             writeInt(u32, try self.code.addManyAsArray(4), Instruction.mul(.al, dst_mcv.register, lhs_mcv.register, rhs_mcv.register).toU32());
