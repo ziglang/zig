@@ -84,7 +84,7 @@ pub const DeclGen = struct {
     const ArithmeticTypeInfo = struct {
         /// A classification of the inner type.
         const Class = enum {
-            /// A regular, **native**, integer operation.
+            /// A regular, **native**, integer.
             /// This is only returned when the backend supports this int as a native type (when
             /// the relevant capability is enabled).
             integer,
@@ -112,7 +112,7 @@ pub const DeclGen = struct {
         /// Whether the inner type is signed. Only relevant for integers.
         signedness: std.builtin.Signedness,
 
-        /// A classification of the inner type. These four scenarios
+        /// A classification of the inner type. These scenarios
         /// will all have to be handled slightly different.
         class: Class,
     };
@@ -149,6 +149,7 @@ pub const DeclGen = struct {
         std.debug.assert(bits != 0);
 
         // 8, 16 and 64-bit integers require the Int8, Int16 and Inr64 capabilities respectively.
+        // 32-bit integers are always supported (see spec, 2.16.1, Data rules).
         const ints = [_]struct{ bits: u16, feature: ?Target.spirv.Feature } {
             .{ .bits = 8, .feature = .Int8 },
             .{ .bits = 16, .feature = .Int16 },
@@ -198,8 +199,8 @@ pub const DeclGen = struct {
             .Float => ArithmeticTypeInfo{
                 .bits = ty.floatBits(target),
                 .is_vector = false,
-                .signedness = .signed, // I guess technically it is.
-                .class = .float
+                .signedness = .signed, // Technically, but doesn't matter for this class.
+                .class = .float,
             },
             .Int => blk: {
                 const int_info = ty.intInfo(target);
@@ -315,6 +316,7 @@ pub const DeclGen = struct {
                 const bits = ty.floatBits(target);
                 const supported = switch (bits) {
                     16 => Target.spirv.featureSetHas(target.cpu.features, .Float16),
+                    // 32-bit floats are always supported (see spec, 2.16.1, Data rules).
                     32 => true,
                     64 => Target.spirv.featureSetHas(target.cpu.features, .Float64),
                     else => false,
@@ -358,6 +360,8 @@ pub const DeclGen = struct {
                 // which work on them), so simply use those.
                 // Note: SPIR-V vectors only support bools, ints and floats, so pointer vectors need to be supported another way.
                 // "composite integers" (larger than the largest supported native type) can probably be represented by an array of vectors.
+                // TODO: The SPIR-V spec mentions that vector sizes may be quite restricted! look into which we can use, and whether OpTypeVector
+                // is adequate at all for this.
 
                 // TODO: Vectors are not yet supported by the self-hosted compiler itself it seems.
                 return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement type Vector", .{});
@@ -429,6 +433,9 @@ pub const DeclGen = struct {
             .sub, .subwrap => try self.genBinOp(inst.castTag(.sub).?),
             .mul, .mulwrap => try self.genBinOp(inst.castTag(.mul).?),
             .div => try self.genBinOp(inst.castTag(.div).?),
+            .bit_and => try self.genBinOp(inst.castTag(.bit_and).?),
+            .bit_or => try self.genBinOp(inst.castTag(.bit_or).?),
+            .xor => try self.genBinOp(inst.castTag(.xor).?),
             .arg => self.genArg(),
             // TODO: Breakpoints won't be supported in SPIR-V, but the compiler seems to insert them
             // throughout the IR.
@@ -472,7 +479,10 @@ pub const DeclGen = struct {
             // TODO: Trap if divisor is 0?
             // TODO: Figure out of OpSDiv for unsigned/OpUDiv for signed does anything useful.
             .div => if (is_float) Opcode.OpFDiv else if (is_signed) Opcode.OpSDiv else Opcode.OpUDiv,
-
+            // Only integer versions for these.
+            .bit_and => Opcode.OpBitwiseAnd,
+            .bit_or => Opcode.OpBitwiseOr,
+            .xor => Opcode.OpBitwiseXor,
             else => unreachable,
         };
 
