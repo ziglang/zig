@@ -451,6 +451,8 @@ pub const DeclGen = struct {
             .cmp_gte => try self.genBinOp(inst.castTag(.cmp_gte).?),
             .cmp_lt => try self.genBinOp(inst.castTag(.cmp_lt).?),
             .cmp_lte => try self.genBinOp(inst.castTag(.cmp_lte).?),
+            .bool_and => try self.genBinOp(inst.castTag(.bool_and).?),
+            .bool_or => try self.genBinOp(inst.castTag(.bool_or).?),
             .arg => self.genArg(),
             // TODO: Breakpoints won't be supported in SPIR-V, but the compiler seems to insert them
             // throughout the IR.
@@ -468,7 +470,7 @@ pub const DeclGen = struct {
         const lhs_id = try self.resolve(inst.lhs);
         const rhs_id = try self.resolve(inst.rhs);
 
-        const binop_result_id = self.spv.allocResultId();
+        const result_id = self.spv.allocResultId();
         const result_type_id = try self.getOrGenType(inst.base.ty);
 
         // TODO: Is the result the same as the argument types?
@@ -516,16 +518,19 @@ pub const DeclGen = struct {
             .cmp_gte => if (is_float) Opcode.OpFOrdGreaterThanEqual else if (is_signed) Opcode.OpSGreaterThanEqual else Opcode.OpUGreaterThanEqual,
             .cmp_lt => if (is_float) Opcode.OpFOrdLessThan else if (is_signed) Opcode.OpSLessThan else Opcode.OpULessThan,
             .cmp_lte => if (is_float) Opcode.OpFOrdLessThanEqual else if (is_signed) Opcode.OpSLessThanEqual else Opcode.OpULessThanEqual,
+            // Bool -> bool operations.
+            .bool_and => Opcode.OpLogicalAnd,
+            .bool_or => Opcode.OpLogicalOr,
             else => unreachable,
         };
 
-        try writeInstruction(&self.spv.fn_decls, opcode, &[_]u32{ result_type_id, binop_result_id, lhs_id, rhs_id });
+        try writeInstruction(&self.spv.fn_decls, opcode, &[_]u32{ result_type_id, result_id, lhs_id, rhs_id });
 
         // TODO: Trap on overflow? Probably going to be annoying.
         // TODO: Look into NoSignedWrap/NoUnsignedWrap extensions.
 
         if (info.class != .strange_integer)
-            return binop_result_id;
+            return result_id;
 
         return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: strange integer operation mask", .{});
     }
