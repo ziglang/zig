@@ -46,46 +46,34 @@ pub fn Interval(comptime T: type) type {
 
         // TODO: comptime_int and comptime_float support wants self parameter to have the comptime keyword
         pub fn contains(self: Self, x: T) bool {
-            const min = switch (@typeInfo(T)) {
-                .Int => std.math.minInt(T),
-                // .ComptimeInt => x - 2,
-                .Float => -std.math.inf(T),
-                // .ComptimeFloat => x - 2,
-                else => unreachable,
-            };
-            const max = switch (@typeInfo(T)) {
-                .Int => std.math.maxInt(T),
-                // .ComptimeInt => x + 2,
-                .Float => std.math.inf(T),
-                // .ComptimeFloat => x + 2,
-                else => unreachable,
-            };
-            if (self.from == .infinity) {
-                if (self.to == .infinity) {
-                    // handle (-inf, +inf)
-                    return true;
-                }
-                // handle (-inf,
-                const to = self.to.n() orelse max;
-                const right = if (self.to == .open) x < to else x <= to;
-                return right;
-            }
-            if (self.to == .infinity) {
-                // handle +inf)
-                const from = self.from.n() orelse min;
-                const left = if (self.from == .open) x > from else x >= from;
-                return left;
-            }
-            const from = self.from.n() orelse min;
-            const to = self.to.n() orelse max;
-            const left = if (self.from == .open) x > from else x >= from;
-            const right = if (self.to == .open) x < to else x <= to;
+            const s_from: Endpoint = if (self.from != .infinity) self.from else .{ .closed = min(T) };
+            const s_to: Endpoint = if (self.to != .infinity) self.to else .{ .closed = max(T) };
+            const from = s_from.n().?;
+            const to = s_to.n().?;
+            const left = if (s_from == .open) x > from else x >= from;
+            const right = if (s_to == .open) x < to else x <= to;
             return left and right;
         }
 
         pub fn eql(self: Self, other: Self) bool {
             return self.from.eql(other.from) and self.to.eql(other.to);
         }
+    };
+}
+
+fn max(comptime T: type) T {
+    return switch (@typeInfo(T)) {
+        .Float => std.math.inf(T),
+        .Int => std.math.maxInt(T),
+        else => unreachable,
+    };
+}
+
+fn min(comptime T: type) T {
+    return switch (@typeInfo(T)) {
+        .Float => -std.math.inf(T),
+        .Int => std.math.minInt(T),
+        else => unreachable,
     };
 }
 
