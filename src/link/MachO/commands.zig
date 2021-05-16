@@ -38,7 +38,9 @@ pub const LoadCommand = union(enum) {
             macho.LC_SEGMENT_64 => LoadCommand{
                 .Segment = try SegmentCommand.read(allocator, stream.reader()),
             },
-            macho.LC_DYLD_INFO, macho.LC_DYLD_INFO_ONLY => LoadCommand{
+            macho.LC_DYLD_INFO,
+            macho.LC_DYLD_INFO_ONLY,
+            => LoadCommand{
                 .DyldInfoOnly = try stream.reader().readStruct(macho.dyld_info_command),
             },
             macho.LC_SYMTAB => LoadCommand{
@@ -47,16 +49,27 @@ pub const LoadCommand = union(enum) {
             macho.LC_DYSYMTAB => LoadCommand{
                 .Dysymtab = try stream.reader().readStruct(macho.dysymtab_command),
             },
-            macho.LC_ID_DYLINKER, macho.LC_LOAD_DYLINKER, macho.LC_DYLD_ENVIRONMENT => LoadCommand{
+            macho.LC_ID_DYLINKER,
+            macho.LC_LOAD_DYLINKER,
+            macho.LC_DYLD_ENVIRONMENT,
+            => LoadCommand{
                 .Dylinker = try GenericCommandWithData(macho.dylinker_command).read(allocator, stream.reader()),
             },
-            macho.LC_ID_DYLIB, macho.LC_LOAD_WEAK_DYLIB, macho.LC_LOAD_DYLIB, macho.LC_REEXPORT_DYLIB => LoadCommand{
+            macho.LC_ID_DYLIB,
+            macho.LC_LOAD_WEAK_DYLIB,
+            macho.LC_LOAD_DYLIB,
+            macho.LC_REEXPORT_DYLIB,
+            => LoadCommand{
                 .Dylib = try GenericCommandWithData(macho.dylib_command).read(allocator, stream.reader()),
             },
             macho.LC_MAIN => LoadCommand{
                 .Main = try stream.reader().readStruct(macho.entry_point_command),
             },
-            macho.LC_VERSION_MIN_MACOSX, macho.LC_VERSION_MIN_IPHONEOS, macho.LC_VERSION_MIN_WATCHOS, macho.LC_VERSION_MIN_TVOS => LoadCommand{
+            macho.LC_VERSION_MIN_MACOSX,
+            macho.LC_VERSION_MIN_IPHONEOS,
+            macho.LC_VERSION_MIN_WATCHOS,
+            macho.LC_VERSION_MIN_TVOS,
+            => LoadCommand{
                 .VersionMin = try stream.reader().readStruct(macho.version_min_command),
             },
             macho.LC_SOURCE_VERSION => LoadCommand{
@@ -65,7 +78,10 @@ pub const LoadCommand = union(enum) {
             macho.LC_UUID => LoadCommand{
                 .Uuid = try stream.reader().readStruct(macho.uuid_command),
             },
-            macho.LC_FUNCTION_STARTS, macho.LC_DATA_IN_CODE, macho.LC_CODE_SIGNATURE => LoadCommand{
+            macho.LC_FUNCTION_STARTS,
+            macho.LC_DATA_IN_CODE,
+            macho.LC_CODE_SIGNATURE,
+            => LoadCommand{
                 .LinkeditData = try stream.reader().readStruct(macho.linkedit_data_command),
             },
             else => LoadCommand{
