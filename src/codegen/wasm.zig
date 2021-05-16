@@ -556,7 +556,7 @@ pub const Context = struct {
                 if (info.bits > 32 and info.bits <= 64) break :blk wasm.Valtype.i64;
                 return self.fail(src, "Integer bit size not supported by wasm: '{d}'", .{info.bits});
             },
-            .Bool, .Pointer => wasm.Valtype.i32,
+            .Bool, .Pointer, .Struct => wasm.Valtype.i32,
             .Enum => switch (ty.tag()) {
                 .enum_simple => wasm.Valtype.i32,
                 else => self.typeToValtype(
@@ -714,8 +714,8 @@ pub const Context = struct {
             .add => self.genBinOp(inst.castTag(.add).?, .add),
             .alloc => self.genAlloc(inst.castTag(.alloc).?),
             .arg => self.genArg(inst.castTag(.arg).?),
-            .bitcast => self.genBitcast(inst.castTag(.bitcast).?),
             .bit_and => self.genBinOp(inst.castTag(.bit_and).?, .@"and"),
+            .bitcast => self.genBitcast(inst.castTag(.bitcast).?),
             .bit_or => self.genBinOp(inst.castTag(.bit_or).?, .@"or"),
             .block => self.genBlock(inst.castTag(.block).?),
             .bool_and => self.genBinOp(inst.castTag(.bool_and).?, .@"and"),
@@ -740,6 +740,7 @@ pub const Context = struct {
             .ret => self.genRet(inst.castTag(.ret).?),
             .retvoid => WValue.none,
             .store => self.genStore(inst.castTag(.store).?),
+            .struct_field_ptr => self.genStructFieldPtr(inst.castTag(.struct_field_ptr).?),
             .sub => self.genBinOp(inst.castTag(.sub).?, .sub),
             .unreach => self.genUnreachable(inst.castTag(.unreach).?),
             .xor => self.genBinOp(inst.castTag(.xor).?, .xor),
@@ -797,8 +798,28 @@ pub const Context = struct {
         const valtype = try self.genValtype(inst.base.src, elem_type);
         try self.locals.append(self.gpa, valtype);
 
-        defer self.local_index += 1;
-        return WValue{ .local = self.local_index };
+        const local_value = WValue{ .local = self.local_index };
+        self.local_index += 1;
+
+        switch (elem_type.zigTypeTag()) {
+            .Struct => {
+                // for each struct field, generate a local
+                const struct_data: *Module.Struct = elem_type.castTag(.@"struct").?.data;
+                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + struct_data.fields.count());
+                for (struct_data.fields.items()) |entry| {
+                    const val_type = try self.genValtype(
+                        .{ .node_offset = struct_data.node_offset },
+                        entry.value.ty,
+                    );
+                    self.locals.appendAssumeCapacity(val_type);
+                    self.local_index += 1;
+                }
+            },
+            // TODO: Add more types that require extra locals such as optionals
+            else => {},
+        }
+
+        return local_value;
     }
 
     fn genStore(self: *Context, inst: *Inst.BinOp) InnerError!WValue {
@@ -1089,5 +1110,11 @@ pub const Context = struct {
 
     fn genBitcast(self: *Context, bitcast: *Inst.UnOp) InnerError!WValue {
         return self.resolveInst(bitcast.operand);
+    }
+
+    fn genStructFieldPtr(self: *Context, inst: *Inst.StructFieldPtr) InnerError!WValue {
+        const struct_ptr = self.resolveInst(inst.struct_ptr);
+
+        return WValue{ .local = struct_ptr.local + @intCast(u32, inst.field_index) + 1 };
     }
 };
