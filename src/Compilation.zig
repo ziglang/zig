@@ -349,6 +349,7 @@ pub const AllErrors = struct {
                     ttyconf.setColor(stderr, color);
                     try stderr.writeByteNTimes(' ', indent);
                     try stderr.writeAll(kind);
+                    ttyconf.setColor(stderr, .Reset);
                     ttyconf.setColor(stderr, .Bold);
                     try stderr.print(" {s}\n", .{src.msg});
                     ttyconf.setColor(stderr, .Reset);
