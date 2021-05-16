@@ -1225,7 +1225,7 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.obj("variable shadowing", linux_x64);
         case.addError(
-            \\pub export fn _start() noreturn {
+            \\export fn _start() noreturn {
             \\    var i: u32 = 10;
             \\    var i: u32 = 10;
             \\    unreachable;
@@ -1251,7 +1251,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.obj("@compileLog", linux_x64);
         // The other compile error prevents emission of a "found compile log" statement.
         case.addError(
-            \\pub export fn _start() noreturn {
+            \\export fn _start() noreturn {
             \\    const b = true;
             \\    var f: u32 = 1;
             \\    @compileLog(b, 20, f, x);
@@ -1293,10 +1293,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = foo;
             \\}
             \\extern var foo: i32;
-            \\pub export fn _start() void {}
         , &[_][]const u8{":2:9: error: unable to resolve comptime value"});
         case.addError(
-            \\pub export fn _start() void {
+            \\export fn entry() void {
             \\    _ = foo;
             \\}
             \\extern var foo;

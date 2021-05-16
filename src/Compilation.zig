@@ -1696,17 +1696,15 @@ pub fn totalErrorCount(self: *Compilation) usize {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (module.failed_decls.items()) |entry| {
-            if (entry.key.namespace.file_scope.status == .parse_failure) {
-                continue;
+            if (entry.key.namespace.file_scope.okToReportErrors()) {
+                total += 1;
             }
-            total += 1;
         }
         if (module.emit_h) |emit_h| {
             for (emit_h.failed_decls.items()) |entry| {
-                if (entry.key.namespace.file_scope.status == .parse_failure) {
-                    continue;
+                if (entry.key.namespace.file_scope.okToReportErrors()) {
+                    total += 1;
                 }
-                total += 1;
             }
         }
     }
@@ -1767,21 +1765,19 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             }
         }
         for (module.failed_decls.items()) |entry| {
-            if (entry.key.namespace.file_scope.status == .parse_failure) {
-                // Skip errors for Decls within files that had a parse failure.
-                // We'll try again once parsing succeeds.
-                continue;
+            // Skip errors for Decls within files that had a parse failure.
+            // We'll try again once parsing succeeds.
+            if (entry.key.namespace.file_scope.okToReportErrors()) {
+                try AllErrors.add(module, &arena, &errors, entry.value.*);
             }
-            try AllErrors.add(module, &arena, &errors, entry.value.*);
         }
         if (module.emit_h) |emit_h| {
             for (emit_h.failed_decls.items()) |entry| {
-                if (entry.key.namespace.file_scope.status == .parse_failure) {
-                    // Skip errors for Decls within files that had a parse failure.
-                    // We'll try again once parsing succeeds.
-                    continue;
+                // Skip errors for Decls within files that had a parse failure.
+                // We'll try again once parsing succeeds.
+                if (entry.key.namespace.file_scope.okToReportErrors()) {
+                    try AllErrors.add(module, &arena, &errors, entry.value.*);
                 }
-                try AllErrors.add(module, &arena, &errors, entry.value.*);
             }
         }
         for (module.failed_exports.items()) |entry| {

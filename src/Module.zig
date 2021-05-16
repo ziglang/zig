@@ -1138,6 +1138,13 @@ pub const Scope = struct {
             const loc = std.zig.findLineColumn(file.source.bytes, src);
             std.debug.print("{s}:{d}:{d}\n", .{ file.sub_file_path, loc.line + 1, loc.column + 1 });
         }
+
+        pub fn okToReportErrors(file: File) bool {
+            return switch (file.status) {
+                .parse_failure, .astgen_failure => false,
+                else => true,
+            };
+        }
     };
 
     /// This is the context needed to semantically analyze ZIR instructions and
