@@ -1064,7 +1064,7 @@ pub fn commitDeclDebugInfo(
 
                 try dbg_line_buffer.append(DW.LNS_advance_line);
                 const func = decl.val.castTag(.function).?.data;
-                const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
+                const line_off = @intCast(u28, func.rbrace_line - func.lbrace_line);
                 try leb.writeULEB128(dbg_line_buffer.writer(), line_off);
             }
 
