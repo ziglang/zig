@@ -28,6 +28,22 @@ pub fn Interval(comptime T: type) type {
                 };
             }
 
+            fn compareLeft(self: Endpoint, x: T) bool {
+                const y = self.n().?;
+                if (self == .open) {
+                    return x > y;
+                }
+                return x >= y;
+            }
+
+            fn compareRight(self: Endpoint, x: T) bool {
+                const y = self.n().?;
+                if (self == .open) {
+                    return x < y;
+                }
+                return x <= y;
+            }
+
             pub fn eql(self: Endpoint, other: Endpoint) bool {
                 if (self == .infinity and other == .infinity) {
                     return true;
@@ -48,11 +64,7 @@ pub fn Interval(comptime T: type) type {
         pub fn contains(self: Self, x: T) bool {
             const s_from: Endpoint = if (self.from != .infinity) self.from else .{ .closed = min(T) };
             const s_to: Endpoint = if (self.to != .infinity) self.to else .{ .closed = max(T) };
-            const from = s_from.n().?;
-            const to = s_to.n().?;
-            const left = if (s_from == .open) x > from else x >= from;
-            const right = if (s_to == .open) x < to else x <= to;
-            return left and right;
+            return s_from.compareLeft(x) and s_to.compareRight(x);
         }
 
         pub fn eql(self: Self, other: Self) bool {
