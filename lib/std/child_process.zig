@@ -203,6 +203,10 @@ pub const ChildProcess = struct {
         // of space an ArrayList will allocate grows exponentially.
         const bump_amt = 512;
 
+        // TODO https://github.com/ziglang/zig/issues/8724
+        // parent process does not receive POLLHUP events
+        const dragonfly_workaround = builtin.os.tag == .dragonfly;
+
         while (dead_fds < poll_fds.len) {
             const events = try os.poll(&poll_fds, std.math.maxInt(i32));
             if (events == 0) continue;
@@ -215,7 +219,11 @@ pub const ChildProcess = struct {
                 try stdout.ensureCapacity(new_capacity);
                 const buf = stdout.unusedCapacitySlice();
                 if (buf.len == 0) return error.StdoutStreamTooLong;
-                stdout.items.len += try os.read(poll_fds[0].fd, buf);
+                const nread = try os.read(poll_fds[0].fd, buf);
+                stdout.items.len += nread;
+
+                // insert POLLHUP event because dragonfly fails to do so
+                if (dragonfly_workaround and nread == 0) poll_fds[0].revents |= os.POLLHUP;
             }
             if (poll_fds[1].revents & os.POLLIN != 0) {
                 // stderr is ready.
@@ -223,7 +231,11 @@ pub const ChildProcess = struct {
                 try stderr.ensureCapacity(new_capacity);
                 const buf = stderr.unusedCapacitySlice();
                 if (buf.len == 0) return error.StderrStreamTooLong;
-                stderr.items.len += try os.read(poll_fds[1].fd, buf);
+                const nread = try os.read(poll_fds[1].fd, buf);
+                stderr.items.len += nread;
+
+                // insert POLLHUP event because dragonfly fails to do so
+                if (dragonfly_workaround and nread == 0) poll_fds[1].revents |= os.POLLHUP;
             }
 
             // Exclude the fds that signaled an error.

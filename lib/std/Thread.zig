@@ -576,6 +576,9 @@ pub fn getCurrentThreadId() u64 {
             assert(c.pthread_threadid_np(null, &thread_id) == 0);
             return thread_id;
         },
+        .dragonfly => {
+            return @bitCast(u32, c.lwp_gettid());
+        },
         .netbsd => {
             return @bitCast(u32, c._lwp_self());
         },

@@ -171,6 +171,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
 
     cases.addCase(.{
         .exclude_os = .{
+            .openbsd, // integer overflow
             .windows,
         },
         .name = "dumpCurrentStackTrace",

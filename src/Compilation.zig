@@ -1290,7 +1290,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         }
         if (comp.wantBuildMuslFromSource()) {
             try comp.work_queue.ensureUnusedCapacity(6);
-            if (target_util.libc_needs_crti_crtn(comp.getTarget())) {
+            if (musl.needsCrtiCrtn(comp.getTarget())) {
                 comp.work_queue.writeAssumeCapacity(&[_]Job{
                     .{ .musl_crt_file = .crti_o },
                     .{ .musl_crt_file = .crtn_o },
@@ -2903,7 +2903,7 @@ fn detectLibCIncludeDirs(
         const generic_name = target_util.libCGenericName(target);
         // Some architectures are handled by the same set of headers.
         const arch_name = if (target.abi.isMusl())
-            target_util.archMuslName(target.cpu.arch)
+            musl.archMuslName(target.cpu.arch)
         else if (target.cpu.arch.isThumb())
             // ARM headers are valid for Thumb too.
             switch (target.cpu.arch) {
