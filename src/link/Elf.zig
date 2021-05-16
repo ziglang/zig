@@ -23,6 +23,7 @@ const File = link.File;
 const build_options = @import("build_options");
 const target_util = @import("../target.zig");
 const glibc = @import("../glibc.zig");
+const musl = @import("../musl.zig");
 const Cache = @import("../Cache.zig");
 const llvm_backend = @import("../codegen/llvm.zig");
 
@@ -1278,7 +1279,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const have_dynamic_linker = self.base.options.link_libc and
         self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
-    const link_in_crt = self.base.options.link_libc and self.base.options.output_mode == .Exe;
     const target = self.base.options.target;
     const gc_sections = self.base.options.gc_sections orelse !is_obj;
     const stack_size = self.base.options.stack_size_override orelse 16777216;
@@ -1499,40 +1499,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append("-o");
         try argv.append(full_out_path);
 
-        if (link_in_crt) {
-            const crt1o: []const u8 = o: {
-                if (target.os.tag == .netbsd) {
-                    break :o "crt0.o";
-                } else if (target.os.tag == .openbsd) {
-                    if (self.base.options.link_mode == .Static) {
-                        break :o "rcrt0.o";
-                    } else {
-                        break :o "crt0.o";
-                    }
-                } else if (target.isAndroid()) {
-                    if (self.base.options.link_mode == .Dynamic) {
-                        break :o "crtbegin_dynamic.o";
-                    } else {
-                        break :o "crtbegin_static.o";
-                    }
-                } else if (self.base.options.link_mode == .Static) {
-                    if (self.base.options.pie) {
-                        break :o "rcrt1.o";
-                    } else {
-                        break :o "crt1.o";
-                    }
-                } else {
-                    break :o "Scrt1.o";
-                }
-            };
-            try argv.append(try comp.get_libc_crt_file(arena, crt1o));
-            if (target_util.libc_needs_crti_crtn(target)) {
-                try argv.append(try comp.get_libc_crt_file(arena, "crti.o"));
-            }
-            if (target.os.tag == .openbsd) {
-                try argv.append(try comp.get_libc_crt_file(arena, "crtbegin.o"));
-            }
-        }
+        // csu prelude
+        var csu = try CsuObjects.init(arena, self.base.options, comp);
+        if (csu.crt0) |v| try argv.append(v);
+        if (csu.crti) |v| try argv.append(v);
+        if (csu.crtbegin) |v| try argv.append(v);
 
         // rpaths
         var rpath_table = std.StringHashMap(void).init(self.base.allocator);
@@ -1676,16 +1647,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             }
         }
 
-        // crt end
-        if (link_in_crt) {
-            if (target.isAndroid()) {
-                try argv.append(try comp.get_libc_crt_file(arena, "crtend_android.o"));
-            } else if (target.os.tag == .openbsd) {
-                try argv.append(try comp.get_libc_crt_file(arena, "crtend.o"));
-            } else if (target_util.libc_needs_crti_crtn(target)) {
-                try argv.append(try comp.get_libc_crt_file(arena, "crtn.o"));
-            }
-        }
+        // crt postlude
+        if (csu.crtend) |v| try argv.append(v);
+        if (csu.crtn) |v| try argv.append(v);
 
         if (allow_shlib_undefined) {
             try argv.append("--allow-shlib-undefined");
@@ -3237,3 +3201,182 @@ fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
     return std.math.add(@TypeOf(actual_size), actual_size, actual_size / ideal_factor) catch
         std.math.maxInt(@TypeOf(actual_size));
 }
+
+// Provide a blueprint of csu (c-runtime startup) objects for supported
+// link modes.
+//
+// This is for cross-mode targets only. For host-mode targets the system
+// compiler can be probed to produce a robust blueprint.
+//
+// Targets requiring a libc for which zig does not bundle a libc are
+// host-mode targets. Unfortunately, host-mode probes are not yet
+// implemented. For now the data is hard-coded here. Such targets are
+// { freebsd, netbsd, openbsd, dragonfly }.
+const CsuObjects = struct {
+    crt0: ?[]const u8 = null,
+    crti: ?[]const u8 = null,
+    crtbegin: ?[]const u8 = null,
+    crtend: ?[]const u8 = null,
+    crtn: ?[]const u8 = null,
+
+    fn init(arena: *mem.Allocator, link_options: link.Options, comp: *const Compilation) !CsuObjects {
+        // crt objects are only required for libc.
+        if (!link_options.link_libc) return CsuObjects{};
+
+        var result: CsuObjects = .{};
+
+        // TODO: https://github.com/ziglang/zig/issues/4629
+        // - use inline enum type
+        // - reduce to enum-literals for values
+        const Mode = enum {
+            dynamic_lib,
+            dynamic_exe,
+            dynamic_pie,
+            static_exe,
+            static_pie,
+        };
+
+        // Flatten crt case types.
+        const mode: Mode = switch (link_options.output_mode) {
+            .Obj => return CsuObjects{},
+            .Lib => switch (link_options.link_mode) {
+                .Dynamic => Mode.dynamic_lib,
+                .Static => return CsuObjects{},
+            },
+            .Exe => switch (link_options.link_mode) {
+                .Dynamic => if (link_options.pie) Mode.dynamic_pie else Mode.dynamic_exe,
+                .Static => if (link_options.pie) Mode.static_pie else Mode.static_exe,
+            },
+        };
+
+        if (link_options.target.isAndroid()) {
+            switch (mode) {
+                // zig fmt: off
+                .dynamic_lib => result.set( null, null, "crtbegin_so.o",      "crtend_so.o",      null ),
+                .dynamic_exe,
+                .dynamic_pie => result.set( null, null, "crtbegin_dynamic.o", "crtend_android.o", null ),
+                .static_exe,
+                .static_pie  => result.set( null, null, "crtbegin_static.o",  "crtend_android.o", null ),
+                // zig fmt: on
+            }
+        } else {
+            switch (link_options.target.os.tag) {
+                .linux => {
+                    switch (mode) {
+                        // zig fmt: off
+                        .dynamic_lib => result.set( null,      "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                        .dynamic_exe => result.set( "crt1.o",  "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
+                        .dynamic_pie => result.set( "Scrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                        .static_exe  => result.set( "crt1.o",  "crti.o", "crtbeginT.o", "crtend.o",  "crtn.o" ),
+                        .static_pie  => result.set( "rcrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                        // zig fmt: on
+                    }
+                    if (link_options.libc_installation) |_| {
+                        // hosted-glibc provides crtbegin/end objects in platform/compiler-specific dirs
+                        // and they are not known at comptime. For now null-out crtbegin/end objects;
+                        // there is no feature loss, zig has never linked those objects in before.
+                        // TODO: probe for paths, ie. `cc -print-file-name`
+                        result.crtbegin = null;
+                        result.crtend = null;
+                    } else {
+                        // Bundled glibc only has Scrt1.o .
+                        if (result.crt0 != null and link_options.target.isGnuLibC()) result.crt0 = "Scrt1.o";
+                    }
+                },
+                .dragonfly => switch (mode) {
+                    // zig fmt: off
+                    .dynamic_lib => result.set( null,      "crti.o", "crtbeginS.o",  "crtendS.o", "crtn.o" ),
+                    .dynamic_exe => result.set( "crt1.o",  "crti.o", "crtbegin.o",   "crtend.o",  "crtn.o" ),
+                    .dynamic_pie => result.set( "Scrt1.o", "crti.o", "crtbeginS.o",  "crtendS.o", "crtn.o" ),
+                    .static_exe  => result.set( "crt1.o",  "crti.o", "crtbegin.o",   "crtend.o",  "crtn.o" ),
+                    .static_pie  => result.set( "Scrt1.o", "crti.o", "crtbeginS.o",  "crtendS.o", "crtn.o" ),
+                    // zig fmt: on
+                },
+                .freebsd => switch (mode) {
+                    // zig fmt: off
+                    .dynamic_lib => result.set( null,      "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    .dynamic_exe => result.set( "crt1.o",  "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
+                    .dynamic_pie => result.set( "Scrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    .static_exe  => result.set( "crt1.o",  "crti.o", "crtbeginT.o", "crtend.o",  "crtn.o" ),
+                    .static_pie  => result.set( "Scrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    // zig fmt: on
+                },
+                .netbsd => switch (mode) {
+                    // zig fmt: off
+                    .dynamic_lib => result.set( null,     "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    .dynamic_exe => result.set( "crt0.o", "crti.o", "crtbegin.o",  "crtend.o",  "crtn.o" ),
+                    .dynamic_pie => result.set( "crt0.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
+                    .static_exe  => result.set( "crt0.o", "crti.o", "crtbeginT.o", "crtend.o",  "crtn.o" ),
+                    .static_pie  => result.set( "crt0.o", "crti.o", "crtbeginT.o", "crtendS.o", "crtn.o" ),
+                    // zig fmt: on
+                },
+                .openbsd => switch(mode) {
+                    // zig fmt: off
+                    .dynamic_lib => result.set( null,      null, "crtbeginS.o", "crtendS.o", null ),
+                    .dynamic_exe,
+                    .dynamic_pie => result.set( "crt0.o",  null, "crtbegin.o",  "crtend.o",  null ),
+                    .static_exe,
+                    .static_pie  => result.set( "rcrt0.o", null, "crtbegin.o",  "crtend.o",  null ),
+                    // zig fmt: on
+                },
+                else => {},
+            }
+        }
+
+        // Convert each object to a full pathname.
+        if (link_options.libc_installation) |lci| {
+            const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
+            switch (link_options.target.os.tag) {
+                .dragonfly => {
+                    if (result.crt0) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
+                    if (result.crti) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
+                    if (result.crtn) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
+
+                    var gccv: []const u8 = undefined;
+                    if (link_options.target.os.version_range.semver.isAtLeast(.{ .major = 5, .minor = 4 }) orelse true) {
+                        gccv = "gcc80";
+                    } else {
+                        gccv = "gcc54";
+                    }
+
+                    if (result.crtbegin) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, gccv, obj.* });
+                    if (result.crtend) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, gccv, obj.* });
+                },
+                else => {
+                    inline for (std.meta.fields(@TypeOf(result))) |f,i| {
+                        if (@field(result, f.name)) |*obj| {
+                            obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
+                        }
+                    }
+                }
+            }
+        } else {
+            inline for (std.meta.fields(@TypeOf(result))) |f,i| {
+                if (@field(result, f.name)) |*obj| {
+                    if (comp.crt_files.get(obj.*)) |crtf| {
+                        obj.* = crtf.full_object_path;
+                    } else {
+                        @field(result, f.name) = null;
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    fn set(
+        self: *CsuObjects,
+        crt0: ?[]const u8,
+        crti: ?[]const u8,
+        crtbegin: ?[]const u8,
+        crtend: ?[]const u8,
+        crtn: ?[]const u8,
+    ) void {
+        self.crt0 = crt0;
+        self.crti = crti;
+        self.crtbegin = crtbegin;
+        self.crtend = crtend;
+        self.crtn = crtn;
+    }
+};

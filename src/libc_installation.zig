@@ -195,8 +195,8 @@ pub const LibCInstallation = struct {
                 errdefer batch.wait() catch {};
                 batch.add(&async self.findNativeIncludeDirPosix(args));
                 switch (Target.current.os.tag) {
-                    .freebsd, .netbsd, .openbsd => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib"),
-                    .linux, .dragonfly => batch.add(&async self.findNativeCrtDirPosix(args)),
+                    .freebsd, .netbsd, .openbsd, .dragonfly => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib"),
+                    .linux => batch.add(&async self.findNativeCrtDirPosix(args)),
                     .haiku => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/system/develop/lib"),
                     else => {},
                 }
@@ -523,7 +523,7 @@ pub const CCPrintFileNameOptions = struct {
 };
 
 /// caller owns returned memory
-fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
+pub fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     const allocator = args.allocator;
 
     const cc_exe = std.os.getenvZ("CC") orelse default_cc_exe;

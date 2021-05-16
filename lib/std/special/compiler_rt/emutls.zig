@@ -376,7 +376,7 @@ test "__emutls_get_address with default_value" {
 
 test "test default_value with differents sizes" {
     const testType = struct {
-        fn _testType(comptime T: type, value: T) void {
+        fn _testType(comptime T: type, value: T) !void {
             var def: T = value;
             var ctl = emutls_control.init(T, &def);
             var x = ctl.get_typed_pointer(T);
@@ -384,11 +384,11 @@ test "test default_value with differents sizes" {
         }
     }._testType;
 
-    testType(usize, 1234);
-    testType(u32, 1234);
-    testType(i16, -12);
-    testType(f64, -12.0);
-    testType(
+    try testType(usize, 1234);
+    try testType(u32, 1234);
+    try testType(i16, -12);
+    try testType(f64, -12.0);
+    try testType(
         @TypeOf("012345678901234567890123456789"),
         "012345678901234567890123456789",
     );
