@@ -117,7 +117,6 @@ pub fn generateSymbol(
                 //.sparcv9 => return Function(.sparcv9).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
                 //.sparcel => return Function(.sparcel).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
                 //.s390x => return Function(.s390x).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                .spu_2 => return Function(.spu_2).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
                 //.tce => return Function(.tce).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
                 //.tcele => return Function(.tcele).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
                 //.thumb => return Function(.thumb).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
@@ -2204,11 +2203,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .riscv64 => {
                     mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ebreak.toU32());
                 },
-                .spu_2 => {
-                    try self.code.resize(self.code.items.len + 2);
-                    var instr = Instruction{ .condition = .always, .input0 = .zero, .input1 = .zero, .modify_flags = false, .output = .discard, .command = .undefined1 };
-                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], @bitCast(u16, instr));
-                },
                 .arm, .armeb => {
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.bkpt(0).toU32());
                 },
@@ -2308,53 +2302,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                                 try self.genSetReg(inst.base.src, Type.initTag(.usize), .ra, .{ .memory = got_addr });
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.ra, 0, .ra).toU32());
-                            } else if (func_value.castTag(.extern_fn)) |_| {
-                                return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
-                            } else {
-                                return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
-                            }
-                        } else {
-                            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
-                        }
-                    },
-                    .spu_2 => {
-                        if (inst.func.value()) |func_value| {
-                            if (info.args.len != 0) {
-                                return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
-                            }
-                            if (func_value.castTag(.function)) |func_payload| {
-                                const func = func_payload.data;
-                                const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
-                                    const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-                                    break :blk @intCast(u16, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * 2);
-                                } else if (self.bin_file.cast(link.File.Coff)) |coff_file|
-                                    @intCast(u16, coff_file.offset_table_virtual_address + func.owner_decl.link.coff.offset_table_index * 2)
-                                else
-                                    unreachable;
-
-                                assert(func.owner_decl.has_tv);
-                                const return_type = func.owner_decl.ty.fnReturnType();
-                                // First, push the return address, then jump; if noreturn, don't bother with the first step
-                                // TODO: implement packed struct -> u16 at comptime and move the bitcast here
-                                var instr = Instruction{ .condition = .always, .input0 = .immediate, .input1 = .zero, .modify_flags = false, .output = .jump, .command = .load16 };
-                                if (return_type.zigTypeTag() == .NoReturn) {
-                                    try self.code.resize(self.code.items.len + 4);
-                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 4 ..][0..2], @bitCast(u16, instr));
-                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], got_addr);
-                                    return MCValue.unreach;
-                                } else {
-                                    try self.code.resize(self.code.items.len + 8);
-                                    var push = Instruction{ .condition = .always, .input0 = .immediate, .input1 = .zero, .modify_flags = false, .output = .push, .command = .ipget };
-                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 8 ..][0..2], @bitCast(u16, push));
-                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 6 ..][0..2], @as(u16, 4));
-                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 4 ..][0..2], @bitCast(u16, instr));
-                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], got_addr);
-                                    switch (return_type.zigTypeTag()) {
-                                        .Void => return MCValue{ .none = {} },
-                                        .NoReturn => unreachable,
-                                        else => return self.fail(inst.base.src, "TODO implement fn call with non-void return value", .{}),
-                                    }
-                                }
                             } else if (func_value.castTag(.extern_fn)) |_| {
                                 return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
                             } else {
@@ -3176,19 +3123,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (!inst.is_volatile and inst.base.isUnused())
                 return MCValue.dead;
             switch (arch) {
-                .spu_2 => {
-                    if (inst.inputs.len > 0 or inst.output_constraint != null) {
-                        return self.fail(inst.base.src, "TODO implement inline asm inputs / outputs for SPU Mark II", .{});
-                    }
-                    if (mem.eql(u8, inst.asm_source, "undefined0")) {
-                        try self.code.resize(self.code.items.len + 2);
-                        var instr = Instruction{ .condition = .always, .input0 = .zero, .input1 = .zero, .modify_flags = false, .output = .discard, .command = .undefined0 };
-                        mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], @bitCast(u16, instr));
-                        return MCValue.none;
-                    } else {
-                        return self.fail(inst.base.src, "TODO implement support for more SPU II assembly instructions", .{});
-                    }
-                },
                 .arm, .armeb => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
@@ -4503,7 +4437,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             .i386 => @import("codegen/x86.zig"),
             .x86_64 => @import("codegen/x86_64.zig"),
             .riscv64 => @import("codegen/riscv64.zig"),
-            .spu_2 => @import("codegen/spu-mk2.zig"),
             .arm, .armeb => @import("codegen/arm.zig"),
             .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig"),
             else => struct {
