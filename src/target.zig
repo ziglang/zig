@@ -374,3 +374,30 @@ pub fn hasRedZone(target: std.Target) bool {
         else => false,
     };
 }
+
+pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
+    // The linking order of these is significant and should match the order other
+    // c compilers such as gcc or clang use.
+    return switch (target.os.tag) {
+        .netbsd, .openbsd => &[_][]const u8{
+            "-lm",
+            "-lpthread",
+            "-lc",
+            "-lutil",
+        },
+        else => &[_][]const u8{
+            "-lm",
+            "-lpthread",
+            "-lc",
+            "-ldl",
+            "-lrt",
+            "-lutil",
+        },
+    };
+}
+
+pub fn clangMightShellOutForAssembly(target: std.Target) bool {
+    // Clang defaults to using the system assembler over the internal one
+    // when targeting a non-BSD OS.
+    return target.cpu.arch.isSPARC();
+}

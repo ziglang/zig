@@ -638,6 +638,7 @@ pub const InitOptions = struct {
     system_libs: []const []const u8 = &[0][]const u8{},
     link_libc: bool = false,
     link_libcpp: bool = false,
+    link_libunwind: bool = false,
     want_pic: ?bool = null,
     /// This means that if the output mode is an executable it will be a
     /// Position Independent Executable. If the output mode is not an
@@ -885,8 +886,13 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         };
 
         const tsan = options.want_tsan orelse false;
+        // TSAN is implemented in C++ so it requires linking libc++.
+        const link_libcpp = options.link_libcpp or tsan;
+        const link_libc = link_libcpp or options.link_libc or
+            target_util.osRequiresLibC(options.target);
 
-        const link_libc = options.link_libc or target_util.osRequiresLibC(options.target) or tsan;
+        const link_libunwind = options.link_libunwind or
+            (link_libcpp and target_util.libcNeedsLibUnwind(options.target));
 
         const must_dynamic_link = dl: {
             if (target_util.cannotDynamicLink(options.target))
@@ -971,9 +977,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             }
             break :pic explicit;
         } else pie or must_pic;
-
-        // TSAN is implemented in C++ so it requires linking libc++.
-        const link_libcpp = options.link_libcpp or tsan;
 
         // Make a decision on whether to use Clang for translate-c and compiling C files.
         const use_clang = if (options.use_clang) |explicit| explicit else blk: {
@@ -1067,6 +1070,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(strip);
         cache.hash.add(link_libc);
         cache.hash.add(link_libcpp);
+        cache.hash.add(link_libunwind);
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
         cache.hash.addOptionalEmitLoc(options.emit_bin);
@@ -1262,6 +1266,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .system_linker_hack = darwin_options.system_linker_hack,
             .link_libc = link_libc,
             .link_libcpp = link_libcpp,
+            .link_libunwind = link_libunwind,
             .objects = options.link_objects,
             .frameworks = options.frameworks,
             .framework_dirs = options.framework_dirs,
@@ -2943,6 +2948,10 @@ pub fn addCCArgs(
         try argv.appendSlice(&[_][]const u8{ "-MD", "-MV", "-MF", p });
     }
 
+    if (target_util.clangMightShellOutForAssembly(target)) {
+        try argv.append("-integrated-as");
+    }
+
     if (target.os.tag == .freestanding) {
         try argv.append("-ffreestanding");
     }
@@ -3139,7 +3148,7 @@ fn detectLibCIncludeDirs(
 
     if (is_native_abi) {
         const libc = try arena.create(LibCInstallation);
-        libc.* = try LibCInstallation.findNative(.{ .allocator = arena });
+        libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true });
         return detectLibCFromLibCInstallation(arena, target, libc);
     }
 
@@ -3276,9 +3285,8 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
         .Lib => comp.bin_file.options.link_mode == .Dynamic,
         .Exe => true,
     };
-    return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
-        comp.bin_file.options.object_format != .c and
-        target_util.libcNeedsLibUnwind(comp.getTarget());
+    return is_exe_or_dyn_lib and comp.bin_file.options.link_libunwind and
+        comp.bin_file.options.object_format != .c;
 }
 
 fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) Allocator.Error!void {

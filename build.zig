@@ -228,6 +228,7 @@ pub fn build(b: *Builder) !void {
     const is_wine_enabled = b.option(bool, "enable-wine", "Use Wine to run cross compiled Windows tests") orelse false;
     const is_qemu_enabled = b.option(bool, "enable-qemu", "Use QEMU to run cross compiled foreign architecture tests") orelse false;
     const is_wasmtime_enabled = b.option(bool, "enable-wasmtime", "Use Wasmtime to enable and run WASI libstd tests") orelse false;
+    const is_darling_enabled = b.option(bool, "enable-darling", "[Experimental] Use Darling to run cross compiled macOS tests") orelse false;
     const glibc_multi_dir = b.option([]const u8, "enable-foreign-glibc", "Provide directory with glibc installations to run cross compiled tests that link glibc");
 
     test_stage2.addBuildOption(bool, "skip_non_native", skip_non_native);
@@ -238,6 +239,7 @@ pub fn build(b: *Builder) !void {
     test_stage2.addBuildOption(bool, "enable_wine", is_wine_enabled);
     test_stage2.addBuildOption(bool, "enable_wasmtime", is_wasmtime_enabled);
     test_stage2.addBuildOption(u32, "mem_leak_frames", mem_leak_frames * 2);
+    test_stage2.addBuildOption(bool, "enable_darling", is_darling_enabled);
     test_stage2.addBuildOption(?[]const u8, "glibc_multi_install_dir", glibc_multi_dir);
     test_stage2.addBuildOption([]const u8, "version", version);
 
@@ -272,11 +274,56 @@ pub fn build(b: *Builder) !void {
     const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
     fmt_step.dependOn(&fmt_build_zig.step);
 
-    // TODO for the moment, skip wasm32-wasi until bugs are sorted out.
-    toolchain_step.dependOn(tests.addPkgTests(b, test_filter, "test/behavior.zig", "behavior", "Run the behavior tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
+    toolchain_step.dependOn(tests.addPkgTests(
+        b,
+        test_filter,
+        "test/behavior.zig",
+        "behavior",
+        "Run the behavior tests",
+        modes,
+        false,
+        skip_non_native,
+        skip_libc,
+        is_wine_enabled,
+        is_qemu_enabled,
+        is_wasmtime_enabled,
+        is_darling_enabled,
+        glibc_multi_dir,
+    ));
 
-    toolchain_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
-    toolchain_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/special/c.zig", "minilibc", "Run the mini libc tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir));
+    toolchain_step.dependOn(tests.addPkgTests(
+        b,
+        test_filter,
+        "lib/std/special/compiler_rt.zig",
+        "compiler-rt",
+        "Run the compiler_rt tests",
+        modes,
+        true,
+        skip_non_native,
+        true,
+        is_wine_enabled,
+        is_qemu_enabled,
+        is_wasmtime_enabled,
+        is_darling_enabled,
+        glibc_multi_dir,
+    ));
+
+    toolchain_step.dependOn(tests.addPkgTests(
+        b,
+        test_filter,
+        "lib/std/special/c.zig",
+        "minilibc",
+        "Run the mini libc tests",
+        modes,
+        true,
+        skip_non_native,
+        true,
+        is_wine_enabled,
+        is_qemu_enabled,
+        is_wasmtime_enabled,
+        is_darling_enabled,
+        glibc_multi_dir,
+    ));
 
     toolchain_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));
@@ -294,7 +341,22 @@ pub fn build(b: *Builder) !void {
         toolchain_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
     }
 
-    const std_step = tests.addPkgTests(b, test_filter, "lib/std/std.zig", "std", "Run the standard library tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, is_wasmtime_enabled, glibc_multi_dir);
+    const std_step = tests.addPkgTests(
+        b,
+        test_filter,
+        "lib/std/std.zig",
+        "std",
+        "Run the standard library tests",
+        modes,
+        false,
+        skip_non_native,
+        skip_libc,
+        is_wine_enabled,
+        is_qemu_enabled,
+        is_wasmtime_enabled,
+        is_darling_enabled,
+        glibc_multi_dir,
+    );
 
     const test_step = b.step("test", "Run all the tests");
     test_step.dependOn(toolchain_step);
@@ -346,8 +408,7 @@ fn addCmakeCfgOptionsToExe(
             },
             else => |e| return e,
         };
-
-        exe.linkSystemLibrary("pthread");
+        exe.linkSystemLibrary("unwind");
     } else if (exe.target.isFreeBSD()) {
         try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
         exe.linkSystemLibrary("pthread");
@@ -355,20 +416,7 @@ fn addCmakeCfgOptionsToExe(
         try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
         try addCxxKnownPath(b, cfg, exe, "libc++abi.a", null, need_cpp_includes);
     } else if (exe.target.isDarwin()) {
-        if (addCxxKnownPath(b, cfg, exe, "libgcc_eh.a", "", need_cpp_includes)) {
-            // Compiler is GCC.
-            try addCxxKnownPath(b, cfg, exe, "libstdc++.a", null, need_cpp_includes);
-            exe.linkSystemLibrary("pthread");
-            // TODO LLD cannot perform this link.
-            // Set ZIG_SYSTEM_LINKER_HACK env var to use system linker ld instead.
-            // See https://github.com/ziglang/zig/issues/1535
-        } else |err| switch (err) {
-            error.RequiredLibraryNotFound => {
-                // System compiler, not gcc.
-                exe.linkSystemLibrary("c++");
-            },
-            else => |e| return e,
-        }
+        exe.linkSystemLibrary("c++");
     }
 
     if (cfg.dia_guids_lib.len != 0) {

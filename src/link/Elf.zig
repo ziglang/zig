@@ -1645,6 +1645,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 try argv.append(comp.libcxx_static_lib.?.full_object_path);
             }
 
+            // libunwind dep
+            if (self.base.options.link_libunwind) {
+                try argv.append(comp.libunwind_static_lib.?.full_object_path);
+            }
+
             // libc dep
             if (self.base.options.link_libc) {
                 if (self.base.options.libc_installation != null) {
@@ -1653,18 +1658,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                     }
                     const needs_grouping = self.base.options.link_mode == .Static;
                     if (needs_grouping) try argv.append("--start-group");
-                    // This matches the order of glibc.libs
-                    try argv.appendSlice(&[_][]const u8{
-                        "-lm",
-                        "-lpthread",
-                        "-lc",
-                        "-ldl",
-                        "-lrt",
-                        "-lutil",
-                    });
+                    try argv.appendSlice(target_util.libcFullLinkFlags(target));
                     if (needs_grouping) try argv.append("--end-group");
                 } else if (target.isGnuLibC()) {
-                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
                     for (glibc.libs) |lib| {
                         const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
                             comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
@@ -1673,13 +1669,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                     }
                     try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
                 } else if (target.isMusl()) {
-                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
                     try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
                         .Static => "libc.a",
                         .Dynamic => "libc.so",
                     }));
-                } else if (self.base.options.link_libcpp) {
-                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
                 } else {
                     unreachable; // Compiler was supposed to emit an error for not being able to provide libc.
                 }

@@ -52,6 +52,7 @@ pub const ENOPROTOOPT = 42;
 pub const EPROTONOSUPPORT = 43;
 pub const ESOCKTNOSUPPORT = 44;
 pub const EOPNOTSUPP = 45;
+pub const ENOTSUP = EOPNOTSUPP;
 pub const EPFNOSUPPORT = 46;
 pub const EAFNOSUPPORT = 47;
 pub const EADDRINUSE = 48;

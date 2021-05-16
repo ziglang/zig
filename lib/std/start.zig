@@ -46,7 +46,7 @@ comptime {
         } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
             if (builtin.link_libc and @hasDecl(root, "main")) {
                 if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
-                    @export(main, .{ .name = "main", .linkage = .Weak });
+                    @export(main, .{ .name = "main" });
                 }
             } else if (native_os == .windows) {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and

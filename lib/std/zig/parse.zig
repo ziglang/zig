@@ -1309,9 +1309,8 @@ const Parser = struct {
         return expr;
     }
 
-    /// Expr <- BoolOrExpr
     fn parseExpr(p: *Parser) Error!Node.Index {
-        return p.parseBoolOrExpr();
+        return p.parseExprPrecedence(0);
     }
 
     fn expectExpr(p: *Parser) Error!Node.Index {
@@ -1323,263 +1322,100 @@ const Parser = struct {
         }
     }
 
-    /// BoolOrExpr <- BoolAndExpr (KEYWORD_or BoolAndExpr)*
-    fn parseBoolOrExpr(p: *Parser) Error!Node.Index {
-        var res = try p.parseBoolAndExpr();
-        if (res == 0) return null_node;
+    const Assoc = enum {
+        left,
+        none,
+    };
 
-        while (true) {
-            switch (p.token_tags[p.tok_i]) {
-                .keyword_or => {
-                    const or_token = p.nextToken();
-                    const rhs = try p.parseBoolAndExpr();
-                    if (rhs == 0) {
-                        return p.fail(.invalid_token);
-                    }
-                    res = try p.addNode(.{
-                        .tag = .bool_or,
-                        .main_token = or_token,
-                        .data = .{
-                            .lhs = res,
-                            .rhs = rhs,
-                        },
-                    });
-                },
-                else => return res,
-            }
+    const OperInfo = struct {
+        prec: i8,
+        tag: Node.Tag,
+        assoc: Assoc = Assoc.left,
+    };
+
+    // A table of binary operator information. Higher precedence numbers are
+    // stickier. All operators at the same precedence level should have the same
+    // associativity.
+    const operTable = std.enums.directEnumArrayDefault(Token.Tag, OperInfo, .{ .prec = -1, .tag = Node.Tag.root }, 0, .{
+        .keyword_or = .{ .prec = 10, .tag = .bool_or },
+
+        .keyword_and = .{ .prec = 20, .tag = .bool_and },
+        .invalid_ampersands = .{ .prec = 20, .tag = .bool_and },
+
+        .equal_equal = .{ .prec = 30, .tag = .equal_equal, .assoc = Assoc.none },
+        .bang_equal = .{ .prec = 30, .tag = .bang_equal, .assoc = Assoc.none },
+        .angle_bracket_left = .{ .prec = 30, .tag = .less_than, .assoc = Assoc.none },
+        .angle_bracket_right = .{ .prec = 30, .tag = .greater_than, .assoc = Assoc.none },
+        .angle_bracket_left_equal = .{ .prec = 30, .tag = .less_or_equal, .assoc = Assoc.none },
+        .angle_bracket_right_equal = .{ .prec = 30, .tag = .greater_or_equal, .assoc = Assoc.none },
+
+        .ampersand = .{ .prec = 40, .tag = .bit_and },
+        .caret = .{ .prec = 40, .tag = .bit_xor },
+        .pipe = .{ .prec = 40, .tag = .bit_or },
+        .keyword_orelse = .{ .prec = 40, .tag = .@"orelse" },
+        .keyword_catch = .{ .prec = 40, .tag = .@"catch" },
+
+        .angle_bracket_angle_bracket_left = .{ .prec = 50, .tag = .bit_shift_left },
+        .angle_bracket_angle_bracket_right = .{ .prec = 50, .tag = .bit_shift_right },
+
+        .plus = .{ .prec = 60, .tag = .add },
+        .minus = .{ .prec = 60, .tag = .sub },
+        .plus_plus = .{ .prec = 60, .tag = .array_cat },
+        .plus_percent = .{ .prec = 60, .tag = .add_wrap },
+        .minus_percent = .{ .prec = 60, .tag = .sub_wrap },
+
+        .pipe_pipe = .{ .prec = 70, .tag = .merge_error_sets },
+        .asterisk = .{ .prec = 70, .tag = .mul },
+        .slash = .{ .prec = 70, .tag = .div },
+        .percent = .{ .prec = 70, .tag = .mod },
+        .asterisk_asterisk = .{ .prec = 70, .tag = .array_mult },
+        .asterisk_percent = .{ .prec = 70, .tag = .mul_wrap },
+    });
+
+    fn parseExprPrecedence(p: *Parser, min_prec: i32) Error!Node.Index {
+        var node = try p.parsePrefixExpr();
+        if (node == 0) {
+            return null_node;
         }
-    }
 
-    /// BoolAndExpr <- CompareExpr (KEYWORD_and CompareExpr)*
-    fn parseBoolAndExpr(p: *Parser) !Node.Index {
-        var res = try p.parseCompareExpr();
-        if (res == 0) return null_node;
+        var banned_prec: i8 = -1;
 
         while (true) {
-            switch (p.token_tags[p.tok_i]) {
-                .keyword_and => {
-                    const and_token = p.nextToken();
-                    const rhs = try p.parseCompareExpr();
-                    if (rhs == 0) {
-                        return p.fail(.invalid_token);
-                    }
-                    res = try p.addNode(.{
-                        .tag = .bool_and,
-                        .main_token = and_token,
-                        .data = .{
-                            .lhs = res,
-                            .rhs = rhs,
-                        },
-                    });
+            const tok_tag = p.token_tags[p.tok_i];
+            const info = operTable[@intCast(usize, @enumToInt(tok_tag))];
+            if (info.prec < min_prec or info.prec == banned_prec) {
+                break;
+            }
+            const oper_token = p.nextToken();
+            // Special-case handling for "catch" and "&&".
+            switch (tok_tag) {
+                .keyword_catch => {
+                    _ = try p.parsePayload();
                 },
                 .invalid_ampersands => {
                     try p.warn(.invalid_and);
-                    p.tok_i += 1;
-                    return p.parseCompareExpr();
                 },
-                else => return res,
+                else => {},
+            }
+            const rhs = try p.parseExprPrecedence(info.prec + 1);
+            if (rhs == 0) {
+                return p.fail(.invalid_token);
+            }
+
+            node = try p.addNode(.{
+                .tag = info.tag,
+                .main_token = oper_token,
+                .data = .{
+                    .lhs = node,
+                    .rhs = rhs,
+                },
+            });
+
+            if (info.assoc == Assoc.none) {
+                banned_prec = info.prec;
             }
         }
-    }
 
-    /// CompareExpr <- BitwiseExpr (CompareOp BitwiseExpr)?
-    /// CompareOp
-    ///     <- EQUALEQUAL
-    ///      / EXCLAMATIONMARKEQUAL
-    ///      / LARROW
-    ///      / RARROW
-    ///      / LARROWEQUAL
-    ///      / RARROWEQUAL
-    fn parseCompareExpr(p: *Parser) !Node.Index {
-        const expr = try p.parseBitwiseExpr();
-        if (expr == 0) return null_node;
-
-        const tag: Node.Tag = switch (p.token_tags[p.tok_i]) {
-            .equal_equal => .equal_equal,
-            .bang_equal => .bang_equal,
-            .angle_bracket_left => .less_than,
-            .angle_bracket_right => .greater_than,
-            .angle_bracket_left_equal => .less_or_equal,
-            .angle_bracket_right_equal => .greater_or_equal,
-            else => return expr,
-        };
-        return p.addNode(.{
-            .tag = tag,
-            .main_token = p.nextToken(),
-            .data = .{
-                .lhs = expr,
-                .rhs = try p.expectBitwiseExpr(),
-            },
-        });
-    }
-
-    /// BitwiseExpr <- BitShiftExpr (BitwiseOp BitShiftExpr)*
-    /// BitwiseOp
-    ///     <- AMPERSAND
-    ///      / CARET
-    ///      / PIPE
-    ///      / KEYWORD_orelse
-    ///      / KEYWORD_catch Payload?
-    fn parseBitwiseExpr(p: *Parser) !Node.Index {
-        var res = try p.parseBitShiftExpr();
-        if (res == 0) return null_node;
-
-        while (true) {
-            const tag: Node.Tag = switch (p.token_tags[p.tok_i]) {
-                .ampersand => .bit_and,
-                .caret => .bit_xor,
-                .pipe => .bit_or,
-                .keyword_orelse => .@"orelse",
-                .keyword_catch => {
-                    const catch_token = p.nextToken();
-                    _ = try p.parsePayload();
-                    const rhs = try p.parseBitShiftExpr();
-                    if (rhs == 0) {
-                        return p.fail(.invalid_token);
-                    }
-                    res = try p.addNode(.{
-                        .tag = .@"catch",
-                        .main_token = catch_token,
-                        .data = .{
-                            .lhs = res,
-                            .rhs = rhs,
-                        },
-                    });
-                    continue;
-                },
-                else => return res,
-            };
-            res = try p.addNode(.{
-                .tag = tag,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = res,
-                    .rhs = try p.expectBitShiftExpr(),
-                },
-            });
-        }
-    }
-
-    fn expectBitwiseExpr(p: *Parser) Error!Node.Index {
-        const node = try p.parseBitwiseExpr();
-        if (node == 0) {
-            return p.fail(.invalid_token);
-        } else {
-            return node;
-        }
-    }
-
-    /// BitShiftExpr <- AdditionExpr (BitShiftOp AdditionExpr)*
-    /// BitShiftOp
-    ///     <- LARROW2
-    ///      / RARROW2
-    fn parseBitShiftExpr(p: *Parser) Error!Node.Index {
-        var res = try p.parseAdditionExpr();
-        if (res == 0) return null_node;
-
-        while (true) {
-            const tag: Node.Tag = switch (p.token_tags[p.tok_i]) {
-                .angle_bracket_angle_bracket_left => .bit_shift_left,
-                .angle_bracket_angle_bracket_right => .bit_shift_right,
-                else => return res,
-            };
-            res = try p.addNode(.{
-                .tag = tag,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = res,
-                    .rhs = try p.expectAdditionExpr(),
-                },
-            });
-        }
-    }
-
-    fn expectBitShiftExpr(p: *Parser) Error!Node.Index {
-        const node = try p.parseBitShiftExpr();
-        if (node == 0) {
-            return p.fail(.invalid_token);
-        } else {
-            return node;
-        }
-    }
-
-    /// AdditionExpr <- MultiplyExpr (AdditionOp MultiplyExpr)*
-    /// AdditionOp
-    ///     <- PLUS
-    ///      / MINUS
-    ///      / PLUS2
-    ///      / PLUSPERCENT
-    ///      / MINUSPERCENT
-    fn parseAdditionExpr(p: *Parser) Error!Node.Index {
-        var res = try p.parseMultiplyExpr();
-        if (res == 0) return null_node;
-
-        while (true) {
-            const tag: Node.Tag = switch (p.token_tags[p.tok_i]) {
-                .plus => .add,
-                .minus => .sub,
-                .plus_plus => .array_cat,
-                .plus_percent => .add_wrap,
-                .minus_percent => .sub_wrap,
-                else => return res,
-            };
-            res = try p.addNode(.{
-                .tag = tag,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = res,
-                    .rhs = try p.expectMultiplyExpr(),
-                },
-            });
-        }
-    }
-
-    fn expectAdditionExpr(p: *Parser) Error!Node.Index {
-        const node = try p.parseAdditionExpr();
-        if (node == 0) {
-            return p.fail(.invalid_token);
-        }
-        return node;
-    }
-
-    /// MultiplyExpr <- PrefixExpr (MultiplyOp PrefixExpr)*
-    /// MultiplyOp
-    ///     <- PIPE2
-    ///      / ASTERISK
-    ///      / SLASH
-    ///      / PERCENT
-    ///      / ASTERISK2
-    ///      / ASTERISKPERCENT
-    fn parseMultiplyExpr(p: *Parser) Error!Node.Index {
-        var res = try p.parsePrefixExpr();
-        if (res == 0) return null_node;
-
-        while (true) {
-            const tag: Node.Tag = switch (p.token_tags[p.tok_i]) {
-                .pipe_pipe => .merge_error_sets,
-                .asterisk => .mul,
-                .slash => .div,
-                .percent => .mod,
-                .asterisk_asterisk => .array_mult,
-                .asterisk_percent => .mul_wrap,
-                else => return res,
-            };
-            res = try p.addNode(.{
-                .tag = tag,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = res,
-                    .rhs = try p.expectPrefixExpr(),
-                },
-            });
-        }
-    }
-
-    fn expectMultiplyExpr(p: *Parser) Error!Node.Index {
-        const node = try p.parseMultiplyExpr();
-        if (node == 0) {
-            return p.fail(.invalid_token);
-        }
         return node;
     }
 

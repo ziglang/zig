@@ -1820,6 +1820,11 @@ const ZigClangEnumDecl *ZigClangEnumDecl_getDefinition(const ZigClangEnumDecl *z
     return reinterpret_cast<const ZigClangEnumDecl *>(definition);
 }
 
+const ZigClangStringLiteral *ZigClangFileScopeAsmDecl_getAsmString(const ZigClangFileScopeAsmDecl *self) {
+    const clang::StringLiteral *result = reinterpret_cast<const clang::FileScopeAsmDecl*>(self)->getAsmString();
+    return reinterpret_cast<const ZigClangStringLiteral *>(result);
+}
+
 bool ZigClangRecordDecl_isUnion(const ZigClangRecordDecl *record_decl) {
     return reinterpret_cast<const clang::RecordDecl*>(record_decl)->isUnion();
 }

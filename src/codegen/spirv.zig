@@ -1,9 +1,13 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const log = std.log.scoped(.codegen);
 
 const spec = @import("spirv/spec.zig");
 const Module = @import("../Module.zig");
 const Decl = Module.Decl;
+const Type = @import("../type.zig").Type;
+
+pub const TypeMap = std.HashMap(Type, u32, Type.hash, Type.eql, std.hash_map.default_max_load_percentage);
 
 pub fn writeInstruction(code: *std.ArrayList(u32), instr: spec.Opcode, args: []const u32) !void {
     const word_count = @intCast(u32, args.len + 1);
@@ -12,38 +16,89 @@ pub fn writeInstruction(code: *std.ArrayList(u32), instr: spec.Opcode, args: []c
 }
 
 pub const SPIRVModule = struct {
-    next_id: u32 = 0,
-    free_id_list: std.ArrayList(u32),
+    next_result_id: u32 = 0,
 
-    pub fn init(allocator: *Allocator) SPIRVModule {
+    target: std.Target,
+
+    types: TypeMap,
+
+    types_and_globals: std.ArrayList(u32),
+    fn_decls: std.ArrayList(u32),
+
+    pub fn init(target: std.Target, allocator: *Allocator) SPIRVModule {
         return .{
-            .free_id_list = std.ArrayList(u32).init(allocator),
+            .target = target,
+            .types = TypeMap.init(allocator),
+            .types_and_globals = std.ArrayList(u32).init(allocator),
+            .fn_decls = std.ArrayList(u32).init(allocator),
         };
     }
 
     pub fn deinit(self: *SPIRVModule) void {
-        self.free_id_list.deinit();
+        self.fn_decls.deinit();
+        self.types_and_globals.deinit();
+        self.types.deinit();
+        self.* = undefined;
     }
 
-    pub fn allocId(self: *SPIRVModule) u32 {
-        if (self.free_id_list.popOrNull()) |id| return id;
-
-        defer self.next_id += 1;
-        return self.next_id;
+    pub fn allocResultId(self: *SPIRVModule) u32 {
+        defer self.next_result_id += 1;
+        return self.next_result_id;
     }
 
-    pub fn freeId(self: *SPIRVModule, id: u32) void {
-        if (id + 1 == self.next_id) {
-            self.next_id -= 1;
-        } else {
-            // If no more memory to append the id to the free list, just ignore it.
-            self.free_id_list.append(id) catch {};
+    pub fn resultIdBound(self: *SPIRVModule) u32 {
+        return self.next_result_id;
+    }
+
+    pub fn getOrGenType(self: *SPIRVModule, t: Type) !u32 {
+        // We can't use getOrPut here so we can recursively generate types.
+        if (self.types.get(t)) |already_generated| {
+            return already_generated;
+        }
+
+        const result = self.allocResultId();
+
+        switch (t.zigTypeTag()) {
+            .Void => try writeInstruction(&self.types_and_globals, .OpTypeVoid, &[_]u32{ result }),
+            .Bool => try writeInstruction(&self.types_and_globals, .OpTypeBool, &[_]u32{ result }),
+            .Int => {
+                const int_info = t.intInfo(self.target);
+                try writeInstruction(&self.types_and_globals, .OpTypeInt, &[_]u32{
+                    result,
+                    int_info.bits,
+                    switch (int_info.signedness) {
+                        .unsigned => 0,
+                        .signed => 1,
+                    },
+                });
+            },
+            // TODO: Verify that floatBits() will be correct.
+            .Float => try writeInstruction(&self.types_and_globals, .OpTypeFloat, &[_]u32{ result, t.floatBits(self.target) }),
+            .Null,
+            .Undefined,
+            .EnumLiteral,
+            .ComptimeFloat,
+            .ComptimeInt,
+            .Type,
+            => unreachable, // Must be const or comptime.
+
+            .BoundFn => unreachable, // this type will be deleted from the language.
+
+            else => return error.TODO,
+        }
+
+        try self.types.put(t, result);
+        return result;
+    }
+
+    pub fn gen(self: *SPIRVModule, decl: *Decl) !void {
+        switch (decl.ty.zigTypeTag()) {
+            .Fn => {
+                log.debug("Generating code for function '{s}'", .{ std.mem.spanZ(decl.name) });
+
+                _ = try self.getOrGenType(decl.ty.fnReturnType());
+            },
+            else => return error.TODO,
         }
     }
-
-    pub fn idBound(self: *SPIRVModule) u32 {
-        return self.next_id;
-    }
-
-    pub fn genDecl(self: SPIRVModule, id: u32, code: *std.ArrayList(u32), decl: *Decl) !void {}
 };

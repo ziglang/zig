@@ -76,6 +76,12 @@ test "y_trailing_comma_after_empty" {
     );
 }
 
+test "n_object_closed_missing_value" {
+    try err(
+        \\{"a":}
+    );
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 test "y_array_arraysWithSpaces" {

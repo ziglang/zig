@@ -1398,6 +1398,9 @@ pub const LibExeObjStep = struct {
     /// Uses system Wasmtime installation to run cross compiled wasm/wasi build artifacts.
     enable_wasmtime: bool = false,
 
+    /// Experimental. Uses system Darling installation to run cross compiled macOS build artifacts.
+    enable_darling: bool = false,
+
     /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
     /// this will be the directory $glibc-build-dir/install/glibcs
     /// Given the example of the aarch64 target, this is the directory
@@ -2512,6 +2515,11 @@ pub const LibExeObjStep = struct {
                 try zig_args.append(bin_name);
                 try zig_args.append("--test-cmd");
                 try zig_args.append("--dir=.");
+                try zig_args.append("--test-cmd-bin");
+            },
+            .darling => |bin_name| if (self.enable_darling) {
+                try zig_args.append("--test-cmd");
+                try zig_args.append(bin_name);
                 try zig_args.append("--test-cmd-bin");
             },
         }

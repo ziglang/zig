@@ -363,18 +363,30 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     self.base.file = file;
 
     // Create dSYM bundle.
-    const d_sym_path = try fmt.allocPrint(allocator, "{s}.dSYM/Contents/Resources/DWARF/", .{sub_path});
-    defer allocator.free(d_sym_path);
-    var d_sym_bundle = try options.emit.?.directory.handle.makeOpenPath(d_sym_path, .{});
-    defer d_sym_bundle.close();
-    const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
-        .truncate = false,
-        .read = true,
-    });
-    self.d_sym = .{
-        .base = self,
-        .file = d_sym_file,
-    };
+    if (!options.strip and options.module != null) {
+        const dir = options.module.?.zig_cache_artifact_directory;
+        log.debug("creating {s}.dSYM bundle in {s}", .{ sub_path, dir.path });
+
+        const d_sym_path = try fmt.allocPrint(
+            allocator,
+            "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
+            .{sub_path},
+        );
+        defer allocator.free(d_sym_path);
+
+        var d_sym_bundle = try dir.handle.makeOpenPath(d_sym_path, .{});
+        defer d_sym_bundle.close();
+
+        const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
+            .truncate = false,
+            .read = true,
+        });
+
+        self.d_sym = .{
+            .base = self,
+            .file = d_sym_file,
+        };
+    }
 
     // Index 0 is always a null symbol.
     try self.locals.append(allocator, .{
@@ -1198,7 +1210,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
         if (need_realloc) {
             const vaddr = try self.growTextBlock(&decl.link.macho, code.len, required_alignment);
-            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl.name, symbol.n_value, vaddr });
+
+            log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ decl.name, symbol.n_value, vaddr });
+
             if (vaddr != symbol.n_value) {
                 log.debug(" (writing new offset table entry)", .{});
                 self.offset_table.items[decl.link.macho.offset_table_index] = .{
@@ -1208,6 +1222,8 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
                 };
                 try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
             }
+
+            symbol.n_value = vaddr;
         } else if (code.len < decl.link.macho.size) {
             self.shrinkTextBlock(&decl.link.macho, code.len);
         }
@@ -1224,7 +1240,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const decl_name = mem.spanZ(decl.name);
         const name_str_index = try self.makeString(decl_name);
         const addr = try self.allocateTextBlock(&decl.link.macho, code.len, required_alignment);
+
         log.debug("allocated text block for {s} at 0x{x}", .{ decl_name, addr });
+
         errdefer self.freeTextBlock(&decl.link.macho);
 
         symbol.* = .{
@@ -1368,15 +1386,32 @@ pub fn updateDeclExports(
                 continue;
             }
         }
-        const n_desc = switch (exp.options.linkage) {
-            .Internal => macho.REFERENCE_FLAG_PRIVATE_DEFINED,
-            .Strong => blk: {
-                if (mem.eql(u8, exp.options.name, "_start")) {
+
+        var n_type: u8 = macho.N_SECT | macho.N_EXT;
+        var n_desc: u16 = 0;
+
+        switch (exp.options.linkage) {
+            .Internal => {
+                // Symbol should be hidden, or in MachO lingo, private extern.
+                // We should also mark the symbol as Weak: n_desc == N_WEAK_DEF.
+                // TODO work out when to add N_WEAK_REF.
+                n_type |= macho.N_PEXT;
+                n_desc |= macho.N_WEAK_DEF;
+            },
+            .Strong => {
+                // Check if the export is _main, and note if os.
+                // Otherwise, don't do anything since we already have all the flags
+                // set that we need for global (strong) linkage.
+                // n_type == N_SECT | N_EXT
+                if (mem.eql(u8, exp.options.name, "_main")) {
                     self.entry_addr = decl_sym.n_value;
                 }
-                break :blk macho.REFERENCE_FLAG_DEFINED;
             },
-            .Weak => macho.N_WEAK_REF,
+            .Weak => {
+                // Weak linkage is specified as part of n_desc field.
+                // Symbol's n_type is like for a symbol with strong linkage.
+                n_desc |= macho.N_WEAK_DEF;
+            },
             .LinkOnce => {
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
@@ -1385,8 +1420,8 @@ pub fn updateDeclExports(
                 );
                 continue;
             },
-        };
-        const n_type = decl_sym.n_type | macho.N_EXT;
+        }
+
         if (exp.link.macho.sym_index) |i| {
             const sym = &self.globals.items[i];
             sym.* = .{

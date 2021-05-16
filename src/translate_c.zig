@@ -480,11 +480,29 @@ fn declVisitor(c: *Context, decl: *const clang.Decl) Error!void {
         .Empty => {
             // Do nothing
         },
+        .FileScopeAsm => {
+            try transFileScopeAsm(c, &c.global_scope.base, @ptrCast(*const clang.FileScopeAsmDecl, decl));
+        },
         else => {
             const decl_name = try c.str(decl.getDeclKindName());
             try warn(c, &c.global_scope.base, decl.getLocation(), "ignoring {s} declaration", .{decl_name});
         },
     }
+}
+
+fn transFileScopeAsm(c: *Context, scope: *Scope, file_scope_asm: *const clang.FileScopeAsmDecl) Error!void {
+    const asm_string = file_scope_asm.getAsmString();
+    var len: usize = undefined;
+    const bytes_ptr = asm_string.getString_bytes_begin_size(&len);
+
+    const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(bytes_ptr[0..len])});
+    const str_node = try Tag.string_literal.create(c.arena, str);
+
+    const asm_node = try Tag.asm_simple.create(c.arena, str_node);
+    const block = try Tag.block_single.create(c.arena, asm_node);
+    const comptime_node = try Tag.@"comptime".create(c.arena, block);
+
+    try scope.appendNode(comptime_node);
 }
 
 fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {

@@ -8,6 +8,7 @@ const build_options = @import("build_options");
 const enable_qemu: bool = build_options.enable_qemu;
 const enable_wine: bool = build_options.enable_wine;
 const enable_wasmtime: bool = build_options.enable_wasmtime;
+const enable_darling: bool = build_options.enable_darling;
 const glibc_multi_install_dir: ?[]const u8 = build_options.glibc_multi_install_dir;
 const ThreadPool = @import("ThreadPool.zig");
 const CrossTarget = std.zig.CrossTarget;
@@ -900,6 +901,16 @@ pub const TestContext = struct {
                                 try argv.append(exe_path);
                             } else {
                                 return; // wasmtime not available; pass test.
+                            },
+
+                            .darling => |darling_bin_name| if (enable_darling) {
+                                try argv.append(darling_bin_name);
+                                // Since we use relative to cwd here, we invoke darling with
+                                // "shell" subcommand.
+                                try argv.append("shell");
+                                try argv.append(exe_path);
+                            } else {
+                                return; // Darling not available; pass test.
                             },
                         }
 

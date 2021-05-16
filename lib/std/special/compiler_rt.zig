@@ -297,7 +297,17 @@ comptime {
         @export(@import("compiler_rt/sparc.zig")._Qp_fgt, .{ .name = "_Qp_fgt", .linkage = linkage });
         @export(@import("compiler_rt/sparc.zig")._Qp_fge, .{ .name = "_Qp_fge", .linkage = linkage });
 
+        @export(@import("compiler_rt/sparc.zig")._Qp_itoq, .{ .name = "_Qp_itoq", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_uitoq, .{ .name = "_Qp_uitoq", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_xtoq, .{ .name = "_Qp_xtoq", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_uxtoq, .{ .name = "_Qp_uxtoq", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_stoq, .{ .name = "_Qp_stoq", .linkage = linkage });
         @export(@import("compiler_rt/sparc.zig")._Qp_dtoq, .{ .name = "_Qp_dtoq", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_qtoi, .{ .name = "_Qp_qtoi", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_qtoui, .{ .name = "_Qp_qtoui", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_qtox, .{ .name = "_Qp_qtox", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_qtoux, .{ .name = "_Qp_qtoux", .linkage = linkage });
+        @export(@import("compiler_rt/sparc.zig")._Qp_qtos, .{ .name = "_Qp_qtos", .linkage = linkage });
         @export(@import("compiler_rt/sparc.zig")._Qp_qtod, .{ .name = "_Qp_qtod", .linkage = linkage });
     }
 

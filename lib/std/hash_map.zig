@@ -303,29 +303,32 @@ pub fn HashMapUnmanaged(
         /// Metadata for a slot. It can be in three states: empty, used or
         /// tombstone. Tombstones indicate that an entry was previously used,
         /// they are a simple way to handle removal.
-        /// To this state, we add 6 bits from the slot's key hash. These are
+        /// To this state, we add 7 bits from the slot's key hash. These are
         /// used as a fast way to disambiguate between entries without
         /// having to use the equality function. If two fingerprints are
         /// different, we know that we don't have to compare the keys at all.
-        /// The 6 bits are the highest ones from a 64 bit hash. This way, not
+        /// The 7 bits are the highest ones from a 64 bit hash. This way, not
         /// only we use the `log2(capacity)` lowest bits from the hash to determine
-        /// a slot index, but we use 6 more bits to quickly resolve collisions
-        /// when multiple elements with different hashes end up wanting to be in / the same slot.
+        /// a slot index, but we use 7 more bits to quickly resolve collisions
+        /// when multiple elements with different hashes end up wanting to be in the same slot.
         /// Not using the equality function means we don't have to read into
-        /// the entries array, avoiding a likely cache miss.
+        /// the entries array, likely avoiding a cache miss and a potentially
+        /// costly function call.
         const Metadata = packed struct {
-            const FingerPrint = u6;
+            const FingerPrint = u7;
 
+            const free: FingerPrint = 0;
+            const tombstone: FingerPrint = 1;
+
+            fingerprint: FingerPrint = free,
             used: u1 = 0,
-            tombstone: u1 = 0,
-            fingerprint: FingerPrint = 0,
 
             pub fn isUsed(self: Metadata) bool {
                 return self.used == 1;
             }
 
             pub fn isTombstone(self: Metadata) bool {
-                return self.tombstone == 1;
+                return !self.isUsed() and self.fingerprint == tombstone;
             }
 
             pub fn takeFingerprint(hash: Hash) FingerPrint {
@@ -336,14 +339,12 @@ pub fn HashMapUnmanaged(
 
             pub fn fill(self: *Metadata, fp: FingerPrint) void {
                 self.used = 1;
-                self.tombstone = 0;
                 self.fingerprint = fp;
             }
 
             pub fn remove(self: *Metadata) void {
                 self.used = 0;
-                self.tombstone = 1;
-                self.fingerprint = 0;
+                self.fingerprint = tombstone;
             }
         };
 

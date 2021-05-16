@@ -161,6 +161,8 @@ pub const Node = extern union {
         /// @shuffle(type, a, b, mask)
         shuffle,
 
+        asm_simple,
+
         negate,
         negate_wrap,
         bit_not,
@@ -245,6 +247,7 @@ pub const Node = extern union {
                 .std_mem_zeroes,
                 .@"return",
                 .@"comptime",
+                .asm_simple,
                 .discard,
                 .std_math_Log2Int,
                 .negate,
@@ -1014,6 +1017,19 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .data = .{
                     .lhs = try renderNode(c, payload),
                     .rhs = undefined,
+                },
+            });
+        },
+        .asm_simple => {
+            const payload = node.castTag(.asm_simple).?.data;
+            const asm_token = try c.addToken(.keyword_asm, "asm");
+            _ = try c.addToken(.l_paren, "(");
+            return c.addNode(.{
+                .tag = .asm_simple,
+                .main_token = asm_token,
+                .data = .{
+                    .lhs = try renderNode(c, payload),
+                    .rhs = try c.addToken(.r_paren, ")"),
                 },
             });
         },
@@ -2257,6 +2273,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .@"continue",
         .@"return",
         .@"comptime",
+        .asm_simple,
         .usingnamespace_builtins,
         .while_true,
         .if_not_break,

@@ -5485,8 +5485,8 @@ static enum ZigLLVM_AtomicRMWBinOp to_ZigLLVMAtomicRMWBinOp(AtomicRmwOp op, bool
 }
 
 static LLVMTypeRef get_atomic_abi_type(CodeGen *g, IrInstGen *instruction) {
-    // If the operand type of an atomic operation is not a power of two sized
-    // we need to widen it before using it and then truncate the result.
+    // If the operand type of an atomic operation is not byte sized we need to
+    // widen it before using it and then truncate the result.
 
     ir_assert(instruction->value->type->id == ZigTypeIdPointer, instruction);
     ZigType *operand_type = instruction->value->type->data.pointer.child_type;
@@ -5498,7 +5498,7 @@ static LLVMTypeRef get_atomic_abi_type(CodeGen *g, IrInstGen *instruction) {
         bool is_signed = operand_type->data.integral.is_signed;
 
         ir_assert(bit_count != 0, instruction);
-        if (bit_count == 1 || !is_power_of_2(bit_count)) {
+        if (!is_power_of_2(bit_count) || bit_count % 8) {
             return get_llvm_type(g, get_int_type(g, is_signed, operand_type->abi_size * 8));
         } else {
             return nullptr;
