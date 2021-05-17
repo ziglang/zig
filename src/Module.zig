@@ -92,9 +92,6 @@ error_name_list: ArrayListUnmanaged([]const u8) = .{},
 /// previous analysis.
 generation: u32 = 0,
 
-/// When populated it means there was an error opening/reading the root source file.
-failed_root_src_file: ?anyerror = null,
-
 stage1_flags: packed struct {
     have_winmain: bool = false,
     have_wwinmain: bool = false,

@@ -1681,8 +1681,7 @@ pub fn totalErrorCount(self: *Compilation) usize {
     var total: usize = self.failed_c_objects.count() + self.misc_failures.count();
 
     if (self.bin_file.options.module) |module| {
-        total += module.failed_exports.items().len +
-            @boolToInt(module.failed_root_src_file != null);
+        total += module.failed_exports.items().len;
 
         for (module.failed_files.items()) |entry| {
             if (entry.value) |_| {
@@ -1788,15 +1787,6 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
         }
         for (module.failed_exports.items()) |entry| {
             try AllErrors.add(module, &arena, &errors, entry.value.*);
-        }
-        if (module.failed_root_src_file) |err| {
-            const file_path = try module.root_pkg.root_src_directory.join(&arena.allocator, &[_][]const u8{
-                module.root_pkg.root_src_path,
-            });
-            const msg = try std.fmt.allocPrint(&arena.allocator, "unable to read {s}: {s}", .{
-                file_path, @errorName(err),
-            });
-            try AllErrors.addPlain(&arena, &errors, msg);
         }
     }
 

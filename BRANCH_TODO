@@ -1,17 +1,8 @@
- * modify stage2 CBE tests so that only 1 uses pub export main and the
-   rest use pub fn main
-
- * get the test runner and `zig test` working
- * get behavior tests passing for stage2
-
  * use a hash map for instructions because the array is too big
    - no, actually modify the Zir.Inst.Ref strategy so that each decl gets
      their indexes starting at 0 so that we can use an array to store Sema
      results rather than a map.
 
- * implement the new AstGen compile errors
-
- * get rid of failed_root_src_file
  * get rid of Scope.DeclRef
  * get rid of NameHash
  * handle decl collision with usingnamespace
@@ -68,3 +59,13 @@
  * repl: if you try `run` with -ofmt=c you get an access denied error because it
    tries to execute the .c file as a child process instead of executing `zig run`
    on it.
+
+=== file issues: ===
+
+ * C backend: honor the exported symbol name. Right now if you do `pub fn main`
+   it generates bogus C code because the `@export` name is not honored, and it allows
+   the `main` which should be not exported, to clobber the exported symbol name.
+
+ * get the test runner and `zig test` working
+   - get behavior tests passing for stage2
+
