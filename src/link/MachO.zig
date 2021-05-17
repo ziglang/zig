@@ -678,8 +678,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             zld.stack_size = stack_size;
 
             // Positional arguments to the linker such as object files and static archives.
-            var positionals = std.ArrayList([]const u8).init(self.base.allocator);
-            defer positionals.deinit();
+            var positionals = std.ArrayList([]const u8).init(arena);
 
             try positionals.appendSlice(self.base.options.objects);
             for (comp.c_object_table.items()) |entry| {
@@ -696,19 +695,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try positionals.append(comp.libcxx_static_lib.?.full_object_path);
             }
 
-            if (self.base.options.is_native_os) {}
-
             // Shared libraries.
-            var shared_libs = std.ArrayList([]const u8).init(self.base.allocator);
-            defer {
-                for (shared_libs.items) |sh| {
-                    self.base.allocator.free(sh);
-                }
-                shared_libs.deinit();
-            }
-
-            var search_lib_names = std.ArrayList([]const u8).init(self.base.allocator);
-            defer search_lib_names.deinit();
+            var shared_libs = std.ArrayList([]const u8).init(arena);
+            var search_lib_names = std.ArrayList([]const u8).init(arena);
 
             const system_libs = self.base.options.system_libs.items();
             for (system_libs) |entry| {
@@ -717,56 +706,43 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
                 // case we want to avoid prepending "-l".
                 if (Compilation.classifyFileExt(link_lib) == .shared_library) {
-                    const path = try self.base.allocator.dupe(u8, link_lib);
-                    try shared_libs.append(path);
+                    try shared_libs.append(link_lib);
                     continue;
                 }
 
                 try search_lib_names.append(link_lib);
             }
 
+            var search_lib_dirs = std.ArrayList([]const u8).init(arena);
+            try search_lib_dirs.ensureCapacity(self.base.options.lib_dirs.len * 2 + 1);
+
+            search_lib_dirs.appendAssumeCapacity("."); // We will always start the search in cwd
+
+            for (self.base.options.lib_dirs) |lib_dir| {
+                search_lib_dirs.appendAssumeCapacity(lib_dir);
+            }
+
+            if (self.base.options.syslibroot) |syslibroot| {
+                for (self.base.options.lib_dirs) |lib_dir| {
+                    const path = try fs.path.join(arena, &[_][]const u8{ syslibroot, lib_dir });
+                    search_lib_dirs.appendAssumeCapacity(path);
+                }
+            }
+
             for (search_lib_names.items) |l_name| {
                 // TODO text-based API, or .tbd files.
-                const l_name_ext = try std.fmt.allocPrint(self.base.allocator, "lib{s}.dylib", .{l_name});
-                defer self.base.allocator.free(l_name_ext);
+                const l_name_ext = try std.fmt.allocPrint(arena, "lib{s}.dylib", .{l_name});
 
                 var found = false;
-                if (self.base.options.syslibroot) |syslibroot| {
-                    for (self.base.options.lib_dirs) |lib_dir| {
-                        const path = try fs.path.join(self.base.allocator, &[_][]const u8{
-                            syslibroot,
-                            lib_dir,
-                            l_name_ext,
-                        });
-
-                        const tmp = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
-                            error.FileNotFound => {
-                                self.base.allocator.free(path);
-                                continue;
-                            },
-                            else => |e| return e,
-                        };
-                        defer tmp.close();
-
-                        try shared_libs.append(path);
-                        found = true;
-                        break;
-                    }
-                }
-
-                for (self.base.options.lib_dirs) |lib_dir| {
-                    const path = try fs.path.join(self.base.allocator, &[_][]const u8{ lib_dir, l_name_ext });
-
-                    const tmp = fs.cwd().openFile(path, .{}) catch |err| switch (err) {
-                        error.FileNotFound => {
-                            self.base.allocator.free(path);
-                            continue;
-                        },
+                for (search_lib_dirs.items) |lib_dir| {
+                    const full_path = try fs.path.join(arena, &[_][]const u8{ lib_dir, l_name_ext });
+                    const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
+                        error.FileNotFound => continue,
                         else => |e| return e,
                     };
                     defer tmp.close();
 
-                    try shared_libs.append(path);
+                    try shared_libs.append(full_path);
                     found = true;
                     break;
                 }
@@ -774,20 +750,14 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 if (!found) {
                     log.warn("library '-l{s}' not found", .{l_name});
                     log.warn("searched paths:", .{});
-                    if (self.base.options.syslibroot) |syslibroot| {
-                        for (self.base.options.lib_dirs) |lib_dir| {
-                            log.warn("  {s}/{s}", .{ syslibroot, lib_dir });
-                        }
-                    }
-                    for (self.base.options.lib_dirs) |lib_dir| {
-                        log.warn("  {s}/", .{lib_dir});
+                    for (search_lib_dirs.items) |lib_dir| {
+                        log.warn("  {s}", .{lib_dir});
                     }
                 }
             }
 
             if (self.base.options.verbose_link) {
-                var argv = std.ArrayList([]const u8).init(self.base.allocator);
-                defer argv.deinit();
+                var argv = std.ArrayList([]const u8).init(arena);
 
                 try argv.append("zig");
                 try argv.append("ld");
@@ -803,11 +773,11 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try argv.append(full_out_path);
 
                 for (search_lib_names.items) |l_name| {
-                    try argv.append(try std.fmt.allocPrint(self.base.allocator, "-l{s}", .{l_name}));
+                    try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{l_name}));
                 }
 
                 for (self.base.options.lib_dirs) |lib_dir| {
-                    try argv.append(try std.fmt.allocPrint(self.base.allocator, "-L{s}", .{lib_dir}));
+                    try argv.append(try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir}));
                 }
 
                 Compilation.dump_argv(argv.items);

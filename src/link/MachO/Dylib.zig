@@ -72,7 +72,7 @@ pub fn closeFile(self: Dylib) void {
 }
 
 pub fn parse(self: *Dylib) !void {
-    log.warn("parsing shared library '{s}'", .{self.name.?});
+    log.debug("parsing shared library '{s}'", .{self.name.?});
 
     var reader = self.file.?.reader();
     self.header = try reader.readStruct(macho.mach_header_64);
