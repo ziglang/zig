@@ -3499,9 +3499,11 @@ pub fn deleteDecl(
     }
     _ = mod.compile_log_decls.swapRemove(decl);
     mod.deleteDeclExports(decl);
-    mod.comp.bin_file.freeDecl(decl);
 
     if (decl.has_tv) {
+        if (decl.ty.hasCodeGenBits()) {
+            mod.comp.bin_file.freeDecl(decl);
+        }
         if (decl.getInnerNamespace()) |namespace| {
             try namespace.deleteAllDecls(mod, outdated_decls);
         }
