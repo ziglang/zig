@@ -38,6 +38,9 @@ pub fn Complex(comptime T: type) type {
 
         /// Imaginary part.
         im: T,
+        
+        /// Deprecated, use init()
+        pub const new = init;
 
         /// Create a new Complex number from the given real and imaginary parts.
         pub fn init(re: T, im: T) Self {
