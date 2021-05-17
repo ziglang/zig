@@ -230,6 +230,7 @@ pub const DeclGen = struct {
     /// Generate a constant representing `val`.
     /// TODO: Deduplication?
     fn genConstant(self: *DeclGen, ty: Type, val: Value) Error!u32 {
+        const target = self.module.getTarget();
         const code = &self.spv.types_globals_constants;
         const result_id = self.spv.allocResultId();
         const result_type_id = try self.getOrGenType(ty);
@@ -250,11 +251,11 @@ pub const DeclGen = struct {
 
                 // f16 and f32 require one word of storage. f64 requires 2, low-order first.
 
-                switch (val.tag()) {
-                    .float_16 => try writeInstruction(code, .OpConstant, &[_]u32{ result_type_id, result_id, @bitCast(u16, val.castTag(.float_16).?.data) }),
-                    .float_32 => try writeInstruction(code, .OpConstant, &[_]u32{ result_type_id, result_id, @bitCast(u32, val.castTag(.float_32).?.data) }),
-                    .float_64 => {
-                        const float_bits = @bitCast(u64, val.castTag(.float_64).?.data);
+                switch (ty.floatBits(target)) {
+                    16 => try writeInstruction(code, .OpConstant, &[_]u32{ result_type_id, result_id, @bitCast(u16, val.toFloat(f16)) }),
+                    32 => try writeInstruction(code, .OpConstant, &[_]u32{ result_type_id, result_id, @bitCast(u32, val.toFloat(f32)) }),
+                    64 => {
+                        const float_bits = @bitCast(u64, val.toFloat(f64));
                         try writeInstruction(code, .OpConstant, &[_]u32{
                             result_type_id,
                             result_id,
@@ -262,9 +263,9 @@ pub const DeclGen = struct {
                             @truncate(u32, float_bits >> 32),
                         });
                     },
-                    .float_128 => unreachable, // Filtered out in the call to getOrGenType.
-                    // TODO: What tags do we need to handle here anyway?
-                    else => return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: float constant generation of value {s}\n", .{val.tag()}),
+                    128 => unreachable, // Filtered out in the call to getOrGenType.
+                    // TODO: Insert case for long double when the layout for that is determined.
+                    else => unreachable,
                 }
             },
             else => return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: constant generation of type {s}\n", .{ty.zigTypeTag()}),
