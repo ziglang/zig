@@ -20,7 +20,7 @@ cd $HOME
 wget -nv "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
 tar xf "$CACHE_BASENAME.tar.xz"
 
-QEMUBASE="qemu-linux-x86_64-5.2.0"
+QEMUBASE="qemu-linux-x86_64-5.2.0.1"
 wget -nv "https://ziglang.org/deps/$QEMUBASE.tar.xz"
 tar xf "$QEMUBASE.tar.xz"
 export PATH="$(pwd)/$QEMUBASE/bin:$PATH"
