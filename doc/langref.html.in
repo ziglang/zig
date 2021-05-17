@@ -1099,7 +1099,6 @@ const nan = std.math.nan(f128);
       {#code_release_fast#}
       {#code_disable_cache#}
 const std = @import("std");
-const builtin = std.builtin;
 const big = @as(f64, 1 << 40);
 
 export fn foo_strict(x: f64) f64 {
@@ -2603,7 +2602,7 @@ test "default struct initialization fields" {
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const builtin = std.builtin;
+const native_endian = @import("builtin").target.cpu.arch.endian();
 const expect = std.testing.expect;
 
 const Full = packed struct {
@@ -2625,7 +2624,7 @@ fn doTheTest() !void {
     try expect(@sizeOf(Divided) == 2);
     var full = Full{ .number = 0x1234 };
     var divided = @bitCast(Divided, full);
-    switch (builtin.endian) {
+    switch (native_endian) {
         .Big => {
             try expect(divided.half1 == 0x12);
             try expect(divided.quarter3 == 0x3);
@@ -4236,7 +4235,7 @@ test "noreturn" {
       <p>Another use case for {#syntax#}noreturn{#endsyntax#} is the {#syntax#}exit{#endsyntax#} function:</p>
       {#code_begin|test#}
       {#target_windows#}
-pub extern "kernel32" fn ExitProcess(exit_code: c_uint) callconv(if (@import("builtin").arch == .i386) .Stdcall else .C) noreturn;
+pub extern "kernel32" fn ExitProcess(exit_code: c_uint) callconv(if (@import("builtin").target.cpu.arch == .i386) .Stdcall else .C) noreturn;
 
 test "foo" {
     const value = bar() catch ExitProcess(1);
@@ -4271,7 +4270,7 @@ export fn sub(a: i8, b: i8) i8 { return a - b; }
 // at link time, when linking statically, or at runtime, when linking
 // dynamically.
 // The callconv specifier changes the calling convention of the function.
-extern "kernel32" fn ExitProcess(exit_code: u32) callconv(if (@import("builtin").arch == .i386) .Stdcall else .C) noreturn;
+extern "kernel32" fn ExitProcess(exit_code: u32) callconv(if (@import("builtin").target.cpu.arch == .i386) .Stdcall else .C) noreturn;
 extern "c" fn atan2(a: f64, b: f64) f64;
 
 // The @setCold builtin tells the optimizer that a function is rarely called.
@@ -7577,7 +7576,7 @@ export fn @"A function name that is a complete sentence."() void {}
       The {#syntax#}fence{#endsyntax#} function is used to introduce happens-before edges between operations.
       </p>
       <p>
-      {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("builtin").AtomicOrder{#endsyntax#}.
+      {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.
       </p>
       {#see_also|Compile Variables#}
       {#header_close#}
@@ -7780,8 +7779,8 @@ test "@hasDecl" {
       </p>
       <ul>
           <li>{#syntax#}@import("std"){#endsyntax#} - Zig Standard Library</li>
-          <li>{#syntax#}@import("builtin"){#endsyntax#} - Compiler-provided types and variables.
-              The command <code>zig builtin</code> outputs the source to stdout for reference.
+          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information
+              The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.
           </li>
       </ul>
       {#see_also|Compile Variables|@embedFile#}
@@ -7912,11 +7911,11 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       </p>
       {#code_begin|test#}
 const std = @import("std");
-const builtin = @import("builtin");
+const native_arch = @import("builtin").target.cpu.arch;
 const expect = std.testing.expect;
 
 test "@wasmMemoryGrow" {
-    if (builtin.arch != .wasm32) return error.SkipZigTest;
+    if (native_arch != .wasm32) return error.SkipZigTest;
 
     var prev = @wasmMemorySize(0);
     try expect(prev == @wasmMemoryGrow(0, 1));
@@ -8084,7 +8083,7 @@ test "foo" {
       {#header_close#}
 
       {#header_open|@setFloatMode#}
-      <pre>{#syntax#}@setFloatMode(mode: @import("builtin").FloatMode){#endsyntax#}</pre>
+      <pre>{#syntax#}@setFloatMode(mode: @import("std").builtin.FloatMode){#endsyntax#}</pre>
       <p>
       Sets the floating point mode of the current scope. Possible values are:
       </p>
@@ -8273,7 +8272,7 @@ test "vector @splat" {
       {#header_close#}
 
       {#header_open|@reduce#}
-      <pre>{#syntax#}@reduce(comptime op: builtin.ReduceOp, value: anytype) std.meta.Child(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@reduce(comptime op: std.builtin.ReduceOp, value: anytype) std.meta.Child(value){#endsyntax#}</pre>
       <p>
       Transforms a {#link|vector|Vectors#} into a scalar value by performing a
       sequential horizontal reduction of its elements using the specified operator {#syntax#}op{#endsyntax#}.
@@ -8565,7 +8564,7 @@ test "integer truncation" {
       {#header_close#}
 
       {#header_open|@Type#}
-      <pre>{#syntax#}@Type(comptime info: @import("builtin").TypeInfo) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@Type(comptime info: std.builtin.TypeInfo) type{#endsyntax#}</pre>
       <p>
       This function is the inverse of {#link|@typeInfo#}. It reifies type information
       into a {#syntax#}type{#endsyntax#}.
@@ -8607,7 +8606,7 @@ test "integer truncation" {
       </ul>
       {#header_close#}
       {#header_open|@typeInfo#}
-      <pre>{#syntax#}@typeInfo(comptime T: type) @import("std").builtin.TypeInfo{#endsyntax#}</pre>
+      <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.TypeInfo{#endsyntax#}</pre>
       <p>
       Provides type reflection.
       </p>
@@ -9628,7 +9627,7 @@ test "string literal to constant slice" {
       </p>
       {#code_begin|syntax#}
 const builtin = @import("builtin");
-const separator = if (builtin.os == builtin.Os.windows) '\\' else '/';
+const separator = if (builtin.os.tag == builtin.Os.windows) '\\' else '/';
       {#code_end#}
       <p>
       Example of what is imported with {#syntax#}@import("builtin"){#endsyntax#}:
@@ -9653,7 +9652,7 @@ const separator = if (builtin.os == builtin.Os.windows) '\\' else '/';
       </p>
       {#code_begin|test|detect_test#}
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "builtin.is_test" {
