@@ -630,7 +630,6 @@ fn buildOutputType(
     var pkg_tree_root: Package = .{
         .root_src_directory = .{ .path = null, .handle = fs.cwd() },
         .root_src_path = &[0]u8{},
-        .namespace_hash = Package.root_namespace_hash,
     };
     defer freePkgTree(gpa, &pkg_tree_root, false);
     var cur_pkg: *Package = &pkg_tree_root;
@@ -1768,7 +1767,6 @@ fn buildOutputType(
     if (root_pkg) |pkg| {
         pkg.table = pkg_tree_root.table;
         pkg_tree_root.table = .{};
-        pkg.namespace_hash = pkg_tree_root.namespace_hash;
     }
 
     const self_exe_path = try fs.selfExePathAlloc(arena);
@@ -2657,7 +2655,6 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                 .handle = try zig_lib_directory.handle.openDir(std_special, .{}),
             },
             .root_src_path = "build_runner.zig",
-            .namespace_hash = Package.root_namespace_hash,
         };
         defer root_pkg.root_src_directory.handle.close();
 
@@ -2703,7 +2700,6 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         var build_pkg: Package = .{
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,
-            .namespace_hash = undefined,
         };
         try root_pkg.addAndAdopt(arena, "@build", &build_pkg);
 

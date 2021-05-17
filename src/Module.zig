@@ -798,8 +798,6 @@ pub const Var = struct {
 pub const Scope = struct {
     tag: Tag,
 
-    pub const NameHash = [16]u8;
-
     pub fn cast(base: *Scope, comptime T: type) ?*T {
         if (base.tag != T.base_tag)
             return null;
@@ -839,7 +837,6 @@ pub const Scope = struct {
             .namespace => return @fieldParentPtr(Namespace, "base", base).file_scope.sub_file_path,
             .file => return @fieldParentPtr(File, "base", base).sub_file_path,
             .block => unreachable,
-            .decl_ref => unreachable,
         }
     }
 
@@ -861,10 +858,6 @@ pub const Scope = struct {
         /// Namespace owned by structs, enums, unions, and opaques for decls.
         namespace,
         block,
-        /// Used for simple error reporting. Only contains a reference to a
-        /// `Decl` for use with `srcDecl` and `ownerDecl`.
-        /// Has no parents or children.
-        decl_ref,
     };
 
     /// The container that structs, enums, unions, and opaques have.

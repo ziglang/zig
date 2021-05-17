@@ -611,7 +611,6 @@ pub const TestContext = struct {
         var root_pkg: Package = .{
             .root_src_directory = .{ .path = tmp_dir_path, .handle = tmp.dir },
             .root_src_path = tmp_src_path,
-            .namespace_hash = Package.root_namespace_hash,
         };
         defer root_pkg.table.deinit(allocator);
 

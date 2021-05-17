@@ -3563,7 +3563,6 @@ fn buildOutputFromZig(
             .handle = special_dir,
         },
         .root_src_path = src_basename,
-        .namespace_hash = Package.root_namespace_hash,
     };
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();

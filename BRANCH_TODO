@@ -3,21 +3,6 @@
      their indexes starting at 0 so that we can use an array to store Sema
      results rather than a map.
 
- * get rid of NameHash
- * handle decl collision with usingnamespace
- * the decl doing the looking up needs to create a decl dependency
-   on each usingnamespace decl
- * handle usingnamespace cycles
-
- * compile error for return inside defer expression
-
- * when block has noreturn statement
-   - avoid emitting defers
-   - compile error for unreachable code
- 
- * detect `return error.Foo` and emit ZIR that unconditionally generates errdefers
- * `return`: check return operand and generate errdefers if necessary
-
  * have failed_trees and just put the file in there
    - this way we can emit all the parse errors not just the first one
    - but maybe we want just the first one?
@@ -58,13 +43,3 @@
  * repl: if you try `run` with -ofmt=c you get an access denied error because it
    tries to execute the .c file as a child process instead of executing `zig run`
    on it.
-
-=== file issues: ===
-
- * C backend: honor the exported symbol name. Right now if you do `pub fn main`
-   it generates bogus C code because the `@export` name is not honored, and it allows
-   the `main` which should be not exported, to clobber the exported symbol name.
-
- * get the test runner and `zig test` working
-   - get behavior tests passing for stage2
-
