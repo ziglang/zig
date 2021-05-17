@@ -1073,6 +1073,15 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
         // TODO shrink the __text section size here
         self.last_text_block = text_block.prev;
     }
+    if (self.d_sym) |*ds| {
+        if (ds.dbg_info_decl_first == text_block) {
+            ds.dbg_info_decl_first = text_block.dbg_info_next;
+        }
+        if (ds.dbg_info_decl_last == text_block) {
+            // TODO shrink the .debug_info section size here
+            ds.dbg_info_decl_last = text_block.dbg_info_prev;
+        }
+    }
 
     if (text_block.prev) |prev| {
         prev.next = text_block.next;
@@ -1090,6 +1099,20 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
         next.prev = text_block.prev;
     } else {
         text_block.next = null;
+    }
+
+    if (text_block.dbg_info_prev) |prev| {
+        prev.dbg_info_next = text_block.dbg_info_next;
+
+        // TODO the free list logic like we do for text blocks above
+    } else {
+        text_block.dbg_info_prev = null;
+    }
+
+    if (text_block.dbg_info_next) |next| {
+        next.dbg_info_prev = text_block.dbg_info_prev;
+    } else {
+        text_block.dbg_info_next = null;
     }
 }
 
@@ -1476,6 +1499,29 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
         self.locals.items[decl.link.macho.local_sym_index].n_type = 0;
 
         decl.link.macho.local_sym_index = 0;
+    }
+    if (self.d_sym) |*ds| {
+        // TODO make this logic match freeTextBlock. Maybe abstract the logic
+        // out since the same thing is desired for both.
+        _ = ds.dbg_line_fn_free_list.remove(&decl.fn_link.macho);
+        if (decl.fn_link.macho.prev) |prev| {
+            ds.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
+            prev.next = decl.fn_link.macho.next;
+            if (decl.fn_link.macho.next) |next| {
+                next.prev = prev;
+            } else {
+                ds.dbg_line_fn_last = prev;
+            }
+        } else if (decl.fn_link.macho.next) |next| {
+            ds.dbg_line_fn_first = next;
+            next.prev = null;
+        }
+        if (ds.dbg_line_fn_first == &decl.fn_link.macho) {
+            ds.dbg_line_fn_first = decl.fn_link.macho.next;
+        }
+        if (ds.dbg_line_fn_last == &decl.fn_link.macho) {
+            ds.dbg_line_fn_last = decl.fn_link.macho.prev;
+        }
     }
 }
 
