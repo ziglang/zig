@@ -579,6 +579,8 @@ pub const Payload = struct {
             name: []const u8,
             type: Node,
             alignment: ?c_uint,
+            /// implicit padding or explicit unnamed bitfield; initialize with undefined
+            is_padding: bool,
         };
     };
 
@@ -1960,33 +1962,36 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.colon, ":");
         const type_expr = try renderNode(c, field.type);
 
-        const alignment = field.alignment orelse {
-            members[i] = try c.addNode(.{
-                .tag = .container_field_init,
-                .main_token = name_tok,
-                .data = .{
-                    .lhs = type_expr,
-                    .rhs = 0,
-                },
+        const align_node = if (field.alignment) |alignment| blk: {
+            _ = try c.addToken(.keyword_align, "align");
+            _ = try c.addToken(.l_paren, "(");
+            const align_expr = try c.addNode(.{
+                .tag = .integer_literal,
+                .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{alignment}),
+                .data = undefined,
             });
-            _ = try c.addToken(.comma, ",");
-            continue;
-        };
-        _ = try c.addToken(.keyword_align, "align");
-        _ = try c.addToken(.l_paren, "(");
-        const align_expr = try c.addNode(.{
-            .tag = .integer_literal,
-            .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{alignment}),
-            .data = undefined,
-        });
-        _ = try c.addToken(.r_paren, ")");
+            _ = try c.addToken(.r_paren, ")");
+            break :blk align_expr;
+        } else 0;
+        const value_node = if (field.is_padding) blk: {
+            _ = try c.addToken(.equal, "=");
+            break :blk try c.addNode(.{
+                .tag = .undefined_literal,
+                .main_token = try c.addToken(.keyword_undefined, "undefined"),
+                .data = undefined,
+            });
+        } else 0;
 
+        const extra = try c.addExtra(std.zig.ast.Node.ContainerField{
+            .value_expr = value_node,
+            .align_expr = align_node,
+        });
         members[i] = try c.addNode(.{
-            .tag = .container_field_align,
+            .tag = .container_field,
             .main_token = name_tok,
             .data = .{
                 .lhs = type_expr,
-                .rhs = align_expr,
+                .rhs = extra,
             },
         });
         _ = try c.addToken(.comma, ",");

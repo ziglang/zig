@@ -888,21 +888,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     });
 
-    cases.add("pointer to struct demoted to opaque due to bit fields",
-        \\struct Foo {
-        \\    unsigned int: 1;
-        \\};
-        \\struct Bar {
-        \\    struct Foo *foo;
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_Foo = opaque {};
-        ,
-        \\pub const struct_Bar = extern struct {
-        \\    foo: ?*struct_Foo,
-        \\};
-    });
-
     cases.add("macro with left shift",
         \\#define REDISMODULE_READ (1<<0)
     , &[_][]const u8{
@@ -3514,7 +3499,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
        \\}
     });
 
-    cases.add("Demote function that initializes opaque struct",
+    cases.add("Unnamed bitfield",
         \\struct my_struct {
         \\    unsigned a: 15;
         \\    unsigned: 2;
@@ -3524,9 +3509,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    struct my_struct S = {.a = 1, .b = 2};
         \\}
     , &[_][]const u8{
-        \\warning: Cannot initialize opaque type
-        ,
-        \\warning: unable to translate function, demoted to extern
-        \\pub extern fn initialize() void;
+        \\pub const struct_my_struct = packed struct {
+        \\    a: u15 align(4),
+        \\    unnamed_0: u2 = undefined,
+        \\    b: u15,
+        \\};
+        \\pub export fn initialize() void {
+        \\    var S: struct_my_struct = struct_my_struct{
+        \\        .a = @import("std").meta.cast(u15, @bitCast(c_uint, @as(c_int, 1))),
+        \\        .b = @import("std").meta.cast(u15, @bitCast(c_uint, @as(c_int, 2))),
+        \\    };
+        \\}
     });
 }

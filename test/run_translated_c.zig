@@ -1508,4 +1508,24 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("Basic bitfields",
+        \\#include <stdlib.h>
+        \\#include <stdalign.h>
+        \\struct foo {
+        \\    unsigned x : 2;
+        \\    unsigned z : 16;
+        \\    unsigned y: 2;
+        \\    int *p;
+        \\};
+        \\int main(void) {
+        \\    struct foo bar = {.x = 0xFFFF, .z = 0, .y = 0b11, .p = NULL};
+        \\    if (bar.x != 0b11) abort();
+        \\    bar.z = 0xFFFFFF;
+        \\    if (bar.z != 0xFFFF) abort();
+        \\    unsigned char c = bar.z;
+        \\    if (c != 0xFF) abort();
+        \\    if (alignof(struct foo) < alignof(int *)) abort();
+        \\}
+    , "");
 }

@@ -819,6 +819,28 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNa
     }
 }
 
+/// Recursively check if a record contains a bitfield
+fn recordContainsBitfield(record_def: *const clang.RecordDecl) bool {
+    var it = record_def.field_begin();
+    const end_it = record_def.field_end();
+
+    while (it.neq(end_it)) : (it = it.next()) {
+        const field_decl = it.deref();
+        if (field_decl.isBitField()) return true;
+
+        const field_qt = field_decl.getType();
+        const field_ty = field_qt.getTypePtr();
+        if (field_ty.getTypeClass() == .Record) {
+            const record_ty = @ptrCast(*const clang.RecordType, field_ty);
+            const record_decl = record_ty.getDecl();
+            if (record_decl.getDefinition()) |nested_def| {
+                if (recordContainsBitfield(nested_def)) return true;
+            }
+        }
+    }
+    return false;
+}
+
 fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordDecl) Error!void {
     if (c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl()))) |name|
         return; // Avoid processing this decl twice
@@ -871,15 +893,37 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         var unnamed_field_count: u32 = 0;
         var it = record_def.field_begin();
         const end_it = record_def.field_end();
+        const layout = record_def.getASTRecordLayout(c.clang_context);
+
+        var prev_field_end: u64 = 0;
+        const has_bitfield = recordContainsBitfield(record_def);
+        const record_alignment = layout.getAlignment();
+
         while (it.neq(end_it)) : (it = it.next()) {
             const field_decl = it.deref();
             const field_loc = field_decl.getLocation();
             const field_qt = field_decl.getType();
+            const field_index = field_decl.getFieldIndex();
+            const field_offset = layout.getFieldOffset(field_index);
+            const is_bitfield = field_decl.isBitField();
+            const field_size_bits = if (is_bitfield)
+                field_decl.getBitWidthValue(c.clang_context)
+            else
+                c.clang_context.getTypeSize(field_qt);
 
-            if (field_decl.isBitField()) {
-                try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                try warn(c, scope, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
-                break :blk Tag.opaque_literal.init();
+            if (has_bitfield) {
+                if (prev_field_end < field_offset) {
+                    // insert padding bits
+                    const padding_bits_needed = field_offset - prev_field_end;
+                    const field_name = try std.fmt.allocPrint(c.arena, "anon.padding_{d}", .{field_index});
+                    const padding_type_name = try std.fmt.allocPrint(c.arena, "u{d}", .{padding_bits_needed});
+                    try fields.append(.{
+                        .name = field_name,
+                        .type = try Tag.type.create(c.arena, padding_type_name),
+                        .alignment = null,
+                        .is_padding = true,
+                    });
+                }
             }
 
             if (qualTypeCanon(field_qt).isIncompleteOrZeroLengthArrayType(c.clang_context)) {
@@ -896,16 +940,22 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 unnamed_field_count += 1;
                 is_anon = true;
             }
-            const field_type = transQualType(c, scope, field_qt, field_loc) catch |err| switch (err) {
-                error.UnsupportedType => {
-                    try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                    try warn(c, scope, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, field_name });
-                    break :blk Tag.opaque_literal.init();
-                },
-                else => |e| return e,
-            };
+            const field_type = if (is_bitfield)
+                try transBitfieldType(c, field_qt, field_size_bits)
+            else
+                transQualType(c, scope, field_qt, field_loc) catch |err| switch (err) {
+                    error.UnsupportedType => {
+                        try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                        try warn(c, scope, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, field_name });
+                        break :blk Tag.opaque_literal.init();
+                    },
+                    else => |e| return e,
+                };
 
-            const alignment = zigAlignment(field_decl.getAlignedAttribute(c.clang_context));
+            const alignment = if (has_bitfield and field_index == 0)
+                @intCast(c_uint, record_alignment)
+            else
+                zigAlignment(field_decl.getAlignedAttribute(c.clang_context));
 
             if (is_anon) {
                 try c.decl_table.putNoClobber(c.gpa, @ptrToInt(field_decl.getCanonicalDecl()), field_name);
@@ -915,14 +965,17 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 .name = field_name,
                 .type = field_type,
                 .alignment = alignment,
+                .is_padding = field_decl.isUnnamedBitfield(),
             });
+
+            prev_field_end = field_offset + field_size_bits;
         }
 
         const record_payload = try c.arena.create(ast.Payload.Record);
         record_payload.* = .{
             .base = .{ .tag = ([2]Tag{ .@"struct", .@"union" })[@boolToInt(is_union)] },
             .data = .{
-                .is_packed = is_packed,
+                .is_packed = is_packed or has_bitfield,
                 .fields = try c.arena.dupe(ast.Payload.Record.Field, fields.items),
             },
         };
@@ -1729,8 +1782,14 @@ fn transImplicitCastExpr(
             const casted = try transCCast(c, scope, expr.getBeginLoc(), dest_type, src_type, sub_expr_node);
             return maybeSuppressResult(c, scope, result_used, casted);
         },
-        .LValueToRValue, .NoOp, .FunctionToPointerDecay => {
-            const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
+        .LValueToRValue, .NoOp, .FunctionToPointerDecay => |ck| {
+            var sub_expr_node = try transExpr(c, scope, sub_expr, .used);
+            if (ck == .LValueToRValue and sub_expr.refersToBitField()) {
+                sub_expr_node = try Tag.as.create(c.arena, .{
+                    .lhs = try transQualType(c, scope, src_type, sub_expr.getBeginLoc()),
+                    .rhs = sub_expr_node,
+                });
+            }
             return maybeSuppressResult(c, scope, result_used, sub_expr_node);
         },
         .ArrayToPointerDecay => {
@@ -2318,6 +2377,10 @@ fn transInitListExprRecord(
         if (is_union_type and field_decl != expr.getInitializedFieldInUnion()) {
             continue;
         }
+        // unnamed bitfields do not have initializers
+        if (field_decl.isUnnamedBitfield()) {
+            continue;
+        }
 
         assert(init_i < init_count);
         const elem_expr = expr.getInit(init_i);
@@ -2331,9 +2394,18 @@ fn transInitListExprRecord(
             raw_name = try mem.dupe(c.arena, u8, name);
         }
 
+        var init_val = try transExpr(c, scope, elem_expr, .used);
+        if (field_decl.isBitField()) {
+            const field_type = try transBitfieldType(c, field_decl.getType(), field_decl.getBitWidthValue(c.clang_context));
+            init_val = try Tag.std_meta_cast.create(c.arena, .{
+                .lhs = field_type,
+                .rhs = init_val,
+            });
+        }
+
         try field_inits.append(.{
             .name = raw_name,
-            .value = try transExpr(c, scope, elem_expr, .used),
+            .value = init_val,
         });
     }
 
@@ -3765,6 +3837,12 @@ fn transQualTypeInitialized(
     return transQualType(c, scope, qt, source_loc);
 }
 
+fn transBitfieldType(c: *Context, qt: clang.QualType, size_bits: u64) Error!Node {
+    const type_prefix = if (cIsSignedInteger(qt)) "i" else "u";
+    const type_name = try std.fmt.allocPrint(c.arena, "{s}{d}", .{ type_prefix, size_bits });
+    return Tag.type.create(c.arena, type_name);
+}
+
 fn transQualType(c: *Context, scope: *Scope, qt: clang.QualType, source_loc: clang.SourceLocation) TypeError!Node {
     return transType(c, scope, qt.getTypePtr(), source_loc);
 }
@@ -3904,18 +3982,7 @@ fn typeIsOpaque(c: *Context, ty: *const clang.Type, loc: clang.SourceLocation) b
         .Record => {
             const record_ty = @ptrCast(*const clang.RecordType, ty);
             const record_decl = record_ty.getDecl();
-            const record_def = record_decl.getDefinition() orelse
-                return true;
-            var it = record_def.field_begin();
-            const end_it = record_def.field_end();
-            while (it.neq(end_it)) : (it = it.next()) {
-                const field_decl = it.deref();
-
-                if (field_decl.isBitField()) {
-                    return true;
-                }
-            }
-            return false;
+            return record_decl.getDefinition() == null;
         },
         .Elaborated => {
             const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
@@ -4039,6 +4106,14 @@ fn transCreateNodeAssign(
         var rhs_node = try transExprCoercing(c, scope, rhs, .used);
         if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
             rhs_node = try Tag.bool_to_int.create(c.arena, rhs_node);
+        } else if (lhs.refersToBitField()) {
+            if (lhs.getSourceBitField()) |field_decl| {
+                const field_type = try transBitfieldType(c, field_decl.getType(), field_decl.getBitWidthValue(c.clang_context));
+                rhs_node = try Tag.std_meta_cast.create(c.arena, .{
+                    .lhs = field_type,
+                    .rhs = rhs_node,
+                });
+            }
         }
         return transCreateNodeInfixOp(c, scope, .assign, lhs_node, rhs_node, .used);
     }

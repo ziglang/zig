@@ -148,6 +148,9 @@ pub const APSInt = opaque {
 pub const ASTContext = opaque {
     pub const getPointerType = ZigClangASTContext_getPointerType;
     extern fn ZigClangASTContext_getPointerType(*const ASTContext, T: QualType) QualType;
+
+    pub const getTypeSize = ZigClangASTContext_getTypeSize;
+    extern fn ZigClangASTContext_getTypeSize(*const ASTContext, T: QualType) u64;
 };
 
 pub const ASTUnit = opaque {
@@ -181,6 +184,14 @@ pub const ArraySubscriptExpr = opaque {
 pub const ArrayType = opaque {
     pub const getElementType = ZigClangArrayType_getElementType;
     extern fn ZigClangArrayType_getElementType(*const ArrayType) QualType;
+};
+
+pub const ASTRecordLayout = opaque {
+    pub const getFieldOffset = ZigClangASTRecordLayout_getFieldOffset;
+    extern fn ZigClangASTRecordLayout_getFieldOffset(*const ASTRecordLayout, c_uint) u64;
+
+    pub const getAlignment = ZigClangASTRecordLayout_getAlignment;
+    extern fn ZigClangASTRecordLayout_getAlignment(*const ASTRecordLayout) i64;
 };
 
 pub const AttributedType = opaque {
@@ -438,6 +449,12 @@ pub const Expr = opaque {
 
     pub const evaluateAsConstantExpr = ZigClangExpr_EvaluateAsConstantExpr;
     extern fn ZigClangExpr_EvaluateAsConstantExpr(*const Expr, *ExprEvalResult, Expr_ConstantExprKind, *const ASTContext) bool;
+
+    pub const refersToBitField = ZigClangExpr_refersToBitField;
+    extern fn ZigClangExpr_refersToBitField(*const Expr) bool;
+
+    pub const getSourceBitField = ZigClangExpr_getSourceBitField;
+    extern fn ZigClangExpr_getSourceBitField(*const Expr) ?*const FieldDecl;
 };
 
 pub const FieldDecl = opaque {
@@ -453,6 +470,9 @@ pub const FieldDecl = opaque {
     pub const isBitField = ZigClangFieldDecl_isBitField;
     extern fn ZigClangFieldDecl_isBitField(*const FieldDecl) bool;
 
+    pub const isUnnamedBitfield = ZigClangFieldDecl_isUnnamedBitfield;
+    extern fn ZigClangFieldDecl_isUnnamedBitfield(*const FieldDecl) bool;
+
     pub const getType = ZigClangFieldDecl_getType;
     extern fn ZigClangFieldDecl_getType(*const FieldDecl) QualType;
 
@@ -461,6 +481,12 @@ pub const FieldDecl = opaque {
 
     pub const getParent = ZigClangFieldDecl_getParent;
     extern fn ZigClangFieldDecl_getParent(*const FieldDecl) ?*const RecordDecl;
+
+    pub const getFieldIndex = ZigClangFieldDecl_getFieldIndex;
+    extern fn ZigClangFieldDecl_getFieldIndex(*const FieldDecl) c_uint;
+
+    pub const getBitWidthValue = ZigClangFieldDecl_getBitWidthValue;
+    extern fn ZigClangFieldDecl_getBitWidthValue(*const FieldDecl, *const ASTContext) c_uint;
 };
 
 pub const FileID = opaque {};
@@ -744,6 +770,9 @@ pub const RecordDecl = opaque {
 
     pub const getLocation = ZigClangRecordDecl_getLocation;
     extern fn ZigClangRecordDecl_getLocation(*const RecordDecl) SourceLocation;
+
+    pub const getASTRecordLayout = ZigClangRecordDecl_getASTRecordLayout;
+    extern fn ZigClangRecordDecl_getASTRecordLayout(*const RecordDecl, *const ASTContext) *const ASTRecordLayout;
 
     pub const field_begin = ZigClangRecordDecl_field_begin;
     extern fn ZigClangRecordDecl_field_begin(*const RecordDecl) field_iterator;
