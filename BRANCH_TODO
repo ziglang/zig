@@ -1,5 +1,3 @@
- * modify stage2 tests so that only 1 uses _start and the rest use
-   pub fn main
  * modify stage2 CBE tests so that only 1 uses pub export main and the
    rest use pub fn main
 
