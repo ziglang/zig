@@ -2341,7 +2341,7 @@ fn transInitListExprArray(
     assert(@ptrCast(*const clang.Type, arr_type).isConstantArrayType());
     const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, arr_type);
     const size_ap_int = const_arr_ty.getSize();
-    const all_count = size_ap_int.getLimitedValue(math.maxInt(usize));
+    const all_count = size_ap_int.getLimitedValue(usize);
     const leftover_count = all_count - init_count;
 
     if (all_count == 0) {
@@ -4266,7 +4266,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, ty);
 
             const size_ap_int = const_arr_ty.getSize();
-            const size = size_ap_int.getLimitedValue(math.maxInt(usize));
+            const size = size_ap_int.getLimitedValue(usize);
             const elem_type = try transType(c, scope, const_arr_ty.getElementType().getTypePtr(), source_loc);
 
             return Tag.array_type.create(c.arena, .{ .len = size, .elem_type = elem_type });
