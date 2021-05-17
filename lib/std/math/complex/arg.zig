@@ -18,7 +18,7 @@ pub fn arg(z: anytype) @TypeOf(z.re) {
 const epsilon = 0.0001;
 
 test "complex.carg" {
-    const a = Complex(f32).new(5, 3);
+    const a = Complex(f32).init(5, 3);
     const c = arg(a);
     try testing.expect(math.approxEqAbs(f32, c, 0.540420, epsilon));
 }

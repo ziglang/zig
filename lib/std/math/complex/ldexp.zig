@@ -48,7 +48,7 @@ fn ldexp_cexp32(z: Complex(f32), expt: i32) Complex(f32) {
     const half_expt2 = exptf - half_expt1;
     const scale2 = @bitCast(f32, (0x7f + half_expt2) << 23);
 
-    return Complex(f32).new(math.cos(z.im) * exp_x * scale1 * scale2, math.sin(z.im) * exp_x * scale1 * scale2);
+    return Complex(f32).init(math.cos(z.im) * exp_x * scale1 * scale2, math.sin(z.im) * exp_x * scale1 * scale2);
 }
 
 fn frexp_exp64(x: f64, expt: *i32) f64 {
@@ -78,7 +78,7 @@ fn ldexp_cexp64(z: Complex(f64), expt: i32) Complex(f64) {
     const half_expt2 = exptf - half_expt1;
     const scale2 = @bitCast(f64, (0x3ff + half_expt2) << 20);
 
-    return Complex(f64).new(
+    return Complex(f64).init(
         math.cos(z.im) * exp_x * scale1 * scale2,
         math.sin(z.im) * exp_x * scale1 * scale2,
     );

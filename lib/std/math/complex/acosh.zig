@@ -13,13 +13,13 @@ const Complex = cmath.Complex;
 pub fn acosh(z: anytype) Complex(@TypeOf(z.re)) {
     const T = @TypeOf(z.re);
     const q = cmath.acos(z);
-    return Complex(T).new(-q.im, q.re);
+    return Complex(T).init(-q.im, q.re);
 }
 
 const epsilon = 0.0001;
 
 test "complex.cacosh" {
-    const a = Complex(f32).new(5, 3);
+    const a = Complex(f32).init(5, 3);
     const c = acosh(a);
 
     try testing.expect(math.approxEqAbs(f32, c.re, 2.452914, epsilon));

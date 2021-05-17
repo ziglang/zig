@@ -15,13 +15,13 @@ pub fn log(z: anytype) Complex(@TypeOf(z.re)) {
     const r = cmath.abs(z);
     const phi = cmath.arg(z);
 
-    return Complex(T).new(math.ln(r), phi);
+    return Complex(T).init(math.ln(r), phi);
 }
 
 const epsilon = 0.0001;
 
 test "complex.clog" {
-    const a = Complex(f32).new(5, 3);
+    const a = Complex(f32).init(5, 3);
     const c = log(a);
 
     try testing.expect(math.approxEqAbs(f32, c.re, 1.763180, epsilon));

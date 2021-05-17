@@ -19,8 +19,8 @@ pub fn pow(comptime T: type, z: T, c: T) T {
 const epsilon = 0.0001;
 
 test "complex.cpow" {
-    const a = Complex(f32).new(5, 3);
-    const b = Complex(f32).new(2.3, -1.3);
+    const a = Complex(f32).init(5, 3);
+    const b = Complex(f32).init(2.3, -1.3);
     const c = pow(Complex(f32), a, b);
 
     try testing.expect(math.approxEqAbs(f32, c.re, 58.049110, epsilon));

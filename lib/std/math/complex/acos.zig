@@ -13,13 +13,13 @@ const Complex = cmath.Complex;
 pub fn acos(z: anytype) Complex(@TypeOf(z.re)) {
     const T = @TypeOf(z.re);
     const q = cmath.asin(z);
-    return Complex(T).new(@as(T, math.pi) / 2 - q.re, -q.im);
+    return Complex(T).init(@as(T, math.pi) / 2 - q.re, -q.im);
 }
 
 const epsilon = 0.0001;
 
 test "complex.cacos" {
-    const a = Complex(f32).new(5, 3);
+    const a = Complex(f32).init(5, 3);
     const c = acos(a);
 
     try testing.expect(math.approxEqAbs(f32, c.re, 0.546975, epsilon));
