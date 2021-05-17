@@ -71,6 +71,38 @@ pub const source_version_command = extern struct {
     version: u64,
 };
 
+/// The build_version_command contains the min OS version on which this
+/// binary was built to run for its platform. The list of known platforms and
+/// tool values following it.
+pub const build_version_command = extern struct {
+    /// LC_BUILD_VERSION
+    cmd: u32,
+
+    /// sizeof(struct build_version_command) plus
+    /// ntools * sizeof(struct build_version_command)
+    cmdsize: u32,
+
+    /// platform
+    platform: u32,
+
+    /// X.Y.Z is encoded in nibbles xxxx.yy.zz
+    minos: u32,
+
+    /// X.Y.Z is encoded in nibbles xxxx.yy.zz
+    sdk: u32,
+
+    /// number of tool entries following this
+    ntools: u32,
+};
+
+pub const build_tool_version = extern struct {
+    /// enum for the tool
+    tool: u32,
+
+    /// version number of the tool
+    version: u32,
+};
+
 /// The entry_point_command is a replacement for thread_command.
 /// It is used for main executables to specify the location (file offset)
 /// of main(). If -stack_size was used at link time, the stacksize

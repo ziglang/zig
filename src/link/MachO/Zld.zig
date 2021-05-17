@@ -339,8 +339,14 @@ fn parseDylibs(self: *Zld, shared_libs: []const []const u8) !void {
         try self.dylibs.append(self.allocator, dylib);
 
         // Add LC_LOAD_DYLIB command
-        // TODO Read the timestamp and versions from the dylib itself.
-        var dylib_cmd = try createLoadDylibCommand(self.allocator, dylib.name.?, 2, 0, 0);
+        const dylib_id = dylib.id orelse unreachable;
+        var dylib_cmd = try createLoadDylibCommand(
+            self.allocator,
+            dylib_id.name,
+            dylib_id.timestamp,
+            dylib_id.current_version,
+            dylib_id.compatibility_version,
+        );
         errdefer dylib_cmd.deinit(self.allocator);
 
         try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });

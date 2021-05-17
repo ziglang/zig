@@ -23,8 +23,22 @@ load_commands: std.ArrayListUnmanaged(LoadCommand) = .{},
 
 symtab_cmd_index: ?u16 = null,
 dysymtab_cmd_index: ?u16 = null,
+id_cmd_index: ?u16 = null,
+
+id: ?Id = null,
 
 symbols: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
+
+pub const Id = struct {
+    name: []const u8,
+    timestamp: u32,
+    current_version: u32,
+    compatibility_version: u32,
+
+    pub fn deinit(id: *Id, allocator: *Allocator) void {
+        allocator.free(id.name);
+    }
+};
 
 pub fn init(allocator: *Allocator) Dylib {
     return .{ .allocator = allocator };
@@ -44,6 +58,10 @@ pub fn deinit(self: *Dylib) void {
 
     if (self.name) |name| {
         self.allocator.free(name);
+    }
+
+    if (self.id) |*id| {
+        id.deinit(self.allocator);
     }
 }
 
@@ -78,6 +96,7 @@ pub fn parse(self: *Dylib) !void {
     }
 
     try self.readLoadCommands(reader);
+    try self.parseId();
     try self.parseSymbols();
 }
 
@@ -94,12 +113,41 @@ pub fn readLoadCommands(self: *Dylib, reader: anytype) !void {
             macho.LC_DYSYMTAB => {
                 self.dysymtab_cmd_index = i;
             },
+            macho.LC_ID_DYLIB => {
+                self.id_cmd_index = i;
+            },
             else => {
                 log.debug("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
             },
         }
         self.load_commands.appendAssumeCapacity(cmd);
     }
+}
+
+pub fn parseId(self: *Dylib) !void {
+    const index = self.id_cmd_index orelse {
+        log.debug("no LC_ID_DYLIB load command found; using hard-coded defaults...", .{});
+        self.id = .{
+            .name = try self.allocator.dupe(u8, self.name.?),
+            .timestamp = 2,
+            .current_version = 0,
+            .compatibility_version = 0,
+        };
+        return;
+    };
+    const id_cmd = self.load_commands.items[index].Dylib;
+    const dylib = id_cmd.inner.dylib;
+
+    // TODO should we compare the name from the dylib's id with the user-specified one?
+    const dylib_name = @ptrCast([*:0]const u8, id_cmd.data[dylib.name - @sizeOf(macho.dylib_command) ..]);
+    const name = try self.allocator.dupe(u8, mem.spanZ(dylib_name));
+
+    self.id = .{
+        .name = name,
+        .timestamp = dylib.timestamp,
+        .current_version = dylib.current_version,
+        .compatibility_version = dylib.compatibility_version,
+    };
 }
 
 pub fn parseSymbols(self: *Dylib) !void {
