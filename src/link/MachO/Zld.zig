@@ -186,7 +186,12 @@ pub fn closeFiles(self: Zld) void {
     if (self.file) |f| f.close();
 }
 
-pub fn link(self: *Zld, files: []const []const u8, shared_libs: []const []const u8, out_path: []const u8) !void {
+const LinkArgs = struct {
+    shared_libs: []const []const u8,
+    rpaths: []const []const u8,
+};
+
+pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: LinkArgs) !void {
     if (files.len == 0) return error.NoInputFiles;
     if (out_path.len == 0) return error.EmptyOutputPath;
 
@@ -222,8 +227,9 @@ pub fn link(self: *Zld, files: []const []const u8, shared_libs: []const []const 
     });
 
     try self.populateMetadata();
+    try self.addRpaths(args.rpaths);
     try self.parseInputFiles(files);
-    try self.parseDylibs(shared_libs);
+    try self.parseDylibs(args.shared_libs);
     try self.resolveSymbols();
     try self.resolveStubsAndGotEntries();
     try self.updateMetadata();
@@ -241,6 +247,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
         kind: enum {
             object,
             archive,
+            dylib,
         },
         file: fs.File,
         name: []const u8,
@@ -248,7 +255,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
     var classified = std.ArrayList(Input).init(self.allocator);
     defer classified.deinit();
 
-    // First, classify input files as either object or archive.
+    // First, classify input files: object, archive or dylib.
     for (files) |file_name| {
         const file = try fs.cwd().openFile(file_name, .{});
         const full_path = full_path: {
@@ -289,6 +296,22 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
             continue;
         }
 
+        try_dylib: {
+            const header = try file.reader().readStruct(macho.mach_header_64);
+            if (header.filetype != macho.MH_DYLIB) {
+                try file.seekTo(0);
+                break :try_dylib;
+            }
+
+            try file.seekTo(0);
+            try classified.append(.{
+                .kind = .dylib,
+                .file = file,
+                .name = full_path,
+            });
+            continue;
+        }
+
         log.debug("unexpected input file of unknown type '{s}'", .{file_name});
     }
 
@@ -316,6 +339,35 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
                 archive.file = input.file;
                 try archive.parse();
                 try self.archives.append(self.allocator, archive);
+            },
+            .dylib => {
+                const dylib = try self.allocator.create(Dylib);
+                errdefer self.allocator.destroy(dylib);
+
+                dylib.* = Dylib.init(self.allocator);
+                dylib.arch = self.arch.?;
+                dylib.name = input.name;
+                dylib.file = input.file;
+
+                const ordinal = @intCast(u16, self.dylibs.items.len);
+                dylib.ordinal = ordinal + 2; // TODO +2 since 1 is reserved for libSystem
+
+                // TODO Defer parsing of the dylibs until they are actually needed
+                try dylib.parse();
+                try self.dylibs.append(self.allocator, dylib);
+
+                // Add LC_LOAD_DYLIB command
+                const dylib_id = dylib.id orelse unreachable;
+                var dylib_cmd = try createLoadDylibCommand(
+                    self.allocator,
+                    dylib_id.name,
+                    dylib_id.timestamp,
+                    dylib_id.current_version,
+                    dylib_id.compatibility_version,
+                );
+                errdefer dylib_cmd.deinit(self.allocator);
+
+                try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
             },
         }
     }
@@ -2114,6 +2166,25 @@ fn populateMetadata(self: *Zld) !void {
                 .datasize = 0,
             },
         });
+    }
+}
+
+fn addRpaths(self: *Zld, rpaths: []const []const u8) !void {
+    for (rpaths) |rpath| {
+        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+            u64,
+            @sizeOf(macho.rpath_command) + rpath.len,
+            @sizeOf(u64),
+        ));
+        var rpath_cmd = emptyGenericCommandWithData(macho.rpath_command{
+            .cmd = macho.LC_RPATH,
+            .cmdsize = cmdsize,
+            .path = @sizeOf(macho.rpath_command),
+        });
+        rpath_cmd.data = try self.allocator.alloc(u8, cmdsize - rpath_cmd.inner.path);
+        mem.set(u8, rpath_cmd.data, 0);
+        mem.copy(u8, rpath_cmd.data, rpath);
+        try self.load_commands.append(self.allocator, .{ .Rpath = rpath_cmd });
     }
 }
 

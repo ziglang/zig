@@ -756,6 +756,19 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 }
             }
 
+            // rpaths
+            var rpath_table = std.StringArrayHashMap(void).init(arena);
+            for (self.base.options.rpath_list) |rpath| {
+                if (rpath_table.contains(rpath)) continue;
+                try rpath_table.putNoClobber(rpath, {});
+            }
+
+            var rpaths = std.ArrayList([]const u8) .init(arena);
+            try rpaths.ensureCapacity(rpath_table.count());
+            for (rpath_table.items()) |entry| {
+                rpaths.appendAssumeCapacity(entry.key);
+            }
+
             if (self.base.options.verbose_link) {
                 var argv = std.ArrayList([]const u8).init(arena);
 
@@ -765,6 +778,11 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 if (self.base.options.syslibroot) |syslibroot| {
                     try argv.append("-syslibroot");
                     try argv.append(syslibroot);
+                }
+
+                for (rpaths.items) |rpath| {
+                    try argv.append("-rpath");
+                    try argv.append(rpath);
                 }
 
                 try argv.appendSlice(positionals.items);
@@ -783,7 +801,10 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 Compilation.dump_argv(argv.items);
             }
 
-            try zld.link(positionals.items, shared_libs.items, full_out_path);
+            try zld.link(positionals.items, full_out_path, .{
+                .shared_libs = shared_libs.items,
+                .rpaths = rpaths.items,
+            });
 
             break :outer;
         }

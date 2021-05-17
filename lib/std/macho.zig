@@ -516,6 +516,19 @@ pub const dylib = extern struct {
     compatibility_version: u32,
 };
 
+/// The rpath_command contains a path which at runtime should be added to the current
+/// run path used to find @rpath prefixed dylibs.
+pub const rpath_command = extern struct {
+    /// LC_RPATH
+    cmd: u32,
+
+    /// includes string
+    cmdsize: u32,
+
+    /// path to add to run path
+    path: u32,
+};
+
 /// The segment load command indicates that a part of this file is to be
 /// mapped into the task's address space.  The size of this segment in memory,
 /// vmsize, maybe equal to or larger than the amount to map from this file,

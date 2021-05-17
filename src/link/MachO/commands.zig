@@ -24,6 +24,7 @@ pub const LoadCommand = union(enum) {
     SourceVersion: macho.source_version_command,
     Uuid: macho.uuid_command,
     LinkeditData: macho.linkedit_data_command,
+    Rpath: GenericCommandWithData(macho.rpath_command),
     Unknown: GenericCommandWithData(macho.load_command),
 
     pub fn read(allocator: *Allocator, reader: anytype) !LoadCommand {
@@ -84,6 +85,9 @@ pub const LoadCommand = union(enum) {
             => LoadCommand{
                 .LinkeditData = try stream.reader().readStruct(macho.linkedit_data_command),
             },
+            macho.LC_RPATH => LoadCommand{
+                .Rpath = try GenericCommandWithData(macho.rpath_command).read(allocator, stream.reader()),
+            },
             else => LoadCommand{
                 .Unknown = try GenericCommandWithData(macho.load_command).read(allocator, stream.reader()),
             },
@@ -103,6 +107,7 @@ pub const LoadCommand = union(enum) {
             .Segment => |x| x.write(writer),
             .Dylinker => |x| x.write(writer),
             .Dylib => |x| x.write(writer),
+            .Rpath => |x| x.write(writer),
             .Unknown => |x| x.write(writer),
         };
     }
@@ -120,6 +125,7 @@ pub const LoadCommand = union(enum) {
             .Segment => |x| x.inner.cmd,
             .Dylinker => |x| x.inner.cmd,
             .Dylib => |x| x.inner.cmd,
+            .Rpath => |x| x.inner.cmd,
             .Unknown => |x| x.inner.cmd,
         };
     }
@@ -137,6 +143,7 @@ pub const LoadCommand = union(enum) {
             .Segment => |x| x.inner.cmdsize,
             .Dylinker => |x| x.inner.cmdsize,
             .Dylib => |x| x.inner.cmdsize,
+            .Rpath => |x| x.inner.cmdsize,
             .Unknown => |x| x.inner.cmdsize,
         };
     }
@@ -146,6 +153,7 @@ pub const LoadCommand = union(enum) {
             .Segment => |*x| x.deinit(allocator),
             .Dylinker => |*x| x.deinit(allocator),
             .Dylib => |*x| x.deinit(allocator),
+            .Rpath => |*x| x.deinit(allocator),
             .Unknown => |*x| x.deinit(allocator),
             else => {},
         };
@@ -169,6 +177,7 @@ pub const LoadCommand = union(enum) {
             .Segment => |x| x.eql(other.Segment),
             .Dylinker => |x| x.eql(other.Dylinker),
             .Dylib => |x| x.eql(other.Dylib),
+            .Rpath => |x| x.eql(other.Rpath),
             .Unknown => |x| x.eql(other.Unknown),
         };
     }
