@@ -795,11 +795,7 @@ pub const Context = struct {
 
     fn genAlloc(self: *Context, inst: *Inst.NoOp) InnerError!WValue {
         const elem_type = inst.base.ty.elemType();
-        const valtype = try self.genValtype(inst.base.src, elem_type);
-        try self.locals.append(self.gpa, valtype);
-
         const local_value = WValue{ .local = self.local_index };
-        self.local_index += 1;
 
         switch (elem_type.zigTypeTag()) {
             .Struct => {
@@ -816,7 +812,11 @@ pub const Context = struct {
                 }
             },
             // TODO: Add more types that require extra locals such as optionals
-            else => {},
+            else => {
+                const valtype = try self.genValtype(inst.base.src, elem_type);
+                try self.locals.append(self.gpa, valtype);
+                self.local_index += 1;
+            },
         }
 
         return local_value;
@@ -1115,6 +1115,6 @@ pub const Context = struct {
     fn genStructFieldPtr(self: *Context, inst: *Inst.StructFieldPtr) InnerError!WValue {
         const struct_ptr = self.resolveInst(inst.struct_ptr);
 
-        return WValue{ .local = struct_ptr.local + @intCast(u32, inst.field_index) + 1 };
+        return WValue{ .local = struct_ptr.local + @intCast(u32, inst.field_index) };
     }
 };

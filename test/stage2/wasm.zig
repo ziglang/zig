@@ -419,4 +419,26 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "2\n");
     }
+
+    {
+        var case = ctx.exe("wasm structs", wasi);
+
+        case.addCompareOutput(
+            \\const Example = struct { x: u32 };
+            \\
+            \\export fn _start() u32 {
+            \\    var example: Example = .{ .x = 5 };
+            \\    return example.x;
+            \\}
+        , "5\n");
+
+        case.addCompareOutput(
+            \\const Example = struct { x: u32, y: u32 };
+            \\
+            \\export fn _start() u32 {
+            \\    var example: Example = .{ .x = 5, .y = 10 };
+            \\    return example.y + example.x;
+            \\}
+        , "15\n");
+    }
 }
