@@ -705,6 +705,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 // By this time, we depend on these libs being dynamically linked libraries and not static libraries
                 // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
                 // case we want to avoid prepending "-l".
+                // TODO I think then they should go as an input file instead of via shared_libs.
                 if (Compilation.classifyFileExt(link_lib) == .shared_library) {
                     try shared_libs.append(link_lib);
                     continue;
@@ -714,18 +715,45 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             }
 
             var search_lib_dirs = std.ArrayList([]const u8).init(arena);
-            try search_lib_dirs.ensureCapacity(self.base.options.lib_dirs.len * 2 + 1);
 
-            search_lib_dirs.appendAssumeCapacity("."); // We will always start the search in cwd
+            for (self.base.options.lib_dirs) |path| {
+                if (fs.path.isAbsolute(path)) {
+                    var candidates = std.ArrayList([]const u8).init(arena);
+                    if (self.base.options.syslibroot) |syslibroot| {
+                        const full_path = try fs.path.join(arena, &[_][]const u8{ syslibroot, path });
+                        try candidates.append(full_path);
+                    }
+                    try candidates.append(path);
 
-            for (self.base.options.lib_dirs) |lib_dir| {
-                search_lib_dirs.appendAssumeCapacity(lib_dir);
-            }
+                    var found = false;
+                    for (candidates.items) |candidate| {
+                        // Verify that search path actually exists
+                        var tmp = fs.cwd().openDir(candidate, .{}) catch |err| switch (err) {
+                            error.FileNotFound => continue,
+                            else => |e| return e,
+                        };
+                        defer tmp.close();
 
-            if (self.base.options.syslibroot) |syslibroot| {
-                for (self.base.options.lib_dirs) |lib_dir| {
-                    const path = try fs.path.join(arena, &[_][]const u8{ syslibroot, lib_dir });
-                    search_lib_dirs.appendAssumeCapacity(path);
+                        try search_lib_dirs.append(candidate);
+                        found = true;
+                        break;
+                    }
+
+                    if (!found) {
+                        log.warn("directory not found for '-L{s}'", .{path});
+                    }
+                } else {
+                    // Verify that search path actually exists
+                    var tmp = fs.cwd().openDir(path, .{}) catch |err| switch (err) {
+                        error.FileNotFound => {
+                            log.warn("directory not found for '-L{s}'", .{path});
+                            continue;
+                        },
+                        else => |e| return e,
+                    };
+                    defer tmp.close();
+
+                    try search_lib_dirs.append(path);
                 }
             }
 
@@ -749,7 +777,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
                 if (!found) {
                     log.warn("library '-l{s}' not found", .{l_name});
-                    log.warn("searched paths:", .{});
+                    log.warn("Library search paths:", .{});
                     for (search_lib_dirs.items) |lib_dir| {
                         log.warn("  {s}", .{lib_dir});
                     }
@@ -763,7 +791,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 try rpath_table.putNoClobber(rpath, {});
             }
 
-            var rpaths = std.ArrayList([]const u8) .init(arena);
+            var rpaths = std.ArrayList([]const u8).init(arena);
             try rpaths.ensureCapacity(rpath_table.count());
             for (rpath_table.items()) |entry| {
                 rpaths.appendAssumeCapacity(entry.key);
