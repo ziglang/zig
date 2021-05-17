@@ -339,26 +339,10 @@ fn parseDylibs(self: *Zld, shared_libs: []const []const u8) !void {
         try self.dylibs.append(self.allocator, dylib);
 
         // Add LC_LOAD_DYLIB command
-        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
-            u64,
-            @sizeOf(macho.dylib_command) + dylib.name.?.len,
-            @sizeOf(u64),
-        ));
-        // TODO Read the min version from the dylib itself.
-        const min_version = 0x0;
-        var dylib_cmd = emptyGenericCommandWithData(macho.dylib_command{
-            .cmd = macho.LC_LOAD_DYLIB,
-            .cmdsize = cmdsize,
-            .dylib = .{
-                .name = @sizeOf(macho.dylib_command),
-                .timestamp = 2, // TODO parse from the dylib.
-                .current_version = min_version,
-                .compatibility_version = min_version,
-            },
-        });
-        dylib_cmd.data = try self.allocator.alloc(u8, cmdsize - dylib_cmd.inner.dylib.name);
-        mem.set(u8, dylib_cmd.data, 0);
-        mem.copy(u8, dylib_cmd.data, dylib.name.?);
+        // TODO Read the timestamp and versions from the dylib itself.
+        var dylib_cmd = try createLoadDylibCommand(self.allocator, dylib.name.?, 2, 0, 0);
+        errdefer dylib_cmd.deinit(self.allocator);
+
         try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
     }
 }
@@ -2061,27 +2045,10 @@ fn populateMetadata(self: *Zld) !void {
 
     if (self.libsystem_cmd_index == null) {
         self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
-            u64,
-            @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH),
-            @sizeOf(u64),
-        ));
-        // TODO Find a way to work out runtime version from the OS version triple stored in std.Target.
-        // In the meantime, we're gonna hardcode to the minimum compatibility version of 0.0.0.
-        const min_version = 0x0;
-        var dylib_cmd = emptyGenericCommandWithData(macho.dylib_command{
-            .cmd = macho.LC_LOAD_DYLIB,
-            .cmdsize = cmdsize,
-            .dylib = .{
-                .name = @sizeOf(macho.dylib_command),
-                .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
-                .current_version = min_version,
-                .compatibility_version = min_version,
-            },
-        });
-        dylib_cmd.data = try self.allocator.alloc(u8, cmdsize - dylib_cmd.inner.dylib.name);
-        mem.set(u8, dylib_cmd.data, 0);
-        mem.copy(u8, dylib_cmd.data, mem.spanZ(LIB_SYSTEM_PATH));
+
+        var dylib_cmd = try createLoadDylibCommand(self.allocator, mem.spanZ(LIB_SYSTEM_PATH), 2, 0, 0);
+        errdefer dylib_cmd.deinit(self.allocator);
+
         try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
     }
 
@@ -2738,11 +2705,15 @@ fn writeSymbolTable(self: *Zld) !void {
 
     for (self.imports.items()) |entry| {
         const sym = entry.value;
+        const ordinal = ordinal: {
+            const dylib = sym.cast(Symbol.Proxy).?.dylib orelse break :ordinal 1; // TODO handle libSystem
+            break :ordinal dylib.ordinal.?;
+        };
         try undefs.append(.{
             .n_strx = try self.makeString(sym.name),
             .n_type = macho.N_UNDF | macho.N_EXT,
             .n_sect = 0,
-            .n_desc = macho.N_SYMBOL_RESOLVER | macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY,
+            .n_desc = (ordinal * macho.N_SYMBOL_RESOLVER) | macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY,
             .n_value = 0,
         });
     }

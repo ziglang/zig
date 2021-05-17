@@ -298,6 +298,37 @@ pub fn GenericCommandWithData(comptime Cmd: type) type {
     };
 }
 
+pub fn createLoadDylibCommand(
+    allocator: *Allocator,
+    name: []const u8,
+    timestamp: u32,
+    current_version: u32,
+    compatibility_version: u32,
+) !GenericCommandWithData(macho.dylib_command) {
+    const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+        u64,
+        @sizeOf(macho.dylib_command) + name.len,
+        @sizeOf(u64),
+    ));
+
+    var dylib_cmd = emptyGenericCommandWithData(macho.dylib_command{
+        .cmd = macho.LC_LOAD_DYLIB,
+        .cmdsize = cmdsize,
+        .dylib = .{
+            .name = @sizeOf(macho.dylib_command),
+            .timestamp = timestamp,
+            .current_version = current_version,
+            .compatibility_version = compatibility_version,
+        },
+    });
+    dylib_cmd.data = try allocator.alloc(u8, cmdsize - dylib_cmd.inner.dylib.name);
+
+    mem.set(u8, dylib_cmd.data, 0);
+    mem.copy(u8, dylib_cmd.data, name);
+
+    return dylib_cmd;
+}
+
 fn testRead(allocator: *Allocator, buffer: []const u8, expected: anytype) !void {
     var stream = io.fixedBufferStream(buffer);
     var given = try LoadCommand.read(allocator, stream.reader());
