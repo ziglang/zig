@@ -3,7 +3,6 @@
      their indexes starting at 0 so that we can use an array to store Sema
      results rather than a map.
 
- * get rid of Scope.DeclRef
  * get rid of NameHash
  * handle decl collision with usingnamespace
  * the decl doing the looking up needs to create a decl dependency

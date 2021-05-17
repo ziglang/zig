@@ -812,7 +812,6 @@ pub const Scope = struct {
             .block => scope.cast(Block).?.sema.owner_decl,
             .file => null,
             .namespace => null,
-            .decl_ref => scope.cast(DeclRef).?.decl,
         };
     }
 
@@ -821,7 +820,6 @@ pub const Scope = struct {
             .block => scope.cast(Block).?.src_decl,
             .file => null,
             .namespace => scope.cast(Namespace).?.getDecl(),
-            .decl_ref => scope.cast(DeclRef).?.decl,
         };
     }
 
@@ -831,7 +829,6 @@ pub const Scope = struct {
             .block => return scope.cast(Block).?.sema.owner_decl.namespace,
             .file => return scope.cast(File).?.root_decl.?.namespace,
             .namespace => return scope.cast(Namespace).?,
-            .decl_ref => return scope.cast(DeclRef).?.decl.namespace,
         }
     }
 
@@ -854,7 +851,6 @@ pub const Scope = struct {
                 .namespace => return @fieldParentPtr(Namespace, "base", cur).file_scope,
                 .file => return @fieldParentPtr(File, "base", cur),
                 .block => return @fieldParentPtr(Block, "base", cur).src_decl.namespace.file_scope,
-                .decl_ref => return @fieldParentPtr(DeclRef, "base", cur).decl.namespace.file_scope,
             };
         }
     }
@@ -1402,12 +1398,6 @@ pub const Scope = struct {
             try block.instructions.append(block.sema.gpa, &inst.base);
             return &inst.base;
         }
-    };
-
-    pub const DeclRef = struct {
-        pub const base_tag: Tag = .decl_ref;
-        base: Scope = Scope{ .tag = base_tag },
-        decl: *Decl,
     };
 };
 
@@ -4012,12 +4002,6 @@ pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) In
         },
         .file => unreachable,
         .namespace => unreachable,
-        .decl_ref => {
-            const decl_ref = scope.cast(Scope.DeclRef).?;
-            decl_ref.decl.analysis = .sema_failure;
-            decl_ref.decl.generation = mod.generation;
-            mod.failed_decls.putAssumeCapacityNoClobber(decl_ref.decl, err_msg);
-        },
     }
     return error.AnalysisFail;
 }
