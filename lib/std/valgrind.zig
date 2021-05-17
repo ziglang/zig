@@ -3,7 +3,7 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const std = @import("std.zig");
 const math = std.math;
 
@@ -12,7 +12,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
         return default;
     }
 
-    switch (builtin.arch) {
+    switch (builtin.target.cpu.arch) {
         .i386 => {
             return asm volatile (
                 \\ roll $3,  %%edi ; roll $13, %%edi

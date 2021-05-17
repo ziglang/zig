@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const io = std.io;
 const meta = std.meta;
 const trait = std.trait;
@@ -15,6 +15,7 @@ const expectError = std.testing.expectError;
 const mem = std.mem;
 const fs = std.fs;
 const File = std.fs.File;
+const native_endian = builtin.target.cpu.arch.endian();
 
 const tmpDir = std.testing.tmpDir;
 
@@ -72,7 +73,7 @@ test "BitStreams with File Stream" {
         var file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
-        var bit_stream = io.bitWriter(builtin.endian, file.writer());
+        var bit_stream = io.bitWriter(native_endian, file.writer());
 
         try bit_stream.writeBits(@as(u2, 1), 1);
         try bit_stream.writeBits(@as(u5, 2), 2);
@@ -86,7 +87,7 @@ test "BitStreams with File Stream" {
         var file = try tmp.dir.openFile(tmp_file_name, .{});
         defer file.close();
 
-        var bit_stream = io.bitReader(builtin.endian, file.reader());
+        var bit_stream = io.bitReader(native_endian, file.reader());
 
         var out_bits: usize = undefined;
 
