@@ -3,39 +3,6 @@
      their indexes starting at 0 so that we can use an array to store Sema
      results rather than a map.
 
- * have failed_trees and just put the file in there
-   - this way we can emit all the parse errors not just the first one
-   - but maybe we want just the first one?
-
- * need a var decl zir instruction which includes the name because we need to do the
-   compile error for a local shadowing a decl with Sema looking up the decl name.
-   - this means LocalVal and LocalPtr should use the string table
-
- * sort compile errors before presenting them to eliminate nondeterministic error reporting
-
- * AstGen: add result location pointers to function calls
- * nested function decl: how to refer to params?
-
- * memory efficiency: add another representation for structs which use
-   natural alignment for fields and do not have any comptime fields. this
-   will save 16 bytes per struct field in the compilation.
-
- * extern "foo" for vars
-
- * use ZIR memory for decl names where possible and also for keys
-   - this will require more sophisticated changelist detection which does some
-     pre-emptive deletion of decls from the parent namespace
-
- * better anonymous Decl naming convention
-   - avoid the global atomic integer for the number because of contention
-
- * AstGen memory leak with `block_gz.labeled_store_to_block_ptr_list.append`
-
  * in SwitchProng resolve, make sure AST tree gets loaded.
    It will be unloaded if using cached ZIR.
  
- * make AstGen smart enough to omit elided store_to_block_ptr instructions
-
- * repl: if you try `run` with -ofmt=c you get an access denied error because it
-   tries to execute the .c file as a child process instead of executing `zig run`
-   on it.
