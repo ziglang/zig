@@ -306,8 +306,7 @@ test "type info: function type info" {
 fn testFunction() !void {
     const fn_info = @typeInfo(@TypeOf(foo));
     try expect(fn_info == .Fn);
-    // TODO Fix this before merging the branch
-    //try expect(fn_info.Fn.alignment > 0);
+    try expect(fn_info.Fn.alignment > 0);
     try expect(fn_info.Fn.calling_convention == .C);
     try expect(!fn_info.Fn.is_generic);
     try expect(fn_info.Fn.args.len == 2);

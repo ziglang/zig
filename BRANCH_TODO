@@ -16,10 +16,6 @@
  * AstGen: add result location pointers to function calls
  * nested function decl: how to refer to params?
 
- * fix the commented out behavior test regarding function alignment
-   - not sure why this happened, it's stage1 code??
-   - search the behavior test diff for "TODO"
-
  * memory efficiency: add another representation for structs which use
    natural alignment for fields and do not have any comptime fields. this
    will save 16 bytes per struct field in the compilation.
