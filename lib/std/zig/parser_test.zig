@@ -1608,13 +1608,13 @@ test "zig fmt: if-else with comment before else" {
         \\comptime {
         \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
         \\    if ((hx & 0x7fffffff) != 0x7f800000) {
-        \\        return Complex(f32).new(y - y, y - y);
+        \\        return Complex(f32).init(y - y, y - y);
         \\    } // cexp(-inf +- i inf|nan) = 0 + i0
         \\    else if (hx & 0x80000000 != 0) {
-        \\        return Complex(f32).new(0, 0);
+        \\        return Complex(f32).init(0, 0);
         \\    } // cexp(+inf +- i inf|nan) = inf + i nan
         \\    else {
-        \\        return Complex(f32).new(x, y - y);
+        \\        return Complex(f32).init(x, y - y);
         \\    }
         \\}
         \\
@@ -2267,16 +2267,16 @@ test "zig fmt: line comment between if block and else keyword" {
         \\test "aoeu" {
         \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
         \\    if ((hx & 0x7fffffff) != 0x7f800000) {
-        \\        return Complex(f32).new(y - y, y - y);
+        \\        return Complex(f32).init(y - y, y - y);
         \\    }
         \\    // cexp(-inf +- i inf|nan) = 0 + i0
         \\    else if (hx & 0x80000000 != 0) {
-        \\        return Complex(f32).new(0, 0);
+        \\        return Complex(f32).init(0, 0);
         \\    }
         \\    // cexp(+inf +- i inf|nan) = inf + i nan
         \\    // another comment
         \\    else {
-        \\        return Complex(f32).new(x, y - y);
+        \\        return Complex(f32).init(x, y - y);
         \\    }
         \\}
         \\

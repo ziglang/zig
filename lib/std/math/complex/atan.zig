@@ -50,14 +50,14 @@ fn atan32(z: Complex(f32)) Complex(f32) {
 
     if ((x == 0.0) and (y > 1.0)) {
         // overflow
-        return Complex(f32).new(maxnum, maxnum);
+        return Complex(f32).init(maxnum, maxnum);
     }
 
     const x2 = x * x;
     var a = 1.0 - x2 - (y * y);
     if (a == 0.0) {
         // overflow
-        return Complex(f32).new(maxnum, maxnum);
+        return Complex(f32).init(maxnum, maxnum);
     }
 
     var t = 0.5 * math.atan2(f32, 2.0 * x, a);
@@ -67,12 +67,12 @@ fn atan32(z: Complex(f32)) Complex(f32) {
     a = x2 + t * t;
     if (a == 0.0) {
         // overflow
-        return Complex(f32).new(maxnum, maxnum);
+        return Complex(f32).init(maxnum, maxnum);
     }
 
     t = y + 1.0;
     a = (x2 + (t * t)) / a;
-    return Complex(f32).new(w, 0.25 * math.ln(a));
+    return Complex(f32).init(w, 0.25 * math.ln(a));
 }
 
 fn redupif64(x: f64) f64 {
@@ -99,14 +99,14 @@ fn atan64(z: Complex(f64)) Complex(f64) {
 
     if ((x == 0.0) and (y > 1.0)) {
         // overflow
-        return Complex(f64).new(maxnum, maxnum);
+        return Complex(f64).init(maxnum, maxnum);
     }
 
     const x2 = x * x;
     var a = 1.0 - x2 - (y * y);
     if (a == 0.0) {
         // overflow
-        return Complex(f64).new(maxnum, maxnum);
+        return Complex(f64).init(maxnum, maxnum);
     }
 
     var t = 0.5 * math.atan2(f64, 2.0 * x, a);
@@ -116,18 +116,18 @@ fn atan64(z: Complex(f64)) Complex(f64) {
     a = x2 + t * t;
     if (a == 0.0) {
         // overflow
-        return Complex(f64).new(maxnum, maxnum);
+        return Complex(f64).init(maxnum, maxnum);
     }
 
     t = y + 1.0;
     a = (x2 + (t * t)) / a;
-    return Complex(f64).new(w, 0.25 * math.ln(a));
+    return Complex(f64).init(w, 0.25 * math.ln(a));
 }
 
 const epsilon = 0.0001;
 
 test "complex.catan32" {
-    const a = Complex(f32).new(5, 3);
+    const a = Complex(f32).init(5, 3);
     const c = atan(a);
 
     try testing.expect(math.approxEqAbs(f32, c.re, 1.423679, epsilon));
@@ -135,7 +135,7 @@ test "complex.catan32" {
 }
 
 test "complex.catan64" {
-    const a = Complex(f64).new(5, 3);
+    const a = Complex(f64).init(5, 3);
     const c = atan(a);
 
     try testing.expect(math.approxEqAbs(f64, c.re, 1.423679, epsilon));
