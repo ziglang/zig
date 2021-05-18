@@ -37,10 +37,9 @@ const spec = @import("../codegen/spirv/spec.zig");
 
 // TODO: Should this struct be used at all rather than just a hashmap of aux data for every decl?
 pub const FnData = struct {
-    // We're going to fill these in flushModule, and we're going to fill them unconditionally,
-    // so just set it to undefined.
-    id: u32 = undefined
-};
+// We're going to fill these in flushModule, and we're going to fill them unconditionally,
+// so just set it to undefined.
+id: u32 = undefined };
 
 base: link.File,
 
@@ -130,8 +129,8 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     const module = self.base.options.module.?;
     const target = comp.getTarget();
 
-    var spirv_module = codegen.SPIRVModule.init(target, self.base.allocator);
-    defer spirv_module.deinit();
+    var spv = codegen.SPIRVModule.init(self.base.allocator);
+    defer spv.deinit();
 
     // Allocate an ID for every declaration before generating code,
     // so that we can access them before processing them.
@@ -143,18 +142,47 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
             const decl = entry.key;
             if (!decl.has_tv) continue;
 
-            decl.fn_link.spirv.id = spirv_module.allocResultId();
+            decl.fn_link.spirv.id = spv.allocResultId();
             log.debug("Allocating id {} to '{s}'", .{ decl.fn_link.spirv.id, std.mem.spanZ(decl.name) });
         }
     }
 
     // Now, actually generate the code for all declarations.
     {
+        // We are just going to re-use this same DeclGen for every Decl, and we are just going to
+        // change the decl. Otherwise, we would have to keep a separate `args` and `types`, and re-construct this
+        // structure every time.
+        var decl_gen = codegen.DeclGen{
+            .module = module,
+            .spv = &spv,
+            .args = std.ArrayList(u32).init(self.base.allocator),
+            .next_arg_index = undefined,
+            .types = codegen.TypeMap.init(self.base.allocator),
+            .values = codegen.ValueMap.init(self.base.allocator),
+            .decl = undefined,
+            .error_msg = undefined,
+        };
+
+        defer decl_gen.values.deinit();
+        defer decl_gen.types.deinit();
+        defer decl_gen.args.deinit();
+
         for (self.decl_table.items()) |entry| {
             const decl = entry.key;
             if (!decl.has_tv) continue;
 
-            try spirv_module.gen(decl);
+            decl_gen.args.items.len = 0;
+            decl_gen.next_arg_index = 0;
+            decl_gen.decl = decl;
+            decl_gen.error_msg = null;
+
+            decl_gen.gen() catch |err| switch (err) {
+                error.AnalysisFail => {
+                    try module.failed_decls.put(module.gpa, decl, decl_gen.error_msg.?);
+                    return;
+                },
+                else => |e| return e,
+            };
         }
     }
 
@@ -165,7 +193,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
         spec.magic_number,
         (spec.version.major << 16) | (spec.version.minor << 8),
         0, // TODO: Register Zig compiler magic number.
-        spirv_module.resultIdBound(), // ID bound.
+        spv.resultIdBound(), // ID bound.
         0, // Schema (currently reserved for future use in the SPIR-V spec).
     });
 
@@ -176,8 +204,8 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     // follows the SPIR-V logical module format!
     var all_buffers = [_]std.os.iovec_const{
         wordsToIovConst(binary.items),
-        wordsToIovConst(spirv_module.types_and_globals.items),
-        wordsToIovConst(spirv_module.fn_decls.items),
+        wordsToIovConst(spv.types_globals_constants.items),
+        wordsToIovConst(spv.fn_decls.items),
     };
 
     const file = self.base.file.?;

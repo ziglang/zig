@@ -18,7 +18,7 @@ pub fn abs(z: anytype) @TypeOf(z.re) {
 const epsilon = 0.0001;
 
 test "complex.cabs" {
-    const a = Complex(f32).new(5, 3);
+    const a = Complex(f32).init(5, 3);
     const c = abs(a);
     try testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));
 }

@@ -4430,7 +4430,7 @@ pub const SwitchProngSrc = union(enum) {
             log.warn("unable to load {s}: {s}", .{
                 decl.namespace.file_scope.sub_file_path, @errorName(err),
             });
-            return LazySrcLoc{ .node_offset = 0};
+            return LazySrcLoc{ .node_offset = 0 };
         };
         const switch_node = decl.relativeToNodeIndex(switch_node_offset);
         const main_tokens = tree.nodes.items(.main_token);
