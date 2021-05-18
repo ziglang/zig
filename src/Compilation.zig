@@ -21,6 +21,7 @@ const musl = @import("musl.zig");
 const mingw = @import("mingw.zig");
 const libunwind = @import("libunwind.zig");
 const libcxx = @import("libcxx.zig");
+const wasi_libc = @import("wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
 const Module = @import("Module.zig");
 const Cache = @import("Cache.zig");
@@ -202,6 +203,8 @@ const Job = union(enum) {
     /// needed when not linking libc and using LLVM for code generation because it generates
     /// calls to, for example, memcpy and memset.
     zig_libc: void,
+    /// WASI libc sysroot
+    wasi_libc_sysroot: void,
 
     /// Use stage1 C++ code to compile zig code into an object file.
     stage1_module: void,
@@ -276,6 +279,7 @@ pub const MiscTask = enum {
     libcxx,
     libcxxabi,
     libtsan,
+    wasi_libc_sysroot,
     compiler_rt,
     libssp,
     zig_libc,
@@ -1414,6 +1418,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 },
             });
         }
+        if (comp.wantBuildWASILibcSysrootFromSource()) {
+            try comp.work_queue.write(&[_]Job{.{ .wasi_libc_sysroot = {} }});
+        }
         if (comp.wantBuildMinGWFromSource()) {
             const static_lib_jobs = [_]Job{
                 .{ .mingw_crt_file = .mingw32_lib },
@@ -2135,6 +2142,16 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 try self.setMiscFailure(
                     .libtsan,
                     "unable to build TSAN library: {s}",
+                    .{@errorName(err)},
+                );
+            };
+        },
+        .wasi_libc_sysroot => {
+            wasi_libc.buildWASILibcSysroot(self) catch |err| {
+                // TODO Surface more error details.
+                try self.setMiscFailure(
+                    .wasi_libc_sysroot,
+                    "unable to build WASI libc sysroot: {s}",
                     .{@errorName(err)},
                 );
             };
@@ -3283,6 +3300,10 @@ fn wantBuildGLibCFromSource(comp: Compilation) bool {
 fn wantBuildMuslFromSource(comp: Compilation) bool {
     return comp.wantBuildLibCFromSource() and comp.getTarget().isMusl() and
         !comp.getTarget().isWasm();
+}
+
+fn wantBuildWASILibcSysrootFromSource(comp: Compilation) bool {
+    return comp.wantBuildLibCFromSource() and comp.getTarget().isWasm();
 }
 
 fn wantBuildMinGWFromSource(comp: Compilation) bool {

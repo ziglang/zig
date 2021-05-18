@@ -57,6 +57,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .sparc, .os = .linux, .abi = .gnu },
     .{ .arch = .sparcv9, .os = .linux, .abi = .gnu },
     .{ .arch = .wasm32, .os = .freestanding, .abi = .musl },
+    .{ .arch = .wasm32, .os = .wasi, .abi = .musl },
     .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
     .{ .arch = .x86_64, .os = .linux, .abi = .gnux32 },
     .{ .arch = .x86_64, .os = .linux, .abi = .musl },
