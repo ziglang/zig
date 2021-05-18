@@ -4,6 +4,22 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
+test "zig fmt: comment or multiline string in field decl w/ no trailing comma" {
+    try testCanonical(
+        \\const S = struct {
+        \\    a: void, // a
+        \\    b: void
+        \\};
+        \\const S = struct {
+        \\    a: []const u8 =
+        \\        \\ foo
+        \\    ,
+        \\    b: void
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: preserves clobbers in inline asm with stray comma" {
     try testTransform(
         \\fn foo() void {

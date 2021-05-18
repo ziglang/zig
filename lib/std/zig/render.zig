@@ -1850,8 +1850,11 @@ fn renderContainerDecl(
         return renderToken(ais, tree, rbrace, space); // rbrace
     }
 
-    const src_has_trailing_comma = token_tags[rbrace - 1] == .comma;
-    if (!src_has_trailing_comma) one_line: {
+    const trailing_comma = token_tags[rbrace - 1] == .comma;
+    const contains_comment = hasComment(tree, lbrace, rbrace);
+    const contains_multiline_string = hasMultilineString(tree, lbrace, rbrace);
+
+    if (!trailing_comma and !(contains_comment or contains_multiline_string)) one_line: {
         // We can only print all the members in-line if all the members are fields.
         for (container_decl.ast.members) |member| {
             if (!node_tags[member].isContainerField()) break :one_line;
