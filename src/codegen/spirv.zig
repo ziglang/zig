@@ -15,7 +15,7 @@ const ir = @import("../ir.zig");
 const Inst = ir.Inst;
 
 pub const TypeMap = std.HashMap(Type, u32, Type.hash, Type.eql, std.hash_map.default_max_load_percentage);
-pub const ValueMap = std.AutoHashMap(*Inst, u32);
+pub const InstMap = std.AutoHashMap(*Inst, u32);
 
 pub fn writeOpcode(code: *std.ArrayList(u32), opcode: Opcode, arg_count: u32) !void {
     const word_count = arg_count + 1;
@@ -27,24 +27,34 @@ pub fn writeInstruction(code: *std.ArrayList(u32), opcode: Opcode, args: []const
     try code.appendSlice(args);
 }
 
-/// This structure represents a SPIR-V binary module being compiled, and keeps track of relevant information
-/// such as code for the different logical sections, and the next result-id.
+/// This structure represents a SPIR-V (binary) module being compiled, and keeps track of all relevant information.
+/// That includes the actual instructions, the current result-id bound, and data structures for querying result-id's
+/// of data which needs to be persistent over different calls to Decl code generation.
 pub const SPIRVModule = struct {
     next_result_id: u32,
-    types_globals_constants: std.ArrayList(u32),
-    fn_decls: std.ArrayList(u32),
 
-    pub fn init(allocator: *Allocator) SPIRVModule {
+    binary: struct {
+        types_globals_constants: std.ArrayList(u32),
+        fn_decls: std.ArrayList(u32),
+    },
+
+    types: TypeMap,
+
+    pub fn init(gpa: *Allocator) SPIRVModule {
         return .{
             .next_result_id = 1, // 0 is an invalid SPIR-V result ID.
-            .types_globals_constants = std.ArrayList(u32).init(allocator),
-            .fn_decls = std.ArrayList(u32).init(allocator),
+            .binary = .{
+                .types_globals_constants = std.ArrayList(u32).init(gpa),
+                .fn_decls = std.ArrayList(u32).init(gpa),
+            },
+            .types = TypeMap.init(gpa),
         };
     }
 
     pub fn deinit(self: *SPIRVModule) void {
-        self.types_globals_constants.deinit();
-        self.fn_decls.deinit();
+        self.binary.types_globals_constants.deinit();
+        self.binary.fn_decls.deinit();
+        self.types.deinit();
     }
 
     pub fn allocResultId(self: *SPIRVModule) u32 {
@@ -59,18 +69,29 @@ pub const SPIRVModule = struct {
 
 /// This structure is used to compile a declaration, and contains all relevant meta-information to deal with that.
 pub const DeclGen = struct {
+    /// The parent module.
     module: *Module,
+
+    /// The SPIR-V module  code should be put in.
     spv: *SPIRVModule,
 
+    /// An array of function argument result-ids. Each index corresponds with the function argument of the same index.
     args: std.ArrayList(u32),
+
+    /// A counter to keep track of how many `arg` instructions we've seen yet.
     next_arg_index: u32,
 
-    types: TypeMap,
-    values: ValueMap,
+    /// A map keeping track of which instruction generated which result-id.
+    inst_results: InstMap,
 
+    /// The decl we are currently generating code for.
     decl: *Decl,
+
+    /// If `gen` returned `Error.AnalysisFail`, this contains an explanatory message. Memory is owned by
+    /// `module.gpa`.
     error_msg: ?*Module.ErrorMsg,
 
+    /// Possible errors the `gen` function may return.
     const Error = error{ AnalysisFail, OutOfMemory };
 
     /// This structure is used to return information about a type typically used for arithmetic operations.
@@ -129,7 +150,7 @@ pub const DeclGen = struct {
             return self.genConstant(inst.ty, val);
         }
 
-        return self.values.get(inst).?; // Instruction does not dominate all uses!
+        return self.inst_results.get(inst).?; // Instruction does not dominate all uses!
     }
 
     /// SPIR-V requires enabling specific integer sizes through capabilities, and so if they are not enabled, we need
@@ -145,7 +166,7 @@ pub const DeclGen = struct {
     fn backingIntBits(self: *DeclGen, bits: u16) ?u16 {
         const target = self.module.getTarget();
 
-        // TODO: Figure out what to do with u0/i0.
+        // The backend will never be asked to compiler a 0-bit integer, so we won't have to handle those in this function.
         std.debug.assert(bits != 0);
 
         // 8, 16 and 64-bit integers require the Int8, Int16 and Inr64 capabilities respectively.
@@ -194,7 +215,6 @@ pub const DeclGen = struct {
 
     fn arithmeticTypeInfo(self: *DeclGen, ty: Type) !ArithmeticTypeInfo {
         const target = self.module.getTarget();
-
         return switch (ty.zigTypeTag()) {
             .Bool => ArithmeticTypeInfo{
                 .bits = 1, // Doesn't matter for this class.
@@ -231,7 +251,7 @@ pub const DeclGen = struct {
     /// TODO: Deduplication?
     fn genConstant(self: *DeclGen, ty: Type, val: Value) Error!u32 {
         const target = self.module.getTarget();
-        const code = &self.spv.types_globals_constants;
+        const code = &self.spv.binary.types_globals_constants;
         const result_id = self.spv.allocResultId();
         const result_type_id = try self.getOrGenType(ty);
 
@@ -276,12 +296,12 @@ pub const DeclGen = struct {
 
     fn getOrGenType(self: *DeclGen, ty: Type) Error!u32 {
         // We can't use getOrPut here so we can recursively generate types.
-        if (self.types.get(ty)) |already_generated| {
+        if (self.spv.types.get(ty)) |already_generated| {
             return already_generated;
         }
 
         const target = self.module.getTarget();
-        const code = &self.spv.types_globals_constants;
+        const code = &self.spv.binary.types_globals_constants;
         const result_id = self.spv.allocResultId();
 
         switch (ty.zigTypeTag()) {
@@ -345,7 +365,7 @@ pub const DeclGen = struct {
 
                 i = 0;
                 while (i < params) : (i += 1) {
-                    const param_type_id = self.types.get(ty.fnParamType(i)).?;
+                    const param_type_id = self.spv.types.get(ty.fnParamType(i)).?;
                     try code.append(param_type_id);
                 }
             },
@@ -373,10 +393,11 @@ pub const DeclGen = struct {
             else => |tag| return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement type {}s", .{tag}),
         }
 
-        try self.types.putNoClobber(ty, result_id);
+        try self.spv.types.putNoClobber(ty, result_id);
         return result_id;
     }
 
+<<<<<<< HEAD
     pub fn gen(self: *DeclGen) !void {
         const decl = self.decl;
         const result_id = decl.fn_link.spirv.id;
@@ -386,6 +407,17 @@ pub const DeclGen = struct {
             const prototype_id = try self.getOrGenType(decl.ty);
             try writeInstruction(&self.spv.fn_decls, .OpFunction, &[_]u32{
                 self.types.get(decl.ty.fnReturnType()).?, // This type should be generated along with the prototype.
+=======
+    pub fn gen(self: *DeclGen) Error!void {
+        const result_id = self.decl.fn_link.spirv.id;
+        const tv = self.decl.typed_value.most_recent.typed_value;
+
+        if (tv.val.castTag(.function)) |func_payload| {
+            std.debug.assert(tv.ty.zigTypeTag() == .Fn);
+            const prototype_id = try self.getOrGenType(tv.ty);
+            try writeInstruction(&self.spv.binary.fn_decls, .OpFunction, &[_]u32{
+                self.spv.types.get(tv.ty.fnReturnType()).?, // This type should be generated along with the prototype.
+>>>>>>> 09e563b75 (SPIR-V: Put types in SPIRVModule, some general restructuring)
                 result_id,
                 @bitCast(u32, spec.FunctionControl{}), // TODO: We can set inline here if the type requires it.
                 prototype_id,
@@ -396,18 +428,22 @@ pub const DeclGen = struct {
 
             try self.args.ensureCapacity(params);
             while (i < params) : (i += 1) {
+<<<<<<< HEAD
                 const param_type_id = self.types.get(decl.ty.fnParamType(i)).?;
+=======
+                const param_type_id = self.spv.types.get(tv.ty.fnParamType(i)).?;
+>>>>>>> 09e563b75 (SPIR-V: Put types in SPIRVModule, some general restructuring)
                 const arg_result_id = self.spv.allocResultId();
-                try writeInstruction(&self.spv.fn_decls, .OpFunctionParameter, &[_]u32{ param_type_id, arg_result_id });
+                try writeInstruction(&self.spv.binary.fn_decls, .OpFunctionParameter, &[_]u32{ param_type_id, arg_result_id });
                 self.args.appendAssumeCapacity(arg_result_id);
             }
 
             // TODO: This could probably be done in a better way...
             const root_block_id = self.spv.allocResultId();
-            _ = try writeInstruction(&self.spv.fn_decls, .OpLabel, &[_]u32{root_block_id});
+            _ = try writeInstruction(&self.spv.binary.fn_decls, .OpLabel, &[_]u32{root_block_id});
             try self.genBody(func_payload.data.body);
 
-            try writeInstruction(&self.spv.fn_decls, .OpFunctionEnd, &[_]u32{});
+            try writeInstruction(&self.spv.binary.fn_decls, .OpFunctionEnd, &[_]u32{});
         } else {
             return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: generate decl type {}", .{decl.ty.zigTypeTag()});
         }
@@ -417,7 +453,7 @@ pub const DeclGen = struct {
         for (body.instructions) |inst| {
             const maybe_result_id = try self.genInst(inst);
             if (maybe_result_id) |result_id|
-                try self.values.putNoClobber(inst, result_id);
+                try self.inst_results.putNoClobber(inst, result_id);
         }
     }
 
@@ -510,7 +546,7 @@ pub const DeclGen = struct {
             else => unreachable,
         };
 
-        try writeInstruction(&self.spv.fn_decls, opcode, &[_]u32{ result_type_id, result_id, lhs_id, rhs_id });
+        try writeInstruction(&self.spv.binary.fn_decls, opcode, &[_]u32{ result_type_id, result_id, lhs_id, rhs_id });
 
         // TODO: Trap on overflow? Probably going to be annoying.
         // TODO: Look into SPV_KHR_no_integer_wrap_decoration which provides NoSignedWrap/NoUnsignedWrap.
@@ -535,7 +571,7 @@ pub const DeclGen = struct {
             else => unreachable,
         };
 
-        try writeInstruction(&self.spv.fn_decls, opcode, &[_]u32{ result_type_id, result_id, operand_id });
+        try writeInstruction(&self.spv.binary.fn_decls, opcode, &[_]u32{ result_type_id, result_id, operand_id });
 
         return result_id;
     }
@@ -548,19 +584,19 @@ pub const DeclGen = struct {
     fn genRet(self: *DeclGen, inst: *Inst.UnOp) !?u32 {
         const operand_id = try self.resolve(inst.operand);
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
-        try writeInstruction(&self.spv.fn_decls, .OpReturnValue, &[_]u32{operand_id});
+        try writeInstruction(&self.spv.binary.fn_decls, .OpReturnValue, &[_]u32{operand_id});
         return null;
     }
 
     fn genRetVoid(self: *DeclGen) !?u32 {
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
-        try writeInstruction(&self.spv.fn_decls, .OpReturn, &[_]u32{});
+        try writeInstruction(&self.spv.binary.fn_decls, .OpReturn, &[_]u32{});
         return null;
     }
 
     fn genUnreach(self: *DeclGen) !?u32 {
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
-        try writeInstruction(&self.spv.fn_decls, .OpUnreachable, &[_]u32{});
+        try writeInstruction(&self.spv.binary.fn_decls, .OpUnreachable, &[_]u32{});
         return null;
     }
 };

@@ -157,20 +157,19 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
             .spv = &spv,
             .args = std.ArrayList(u32).init(self.base.allocator),
             .next_arg_index = undefined,
-            .types = codegen.TypeMap.init(self.base.allocator),
-            .values = codegen.ValueMap.init(self.base.allocator),
+            .inst_results = codegen.InstMap.init(self.base.allocator),
             .decl = undefined,
             .error_msg = undefined,
         };
 
-        defer decl_gen.values.deinit();
-        defer decl_gen.types.deinit();
+        defer decl_gen.inst_results.deinit();
         defer decl_gen.args.deinit();
 
         for (self.decl_table.items()) |entry| {
             const decl = entry.key;
             if (!decl.has_tv) continue;
 
+            // Reset the decl_gen, but retain allocated resources.
             decl_gen.args.items.len = 0;
             decl_gen.next_arg_index = 0;
             decl_gen.decl = decl;
@@ -204,8 +203,8 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     // follows the SPIR-V logical module format!
     var all_buffers = [_]std.os.iovec_const{
         wordsToIovConst(binary.items),
-        wordsToIovConst(spv.types_globals_constants.items),
-        wordsToIovConst(spv.fn_decls.items),
+        wordsToIovConst(spv.binary.types_globals_constants.items),
+        wordsToIovConst(spv.binary.fn_decls.items),
     };
 
     const file = self.base.file.?;
