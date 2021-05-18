@@ -5,6 +5,7 @@ const macho = std.macho;
 const mem = std.mem;
 
 const Allocator = mem.Allocator;
+const Dylib = @import("Dylib.zig");
 const Object = @import("Object.zig");
 
 pub const Type = enum {
@@ -43,7 +44,7 @@ pub const Regular = struct {
     /// Whether the symbol is a weak ref.
     weak_ref: bool,
 
-    /// File where to locate this symbol.
+    /// Object file where to locate this symbol.
     file: *Object,
 
     /// Debug stab if defined.
@@ -78,8 +79,8 @@ pub const Regular = struct {
 pub const Proxy = struct {
     base: Symbol,
 
-    /// Dylib ordinal.
-    dylib: u16,
+    /// Dylib where to locate this symbol.
+    dylib: ?*Dylib = null,
 
     pub const base_type: Symbol.Type = .proxy;
 };
