@@ -302,13 +302,13 @@ pub fn format(
         // Parse the width parameter
         options.width = init: {
             if (comptime parser.maybe('[')) {
-                const arg_name = parser.until(']');
+                const arg_name = comptime parser.until(']');
 
                 if (!comptime parser.maybe(']')) {
                     @compileError("Expected closing ]");
                 }
 
-                const index = meta.fieldIndex(ArgsType, arg_name) orelse
+                const index = comptime meta.fieldIndex(ArgsType, arg_name) orelse
                     @compileError("No argument with name '" ++ arg_name ++ "'");
                 const arg_index = comptime arg_state.nextArg(index);
 
@@ -328,13 +328,13 @@ pub fn format(
         // Parse the precision parameter
         options.precision = init: {
             if (comptime parser.maybe('[')) {
-                const arg_name = parser.until(']');
+                const arg_name = comptime parser.until(']');
 
                 if (!comptime parser.maybe(']')) {
                     @compileError("Expected closing ]");
                 }
 
-                const arg_i = meta.fieldIndex(ArgsType, arg_name) orelse
+                const arg_i = comptime meta.fieldIndex(ArgsType, arg_name) orelse
                     @compileError("No argument with name '" ++ arg_name ++ "'");
                 const arg_to_use = comptime arg_state.nextArg(arg_i);
 
@@ -2452,30 +2452,18 @@ test "type" {
 }
 
 test "named arguments" {
-    if (true) {
-        // TODO this regressed in the branch and I don't know why
-        return error.SkipZigTest;
-    }
     try expectFmt("hello world!", "{s} world{c}", .{ "hello", '!' });
     try expectFmt("hello world!", "{[greeting]s} world{[punctuation]c}", .{ .punctuation = '!', .greeting = "hello" });
     try expectFmt("hello world!", "{[1]s} world{[0]c}", .{ '!', "hello" });
 }
 
 test "runtime width specifier" {
-    if (true) {
-        // TODO this regressed in the branch and I don't know why
-        return error.SkipZigTest;
-    }
     var width: usize = 9;
     try expectFmt("~~hello~~", "{s:~^[1]}", .{ "hello", width });
     try expectFmt("~~hello~~", "{s:~^[width]}", .{ .string = "hello", .width = width });
 }
 
 test "runtime precision specifier" {
-    if (true) {
-        // TODO this regressed in the branch and I don't know why
-        return error.SkipZigTest;
-    }
     var number: f32 = 3.1415;
     var precision: usize = 2;
     try expectFmt("3.14e+00", "{:1.[1]}", .{ number, precision });
