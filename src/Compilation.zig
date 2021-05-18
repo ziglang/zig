@@ -856,6 +856,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             options.target,
             options.is_native_abi,
             link_libc,
+            options.system_libs.len != 0,
             options.libc_installation,
         );
 
@@ -2880,6 +2881,7 @@ fn detectLibCIncludeDirs(
     target: Target,
     is_native_abi: bool,
     link_libc: bool,
+    link_system_libs: bool,
     libc_installation: ?*const LibCInstallation,
 ) !LibCDirs {
     if (!link_libc) {
@@ -2893,12 +2895,16 @@ fn detectLibCIncludeDirs(
         return detectLibCFromLibCInstallation(arena, target, lci);
     }
 
-    if (is_native_abi) {
+    // If linking system libraries and targeting the native abi, default to
+    // using the system libc installation.
+    if (link_system_libs and is_native_abi) {
         const libc = try arena.create(LibCInstallation);
         libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true });
         return detectLibCFromLibCInstallation(arena, target, libc);
     }
 
+    // If not linking system libraries, build and provide our own libc by
+    // default if possible.
     if (target_util.canBuildLibC(target)) {
         const generic_name = target_util.libCGenericName(target);
         // Some architectures are handled by the same set of headers.
@@ -2947,6 +2953,14 @@ fn detectLibCIncludeDirs(
             .libc_include_dir_list = list,
             .libc_installation = null,
         };
+    }
+
+    // If zig can't build the libc for the target and we are targeting the
+    // native abi, fall back to using the system libc installation.
+    if (is_native_abi) {
+        const libc = try arena.create(LibCInstallation);
+        libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true });
+        return detectLibCFromLibCInstallation(arena, target, libc);
     }
 
     return LibCDirs{
