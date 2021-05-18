@@ -2445,6 +2445,10 @@ fn transInitListExpr(
     var qual_type = qt.getTypePtr();
     const source_loc = @ptrCast(*const clang.Expr, expr).getBeginLoc();
 
+    if (qualTypeWasDemotedToOpaque(c, qt)) {
+        return fail(c, error.UnsupportedTranslation, source_loc, "Cannot initialize opaque type", .{});
+    }
+
     if (qual_type.isRecordType()) {
         return maybeSuppressResult(c, scope, used, try transInitListExprRecord(
             c,

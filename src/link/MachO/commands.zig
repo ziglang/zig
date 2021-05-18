@@ -24,6 +24,7 @@ pub const LoadCommand = union(enum) {
     SourceVersion: macho.source_version_command,
     Uuid: macho.uuid_command,
     LinkeditData: macho.linkedit_data_command,
+    Rpath: GenericCommandWithData(macho.rpath_command),
     Unknown: GenericCommandWithData(macho.load_command),
 
     pub fn read(allocator: *Allocator, reader: anytype) !LoadCommand {
@@ -38,7 +39,9 @@ pub const LoadCommand = union(enum) {
             macho.LC_SEGMENT_64 => LoadCommand{
                 .Segment = try SegmentCommand.read(allocator, stream.reader()),
             },
-            macho.LC_DYLD_INFO, macho.LC_DYLD_INFO_ONLY => LoadCommand{
+            macho.LC_DYLD_INFO,
+            macho.LC_DYLD_INFO_ONLY,
+            => LoadCommand{
                 .DyldInfoOnly = try stream.reader().readStruct(macho.dyld_info_command),
             },
             macho.LC_SYMTAB => LoadCommand{
@@ -47,16 +50,27 @@ pub const LoadCommand = union(enum) {
             macho.LC_DYSYMTAB => LoadCommand{
                 .Dysymtab = try stream.reader().readStruct(macho.dysymtab_command),
             },
-            macho.LC_ID_DYLINKER, macho.LC_LOAD_DYLINKER, macho.LC_DYLD_ENVIRONMENT => LoadCommand{
+            macho.LC_ID_DYLINKER,
+            macho.LC_LOAD_DYLINKER,
+            macho.LC_DYLD_ENVIRONMENT,
+            => LoadCommand{
                 .Dylinker = try GenericCommandWithData(macho.dylinker_command).read(allocator, stream.reader()),
             },
-            macho.LC_ID_DYLIB, macho.LC_LOAD_WEAK_DYLIB, macho.LC_LOAD_DYLIB, macho.LC_REEXPORT_DYLIB => LoadCommand{
+            macho.LC_ID_DYLIB,
+            macho.LC_LOAD_WEAK_DYLIB,
+            macho.LC_LOAD_DYLIB,
+            macho.LC_REEXPORT_DYLIB,
+            => LoadCommand{
                 .Dylib = try GenericCommandWithData(macho.dylib_command).read(allocator, stream.reader()),
             },
             macho.LC_MAIN => LoadCommand{
                 .Main = try stream.reader().readStruct(macho.entry_point_command),
             },
-            macho.LC_VERSION_MIN_MACOSX, macho.LC_VERSION_MIN_IPHONEOS, macho.LC_VERSION_MIN_WATCHOS, macho.LC_VERSION_MIN_TVOS => LoadCommand{
+            macho.LC_VERSION_MIN_MACOSX,
+            macho.LC_VERSION_MIN_IPHONEOS,
+            macho.LC_VERSION_MIN_WATCHOS,
+            macho.LC_VERSION_MIN_TVOS,
+            => LoadCommand{
                 .VersionMin = try stream.reader().readStruct(macho.version_min_command),
             },
             macho.LC_SOURCE_VERSION => LoadCommand{
@@ -65,8 +79,14 @@ pub const LoadCommand = union(enum) {
             macho.LC_UUID => LoadCommand{
                 .Uuid = try stream.reader().readStruct(macho.uuid_command),
             },
-            macho.LC_FUNCTION_STARTS, macho.LC_DATA_IN_CODE, macho.LC_CODE_SIGNATURE => LoadCommand{
+            macho.LC_FUNCTION_STARTS,
+            macho.LC_DATA_IN_CODE,
+            macho.LC_CODE_SIGNATURE,
+            => LoadCommand{
                 .LinkeditData = try stream.reader().readStruct(macho.linkedit_data_command),
+            },
+            macho.LC_RPATH => LoadCommand{
+                .Rpath = try GenericCommandWithData(macho.rpath_command).read(allocator, stream.reader()),
             },
             else => LoadCommand{
                 .Unknown = try GenericCommandWithData(macho.load_command).read(allocator, stream.reader()),
@@ -87,6 +107,7 @@ pub const LoadCommand = union(enum) {
             .Segment => |x| x.write(writer),
             .Dylinker => |x| x.write(writer),
             .Dylib => |x| x.write(writer),
+            .Rpath => |x| x.write(writer),
             .Unknown => |x| x.write(writer),
         };
     }
@@ -104,6 +125,7 @@ pub const LoadCommand = union(enum) {
             .Segment => |x| x.inner.cmd,
             .Dylinker => |x| x.inner.cmd,
             .Dylib => |x| x.inner.cmd,
+            .Rpath => |x| x.inner.cmd,
             .Unknown => |x| x.inner.cmd,
         };
     }
@@ -121,6 +143,7 @@ pub const LoadCommand = union(enum) {
             .Segment => |x| x.inner.cmdsize,
             .Dylinker => |x| x.inner.cmdsize,
             .Dylib => |x| x.inner.cmdsize,
+            .Rpath => |x| x.inner.cmdsize,
             .Unknown => |x| x.inner.cmdsize,
         };
     }
@@ -130,6 +153,7 @@ pub const LoadCommand = union(enum) {
             .Segment => |*x| x.deinit(allocator),
             .Dylinker => |*x| x.deinit(allocator),
             .Dylib => |*x| x.deinit(allocator),
+            .Rpath => |*x| x.deinit(allocator),
             .Unknown => |*x| x.deinit(allocator),
             else => {},
         };
@@ -153,6 +177,7 @@ pub const LoadCommand = union(enum) {
             .Segment => |x| x.eql(other.Segment),
             .Dylinker => |x| x.eql(other.Dylinker),
             .Dylib => |x| x.eql(other.Dylib),
+            .Rpath => |x| x.eql(other.Rpath),
             .Unknown => |x| x.eql(other.Unknown),
         };
     }
@@ -280,6 +305,37 @@ pub fn GenericCommandWithData(comptime Cmd: type) type {
             return mem.eql(u8, self.data, other.data);
         }
     };
+}
+
+pub fn createLoadDylibCommand(
+    allocator: *Allocator,
+    name: []const u8,
+    timestamp: u32,
+    current_version: u32,
+    compatibility_version: u32,
+) !GenericCommandWithData(macho.dylib_command) {
+    const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+        u64,
+        @sizeOf(macho.dylib_command) + name.len,
+        @sizeOf(u64),
+    ));
+
+    var dylib_cmd = emptyGenericCommandWithData(macho.dylib_command{
+        .cmd = macho.LC_LOAD_DYLIB,
+        .cmdsize = cmdsize,
+        .dylib = .{
+            .name = @sizeOf(macho.dylib_command),
+            .timestamp = timestamp,
+            .current_version = current_version,
+            .compatibility_version = compatibility_version,
+        },
+    });
+    dylib_cmd.data = try allocator.alloc(u8, cmdsize - dylib_cmd.inner.dylib.name);
+
+    mem.set(u8, dylib_cmd.data, 0);
+    mem.copy(u8, dylib_cmd.data, name);
+
+    return dylib_cmd;
 }
 
 fn testRead(allocator: *Allocator, buffer: []const u8, expected: anytype) !void {

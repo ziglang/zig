@@ -548,7 +548,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const target = self.base.options.target;
-    const stack_size = self.base.options.stack_size_override orelse 16777216;
+    const stack_size = self.base.options.stack_size_override orelse 0;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
 
     const id_symlink_basename = "lld.id";
@@ -675,41 +675,168 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 zld.deinit();
             }
             zld.arch = target.cpu.arch;
+            zld.stack_size = stack_size;
 
-            var input_files = std.ArrayList([]const u8).init(self.base.allocator);
-            defer input_files.deinit();
-            // Positional arguments to the linker such as object files.
-            try input_files.appendSlice(self.base.options.objects);
+            // Positional arguments to the linker such as object files and static archives.
+            var positionals = std.ArrayList([]const u8).init(arena);
+
+            try positionals.appendSlice(self.base.options.objects);
+
             for (comp.c_object_table.items()) |entry| {
-                try input_files.append(entry.key.status.success.object_path);
+                try positionals.append(entry.key.status.success.object_path);
             }
+
             if (module_obj_path) |p| {
-                try input_files.append(p);
+                try positionals.append(p);
             }
-            try input_files.append(comp.compiler_rt_static_lib.?.full_object_path);
+
+            try positionals.append(comp.compiler_rt_static_lib.?.full_object_path);
+
             // libc++ dep
             if (self.base.options.link_libcpp) {
-                try input_files.append(comp.libcxxabi_static_lib.?.full_object_path);
-                try input_files.append(comp.libcxx_static_lib.?.full_object_path);
+                try positionals.append(comp.libcxxabi_static_lib.?.full_object_path);
+                try positionals.append(comp.libcxx_static_lib.?.full_object_path);
+            }
+
+            // Shared libraries.
+            var shared_libs = std.ArrayList([]const u8).init(arena);
+            var search_lib_names = std.ArrayList([]const u8).init(arena);
+
+            const system_libs = self.base.options.system_libs.items();
+            for (system_libs) |entry| {
+                const link_lib = entry.key;
+                // By this time, we depend on these libs being dynamically linked libraries and not static libraries
+                // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
+                // case we want to avoid prepending "-l".
+                // TODO I think they should go as an input file instead of via shared_libs.
+                if (Compilation.classifyFileExt(link_lib) == .shared_library) {
+                    try shared_libs.append(link_lib);
+                    continue;
+                }
+
+                try search_lib_names.append(link_lib);
+            }
+
+            var search_lib_dirs = std.ArrayList([]const u8).init(arena);
+
+            for (self.base.options.lib_dirs) |path| {
+                if (fs.path.isAbsolute(path)) {
+                    var candidates = std.ArrayList([]const u8).init(arena);
+                    if (self.base.options.syslibroot) |syslibroot| {
+                        const full_path = try fs.path.join(arena, &[_][]const u8{ syslibroot, path });
+                        try candidates.append(full_path);
+                    }
+                    try candidates.append(path);
+
+                    var found = false;
+                    for (candidates.items) |candidate| {
+                        // Verify that search path actually exists
+                        var tmp = fs.cwd().openDir(candidate, .{}) catch |err| switch (err) {
+                            error.FileNotFound => continue,
+                            else => |e| return e,
+                        };
+                        defer tmp.close();
+
+                        try search_lib_dirs.append(candidate);
+                        found = true;
+                        break;
+                    }
+
+                    if (!found) {
+                        log.warn("directory not found for '-L{s}'", .{path});
+                    }
+                } else {
+                    // Verify that search path actually exists
+                    var tmp = fs.cwd().openDir(path, .{}) catch |err| switch (err) {
+                        error.FileNotFound => {
+                            log.warn("directory not found for '-L{s}'", .{path});
+                            continue;
+                        },
+                        else => |e| return e,
+                    };
+                    defer tmp.close();
+
+                    try search_lib_dirs.append(path);
+                }
+            }
+
+            for (search_lib_names.items) |l_name| {
+                // TODO text-based API, or .tbd files.
+                const l_name_ext = try std.fmt.allocPrint(arena, "lib{s}.dylib", .{l_name});
+
+                var found = false;
+                for (search_lib_dirs.items) |lib_dir| {
+                    const full_path = try fs.path.join(arena, &[_][]const u8{ lib_dir, l_name_ext });
+
+                    // Check if the dylib file exists.
+                    const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
+                        error.FileNotFound => continue,
+                        else => |e| return e,
+                    };
+                    defer tmp.close();
+
+                    try shared_libs.append(full_path);
+                    found = true;
+                    break;
+                }
+
+                if (!found) {
+                    log.warn("library not found for '-l{s}'", .{l_name});
+                    log.warn("Library search paths:", .{});
+                    for (search_lib_dirs.items) |lib_dir| {
+                        log.warn("  {s}", .{lib_dir});
+                    }
+                }
+            }
+
+            // rpaths
+            var rpath_table = std.StringArrayHashMap(void).init(arena);
+            for (self.base.options.rpath_list) |rpath| {
+                if (rpath_table.contains(rpath)) continue;
+                try rpath_table.putNoClobber(rpath, {});
+            }
+
+            var rpaths = std.ArrayList([]const u8).init(arena);
+            try rpaths.ensureCapacity(rpath_table.count());
+            for (rpath_table.items()) |entry| {
+                rpaths.appendAssumeCapacity(entry.key);
             }
 
             if (self.base.options.verbose_link) {
-                var argv = std.ArrayList([]const u8).init(self.base.allocator);
-                defer argv.deinit();
+                var argv = std.ArrayList([]const u8).init(arena);
 
                 try argv.append("zig");
                 try argv.append("ld");
 
-                try argv.appendSlice(input_files.items);
+                if (self.base.options.syslibroot) |syslibroot| {
+                    try argv.append("-syslibroot");
+                    try argv.append(syslibroot);
+                }
+
+                for (rpaths.items) |rpath| {
+                    try argv.append("-rpath");
+                    try argv.append(rpath);
+                }
+
+                try argv.appendSlice(positionals.items);
 
                 try argv.append("-o");
                 try argv.append(full_out_path);
 
+                for (search_lib_names.items) |l_name| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{l_name}));
+                }
+
+                for (self.base.options.lib_dirs) |lib_dir| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir}));
+                }
+
                 Compilation.dump_argv(argv.items);
             }
 
-            try zld.link(input_files.items, full_out_path, .{
-                .stack_size = self.base.options.stack_size_override,
+            try zld.link(positionals.items, full_out_path, .{
+                .shared_libs = shared_libs.items,
+                .rpaths = rpaths.items,
             });
 
             break :outer;
@@ -2044,28 +2171,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     }
     if (self.libsystem_cmd_index == null) {
         self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
-            u64,
-            @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH),
-            @sizeOf(u64),
-        ));
-        // TODO Find a way to work out runtime version from the OS version triple stored in std.Target.
-        // In the meantime, we're gonna hardcode to the minimum compatibility version of 0.0.0.
-        const min_version = 0x0;
-        var dylib_cmd = emptyGenericCommandWithData(macho.dylib_command{
-            .cmd = macho.LC_LOAD_DYLIB,
-            .cmdsize = cmdsize,
-            .dylib = .{
-                .name = @sizeOf(macho.dylib_command),
-                .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
-                .current_version = min_version,
-                .compatibility_version = min_version,
-            },
-        });
-        dylib_cmd.data = try self.base.allocator.alloc(u8, cmdsize - dylib_cmd.inner.dylib.name);
-        mem.set(u8, dylib_cmd.data, 0);
-        mem.copy(u8, dylib_cmd.data, mem.spanZ(LIB_SYSTEM_PATH));
+
+        var dylib_cmd = try createLoadDylibCommand(self.base.allocator, mem.spanZ(LIB_SYSTEM_PATH), 2, 0, 0);
+        errdefer dylib_cmd.deinit(self.base.allocator);
+
         try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
+
         self.header_dirty = true;
         self.load_commands_dirty = true;
     }

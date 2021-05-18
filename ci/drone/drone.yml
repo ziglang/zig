@@ -7,28 +7,28 @@ platform:
 
 steps:
 - name: build
-  image: ziglang/static-base:llvm12-aarch64-1
+  image: ziglang/static-base:llvm12-aarch64-2
   commands:
   - ./ci/drone/linux_script_build
 
 - name: test-1
   depends_on:
   - build
-  image: ziglang/static-base:llvm12-aarch64-1
+  image: ziglang/static-base:llvm12-aarch64-2
   commands:
   - ./ci/drone/linux_script_test 1
 
 - name: test-2
   depends_on:
   - build
-  image: ziglang/static-base:llvm12-aarch64-1
+  image: ziglang/static-base:llvm12-aarch64-2
   commands:
   - ./ci/drone/linux_script_test 2
 
 - name: test-3
   depends_on:
   - build
-  image: ziglang/static-base:llvm12-aarch64-1
+  image: ziglang/static-base:llvm12-aarch64-2
   commands:
   - ./ci/drone/linux_script_test 3
 
@@ -38,7 +38,7 @@ steps:
   - test-1
   - test-2
   - test-3
-  image: ziglang/static-base:llvm12-aarch64-1
+  image: ziglang/static-base:llvm12-aarch64-2
   environment:
     SRHT_OAUTH_TOKEN:
       from_secret: SRHT_OAUTH_TOKEN
