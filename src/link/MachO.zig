@@ -681,12 +681,15 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             var positionals = std.ArrayList([]const u8).init(arena);
 
             try positionals.appendSlice(self.base.options.objects);
+
             for (comp.c_object_table.items()) |entry| {
                 try positionals.append(entry.key.status.success.object_path);
             }
+
             if (module_obj_path) |p| {
                 try positionals.append(p);
             }
+
             try positionals.append(comp.compiler_rt_static_lib.?.full_object_path);
 
             // libc++ dep
@@ -705,7 +708,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 // By this time, we depend on these libs being dynamically linked libraries and not static libraries
                 // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
                 // case we want to avoid prepending "-l".
-                // TODO I think then they should go as an input file instead of via shared_libs.
+                // TODO I think they should go as an input file instead of via shared_libs.
                 if (Compilation.classifyFileExt(link_lib) == .shared_library) {
                     try shared_libs.append(link_lib);
                     continue;
@@ -764,6 +767,8 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 var found = false;
                 for (search_lib_dirs.items) |lib_dir| {
                     const full_path = try fs.path.join(arena, &[_][]const u8{ lib_dir, l_name_ext });
+
+                    // Check if the dylib file exists.
                     const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
                         error.FileNotFound => continue,
                         else => |e| return e,
@@ -776,7 +781,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 }
 
                 if (!found) {
-                    log.warn("library '-l{s}' not found", .{l_name});
+                    log.warn("library not found for '-l{s}'", .{l_name});
                     log.warn("Library search paths:", .{});
                     for (search_lib_dirs.items) |lib_dir| {
                         log.warn("  {s}", .{lib_dir});
