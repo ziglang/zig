@@ -31,15 +31,18 @@ const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
 const codegen = @import("../codegen/spirv.zig");
+const Word = codegen.Word;
+const ResultId = codegen.ResultId;
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const spec = @import("../codegen/spirv/spec.zig");
 
 // TODO: Should this struct be used at all rather than just a hashmap of aux data for every decl?
 pub const FnData = struct {
-// We're going to fill these in flushModule, and we're going to fill them unconditionally,
-// so just set it to undefined.
-id: u32 = undefined };
+    // We're going to fill these in flushModule, and we're going to fill them unconditionally,
+    // so just set it to undefined.
+    id: ResultId = undefined
+};
 
 base: link.File,
 
@@ -155,7 +158,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
         var decl_gen = codegen.DeclGen{
             .module = module,
             .spv = &spv,
-            .args = std.ArrayList(u32).init(self.base.allocator),
+            .args = std.ArrayList(codegen.Word).init(self.base.allocator),
             .next_arg_index = undefined,
             .inst_results = codegen.InstMap.init(self.base.allocator),
             .decl = undefined,
@@ -185,10 +188,10 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
         }
     }
 
-    var binary = std.ArrayList(u32).init(self.base.allocator);
+    var binary = std.ArrayList(Word).init(self.base.allocator);
     defer binary.deinit();
 
-    try binary.appendSlice(&[_]u32{
+    try binary.appendSlice(&[_]Word{
         spec.magic_number,
         (spec.version.major << 16) | (spec.version.minor << 8),
         0, // TODO: Register Zig compiler magic number.
@@ -220,7 +223,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     try file.pwritevAll(&all_buffers, 0);
 }
 
-fn writeCapabilities(binary: *std.ArrayList(u32), target: std.Target) !void {
+fn writeCapabilities(binary: *std.ArrayList(Word), target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
     const cap: spec.Capability = switch (target.os.tag) {
         .opencl => .Kernel,
@@ -229,10 +232,10 @@ fn writeCapabilities(binary: *std.ArrayList(u32), target: std.Target) !void {
         else => unreachable, // TODO
     };
 
-    try codegen.writeInstruction(binary, .OpCapability, &[_]u32{@enumToInt(cap)});
+    try codegen.writeInstruction(binary, .OpCapability, &[_]Word{@enumToInt(cap)});
 }
 
-fn writeMemoryModel(binary: *std.ArrayList(u32), target: std.Target) !void {
+fn writeMemoryModel(binary: *std.ArrayList(Word), target: std.Target) !void {
     const addressing_model = switch (target.os.tag) {
         .opencl => switch (target.cpu.arch) {
             .spirv32 => spec.AddressingModel.Physical32,
@@ -250,12 +253,12 @@ fn writeMemoryModel(binary: *std.ArrayList(u32), target: std.Target) !void {
         else => unreachable,
     };
 
-    try codegen.writeInstruction(binary, .OpMemoryModel, &[_]u32{
+    try codegen.writeInstruction(binary, .OpMemoryModel, &[_]Word{
         @enumToInt(addressing_model), @enumToInt(memory_model),
     });
 }
 
-fn wordsToIovConst(words: []const u32) std.os.iovec_const {
+fn wordsToIovConst(words: []const Word) std.os.iovec_const {
     const bytes = std.mem.sliceAsBytes(words);
     return .{
         .iov_base = bytes.ptr,
