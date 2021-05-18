@@ -145,15 +145,15 @@ pub const Client = struct {
     /// Writes multiple I/O vectors with a prepended message header to the socket
     /// with a set of flags specified. It returns the number of bytes that are
     /// written to the socket.
-    pub fn writeVectorized(self: Client, msg: Socket.Message, flags: u32) !usize {
-        return self.socket.writeVectorized(msg, flags);
+    pub fn writeMessage(self: Client, msg: Socket.Message, flags: u32) !usize {
+        return self.socket.writeMessage(msg, flags);
     }
 
     /// Read multiple I/O vectors with a prepended message header from the socket
     /// with a set of flags specified. It returns the number of bytes that were
     /// read into the buffer provided.
-    pub fn readVectorized(self: Client, msg: *Socket.Message, flags: u32) !usize {
-        return self.socket.readVectorized(msg, flags);
+    pub fn readMessage(self: Client, msg: *Socket.Message, flags: u32) !usize {
+        return self.socket.readMessage(msg, flags);
     }
 
     /// Query and return the latest cached error on the client's underlying socket.
@@ -400,7 +400,7 @@ test "tcp/client: read and write multiple vectors" {
     defer conn.deinit();
 
     const message = "hello world";
-    _ = try conn.client.writeVectorized(Socket.Message.fromBuffers(&[_]Buffer{
+    _ = try conn.client.writeMessage(Socket.Message.fromBuffers(&[_]Buffer{
         Buffer.from(message[0 .. message.len / 2]),
         Buffer.from(message[message.len / 2 ..]),
     }), 0);
@@ -410,7 +410,7 @@ test "tcp/client: read and write multiple vectors" {
         Buffer.from(buf[0 .. message.len / 2]),
         Buffer.from(buf[message.len / 2 ..]),
     });
-    _ = try client.readVectorized(&msg, 0);
+    _ = try client.readMessage(&msg, 0);
 
     try testing.expectEqualStrings(message, buf[0..message.len]);
 }

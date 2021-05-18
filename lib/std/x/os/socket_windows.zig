@@ -254,7 +254,7 @@ pub fn Mixin(comptime Socket: type) type {
         /// Writes multiple I/O vectors with a prepended message header to the socket
         /// with a set of flags specified. It returns the number of bytes that are
         /// written to the socket.
-        pub fn writeVectorized(self: Socket, msg: Socket.Message, flags: u32) !usize {
+        pub fn writeMessage(self: Socket, msg: Socket.Message, flags: u32) !usize {
             const call = try windows.loadWinsockExtensionFunction(ws2_32.LPFN_WSASENDMSG, self.fd, ws2_32.WSAID_WSASENDMSG);
 
             var num_bytes: u32 = undefined;
@@ -291,7 +291,7 @@ pub fn Mixin(comptime Socket: type) type {
         /// Read multiple I/O vectors with a prepended message header from the socket
         /// with a set of flags specified. It returns the number of bytes that were
         /// read into the buffer provided.
-        pub fn readVectorized(self: Socket, msg: *Socket.Message, flags: u32) !usize {
+        pub fn readMessage(self: Socket, msg: *Socket.Message, flags: u32) !usize {
             const call = try windows.loadWinsockExtensionFunction(ws2_32.LPFN_WSARECVMSG, self.fd, ws2_32.WSAID_WSARECVMSG);
 
             var num_bytes: u32 = undefined;

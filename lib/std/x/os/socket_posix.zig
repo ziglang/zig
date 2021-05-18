@@ -78,14 +78,14 @@ pub fn Mixin(comptime Socket: type) type {
         /// Writes multiple I/O vectors with a prepended message header to the socket
         /// with a set of flags specified. It returns the number of bytes that are
         /// written to the socket.
-        pub fn writeVectorized(self: Socket, msg: Socket.Message, flags: u32) !usize {
+        pub fn writeMessage(self: Socket, msg: Socket.Message, flags: u32) !usize {
             return os.sendmsg(self.fd, msg, flags);
         }
 
         /// Read multiple I/O vectors with a prepended message header from the socket
         /// with a set of flags specified. It returns the number of bytes that were
         /// read into the buffer provided.
-        pub fn readVectorized(self: Socket, msg: *Socket.Message, flags: u32) !usize {
+        pub fn readMessage(self: Socket, msg: *Socket.Message, flags: u32) !usize {
             while (true) {
                 const rc = os.system.recvmsg(self.fd, msg, @intCast(c_int, flags));
                 return switch (os.errno(rc)) {
