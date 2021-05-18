@@ -2904,14 +2904,13 @@ pub fn semaFile(mod: *Module, file: *Scope.File) InnerError!void {
             .gpa = gpa,
             .arena = &sema_arena.allocator,
             .code = file.zir,
-            // TODO use a map because this array is too big
-            .inst_map = try sema_arena.allocator.alloc(*ir.Inst, file.zir.instructions.len),
             .owner_decl = new_decl,
             .namespace = &struct_obj.namespace,
             .func = null,
             .owner_func = null,
             .param_inst_list = &.{},
         };
+        defer sema.deinit();
         var block_scope: Scope.Block = .{
             .parent = null,
             .sema = &sema,
@@ -2960,13 +2959,13 @@ fn semaDecl(mod: *Module, decl: *Decl) !bool {
         .gpa = gpa,
         .arena = &analysis_arena.allocator,
         .code = zir,
-        .inst_map = try analysis_arena.allocator.alloc(*ir.Inst, zir.instructions.len),
         .owner_decl = decl,
         .namespace = decl.namespace,
         .func = null,
         .owner_func = null,
         .param_inst_list = &.{},
     };
+    defer sema.deinit();
 
     if (decl.isRoot()) {
         log.debug("semaDecl root {*} ({s})", .{ decl, decl.name });
@@ -3565,14 +3564,13 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
         .gpa = mod.gpa,
         .arena = &arena.allocator,
         .code = zir,
-        .inst_map = try mod.gpa.alloc(*ir.Inst, zir.instructions.len),
         .owner_decl = decl,
         .namespace = decl.namespace,
         .func = func,
         .owner_func = func,
         .param_inst_list = param_inst_list,
     };
-    defer mod.gpa.free(sema.inst_map);
+    defer sema.deinit();
 
     var inner_block: Scope.Block = .{
         .parent = null,
@@ -4555,14 +4553,13 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) InnerError!void {
         .gpa = gpa,
         .arena = &decl_arena.allocator,
         .code = zir,
-        .inst_map = try gpa.alloc(*ir.Inst, zir.instructions.len),
         .owner_decl = struct_obj.owner_decl,
         .namespace = &struct_obj.namespace,
         .owner_func = null,
         .func = null,
         .param_inst_list = &.{},
     };
-    defer gpa.free(sema.inst_map);
+    defer sema.deinit();
 
     var block: Scope.Block = .{
         .parent = null,
@@ -4712,14 +4709,13 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
         .gpa = gpa,
         .arena = &decl_arena.allocator,
         .code = zir,
-        .inst_map = try gpa.alloc(*ir.Inst, zir.instructions.len),
         .owner_decl = union_obj.owner_decl,
         .namespace = &union_obj.namespace,
         .owner_func = null,
         .func = null,
         .param_inst_list = &.{},
     };
-    defer gpa.free(sema.inst_map);
+    defer sema.deinit();
 
     var block: Scope.Block = .{
         .parent = null,

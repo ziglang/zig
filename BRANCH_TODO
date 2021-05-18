@@ -1,8 +1,3 @@
- * use a hash map for instructions because the array is too big
-   - no, actually modify the Zir.Inst.Ref strategy so that each decl gets
-     their indexes starting at 0 so that we can use an array to store Sema
-     results rather than a map.
-
  * in SwitchProng resolve, make sure AST tree gets loaded.
    It will be unloaded if using cached ZIR.
  

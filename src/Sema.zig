@@ -12,7 +12,7 @@ gpa: *Allocator,
 arena: *Allocator,
 code: Zir,
 /// Maps ZIR to AIR.
-inst_map: []*Inst,
+inst_map: InstMap = .{},
 /// When analyzing an inline function call, owner_decl is the Decl of the caller
 /// and `src_decl` of `Scope.Block` is the `Decl` of the callee.
 /// This `Decl` owns the arena memory of this `Sema`.
@@ -64,6 +64,13 @@ const Decl = Module.Decl;
 const LazySrcLoc = Module.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
 const target_util = @import("target.zig");
+
+pub const InstMap = std.AutoHashMapUnmanaged(Zir.Inst.Index, *ir.Inst);
+
+pub fn deinit(sema: *Sema) void {
+    sema.inst_map.deinit(sema.gpa);
+    sema.* = undefined;
+}
 
 pub fn analyzeFnBody(
     sema: *Sema,
@@ -129,7 +136,7 @@ pub fn analyzeBody(
 ) InnerError!Zir.Inst.Index {
     // No tracy calls here, to avoid interfering with the tail call mechanism.
 
-    const map = block.sema.inst_map;
+    const map = &block.sema.inst_map;
     const tags = block.sema.code.instructions.items(.tag);
     const datas = block.sema.code.instructions.items(.data);
 
@@ -142,7 +149,7 @@ pub fn analyzeBody(
     var i: usize = 0;
     while (true) : (i += 1) {
         const inst = body[i];
-        map[inst] = switch (tags[inst]) {
+        const air_inst = switch (tags[inst]) {
             // zig fmt: off
             .arg                          => try sema.zirArg(block, inst),
             .alloc                        => try sema.zirAlloc(block, inst),
@@ -500,8 +507,9 @@ pub fn analyzeBody(
                 }
             },
         };
-        if (map[inst].ty.isNoReturn())
+        if (air_inst.ty.isNoReturn())
             return always_noreturn;
+        try map.putNoClobber(sema.gpa, inst, air_inst);
     }
 }
 
@@ -556,7 +564,7 @@ pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) error{OutOfMemory}!*ir.In
     i -= Zir.Inst.Ref.typed_value_map.len;
 
     // Finally, the last section of indexes refers to the map of ZIR=>AIR.
-    return sema.inst_map[i];
+    return sema.inst_map.get(@intCast(u32, i)).?;
 }
 
 fn resolveConstString(
@@ -2244,9 +2252,9 @@ fn analyzeCall(
         defer sema.code = parent_zir;
 
         const parent_inst_map = sema.inst_map;
-        sema.inst_map = try sema.gpa.alloc(*ir.Inst, sema.code.instructions.len);
+        sema.inst_map = .{};
         defer {
-            sema.gpa.free(sema.inst_map);
+            sema.inst_map.deinit(sema.gpa);
             sema.inst_map = parent_inst_map;
         }
 
