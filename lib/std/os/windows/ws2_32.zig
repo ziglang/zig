@@ -1059,13 +1059,6 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 };
 
-pub const sockaddr_storage = extern struct {
-    family: ADDRESS_FAMILY,
-    __pad1: [6]u8,
-    __align: i64,
-    __pad2: [112]u8,
-};
-
 /// IPv4 socket address
 pub const sockaddr_in = extern struct {
     family: ADDRESS_FAMILY = AF_INET,
