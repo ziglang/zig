@@ -233,7 +233,11 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
-    {
+    // This will make a pretty deep call stack, so this test can only be enabled
+    // on hosts where Zig's linking strategy can honor the 16 MiB (default) we
+    // link the self-hosted compiler with.
+    const host_supports_custom_stack_size = @import("builtin").target.os.tag == .linux;
+    if (host_supports_custom_stack_size) {
         var case = ctx.exeFromCompiledC("@setEvalBranchQuota", .{});
 
         case.addCompareOutput(
