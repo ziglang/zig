@@ -1620,13 +1620,21 @@ pub fn update(self: *Compilation) !void {
     if (!use_stage1) {
         if (self.bin_file.options.module) |module| {
             // Process the deletion set. We use a while loop here because the
-            // deletion set may grow as we call `deleteDecl` within this loop,
+            // deletion set may grow as we call `clearDecl` within this loop,
             // and more unreferenced Decls are revealed.
             while (module.deletion_set.entries.items.len != 0) {
                 const decl = module.deletion_set.entries.items[0].key;
                 assert(decl.deletion_flag);
                 assert(decl.dependants.count() == 0);
-                try module.deleteDecl(decl, null);
+                const is_anon = if (decl.zir_decl_index == 0) blk: {
+                    break :blk decl.namespace.anon_decls.swapRemove(decl) != null;
+                } else false;
+
+                try module.clearDecl(decl, null);
+
+                if (is_anon) {
+                    decl.destroy(module);
+                }
             }
 
             try module.processExports();

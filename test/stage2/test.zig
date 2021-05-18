@@ -66,12 +66,31 @@ pub fn addCases(ctx: *TestContext) !void {
             "Hello, World!\n",
         );
 
+        // Convert to pub fn main
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    print();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{rdx}" (14)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+        ,
+            "Hello, World!\n",
+        );
+
         // Now change the message only
         case.addCompareOutput(
-            \\pub export fn _start() noreturn {
+            \\pub fn main() void {
             \\    print();
-            \\
-            \\    exit();
             \\}
             \\
             \\fn print() void {
@@ -84,27 +103,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        : "rcx", "r11", "memory"
             \\    );
             \\    return;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "What is up? This is a longer message that will force the data to be relocated in virtual address space.\n",
         );
         // Now we print it twice.
         case.addCompareOutput(
-            \\pub export fn _start() noreturn {
+            \\pub fn main() void {
             \\    print();
             \\    print();
-            \\
-            \\    exit();
             \\}
             \\
             \\fn print() void {
@@ -117,16 +124,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        : "rcx", "r11", "memory"
             \\    );
             \\    return;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("syscall"
-            \\        :
-            \\        : [number] "{rax}" (231),
-            \\          [arg1] "{rdi}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             \\What is up? This is a longer message that will force the data to be relocated in virtual address space.

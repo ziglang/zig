@@ -291,7 +291,7 @@ pub const Decl = struct {
         }
         if (decl.has_tv) {
             if (decl.getInnerNamespace()) |namespace| {
-                namespace.clearDecls(module);
+                namespace.destroyDecls(module);
             }
             decl.clearValues(gpa);
         }
@@ -880,14 +880,14 @@ pub const Scope = struct {
         anon_decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
 
         pub fn deinit(ns: *Namespace, mod: *Module) void {
-            ns.clearDecls(mod);
+            ns.destroyDecls(mod);
             ns.* = undefined;
         }
 
-        pub fn clearDecls(ns: *Namespace, mod: *Module) void {
+        pub fn destroyDecls(ns: *Namespace, mod: *Module) void {
             const gpa = mod.gpa;
 
-            log.debug("clearDecls {*}", .{ns});
+            log.debug("destroyDecls {*}", .{ns});
 
             var decls = ns.decls;
             ns.decls = .{};
@@ -915,30 +915,28 @@ pub const Scope = struct {
 
             log.debug("deleteAllDecls {*}", .{ns});
 
-            while (ns.decls.count() != 0) {
-                const last_entry = ns.decls.entries.items[ns.decls.entries.items.len - 1];
-                const child_decl = last_entry.value;
-                try mod.deleteDecl(child_decl, outdated_decls);
-            }
-            ns.decls.deinit(gpa);
+            var decls = ns.decls;
             ns.decls = .{};
 
-            while (ns.anon_decls.count() != 0) {
-                const last_entry = ns.anon_decls.entries.items[ns.anon_decls.entries.items.len - 1];
-                const child_decl = last_entry.key;
-                try mod.deleteDecl(child_decl, outdated_decls);
-            }
-            ns.anon_decls.deinit(gpa);
+            var anon_decls = ns.anon_decls;
             ns.anon_decls = .{};
-        }
 
-        pub fn removeDecl(ns: *Namespace, child: *Decl) void {
-            if (child.zir_decl_index == 0) {
-                _ = ns.anon_decls.swapRemove(child);
-            } else {
-                // Preserve declaration order.
-                _ = ns.decls.orderedRemove(mem.spanZ(child.name));
+            // TODO rework this code to not panic on OOM.
+            // (might want to coordinate with the clearDecl function)
+
+            for (decls.items()) |entry| {
+                const child_decl = entry.value;
+                mod.clearDecl(child_decl, outdated_decls) catch @panic("out of memory");
+                child_decl.destroy(mod);
             }
+            decls.deinit(gpa);
+
+            for (anon_decls.items()) |entry| {
+                const child_decl = entry.key;
+                mod.clearDecl(child_decl, outdated_decls) catch @panic("out of memory");
+                child_decl.destroy(mod);
+            }
+            anon_decls.deinit(gpa);
         }
 
         // This renders e.g. "std.fs.Dir.OpenOptions"
@@ -2122,6 +2120,14 @@ pub const InnerError = error{ OutOfMemory, AnalysisFail };
 pub fn deinit(mod: *Module) void {
     const gpa = mod.gpa;
 
+    for (mod.import_table.items()) |entry| {
+        gpa.free(entry.key);
+        entry.value.destroy(mod);
+    }
+    mod.import_table.deinit(gpa);
+
+    mod.deletion_set.deinit(gpa);
+
     // The callsite of `Compilation.create` owns the `root_pkg`, however
     // Module owns the builtin and std packages that it adds.
     if (mod.root_pkg.table.remove("builtin")) |entry| {
@@ -2141,8 +2147,6 @@ pub fn deinit(mod: *Module) void {
     mod.zig_cache_artifact_directory.handle.close();
     mod.local_zir_cache.handle.close();
     mod.global_zir_cache.handle.close();
-
-    mod.deletion_set.deinit(gpa);
 
     for (mod.failed_decls.items()) |entry| {
         entry.value.destroy(gpa);
@@ -2188,12 +2192,6 @@ pub fn deinit(mod: *Module) void {
     mod.global_error_set.deinit(gpa);
 
     mod.error_name_list.deinit(gpa);
-
-    for (mod.import_table.items()) |entry| {
-        gpa.free(entry.key);
-        entry.value.destroy(mod);
-    }
-    mod.import_table.deinit(gpa);
 }
 
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
@@ -3420,7 +3418,8 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
     }
 }
 
-pub fn deleteDecl(
+/// Make it as if the semantic analysis for this Decl never happened.
+pub fn clearDecl(
     mod: *Module,
     decl: *Decl,
     outdated_decls: ?*std.AutoArrayHashMap(*Decl, void),
@@ -3428,7 +3427,7 @@ pub fn deleteDecl(
     const tracy = trace(@src());
     defer tracy.end();
 
-    log.debug("deleting {*} ({s})", .{ decl, decl.name });
+    log.debug("clearing {*} ({s})", .{ decl, decl.name });
 
     const gpa = mod.gpa;
     try mod.deletion_set.ensureUnusedCapacity(gpa, decl.dependencies.count());
@@ -3438,10 +3437,7 @@ pub fn deleteDecl(
         try map.ensureUnusedCapacity(decl.dependants.count());
     }
 
-    // Remove from the namespace it resides in.
-    decl.namespace.removeDecl(decl);
-
-    // Remove itself from its dependencies, because we are about to destroy the decl pointer.
+    // Remove itself from its dependencies.
     for (decl.dependencies.items()) |entry| {
         const dep = entry.key;
         dep.removeDependant(decl);
@@ -3452,6 +3448,8 @@ pub fn deleteDecl(
             mod.deletion_set.putAssumeCapacity(dep, {});
         }
     }
+    decl.dependencies.clearRetainingCapacity();
+
     // Anything that depends on this deleted decl needs to be re-analyzed.
     for (decl.dependants.items()) |entry| {
         const dep = entry.key;
@@ -3467,6 +3465,8 @@ pub fn deleteDecl(
             assert(mod.deletion_set.contains(dep));
         }
     }
+    decl.dependants.clearRetainingCapacity();
+
     if (mod.failed_decls.swapRemove(decl)) |entry| {
         entry.value.destroy(gpa);
     }
@@ -3482,6 +3482,25 @@ pub fn deleteDecl(
     if (decl.has_tv) {
         if (decl.ty.hasCodeGenBits()) {
             mod.comp.bin_file.freeDecl(decl);
+
+            // TODO instead of a union, put this memory trailing Decl objects,
+            // and allow it to be variably sized.
+            decl.link = switch (mod.comp.bin_file.tag) {
+                .coff => .{ .coff = link.File.Coff.TextBlock.empty },
+                .elf => .{ .elf = link.File.Elf.TextBlock.empty },
+                .macho => .{ .macho = link.File.MachO.TextBlock.empty },
+                .c => .{ .c = link.File.C.DeclBlock.empty },
+                .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
+                .spirv => .{ .spirv = {} },
+            };
+            decl.fn_link = switch (mod.comp.bin_file.tag) {
+                .coff => .{ .coff = {} },
+                .elf => .{ .elf = link.File.Elf.SrcFn.empty },
+                .macho => .{ .macho = link.File.MachO.SrcFn.empty },
+                .c => .{ .c = link.File.C.FnBlock.empty },
+                .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
+                .spirv => .{ .spirv = .{} },
+            };
         }
         if (decl.getInnerNamespace()) |namespace| {
             try namespace.deleteAllDecls(mod, outdated_decls);
@@ -3489,7 +3508,12 @@ pub fn deleteDecl(
         decl.clearValues(gpa);
     }
 
-    decl.destroy(mod);
+    if (decl.deletion_flag) {
+        decl.deletion_flag = false;
+        mod.deletion_set.swapRemoveAssertDiscard(decl);
+    }
+
+    decl.analysis = .unreferenced;
 }
 
 /// Delete all the Export objects that are caused by this Decl. Re-analysis of
@@ -4836,7 +4860,13 @@ pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
         // deletion set at this time.
         for (file.deleted_decls.items) |decl| {
             log.debug("deleted from source: {*} ({s})", .{ decl, decl.name });
-            try mod.deleteDecl(decl, &outdated_decls);
+
+            // Remove from the namespace it resides in, preserving declaration order.
+            assert(decl.zir_decl_index != 0);
+            _ = decl.namespace.decls.orderedRemove(mem.spanZ(decl.name));
+
+            try mod.clearDecl(decl, &outdated_decls);
+            decl.destroy(mod);
         }
         file.deleted_decls.clearRetainingCapacity();
     }
