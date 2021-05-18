@@ -1,0 +1,191 @@
+
+Quick Installation Guide for musl libc
+======================================
+
+There are many different ways to install musl depending on your usage
+case. This document covers only the build and installation of musl by
+itself, which is useful for upgrading an existing musl-based system or
+compiler toolchain, or for using the provided musl-gcc wrapper with an
+existing non-musl-based compiler.
+
+Building complete native or cross-compiler toolchains is outside the
+scope of this INSTALL file. More information can be found on the musl
+website and community wiki.
+
+
+Build Prerequisites
+-------------------
+
+The only build-time prerequisites for musl are GNU Make and a
+freestanding C99 compiler toolchain targeting the desired instruction
+set architecture and ABI, with support for a minimal subset of "GNU C"
+extensions consisting mainly of gcc-style inline assembly, weak
+aliases, hidden visibility, and stand-alone assembly source files.
+
+GCC, LLVM/clang, Firm/cparser, and PCC have all successfully built
+musl, but GCC is the most widely used/tested. Recent compiler (and
+binutils) versions should be used if possible since some older
+versions have bugs which affect musl.
+
+The system used to build musl does not need to be Linux-based, nor do
+the Linux kernel headers need to be available.
+
+
+
+Supported Targets
+-----------------
+
+musl can be built for the following CPU instruction set architecture
+and ABI combinations:
+
+* i386
+    * Minimum CPU model is actually 80486 unless kernel emulation of
+      the `cmpxchg` instruction is added
+
+* x86_64
+    * ILP32 ABI (x32) is available as a separate arch but is still
+      experimental
+
+* ARM
+    * EABI, standard or hard-float VFP variant
+    * Little-endian default; big-endian variants also supported
+    * Compiler toolchains only support armv4t and later
+
+* AArch64
+    * Little-endian default; big-endian variants also supported
+
+* MIPS
+    * ABI is o32, fp32/fpxx (except on r6 which is fp64)
+    * Big-endian default; little-endian variants also supported
+    * Default ABI variant uses FPU registers; alternate soft-float ABI
+      that does not use FPU registers or instructions is available
+    * MIPS2 or later, or kernel emulation of ll/sc (standard in Linux)
+      is required
+    * MIPS32r6, an incompatible ISA, is supported as a variant "mipsr6"
+
+* MIPS64
+    * ABI is n64 (LP64) or n32 (ILP32)
+    * Big-endian default; little-endian variants also supported
+    * Default ABI variant uses FPU registers; alternate soft-float ABI
+      that does not use FPU registers or instructions is available
+
+* PowerPC
+    * Compiler toolchain must provide 64-bit long double, not IBM
+      double-double or IEEE quad
+    * For dynamic linking, compiler toolchain must be configured for
+      "secure PLT" variant
+
+* PowerPC64
+    * Both little and big endian variants are supported
+    * Compiler toolchain must provide 64-bit long double, not IBM
+      double-double or IEEE quad
+    * Compiler toolchain must use the new (ELFv2) ABI regardless of
+      whether it is for little or big endian
+
+* S390X (64-bit S390)
+
+* SuperH (SH)
+    * Standard ELF ABI or FDPIC ABI (shared-text without MMU)
+    * Little-endian by default; big-endian variant also supported
+    * Full FPU ABI or soft-float ABI is supported, but the
+      single-precision-only FPU ABI is not
+
+* Microblaze
+    * Big-endian default; little-endian variants also supported
+    * Soft-float
+    * Requires support for lwx/swx instructions
+
+* OpenRISC 1000 (or1k)
+
+* RISC-V 64
+    * Little endian
+    * Hard, soft, and hard-single/soft-double floating point ABIs
+    * Standard ELF; no shared-text NOMMU support
+
+
+
+Build and Installation Procedure
+--------------------------------
+
+To build and install musl:
+
+1. Run the provided configure script from the top-level source
+   directory, passing on its command line any desired options.
+
+2. Run "make" to compile.
+
+3. Run "make install" with appropriate privileges to write to the
+   target locations.
+
+The configure script attempts to determine automatically the correct
+target architecture based on the compiler being used. For some
+compilers, this may not be possible. If detection fails or selects the
+wrong architecture, you can provide an explicit selection on the
+configure command line.
+
+By default, configure installs to a prefix of "/usr/local/musl". This
+differs from the behavior of most configure scripts, and is chosen
+specifically to avoid clashing with libraries already present on the
+system. DO NOT set the prefix to "/usr", "/usr/local", or "/" unless
+you're upgrading libc on an existing musl-based system. Doing so will
+break your existing system when you run "make install" and it may be
+difficult to recover.
+
+
+
+Notes on Dynamic Linking
+------------------------
+
+If dynamic linking is enabled, one file needs to be installed outside
+of the installation prefix: /lib/ld-musl-$ARCH.so.1. This is the
+dynamic linker. Its pathname is hard-coded into all dynamic-linked
+programs, so for the sake of being able to share binaries between
+systems, a consistent location should be used everywhere. Note that
+the same applies to glibc and its dynamic linker, which is named
+/lib/ld-linux.so.2 on i386 systems.
+
+If for some reason it is impossible to install the dynamic linker in
+its standard location (for example, if you are installing without root
+privileges), the --syslibdir option to configure can be used to
+provide a different location
+
+At runtime, the dynamic linker needs to know the paths to search for
+shared libraries. You should create a text file named
+/etc/ld-musl-$ARCH.path (where $ARCH matches the architecture name
+used in the dynamic linker) containing a list of directories where you
+want the dynamic linker to search for shared libraries, separated by
+colons or newlines. If the dynamic linker has been installed in a
+non-default location, the path file also needs to reside at that
+location (../etc relative to the chosen syslibdir).
+
+If you do not intend to use dynamic linking, you may disable it by
+passing --disable-shared to configure; this also cuts the build time
+in half.
+
+
+
+Checking for Successful Installation
+------------------------------------
+
+After installing, you should be able to use musl via the musl-gcc
+wrapper. For example:
+
+cat > hello.c <<EOF
+#include <stdio.h>
+int main()
+{
+	printf("hello, world!\n");
+	return 0;
+}
+EOF
+/usr/local/musl/bin/musl-gcc hello.c
+./a.out
+
+To configure autoconf-based program to compile and link against musl,
+set the CC variable to musl-gcc when running configure, as in:
+
+CC=musl-gcc ./configure ...
+
+You will probably also want to use --prefix when building libraries to
+ensure that they are installed under the musl prefix and not in the
+main host system library directories.

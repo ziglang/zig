@@ -1,0 +1,816 @@
+#!/bin/sh
+
+usage () {
+cat <<EOF
+Usage: $0 [OPTION]... [VAR=VALUE]... [TARGET]
+
+To assign environment variables (e.g., CC, CFLAGS...), specify them as
+VAR=VALUE.  See below for descriptions of some of the useful variables.
+
+Defaults for the options are specified in brackets.
+
+Configuration:
+  --srcdir=DIR            source directory [detected]
+
+Installation directories:
+  --prefix=PREFIX         main installation prefix [/usr/local/musl]
+  --exec-prefix=EPREFIX   installation prefix for executable files [PREFIX]
+
+Fine tuning of the installation directories:
+  --bindir=DIR            user executables [EPREFIX/bin]
+  --libdir=DIR            library files for the linker [PREFIX/lib]
+  --includedir=DIR        include files for the C compiler [PREFIX/include]
+  --syslibdir=DIR         location for the dynamic linker [/lib]
+
+System types:
+  --target=TARGET         configure to run on target TARGET [detected]
+  --host=HOST             same as --target
+  --build=BUILD           build system type; used only to infer cross-compiling
+
+Optional features:
+  --enable-optimize=...   optimize listed components for speed over size [auto]
+  --enable-debug          build with debugging information [disabled]
+  --disable-warnings      build with recommended warnings flags [enabled]
+  --enable-wrapper=...    build given musl toolchain wrapper [auto]
+  --disable-shared        inhibit building shared library [enabled]
+  --disable-static        inhibit building static library [enabled]
+
+Optional packages:
+  --with-malloc=...       choose malloc implementation [mallocng]
+
+Some influential environment variables:
+  CC                      C compiler command [detected]
+  CFLAGS                  C compiler flags [-Os -pipe ...]
+  CROSS_COMPILE           prefix for cross compiler and tools [none]
+  LIBCC                   compiler runtime library [detected]
+
+Use these variables to override the choices made by configure.
+
+EOF
+exit 0
+}
+
+# Helper functions
+
+quote () {
+tr '\n' ' ' <<EOF | grep '^[-[:alnum:]_=,./:]* $' >/dev/null 2>&1 && { echo "$1" ; return 0 ; }
+$1
+EOF
+printf %s\\n "$1" | sed -e "s/'/'\\\\''/g" -e "1s/^/'/" -e "\$s/\$/'/" -e "s#^'\([-[:alnum:]_,./:]*\)=\(.*\)\$#\1='\2#"
+}
+echo () { printf "%s\n" "$*" ; }
+fail () { echo "$*" ; exit 1 ; }
+fnmatch () { eval "case \"\$2\" in $1) return 0 ;; *) return 1 ;; esac" ; }
+cmdexists () { type "$1" >/dev/null 2>&1 ; }
+trycc () { test -z "$CC" && cmdexists "$1" && CC=$1 ; }
+
+stripdir () {
+while eval "fnmatch '*/' \"\${$1}\"" ; do eval "$1=\${$1%/}" ; done
+}
+
+trycppif () {
+printf "checking preprocessor condition %s... " "$1"
+echo "typedef int x;" > "$tmpc"
+echo "#if $1" >> "$tmpc"
+echo "#error yes" >> "$tmpc"
+echo "#endif" >> "$tmpc"
+if $CC $2 -c -o /dev/null "$tmpc" >/dev/null 2>&1 ; then
+printf "false\n"
+return 1
+else
+printf "true\n"
+return 0
+fi
+}
+
+tryflag () {
+printf "checking whether compiler accepts %s... " "$2"
+echo "typedef int x;" > "$tmpc"
+if $CC $CFLAGS_TRY $2 -c -o /dev/null "$tmpc" >/dev/null 2>&1 ; then
+printf "yes\n"
+eval "$1=\"\${$1} \$2\""
+eval "$1=\${$1# }"
+return 0
+else
+printf "no\n"
+return 1
+fi
+}
+
+tryldflag () {
+printf "checking whether linker accepts %s... " "$2"
+echo "typedef int x;" > "$tmpc"
+if $CC $LDFLAGS_TRY -nostdlib -shared "$2" -o /dev/null "$tmpc" >/dev/null 2>&1 ; then
+printf "yes\n"
+eval "$1=\"\${$1} \$2\""
+eval "$1=\${$1# }"
+return 0
+else
+printf "no\n"
+return 1
+fi
+}
+
+
+
+# Beginning of actual script
+
+CFLAGS_C99FSE=
+CFLAGS_AUTO=
+CFLAGS_MEMOPS=
+CFLAGS_NOSSP=
+CFLAGS_TRY=
+LDFLAGS_AUTO=
+LDFLAGS_TRY=
+OPTIMIZE_GLOBS=
+srcdir=
+prefix=/usr/local/musl
+exec_prefix='$(prefix)'
+bindir='$(exec_prefix)/bin'
+libdir='$(prefix)/lib'
+includedir='$(prefix)/include'
+syslibdir='/lib'
+tools=
+tool_libs=
+build=
+target=
+optimize=auto
+debug=no
+warnings=yes
+shared=auto
+static=yes
+wrapper=auto
+gcc_wrapper=no
+clang_wrapper=no
+malloc_dir=mallocng
+
+for arg ; do
+case "$arg" in
+--help|-h) usage ;;
+--srcdir=*) srcdir=${arg#*=} ;;
+--prefix=*) prefix=${arg#*=} ;;
+--exec-prefix=*) exec_prefix=${arg#*=} ;;
+--bindir=*) bindir=${arg#*=} ;;
+--libdir=*) libdir=${arg#*=} ;;
+--includedir=*) includedir=${arg#*=} ;;
+--syslibdir=*) syslibdir=${arg#*=} ;;
+--enable-shared|--enable-shared=yes) shared=yes ;;
+--disable-shared|--enable-shared=no) shared=no ;;
+--enable-static|--enable-static=yes) static=yes ;;
+--disable-static|--enable-static=no) static=no ;;
+--enable-optimize) optimize=yes ;;
+--enable-optimize=*) optimize=${arg#*=} ;;
+--disable-optimize) optimize=no ;;
+--enable-debug|--enable-debug=yes) debug=yes ;;
+--disable-debug|--enable-debug=no) debug=no ;;
+--enable-warnings|--enable-warnings=yes) warnings=yes ;;
+--disable-warnings|--enable-warnings=no) warnings=no ;;
+--enable-wrapper|--enable-wrapper=yes) wrapper=detect ;;
+--enable-wrapper=all) wrapper=yes ; gcc_wrapper=yes ; clang_wrapper=yes ;;
+--enable-wrapper=gcc) wrapper=yes ; gcc_wrapper=yes ;;
+--enable-wrapper=clang) wrapper=yes ; clang_wrapper=yes ;;
+--disable-wrapper|--enable-wrapper=no) wrapper=no ;;
+--enable-gcc-wrapper|--enable-gcc-wrapper=yes) wrapper=yes ; gcc_wrapper=yes ;;
+--disable-gcc-wrapper|--enable-gcc-wrapper=no) wrapper=no ;;
+--with-malloc=*) malloc_dir=${arg#*=} ;;
+--enable-*|--disable-*|--with-*|--without-*|--*dir=*) ;;
+--host=*|--target=*) target=${arg#*=} ;;
+--build=*) build=${arg#*=} ;;
+-* ) echo "$0: unknown option $arg" ;;
+AR=*) AR=${arg#*=} ;;
+RANLIB=*) RANLIB=${arg#*=} ;;
+CC=*) CC=${arg#*=} ;;
+CFLAGS=*) CFLAGS=${arg#*=} ;;
+CPPFLAGS=*) CPPFLAGS=${arg#*=} ;;
+LDFLAGS=*) LDFLAGS=${arg#*=} ;;
+CROSS_COMPILE=*) CROSS_COMPILE=${arg#*=} ;;
+LIBCC=*) LIBCC=${arg#*=} ;;
+*=*) ;;
+*) build=$arg ; target=$arg ;;
+esac
+done
+
+for i in srcdir prefix exec_prefix bindir libdir includedir syslibdir ; do
+stripdir $i
+done
+
+#
+# Get the source dir for out-of-tree builds
+#
+if test -z "$srcdir" ; then
+srcdir="${0%/configure}"
+stripdir srcdir
+fi
+abs_builddir="$(pwd)" || fail "$0: cannot determine working directory"
+abs_srcdir="$(cd $srcdir && pwd)" || fail "$0: invalid source directory $srcdir"
+test "$abs_srcdir" = "$abs_builddir" && srcdir=.
+test "$srcdir" != "." && test -f Makefile && test ! -h Makefile && fail "$0: Makefile already exists in the working directory"
+
+#
+# Get a temp filename we can use
+#
+i=0
+set -C
+while : ; do i=$(($i+1))
+tmpc="./conf$$-$PPID-$i.c"
+2>|/dev/null > "$tmpc" && break
+test "$i" -gt 50 && fail "$0: cannot create temporary file $tmpc"
+done
+set +C
+trap 'rm "$tmpc"' EXIT INT QUIT TERM HUP
+
+#
+# Check that the requested malloc implementation exists
+#
+test -d "$srcdir/src/malloc/$malloc_dir" \
+|| fail "$0: error: chosen malloc implementation '$malloc_dir' does not exist"
+
+#
+# Check whether we are cross-compiling, and set a default
+# CROSS_COMPILE prefix if none was provided.
+#
+test "$target" && \
+test "$target" != "$build" && \
+test -z "$CROSS_COMPILE" && \
+CROSS_COMPILE="$target-"
+
+#
+# Find a C compiler to use
+#
+printf "checking for C compiler... "
+trycc ${CROSS_COMPILE}gcc
+trycc ${CROSS_COMPILE}c99
+trycc ${CROSS_COMPILE}cc
+printf "%s\n" "$CC"
+test -n "$CC" || { echo "$0: cannot find a C compiler" ; exit 1 ; }
+
+printf "checking whether C compiler works... "
+echo "typedef int x;" > "$tmpc"
+if output=$($CC $CPPFLAGS $CFLAGS -c -o /dev/null "$tmpc" 2>&1) ; then
+printf "yes\n"
+else
+printf "no; compiler output follows:\n%s\n" "$output"
+exit 1
+fi
+
+#
+# Figure out options to force errors on unknown flags.
+#
+tryflag   CFLAGS_TRY  -Werror=unknown-warning-option
+tryflag   CFLAGS_TRY  -Werror=unused-command-line-argument
+tryflag   CFLAGS_TRY  -Werror=ignored-optimization-argument
+tryldflag LDFLAGS_TRY -Werror=unknown-warning-option
+tryldflag LDFLAGS_TRY -Werror=unused-command-line-argument
+
+#
+# Need to know if the compiler is gcc or clang to decide which toolchain
+# wrappers to build.
+#
+printf "checking for C compiler family... "
+cc_ver="$(LC_ALL=C $CC -v 2>&1)"
+cc_family=unknown
+if fnmatch '*gcc\ version*' "$cc_ver" ; then
+cc_family=gcc
+elif fnmatch '*clang\ version*' "$cc_ver" ; then
+cc_family=clang
+fi
+echo "$cc_family"
+
+#
+# Figure out toolchain wrapper to build
+#
+if test "$wrapper" = auto || test "$wrapper" = detect ; then
+echo "#include <stdlib.h>" > "$tmpc"
+echo "#if ! __GLIBC__" >> "$tmpc"
+echo "#error no" >> "$tmpc"
+echo "#endif" >> "$tmpc"
+printf "checking for toolchain wrapper to build... "
+if test "$wrapper" = auto && ! $CC -c -o /dev/null "$tmpc" >/dev/null 2>&1 ; then
+echo "none"
+elif test "$cc_family" = gcc ; then
+gcc_wrapper=yes
+echo "gcc"
+elif test "$cc_family" = clang ; then
+clang_wrapper=yes
+echo "clang"
+else
+echo "none"
+if test "$wrapper" = detect ; then
+fail "$0: could not find an appropriate toolchain wrapper"
+fi
+fi
+fi
+
+if test "$gcc_wrapper" = yes ; then
+tools="$tools obj/musl-gcc"
+tool_libs="$tool_libs lib/musl-gcc.specs"
+fi
+if test "$clang_wrapper" = yes ; then
+tools="$tools obj/musl-clang obj/ld.musl-clang"
+fi
+
+#
+# Find the target architecture
+#
+printf "checking target system type... "
+test -n "$target" || target=$($CC -dumpmachine 2>/dev/null) || target=unknown
+printf "%s\n" "$target"
+
+#
+# Convert to just ARCH
+#
+case "$target" in
+# Catch these early to simplify matching for 32-bit archs
+arm*) ARCH=arm ;;
+aarch64*) ARCH=aarch64 ;;
+i?86-nt32*) ARCH=nt32 ;;
+i?86*) ARCH=i386 ;;
+x86_64-x32*|x32*|x86_64*x32) ARCH=x32 ;;
+x86_64-nt64*) ARCH=nt64 ;;
+x86_64*) ARCH=x86_64 ;;
+m68k*) ARCH=m68k ;;
+mips64*|mipsisa64*) ARCH=mips64 ;;
+mips*) ARCH=mips ;;
+microblaze*) ARCH=microblaze ;;
+or1k*) ARCH=or1k ;;
+powerpc64*|ppc64*) ARCH=powerpc64 ;;
+powerpc*|ppc*) ARCH=powerpc ;;
+riscv64*) ARCH=riscv64 ;;
+sh[1-9bel-]*|sh|superh*) ARCH=sh ;;
+s390x*) ARCH=s390x ;;
+wasm32) ARCH=wasm32 ;;
+wasm64) ARCH=wasm64 ;;
+unknown) fail "$0: unable to detect target arch; try $0 --target=..." ;;
+*) fail "$0: unknown or unsupported target \"$target\"" ;;
+esac
+
+#
+# Try to get a conforming C99 freestanding environment
+#
+tryflag CFLAGS_C99FSE -std=c99
+tryflag CFLAGS_C99FSE -nostdinc
+tryflag CFLAGS_C99FSE -ffreestanding \
+|| tryflag CFLAGS_C99FSE -fno-builtin
+tryflag CFLAGS_C99FSE -fexcess-precision=standard \
+|| { test "$ARCH" = i386 && tryflag CFLAGS_C99FSE -ffloat-store ; }
+tryflag CFLAGS_C99FSE -frounding-math
+
+#
+# We may use the may_alias attribute if __GNUC__ is defined, so
+# if the compiler defines __GNUC__ but does not provide it,
+# it must be defined away as part of the CFLAGS.
+#
+printf "checking whether compiler needs attribute((may_alias)) suppression... "
+cat > "$tmpc" <<EOF
+typedef int
+#ifdef __GNUC__
+__attribute__((__may_alias__))
+#endif
+x;
+EOF
+if $CC $CFLAGS_C99FSE $CPPFLAGS $CFLAGS \
+  -c -o /dev/null "$tmpc" >/dev/null 2>&1 ; then
+printf "no\n"
+else
+printf "yes\n"
+CFLAGS_C99FSE="$CFLAGS_C99FSE -D__may_alias__="
+fi
+
+#
+# The GNU toolchain defaults to assuming unmarked files need an
+# executable stack, potentially exposing vulnerabilities in programs
+# linked with such object files. Fix this.
+#
+tryflag CFLAGS_C99FSE -Wa,--noexecstack
+
+#
+# Check for options to disable stack protector, which needs to be
+# disabled for a few early-bootstrap translation units. If not found,
+# this is not an error; we assume the toolchain does not do ssp.
+#
+tryflag CFLAGS_NOSSP -fno-stack-protector
+
+#
+# Check for options that may be needed to prevent the compiler from
+# generating self-referential versions of memcpy,, memmove, memcmp,
+# and memset. Really, we should add a check to determine if this
+# option is sufficient, and if not, add a macro to cripple these
+# functions with volatile...
+#
+tryflag CFLAGS_MEMOPS -fno-tree-loop-distribute-patterns
+
+#
+# Enable debugging if requessted.
+#
+test "$debug" = yes && CFLAGS_AUTO=-g
+
+#
+# Preprocess asm files to add extra debugging information if debug is
+# enabled, our assembler supports the needed directives, and the
+# preprocessing script has been written for our architecture.
+#
+printf "checking whether we should preprocess assembly to add debugging information... "
+if fnmatch '-g*|*\ -g*' "$CFLAGS_AUTO $CFLAGS" &&
+   test -f "tools/add-cfi.$ARCH.awk" &&
+   printf ".file 1 \"srcfile.s\"\n.line 1\n.cfi_startproc\n.cfi_endproc" | $CC -g -x assembler -c -o /dev/null 2>/dev/null -
+then
+  ADD_CFI=yes
+else
+  ADD_CFI=no
+fi
+printf "%s\n" "$ADD_CFI"
+
+#
+# Possibly add a -O option to CFLAGS and select modules to optimize with
+# -O3 based on the status of --enable-optimize and provided CFLAGS.
+#
+printf "checking for optimization settings... "
+case "x$optimize" in
+xauto)
+if fnmatch '-O*|*\ -O*' "$CFLAGS_AUTO $CFLAGS" ; then
+printf "using provided CFLAGS\n" ;optimize=no
+else
+printf "using defaults\n" ; optimize=yes
+fi
+;;
+xsize|xnone) printf "minimize size\n" ; optimize=size ;;
+xno|x) printf "disabled\n" ; optimize=no ;;
+*) printf "custom\n" ;;
+esac
+
+test "$optimize" = no || tryflag CFLAGS_AUTO -Os || tryflag CFLAGS_AUTO -O2
+test "$optimize" = yes && optimize="internal,malloc,string"
+
+if fnmatch 'no|size' "$optimize" ; then :
+else
+printf "components to be optimized for speed:"
+while test "$optimize" ; do
+case "$optimize" in
+*,*) this=${optimize%%,*} optimize=${optimize#*,} ;;
+*) this=$optimize optimize=
+esac
+printf " $this"
+case "$this" in
+*/*.c) ;;
+*/*) this=$this*.c ;;
+*) this=$this/*.c ;;
+esac
+OPTIMIZE_GLOBS="$OPTIMIZE_GLOBS $this"
+done
+OPTIMIZE_GLOBS=${OPTIMIZE_GLOBS# }
+printf "\n"
+fi
+
+# Always try -pipe
+tryflag CFLAGS_AUTO -pipe
+
+#
+# If debugging is disabled, omit frame pointer. Modern GCC does this
+# anyway on most archs even when debugging is enabled since the frame
+# pointer is no longer needed for debugging.
+#
+if fnmatch '-g*|*\ -g*' "$CFLAGS_AUTO $CFLAGS" ; then :
+else
+tryflag CFLAGS_AUTO -fomit-frame-pointer
+fi
+
+#
+# Modern GCC wants to put DWARF tables (used for debugging and
+# unwinding) in the loaded part of the program where they are
+# unstrippable. These options force them back to debug sections (and
+# cause them not to get generated at all if debugging is off).
+#
+tryflag CFLAGS_AUTO -fno-unwind-tables
+tryflag CFLAGS_AUTO -fno-asynchronous-unwind-tables
+
+#
+# Attempt to put each function and each data object in its own
+# section. This both allows additional size optimizations at link
+# time and works around a dangerous class of compiler/assembler bugs
+# whereby relative address expressions are constant-folded by the
+# assembler even when one or more of the symbols involved is
+# replaceable. See gas pr 18561 and gcc pr 66609, 68178, etc.
+#
+tryflag CFLAGS_AUTO -ffunction-sections
+tryflag CFLAGS_AUTO -fdata-sections
+
+#
+# On x86, make sure we don't have incompatible instruction set
+# extensions enabled by default. This is bad for making static binaries.
+# We cheat and use i486 rather than i386 because i386 really does not
+# work anyway (issues with atomic ops).
+# Some build environments pass -march and -mtune options via CC, so
+# check both CC and CFLAGS.
+#
+if test "$ARCH" = "i386" ; then
+fnmatch '-march=*|*\ -march=*' "$CC $CFLAGS" || tryldflag CFLAGS_AUTO -march=i486
+fnmatch '-mtune=*|*\ -mtune=*' "$CC $CFLAGS" || tryldflag CFLAGS_AUTO -mtune=generic
+fi
+
+#
+# GCC defines -w as overriding any -W options, regardless of order, but
+# clang has a bunch of annoying warnings enabled by default and needs -w
+# to start from a clean slate. So use -w if building with clang. Also
+# turn off a common on-by-default cast warning regardless of compiler.
+#
+test "$cc_family" = clang && tryflag CFLAGS_AUTO -w
+
+tryflag CFLAGS_AUTO -Wno-pointer-to-int-cast
+
+#
+# Even with -std=c99, gcc accepts some constructs which are constraint
+# violations. We want to treat these as errors regardless of whether
+# other purely stylistic warnings are enabled -- especially implicit
+# function declarations, which are a dangerous programming error.
+#
+tryflag CFLAGS_AUTO -Werror=implicit-function-declaration
+tryflag CFLAGS_AUTO -Werror=implicit-int
+tryflag CFLAGS_AUTO -Werror=pointer-sign
+tryflag CFLAGS_AUTO -Werror=pointer-arith
+tryflag CFLAGS_AUTO -Werror=int-conversion
+tryflag CFLAGS_AUTO -Werror=incompatible-pointer-types
+tryflag CFLAGS_AUTO -Werror=discarded-qualifiers
+tryflag CFLAGS_AUTO -Werror=discarded-array-qualifiers
+
+#
+# GCC ignores unused arguements by default, but Clang needs this extra
+# parameter to stop printing warnings about LDFLAGS passed during
+# compiling stage and CFLAGS passed during linking stage.
+#
+test "$cc_family" = clang && tryflag CFLAGS_AUTO -Qunused-arguments
+
+if test "x$warnings" = xyes ; then
+tryflag CFLAGS_AUTO -Waddress
+tryflag CFLAGS_AUTO -Warray-bounds
+tryflag CFLAGS_AUTO -Wchar-subscripts
+tryflag CFLAGS_AUTO -Wduplicate-decl-specifier
+tryflag CFLAGS_AUTO -Winit-self
+tryflag CFLAGS_AUTO -Wreturn-type
+tryflag CFLAGS_AUTO -Wsequence-point
+tryflag CFLAGS_AUTO -Wstrict-aliasing
+tryflag CFLAGS_AUTO -Wunused-function
+tryflag CFLAGS_AUTO -Wunused-label
+tryflag CFLAGS_AUTO -Wunused-variable
+fi
+
+# Determine if the compiler produces position-independent code (PIC)
+# by default. If so, we don't need to compile separate object files
+# for libc.a and libc.so.
+if trycppif __PIC__ "$CFLAGS_C99FSE $CPPFLAGS $CFLAGS" ; then
+pic_default=yes
+else
+pic_default=no
+fi
+
+# Reduce space lost to padding for alignment purposes by sorting data
+# objects according to their alignment reqirements. This approximates
+# optimal packing.
+tryldflag LDFLAGS_AUTO -Wl,--sort-section,alignment
+tryldflag LDFLAGS_AUTO -Wl,--sort-common
+
+# When linking shared library, drop dummy weak definitions that were
+# replaced by strong definitions from other translation units.
+tryldflag LDFLAGS_AUTO -Wl,--gc-sections
+
+# Some patched GCC builds have these defaults messed up...
+tryldflag LDFLAGS_AUTO -Wl,--hash-style=both
+
+# Prevent linking if there are undefined symbols; if any exist,
+# libc.so will crash at runtime during relocation processing.
+# The common way this can happen is failure to link the compiler
+# runtime library; implementation error is also a possibility.
+tryldflag LDFLAGS_AUTO -Wl,--no-undefined
+
+# Avoid exporting symbols from compiler runtime libraries. They
+# should be hidden anyway, but some toolchains including old gcc
+# versions built without shared library support and pcc are broken.
+tryldflag LDFLAGS_AUTO -Wl,--exclude-libs=ALL
+
+# Public data symbols must be interposable to allow for copy
+# relocations, but otherwise we want to bind symbols at libc link
+# time to eliminate startup relocations and PLT overhead. Use
+# --dynamic-list rather than -Bsymbolic-functions for greater
+# control over what symbols are left unbound.
+tryldflag LDFLAGS_AUTO -Wl,--dynamic-list="$srcdir/dynamic.list"
+
+# Find compiler runtime library
+test -z "$LIBCC" && tryldflag LIBCC -lgcc && tryldflag LIBCC -lgcc_eh
+test -z "$LIBCC" && tryldflag LIBCC -lcompiler_rt
+test -z "$LIBCC" && try_libcc=`$CC -print-libgcc-file-name 2>/dev/null` \
+                 && tryldflag LIBCC "$try_libcc"
+test -z "$LIBCC" && try_libcc=`$CC -print-file-name=libpcc.a 2>/dev/null` \
+                 && tryldflag LIBCC "$try_libcc"
+printf "using compiler runtime libraries: %s\n" "$LIBCC"
+
+# Figure out arch variants for archs with variants
+SUBARCH=
+t="$CFLAGS_C99FSE $CPPFLAGS $CFLAGS"
+
+if test "$ARCH" = "i386" ; then
+printf "checking whether compiler can use ebx in PIC asm constraints... "
+cat > "$tmpc" <<EOF
+int foo(int x) { __asm__ ( "" : "+b"(x) ); return x; }
+EOF
+if $CC $CFLAGS_C99FSE $CPPFLAGS $CFLAGS -fPIC \
+  -c -o /dev/null "$tmpc" >/dev/null 2>&1 ; then
+printf "yes\n"
+else
+printf "no\n"
+CFLAGS_AUTO="$CFLAGS_AUTO -DBROKEN_EBX_ASM"
+fi
+fi
+
+if test "$ARCH" = "x86_64" ; then
+trycppif __ILP32__ "$t" && ARCH=x32
+fi
+
+if test "$ARCH" = "arm" ; then
+if trycppif __thumb2__ "$t" ; then
+tryflag CFLAGS_AUTO -mimplicit-it=always
+tryflag CFLAGS_AUTO -Wa,-mimplicit-it=always
+tryflag CFLAGS_AUTO -Wa,-mthumb
+fi
+trycppif __ARMEB__ "$t" && SUBARCH=${SUBARCH}eb
+trycppif __ARM_PCS_VFP "$t" && SUBARCH=${SUBARCH}hf
+# Versions of clang up until at least 3.8 have the wrong constraint codes
+# for floating point operands to inline asm. Detect this so the affected
+# source files can just disable the asm.
+if test "$cc_family" = clang ; then
+printf "checking whether clang's vfp asm constraints work... "
+echo 'float f(float x) { __asm__("":"+t"(x)); return x; }' > "$tmpc"
+if $CC $CFLAGS_C99FSE $CPPFLAGS $CFLAGS -c -o /dev/null "$tmpc" >/dev/null 2>&1 ; then
+printf "yes\n"
+else
+printf "no\n"
+CFLAGS_AUTO="$CFLAGS_AUTO -DBROKEN_VFP_ASM"
+CFLAGS_AUTO="${CFLAGS_AUTO# }"
+fi
+fi
+fi
+
+if test "$ARCH" = "aarch64" ; then
+trycppif __AARCH64EB__ "$t" && SUBARCH=${SUBARCH}_be
+fi
+
+if test "$ARCH" = "m68k" ; then
+if trycppif "__HAVE_68881__" ; then : ;
+elif trycppif "__mcffpu__" ; then SUBARCH="-fp64"
+else SUBARCH="-sf"
+fi
+fi
+
+if test "$ARCH" = "mips" ; then
+trycppif "__mips_isa_rev >= 6" "$t" && SUBARCH=${SUBARCH}r6
+trycppif "_MIPSEL || __MIPSEL || __MIPSEL__" "$t" && SUBARCH=${SUBARCH}el
+trycppif __mips_soft_float "$t" && SUBARCH=${SUBARCH}-sf
+fi
+
+if test "$ARCH" = "mips64" ; then
+trycppif "_MIPS_SIM != _ABI64" "$t" && ARCH=mipsn32
+trycppif "__mips_isa_rev >= 6" "$t" && SUBARCH=${SUBARCH}r6
+trycppif "_MIPSEL || __MIPSEL || __MIPSEL__" "$t" && SUBARCH=${SUBARCH}el
+trycppif __mips_soft_float "$t" && SUBARCH=${SUBARCH}-sf
+fi
+
+if test "$ARCH" = "powerpc" ; then
+trycppif "__NO_FPRS__ && !_SOFT_FLOAT" "$t" && fail \
+  "$0: error: compiler's floating point configuration is unsupported"
+trycppif _SOFT_FLOAT "$t" && SUBARCH=${SUBARCH}-sf
+printf "checking whether compiler can use 'd' constraint in asm... "
+echo 'double f(double x) { __asm__ ("fabs %0, %1" : "=d"(x) : "d"(x)); return x; }' > "$tmpc"
+if $CC $CFLAGS_C99FSE $CPPFLAGS $CFLAGS -c -o /dev/null "$tmpc" >/dev/null 2>&1 ; then
+printf "yes\n"
+else
+printf "no\n"
+CFLAGS_AUTO="$CFLAGS_AUTO -DBROKEN_PPC_D_ASM"
+CFLAGS_AUTO="${CFLAGS_AUTO# }"
+fi
+fi
+
+test "$ARCH" = "microblaze" && trycppif __MICROBLAZEEL__ "$t" \
+&& SUBARCH=${SUBARCH}el
+
+if test "$ARCH" = "powerpc64" ; then
+trycppif "_CALL_ELF == 2" "$t" || fail "$0: error: unsupported powerpc64 ABI"
+trycppif __LITTLE_ENDIAN__ "$t" && SUBARCH=${SUBARCH}le
+trycppif _SOFT_FLOAT "$t" && fail "$0: error: soft-float not supported on powerpc64"
+fi
+
+if test "$ARCH" = "riscv64" ; then
+trycppif __riscv_float_abi_soft "$t" && SUBARCH=${SUBARCH}-sf
+trycppif __riscv_float_abi_single "$t" && SUBARCH=${SUBARCH}-sp
+fi
+
+if test "$ARCH" = "sh" ; then
+tryflag CFLAGS_AUTO -Wa,--isa=any
+trycppif __BIG_ENDIAN__ "$t" && SUBARCH=${SUBARCH}eb
+if trycppif "__SH_FPU_ANY__ || __SH4__" "$t" ; then
+# Some sh configurations are broken and replace double with float
+# rather than using softfloat when the fpu is present but only
+# supports single precision. Reject them.
+printf "checking whether compiler's double type is IEEE double... "
+echo 'typedef char dblcheck[(int)sizeof(double)-5];' > "$tmpc"
+if $CC $CFLAGS_C99FSE $CPPFLAGS $CFLAGS -c -o /dev/null "$tmpc" >/dev/null 2>&1 ; then
+printf "yes\n"
+else
+printf "no\n"
+fail "$0: error: compiler's floating point configuration is unsupported"
+fi
+else
+SUBARCH=${SUBARCH}-nofpu
+fi
+if trycppif __SH_FDPIC__ "$t" ; then
+SUBARCH=${SUBARCH}-fdpic
+fi
+fi
+
+test "$SUBARCH" \
+&& printf "configured for %s variant: %s\n" "$ARCH" "$ARCH$SUBARCH"
+
+case "$ARCH$SUBARCH" in
+arm) ASMSUBARCH=el ;;
+*) ASMSUBARCH=$SUBARCH ;;
+esac
+
+#
+# Some archs (powerpc) have different possible long double formats
+# that the compiler can be configured for. The logic for whether this
+# is supported is in bits/float.h; in general, it is not. We need to
+# check for mismatches here or code in printf, strotd, and scanf will
+# be dangerously incorrect because it depends on (1) the macros being
+# correct, and (2) IEEE semantics.
+#
+printf "checking whether compiler's long double definition matches float.h... "
+echo '#include <float.h>' > "$tmpc"
+echo '#define C(m,s) (m==LDBL_MANT_DIG && s==sizeof(long double))' >> "$tmpc"
+echo 'typedef char ldcheck[(C(53,8)||C(64,12)||C(64,16)||C(113,16))*2-1];' >> "$tmpc"
+if $CC $CFLAGS_C99FSE \
+  -I$srcdir/arch/$ARCH -I$srcdir/arch/generic -I$srcdir/include \
+  $CPPFLAGS $CFLAGS -c -o /dev/null "$tmpc" >/dev/null 2>&1 ; then
+printf "yes\n"
+else
+printf "no\n"
+fail "$0: error: unsupported long double type"
+fi
+
+#
+# Some build systems globally pass in broken CFLAGS like -ffast-math
+# for all packages. On recent GCC we can detect this and error out
+# early rather than producing a seriously-broken math library.
+#
+if trycppif "__FAST_MATH__" \
+  "$CFLAGS_C99FSE $CPPFLAGS $CFLAGS" ; then
+fail "$0: error: compiler has broken floating point; check CFLAGS"
+fi
+
+printf "creating config.mak... "
+
+cmdline=$(quote "$0")
+for i ; do cmdline="$cmdline $(quote "$i")" ; done
+
+exec 3>&1 1>config.mak
+
+
+cat << EOF
+# This version of config.mak was generated by:
+# $cmdline
+# Any changes made here will be lost if configure is re-run
+AR = ${AR:-\$(CROSS_COMPILE)ar}
+RANLIB = ${RANLIB:-\$(CROSS_COMPILE)ranlib}
+ARCH = $ARCH
+SUBARCH = $SUBARCH
+ASMSUBARCH = $ASMSUBARCH
+srcdir = $srcdir
+prefix = $prefix
+exec_prefix = $exec_prefix
+bindir = $bindir
+libdir = $libdir
+includedir = $includedir
+syslibdir = $syslibdir
+CC = $CC
+CFLAGS = $CFLAGS
+CFLAGS_AUTO = $CFLAGS_AUTO
+CFLAGS_C99FSE = $CFLAGS_C99FSE
+CFLAGS_MEMOPS = $CFLAGS_MEMOPS
+CFLAGS_NOSSP = $CFLAGS_NOSSP
+CPPFLAGS = $CPPFLAGS
+LDFLAGS = $LDFLAGS
+LDFLAGS_AUTO = $LDFLAGS_AUTO
+CROSS_COMPILE = $CROSS_COMPILE
+LIBCC = $LIBCC
+OPTIMIZE_GLOBS = $OPTIMIZE_GLOBS
+ALL_TOOLS = $tools
+TOOL_LIBS = $tool_libs
+ADD_CFI = $ADD_CFI
+MALLOC_DIR = $malloc_dir
+EOF
+test "x$static" = xno && echo "STATIC_LIBS ="
+test "x$shared" = xno && echo "SHARED_LIBS ="
+test "x$cc_family" = xgcc && echo 'WRAPCC_GCC = $(CC)'
+test "x$cc_family" = xclang && echo 'WRAPCC_CLANG = $(CC)'
+test "x$pic_default" = xyes && echo 'AOBJS = $(LOBJS)'
+exec 1>&3 3>&-
+
+test "$srcdir" = "." || ln -sf $srcdir/Makefile .
+
+printf "done\n"

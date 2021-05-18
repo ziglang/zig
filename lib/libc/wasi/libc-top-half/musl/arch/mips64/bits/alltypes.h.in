@@ -1,0 +1,22 @@
+#define _Addr long
+#define _Int64 long
+#define _Reg long
+
+#if _MIPSEL || __MIPSEL || __MIPSEL__
+#define __BYTE_ORDER 1234
+#else
+#define __BYTE_ORDER 4321
+#endif
+
+#define __LONG_MAX 0x7fffffffffffffffL
+
+#ifndef __cplusplus
+TYPEDEF int wchar_t;
+#endif
+
+TYPEDEF float float_t;
+TYPEDEF double double_t;
+
+TYPEDEF struct { long long __ll; long double __ld; } max_align_t;
+
+TYPEDEF unsigned nlink_t;

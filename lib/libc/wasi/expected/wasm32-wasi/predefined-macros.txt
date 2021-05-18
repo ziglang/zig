@@ -1,0 +1,3384 @@
+#define ABDAY_1 0x20000
+#define ABDAY_2 0x20001
+#define ABDAY_3 0x20002
+#define ABDAY_4 0x20003
+#define ABDAY_5 0x20004
+#define ABDAY_6 0x20005
+#define ABDAY_7 0x20006
+#define ABMON_1 0x2000E
+#define ABMON_10 0x20017
+#define ABMON_11 0x20018
+#define ABMON_12 0x20019
+#define ABMON_2 0x2000F
+#define ABMON_3 0x20010
+#define ABMON_4 0x20011
+#define ABMON_5 0x20012
+#define ABMON_6 0x20013
+#define ABMON_7 0x20014
+#define ABMON_8 0x20015
+#define ABMON_9 0x20016
+#define ABORT 238
+#define ACK 04
+#define ADD ns_uop_add
+#define ADJ_ESTERROR 0x0008
+#define ADJ_FREQUENCY 0x0002
+#define ADJ_MAXERROR 0x0004
+#define ADJ_MICRO 0x1000
+#define ADJ_NANO 0x2000
+#define ADJ_OFFSET 0x0001
+#define ADJ_OFFSET_SINGLESHOT 0x8001
+#define ADJ_OFFSET_SS_READ 0xa001
+#define ADJ_SETOFFSET 0x0100
+#define ADJ_STATUS 0x0010
+#define ADJ_TAI 0x0080
+#define ADJ_TICK 0x4000
+#define ADJ_TIMECONST 0x0020
+#define AF_INET 1
+#define AF_INET6 2
+#define AF_UNIX 3
+#define AF_UNSPEC 0
+#define ALT_DIGITS 0x2002F
+#define AM_STR 0x20026
+#define ANYMARK 0x01
+#define AO 245
+#define AREGTYPE '\0'
+#define ARFMAG "`\n"
+#define ARG_MAX 131072
+#define ARMAG "!<arch>\n"
+#define AT_EACCESS (0x0)
+#define AT_FDCWD (-2)
+#define AT_REMOVEDIR (0x4)
+#define AT_SYMLINK_FOLLOW (0x2)
+#define AT_SYMLINK_NOFOLLOW (0x1)
+#define AUTHTYPE_CNT 5
+#define AUTHTYPE_KERBEROS_V4 1
+#define AUTHTYPE_KERBEROS_V5 2
+#define AUTHTYPE_MINK 4
+#define AUTHTYPE_NAME(x) authtype_names[x]
+#define AUTHTYPE_NAME_OK(x) ((unsigned int)(x) < AUTHTYPE_CNT)
+#define AUTHTYPE_NULL 0
+#define AUTHTYPE_SPX 3
+#define AUTHTYPE_TEST 99
+#define AUTH_HOW_MASK 2
+#define AUTH_HOW_MUTUAL 2
+#define AUTH_HOW_ONE_WAY 0
+#define AUTH_WHO_CLIENT 0
+#define AUTH_WHO_MASK 1
+#define AUTH_WHO_SERVER 1
+#define AYT 246
+#define BIG_ENDIAN __BIG_ENDIAN
+#define BITSPERBYTE CHAR_BIT
+#define BLKTYPE '4'
+#define BLK_BYTECOUNT 2
+#define BLK_EOF 0x40
+#define BLK_EOR 0x80
+#define BLK_ERRORS 0x20
+#define BLK_RESTART 0x10
+#define BREAK 243
+#define BUFSIZ 1024
+#define BYTE_ORDER __BYTE_ORDER
+#define CANBSIZ 255
+#define CBRK CEOL
+#define CDISCARD CTRL('o')
+#define CDSUSP CTRL('y')
+#define CEOF CTRL('d')
+#define CEOL '\0'
+#define CEOT CEOF
+#define CERASE 0177
+#define CFLUSH CDISCARD
+#define CHARBITS (sizeof(char) * 8)
+#define CHARCLASS_NAME_MAX 14
+#define CHAR_BIT 8
+#define CHAR_MAX 127
+#define CHAR_MIN (-128)
+#define CHRTYPE '3'
+#define CINTR CTRL('c')
+#define CKILL CTRL('u')
+#define CLNEXT CTRL('v')
+#define CLOCKS_PER_SEC ((clock_t)1000000000)
+#define CLOCK_MONOTONIC (&_CLOCK_MONOTONIC)
+#define CLOCK_PROCESS_CPUTIME_ID (&_CLOCK_PROCESS_CPUTIME_ID)
+#define CLOCK_REALTIME (&_CLOCK_REALTIME)
+#define CLOCK_THREAD_CPUTIME_ID (&_CLOCK_THREAD_CPUTIME_ID)
+#define CMIN 1
+#define CMPLX(x,y) __CMPLX(x, y, double)
+#define CMPLXF(x,y) __CMPLX(x, y, float)
+#define CMPLXL(x,y) __CMPLX(x, y, long double)
+#define CODESET 14
+#define COLL_WEIGHTS_MAX 2
+#define COMPLETE 2
+#define CONTINUE 3
+#define CONTTYPE '7'
+#define CQUIT 034
+#define CREPRINT CTRL('r')
+#define CRNCYSTR 0x4000F
+#define CRPRNT CREPRINT
+#define CSTART CTRL('q')
+#define CSTATUS '\0'
+#define CSTOP CTRL('s')
+#define CSUSP CTRL('z')
+#define CTIME 0
+#define CTRL(x) ((x)&037)
+#define CWERASE CTRL('w')
+#define C_ANY ns_c_any
+#define C_CHAOS ns_c_chaos
+#define C_HS ns_c_hs
+#define C_IN ns_c_in
+#define C_IRGRP 000040
+#define C_IROTH 000004
+#define C_IRUSR 000400
+#define C_ISBLK 060000
+#define C_ISCHR 020000
+#define C_ISCTG 0110000
+#define C_ISDIR 040000
+#define C_ISFIFO 010000
+#define C_ISGID 002000
+#define C_ISLNK 0120000
+#define C_ISREG 0100000
+#define C_ISSOCK 0140000
+#define C_ISUID 004000
+#define C_ISVTX 001000
+#define C_IWGRP 000020
+#define C_IWOTH 000002
+#define C_IWUSR 000200
+#define C_IXGRP 000010
+#define C_IXOTH 000001
+#define C_IXUSR 000100
+#define C_NONE ns_c_none
+#define DATA 03
+#define DAY_1 0x20007
+#define DAY_2 0x20008
+#define DAY_3 0x20009
+#define DAY_4 0x2000A
+#define DAY_5 0x2000B
+#define DAY_6 0x2000C
+#define DAY_7 0x2000D
+#define DBL_DECIMAL_DIG 17
+#define DBL_DIG 15
+#define DBL_EPSILON 2.22044604925031308085e-16
+#define DBL_HAS_SUBNORM 1
+#define DBL_MANT_DIG 53
+#define DBL_MAX 1.79769313486231570815e+308
+#define DBL_MAX_10_EXP 308
+#define DBL_MAX_EXP 1024
+#define DBL_MIN 2.22507385850720138309e-308
+#define DBL_MIN_10_EXP (-307)
+#define DBL_MIN_EXP (-1021)
+#define DBL_TRUE_MIN 4.94065645841246544177e-324
+#define DECIMAL_DIG 36
+#define DELAYTIMER_MAX 0x7fffffff
+#define DELETE ns_uop_delete
+#define DEV_BSIZE 512
+#define DIRTYPE '5'
+#define DM 242
+#define DMAXEXP DBL_MAX_EXP
+#define DMINEXP DBL_MIN_EXP
+#define DO 253
+#define DONT 254
+#define DOUBLEBITS (sizeof(double) * 8)
+#define DT_BLK __WASI_FILETYPE_BLOCK_DEVICE
+#define DT_CHR __WASI_FILETYPE_CHARACTER_DEVICE
+#define DT_DIR __WASI_FILETYPE_DIRECTORY
+#define DT_FIFO __WASI_FILETYPE_SOCKET_STREAM
+#define DT_LNK __WASI_FILETYPE_SYMBOLIC_LINK
+#define DT_REG __WASI_FILETYPE_REGULAR_FILE
+#define DT_UNKNOWN __WASI_FILETYPE_UNKNOWN
+#define D_FMT 0x20029
+#define D_T_FMT 0x20028
+#define E2BIG __WASI_ERRNO_2BIG
+#define EACCES __WASI_ERRNO_ACCES
+#define EACCESS 2
+#define EADDRINUSE __WASI_ERRNO_ADDRINUSE
+#define EADDRNOTAVAIL __WASI_ERRNO_ADDRNOTAVAIL
+#define EAFNOSUPPORT __WASI_ERRNO_AFNOSUPPORT
+#define EAGAIN __WASI_ERRNO_AGAIN
+#define EALREADY __WASI_ERRNO_ALREADY
+#define EBADF __WASI_ERRNO_BADF
+#define EBADID 5
+#define EBADMSG __WASI_ERRNO_BADMSG
+#define EBADOP 4
+#define EBUSY __WASI_ERRNO_BUSY
+#define EC 247
+#define ECANCELED __WASI_ERRNO_CANCELED
+#define ECHILD __WASI_ERRNO_CHILD
+#define ECONNABORTED __WASI_ERRNO_CONNABORTED
+#define ECONNREFUSED __WASI_ERRNO_CONNREFUSED
+#define ECONNRESET __WASI_ERRNO_CONNRESET
+#define EDEADLK __WASI_ERRNO_DEADLK
+#define EDESTADDRREQ __WASI_ERRNO_DESTADDRREQ
+#define EDOM __WASI_ERRNO_DOM
+#define EDQUOT __WASI_ERRNO_DQUOT
+#define EEXIST __WASI_ERRNO_EXIST
+#define EEXISTS 6
+#define EFAULT __WASI_ERRNO_FAULT
+#define EFBIG __WASI_ERRNO_FBIG
+#define EFD_CLOEXEC O_CLOEXEC
+#define EFD_NONBLOCK O_NONBLOCK
+#define EFD_SEMAPHORE 1
+#define EHOSTUNREACH __WASI_ERRNO_HOSTUNREACH
+#define EIDRM __WASI_ERRNO_IDRM
+#define EILSEQ __WASI_ERRNO_ILSEQ
+#define EINPROGRESS __WASI_ERRNO_INPROGRESS
+#define EINTR __WASI_ERRNO_INTR
+#define EINVAL __WASI_ERRNO_INVAL
+#define EIO __WASI_ERRNO_IO
+#define EISCONN __WASI_ERRNO_ISCONN
+#define EISDIR __WASI_ERRNO_ISDIR
+#define EL 248
+#define ELOOP __WASI_ERRNO_LOOP
+#define EMFILE __WASI_ERRNO_MFILE
+#define EMLINK __WASI_ERRNO_MLINK
+#define EMSGSIZE __WASI_ERRNO_MSGSIZE
+#define EMULTIHOP __WASI_ERRNO_MULTIHOP
+#define ENAMETOOLONG __WASI_ERRNO_NAMETOOLONG
+#define ENCRYPT_CNT 9
+#define ENCRYPT_DEC_KEYID 8
+#define ENCRYPT_ENC_KEYID 7
+#define ENCRYPT_END 4
+#define ENCRYPT_IS 0
+#define ENCRYPT_NAME(x) encrypt_names[x]
+#define ENCRYPT_NAME_OK(x) ((unsigned int)(x) < ENCRYPT_CNT)
+#define ENCRYPT_REPLY 2
+#define ENCRYPT_REQEND 6
+#define ENCRYPT_REQSTART 5
+#define ENCRYPT_START 3
+#define ENCRYPT_SUPPORT 1
+#define ENCTYPE_ANY 0
+#define ENCTYPE_CNT 3
+#define ENCTYPE_DES_CFB64 1
+#define ENCTYPE_DES_OFB64 2
+#define ENCTYPE_NAME(x) enctype_names[x]
+#define ENCTYPE_NAME_OK(x) ((unsigned int)(x) < ENCTYPE_CNT)
+#define ENETDOWN __WASI_ERRNO_NETDOWN
+#define ENETRESET __WASI_ERRNO_NETRESET
+#define ENETUNREACH __WASI_ERRNO_NETUNREACH
+#define ENFILE __WASI_ERRNO_NFILE
+#define ENOBUFS __WASI_ERRNO_NOBUFS
+#define ENODEV __WASI_ERRNO_NODEV
+#define ENOENT __WASI_ERRNO_NOENT
+#define ENOEXEC __WASI_ERRNO_NOEXEC
+#define ENOLCK __WASI_ERRNO_NOLCK
+#define ENOLINK __WASI_ERRNO_NOLINK
+#define ENOMEM __WASI_ERRNO_NOMEM
+#define ENOMSG __WASI_ERRNO_NOMSG
+#define ENOPROTOOPT __WASI_ERRNO_NOPROTOOPT
+#define ENOSPACE 3
+#define ENOSPC __WASI_ERRNO_NOSPC
+#define ENOSYS __WASI_ERRNO_NOSYS
+#define ENOTCAPABLE __WASI_ERRNO_NOTCAPABLE
+#define ENOTCONN __WASI_ERRNO_NOTCONN
+#define ENOTDIR __WASI_ERRNO_NOTDIR
+#define ENOTEMPTY __WASI_ERRNO_NOTEMPTY
+#define ENOTFOUND 1
+#define ENOTRECOVERABLE __WASI_ERRNO_NOTRECOVERABLE
+#define ENOTSOCK __WASI_ERRNO_NOTSOCK
+#define ENOTSUP __WASI_ERRNO_NOTSUP
+#define ENOTTY __WASI_ERRNO_NOTTY
+#define ENOUSER 7
+#define ENV_ESC 2
+#define ENV_USERVAR 3
+#define ENXIO __WASI_ERRNO_NXIO
+#define EOF (-1)
+#define EOPNOTSUPP ENOTSUP
+#define EOR 239
+#define EOVERFLOW __WASI_ERRNO_OVERFLOW
+#define EOWNERDEAD __WASI_ERRNO_OWNERDEAD
+#define EPERM __WASI_ERRNO_PERM
+#define EPIPE __WASI_ERRNO_PIPE
+#define EPROTO __WASI_ERRNO_PROTO
+#define EPROTONOSUPPORT __WASI_ERRNO_PROTONOSUPPORT
+#define EPROTOTYPE __WASI_ERRNO_PROTOTYPE
+#define ERA 0x2002C
+#define ERANGE __WASI_ERRNO_RANGE
+#define ERA_D_FMT 0x2002E
+#define ERA_D_T_FMT 0x20030
+#define ERA_T_FMT 0x20031
+#define EROFS __WASI_ERRNO_ROFS
+#define ERROR 05
+#define ESPIPE __WASI_ERRNO_SPIPE
+#define ESRCH __WASI_ERRNO_SRCH
+#define ESTALE __WASI_ERRNO_STALE
+#define ETIMEDOUT __WASI_ERRNO_TIMEDOUT
+#define ETXTBSY __WASI_ERRNO_TXTBSY
+#define EUNDEF 0
+#define EWOULDBLOCK EAGAIN
+#define EXDEV __WASI_ERRNO_XDEV
+#define EXIT_FAILURE 1
+#define EXIT_SUCCESS 0
+#define EX_CANTCREAT 73
+#define EX_CONFIG 78
+#define EX_DATAERR 65
+#define EX_IOERR 74
+#define EX_NOHOST 68
+#define EX_NOINPUT 66
+#define EX_NOPERM 77
+#define EX_NOUSER 67
+#define EX_OK 0
+#define EX_OSERR 71
+#define EX_OSFILE 72
+#define EX_PROTOCOL 76
+#define EX_SOFTWARE 70
+#define EX_TEMPFAIL 75
+#define EX_UNAVAILABLE 69
+#define EX_USAGE 64
+#define EX__BASE 64
+#define EX__MAX 78
+#define FD_CLOEXEC (1)
+#define FD_CLR(fd,set) (FD_CLR((fd), (set)))
+#define FD_COPY(from,to) (FD_COPY((from), (to)))
+#define FD_ISSET(fd,set) (FD_ISSET((fd), (set)))
+#define FD_SET(fd,set) (FD_SET((fd), (set)))
+#define FD_SETSIZE 1024
+#define FD_ZERO(set) (FD_ZERO((set)))
+#define FE_ALL_EXCEPT 0
+#define FE_DFL_ENV ((const fenv_t *) -1)
+#define FE_TONEAREST 0
+#define FIFOTYPE '6'
+#define FILENAME_MAX 4096
+#define FILESIZEBITS 64
+#define FIONBIO 2
+#define FIONREAD 1
+#define FLOATBITS (sizeof(float) * 8)
+#define FLT_DECIMAL_DIG 9
+#define FLT_DIG 6
+#define FLT_EPSILON 1.1920928955078125e-07F
+#define FLT_EVAL_METHOD 0
+#define FLT_HAS_SUBNORM 1
+#define FLT_MANT_DIG 24
+#define FLT_MAX 3.40282346638528859812e+38F
+#define FLT_MAX_10_EXP 38
+#define FLT_MAX_EXP 128
+#define FLT_MIN 1.17549435082228750797e-38F
+#define FLT_MIN_10_EXP (-37)
+#define FLT_MIN_EXP (-125)
+#define FLT_RADIX 2
+#define FLT_ROUNDS (__builtin_flt_rounds())
+#define FLT_TRUE_MIN 1.40129846432481707092e-45F
+#define FLUSHBAND 0x04
+#define FLUSHR 0x01
+#define FLUSHRW 0x03
+#define FLUSHW 0x02
+#define FMAXEXP FLT_MAX_EXP
+#define FMINEXP FLT_MIN_EXP
+#define FMNAMESZ 8
+#define FNM_CASEFOLD 0x10
+#define FNM_FILE_NAME FNM_PATHNAME
+#define FNM_LEADING_DIR 0x8
+#define FNM_NOESCAPE 0x2
+#define FNM_NOMATCH 1
+#define FNM_NOSYS (-1)
+#define FNM_PATHNAME 0x1
+#define FNM_PERIOD 0x4
+#define FOPEN_MAX 1000
+#define FORMERR ns_r_formerr
+#define FORM_C 3
+#define FORM_N 1
+#define FORM_T 2
+#define FP_ILOGB0 FP_ILOGBNAN
+#define FP_ILOGBNAN (-1-0x7fffffff)
+#define FP_INFINITE 1
+#define FP_NAN 0
+#define FP_NORMAL 4
+#define FP_SUBNORMAL 3
+#define FP_ZERO 2
+#define FSETLOCKING_BYCALLER 2
+#define FSETLOCKING_INTERNAL 1
+#define FSETLOCKING_QUERY 0
+#define FTW_CHDIR 4
+#define FTW_D 2
+#define FTW_DEPTH 8
+#define FTW_DNR 3
+#define FTW_DP 6
+#define FTW_F 1
+#define FTW_MOUNT 2
+#define FTW_NS 4
+#define FTW_PHYS 1
+#define FTW_SL 5
+#define FTW_SLN 7
+#define F_GETFD (1)
+#define F_GETFL (3)
+#define F_LOCK 1
+#define F_OK (0)
+#define F_SETFD (2)
+#define F_SETFL (4)
+#define F_TEST 3
+#define F_TLOCK 2
+#define F_ULOCK 0
+#define GA 249
+#define GETLONG NS_GET32
+#define GETSHORT NS_GET16
+#define GLOB_ABORTED 2
+#define GLOB_APPEND 0x20
+#define GLOB_DOOFFS 0x08
+#define GLOB_ERR 0x01
+#define GLOB_MARK 0x02
+#define GLOB_NOCHECK 0x10
+#define GLOB_NOESCAPE 0x40
+#define GLOB_NOMATCH 3
+#define GLOB_NOSORT 0x04
+#define GLOB_NOSPACE 1
+#define GLOB_NOSYS 4
+#define GLOB_PERIOD 0x80
+#define GROUP_FILTER_SIZE(numsrc) (sizeof(struct group_filter) - sizeof(struct sockaddr_storage) + (numsrc) * sizeof(struct sockaddr_storage))
+#define HFIXEDSZ NS_HFIXEDSZ
+#define HIBITL MINLONG
+#define HIBITS MINSHORT
+#define HOST_NAME_MAX 255
+#define HUGE 3.40282346638528859812e+38F
+#define HUGE_VAL ((double)INFINITY)
+#define HUGE_VALF INFINITY
+#define HUGE_VALL ((long double)INFINITY)
+#define I _Complex_I
+#define IAC 255
+#define ICMP6_DST_UNREACH 1
+#define ICMP6_DST_UNREACH_ADDR 3
+#define ICMP6_DST_UNREACH_ADMIN 1
+#define ICMP6_DST_UNREACH_BEYONDSCOPE 2
+#define ICMP6_DST_UNREACH_NOPORT 4
+#define ICMP6_DST_UNREACH_NOROUTE 0
+#define ICMP6_ECHO_REPLY 129
+#define ICMP6_ECHO_REQUEST 128
+#define ICMP6_FILTER 1
+#define ICMP6_FILTER_BLOCK 1
+#define ICMP6_FILTER_BLOCKOTHERS 3
+#define ICMP6_FILTER_PASS 2
+#define ICMP6_FILTER_PASSONLY 4
+#define ICMP6_FILTER_SETBLOCK(type,filterp) ((((filterp)->icmp6_filt[(type) >> 5]) |= (1 << ((type) & 31))))
+#define ICMP6_FILTER_SETBLOCKALL(filterp) memset (filterp, 0xFF, sizeof (struct icmp6_filter));
+#define ICMP6_FILTER_SETPASS(type,filterp) ((((filterp)->icmp6_filt[(type) >> 5]) &= ~(1 << ((type) & 31))))
+#define ICMP6_FILTER_SETPASSALL(filterp) memset (filterp, 0, sizeof (struct icmp6_filter));
+#define ICMP6_FILTER_WILLBLOCK(type,filterp) ((((filterp)->icmp6_filt[(type) >> 5]) & (1 << ((type) & 31))) != 0)
+#define ICMP6_FILTER_WILLPASS(type,filterp) ((((filterp)->icmp6_filt[(type) >> 5]) & (1 << ((type) & 31))) == 0)
+#define ICMP6_INFOMSG_MASK 0x80
+#define ICMP6_PACKET_TOO_BIG 2
+#define ICMP6_PARAMPROB_HEADER 0
+#define ICMP6_PARAMPROB_NEXTHEADER 1
+#define ICMP6_PARAMPROB_OPTION 2
+#define ICMP6_PARAM_PROB 4
+#define ICMP6_ROUTER_RENUMBERING 138
+#define ICMP6_RR_FLAGS_FORCEAPPLY 0x20
+#define ICMP6_RR_FLAGS_PREVDONE 0x08
+#define ICMP6_RR_FLAGS_REQRESULT 0x40
+#define ICMP6_RR_FLAGS_SPECSITE 0x10
+#define ICMP6_RR_FLAGS_TEST 0x80
+#define ICMP6_RR_PCOUSE_FLAGS_DECRPLTIME 0x40
+#define ICMP6_RR_PCOUSE_FLAGS_DECRVLTIME 0x80
+#define ICMP6_RR_PCOUSE_RAFLAGS_AUTO 0x10
+#define ICMP6_RR_PCOUSE_RAFLAGS_ONLINK 0x20
+#define ICMP6_RR_RESULT_FLAGS_FORBIDDEN 0x0100
+#define ICMP6_RR_RESULT_FLAGS_OOB 0x0200
+#define ICMP6_TIME_EXCEEDED 3
+#define ICMP6_TIME_EXCEED_REASSEMBLY 1
+#define ICMP6_TIME_EXCEED_TRANSIT 0
+#define ICMP_ADDRESS 17
+#define ICMP_ADDRESSREPLY 18
+#define ICMP_ADVLEN(p) (8 + ((p)->icmp_ip.ip_hl << 2) + 8)
+#define ICMP_ADVLENMIN (8 + sizeof (struct ip) + 8)
+#define ICMP_DEST_UNREACH 3
+#define ICMP_ECHO 8
+#define ICMP_ECHOREPLY 0
+#define ICMP_EXC_FRAGTIME 1
+#define ICMP_EXC_TTL 0
+#define ICMP_FRAG_NEEDED 4
+#define ICMP_HOST_ANO 10
+#define ICMP_HOST_ISOLATED 8
+#define ICMP_HOST_UNKNOWN 7
+#define ICMP_HOST_UNREACH 1
+#define ICMP_HOST_UNR_TOS 12
+#define ICMP_INFOTYPE(type) ((type) == ICMP_ECHOREPLY || (type) == ICMP_ECHO || (type) == ICMP_ROUTERADVERT || (type) == ICMP_ROUTERSOLICIT || (type) == ICMP_TSTAMP || (type) == ICMP_TSTAMPREPLY || (type) == ICMP_IREQ || (type) == ICMP_IREQREPLY || (type) == ICMP_MASKREQ || (type) == ICMP_MASKREPLY)
+#define ICMP_INFO_REPLY 16
+#define ICMP_INFO_REQUEST 15
+#define ICMP_IREQ 15
+#define ICMP_IREQREPLY 16
+#define ICMP_MASKLEN 12
+#define ICMP_MASKREPLY 18
+#define ICMP_MASKREQ 17
+#define ICMP_MAXTYPE 18
+#define ICMP_MINLEN 8
+#define ICMP_NET_ANO 9
+#define ICMP_NET_UNKNOWN 6
+#define ICMP_NET_UNREACH 0
+#define ICMP_NET_UNR_TOS 11
+#define ICMP_PARAMETERPROB 12
+#define ICMP_PARAMPROB 12
+#define ICMP_PARAMPROB_OPTABSENT 1
+#define ICMP_PKT_FILTERED 13
+#define ICMP_PORT_UNREACH 3
+#define ICMP_PREC_CUTOFF 15
+#define ICMP_PREC_VIOLATION 14
+#define ICMP_PROT_UNREACH 2
+#define ICMP_REDIRECT 5
+#define ICMP_REDIRECT_HOST 1
+#define ICMP_REDIRECT_NET 0
+#define ICMP_REDIRECT_TOSHOST 3
+#define ICMP_REDIRECT_TOSNET 2
+#define ICMP_REDIR_HOST 1
+#define ICMP_REDIR_HOSTTOS 3
+#define ICMP_REDIR_NET 0
+#define ICMP_REDIR_NETTOS 2
+#define ICMP_ROUTERADVERT 9
+#define ICMP_ROUTERSOLICIT 10
+#define ICMP_SOURCEQUENCH 4
+#define ICMP_SOURCE_QUENCH 4
+#define ICMP_SR_FAILED 5
+#define ICMP_TIMESTAMP 13
+#define ICMP_TIMESTAMPREPLY 14
+#define ICMP_TIME_EXCEEDED 11
+#define ICMP_TIMXCEED 11
+#define ICMP_TIMXCEED_INTRANS 0
+#define ICMP_TIMXCEED_REASS 1
+#define ICMP_TSLEN (8 + 3 * sizeof (n_time))
+#define ICMP_TSTAMP 13
+#define ICMP_TSTAMPREPLY 14
+#define ICMP_UNREACH 3
+#define ICMP_UNREACH_FILTER_PROHIB 13
+#define ICMP_UNREACH_HOST 1
+#define ICMP_UNREACH_HOST_PRECEDENCE 14
+#define ICMP_UNREACH_HOST_PROHIB 10
+#define ICMP_UNREACH_HOST_UNKNOWN 7
+#define ICMP_UNREACH_ISOLATED 8
+#define ICMP_UNREACH_NEEDFRAG 4
+#define ICMP_UNREACH_NET 0
+#define ICMP_UNREACH_NET_PROHIB 9
+#define ICMP_UNREACH_NET_UNKNOWN 6
+#define ICMP_UNREACH_PORT 3
+#define ICMP_UNREACH_PRECEDENCE_CUTOFF 15
+#define ICMP_UNREACH_PROTOCOL 2
+#define ICMP_UNREACH_SRCFAIL 5
+#define ICMP_UNREACH_TOSHOST 12
+#define ICMP_UNREACH_TOSNET 11
+#define IGMP_AWAKENING_MEMBER 5
+#define IGMP_DELAYING_MEMBER 1
+#define IGMP_DVMRP 0x13
+#define IGMP_HOST_LEAVE_MESSAGE IGMP_V2_LEAVE_GROUP
+#define IGMP_HOST_MEMBERSHIP_QUERY IGMP_MEMBERSHIP_QUERY
+#define IGMP_HOST_MEMBERSHIP_REPORT IGMP_V1_MEMBERSHIP_REPORT
+#define IGMP_HOST_NEW_MEMBERSHIP_REPORT IGMP_V2_MEMBERSHIP_REPORT
+#define IGMP_IDLE_MEMBER 2
+#define IGMP_LAZY_MEMBER 3
+#define IGMP_MAX_HOST_REPORT_DELAY 10
+#define IGMP_MEMBERSHIP_QUERY 0x11
+#define IGMP_MINLEN 8
+#define IGMP_MTRACE 0x1f
+#define IGMP_MTRACE_RESP 0x1e
+#define IGMP_PIM 0x14
+#define IGMP_SLEEPING_MEMBER 4
+#define IGMP_TIMER_SCALE 10
+#define IGMP_TRACE 0x15
+#define IGMP_V1_MEMBERSHIP_REPORT 0x12
+#define IGMP_V2_LEAVE_GROUP 0x17
+#define IGMP_V2_MEMBERSHIP_REPORT 0x16
+#define IGMP_v1_ROUTER 1
+#define IGMP_v2_ROUTER 2
+#define IN6ADDRSZ NS_IN6ADDRSZ
+#define IN6ADDR_ANY_INIT { { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } }
+#define IN6ADDR_LOOPBACK_INIT { { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 } }
+#define IN6_ARE_ADDR_EQUAL(a,b) __ARE_4_EQUAL((const uint32_t *)(a), (const uint32_t *)(b))
+#define IN6_IS_ADDR_LINKLOCAL(a) ((((uint8_t *) (a))[0]) == 0xfe && (((uint8_t *) (a))[1] & 0xc0) == 0x80)
+#define IN6_IS_ADDR_LOOPBACK(a) (((uint32_t *) (a))[0] == 0 && ((uint32_t *) (a))[1] == 0 && ((uint32_t *) (a))[2] == 0 && ((uint8_t *) (a))[12] == 0 && ((uint8_t *) (a))[13] == 0 && ((uint8_t *) (a))[14] == 0 && ((uint8_t *) (a))[15] == 1 )
+#define IN6_IS_ADDR_MC_GLOBAL(a) (IN6_IS_ADDR_MULTICAST(a) && ((((uint8_t *) (a))[1] & 0xf) == 0xe))
+#define IN6_IS_ADDR_MC_LINKLOCAL(a) (IN6_IS_ADDR_MULTICAST(a) && ((((uint8_t *) (a))[1] & 0xf) == 0x2))
+#define IN6_IS_ADDR_MC_NODELOCAL(a) (IN6_IS_ADDR_MULTICAST(a) && ((((uint8_t *) (a))[1] & 0xf) == 0x1))
+#define IN6_IS_ADDR_MC_ORGLOCAL(a) (IN6_IS_ADDR_MULTICAST(a) && ((((uint8_t *) (a))[1] & 0xf) == 0x8))
+#define IN6_IS_ADDR_MC_SITELOCAL(a) (IN6_IS_ADDR_MULTICAST(a) && ((((uint8_t *) (a))[1] & 0xf) == 0x5))
+#define IN6_IS_ADDR_MULTICAST(a) (((uint8_t *) (a))[0] == 0xff)
+#define IN6_IS_ADDR_SITELOCAL(a) ((((uint8_t *) (a))[0]) == 0xfe && (((uint8_t *) (a))[1] & 0xc0) == 0xc0)
+#define IN6_IS_ADDR_UNSPECIFIED(a) (((uint32_t *) (a))[0] == 0 && ((uint32_t *) (a))[1] == 0 && ((uint32_t *) (a))[2] == 0 && ((uint32_t *) (a))[3] == 0)
+#define IN6_IS_ADDR_V4COMPAT(a) (((uint32_t *) (a))[0] == 0 && ((uint32_t *) (a))[1] == 0 && ((uint32_t *) (a))[2] == 0 && ((uint8_t *) (a))[15] > 1)
+#define IN6_IS_ADDR_V4MAPPED(a) (((uint32_t *) (a))[0] == 0 && ((uint32_t *) (a))[1] == 0 && ((uint8_t *) (a))[8] == 0 && ((uint8_t *) (a))[9] == 0 && ((uint8_t *) (a))[10] == 0xff && ((uint8_t *) (a))[11] == 0xff)
+#define INADDRSZ NS_INADDRSZ
+#define INADDR_ALLHOSTS_GROUP ((in_addr_t) 0xe0000001)
+#define INADDR_ALLRTRS_GROUP ((in_addr_t) 0xe0000002)
+#define INADDR_ALLSNOOPERS_GROUP ((in_addr_t) 0xe000006a)
+#define INADDR_ANY ((in_addr_t) 0x00000000)
+#define INADDR_BROADCAST ((in_addr_t) 0xffffffff)
+#define INADDR_LOOPBACK ((in_addr_t) 0x7f000001)
+#define INADDR_MAX_LOCAL_GROUP ((in_addr_t) 0xe00000ff)
+#define INADDR_NONE ((in_addr_t) 0xffffffff)
+#define INADDR_UNSPEC_GROUP ((in_addr_t) 0xe0000000)
+#define INDIR_MASK NS_CMPRSFLGS
+#define INET6_ADDRSTRLEN 46
+#define INET_ADDRSTRLEN 16
+#define INFINITY 1e5000f
+#define INT16SZ NS_INT16SZ
+#define INT16_C(c) c
+#define INT16_MAX (0x7fff)
+#define INT16_MIN (-1-0x7fff)
+#define INT32SZ NS_INT32SZ
+#define INT32_C(c) c
+#define INT32_MAX (0x7fffffff)
+#define INT32_MIN (-1-0x7fffffff)
+#define INT64_C(c) c ## LL
+#define INT64_MAX (0x7fffffffffffffff)
+#define INT64_MIN (-1-0x7fffffffffffffff)
+#define INT8SZ NS_INT8SZ
+#define INT8_C(c) c
+#define INT8_MAX (0x7f)
+#define INT8_MIN (-1-0x7f)
+#define INTBITS (sizeof(int) * 8)
+#define INTMAX_C(c) c ## LL
+#define INTMAX_MAX INT64_MAX
+#define INTMAX_MIN INT64_MIN
+#define INTPTR_MAX INT32_MAX
+#define INTPTR_MIN INT32_MIN
+#define INT_FAST16_MAX INT16_MAX
+#define INT_FAST16_MIN INT16_MIN
+#define INT_FAST32_MAX INT32_MAX
+#define INT_FAST32_MIN INT32_MIN
+#define INT_FAST64_MAX INT64_MAX
+#define INT_FAST64_MIN INT64_MIN
+#define INT_FAST8_MAX INT8_MAX
+#define INT_FAST8_MIN INT8_MIN
+#define INT_LEAST16_MAX INT16_MAX
+#define INT_LEAST16_MIN INT16_MIN
+#define INT_LEAST32_MAX INT32_MAX
+#define INT_LEAST32_MIN INT32_MIN
+#define INT_LEAST64_MAX INT64_MAX
+#define INT_LEAST64_MIN INT64_MIN
+#define INT_LEAST8_MAX INT8_MAX
+#define INT_LEAST8_MIN INT8_MIN
+#define INT_MAX 0x7fffffff
+#define INT_MIN (-1-0x7fffffff)
+#define IN_BADCLASS(a) ((((in_addr_t)(a)) & 0xf0000000) == 0xf0000000)
+#define IN_CLASSA(a) ((((in_addr_t)(a)) & 0x80000000) == 0)
+#define IN_CLASSA_HOST (0xffffffff & ~IN_CLASSA_NET)
+#define IN_CLASSA_MAX 128
+#define IN_CLASSA_NET 0xff000000
+#define IN_CLASSA_NSHIFT 24
+#define IN_CLASSB(a) ((((in_addr_t)(a)) & 0xc0000000) == 0x80000000)
+#define IN_CLASSB_HOST (0xffffffff & ~IN_CLASSB_NET)
+#define IN_CLASSB_MAX 65536
+#define IN_CLASSB_NET 0xffff0000
+#define IN_CLASSB_NSHIFT 16
+#define IN_CLASSC(a) ((((in_addr_t)(a)) & 0xe0000000) == 0xc0000000)
+#define IN_CLASSC_HOST (0xffffffff & ~IN_CLASSC_NET)
+#define IN_CLASSC_NET 0xffffff00
+#define IN_CLASSC_NSHIFT 8
+#define IN_CLASSD(a) ((((in_addr_t)(a)) & 0xf0000000) == 0xe0000000)
+#define IN_EXPERIMENTAL(a) ((((in_addr_t)(a)) & 0xe0000000) == 0xe0000000)
+#define IN_LOOPBACKNET 127
+#define IN_MULTICAST(a) IN_CLASSD(a)
+#define IOV_MAX 1024
+#define IP 244
+#define IP6F_MORE_FRAG 0x0100
+#define IP6F_OFF_MASK 0xf8ff
+#define IP6F_RESERVED_MASK 0x0600
+#define IP6OPT_JUMBO 0xc2
+#define IP6OPT_JUMBO_LEN 6
+#define IP6OPT_NSAP_ADDR 0xc3
+#define IP6OPT_PAD1 0
+#define IP6OPT_PADN 1
+#define IP6OPT_ROUTER_ALERT 0x05
+#define IP6OPT_TUNNEL_LIMIT 0x04
+#define IP6OPT_TYPE(o) ((o) & 0xc0)
+#define IP6OPT_TYPE_DISCARD 0x40
+#define IP6OPT_TYPE_FORCEICMP 0x80
+#define IP6OPT_TYPE_ICMP 0xc0
+#define IP6OPT_TYPE_MUTABLE 0x20
+#define IP6OPT_TYPE_SKIP 0x00
+#define IP6_ALERT_AN 0x0200
+#define IP6_ALERT_MLD 0x0000
+#define IP6_ALERT_RSVP 0x0100
+#define IPDEFTTL 64
+#define IPFRAGTTL 60
+#define IPOPT_CLASS(o) ((o) & IPOPT_CLASS_MASK)
+#define IPOPT_CLASS_MASK 0x60
+#define IPOPT_CONTROL 0x00
+#define IPOPT_COPIED(o) ((o) & IPOPT_COPY)
+#define IPOPT_COPY 0x80
+#define IPOPT_DEBMEAS 0x40
+#define IPOPT_END IPOPT_EOL
+#define IPOPT_EOL 0
+#define IPOPT_LSRR 131
+#define IPOPT_MEASUREMENT IPOPT_DEBMEAS
+#define IPOPT_MINOFF 4
+#define IPOPT_NOOP IPOPT_NOP
+#define IPOPT_NOP 1
+#define IPOPT_NUMBER(o) ((o) & IPOPT_NUMBER_MASK)
+#define IPOPT_NUMBER_MASK 0x1f
+#define IPOPT_OFFSET 2
+#define IPOPT_OLEN 1
+#define IPOPT_OPTVAL 0
+#define IPOPT_RA 148
+#define IPOPT_RESERVED1 0x20
+#define IPOPT_RESERVED2 0x60
+#define IPOPT_RR 7
+#define IPOPT_SATID 136
+#define IPOPT_SEC IPOPT_SECURITY
+#define IPOPT_SECURITY 130
+#define IPOPT_SECUR_CONFID 0xf135
+#define IPOPT_SECUR_EFTO 0x789a
+#define IPOPT_SECUR_MMMM 0xbc4d
+#define IPOPT_SECUR_RESTR 0xaf13
+#define IPOPT_SECUR_SECRET 0xd788
+#define IPOPT_SECUR_TOPSECRET 0x6bc5
+#define IPOPT_SECUR_UNCLASS 0x0000
+#define IPOPT_SID IPOPT_SATID
+#define IPOPT_SSRR 137
+#define IPOPT_TIMESTAMP IPOPT_TS
+#define IPOPT_TS 68
+#define IPOPT_TS_PRESPEC 3
+#define IPOPT_TS_TSANDADDR 1
+#define IPOPT_TS_TSONLY 0
+#define IPPORT_RESERVED 1024
+#define IPPROTO_ICMP 1
+#define IPPROTO_IP 0
+#define IPPROTO_IPV6 41
+#define IPPROTO_RAW 255
+#define IPPROTO_TCP 6
+#define IPPROTO_UDP 17
+#define IPTOS_CLASS(x) ((x) & IPTOS_CLASS_MASK)
+#define IPTOS_CLASS_CS0 0x00
+#define IPTOS_CLASS_CS1 0x20
+#define IPTOS_CLASS_CS2 0x40
+#define IPTOS_CLASS_CS3 0x60
+#define IPTOS_CLASS_CS4 0x80
+#define IPTOS_CLASS_CS5 0xa0
+#define IPTOS_CLASS_CS6 0xc0
+#define IPTOS_CLASS_CS7 0xe0
+#define IPTOS_CLASS_DEFAULT IPTOS_CLASS_CS0
+#define IPTOS_CLASS_MASK 0xe0
+#define IPTOS_DSCP(x) ((x) & IPTOS_DSCP_MASK)
+#define IPTOS_DSCP_AF11 0x28
+#define IPTOS_DSCP_AF12 0x30
+#define IPTOS_DSCP_AF13 0x38
+#define IPTOS_DSCP_AF21 0x48
+#define IPTOS_DSCP_AF22 0x50
+#define IPTOS_DSCP_AF23 0x58
+#define IPTOS_DSCP_AF31 0x68
+#define IPTOS_DSCP_AF32 0x70
+#define IPTOS_DSCP_AF33 0x78
+#define IPTOS_DSCP_AF41 0x88
+#define IPTOS_DSCP_AF42 0x90
+#define IPTOS_DSCP_AF43 0x98
+#define IPTOS_DSCP_EF 0xb8
+#define IPTOS_DSCP_MASK 0xfc
+#define IPTOS_ECN(x) ((x) & IPTOS_ECN_MASK)
+#define IPTOS_ECN_CE 0x03
+#define IPTOS_ECN_ECT0 0x02
+#define IPTOS_ECN_ECT1 0x01
+#define IPTOS_ECN_MASK 0x03
+#define IPTOS_ECN_NOT_ECT 0x00
+#define IPTOS_LOWCOST 0x02
+#define IPTOS_LOWDELAY 0x10
+#define IPTOS_MINCOST IPTOS_LOWCOST
+#define IPTOS_PREC(tos) ((tos) & IPTOS_PREC_MASK)
+#define IPTOS_PREC_CRITIC_ECP 0xa0
+#define IPTOS_PREC_FLASH 0x60
+#define IPTOS_PREC_FLASHOVERRIDE 0x80
+#define IPTOS_PREC_IMMEDIATE 0x40
+#define IPTOS_PREC_INTERNETCONTROL 0xc0
+#define IPTOS_PREC_MASK 0xe0
+#define IPTOS_PREC_NETCONTROL 0xe0
+#define IPTOS_PREC_PRIORITY 0x20
+#define IPTOS_PREC_ROUTINE 0x00
+#define IPTOS_RELIABILITY 0x04
+#define IPTOS_THROUGHPUT 0x08
+#define IPTOS_TOS(tos) ((tos) & IPTOS_TOS_MASK)
+#define IPTOS_TOS_MASK 0x1E
+#define IPTTLDEC 1
+#define IPV6_2292DSTOPTS 4
+#define IPV6_2292HOPLIMIT 8
+#define IPV6_2292HOPOPTS 3
+#define IPV6_2292PKTINFO 2
+#define IPV6_2292PKTOPTIONS 6
+#define IPV6_2292RTHDR 5
+#define IPV6_ADDRFORM 1
+#define IPV6_ADDR_PREFERENCES 72
+#define IPV6_ADD_MEMBERSHIP IPV6_JOIN_GROUP
+#define IPV6_AUTHHDR 10
+#define IPV6_AUTOFLOWLABEL 70
+#define IPV6_CHECKSUM 7
+#define IPV6_DONTFRAG 62
+#define IPV6_DROP_MEMBERSHIP IPV6_LEAVE_GROUP
+#define IPV6_DSTOPTS 59
+#define IPV6_FREEBIND 78
+#define IPV6_HDRINCL 36
+#define IPV6_HOPLIMIT 52
+#define IPV6_HOPOPTS 54
+#define IPV6_IPSEC_POLICY 34
+#define IPV6_JOIN_ANYCAST 27
+#define IPV6_JOIN_GROUP 20
+#define IPV6_LEAVE_ANYCAST 28
+#define IPV6_LEAVE_GROUP 21
+#define IPV6_MINHOPCOUNT 73
+#define IPV6_MTU 24
+#define IPV6_MTU_DISCOVER 23
+#define IPV6_MULTICAST_ALL 29
+#define IPV6_MULTICAST_HOPS 18
+#define IPV6_MULTICAST_IF 17
+#define IPV6_MULTICAST_LOOP 19
+#define IPV6_NEXTHOP 9
+#define IPV6_ORIGDSTADDR 74
+#define IPV6_PATHMTU 61
+#define IPV6_PKTINFO 50
+#define IPV6_PMTUDISC_DO 2
+#define IPV6_PMTUDISC_DONT 0
+#define IPV6_PMTUDISC_INTERFACE 4
+#define IPV6_PMTUDISC_OMIT 5
+#define IPV6_PMTUDISC_PROBE 3
+#define IPV6_PMTUDISC_WANT 1
+#define IPV6_PREFER_SRC_CGA 0x0008
+#define IPV6_PREFER_SRC_COA 0x0004
+#define IPV6_PREFER_SRC_HOME 0x0400
+#define IPV6_PREFER_SRC_NONCGA 0x0800
+#define IPV6_PREFER_SRC_PUBLIC 0x0002
+#define IPV6_PREFER_SRC_PUBTMP_DEFAULT 0x0100
+#define IPV6_PREFER_SRC_TMP 0x0001
+#define IPV6_RECVDSTOPTS 58
+#define IPV6_RECVERR 25
+#define IPV6_RECVFRAGSIZE 77
+#define IPV6_RECVHOPLIMIT 51
+#define IPV6_RECVHOPOPTS 53
+#define IPV6_RECVORIGDSTADDR IPV6_ORIGDSTADDR
+#define IPV6_RECVPATHMTU 60
+#define IPV6_RECVPKTINFO 49
+#define IPV6_RECVRTHDR 56
+#define IPV6_RECVTCLASS 66
+#define IPV6_ROUTER_ALERT 22
+#define IPV6_ROUTER_ALERT_ISOLATE 30
+#define IPV6_RTHDR 57
+#define IPV6_RTHDRDSTOPTS 55
+#define IPV6_RTHDR_LOOSE 0
+#define IPV6_RTHDR_STRICT 1
+#define IPV6_RTHDR_TYPE_0 0
+#define IPV6_RXDSTOPTS IPV6_DSTOPTS
+#define IPV6_RXHOPOPTS IPV6_HOPOPTS
+#define IPV6_TCLASS 67
+#define IPV6_TRANSPARENT 75
+#define IPV6_UNICAST_HOPS 16
+#define IPV6_UNICAST_IF 76
+#define IPV6_V6ONLY 26
+#define IPV6_XFRM_POLICY 35
+#define IPVERSION 4
+#define IP_ADD_MEMBERSHIP 35
+#define IP_ADD_SOURCE_MEMBERSHIP 39
+#define IP_BIND_ADDRESS_NO_PORT 24
+#define IP_BLOCK_SOURCE 38
+#define IP_CHECKSUM 23
+#define IP_DEFAULT_MULTICAST_LOOP 1
+#define IP_DEFAULT_MULTICAST_TTL 1
+#define IP_DF 0x4000
+#define IP_DROP_MEMBERSHIP 36
+#define IP_DROP_SOURCE_MEMBERSHIP 40
+#define IP_FREEBIND 15
+#define IP_HDRINCL 3
+#define IP_IPSEC_POLICY 16
+#define IP_MAXPACKET 65535
+#define IP_MAX_MEMBERSHIPS 20
+#define IP_MF 0x2000
+#define IP_MINTTL 21
+#define IP_MSFILTER 41
+#define IP_MSFILTER_SIZE(numsrc) (sizeof(struct ip_msfilter) - sizeof(struct in_addr) + (numsrc) * sizeof(struct in_addr))
+#define IP_MSS 576
+#define IP_MTU 14
+#define IP_MTU_DISCOVER 10
+#define IP_MULTICAST_ALL 49
+#define IP_MULTICAST_IF 32
+#define IP_MULTICAST_LOOP 34
+#define IP_MULTICAST_TTL 33
+#define IP_NODEFRAG 22
+#define IP_OFFMASK 0x1fff
+#define IP_OPTIONS 4
+#define IP_ORIGDSTADDR 20
+#define IP_PASSSEC 18
+#define IP_PKTINFO 8
+#define IP_PKTOPTIONS 9
+#define IP_PMTUDISC 10
+#define IP_PMTUDISC_DO 2
+#define IP_PMTUDISC_DONT 0
+#define IP_PMTUDISC_INTERFACE 4
+#define IP_PMTUDISC_OMIT 5
+#define IP_PMTUDISC_PROBE 3
+#define IP_PMTUDISC_WANT 1
+#define IP_RECVERR 11
+#define IP_RECVERR_RFC4884 26
+#define IP_RECVFRAGSIZE 25
+#define IP_RECVOPTS 6
+#define IP_RECVORIGDSTADDR IP_ORIGDSTADDR
+#define IP_RECVRETOPTS IP_RETOPTS
+#define IP_RECVTOS 13
+#define IP_RECVTTL 12
+#define IP_RETOPTS 7
+#define IP_RF 0x8000
+#define IP_ROUTER_ALERT 5
+#define IP_TOS 1
+#define IP_TRANSPARENT 19
+#define IP_TTL 2
+#define IP_UNBLOCK_SOURCE 37
+#define IP_UNICAST_IF 50
+#define IP_XFRM_POLICY 17
+#define IQUERY ns_o_iquery
+#define I_ATMARK (__SID |31)
+#define I_CANPUT (__SID |34)
+#define I_CKBAND (__SID |29)
+#define I_FDINSERT (__SID |16)
+#define I_FIND (__SID |11)
+#define I_FLUSH (__SID | 5)
+#define I_FLUSHBAND (__SID |28)
+#define I_GETBAND (__SID |30)
+#define I_GETCLTIME (__SID |33)
+#define I_GETSIG (__SID |10)
+#define I_GRDOPT (__SID | 7)
+#define I_GWROPT (__SID |20)
+#define I_LINK (__SID |12)
+#define I_LIST (__SID |21)
+#define I_LOOK (__SID | 4)
+#define I_NREAD (__SID | 1)
+#define I_PEEK (__SID |15)
+#define I_PLINK (__SID |22)
+#define I_POP (__SID | 3)
+#define I_PUNLINK (__SID |23)
+#define I_PUSH (__SID | 2)
+#define I_RECVFD (__SID |14)
+#define I_SENDFD (__SID |17)
+#define I_SETCLTIME (__SID |32)
+#define I_SETSIG (__SID | 9)
+#define I_SRDOPT (__SID | 6)
+#define I_STR (__SID | 8)
+#define I_SWROPT (__SID |19)
+#define I_UNLINK (__SID |13)
+#define LASTMARK 0x02
+#define LC_ALL 6
+#define LC_ALL_MASK 0x7fffffff
+#define LC_COLLATE 3
+#define LC_COLLATE_MASK (1<<LC_COLLATE)
+#define LC_CTYPE 0
+#define LC_CTYPE_MASK (1<<LC_CTYPE)
+#define LC_GLOBAL_LOCALE ((locale_t)-1)
+#define LC_MESSAGES 5
+#define LC_MESSAGES_MASK (1<<LC_MESSAGES)
+#define LC_MONETARY 4
+#define LC_MONETARY_MASK (1<<LC_MONETARY)
+#define LC_NUMERIC 1
+#define LC_NUMERIC_MASK (1<<LC_NUMERIC)
+#define LC_TIME 2
+#define LC_TIME_MASK (1<<LC_TIME)
+#define LDBL_DECIMAL_DIG DECIMAL_DIG
+#define LDBL_DIG 33
+#define LDBL_EPSILON 1.92592994438723585305597794258492732e-34L
+#define LDBL_HAS_SUBNORM 1
+#define LDBL_MANT_DIG 113
+#define LDBL_MAX 1.18973149535723176508575932662800702e+4932L
+#define LDBL_MAX_10_EXP 4932
+#define LDBL_MAX_EXP 16384
+#define LDBL_MIN 3.36210314311209350626267781732175260e-4932L
+#define LDBL_MIN_10_EXP (-4931)
+#define LDBL_MIN_EXP (-16381)
+#define LDBL_TRUE_MIN 6.47517511943802511092443895822764655e-4966L
+#define LFLOW_OFF 0
+#define LFLOW_ON 1
+#define LFLOW_RESTART_ANY 2
+#define LFLOW_RESTART_XON 3
+#define LITTLE_ENDIAN __LITTLE_ENDIAN
+#define LLONG_MAX 0x7fffffffffffffffLL
+#define LLONG_MIN (-LLONG_MAX-1)
+#define LM_FORWARDMASK 2
+#define LM_MODE 1
+#define LM_SLC 3
+#define LNKTYPE '1'
+#define LOCK_EX 2
+#define LOCK_NB 4
+#define LOCK_SH 1
+#define LOCK_UN 8
+#define LONGBITS (sizeof(long) * 8)
+#define LONG_BIT 32
+#define LONG_MAX __LONG_MAX
+#define LONG_MIN (-LONG_MAX-1)
+#define L_INCR 1
+#define L_SET 0
+#define L_XTND 2
+#define L_ctermid 20
+#define L_cuserid 20
+#define MAGIC "070707"
+#define MATH_ERREXCEPT 2
+#define MATH_ERRNO 1
+#define MAX(a,b) (((a)>(b))?(a):(b))
+#define MAXCDNAME NS_MAXCDNAME
+#define MAXDNAME NS_MAXDNAME
+#define MAXDOUBLE DBL_MAX
+#define MAXFLOAT FLT_MAX
+#define MAXHOSTNAMELEN 64
+#define MAXINT INT_MAX
+#define MAXLABEL NS_MAXLABEL
+#define MAXLONG LONG_MAX
+#define MAXNAMLEN 255
+#define MAXPATHLEN 4096
+#define MAXSHORT SHRT_MAX
+#define MAXSYMLINKS 20
+#define MAXTC 6
+#define MAXTTL 255
+#define MAX_IPOPTLEN 40
+#define MB_CUR_MAX (__ctype_get_mb_cur_max())
+#define MB_LEN_MAX 4
+#define MCAST_BLOCK_SOURCE 43
+#define MCAST_EXCLUDE 0
+#define MCAST_INCLUDE 1
+#define MCAST_JOIN_GROUP 42
+#define MCAST_JOIN_SOURCE_GROUP 46
+#define MCAST_LEAVE_GROUP 45
+#define MCAST_LEAVE_SOURCE_GROUP 47
+#define MCAST_MSFILTER 48
+#define MCAST_UNBLOCK_SOURCE 44
+#define MIN(a,b) (((a)<(b))?(a):(b))
+#define MINDOUBLE DBL_MIN
+#define MINFLOAT FLT_MIN
+#define MININT INT_MIN
+#define MINLONG LONG_MIN
+#define MINSHORT SHRT_MIN
+#define MLD_LISTENER_QUERY 130
+#define MLD_LISTENER_REDUCTION 132
+#define MLD_LISTENER_REPORT 131
+#define MM_APPL 8
+#define MM_CONSOLE 512
+#define MM_ERROR 2
+#define MM_FIRM 4
+#define MM_HALT 1
+#define MM_HARD 1
+#define MM_INFO 4
+#define MM_NOCON 4
+#define MM_NOMSG 1
+#define MM_NOSEV 0
+#define MM_NOTOK (-1)
+#define MM_NRECOV 128
+#define MM_NULLACT ((char*)0)
+#define MM_NULLLBL ((char*)0)
+#define MM_NULLMC 0L
+#define MM_NULLSEV 0
+#define MM_NULLTAG ((char*)0)
+#define MM_NULLTXT ((char*)0)
+#define MM_OK 0
+#define MM_OPSYS 32
+#define MM_PRINT 256
+#define MM_RECOVER 64
+#define MM_SOFT 2
+#define MM_UTIL 16
+#define MM_WARNING 3
+#define MODE_ACK 0x04
+#define MODE_B 2
+#define MODE_C 3
+#define MODE_ECHO 0x0200
+#define MODE_EDIT 0x01
+#define MODE_FLOW 0x0100
+#define MODE_FORCE 0x1000
+#define MODE_INBIN 0x0400
+#define MODE_LIT_ECHO 0x10
+#define MODE_MASK 0x1f
+#define MODE_OUTBIN 0x0800
+#define MODE_S 1
+#define MODE_SOFT_TAB 0x08
+#define MODE_TRAPSIG 0x02
+#define MOD_CLKA ADJ_OFFSET_SINGLESHOT
+#define MOD_CLKB ADJ_TICK
+#define MOD_ESTERROR ADJ_ESTERROR
+#define MOD_FREQUENCY ADJ_FREQUENCY
+#define MOD_MAXERROR ADJ_MAXERROR
+#define MOD_MICRO ADJ_MICRO
+#define MOD_NANO ADJ_NANO
+#define MOD_OFFSET ADJ_OFFSET
+#define MOD_STATUS ADJ_STATUS
+#define MOD_TAI ADJ_TAI
+#define MOD_TIMECONST ADJ_TIMECONST
+#define MON_1 0x2001A
+#define MON_10 0x20023
+#define MON_11 0x20024
+#define MON_12 0x20025
+#define MON_2 0x2001B
+#define MON_3 0x2001C
+#define MON_4 0x2001D
+#define MON_5 0x2001E
+#define MON_6 0x2001F
+#define MON_7 0x20020
+#define MON_8 0x20021
+#define MON_9 0x20022
+#define MORECTL 1
+#define MOREDATA 2
+#define MSG_ANY 0x02
+#define MSG_BAND 0x04
+#define MSG_HIPRI 0x01
+#define MSG_PEEK __WASI_RIFLAGS_RECV_PEEK
+#define MSG_TRUNC __WASI_RIFLAGS_RECV_DATA_TRUNCATED
+#define MSG_WAITALL __WASI_RIFLAGS_RECV_WAITALL
+#define MUXID_ALL (-1)
+#define M_1_PI 0.31830988618379067154
+#define M_2_PI 0.63661977236758134308
+#define M_2_SQRTPI 1.12837916709551257390
+#define M_E 2.7182818284590452354
+#define M_LN10 2.30258509299404568402
+#define M_LN2 0.69314718055994530942
+#define M_LOG10E 0.43429448190325182765
+#define M_LOG2E 1.4426950408889634074
+#define M_PI 3.14159265358979323846
+#define M_PI_2 1.57079632679489661923
+#define M_PI_4 0.78539816339744830962
+#define M_SQRT1_2 0.70710678118654752440
+#define M_SQRT2 1.41421356237309504880
+#define NAMESERVER_PORT NS_DEFAULTPORT
+#define NAME_MAX 255
+#define NAN (0.0f/0.0f)
+#define NBBY 8
+#define NCARGS 131072
+#define NDEBUG 1
+#define ND_NA_FLAG_OVERRIDE 0x00000020
+#define ND_NA_FLAG_ROUTER 0x00000080
+#define ND_NA_FLAG_SOLICITED 0x00000040
+#define ND_NEIGHBOR_ADVERT 136
+#define ND_NEIGHBOR_SOLICIT 135
+#define ND_OPT_HOME_AGENT_INFO 8
+#define ND_OPT_MTU 5
+#define ND_OPT_PI_FLAG_AUTO 0x40
+#define ND_OPT_PI_FLAG_ONLINK 0x80
+#define ND_OPT_PI_FLAG_RADDR 0x20
+#define ND_OPT_PREFIX_INFORMATION 3
+#define ND_OPT_REDIRECTED_HEADER 4
+#define ND_OPT_RTR_ADV_INTERVAL 7
+#define ND_OPT_SOURCE_LINKADDR 1
+#define ND_OPT_TARGET_LINKADDR 2
+#define ND_RA_FLAG_HOME_AGENT 0x20
+#define ND_RA_FLAG_MANAGED 0x80
+#define ND_RA_FLAG_OTHER 0x40
+#define ND_REDIRECT 137
+#define ND_ROUTER_ADVERT 134
+#define ND_ROUTER_SOLICIT 133
+#define NEW_ENV_VALUE 1
+#define NEW_ENV_VAR 0
+#define NGROUPS 32
+#define NGROUPS_MAX 32
+#define NL_ARGMAX 9
+#define NL_CAT_LOCALE 1
+#define NL_LANGMAX 32
+#define NL_LOCALE_NAME(cat) _NL_LOCALE_NAME(cat)
+#define NL_MSGMAX 32767
+#define NL_NMAX 16
+#define NL_SETD 1
+#define NL_SETMAX 255
+#define NL_TEXTMAX 2048
+#define NOERROR ns_r_noerror
+#define NOEXPR 0x50001
+#define NOFILE 256
+#define NOGROUP (-1)
+#define NOP 241
+#define NOSTR 0x50003
+#define NOTAUTH ns_r_notauth
+#define NOTIMP ns_r_notimpl
+#define NOTZONE ns_r_notzone
+#define NR_ICMP_TYPES 18
+#define NR_ICMP_UNREACH 15
+#define NSLC 18
+#define NS_ALG_DH 2
+#define NS_ALG_DSA 3
+#define NS_ALG_DSS NS_ALG_DSA
+#define NS_ALG_EXPIRE_ONLY 253
+#define NS_ALG_MD5RSA 1
+#define NS_ALG_PRIVATE_OID 254
+#define NS_CMPRSFLGS 0xc0
+#define NS_DEFAULTPORT 53
+#define NS_DSA_MAX_BYTES 405
+#define NS_DSA_MIN_SIZE 213
+#define NS_DSA_SIG_SIZE 41
+#define NS_GET16(s,cp) (void)((s) = ns_get16(((cp)+=2)-2))
+#define NS_GET32(l,cp) (void)((l) = ns_get32(((cp)+=4)-4))
+#define NS_HFIXEDSZ 12
+#define NS_IN6ADDRSZ 16
+#define NS_INADDRSZ 4
+#define NS_INT16SZ 2
+#define NS_INT32SZ 4
+#define NS_INT8SZ 1
+#define NS_KEY_EXTENDED_FLAGS 0x1000
+#define NS_KEY_NAME_ENTITY 0x0200
+#define NS_KEY_NAME_RESERVED 0x0300
+#define NS_KEY_NAME_TYPE 0x0300
+#define NS_KEY_NAME_USER 0x0000
+#define NS_KEY_NAME_ZONE 0x0100
+#define NS_KEY_NO_AUTH 0x8000
+#define NS_KEY_NO_CONF 0x4000
+#define NS_KEY_PROT_ANY 255
+#define NS_KEY_PROT_DNSSEC 3
+#define NS_KEY_PROT_EMAIL 2
+#define NS_KEY_PROT_IPSEC 4
+#define NS_KEY_PROT_TLS 1
+#define NS_KEY_RESERVED10 0x0020
+#define NS_KEY_RESERVED11 0x0010
+#define NS_KEY_RESERVED2 0x2000
+#define NS_KEY_RESERVED4 0x0800
+#define NS_KEY_RESERVED5 0x0400
+#define NS_KEY_RESERVED8 0x0080
+#define NS_KEY_RESERVED9 0x0040
+#define NS_KEY_RESERVED_BITMASK ( NS_KEY_RESERVED2 | NS_KEY_RESERVED4 | NS_KEY_RESERVED5 | NS_KEY_RESERVED8 | NS_KEY_RESERVED9 | NS_KEY_RESERVED10 | NS_KEY_RESERVED11 )
+#define NS_KEY_RESERVED_BITMASK2 0xFFFF
+#define NS_KEY_SIGNATORYMASK 0x000F
+#define NS_KEY_TYPEMASK 0xC000
+#define NS_KEY_TYPE_AUTH_CONF 0x0000
+#define NS_KEY_TYPE_AUTH_ONLY 0x4000
+#define NS_KEY_TYPE_CONF_ONLY 0x8000
+#define NS_KEY_TYPE_NO_KEY 0xC000
+#define NS_MAXCDNAME 255
+#define NS_MAXDNAME 1025
+#define NS_MAXLABEL 63
+#define NS_MAXMSG 65535
+#define NS_MD5RSA_MAX_BASE64 (((NS_MD5RSA_MAX_BYTES+2)/3)*4)
+#define NS_MD5RSA_MAX_BITS 4096
+#define NS_MD5RSA_MAX_BYTES ((NS_MD5RSA_MAX_BITS+7/8)*2+3)
+#define NS_MD5RSA_MAX_SIZE ((NS_MD5RSA_MAX_BITS+7)/8)
+#define NS_MD5RSA_MIN_BITS 512
+#define NS_MD5RSA_MIN_SIZE ((NS_MD5RSA_MIN_BITS+7)/8)
+#define NS_NOTIFY_OP ns_o_notify
+#define NS_NXT_BITS 8
+#define NS_NXT_BIT_CLEAR(n,p) (p[(n)/NS_NXT_BITS] &= ~(0x80>>((n)%NS_NXT_BITS)))
+#define NS_NXT_BIT_ISSET(n,p) (p[(n)/NS_NXT_BITS] & (0x80>>((n)%NS_NXT_BITS)))
+#define NS_NXT_BIT_SET(n,p) (p[(n)/NS_NXT_BITS] |= (0x80>>((n)%NS_NXT_BITS)))
+#define NS_NXT_MAX 127
+#define NS_OPT_DNSSEC_OK 0x8000U
+#define NS_OPT_NSID 3
+#define NS_PACKETSZ 512
+#define NS_PUT16(s,cp) ns_put16((s), ((cp)+=2)-2)
+#define NS_PUT32(l,cp) ns_put32((l), ((cp)+=4)-4)
+#define NS_QFIXEDSZ 4
+#define NS_RRFIXEDSZ 10
+#define NS_SIG_ALG 2
+#define NS_SIG_EXPIR 8
+#define NS_SIG_FOOT 16
+#define NS_SIG_LABELS 3
+#define NS_SIG_OTTL 4
+#define NS_SIG_SIGNED 12
+#define NS_SIG_SIGNER 18
+#define NS_SIG_TYPE 0
+#define NS_TSIG_ALG_HMAC_MD5 "HMAC-MD5.SIG-ALG.REG.INT"
+#define NS_TSIG_ERROR_FORMERR -12
+#define NS_TSIG_ERROR_NO_SPACE -11
+#define NS_TSIG_ERROR_NO_TSIG -10
+#define NS_TSIG_FUDGE 300
+#define NS_TSIG_TCP_COUNT 100
+#define NS_UPDATE_OP ns_o_update
+#define NTELOPTS (1+TELOPT_NEW_ENVIRON)
+#define NULL ((void*)0)
+#define NXDOMAIN ns_r_nxdomain
+#define NXRRSET ns_r_nxrrset
+#define NZERO 20
+#define OLD_ENV_VALUE 0
+#define OLD_ENV_VAR 1
+#define ONCE_FLAG_INIT 0
+#define O_ACCMODE (O_EXEC | O_RDWR | O_SEARCH)
+#define O_APPEND __WASI_FDFLAGS_APPEND
+#define O_CLOEXEC (0)
+#define O_CREAT (__WASI_OFLAGS_CREAT << 12)
+#define O_DIRECTORY (__WASI_OFLAGS_DIRECTORY << 12)
+#define O_DSYNC __WASI_FDFLAGS_DSYNC
+#define O_EXCL (__WASI_OFLAGS_EXCL << 12)
+#define O_EXEC (0x02000000)
+#define O_NOCTTY (0)
+#define O_NOFOLLOW (0x01000000)
+#define O_NONBLOCK __WASI_FDFLAGS_NONBLOCK
+#define O_RDONLY (0x04000000)
+#define O_RDWR (O_RDONLY | O_WRONLY)
+#define O_RSYNC __WASI_FDFLAGS_RSYNC
+#define O_SEARCH (0x08000000)
+#define O_SYNC __WASI_FDFLAGS_SYNC
+#define O_TRUNC (__WASI_OFLAGS_TRUNC << 12)
+#define O_TTY_INIT (0)
+#define O_WRONLY (0x10000000)
+#define PACKETSZ NS_PACKETSZ
+#define PACKET_ADD_MEMBERSHIP 1
+#define PACKET_AUXDATA 8
+#define PACKET_BROADCAST 1
+#define PACKET_COPY_THRESH 7
+#define PACKET_DROP_MEMBERSHIP 2
+#define PACKET_FANOUT 18
+#define PACKET_FANOUT_DATA 22
+#define PACKET_FASTROUTE 6
+#define PACKET_HDRLEN 11
+#define PACKET_HOST 0
+#define PACKET_IGNORE_OUTGOING 23
+#define PACKET_LOOPBACK 5
+#define PACKET_LOSS 14
+#define PACKET_MR_ALLMULTI 2
+#define PACKET_MR_MULTICAST 0
+#define PACKET_MR_PROMISC 1
+#define PACKET_MR_UNICAST 3
+#define PACKET_MULTICAST 2
+#define PACKET_ORIGDEV 9
+#define PACKET_OTHERHOST 3
+#define PACKET_OUTGOING 4
+#define PACKET_QDISC_BYPASS 20
+#define PACKET_RECV_OUTPUT 3
+#define PACKET_RESERVE 12
+#define PACKET_ROLLOVER_STATS 21
+#define PACKET_RX_RING 5
+#define PACKET_STATISTICS 6
+#define PACKET_TIMESTAMP 17
+#define PACKET_TX_HAS_OFF 19
+#define PACKET_TX_RING 13
+#define PACKET_TX_TIMESTAMP 16
+#define PACKET_VERSION 10
+#define PACKET_VNET_HDR 15
+#define PAGESIZE (0x10000)
+#define PAGE_SIZE PAGESIZE
+#define PATH_MAX 4096
+#define PDP_ENDIAN __PDP_ENDIAN
+#define PM_STR 0x20027
+#define POLLERR 0x1000
+#define POLLHUP 0x2000
+#define POLLIN POLLRDNORM
+#define POLLNVAL 0x4000
+#define POLLOUT POLLWRNORM
+#define POLLRDNORM 0x1
+#define POLLWRNORM 0x2
+#define POSIX_CLOSE_RESTART 0
+#define POSIX_FADV_DONTNEED __WASI_ADVICE_DONTNEED
+#define POSIX_FADV_NOREUSE __WASI_ADVICE_NOREUSE
+#define POSIX_FADV_NORMAL __WASI_ADVICE_NORMAL
+#define POSIX_FADV_RANDOM __WASI_ADVICE_RANDOM
+#define POSIX_FADV_SEQUENTIAL __WASI_ADVICE_SEQUENTIAL
+#define POSIX_FADV_WILLNEED __WASI_ADVICE_WILLNEED
+#define PRELIM 1
+#define PRIX16 __UINT16_FMTX__
+#define PRIX32 __UINT32_FMTX__
+#define PRIX64 __UINT64_FMTX__
+#define PRIX8 __UINT8_FMTX__
+#define PRIXFAST16 __UINT_FAST16_FMTX__
+#define PRIXFAST32 __UINT_FAST32_FMTX__
+#define PRIXFAST64 __UINT_FAST64_FMTX__
+#define PRIXFAST8 __UINT_FAST8_FMTX__
+#define PRIXLEAST16 __UINT_LEAST16_FMTX__
+#define PRIXLEAST32 __UINT_LEAST32_FMTX__
+#define PRIXLEAST64 __UINT_LEAST64_FMTX__
+#define PRIXLEAST8 __UINT_LEAST8_FMTX__
+#define PRIXMAX __UINTMAX_FMTX__
+#define PRIXPTR __UINTPTR_FMTX__
+#define PRId16 __INT16_FMTd__
+#define PRId32 __INT32_FMTd__
+#define PRId64 __INT64_FMTd__
+#define PRId8 __INT8_FMTd__
+#define PRIdFAST16 __INT_FAST16_FMTd__
+#define PRIdFAST32 __INT_FAST32_FMTd__
+#define PRIdFAST64 __INT_FAST64_FMTd__
+#define PRIdFAST8 __INT_FAST8_FMTd__
+#define PRIdLEAST16 __INT_LEAST16_FMTd__
+#define PRIdLEAST32 __INT_LEAST32_FMTd__
+#define PRIdLEAST64 __INT_LEAST64_FMTd__
+#define PRIdLEAST8 __INT_LEAST8_FMTd__
+#define PRIdMAX __INTMAX_FMTd__
+#define PRIdPTR __INTPTR_FMTd__
+#define PRIi16 __INT16_FMTi__
+#define PRIi32 __INT32_FMTi__
+#define PRIi64 __INT64_FMTi__
+#define PRIi8 __INT8_FMTi__
+#define PRIiFAST16 __INT_FAST16_FMTi__
+#define PRIiFAST32 __INT_FAST32_FMTi__
+#define PRIiFAST64 __INT_FAST64_FMTi__
+#define PRIiFAST8 __INT_FAST8_FMTi__
+#define PRIiLEAST16 __INT_LEAST16_FMTi__
+#define PRIiLEAST32 __INT_LEAST32_FMTi__
+#define PRIiLEAST64 __INT_LEAST64_FMTi__
+#define PRIiLEAST8 __INT_LEAST8_FMTi__
+#define PRIiMAX __INTMAX_FMTi__
+#define PRIiPTR __INTPTR_FMTi__
+#define PRIo16 __UINT16_FMTo__
+#define PRIo32 __UINT32_FMTo__
+#define PRIo64 __UINT64_FMTo__
+#define PRIo8 __UINT8_FMTo__
+#define PRIoFAST16 __UINT_FAST16_FMTo__
+#define PRIoFAST32 __UINT_FAST32_FMTo__
+#define PRIoFAST64 __UINT_FAST64_FMTo__
+#define PRIoFAST8 __UINT_FAST8_FMTo__
+#define PRIoLEAST16 __UINT_LEAST16_FMTo__
+#define PRIoLEAST32 __UINT_LEAST32_FMTo__
+#define PRIoLEAST64 __UINT_LEAST64_FMTo__
+#define PRIoLEAST8 __UINT_LEAST8_FMTo__
+#define PRIoMAX __UINTMAX_FMTo__
+#define PRIoPTR __UINTPTR_FMTo__
+#define PRIu16 __UINT16_FMTu__
+#define PRIu32 __UINT32_FMTu__
+#define PRIu64 __UINT64_FMTu__
+#define PRIu8 __UINT8_FMTu__
+#define PRIuFAST16 __UINT_FAST16_FMTu__
+#define PRIuFAST32 __UINT_FAST32_FMTu__
+#define PRIuFAST64 __UINT_FAST64_FMTu__
+#define PRIuFAST8 __UINT_FAST8_FMTu__
+#define PRIuLEAST16 __UINT_LEAST16_FMTu__
+#define PRIuLEAST32 __UINT_LEAST32_FMTu__
+#define PRIuLEAST64 __UINT_LEAST64_FMTu__
+#define PRIuLEAST8 __UINT_LEAST8_FMTu__
+#define PRIuMAX __UINTMAX_FMTu__
+#define PRIuPTR __UINTPTR_FMTu__
+#define PRIx16 __UINT16_FMTx__
+#define PRIx32 __UINT32_FMTx__
+#define PRIx64 __UINT64_FMTx__
+#define PRIx8 __UINT8_FMTx__
+#define PRIxFAST16 __UINT_FAST16_FMTx__
+#define PRIxFAST32 __UINT_FAST32_FMTx__
+#define PRIxFAST64 __UINT_FAST64_FMTx__
+#define PRIxFAST8 __UINT_FAST8_FMTx__
+#define PRIxLEAST16 __UINT_LEAST16_FMTx__
+#define PRIxLEAST32 __UINT_LEAST32_FMTx__
+#define PRIxLEAST64 __UINT_LEAST64_FMTx__
+#define PRIxLEAST8 __UINT_LEAST8_FMTx__
+#define PRIxMAX __UINTMAX_FMTx__
+#define PRIxPTR __UINTPTR_FMTx__
+#define PTRBITS (sizeof(char *) * 8)
+#define PTRDIFF_MAX INT32_MAX
+#define PTRDIFF_MIN INT32_MIN
+#define PUTLONG NS_PUT32
+#define PUTSHORT NS_PUT16
+#define QFIXEDSZ NS_QFIXEDSZ
+#define QUERY ns_o_query
+#define RADIXCHAR 0x10000
+#define RAND_MAX (0x7fffffff)
+#define REC_EOF '\002'
+#define REC_EOR '\001'
+#define REC_ESC '\377'
+#define REFUSED ns_r_refused
+#define REGTYPE '0'
+#define REG_BADBR 10
+#define REG_BADPAT 2
+#define REG_BADRPT 13
+#define REG_EBRACE 9
+#define REG_EBRACK 7
+#define REG_ECOLLATE 3
+#define REG_ECTYPE 4
+#define REG_EESCAPE 5
+#define REG_ENOSYS -1
+#define REG_EPAREN 8
+#define REG_ERANGE 11
+#define REG_ESPACE 12
+#define REG_ESUBREG 6
+#define REG_EXTENDED 1
+#define REG_ICASE 2
+#define REG_NEWLINE 4
+#define REG_NOMATCH 1
+#define REG_NOSUB 8
+#define REG_NOTBOL 1
+#define REG_NOTEOL 2
+#define REG_OK 0
+#define RE_DUP_MAX 255
+#define RMSGD 0x0001
+#define RMSGN 0x0002
+#define RNORM 0x0000
+#define RPM_PCO_ADD 1
+#define RPM_PCO_CHANGE 2
+#define RPM_PCO_SETGLOBAL 3
+#define RPROTDAT 0x0004
+#define RPROTDIS 0x0008
+#define RPROTMASK 0x001C
+#define RPROTNORM 0x0010
+#define RRFIXEDSZ NS_RRFIXEDSZ
+#define RRQ 01
+#define RS_HIPRI 0x01
+#define RUSAGE_CHILDREN 2
+#define RUSAGE_SELF 1
+#define R_OK (4)
+#define SARMAG 8
+#define SB 250
+#define SCHAR_MAX 127
+#define SCHAR_MIN (-128)
+#define SCNd16 __INT16_FMTd__
+#define SCNd32 __INT32_FMTd__
+#define SCNd64 __INT64_FMTd__
+#define SCNd8 __INT8_FMTd__
+#define SCNdFAST16 __INT_FAST16_FMTd__
+#define SCNdFAST32 __INT_FAST32_FMTd__
+#define SCNdFAST64 __INT_FAST64_FMTd__
+#define SCNdFAST8 __INT_FAST8_FMTd__
+#define SCNdLEAST16 __INT_LEAST16_FMTd__
+#define SCNdLEAST32 __INT_LEAST32_FMTd__
+#define SCNdLEAST64 __INT_LEAST64_FMTd__
+#define SCNdLEAST8 __INT_LEAST8_FMTd__
+#define SCNdMAX __INTMAX_FMTd__
+#define SCNdPTR __INTPTR_FMTd__
+#define SCNi16 __INT16_FMTi__
+#define SCNi32 __INT32_FMTi__
+#define SCNi64 __INT64_FMTi__
+#define SCNi8 __INT8_FMTi__
+#define SCNiFAST16 __INT_FAST16_FMTi__
+#define SCNiFAST32 __INT_FAST32_FMTi__
+#define SCNiFAST64 __INT_FAST64_FMTi__
+#define SCNiFAST8 __INT_FAST8_FMTi__
+#define SCNiLEAST16 __INT_LEAST16_FMTi__
+#define SCNiLEAST32 __INT_LEAST32_FMTi__
+#define SCNiLEAST64 __INT_LEAST64_FMTi__
+#define SCNiLEAST8 __INT_LEAST8_FMTi__
+#define SCNiMAX __INTMAX_FMTi__
+#define SCNiPTR __INTPTR_FMTi__
+#define SCNo16 __UINT16_FMTo__
+#define SCNo32 __UINT32_FMTo__
+#define SCNo64 __UINT64_FMTo__
+#define SCNo8 __UINT8_FMTo__
+#define SCNoFAST16 __UINT_FAST16_FMTo__
+#define SCNoFAST32 __UINT_FAST32_FMTo__
+#define SCNoFAST64 __UINT_FAST64_FMTo__
+#define SCNoFAST8 __UINT_FAST8_FMTo__
+#define SCNoLEAST16 __UINT_LEAST16_FMTo__
+#define SCNoLEAST32 __UINT_LEAST32_FMTo__
+#define SCNoLEAST64 __UINT_LEAST64_FMTo__
+#define SCNoLEAST8 __UINT_LEAST8_FMTo__
+#define SCNoMAX __UINTMAX_FMTo__
+#define SCNoPTR __UINTPTR_FMTo__
+#define SCNu16 __UINT16_FMTu__
+#define SCNu32 __UINT32_FMTu__
+#define SCNu64 __UINT64_FMTu__
+#define SCNu8 __UINT8_FMTu__
+#define SCNuFAST16 __UINT_FAST16_FMTu__
+#define SCNuFAST32 __UINT_FAST32_FMTu__
+#define SCNuFAST64 __UINT_FAST64_FMTu__
+#define SCNuFAST8 __UINT_FAST8_FMTu__
+#define SCNuLEAST16 __UINT_LEAST16_FMTu__
+#define SCNuLEAST32 __UINT_LEAST32_FMTu__
+#define SCNuLEAST64 __UINT_LEAST64_FMTu__
+#define SCNuLEAST8 __UINT_LEAST8_FMTu__
+#define SCNuMAX __UINTMAX_FMTu__
+#define SCNuPTR __UINTPTR_FMTu__
+#define SCNx16 __UINT16_FMTx__
+#define SCNx32 __UINT32_FMTx__
+#define SCNx64 __UINT64_FMTx__
+#define SCNx8 __UINT8_FMTx__
+#define SCNxFAST16 __UINT_FAST16_FMTx__
+#define SCNxFAST32 __UINT_FAST32_FMTx__
+#define SCNxFAST64 __UINT_FAST64_FMTx__
+#define SCNxFAST8 __UINT_FAST8_FMTx__
+#define SCNxLEAST16 __UINT_LEAST16_FMTx__
+#define SCNxLEAST32 __UINT_LEAST32_FMTx__
+#define SCNxLEAST64 __UINT_LEAST64_FMTx__
+#define SCNxLEAST8 __UINT_LEAST8_FMTx__
+#define SCNxMAX __UINTMAX_FMTx__
+#define SCNxPTR __UINTPTR_FMTx__
+#define SE 240
+#define SEEK_CUR __WASI_WHENCE_CUR
+#define SEEK_END __WASI_WHENCE_END
+#define SEEK_SET __WASI_WHENCE_SET
+#define SEGSIZE 512
+#define SEM_FAILED ((sem_t *)0)
+#define SERVFAIL ns_r_servfail
+#define SHORTBITS (sizeof(short) * 8)
+#define SHRT_MAX 0x7fff
+#define SHRT_MIN (-1-0x7fff)
+#define SHUT_RD __WASI_SDFLAGS_RD
+#define SHUT_RDWR (SHUT_RD | SHUT_WR)
+#define SHUT_WR __WASI_SDFLAGS_WR
+#define SIG_ATOMIC_MAX INT32_MAX
+#define SIG_ATOMIC_MIN INT32_MIN
+#define SIZE_MAX UINT32_MAX
+#define SI_LOAD_SHIFT 16
+#define SLC_ABORT 7
+#define SLC_ACK 0x80
+#define SLC_AO 4
+#define SLC_AYT 5
+#define SLC_BRK 2
+#define SLC_CANTCHANGE 1
+#define SLC_DEFAULT 3
+#define SLC_EC 10
+#define SLC_EL 11
+#define SLC_EOF 8
+#define SLC_EOR 6
+#define SLC_EW 12
+#define SLC_FLAGS 1
+#define SLC_FLUSHIN 0x40
+#define SLC_FLUSHOUT 0x20
+#define SLC_FORW1 17
+#define SLC_FORW2 18
+#define SLC_FUNC 0
+#define SLC_IP 3
+#define SLC_LEVELBITS 0x03
+#define SLC_LNEXT 14
+#define SLC_NAME(x) slc_names[x]
+#define SLC_NAMELIST "0", "SYNCH", "BRK", "IP", "AO", "AYT", "EOR", "ABORT", "EOF", "SUSP", "EC", "EL", "EW", "RP", "LNEXT", "XON", "XOFF", "FORW1", "FORW2", 0,
+#define SLC_NAMES SLC_NAMELIST
+#define SLC_NAME_OK(x) ((unsigned int)(x) <= NSLC)
+#define SLC_NOSUPPORT 0
+#define SLC_RP 13
+#define SLC_SUSP 9
+#define SLC_SYNCH 1
+#define SLC_VALUE 2
+#define SLC_VARIABLE 2
+#define SLC_XOFF 16
+#define SLC_XON 15
+#define SNDPIPE 0x002
+#define SNDZERO 0x001
+#define SOCK_CLOEXEC (0x00002000)
+#define SOCK_DGRAM __WASI_FILETYPE_SOCKET_DGRAM
+#define SOCK_NONBLOCK (0x00004000)
+#define SOCK_STREAM __WASI_FILETYPE_SOCKET_STREAM
+#define SOL_SOCKET 0x7fffffff
+#define SOL_TCP 6
+#define SOL_UDP 17
+#define SO_TYPE 3
+#define SSIZE_MAX LONG_MAX
+#define STATUS ns_o_status
+#define STA_CLK 0x8000
+#define STA_CLOCKERR 0x1000
+#define STA_DEL 0x0020
+#define STA_FLL 0x0008
+#define STA_FREQHOLD 0x0080
+#define STA_INS 0x0010
+#define STA_MODE 0x4000
+#define STA_NANO 0x2000
+#define STA_PLL 0x0001
+#define STA_PPSERROR 0x0800
+#define STA_PPSFREQ 0x0002
+#define STA_PPSJITTER 0x0200
+#define STA_PPSSIGNAL 0x0100
+#define STA_PPSTIME 0x0004
+#define STA_PPSWANDER 0x0400
+#define STA_RONLY (STA_PPSSIGNAL | STA_PPSJITTER | STA_PPSWANDER | STA_PPSERROR | STA_CLOCKERR | STA_NANO | STA_MODE | STA_CLK)
+#define STA_UNSYNC 0x0040
+#define STDERR_FILENO 2
+#define STDIN_FILENO 0
+#define STDOUT_FILENO 1
+#define STRU_F 1
+#define STRU_P 3
+#define STRU_R 2
+#define SUN_LEN(s) (2+strlen((s)->sun_path))
+#define SUSP 237
+#define SYMLOOP_MAX 40
+#define SYMTYPE '2'
+#define SYNCH 242
+#define S_ADDT ns_s_ar
+#define S_BANDURG 0x0200
+#define S_ERROR 0x0010
+#define S_HANGUP 0x0020
+#define S_HIPRI 0x0002
+#define S_IEXEC S_IXUSR
+#define S_IFBLK (0x6000)
+#define S_IFCHR (0x2000)
+#define S_IFDIR (0x4000)
+#define S_IFIFO (0xc000)
+#define S_IFLNK (0xa000)
+#define S_IFMT (S_IFBLK | S_IFCHR | S_IFDIR | S_IFIFO | S_IFLNK | S_IFREG | S_IFSOCK)
+#define S_IFREG (0x8000)
+#define S_IFSOCK (0xc000)
+#define S_INPUT 0x0001
+#define S_IREAD S_IRUSR
+#define S_IRGRP (0x20)
+#define S_IROTH (0x4)
+#define S_IRUSR (0x100)
+#define S_IRWXG (S_IXGRP | S_IWGRP | S_IRGRP)
+#define S_IRWXO (S_IXOTH | S_IWOTH | S_IROTH)
+#define S_IRWXU (S_IXUSR | S_IWUSR | S_IRUSR)
+#define S_ISBLK(m) (((m)&S_IFMT) == S_IFBLK)
+#define S_ISCHR(m) (((m)&S_IFMT) == S_IFCHR)
+#define S_ISDIR(m) (((m)&S_IFMT) == S_IFDIR)
+#define S_ISFIFO(m) (((m)&S_IFMT) == S_IFIFO)
+#define S_ISGID (0x400)
+#define S_ISLNK(m) (((m)&S_IFMT) == S_IFLNK)
+#define S_ISREG(m) (((m)&S_IFMT) == S_IFREG)
+#define S_ISSOCK(m) (((m)&S_IFMT) == S_IFSOCK)
+#define S_ISUID (0x800)
+#define S_ISVTX (0x200)
+#define S_IWGRP (0x10)
+#define S_IWOTH (0x2)
+#define S_IWRITE S_IWUSR
+#define S_IWUSR (0x80)
+#define S_IXGRP (0x8)
+#define S_IXOTH (0x1)
+#define S_IXUSR (0x40)
+#define S_MSG 0x0008
+#define S_OUTPUT 0x0004
+#define S_PREREQ ns_s_pr
+#define S_RDBAND 0x0080
+#define S_RDNORM 0x0040
+#define S_UPDATE ns_s_ud
+#define S_WRBAND 0x0100
+#define S_WRNORM S_OUTPUT
+#define S_ZONE ns_s_zn
+#define TCPI_OPT_ECN 8
+#define TCPI_OPT_SACK 2
+#define TCPI_OPT_TIMESTAMPS 1
+#define TCPI_OPT_WSCALE 4
+#define TCPOLEN_MAXSEG 4
+#define TCPOLEN_SACK_PERMITTED 2
+#define TCPOLEN_TIMESTAMP 10
+#define TCPOLEN_WINDOW 3
+#define TCPOPT_EOL 0
+#define TCPOPT_MAXSEG 2
+#define TCPOPT_NOP 1
+#define TCPOPT_SACK 5
+#define TCPOPT_SACK_PERMITTED 4
+#define TCPOPT_TIMESTAMP 8
+#define TCPOPT_WINDOW 3
+#define TCP_CA_CWR 2
+#define TCP_CA_Disorder 1
+#define TCP_CA_Loss 4
+#define TCP_CA_Open 0
+#define TCP_CA_Recovery 3
+#define TCP_CC_INFO 26
+#define TCP_CLOSE 7
+#define TCP_CLOSE_WAIT 8
+#define TCP_CLOSING 11
+#define TCP_CM_INQ TCP_INQ
+#define TCP_CONGESTION 13
+#define TCP_CORK 3
+#define TCP_DEFER_ACCEPT 9
+#define TCP_ENCAP_ESPINTCP 7
+#define TCP_ESTABLISHED 1
+#define TCP_FASTOPEN 23
+#define TCP_FASTOPEN_CONNECT 30
+#define TCP_FASTOPEN_KEY 33
+#define TCP_FASTOPEN_NO_COOKIE 34
+#define TCP_FIN_WAIT1 4
+#define TCP_FIN_WAIT2 5
+#define TCP_INFO 11
+#define TCP_INQ 36
+#define TCP_KEEPCNT 6
+#define TCP_KEEPIDLE 4
+#define TCP_KEEPINTVL 5
+#define TCP_LAST_ACK 9
+#define TCP_LINGER2 8
+#define TCP_LISTEN 10
+#define TCP_MAXSEG 2
+#define TCP_MD5SIG 14
+#define TCP_MD5SIG_EXT 32
+#define TCP_MD5SIG_FLAG_IFINDEX 0x2
+#define TCP_MD5SIG_FLAG_PREFIX 0x1
+#define TCP_MD5SIG_MAXKEYLEN 80
+#define TCP_NODELAY 1
+#define TCP_NOTSENT_LOWAT 25
+#define TCP_QUEUE_SEQ 21
+#define TCP_QUICKACK 12
+#define TCP_REPAIR 19
+#define TCP_REPAIR_OFF 0
+#define TCP_REPAIR_OFF_NO_WP -1
+#define TCP_REPAIR_ON 1
+#define TCP_REPAIR_OPTIONS 22
+#define TCP_REPAIR_QUEUE 20
+#define TCP_REPAIR_WINDOW 29
+#define TCP_SAVED_SYN 28
+#define TCP_SAVE_SYN 27
+#define TCP_SYNCNT 7
+#define TCP_SYN_RECV 3
+#define TCP_SYN_SENT 2
+#define TCP_THIN_DUPACK 17
+#define TCP_THIN_LINEAR_TIMEOUTS 16
+#define TCP_TIMESTAMP 24
+#define TCP_TIME_WAIT 6
+#define TCP_TX_DELAY 37
+#define TCP_ULP 31
+#define TCP_USER_TIMEOUT 18
+#define TCP_WINDOW_CLAMP 10
+#define TCP_ZEROCOPY_RECEIVE 35
+#define TELCMD(x) telcmds[(x)-TELCMD_FIRST]
+#define TELCMD_FIRST xEOF
+#define TELCMD_LAST IAC
+#define TELCMD_OK(x) ((unsigned int)(x) <= TELCMD_LAST && (unsigned int)(x) >= TELCMD_FIRST)
+#define TELOPT_3270REGIME 29
+#define TELOPT_AUTHENTICATION 37
+#define TELOPT_BINARY 0
+#define TELOPT_BM 19
+#define TELOPT_DET 20
+#define TELOPT_ECHO 1
+#define TELOPT_ENCRYPT 38
+#define TELOPT_EOR 25
+#define TELOPT_EXOPL 255
+#define TELOPT_LFLOW 33
+#define TELOPT_LINEMODE 34
+#define TELOPT_LOGOUT 18
+#define TELOPT_NAMS 4
+#define TELOPT_NAOCRD 10
+#define TELOPT_NAOFFD 13
+#define TELOPT_NAOHTD 12
+#define TELOPT_NAOHTS 11
+#define TELOPT_NAOL 8
+#define TELOPT_NAOLFD 16
+#define TELOPT_NAOP 9
+#define TELOPT_NAOVTD 15
+#define TELOPT_NAOVTS 14
+#define TELOPT_NAWS 31
+#define TELOPT_NEW_ENVIRON 39
+#define TELOPT_OLD_ENVIRON 36
+#define TELOPT_OUTMRK 27
+#define TELOPT_RCP 2
+#define TELOPT_RCTE 7
+#define TELOPT_SGA 3
+#define TELOPT_SNDLOC 23
+#define TELOPT_STATUS 5
+#define TELOPT_SUPDUP 21
+#define TELOPT_SUPDUPOUTPUT 22
+#define TELOPT_TM 6
+#define TELOPT_TSPEED 32
+#define TELOPT_TTYLOC 28
+#define TELOPT_TTYPE 24
+#define TELOPT_TUID 26
+#define TELOPT_X3PAD 30
+#define TELOPT_XASCII 17
+#define TELOPT_XDISPLOC 35
+#define TELQUAL_INFO 2
+#define TELQUAL_IS 0
+#define TELQUAL_NAME 3
+#define TELQUAL_REPLY 2
+#define TELQUAL_SEND 1
+#define TGEXEC 00010
+#define TGREAD 00040
+#define TGWRITE 00020
+#define THOUSEP 0x10001
+#define TH_ACK 0x10
+#define TH_FIN 0x01
+#define TH_PUSH 0x08
+#define TH_RST 0x04
+#define TH_SYN 0x02
+#define TH_URG 0x20
+#define TIMER_ABSTIME __WASI_SUBCLOCKFLAGS_SUBSCRIPTION_CLOCK_ABSTIME
+#define TIMESPEC_TO_TIMEVAL(tv,ts) ( (tv)->tv_sec = (ts)->tv_sec, (tv)->tv_usec = (ts)->tv_nsec / 1000, (void)0 )
+#define TIMEVAL_TO_TIMESPEC(tv,ts) ( (ts)->tv_sec = (tv)->tv_sec, (ts)->tv_nsec = (tv)->tv_usec * 1000, (void)0 )
+#define TIME_BAD TIME_ERROR
+#define TIME_DEL 2
+#define TIME_ERROR 5
+#define TIME_INS 1
+#define TIME_OK 0
+#define TIME_OOP 3
+#define TIME_UTC 1
+#define TIME_WAIT 4
+#define TMAGIC "ustar"
+#define TMAGLEN 6
+#define TOEXEC 00001
+#define TOREAD 00004
+#define TOWRITE 00002
+#define TRANSIENT 4
+#define TSGID 02000
+#define TSS_DTOR_ITERATIONS 4
+#define TSUID 04000
+#define TSVTX 01000
+#define TTYDEF_CFLAG (CREAD | CS7 | PARENB | HUPCL)
+#define TTYDEF_IFLAG (BRKINT | ISTRIP | ICRNL | IMAXBEL | IXON | IXANY)
+#define TTYDEF_LFLAG (ECHO | ICANON | ISIG | IEXTEN | ECHOE|ECHOKE|ECHOCTL)
+#define TTYDEF_OFLAG (OPOST | ONLCR | XTABS)
+#define TTYDEF_SPEED (B9600)
+#define TTY_NAME_MAX 32
+#define TUEXEC 00100
+#define TUREAD 00400
+#define TUWRITE 00200
+#define TVERSION "00"
+#define TVERSLEN 2
+#define TYPE_A 1
+#define TYPE_E 2
+#define TYPE_I 3
+#define TYPE_L 4
+#define TZNAME_MAX 6
+#define T_A ns_t_a
+#define T_A6 ns_t_a6
+#define T_AAAA ns_t_aaaa
+#define T_AFSDB ns_t_afsdb
+#define T_ANY ns_t_any
+#define T_ATMA ns_t_atma
+#define T_AXFR ns_t_axfr
+#define T_CNAME ns_t_cname
+#define T_DNAME ns_t_dname
+#define T_EID ns_t_eid
+#define T_FMT 0x2002A
+#define T_FMT_AMPM 0x2002B
+#define T_GPOS ns_t_gpos
+#define T_HINFO ns_t_hinfo
+#define T_ISDN ns_t_isdn
+#define T_IXFR ns_t_ixfr
+#define T_KEY ns_t_key
+#define T_LOC ns_t_loc
+#define T_MAILA ns_t_maila
+#define T_MAILB ns_t_mailb
+#define T_MB ns_t_mb
+#define T_MD ns_t_md
+#define T_MF ns_t_mf
+#define T_MG ns_t_mg
+#define T_MINFO ns_t_minfo
+#define T_MR ns_t_mr
+#define T_MX ns_t_mx
+#define T_NAPTR ns_t_naptr
+#define T_NIMLOC ns_t_nimloc
+#define T_NS ns_t_ns
+#define T_NSAP ns_t_nsap
+#define T_NSAP_PTR ns_t_nsap_ptr
+#define T_NULL ns_t_null
+#define T_NXT ns_t_nxt
+#define T_PTR ns_t_ptr
+#define T_PX ns_t_px
+#define T_RP ns_t_rp
+#define T_RT ns_t_rt
+#define T_SIG ns_t_sig
+#define T_SOA ns_t_soa
+#define T_SRV ns_t_srv
+#define T_TSIG ns_t_tsig
+#define T_TXT ns_t_txt
+#define T_WKS ns_t_wks
+#define T_X25 ns_t_x25
+#define UCHAR_MAX 255
+#define UDP_CORK 1
+#define UDP_ENCAP 100
+#define UDP_ENCAP_ESPINUDP 2
+#define UDP_ENCAP_ESPINUDP_NON_IKE 1
+#define UDP_ENCAP_GTP0 4
+#define UDP_ENCAP_GTP1U 5
+#define UDP_ENCAP_L2TPINUDP 3
+#define UDP_ENCAP_RXRPC 6
+#define UDP_GRO 104
+#define UDP_NO_CHECK6_RX 102
+#define UDP_NO_CHECK6_TX 101
+#define UDP_SEGMENT 103
+#define UINT16_C(c) c
+#define UINT16_MAX (0xffff)
+#define UINT32_C(c) c ## U
+#define UINT32_MAX (0xffffffffu)
+#define UINT64_C(c) c ## ULL
+#define UINT64_MAX (0xffffffffffffffffu)
+#define UINT8_C(c) c
+#define UINT8_MAX (0xff)
+#define UINTMAX_C(c) c ## ULL
+#define UINTMAX_MAX UINT64_MAX
+#define UINTPTR_MAX UINT32_MAX
+#define UINT_FAST16_MAX UINT16_MAX
+#define UINT_FAST32_MAX UINT32_MAX
+#define UINT_FAST64_MAX UINT64_MAX
+#define UINT_FAST8_MAX UINT8_MAX
+#define UINT_LEAST16_MAX UINT16_MAX
+#define UINT_LEAST32_MAX UINT32_MAX
+#define UINT_LEAST64_MAX UINT64_MAX
+#define UINT_LEAST8_MAX UINT8_MAX
+#define UINT_MAX 0xffffffffU
+#define UIO_MAXIOV 1024
+#define ULLONG_MAX (2ULL*LLONG_MAX+1)
+#define ULONG_MAX (2UL*LONG_MAX+1)
+#define USHRT_MAX 0xffff
+#define UTIME_NOW (-1)
+#define UTIME_OMIT (-2)
+#define WCHAR_MAX (0x7fffffff+L'\0')
+#define WCHAR_MIN (-1-0x7fffffff+L'\0')
+#define WEOF 0xffffffffU
+#define WILL 251
+#define WINT_MAX UINT32_MAX
+#define WINT_MIN 0U
+#define WONT 252
+#define WORD_BIT 32
+#define WRQ 02
+#define W_OK (2)
+#define X_OK (1)
+#define YESEXPR 0x50000
+#define YESSTR 0x50002
+#define YXDOMAIN ns_r_yxdomain
+#define YXRRSET ns_r_yxrrset
+#define _ALLOCA_H 
+#define _ALL_SOURCE 1
+#define _ARPA_FTP_H 
+#define _ARPA_INET_H 
+#define _ARPA_NAMESER_H 
+#define _ARPA_TELNET_H 
+#define _ARPA_TFTP_H 
+#define _AR_H 
+#define _BYTESWAP_H 
+#define _COMPLEX_H 
+#define _CPIO_H 
+#define _CRYPT_H 
+#define _CS_GNU_LIBC_VERSION 2
+#define _CS_GNU_LIBPTHREAD_VERSION 3
+#define _CS_PATH 0
+#define _CS_POSIX_V5_WIDTH_RESTRICTED_ENVS 4
+#define _CS_POSIX_V6_ILP32_OFF32_CFLAGS 1116
+#define _CS_POSIX_V6_ILP32_OFF32_LDFLAGS 1117
+#define _CS_POSIX_V6_ILP32_OFF32_LIBS 1118
+#define _CS_POSIX_V6_ILP32_OFF32_LINTFLAGS 1119
+#define _CS_POSIX_V6_ILP32_OFFBIG_CFLAGS 1120
+#define _CS_POSIX_V6_ILP32_OFFBIG_LDFLAGS 1121
+#define _CS_POSIX_V6_ILP32_OFFBIG_LIBS 1122
+#define _CS_POSIX_V6_ILP32_OFFBIG_LINTFLAGS 1123
+#define _CS_POSIX_V6_LP64_OFF64_CFLAGS 1124
+#define _CS_POSIX_V6_LP64_OFF64_LDFLAGS 1125
+#define _CS_POSIX_V6_LP64_OFF64_LIBS 1126
+#define _CS_POSIX_V6_LP64_OFF64_LINTFLAGS 1127
+#define _CS_POSIX_V6_LPBIG_OFFBIG_CFLAGS 1128
+#define _CS_POSIX_V6_LPBIG_OFFBIG_LDFLAGS 1129
+#define _CS_POSIX_V6_LPBIG_OFFBIG_LIBS 1130
+#define _CS_POSIX_V6_LPBIG_OFFBIG_LINTFLAGS 1131
+#define _CS_POSIX_V6_WIDTH_RESTRICTED_ENVS 1
+#define _CS_POSIX_V7_ILP32_OFF32_CFLAGS 1132
+#define _CS_POSIX_V7_ILP32_OFF32_LDFLAGS 1133
+#define _CS_POSIX_V7_ILP32_OFF32_LIBS 1134
+#define _CS_POSIX_V7_ILP32_OFF32_LINTFLAGS 1135
+#define _CS_POSIX_V7_ILP32_OFFBIG_CFLAGS 1136
+#define _CS_POSIX_V7_ILP32_OFFBIG_LDFLAGS 1137
+#define _CS_POSIX_V7_ILP32_OFFBIG_LIBS 1138
+#define _CS_POSIX_V7_ILP32_OFFBIG_LINTFLAGS 1139
+#define _CS_POSIX_V7_LP64_OFF64_CFLAGS 1140
+#define _CS_POSIX_V7_LP64_OFF64_LDFLAGS 1141
+#define _CS_POSIX_V7_LP64_OFF64_LIBS 1142
+#define _CS_POSIX_V7_LP64_OFF64_LINTFLAGS 1143
+#define _CS_POSIX_V7_LPBIG_OFFBIG_CFLAGS 1144
+#define _CS_POSIX_V7_LPBIG_OFFBIG_LDFLAGS 1145
+#define _CS_POSIX_V7_LPBIG_OFFBIG_LIBS 1146
+#define _CS_POSIX_V7_LPBIG_OFFBIG_LINTFLAGS 1147
+#define _CS_POSIX_V7_WIDTH_RESTRICTED_ENVS 5
+#define _CS_V6_ENV 1148
+#define _CS_V7_ENV 1149
+#define _CTYPE_H 
+#define _Complex_I (0.0f+1.0fi)
+#define _DIRENT_H 
+#define _DIRENT_HAVE_D_TYPE 
+#define _ENDIAN_H 
+#define _ERRNO_H 
+#define _ERR_H 
+#define _FCNTL_H 
+#define _FEATURES_H 
+#define _FENV_H 
+#define _FLOAT_H 
+#define _FMTMSG_H 
+#define _FNMATCH_H 
+#define _FTW_H 
+#define _GETOPT_H 
+#define _GLOB_H 
+#define _GNU_SOURCE 1
+#define _ICONV_H 
+#define _IFADDRS_H 
+#define _ILP32 1
+#define _INTTYPES_H 
+#define _IOFBF 0
+#define _IOLBF 1
+#define _IONBF 2
+#define _ISO646_H 
+#define _LANGINFO_H 
+#define _LIBGEN_H 
+#define _LIMITS_H 
+#define _LOCALE_H 
+#define _MALLOC_H 
+#define _MATH_H 
+#define _MONETARY_H 
+#define _MQUEUE_H 
+#define _NETINET_ICMP6_H 
+#define _NETINET_IGMP_H 
+#define _NETINET_IN_H 
+#define _NETINET_IN_SYSTM_H 
+#define _NETINET_IP6_H 
+#define _NETINET_IP_H 
+#define _NETINET_IP_ICMP_H 
+#define _NETINET_TCP_H 
+#define _NETINET_UDP_H 
+#define _NETPACKET_PACKET_H 
+#define _NL_LOCALE_NAME(cat) (((cat)<<16) | 0xffff)
+#define _NL_TYPES_H 
+#define _PC_2_SYMLINKS 20
+#define _PC_ALLOC_SIZE_MIN 18
+#define _PC_ASYNC_IO 10
+#define _PC_CHOWN_RESTRICTED 6
+#define _PC_FILESIZEBITS 13
+#define _PC_LINK_MAX 0
+#define _PC_MAX_CANON 1
+#define _PC_MAX_INPUT 2
+#define _PC_NAME_MAX 3
+#define _PC_NO_TRUNC 7
+#define _PC_PATH_MAX 4
+#define _PC_PIPE_BUF 5
+#define _PC_PRIO_IO 11
+#define _PC_REC_INCR_XFER_SIZE 14
+#define _PC_REC_MAX_XFER_SIZE 15
+#define _PC_REC_MIN_XFER_SIZE 16
+#define _PC_REC_XFER_ALIGN 17
+#define _PC_SOCK_MAXBUF 12
+#define _PC_SYMLINK_MAX 19
+#define _PC_SYNC_IO 9
+#define _PC_VDISABLE 8
+#define _POLL_H 
+#define _POSIX2_BC_BASE_MAX 99
+#define _POSIX2_BC_DIM_MAX 2048
+#define _POSIX2_BC_SCALE_MAX 99
+#define _POSIX2_BC_STRING_MAX 1000
+#define _POSIX2_CHARCLASS_NAME_MAX 14
+#define _POSIX2_COLL_WEIGHTS_MAX 2
+#define _POSIX2_C_BIND _POSIX_VERSION
+#define _POSIX2_EXPR_NEST_MAX 32
+#define _POSIX2_LINE_MAX 2048
+#define _POSIX2_RE_DUP_MAX 255
+#define _POSIX2_VERSION _POSIX_VERSION
+#define _POSIX_ADVISORY_INFO _POSIX_VERSION
+#define _POSIX_AIO_LISTIO_MAX 2
+#define _POSIX_AIO_MAX 1
+#define _POSIX_ARG_MAX 4096
+#define _POSIX_BARRIERS _POSIX_VERSION
+#define _POSIX_CHILD_MAX 25
+#define _POSIX_CHOWN_RESTRICTED 1
+#define _POSIX_CLOCKRES_MIN 20000000
+#define _POSIX_CLOCK_SELECTION _POSIX_VERSION
+#define _POSIX_CPUTIME _POSIX_VERSION
+#define _POSIX_DELAYTIMER_MAX 32
+#define _POSIX_FSYNC _POSIX_VERSION
+#define _POSIX_HOST_NAME_MAX 255
+#define _POSIX_IPV6 _POSIX_VERSION
+#define _POSIX_LINK_MAX 8
+#define _POSIX_LOGIN_NAME_MAX 9
+#define _POSIX_MAX_CANON 255
+#define _POSIX_MAX_INPUT 255
+#define _POSIX_MONOTONIC_CLOCK _POSIX_VERSION
+#define _POSIX_MQ_OPEN_MAX 8
+#define _POSIX_MQ_PRIO_MAX 32
+#define _POSIX_NAME_MAX 14
+#define _POSIX_NGROUPS_MAX 8
+#define _POSIX_NO_TRUNC 1
+#define _POSIX_OPEN_MAX 20
+#define _POSIX_PATH_MAX 256
+#define _POSIX_PIPE_BUF 512
+#define _POSIX_READER_WRITER_LOCKS _POSIX_VERSION
+#define _POSIX_REALTIME_SIGNALS _POSIX_VERSION
+#define _POSIX_REGEXP 1
+#define _POSIX_RE_DUP_MAX 255
+#define _POSIX_RTSIG_MAX 8
+#define _POSIX_SEM_NSEMS_MAX 256
+#define _POSIX_SEM_VALUE_MAX 32767
+#define _POSIX_SIGQUEUE_MAX 32
+#define _POSIX_SPIN_LOCKS _POSIX_VERSION
+#define _POSIX_SSIZE_MAX 32767
+#define _POSIX_SS_REPL_MAX 4
+#define _POSIX_STREAM_MAX 8
+#define _POSIX_SYMLINK_MAX 255
+#define _POSIX_SYMLOOP_MAX 8
+#define _POSIX_THREADS _POSIX_VERSION
+#define _POSIX_THREAD_ATTR_STACKADDR _POSIX_VERSION
+#define _POSIX_THREAD_ATTR_STACKSIZE _POSIX_VERSION
+#define _POSIX_THREAD_CPUTIME _POSIX_VERSION
+#define _POSIX_THREAD_DESTRUCTOR_ITERATIONS 4
+#define _POSIX_THREAD_KEYS_MAX 128
+#define _POSIX_THREAD_PRIORITY_SCHEDULING _POSIX_VERSION
+#define _POSIX_THREAD_PROCESS_SHARED _POSIX_VERSION
+#define _POSIX_THREAD_SAFE_FUNCTIONS _POSIX_VERSION
+#define _POSIX_THREAD_THREADS_MAX 64
+#define _POSIX_TIMEOUTS _POSIX_VERSION
+#define _POSIX_TIMERS _POSIX_VERSION
+#define _POSIX_TIMER_MAX 32
+#define _POSIX_TRACE_EVENT_NAME_MAX 30
+#define _POSIX_TRACE_NAME_MAX 8
+#define _POSIX_TRACE_SYS_MAX 8
+#define _POSIX_TRACE_USER_EVENT_MAX 32
+#define _POSIX_TTY_NAME_MAX 9
+#define _POSIX_TZNAME_MAX 6
+#define _POSIX_V6_ILP32_OFFBIG (1)
+#define _POSIX_V7_ILP32_OFFBIG (1)
+#define _POSIX_VDISABLE 0
+#define _POSIX_VERSION 200809L
+#define _PTRDIFF_T 
+#define _REGEX_H 
+#define _SCHED_H 
+#define _SC_2_CHAR_TERM 95
+#define _SC_2_C_BIND 47
+#define _SC_2_C_DEV 48
+#define _SC_2_FORT_DEV 49
+#define _SC_2_FORT_RUN 50
+#define _SC_2_LOCALEDEF 52
+#define _SC_2_PBS 168
+#define _SC_2_PBS_ACCOUNTING 169
+#define _SC_2_PBS_CHECKPOINT 175
+#define _SC_2_PBS_LOCATE 170
+#define _SC_2_PBS_MESSAGE 171
+#define _SC_2_PBS_TRACK 172
+#define _SC_2_SW_DEV 51
+#define _SC_2_UPE 97
+#define _SC_2_VERSION 46
+#define _SC_ADVISORY_INFO 132
+#define _SC_AIO_LISTIO_MAX 23
+#define _SC_AIO_MAX 24
+#define _SC_AIO_PRIO_DELTA_MAX 25
+#define _SC_ARG_MAX 0
+#define _SC_ASYNCHRONOUS_IO 12
+#define _SC_ATEXIT_MAX 87
+#define _SC_AVPHYS_PAGES 86
+#define _SC_BARRIERS 133
+#define _SC_BC_BASE_MAX 36
+#define _SC_BC_DIM_MAX 37
+#define _SC_BC_SCALE_MAX 38
+#define _SC_BC_STRING_MAX 39
+#define _SC_CHILD_MAX 1
+#define _SC_CLK_TCK 2
+#define _SC_CLOCK_SELECTION 137
+#define _SC_COLL_WEIGHTS_MAX 40
+#define _SC_CPUTIME 138
+#define _SC_DELAYTIMER_MAX 26
+#define _SC_EXPR_NEST_MAX 42
+#define _SC_FSYNC 15
+#define _SC_GETGR_R_SIZE_MAX 69
+#define _SC_GETPW_R_SIZE_MAX 70
+#define _SC_HOST_NAME_MAX 180
+#define _SC_IOV_MAX 60
+#define _SC_IPV6 235
+#define _SC_JOB_CONTROL 7
+#define _SC_LINE_MAX 43
+#define _SC_LOGIN_NAME_MAX 71
+#define _SC_MAPPED_FILES 16
+#define _SC_MEMLOCK 17
+#define _SC_MEMLOCK_RANGE 18
+#define _SC_MEMORY_PROTECTION 19
+#define _SC_MESSAGE_PASSING 20
+#define _SC_MONOTONIC_CLOCK 149
+#define _SC_MQ_OPEN_MAX 27
+#define _SC_MQ_PRIO_MAX 28
+#define _SC_NGROUPS_MAX 3
+#define _SC_NPROCESSORS_CONF 83
+#define _SC_NPROCESSORS_ONLN 84
+#define _SC_NZERO 109
+#define _SC_OPEN_MAX 4
+#define _SC_PAGESIZE 30
+#define _SC_PAGE_SIZE 30
+#define _SC_PASS_MAX 88
+#define _SC_PHYS_PAGES 85
+#define _SC_PRIORITIZED_IO 13
+#define _SC_PRIORITY_SCHEDULING 10
+#define _SC_RAW_SOCKETS 236
+#define _SC_READER_WRITER_LOCKS 153
+#define _SC_REALTIME_SIGNALS 9
+#define _SC_REGEXP 155
+#define _SC_RE_DUP_MAX 44
+#define _SC_RTSIG_MAX 31
+#define _SC_SAVED_IDS 8
+#define _SC_SEMAPHORES 21
+#define _SC_SEM_NSEMS_MAX 32
+#define _SC_SEM_VALUE_MAX 33
+#define _SC_SHARED_MEMORY_OBJECTS 22
+#define _SC_SHELL 157
+#define _SC_SIGQUEUE_MAX 34
+#define _SC_SPAWN 159
+#define _SC_SPIN_LOCKS 154
+#define _SC_SPORADIC_SERVER 160
+#define _SC_SS_REPL_MAX 241
+#define _SC_STREAMS 174
+#define _SC_STREAM_MAX 5
+#define _SC_SYMLOOP_MAX 173
+#define _SC_SYNCHRONIZED_IO 14
+#define _SC_THREADS 67
+#define _SC_THREAD_ATTR_STACKADDR 77
+#define _SC_THREAD_ATTR_STACKSIZE 78
+#define _SC_THREAD_CPUTIME 139
+#define _SC_THREAD_DESTRUCTOR_ITERATIONS 73
+#define _SC_THREAD_KEYS_MAX 74
+#define _SC_THREAD_PRIORITY_SCHEDULING 79
+#define _SC_THREAD_PRIO_INHERIT 80
+#define _SC_THREAD_PRIO_PROTECT 81
+#define _SC_THREAD_PROCESS_SHARED 82
+#define _SC_THREAD_ROBUST_PRIO_INHERIT 247
+#define _SC_THREAD_ROBUST_PRIO_PROTECT 248
+#define _SC_THREAD_SAFE_FUNCTIONS 68
+#define _SC_THREAD_SPORADIC_SERVER 161
+#define _SC_THREAD_STACK_MIN 75
+#define _SC_THREAD_THREADS_MAX 76
+#define _SC_TIMEOUTS 164
+#define _SC_TIMERS 11
+#define _SC_TIMER_MAX 35
+#define _SC_TRACE 181
+#define _SC_TRACE_EVENT_FILTER 182
+#define _SC_TRACE_EVENT_NAME_MAX 242
+#define _SC_TRACE_INHERIT 183
+#define _SC_TRACE_LOG 184
+#define _SC_TRACE_NAME_MAX 243
+#define _SC_TRACE_SYS_MAX 244
+#define _SC_TRACE_USER_EVENT_MAX 245
+#define _SC_TTY_NAME_MAX 72
+#define _SC_TYPED_MEMORY_OBJECTS 165
+#define _SC_TZNAME_MAX 6
+#define _SC_UIO_MAXIOV 60
+#define _SC_V6_ILP32_OFF32 176
+#define _SC_V6_ILP32_OFFBIG 177
+#define _SC_V6_LP64_OFF64 178
+#define _SC_V6_LPBIG_OFFBIG 179
+#define _SC_V7_ILP32_OFF32 237
+#define _SC_V7_ILP32_OFFBIG 238
+#define _SC_V7_LP64_OFF64 239
+#define _SC_V7_LPBIG_OFFBIG 240
+#define _SC_VERSION 29
+#define _SC_XBS5_ILP32_OFF32 125
+#define _SC_XBS5_ILP32_OFFBIG 126
+#define _SC_XBS5_LP64_OFF64 127
+#define _SC_XBS5_LPBIG_OFFBIG 128
+#define _SC_XOPEN_CRYPT 92
+#define _SC_XOPEN_ENH_I18N 93
+#define _SC_XOPEN_LEGACY 129
+#define _SC_XOPEN_REALTIME 130
+#define _SC_XOPEN_REALTIME_THREADS 131
+#define _SC_XOPEN_SHM 94
+#define _SC_XOPEN_STREAMS 246
+#define _SC_XOPEN_UNIX 91
+#define _SC_XOPEN_VERSION 89
+#define _SC_XOPEN_XCU_VERSION 90
+#define _SC_XOPEN_XPG2 98
+#define _SC_XOPEN_XPG3 99
+#define _SC_XOPEN_XPG4 100
+#define _SEARCH_H 
+#define _SEMAPHORE_H 
+#define _SIZE_T 
+#define _STDALIGN_H 
+#define _STDBOOL_H 
+#define _STDC_PREDEF_H 
+#define _STDINT_H 
+#define _STDIO_EXT_H 
+#define _STDIO_H 
+#define _STDLIB_H 
+#define _STDNORETURN_H 
+#define _STRINGS_H 
+#define _STRING_H 
+#define _STROPTS_H 
+#define _SYSEXITS_H 
+#define _SYS_EVENTFD_H 
+#define _SYS_FILE_H 
+#define _SYS_IOCTL_H 
+#define _SYS_PARAM_H 
+#define _SYS_RANDOM_H 
+#define _SYS_REG_H 
+#define _SYS_SELECT_H 
+#define _SYS_SOCKET_H 
+#define _SYS_STAT_H 
+#define _SYS_SYSCALL_H 
+#define _SYS_SYSINFO_H 
+#define _SYS_TIMEB_H 
+#define _SYS_TIMEX_H 
+#define _SYS_TIME_H 
+#define _SYS_TTYDEFAULTS_H 
+#define _SYS_TYPES_H 
+#define _SYS_UIO_H 
+#define _SYS_UN_H 
+#define _SYS_UTSNAME_H 
+#define _TAR_H 
+#define _TGMATH_H 
+#define _THREADS_H 
+#define _TIME_H 
+#define _UCHAR_H 
+#define _UNISTD_H 
+#define _UTIME_H 
+#define _VALUES_H 
+#define _VA_LIST 
+#define _WCHAR_H 
+#define _WCHAR_T 
+#define _WCTYPE_H 
+#define _WINT_T 
+#define _XOPEN_ENH_I18N 1
+#define _XOPEN_IOV_MAX 16
+#define _XOPEN_NAME_MAX 255
+#define _XOPEN_PATH_MAX 1024
+#define _XOPEN_UNIX 1
+#define _XOPEN_VERSION 700
+#define __ARE_4_EQUAL(a,b) (!( (0[a]-0[b]) | (1[a]-1[b]) | (2[a]-2[b]) | (3[a]-3[b]) ))
+#define __ATOMIC_ACQUIRE 2
+#define __ATOMIC_ACQ_REL 4
+#define __ATOMIC_CONSUME 1
+#define __ATOMIC_RELAXED 0
+#define __ATOMIC_RELEASE 3
+#define __ATOMIC_SEQ_CST 5
+#define __BIGGEST_ALIGNMENT__ 16
+#define __BIG_ENDIAN 4321
+#define __BIND 19950621
+#define __BYTE_ORDER __BYTE_ORDER__
+#define __BYTE_ORDER__ __ORDER_LITTLE_ENDIAN__
+#define __CHAR16_TYPE__ unsigned short
+#define __CHAR32_TYPE__ unsigned int
+#define __CHAR_BIT__ 8
+#define __compiler_ATOMIC_BOOL_LOCK_FREE 2
+#define __compiler_ATOMIC_CHAR16_T_LOCK_FREE 2
+#define __compiler_ATOMIC_CHAR32_T_LOCK_FREE 2
+#define __compiler_ATOMIC_CHAR_LOCK_FREE 2
+#define __compiler_ATOMIC_INT_LOCK_FREE 2
+#define __compiler_ATOMIC_LLONG_LOCK_FREE 2
+#define __compiler_ATOMIC_LONG_LOCK_FREE 2
+#define __compiler_ATOMIC_POINTER_LOCK_FREE 2
+#define __compiler_ATOMIC_SHORT_LOCK_FREE 2
+#define __compiler_ATOMIC_WCHAR_T_LOCK_FREE 2
+#define __CLANG_MAX_ALIGN_T_DEFINED 
+#define __CMPLX(x,y,t) (__builtin_complex((t)(x), (t)(y)))
+#define __CONSTANT_CFSTRINGS__ 1
+#define __DBLCX(x) (__IS_CX(x) && sizeof(x) == sizeof(double complex))
+#define __DBL_DECIMAL_DIG__ 17
+#define __DBL_DENORM_MIN__ 4.9406564584124654e-324
+#define __DBL_DIG__ 15
+#define __DBL_EPSILON__ 2.2204460492503131e-16
+#define __DBL_HAS_DENORM__ 1
+#define __DBL_HAS_INFINITY__ 1
+#define __DBL_HAS_QUIET_NAN__ 1
+#define __DBL_MANT_DIG__ 53
+#define __DBL_MAX_10_EXP__ 308
+#define __DBL_MAX_EXP__ 1024
+#define __DBL_MAX__ 1.7976931348623157e+308
+#define __DBL_MIN_10_EXP__ (-307)
+#define __DBL_MIN_EXP__ (-1021)
+#define __DBL_MIN__ 2.2250738585072014e-308
+#define __DECIMAL_DIG__ __LDBL_DECIMAL_DIG__
+#define __DEFINED_FILE 
+#define __DEFINED___isoc_va_list 
+#define __DEFINED_blkcnt_t 
+#define __DEFINED_blksize_t 
+#define __DEFINED_clock_t 
+#define __DEFINED_clockid_t 
+#define __DEFINED_cnd_t 
+#define __DEFINED_dev_t 
+#define __DEFINED_double_t 
+#define __DEFINED_float_t 
+#define __DEFINED_fsblkcnt_t 
+#define __DEFINED_fsfilcnt_t 
+#define __DEFINED_gid_t 
+#define __DEFINED_id_t 
+#define __DEFINED_ino_t 
+#define __DEFINED_int16_t 
+#define __DEFINED_int32_t 
+#define __DEFINED_int64_t 
+#define __DEFINED_int8_t 
+#define __DEFINED_intmax_t 
+#define __DEFINED_intptr_t 
+#define __DEFINED_key_t 
+#define __DEFINED_locale_t 
+#define __DEFINED_mbstate_t 
+#define __DEFINED_mode_t 
+#define __DEFINED_mtx_t 
+#define __DEFINED_nlink_t 
+#define __DEFINED_off_t 
+#define __DEFINED_pid_t 
+#define __DEFINED_pthread_attr_t 
+#define __DEFINED_pthread_barrier_t 
+#define __DEFINED_pthread_barrierattr_t 
+#define __DEFINED_pthread_cond_t 
+#define __DEFINED_pthread_condattr_t 
+#define __DEFINED_pthread_key_t 
+#define __DEFINED_pthread_mutex_t 
+#define __DEFINED_pthread_mutexattr_t 
+#define __DEFINED_pthread_once_t 
+#define __DEFINED_pthread_rwlock_t 
+#define __DEFINED_pthread_rwlockattr_t 
+#define __DEFINED_pthread_spinlock_t 
+#define __DEFINED_pthread_t 
+#define __DEFINED_register_t 
+#define __DEFINED_regoff_t 
+#define __DEFINED_sa_family_t 
+#define __DEFINED_sigset_t 
+#define __DEFINED_size_t 
+#define __DEFINED_socklen_t 
+#define __DEFINED_ssize_t 
+#define __DEFINED_suseconds_t 
+#define __DEFINED_time_t 
+#define __DEFINED_timer_t 
+#define __DEFINED_u_int64_t 
+#define __DEFINED_uid_t 
+#define __DEFINED_uint16_t 
+#define __DEFINED_uint32_t 
+#define __DEFINED_uint64_t 
+#define __DEFINED_uint8_t 
+#define __DEFINED_uintmax_t 
+#define __DEFINED_uintptr_t 
+#define __DEFINED_useconds_t 
+#define __DEFINED_va_list 
+#define __DEFINED_wchar_t 
+#define __DEFINED_wctype_t 
+#define __DEFINED_wint_t 
+#define __FINITE_MATH_ONLY__ 0
+#define __FLT(x) (__IS_REAL(x) && sizeof(x) == sizeof(float))
+#define __FLTCX(x) (__IS_CX(x) && sizeof(x) == sizeof(float complex))
+#define __FLT_DECIMAL_DIG__ 9
+#define __FLT_DENORM_MIN__ 1.40129846e-45F
+#define __FLT_DIG__ 6
+#define __FLT_EPSILON__ 1.19209290e-7F
+#define __FLT_EVAL_METHOD__ 0
+#define __FLT_HAS_DENORM__ 1
+#define __FLT_HAS_INFINITY__ 1
+#define __FLT_HAS_QUIET_NAN__ 1
+#define __FLT_MANT_DIG__ 24
+#define __FLT_MAX_10_EXP__ 38
+#define __FLT_MAX_EXP__ 128
+#define __FLT_MAX__ 3.40282347e+38F
+#define __FLT_MIN_10_EXP__ (-37)
+#define __FLT_MIN_EXP__ (-125)
+#define __FLT_MIN__ 1.17549435e-38F
+#define __FLT_RADIX__ 2
+#define __compiler_ATOMIC_BOOL_LOCK_FREE 2
+#define __compiler_ATOMIC_CHAR16_T_LOCK_FREE 2
+#define __compiler_ATOMIC_CHAR32_T_LOCK_FREE 2
+#define __compiler_ATOMIC_CHAR_LOCK_FREE 2
+#define __compiler_ATOMIC_INT_LOCK_FREE 2
+#define __compiler_ATOMIC_LLONG_LOCK_FREE 2
+#define __compiler_ATOMIC_LONG_LOCK_FREE 2
+#define __compiler_ATOMIC_POINTER_LOCK_FREE 2
+#define __compiler_ATOMIC_SHORT_LOCK_FREE 2
+#define __GCC_ATOMIC_TEST_AND_SET_TRUEVAL 1
+#define __compiler_ATOMIC_WCHAR_T_LOCK_FREE 2
+#define __GNUC_STDC_INLINE__ 1
+#define __GNUC_VA_LIST 1
+#define __GXX_ABI_VERSION 1002
+#define __ILP32__ 1
+#define __INT16_C_SUFFIX__ 
+#define __INT16_FMTd__ "hd"
+#define __INT16_FMTi__ "hi"
+#define __INT16_MAX__ 32767
+#define __INT16_TYPE__ short
+#define __INT32_C_SUFFIX__ 
+#define __INT32_FMTd__ "d"
+#define __INT32_FMTi__ "i"
+#define __INT32_MAX__ 2147483647
+#define __INT32_TYPE__ int
+#define __INT64_C_SUFFIX__ LL
+#define __INT64_FMTd__ "lld"
+#define __INT64_FMTi__ "lli"
+#define __INT64_MAX__ 9223372036854775807LL
+#define __INT64_TYPE__ long long int
+#define __INT8_C_SUFFIX__ 
+#define __INT8_FMTd__ "hhd"
+#define __INT8_FMTi__ "hhi"
+#define __INT8_MAX__ 127
+#define __INT8_TYPE__ signed char
+#define __INTMAX_C_SUFFIX__ LL
+#define __INTMAX_FMTd__ "lld"
+#define __INTMAX_FMTi__ "lli"
+#define __INTMAX_MAX__ 9223372036854775807LL
+#define __INTMAX_TYPE__ long long int
+#define __INTMAX_WIDTH__ 64
+#define __INTPTR_FMTd__ "ld"
+#define __INTPTR_FMTi__ "li"
+#define __INTPTR_MAX__ 2147483647L
+#define __INTPTR_TYPE__ long int
+#define __INTPTR_WIDTH__ 32
+#define __INT_FAST16_FMTd__ "hd"
+#define __INT_FAST16_FMTi__ "hi"
+#define __INT_FAST16_MAX__ 32767
+#define __INT_FAST16_TYPE__ short
+#define __INT_FAST32_FMTd__ "d"
+#define __INT_FAST32_FMTi__ "i"
+#define __INT_FAST32_MAX__ 2147483647
+#define __INT_FAST32_TYPE__ int
+#define __INT_FAST64_FMTd__ "lld"
+#define __INT_FAST64_FMTi__ "lli"
+#define __INT_FAST64_MAX__ 9223372036854775807LL
+#define __INT_FAST64_TYPE__ long long int
+#define __INT_FAST8_FMTd__ "hhd"
+#define __INT_FAST8_FMTi__ "hhi"
+#define __INT_FAST8_MAX__ 127
+#define __INT_FAST8_TYPE__ signed char
+#define __INT_LEAST16_FMTd__ "hd"
+#define __INT_LEAST16_FMTi__ "hi"
+#define __INT_LEAST16_MAX__ 32767
+#define __INT_LEAST16_TYPE__ short
+#define __INT_LEAST32_FMTd__ "d"
+#define __INT_LEAST32_FMTi__ "i"
+#define __INT_LEAST32_MAX__ 2147483647
+#define __INT_LEAST32_TYPE__ int
+#define __INT_LEAST64_FMTd__ "lld"
+#define __INT_LEAST64_FMTi__ "lli"
+#define __INT_LEAST64_MAX__ 9223372036854775807LL
+#define __INT_LEAST64_TYPE__ long long int
+#define __INT_LEAST8_FMTd__ "hhd"
+#define __INT_LEAST8_FMTi__ "hhi"
+#define __INT_LEAST8_MAX__ 127
+#define __INT_LEAST8_TYPE__ signed char
+#define __INT_MAX__ 2147483647
+#define __IS_CX(x) (__IS_FP(x) && sizeof(x) == sizeof((x)+I))
+#define __IS_FP(x) (sizeof((x)+1ULL) == sizeof((x)+1.0f))
+#define __IS_REAL(x) (__IS_FP(x) && 2*sizeof(x) == sizeof((x)+I))
+#define __LDBL(x) (__IS_REAL(x) && sizeof(x) == sizeof(long double) && sizeof(long double) != sizeof(double))
+#define __LDBLCX(x) (__IS_CX(x) && sizeof(x) == sizeof(long double complex) && sizeof(long double) != sizeof(double))
+#define __LDBL_DECIMAL_DIG__ 36
+#define __LDBL_DENORM_MIN__ 6.47517511943802511092443895822764655e-4966L
+#define __LDBL_DIG__ 33
+#define __LDBL_EPSILON__ 1.92592994438723585305597794258492732e-34L
+#define __LDBL_HAS_DENORM__ 1
+#define __LDBL_HAS_INFINITY__ 1
+#define __LDBL_HAS_QUIET_NAN__ 1
+#define __LDBL_MANT_DIG__ 113
+#define __LDBL_MAX_10_EXP__ 4932
+#define __LDBL_MAX_EXP__ 16384
+#define __LDBL_MAX__ 1.18973149535723176508575932662800702e+4932L
+#define __LDBL_MIN_10_EXP__ (-4931)
+#define __LDBL_MIN_EXP__ (-16381)
+#define __LDBL_MIN__ 3.36210314311209350626267781732175260e-4932L
+#define __LITTLE_ENDIAN 1234
+#define __LITTLE_ENDIAN__ 1
+#define __LONG_LONG_MAX__ 9223372036854775807LL
+#define __LONG_MAX __LONG_MAX__
+#define __LONG_MAX__ 2147483647L
+#define __NAMESER 19991006
+#define __NEED_FILE 
+#define __NEED___isoc_va_list 
+#define __NEED_blkcnt_t 
+#define __NEED_blksize_t 
+#define __NEED_clock_t 
+#define __NEED_clockid_t 
+#define __NEED_cnd_t 
+#define __NEED_dev_t 
+#define __NEED_double_t 
+#define __NEED_float_t 
+#define __NEED_fsblkcnt_t 
+#define __NEED_fsfilcnt_t 
+#define __NEED_gid_t 
+#define __NEED_id_t 
+#define __NEED_ino_t 
+#define __NEED_int16_t 
+#define __NEED_int32_t 
+#define __NEED_int64_t 
+#define __NEED_int8_t 
+#define __NEED_intmax_t 
+#define __NEED_intptr_t 
+#define __NEED_key_t 
+#define __NEED_locale_t 
+#define __NEED_mbstate_t 
+#define __NEED_mode_t 
+#define __NEED_mtx_t 
+#define __NEED_nlink_t 
+#define __NEED_off_t 
+#define __NEED_pid_t 
+#define __NEED_pthread_attr_t 
+#define __NEED_pthread_barrier_t 
+#define __NEED_pthread_barrierattr_t 
+#define __NEED_pthread_cond_t 
+#define __NEED_pthread_condattr_t 
+#define __NEED_pthread_key_t 
+#define __NEED_pthread_mutex_t 
+#define __NEED_pthread_mutexattr_t 
+#define __NEED_pthread_once_t 
+#define __NEED_pthread_rwlock_t 
+#define __NEED_pthread_rwlockattr_t 
+#define __NEED_pthread_spinlock_t 
+#define __NEED_pthread_t 
+#define __NEED_register_t 
+#define __NEED_regoff_t 
+#define __NEED_sa_family_t 
+#define __NEED_sigset_t 
+#define __NEED_size_t 
+#define __NEED_socklen_t 
+#define __NEED_ssize_t 
+#define __NEED_struct_iovec 
+#define __NEED_struct_timespec 
+#define __NEED_struct_timeval 
+#define __NEED_suseconds_t 
+#define __NEED_time_t 
+#define __NEED_timer_t 
+#define __NEED_u_int64_t 
+#define __NEED_uid_t 
+#define __NEED_uint16_t 
+#define __NEED_uint32_t 
+#define __NEED_uint64_t 
+#define __NEED_uint8_t 
+#define __NEED_uintmax_t 
+#define __NEED_uintptr_t 
+#define __NEED_useconds_t 
+#define __NEED_va_list 
+#define __NEED_wchar_t 
+#define __NEED_wctype_t 
+#define __NEED_wint_t 
+#define __OBJC_BOOL_IS_BOOL 0
+#define __OPENCL_MEMORY_SCOPE_ALL_SVM_DEVICES 3
+#define __OPENCL_MEMORY_SCOPE_DEVICE 2
+#define __OPENCL_MEMORY_SCOPE_SUB_GROUP 4
+#define __OPENCL_MEMORY_SCOPE_WORK_GROUP 1
+#define __OPENCL_MEMORY_SCOPE_WORK_ITEM 0
+#define __OPTIMIZE__ 1
+#define __ORDER_BIG_ENDIAN__ 4321
+#define __ORDER_LITTLE_ENDIAN__ 1234
+#define __ORDER_PDP_ENDIAN__ 3412
+#define __PDP_ENDIAN 3412
+#define __POINTER_WIDTH__ 32
+#define __PRAGMA_REDEFINE_EXTNAME 1
+#define __PTRDIFF_FMTd__ "ld"
+#define __PTRDIFF_FMTi__ "li"
+#define __PTRDIFF_MAX__ 2147483647L
+#define __PTRDIFF_TYPE__ long int
+#define __PTRDIFF_WIDTH__ 32
+#define __REDIR(x,y) __typeof__(x) x __asm__(#y)
+#define __RETCAST(x) 
+#define __RETCAST_2(x,y) 
+#define __RETCAST_3(x,y,z) 
+#define __RETCAST_CX(x) 
+#define __RETCAST_REAL(x) 
+#define __SCHAR_MAX__ 127
+#define __SHRT_MAX__ 32767
+#define __SID ('S' << 8)
+#define __SIG_ATOMIC_MAX__ 2147483647L
+#define __SIG_ATOMIC_WIDTH__ 32
+#define __SIZEOF_DOUBLE__ 8
+#define __SIZEOF_FLOAT__ 4
+#define __SIZEOF_INT128__ 16
+#define __SIZEOF_INT__ 4
+#define __SIZEOF_LONG_DOUBLE__ 16
+#define __SIZEOF_LONG_LONG__ 8
+#define __SIZEOF_LONG__ 4
+#define __SIZEOF_POINTER__ 4
+#define __SIZEOF_PTRDIFF_T__ 4
+#define __SIZEOF_SHORT__ 2
+#define __SIZEOF_SIZE_T__ 4
+#define __SIZEOF_WCHAR_T__ 4
+#define __SIZEOF_WINT_T__ 4
+#define __SIZE_FMTX__ "lX"
+#define __SIZE_FMTo__ "lo"
+#define __SIZE_FMTu__ "lu"
+#define __SIZE_FMTx__ "lx"
+#define __SIZE_MAX__ 4294967295UL
+#define __SIZE_TYPE__ long unsigned int
+#define __SIZE_WIDTH__ 32
+#define __STDARG_H 
+#define __STDC_HOSTED__ 1
+#define __STDC_IEC_559__ 1
+#define __STDC_ISO_10646__ 201206L
+#define __STDC_UTF_16__ 1
+#define __STDC_UTF_32__ 1
+#define __STDC_VERSION__ 201710L
+#define __STDC__ 1
+#define __STDDEF_H 
+#define __UAPI_DEF_IN6_ADDR 0
+#define __UAPI_DEF_IN6_ADDR_ALT 0
+#define __UAPI_DEF_IN6_PKTINFO 0
+#define __UAPI_DEF_IN_ADDR 0
+#define __UAPI_DEF_IN_CLASS 0
+#define __UAPI_DEF_IN_IPPROTO 0
+#define __UAPI_DEF_IN_PKTINFO 0
+#define __UAPI_DEF_IP6_MTUINFO 0
+#define __UAPI_DEF_IPHDR 0
+#define __UAPI_DEF_IPPROTO_V6 0
+#define __UAPI_DEF_IPV6_MREQ 0
+#define __UAPI_DEF_IPV6_OPTIONS 0
+#define __UAPI_DEF_IP_MREQ 0
+#define __UAPI_DEF_SOCKADDR_IN 0
+#define __UAPI_DEF_SOCKADDR_IN6 0
+#define __UINT16_C_SUFFIX__ 
+#define __UINT16_FMTX__ "hX"
+#define __UINT16_FMTo__ "ho"
+#define __UINT16_FMTu__ "hu"
+#define __UINT16_FMTx__ "hx"
+#define __UINT16_MAX__ 65535
+#define __UINT16_TYPE__ unsigned short
+#define __UINT32_C_SUFFIX__ U
+#define __UINT32_FMTX__ "X"
+#define __UINT32_FMTo__ "o"
+#define __UINT32_FMTu__ "u"
+#define __UINT32_FMTx__ "x"
+#define __UINT32_MAX__ 4294967295U
+#define __UINT32_TYPE__ unsigned int
+#define __UINT64_C_SUFFIX__ ULL
+#define __UINT64_FMTX__ "llX"
+#define __UINT64_FMTo__ "llo"
+#define __UINT64_FMTu__ "llu"
+#define __UINT64_FMTx__ "llx"
+#define __UINT64_MAX__ 18446744073709551615ULL
+#define __UINT64_TYPE__ long long unsigned int
+#define __UINT8_C_SUFFIX__ 
+#define __UINT8_FMTX__ "hhX"
+#define __UINT8_FMTo__ "hho"
+#define __UINT8_FMTu__ "hhu"
+#define __UINT8_FMTx__ "hhx"
+#define __UINT8_MAX__ 255
+#define __UINT8_TYPE__ unsigned char
+#define __UINTMAX_C_SUFFIX__ ULL
+#define __UINTMAX_FMTX__ "llX"
+#define __UINTMAX_FMTo__ "llo"
+#define __UINTMAX_FMTu__ "llu"
+#define __UINTMAX_FMTx__ "llx"
+#define __UINTMAX_MAX__ 18446744073709551615ULL
+#define __UINTMAX_TYPE__ long long unsigned int
+#define __UINTMAX_WIDTH__ 64
+#define __UINTPTR_FMTX__ "lX"
+#define __UINTPTR_FMTo__ "lo"
+#define __UINTPTR_FMTu__ "lu"
+#define __UINTPTR_FMTx__ "lx"
+#define __UINTPTR_MAX__ 4294967295UL
+#define __UINTPTR_TYPE__ long unsigned int
+#define __UINTPTR_WIDTH__ 32
+#define __UINT_FAST16_FMTX__ "hX"
+#define __UINT_FAST16_FMTo__ "ho"
+#define __UINT_FAST16_FMTu__ "hu"
+#define __UINT_FAST16_FMTx__ "hx"
+#define __UINT_FAST16_MAX__ 65535
+#define __UINT_FAST16_TYPE__ unsigned short
+#define __UINT_FAST32_FMTX__ "X"
+#define __UINT_FAST32_FMTo__ "o"
+#define __UINT_FAST32_FMTu__ "u"
+#define __UINT_FAST32_FMTx__ "x"
+#define __UINT_FAST32_MAX__ 4294967295U
+#define __UINT_FAST32_TYPE__ unsigned int
+#define __UINT_FAST64_FMTX__ "llX"
+#define __UINT_FAST64_FMTo__ "llo"
+#define __UINT_FAST64_FMTu__ "llu"
+#define __UINT_FAST64_FMTx__ "llx"
+#define __UINT_FAST64_MAX__ 18446744073709551615ULL
+#define __UINT_FAST64_TYPE__ long long unsigned int
+#define __UINT_FAST8_FMTX__ "hhX"
+#define __UINT_FAST8_FMTo__ "hho"
+#define __UINT_FAST8_FMTu__ "hhu"
+#define __UINT_FAST8_FMTx__ "hhx"
+#define __UINT_FAST8_MAX__ 255
+#define __UINT_FAST8_TYPE__ unsigned char
+#define __UINT_LEAST16_FMTX__ "hX"
+#define __UINT_LEAST16_FMTo__ "ho"
+#define __UINT_LEAST16_FMTu__ "hu"
+#define __UINT_LEAST16_FMTx__ "hx"
+#define __UINT_LEAST16_MAX__ 65535
+#define __UINT_LEAST16_TYPE__ unsigned short
+#define __UINT_LEAST32_FMTX__ "X"
+#define __UINT_LEAST32_FMTo__ "o"
+#define __UINT_LEAST32_FMTu__ "u"
+#define __UINT_LEAST32_FMTx__ "x"
+#define __UINT_LEAST32_MAX__ 4294967295U
+#define __UINT_LEAST32_TYPE__ unsigned int
+#define __UINT_LEAST64_FMTX__ "llX"
+#define __UINT_LEAST64_FMTo__ "llo"
+#define __UINT_LEAST64_FMTu__ "llu"
+#define __UINT_LEAST64_FMTx__ "llx"
+#define __UINT_LEAST64_MAX__ 18446744073709551615ULL
+#define __UINT_LEAST64_TYPE__ long long unsigned int
+#define __UINT_LEAST8_FMTX__ "hhX"
+#define __UINT_LEAST8_FMTo__ "hho"
+#define __UINT_LEAST8_FMTu__ "hhu"
+#define __UINT_LEAST8_FMTx__ "hhx"
+#define __UINT_LEAST8_MAX__ 255
+#define __UINT_LEAST8_TYPE__ unsigned char
+#define __USER_LABEL_PREFIX__ 
+#define __USE_TIME_BITS64 1
+#define __WASI_ADVICE_DONTNEED (UINT8_C(4))
+#define __WASI_ADVICE_NOREUSE (UINT8_C(5))
+#define __WASI_ADVICE_NORMAL (UINT8_C(0))
+#define __WASI_ADVICE_RANDOM (UINT8_C(2))
+#define __WASI_ADVICE_SEQUENTIAL (UINT8_C(1))
+#define __WASI_ADVICE_WILLNEED (UINT8_C(3))
+#define __WASI_CLOCKID_MONOTONIC (UINT32_C(1))
+#define __WASI_CLOCKID_PROCESS_CPUTIME_ID (UINT32_C(2))
+#define __WASI_CLOCKID_REALTIME (UINT32_C(0))
+#define __WASI_CLOCKID_THREAD_CPUTIME_ID (UINT32_C(3))
+#define __WASI_DIRCOOKIE_START (UINT64_C(0))
+#define __WASI_ERRNO_2BIG (UINT16_C(1))
+#define __WASI_ERRNO_ACCES (UINT16_C(2))
+#define __WASI_ERRNO_ADDRINUSE (UINT16_C(3))
+#define __WASI_ERRNO_ADDRNOTAVAIL (UINT16_C(4))
+#define __WASI_ERRNO_AFNOSUPPORT (UINT16_C(5))
+#define __WASI_ERRNO_AGAIN (UINT16_C(6))
+#define __WASI_ERRNO_ALREADY (UINT16_C(7))
+#define __WASI_ERRNO_BADF (UINT16_C(8))
+#define __WASI_ERRNO_BADMSG (UINT16_C(9))
+#define __WASI_ERRNO_BUSY (UINT16_C(10))
+#define __WASI_ERRNO_CANCELED (UINT16_C(11))
+#define __WASI_ERRNO_CHILD (UINT16_C(12))
+#define __WASI_ERRNO_CONNABORTED (UINT16_C(13))
+#define __WASI_ERRNO_CONNREFUSED (UINT16_C(14))
+#define __WASI_ERRNO_CONNRESET (UINT16_C(15))
+#define __WASI_ERRNO_DEADLK (UINT16_C(16))
+#define __WASI_ERRNO_DESTADDRREQ (UINT16_C(17))
+#define __WASI_ERRNO_DOM (UINT16_C(18))
+#define __WASI_ERRNO_DQUOT (UINT16_C(19))
+#define __WASI_ERRNO_EXIST (UINT16_C(20))
+#define __WASI_ERRNO_FAULT (UINT16_C(21))
+#define __WASI_ERRNO_FBIG (UINT16_C(22))
+#define __WASI_ERRNO_HOSTUNREACH (UINT16_C(23))
+#define __WASI_ERRNO_IDRM (UINT16_C(24))
+#define __WASI_ERRNO_ILSEQ (UINT16_C(25))
+#define __WASI_ERRNO_INPROGRESS (UINT16_C(26))
+#define __WASI_ERRNO_INTR (UINT16_C(27))
+#define __WASI_ERRNO_INVAL (UINT16_C(28))
+#define __WASI_ERRNO_IO (UINT16_C(29))
+#define __WASI_ERRNO_ISCONN (UINT16_C(30))
+#define __WASI_ERRNO_ISDIR (UINT16_C(31))
+#define __WASI_ERRNO_LOOP (UINT16_C(32))
+#define __WASI_ERRNO_MFILE (UINT16_C(33))
+#define __WASI_ERRNO_MLINK (UINT16_C(34))
+#define __WASI_ERRNO_MSGSIZE (UINT16_C(35))
+#define __WASI_ERRNO_MULTIHOP (UINT16_C(36))
+#define __WASI_ERRNO_NAMETOOLONG (UINT16_C(37))
+#define __WASI_ERRNO_NETDOWN (UINT16_C(38))
+#define __WASI_ERRNO_NETRESET (UINT16_C(39))
+#define __WASI_ERRNO_NETUNREACH (UINT16_C(40))
+#define __WASI_ERRNO_NFILE (UINT16_C(41))
+#define __WASI_ERRNO_NOBUFS (UINT16_C(42))
+#define __WASI_ERRNO_NODEV (UINT16_C(43))
+#define __WASI_ERRNO_NOENT (UINT16_C(44))
+#define __WASI_ERRNO_NOEXEC (UINT16_C(45))
+#define __WASI_ERRNO_NOLCK (UINT16_C(46))
+#define __WASI_ERRNO_NOLINK (UINT16_C(47))
+#define __WASI_ERRNO_NOMEM (UINT16_C(48))
+#define __WASI_ERRNO_NOMSG (UINT16_C(49))
+#define __WASI_ERRNO_NOPROTOOPT (UINT16_C(50))
+#define __WASI_ERRNO_NOSPC (UINT16_C(51))
+#define __WASI_ERRNO_NOSYS (UINT16_C(52))
+#define __WASI_ERRNO_NOTCAPABLE (UINT16_C(76))
+#define __WASI_ERRNO_NOTCONN (UINT16_C(53))
+#define __WASI_ERRNO_NOTDIR (UINT16_C(54))
+#define __WASI_ERRNO_NOTEMPTY (UINT16_C(55))
+#define __WASI_ERRNO_NOTRECOVERABLE (UINT16_C(56))
+#define __WASI_ERRNO_NOTSOCK (UINT16_C(57))
+#define __WASI_ERRNO_NOTSUP (UINT16_C(58))
+#define __WASI_ERRNO_NOTTY (UINT16_C(59))
+#define __WASI_ERRNO_NXIO (UINT16_C(60))
+#define __WASI_ERRNO_OVERFLOW (UINT16_C(61))
+#define __WASI_ERRNO_OWNERDEAD (UINT16_C(62))
+#define __WASI_ERRNO_PERM (UINT16_C(63))
+#define __WASI_ERRNO_PIPE (UINT16_C(64))
+#define __WASI_ERRNO_PROTO (UINT16_C(65))
+#define __WASI_ERRNO_PROTONOSUPPORT (UINT16_C(66))
+#define __WASI_ERRNO_PROTOTYPE (UINT16_C(67))
+#define __WASI_ERRNO_RANGE (UINT16_C(68))
+#define __WASI_ERRNO_ROFS (UINT16_C(69))
+#define __WASI_ERRNO_SPIPE (UINT16_C(70))
+#define __WASI_ERRNO_SRCH (UINT16_C(71))
+#define __WASI_ERRNO_STALE (UINT16_C(72))
+#define __WASI_ERRNO_SUCCESS (UINT16_C(0))
+#define __WASI_ERRNO_TIMEDOUT (UINT16_C(73))
+#define __WASI_ERRNO_TXTBSY (UINT16_C(74))
+#define __WASI_ERRNO_XDEV (UINT16_C(75))
+#define __WASI_EVENTRWFLAGS_FD_READWRITE_HANGUP ((__wasi_eventrwflags_t)(1 << 0))
+#define __WASI_EVENTTYPE_CLOCK (UINT8_C(0))
+#define __WASI_EVENTTYPE_FD_READ (UINT8_C(1))
+#define __WASI_EVENTTYPE_FD_WRITE (UINT8_C(2))
+#define __WASI_FDFLAGS_APPEND ((__wasi_fdflags_t)(1 << 0))
+#define __WASI_FDFLAGS_DSYNC ((__wasi_fdflags_t)(1 << 1))
+#define __WASI_FDFLAGS_NONBLOCK ((__wasi_fdflags_t)(1 << 2))
+#define __WASI_FDFLAGS_RSYNC ((__wasi_fdflags_t)(1 << 3))
+#define __WASI_FDFLAGS_SYNC ((__wasi_fdflags_t)(1 << 4))
+#define __WASI_FILETYPE_BLOCK_DEVICE (UINT8_C(1))
+#define __WASI_FILETYPE_CHARACTER_DEVICE (UINT8_C(2))
+#define __WASI_FILETYPE_DIRECTORY (UINT8_C(3))
+#define __WASI_FILETYPE_REGULAR_FILE (UINT8_C(4))
+#define __WASI_FILETYPE_SOCKET_DGRAM (UINT8_C(5))
+#define __WASI_FILETYPE_SOCKET_STREAM (UINT8_C(6))
+#define __WASI_FILETYPE_SYMBOLIC_LINK (UINT8_C(7))
+#define __WASI_FILETYPE_UNKNOWN (UINT8_C(0))
+#define __WASI_FSTFLAGS_ATIM ((__wasi_fstflags_t)(1 << 0))
+#define __WASI_FSTFLAGS_ATIM_NOW ((__wasi_fstflags_t)(1 << 1))
+#define __WASI_FSTFLAGS_MTIM ((__wasi_fstflags_t)(1 << 2))
+#define __WASI_FSTFLAGS_MTIM_NOW ((__wasi_fstflags_t)(1 << 3))
+#define __WASI_LOOKUPFLAGS_SYMLINK_FOLLOW ((__wasi_lookupflags_t)(1 << 0))
+#define __WASI_OFLAGS_CREAT ((__wasi_oflags_t)(1 << 0))
+#define __WASI_OFLAGS_DIRECTORY ((__wasi_oflags_t)(1 << 1))
+#define __WASI_OFLAGS_EXCL ((__wasi_oflags_t)(1 << 2))
+#define __WASI_OFLAGS_TRUNC ((__wasi_oflags_t)(1 << 3))
+#define __WASI_PREOPENTYPE_DIR (UINT8_C(0))
+#define __WASI_RIFLAGS_RECV_PEEK ((__wasi_riflags_t)(1 << 0))
+#define __WASI_RIFLAGS_RECV_WAITALL ((__wasi_riflags_t)(1 << 1))
+#define __WASI_RIGHTS_FD_ADVISE ((__wasi_rights_t)(1 << 7))
+#define __WASI_RIGHTS_FD_ALLOCATE ((__wasi_rights_t)(1 << 8))
+#define __WASI_RIGHTS_FD_DATASYNC ((__wasi_rights_t)(1 << 0))
+#define __WASI_RIGHTS_FD_FDSTAT_SET_FLAGS ((__wasi_rights_t)(1 << 3))
+#define __WASI_RIGHTS_FD_FILESTAT_GET ((__wasi_rights_t)(1 << 21))
+#define __WASI_RIGHTS_FD_FILESTAT_SET_SIZE ((__wasi_rights_t)(1 << 22))
+#define __WASI_RIGHTS_FD_FILESTAT_SET_TIMES ((__wasi_rights_t)(1 << 23))
+#define __WASI_RIGHTS_FD_READ ((__wasi_rights_t)(1 << 1))
+#define __WASI_RIGHTS_FD_READDIR ((__wasi_rights_t)(1 << 14))
+#define __WASI_RIGHTS_FD_SEEK ((__wasi_rights_t)(1 << 2))
+#define __WASI_RIGHTS_FD_SYNC ((__wasi_rights_t)(1 << 4))
+#define __WASI_RIGHTS_FD_TELL ((__wasi_rights_t)(1 << 5))
+#define __WASI_RIGHTS_FD_WRITE ((__wasi_rights_t)(1 << 6))
+#define __WASI_RIGHTS_PATH_CREATE_DIRECTORY ((__wasi_rights_t)(1 << 9))
+#define __WASI_RIGHTS_PATH_CREATE_FILE ((__wasi_rights_t)(1 << 10))
+#define __WASI_RIGHTS_PATH_FILESTAT_GET ((__wasi_rights_t)(1 << 18))
+#define __WASI_RIGHTS_PATH_FILESTAT_SET_SIZE ((__wasi_rights_t)(1 << 19))
+#define __WASI_RIGHTS_PATH_FILESTAT_SET_TIMES ((__wasi_rights_t)(1 << 20))
+#define __WASI_RIGHTS_PATH_LINK_SOURCE ((__wasi_rights_t)(1 << 11))
+#define __WASI_RIGHTS_PATH_LINK_TARGET ((__wasi_rights_t)(1 << 12))
+#define __WASI_RIGHTS_PATH_OPEN ((__wasi_rights_t)(1 << 13))
+#define __WASI_RIGHTS_PATH_READLINK ((__wasi_rights_t)(1 << 15))
+#define __WASI_RIGHTS_PATH_REMOVE_DIRECTORY ((__wasi_rights_t)(1 << 25))
+#define __WASI_RIGHTS_PATH_RENAME_SOURCE ((__wasi_rights_t)(1 << 16))
+#define __WASI_RIGHTS_PATH_RENAME_TARGET ((__wasi_rights_t)(1 << 17))
+#define __WASI_RIGHTS_PATH_SYMLINK ((__wasi_rights_t)(1 << 24))
+#define __WASI_RIGHTS_PATH_UNLINK_FILE ((__wasi_rights_t)(1 << 26))
+#define __WASI_RIGHTS_POLL_FD_READWRITE ((__wasi_rights_t)(1 << 27))
+#define __WASI_RIGHTS_SOCK_SHUTDOWN ((__wasi_rights_t)(1 << 28))
+#define __WASI_ROFLAGS_RECV_DATA_TRUNCATED ((__wasi_roflags_t)(1 << 0))
+#define __WASI_SDFLAGS_RD ((__wasi_sdflags_t)(1 << 0))
+#define __WASI_SDFLAGS_WR ((__wasi_sdflags_t)(1 << 1))
+#define __WASI_SIGNAL_ABRT (UINT8_C(6))
+#define __WASI_SIGNAL_ALRM (UINT8_C(14))
+#define __WASI_SIGNAL_BUS (UINT8_C(7))
+#define __WASI_SIGNAL_CHLD (UINT8_C(16))
+#define __WASI_SIGNAL_CONT (UINT8_C(17))
+#define __WASI_SIGNAL_FPE (UINT8_C(8))
+#define __WASI_SIGNAL_HUP (UINT8_C(1))
+#define __WASI_SIGNAL_ILL (UINT8_C(4))
+#define __WASI_SIGNAL_INT (UINT8_C(2))
+#define __WASI_SIGNAL_KILL (UINT8_C(9))
+#define __WASI_SIGNAL_NONE (UINT8_C(0))
+#define __WASI_SIGNAL_PIPE (UINT8_C(13))
+#define __WASI_SIGNAL_POLL (UINT8_C(28))
+#define __WASI_SIGNAL_PROF (UINT8_C(26))
+#define __WASI_SIGNAL_PWR (UINT8_C(29))
+#define __WASI_SIGNAL_QUIT (UINT8_C(3))
+#define __WASI_SIGNAL_SEGV (UINT8_C(11))
+#define __WASI_SIGNAL_STOP (UINT8_C(18))
+#define __WASI_SIGNAL_SYS (UINT8_C(30))
+#define __WASI_SIGNAL_TERM (UINT8_C(15))
+#define __WASI_SIGNAL_TRAP (UINT8_C(5))
+#define __WASI_SIGNAL_TSTP (UINT8_C(19))
+#define __WASI_SIGNAL_TTIN (UINT8_C(20))
+#define __WASI_SIGNAL_TTOU (UINT8_C(21))
+#define __WASI_SIGNAL_URG (UINT8_C(22))
+#define __WASI_SIGNAL_USR1 (UINT8_C(10))
+#define __WASI_SIGNAL_USR2 (UINT8_C(12))
+#define __WASI_SIGNAL_VTALRM (UINT8_C(25))
+#define __WASI_SIGNAL_WINCH (UINT8_C(27))
+#define __WASI_SIGNAL_XCPU (UINT8_C(23))
+#define __WASI_SIGNAL_XFSZ (UINT8_C(24))
+#define __WASI_SUBCLOCKFLAGS_SUBSCRIPTION_CLOCK_ABSTIME ((__wasi_subclockflags_t)(1 << 0))
+#define __WASI_WHENCE_CUR (UINT8_C(1))
+#define __WASI_WHENCE_END (UINT8_C(2))
+#define __WASI_WHENCE_SET (UINT8_C(0))
+#define __WCHAR_MAX__ 2147483647
+#define __WCHAR_TYPE__ int
+#define __WCHAR_WIDTH__ 32
+#define __WINT_MAX__ 2147483647
+#define __WINT_TYPE__ int
+#define __WINT_WIDTH__ 32
+#define __WORDSIZE 64
+#define __alignas_is_defined 1
+#define __alignof_is_defined 1
+#define __bitop(x,i,o) ((x)[(i)/8] o (1<<(i)%8))
+#define __bool_true_false_are_defined 1
+#define __inline inline
+#define __restrict restrict
+#define __tg_complex(fun,x) (__RETCAST_CX(x)( __FLTCX((x)+I) && __IS_FP(x) ? fun ## f (x) : __LDBLCX((x)+I) ? fun ## l (x) : fun(x) ))
+#define __tg_complex_retreal(fun,x) (__RETCAST_REAL(x)( __FLTCX((x)+I) && __IS_FP(x) ? fun ## f (x) : __LDBLCX((x)+I) ? fun ## l (x) : fun(x) ))
+#define __tg_real(fun,x) (__RETCAST(x)__tg_real_nocast(fun, x))
+#define __tg_real_2(fun,x,y) (__RETCAST_2(x, y)( __FLT(x) && __FLT(y) ? fun ## f (x, y) : __LDBL((x)+(y)) ? fun ## l (x, y) : fun(x, y) ))
+#define __tg_real_2_1(fun,x,y) (__RETCAST(x)( __FLT(x) ? fun ## f (x, y) : __LDBL(x) ? fun ## l (x, y) : fun(x, y) ))
+#define __tg_real_complex(fun,x) (__RETCAST(x)( __FLTCX(x) ? c ## fun ## f (x) : __DBLCX(x) ? c ## fun (x) : __LDBLCX(x) ? c ## fun ## l (x) : __FLT(x) ? fun ## f (x) : __LDBL(x) ? fun ## l (x) : fun(x) ))
+#define __tg_real_complex_fabs(x) (__RETCAST_REAL(x)( __FLTCX(x) ? cabsf(x) : __DBLCX(x) ? cabs(x) : __LDBLCX(x) ? cabsl(x) : __FLT(x) ? fabsf(x) : __LDBL(x) ? fabsl(x) : fabs(x) ))
+#define __tg_real_complex_pow(x,y) (__RETCAST_2(x, y)( __FLTCX((x)+(y)) && __IS_FP(x) && __IS_FP(y) ? cpowf(x, y) : __FLTCX((x)+(y)) ? cpow(x, y) : __DBLCX((x)+(y)) ? cpow(x, y) : __LDBLCX((x)+(y)) ? cpowl(x, y) : __FLT(x) && __FLT(y) ? powf(x, y) : __LDBL((x)+(y)) ? powl(x, y) : pow(x, y) ))
+#define __tg_real_fma(x,y,z) (__RETCAST_3(x, y, z)( __FLT(x) && __FLT(y) && __FLT(z) ? fmaf(x, y, z) : __LDBL((x)+(y)+(z)) ? fmal(x, y, z) : fma(x, y, z) ))
+#define __tg_real_nocast(fun,x) ( __FLT(x) ? fun ## f (x) : __LDBL(x) ? fun ## l (x) : fun(x) )
+#define __tg_real_remquo(x,y,z) (__RETCAST_2(x, y)( __FLT(x) && __FLT(y) ? remquof(x, y, z) : __LDBL((x)+(y)) ? remquol(x, y, z) : remquo(x, y, z) ))
+#define __tm_gmtoff tm_gmtoff
+#define __tm_zone tm_zone
+#define __va_copy(d,s) __builtin_va_copy(d,s)
+#define __wasi__ 1
+#define __wasi_api_h 
+#define __wasi_libc_environ_h 
+#define __wasi_libc_find_relpath_h 
+#define __wasi_libc_h 
+#define __wasi_libc_nocwd_h 
+#define __wasilibc___errno_h 
+#define __wasilibc___errno_values_h 
+#define __wasilibc___fd_set_h 
+#define __wasilibc___function___isatty_h 
+#define __wasilibc___functions_malloc_h 
+#define __wasilibc___functions_memcpy_h 
+#define __wasilibc___header_dirent_h 
+#define __wasilibc___header_fcntl_h 
+#define __wasilibc___header_netinet_in_h 
+#define __wasilibc___header_poll_h 
+#define __wasilibc___header_stdlib_h 
+#define __wasilibc___header_string_h 
+#define __wasilibc___header_sys_ioctl_h 
+#define __wasilibc___header_sys_resource_h 
+#define __wasilibc___header_sys_socket_h 
+#define __wasilibc___header_sys_stat_h 
+#define __wasilibc___header_time_h 
+#define __wasilibc___header_unistd_h 
+#define __wasilibc___include_inttypes_h 
+#define __wasilibc___macro_FD_SETSIZE_h 
+#define __wasilibc___macro_PAGESIZE_h 
+#define __wasilibc___mode_t_h 
+#define __wasilibc___seek_h 
+#define __wasilibc___struct_dirent_h 
+#define __wasilibc___struct_in6_addr_h 
+#define __wasilibc___struct_in_addr_h 
+#define __wasilibc___struct_iovec_h 
+#define __wasilibc___struct_msghdr_h 
+#define __wasilibc___struct_pollfd_h 
+#define __wasilibc___struct_rusage_h 
+#define __wasilibc___struct_sockaddr_h 
+#define __wasilibc___struct_sockaddr_in6_h 
+#define __wasilibc___struct_sockaddr_in_h 
+#define __wasilibc___struct_sockaddr_storage_h 
+#define __wasilibc___struct_sockaddr_un_h 
+#define __wasilibc___struct_stat_h 
+#define __wasilibc___struct_timespec_h 
+#define __wasilibc___struct_timeval_h 
+#define __wasilibc___struct_tm_h 
+#define __wasilibc___struct_tms_h 
+#define __wasilibc___typedef_DIR_h 
+#define __wasilibc___typedef_blkcnt_t_h 
+#define __wasilibc___typedef_blksize_t_h 
+#define __wasilibc___typedef_clock_t_h 
+#define __wasilibc___typedef_clockid_t_h 
+#define __wasilibc___typedef_dev_t_h 
+#define __wasilibc___typedef_fd_set_h 
+#define __wasilibc___typedef_gid_t_h 
+#define __wasilibc___typedef_in_addr_t_h 
+#define __wasilibc___typedef_in_port_t_h 
+#define __wasilibc___typedef_ino_t_h 
+#define __wasilibc___typedef_mode_t_h 
+#define __wasilibc___typedef_nfds_t_h 
+#define __wasilibc___typedef_nlink_t_h 
+#define __wasilibc___typedef_off_t_h 
+#define __wasilibc___typedef_sa_family_t_h 
+#define __wasilibc___typedef_sigset_t_h 
+#define __wasilibc___typedef_socklen_t_h 
+#define __wasilibc___typedef_ssize_t_h 
+#define __wasilibc___typedef_suseconds_t_h 
+#define __wasilibc___typedef_time_t_h 
+#define __wasilibc___typedef_uid_t_h 
+#define __wasm 1
+#define __wasm32 1
+#define __wasm32__ 1
+#define __wasm__ 1
+#define _tolower(a) ((a)|0x20)
+#define _toupper(a) ((a)&0x5f)
+#define acos(x) __tg_real_complex(acos, (x))
+#define acosh(x) __tg_real_complex(acosh, (x))
+#define alignas _Alignas
+#define alignof _Alignof
+#define alloca __builtin_alloca
+#define alphasort64 alphasort
+#define and &&
+#define and_eq &=
+#define asin(x) __tg_real_complex(asin, (x))
+#define asinh(x) __tg_real_complex(asinh, (x))
+#define assert(x) (void)0
+#define atan(x) __tg_real_complex(atan, (x))
+#define atan2(x,y) __tg_real_2(atan2, (x), (y))
+#define atanh(x) __tg_real_complex(atanh, (x))
+#define be16toh(x) __bswap16(x)
+#define be32toh(x) __bswap32(x)
+#define be64toh(x) __bswap64(x)
+#define betoh16(x) __bswap16(x)
+#define betoh32(x) __bswap32(x)
+#define betoh64(x) __bswap64(x)
+#define bitand &
+#define bitor |
+#define blkcnt64_t blkcnt_t
+#define bool _Bool
+#define bswap_16(x) __bswap_16(x)
+#define bswap_32(x) __bswap_32(x)
+#define bswap_64(x) __bswap_64(x)
+#define carg(x) __tg_complex_retreal(carg, (x))
+#define cbrt(x) __tg_real(cbrt, (x))
+#define ceil(x) __tg_real(ceil, (x))
+#define cimag(x) __tg_complex_retreal(cimag, (x))
+#define cimagf(x) (__builtin_cimagf(x))
+#define cimagl(x) (__builtin_cimagl(x))
+#define clrbit(x,i) __bitop(x,i,&=~)
+#define compl ~
+#define complex _Complex
+#define conj(x) __tg_complex(conj, (x))
+#define copysign(x,y) __tg_real_2(copysign, (x), (y))
+#define cos(x) __tg_real_complex(cos, (x))
+#define cosh(x) __tg_real_complex(cosh, (x))
+#define cproj(x) __tg_complex(cproj, (x))
+#define creal(x) __tg_complex_retreal(creal, (x))
+#define crealf(x) (__builtin_crealf(x))
+#define creall(x) (__builtin_creall(x))
+#define creat64 creat
+#define d_fileno d_ino
+#define direct dirent
+#define dirent64 dirent
+#define erf(x) __tg_real(erf, (x))
+#define erfc(x) __tg_real(erfc, (x))
+#define errno errno
+#define exp(x) __tg_real_complex(exp, (x))
+#define exp2(x) __tg_real(exp2, (x))
+#define expm1(x) __tg_real(expm1, (x))
+#define fabs(x) __tg_real_complex_fabs(x)
+#define false 0
+#define fdim(x,y) __tg_real_2(fdim, (x), (y))
+#define fgetpos64 fgetpos
+#define floor(x) __tg_real(floor, (x))
+#define fma(x,y,z) __tg_real_fma((x), (y), (z))
+#define fmax(x,y) __tg_real_2(fmax, (x), (y))
+#define fmin(x,y) __tg_real_2(fmin, (x), (y))
+#define fmod(x,y) __tg_real_2(fmod, (x), (y))
+#define fopen64 fopen
+#define fpclassify(x) (__builtin_fpclassify(FP_NAN, FP_INFINITE, FP_NORMAL, FP_SUBNORMAL, FP_ZERO, x))
+#define fpos64_t fpos_t
+#define freopen64 freopen
+#define frexp(x,y) __tg_real_2_1(frexp, (x), (y))
+#define fsblkcnt64_t fsblkcnt_t
+#define fseeko64 fseeko
+#define fsetpos64 fsetpos
+#define fsfilcnt64_t fsfilcnt_t
+#define fstat64 fstat
+#define fstatat64 fstatat
+#define ftello64 ftello
+#define ftruncate64 ftruncate
+#define getdents64 getdents
+#define glob64 glob
+#define glob64_t glob_t
+#define globfree64 globfree
+#define howmany(n,d) (((n)+((d)-1))/(d))
+#define htobe16(x) __bswap16(x)
+#define htobe32(x) __bswap32(x)
+#define htobe64(x) __bswap64(x)
+#define htole16(x) (uint16_t)(x)
+#define htole32(x) (uint32_t)(x)
+#define htole64(x) (uint64_t)(x)
+#define hypot(x,y) __tg_real_2(hypot, (x), (y))
+#define icmp6_data16 icmp6_dataun.icmp6_un_data16
+#define icmp6_data32 icmp6_dataun.icmp6_un_data32
+#define icmp6_data8 icmp6_dataun.icmp6_un_data8
+#define icmp6_id icmp6_data16[0]
+#define icmp6_maxdelay icmp6_data16[0]
+#define icmp6_mtu icmp6_data32[0]
+#define icmp6_pptr icmp6_data32[0]
+#define icmp6_seq icmp6_data16[1]
+#define icmp_data icmp_dun.id_data
+#define icmp_gwaddr icmp_hun.ih_gwaddr
+#define icmp_id icmp_hun.ih_idseq.icd_id
+#define icmp_ip icmp_dun.id_ip.idi_ip
+#define icmp_lifetime icmp_hun.ih_rtradv.irt_lifetime
+#define icmp_mask icmp_dun.id_mask
+#define icmp_nextmtu icmp_hun.ih_pmtu.ipm_nextmtu
+#define icmp_num_addrs icmp_hun.ih_rtradv.irt_num_addrs
+#define icmp_otime icmp_dun.id_ts.its_otime
+#define icmp_pmvoid icmp_hun.ih_pmtu.ipm_void
+#define icmp_pptr icmp_hun.ih_pptr
+#define icmp_radv icmp_dun.id_radv
+#define icmp_rtime icmp_dun.id_ts.its_rtime
+#define icmp_seq icmp_hun.ih_idseq.icd_seq
+#define icmp_ttime icmp_dun.id_ts.its_ttime
+#define icmp_void icmp_hun.ih_void
+#define icmp_wpa icmp_hun.ih_rtradv.irt_wpa
+#define ifa_broadaddr ifa_ifu.ifu_broadaddr
+#define ifa_dstaddr ifa_ifu.ifu_dstaddr
+#define ilogb(x) __tg_real_nocast(ilogb, (x))
+#define ino64_t ino_t
+#define ip6_flow ip6_ctlun.ip6_un1.ip6_un1_flow
+#define ip6_hlim ip6_ctlun.ip6_un1.ip6_un1_hlim
+#define ip6_hops ip6_ctlun.ip6_un1.ip6_un1_hlim
+#define ip6_nxt ip6_ctlun.ip6_un1.ip6_un1_nxt
+#define ip6_plen ip6_ctlun.ip6_un1.ip6_un1_plen
+#define ip6_vfc ip6_ctlun.ip6_un2_vfc
+#define isalpha(a) (0 ? isalpha(a) : (((unsigned)(a)|32)-'a') < 26)
+#define isascii(a) (0 ? isascii(a) : (unsigned)(a) < 128)
+#define isclr(x,i) !isset(x,i)
+#define isdigit(a) (0 ? isdigit(a) : ((unsigned)(a)-'0') < 10)
+#define isfinite(x) (__builtin_isfinite(x))
+#define isgraph(a) (0 ? isgraph(a) : ((unsigned)(a)-0x21) < 0x5e)
+#define isgreater(x,y) (__builtin_isgreater(x, y))
+#define isgreaterequal(x,y) (__builtin_isgreaterequal(x, y))
+#define isinf(x) (__builtin_isinf(x))
+#define isless(x,y) (__builtin_isless(x, y))
+#define islessequal(x,y) (__builtin_islessequal(x, y))
+#define islessgreater(x,y) (__builtin_islessgreater(x, y))
+#define islower(a) (0 ? islower(a) : ((unsigned)(a)-'a') < 26)
+#define isnan(x) (__builtin_isnan(x))
+#define isnormal(x) (__builtin_isnormal(x))
+#define isprint(a) (0 ? isprint(a) : ((unsigned)(a)-0x20) < 0x5f)
+#define isset(x,i) __bitop(x,i,&)
+#define isspace(a) __isspace(a)
+#define isunordered(x,y) (__builtin_isunordered(x, y))
+#define isupper(a) (0 ? isupper(a) : ((unsigned)(a)-'A') < 26)
+#define iswdigit(a) (0 ? iswdigit(a) : ((unsigned)(a)-'0') < 10)
+#define ldexp(x,y) __tg_real_2_1(ldexp, (x), (y))
+#define le16toh(x) (uint16_t)(x)
+#define le32toh(x) (uint32_t)(x)
+#define le64toh(x) (uint64_t)(x)
+#define letoh16(x) (uint16_t)(x)
+#define letoh32(x) (uint32_t)(x)
+#define letoh64(x) (uint64_t)(x)
+#define lgamma(x) __tg_real(lgamma, (x))
+#define llrint(x) __tg_real_nocast(llrint, (x))
+#define llround(x) __tg_real_nocast(llround, (x))
+#define loff_t off_t
+#define log(x) __tg_real_complex(log, (x))
+#define log10(x) __tg_real(log10, (x))
+#define log1p(x) __tg_real(log1p, (x))
+#define log2(x) __tg_real(log2, (x))
+#define logb(x) __tg_real(logb, (x))
+#define lrint(x) __tg_real_nocast(lrint, (x))
+#define lround(x) __tg_real_nocast(lround, (x))
+#define lseek(fd,offset,whence) ({ off_t __f = (fd); off_t __o = (offset); off_t __w = (whence); __builtin_constant_p((offset)) && __builtin_constant_p((whence)) && __o == 0 && __w == SEEK_CUR ? __wasilibc_tell(__f) : lseek(__f, __o, __w); })
+#define lseek64 lseek
+#define lstat64 lstat
+#define math_errhandling 2
+#define mld_cksum mld_icmp6_hdr.icmp6_cksum
+#define mld_code mld_icmp6_hdr.icmp6_code
+#define mld_maxdelay mld_icmp6_hdr.icmp6_data16[0]
+#define mld_reserved mld_icmp6_hdr.icmp6_data16[1]
+#define mld_type mld_icmp6_hdr.icmp6_type
+#define nd_na_cksum nd_na_hdr.icmp6_cksum
+#define nd_na_code nd_na_hdr.icmp6_code
+#define nd_na_flags_reserved nd_na_hdr.icmp6_data32[0]
+#define nd_na_type nd_na_hdr.icmp6_type
+#define nd_ns_cksum nd_ns_hdr.icmp6_cksum
+#define nd_ns_code nd_ns_hdr.icmp6_code
+#define nd_ns_reserved nd_ns_hdr.icmp6_data32[0]
+#define nd_ns_type nd_ns_hdr.icmp6_type
+#define nd_ra_cksum nd_ra_hdr.icmp6_cksum
+#define nd_ra_code nd_ra_hdr.icmp6_code
+#define nd_ra_curhoplimit nd_ra_hdr.icmp6_data8[0]
+#define nd_ra_flags_reserved nd_ra_hdr.icmp6_data8[1]
+#define nd_ra_router_lifetime nd_ra_hdr.icmp6_data16[1]
+#define nd_ra_type nd_ra_hdr.icmp6_type
+#define nd_rd_cksum nd_rd_hdr.icmp6_cksum
+#define nd_rd_code nd_rd_hdr.icmp6_code
+#define nd_rd_reserved nd_rd_hdr.icmp6_data32[0]
+#define nd_rd_type nd_rd_hdr.icmp6_type
+#define nd_rs_cksum nd_rs_hdr.icmp6_cksum
+#define nd_rs_code nd_rs_hdr.icmp6_code
+#define nd_rs_reserved nd_rs_hdr.icmp6_data32[0]
+#define nd_rs_type nd_rs_hdr.icmp6_type
+#define nearbyint(x) __tg_real(nearbyint, (x))
+#define nextafter(x,y) __tg_real_2(nextafter, (x), (y))
+#define nexttoward(x,y) __tg_real_2(nexttoward, (x), (y))
+#define nftw64 nftw
+#define no_argument 0
+#define noreturn _Noreturn
+#define not !
+#define not_eq !=
+#define ns_msg_base(handle) ((handle)._msg + 0)
+#define ns_msg_count(handle,section) ((handle)._counts[section] + 0)
+#define ns_msg_end(handle) ((handle)._eom + 0)
+#define ns_msg_getflag(handle,flag) (((handle)._flags & _ns_flagdata[flag].mask) >> _ns_flagdata[flag].shift)
+#define ns_msg_id(handle) ((handle)._id + 0)
+#define ns_msg_size(handle) ((handle)._eom - (handle)._msg)
+#define ns_rr_class(rr) ((ns_class)((rr).rr_class + 0))
+#define ns_rr_name(rr) (((rr).name[0] != '\0') ? (rr).name : ".")
+#define ns_rr_rdata(rr) ((rr).rdata + 0)
+#define ns_rr_rdlen(rr) ((rr).rdlength + 0)
+#define ns_rr_ttl(rr) ((rr).ttl + 0)
+#define ns_rr_type(rr) ((ns_type)((rr).type + 0))
+#define ns_t_mrr_p(t) ((t) == ns_t_tsig || (t) == ns_t_opt)
+#define ns_t_qt_p(t) (ns_t_xfr_p(t) || (t) == ns_t_any || (t) == ns_t_mailb || (t) == ns_t_maila)
+#define ns_t_rr_p(t) (!ns_t_qt_p(t) && !ns_t_mrr_p(t))
+#define ns_t_udp_p(t) ((t) != ns_t_axfr && (t) != ns_t_zxfr)
+#define ns_t_xfr_p(t) ((t) == ns_t_axfr || (t) == ns_t_ixfr || (t) == ns_t_zxfr)
+#define off64_t off_t
+#define offsetof(t,d) __builtin_offsetof(t, d)
+#define open64 open
+#define openat64 openat
+#define optional_argument 2
+#define or ||
+#define or_eq |=
+#define posix_fadvise64 posix_fadvise
+#define posix_fallocate64 posix_fallocate
+#define pow(x,y) __tg_real_complex_pow((x), (y))
+#define powerof2(n) !(((n)-1) & (n))
+#define pread64 pread
+#define preadv64 preadv
+#define pwrite64 pwrite
+#define pwritev64 pwritev
+#define readdir64 readdir
+#define remainder(x,y) __tg_real_2(remainder, (x), (y))
+#define remquo(x,y,z) __tg_real_remquo((x), (y), (z))
+#define required_argument 1
+#define rint(x) __tg_real(rint, (x))
+#define round(x) __tg_real(round, (x))
+#define roundup(n,d) (howmany(n,d)*(d))
+#define rr_cksum rr_hdr.icmp6_cksum
+#define rr_code rr_hdr.icmp6_code
+#define rr_seqnum rr_hdr.icmp6_data32[0]
+#define rr_type rr_hdr.icmp6_type
+#define scalbln(x,y) __tg_real_2_1(scalbln, (x), (y))
+#define scalbn(x,y) __tg_real_2_1(scalbn, (x), (y))
+#define scandir64 scandir
+#define setbit(x,i) __bitop(x,i,|=)
+#define signbit(x) (__builtin_signbit(x))
+#define sin(x) __tg_real_complex(sin, (x))
+#define sinh(x) __tg_real_complex(sinh, (x))
+#define sqrt(x) __tg_real_complex(sqrt, (x))
+#define st_atime st_atim.tv_sec
+#define st_ctime st_ctim.tv_sec
+#define st_mtime st_mtim.tv_sec
+#define stat64 stat
+#define static_assert _Static_assert
+#define stderr (stderr)
+#define stdin (stdin)
+#define stdout (stdout)
+#define strdupa(x) strcpy(alloca(strlen(x)+1),x)
+#define tan(x) __tg_real_complex(tan, (x))
+#define tanh(x) __tg_real_complex(tanh, (x))
+#define telcmds ((char [][6]){ "EOF", "SUSP", "ABORT", "EOR", "SE", "NOP", "DMARK", "BRK", "IP", "AO", "AYT", "EC", "EL", "GA", "SB", "WILL", "WONT", "DO", "DONT", "IAC", 0 })
+#define tgamma(x) __tg_real(tgamma, (x))
+#define th_block th_u.tu_block
+#define th_code th_u.tu_code
+#define th_msg th_data
+#define th_stuff th_u.tu_stuff
+#define thrd_equal(A,B) ((A) == (B))
+#define thread_local _Thread_local
+#define timeradd(s,t,a) (void) ( (a)->tv_sec = (s)->tv_sec + (t)->tv_sec, ((a)->tv_usec = (s)->tv_usec + (t)->tv_usec) >= 1000000 && ((a)->tv_usec -= 1000000, (a)->tv_sec++) )
+#define timerclear(t) ((t)->tv_sec = (t)->tv_usec = 0)
+#define timercmp(s,t,op) ((s)->tv_sec == (t)->tv_sec ? (s)->tv_usec op (t)->tv_usec : (s)->tv_sec op (t)->tv_sec)
+#define timerisset(t) ((t)->tv_sec || (t)->tv_usec)
+#define timersub(s,t,a) (void) ( (a)->tv_sec = (s)->tv_sec - (t)->tv_sec, ((a)->tv_usec = (s)->tv_usec - (t)->tv_usec) < 0 && ((a)->tv_usec += 1000000, (a)->tv_sec--) )
+#define true 1
+#define trunc(x) __tg_real(trunc, (x))
+#define uh_dport dest
+#define uh_sport source
+#define uh_sum check
+#define uh_ulen len
+#define va_arg(ap,type) __builtin_va_arg(ap, type)
+#define va_copy(dest,src) __builtin_va_copy(dest, src)
+#define va_end(ap) __builtin_va_end(ap)
+#define va_start(ap,param) __builtin_va_start(ap, param)
+#define versionsort64 versionsort
+#define xEOF 236
+#define xor ^
+#define xor_eq ^=
