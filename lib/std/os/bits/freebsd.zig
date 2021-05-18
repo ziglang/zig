@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("../../std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
 pub const blksize_t = i32;
@@ -842,7 +842,7 @@ pub const sigset_t = extern struct {
 
 pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** _SIG_WORDS };
 
-pub usingnamespace switch (builtin.arch) {
+pub usingnamespace switch (builtin.target.cpu.arch) {
     .x86_64 => struct {
         pub const ucontext_t = extern struct {
             sigmask: sigset_t,
@@ -1011,7 +1011,7 @@ pub const EOWNERDEAD = 96; // Previous owner died
 
 pub const ELAST = 96; // Must be equal largest errno
 
-pub const MINSIGSTKSZ = switch (builtin.arch) {
+pub const MINSIGSTKSZ = switch (builtin.target.cpu.arch) {
     .i386, .x86_64 => 2048,
     .arm, .aarch64 => 4096,
     else => @compileError("MINSIGSTKSZ not defined for this architecture"),
