@@ -77,7 +77,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 \\extern "c" fn write(usize, usize, usize) usize;
                 \\extern "c" fn exit(usize) noreturn;
                 \\
-                \\export fn main() noreturn {
+                \\pub export fn main() noreturn {
                 \\    print();
                 \\
                 \\    exit(0);
