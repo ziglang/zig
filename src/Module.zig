@@ -4419,13 +4419,20 @@ pub const SwitchProngSrc = union(enum) {
     /// the LazySrcLoc in order to emit a compile error.
     pub fn resolve(
         prong_src: SwitchProngSrc,
+        gpa: *Allocator,
         decl: *Decl,
         switch_node_offset: i32,
         range_expand: RangeExpand,
     ) LazySrcLoc {
         @setCold(true);
+        const tree = decl.namespace.file_scope.getTree(gpa) catch |err| {
+            // In this case we emit a warning + a less precise source location.
+            log.warn("unable to load {s}: {s}", .{
+                decl.namespace.file_scope.sub_file_path, @errorName(err),
+            });
+            return LazySrcLoc{ .node_offset = 0};
+        };
         const switch_node = decl.relativeToNodeIndex(switch_node_offset);
-        const tree = decl.namespace.file_scope.tree;
         const main_tokens = tree.nodes.items(.main_token);
         const node_datas = tree.nodes.items(.data);
         const node_tags = tree.nodes.items(.tag);

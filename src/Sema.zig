@@ -4229,18 +4229,19 @@ fn resolveSwitchItemVal(
     switch_prong_src: Module.SwitchProngSrc,
     range_expand: Module.SwitchProngSrc.RangeExpand,
 ) InnerError!TypedValue {
+    const mod = sema.mod;
     const item = try sema.resolveInst(item_ref);
     // We have to avoid the other helper functions here because we cannot construct a LazySrcLoc
     // because we only have the switch AST node. Only if we know for sure we need to report
     // a compile error do we resolve the full source locations.
     if (item.value()) |val| {
         if (val.isUndef()) {
-            const src = switch_prong_src.resolve(block.src_decl, switch_node_offset, range_expand);
+            const src = switch_prong_src.resolve(mod, block.src_decl, switch_node_offset, range_expand);
             return sema.failWithUseOfUndef(block, src);
         }
         return TypedValue{ .ty = item.ty, .val = val };
     }
-    const src = switch_prong_src.resolve(block.src_decl, switch_node_offset, range_expand);
+    const src = switch_prong_src.resolve(mod, block.src_decl, switch_node_offset, range_expand);
     return sema.failWithNeededComptime(block, src);
 }
 
@@ -4284,7 +4285,7 @@ fn validateSwitchItemEnum(
     const item_tv = try sema.resolveSwitchItemVal(block, item_ref, src_node_offset, switch_prong_src, .none);
     const field_index = item_tv.ty.enumTagFieldIndex(item_tv.val) orelse {
         const msg = msg: {
-            const src = switch_prong_src.resolve(block.src_decl, src_node_offset, .none);
+            const src = switch_prong_src.resolve(mod, block.src_decl, src_node_offset, .none);
             const msg = try mod.errMsg(
                 &block.base,
                 src,
@@ -4316,8 +4317,8 @@ fn validateSwitchDupe(
 ) InnerError!void {
     const prev_prong_src = maybe_prev_src orelse return;
     const mod = sema.mod;
-    const src = switch_prong_src.resolve(block.src_decl, src_node_offset, .none);
-    const prev_src = prev_prong_src.resolve(block.src_decl, src_node_offset, .none);
+    const src = switch_prong_src.resolve(mod, block.src_decl, src_node_offset, .none);
+    const prev_src = prev_prong_src.resolve(mod, block.src_decl, src_node_offset, .none);
     const msg = msg: {
         const msg = try mod.errMsg(
             &block.base,
@@ -4354,7 +4355,7 @@ fn validateSwitchItemBool(
         false_count.* += 1;
     }
     if (true_count.* + false_count.* > 2) {
-        const src = switch_prong_src.resolve(block.src_decl, src_node_offset, .none);
+        const src = switch_prong_src.resolve(mod, block.src_decl, src_node_offset, .none);
         return sema.mod.fail(&block.base, src, "duplicate switch value", .{});
     }
 }

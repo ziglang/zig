@@ -1,3 +1,0 @@
- * in SwitchProng resolve, make sure AST tree gets loaded.
-   It will be unloaded if using cached ZIR.
- 
