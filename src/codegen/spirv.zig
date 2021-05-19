@@ -71,10 +71,7 @@ pub const DeclGen = struct {
     decl: *Decl,
     error_msg: ?*Module.ErrorMsg,
 
-    const Error = error{
-        AnalysisFail,
-        OutOfMemory
-    };
+    const Error = error{ AnalysisFail, OutOfMemory };
 
     /// This structure is used to return information about a type typically used for arithmetic operations.
     /// These types may either be integers, floats, or a vector of these. Most scalar operations also work on vectors,
@@ -153,7 +150,7 @@ pub const DeclGen = struct {
 
         // 8, 16 and 64-bit integers require the Int8, Int16 and Inr64 capabilities respectively.
         // 32-bit integers are always supported (see spec, 2.16.1, Data rules).
-        const ints = [_]struct{ bits: u16, feature: ?Target.spirv.Feature } {
+        const ints = [_]struct { bits: u16, feature: ?Target.spirv.Feature }{
             .{ .bits = 8, .feature = .Int8 },
             .{ .bits = 16, .feature = .Int16 },
             .{ .bits = 32, .feature = null },
@@ -215,23 +212,18 @@ pub const DeclGen = struct {
                 const int_info = ty.intInfo(target);
                 // TODO: Maybe it's useful to also return this value.
                 const maybe_backing_bits = self.backingIntBits(int_info.bits);
-                break :blk ArithmeticTypeInfo{
-                    .bits = int_info.bits,
-                    .is_vector = false,
-                    .signedness = int_info.signedness,
-                    .class = if (maybe_backing_bits) |backing_bits|
-                            if (backing_bits == int_info.bits)
-                                ArithmeticTypeInfo.Class.integer
-                            else
-                                ArithmeticTypeInfo.Class.strange_integer
-                        else
-                            .composite_integer
-                };
+                break :blk ArithmeticTypeInfo{ .bits = int_info.bits, .is_vector = false, .signedness = int_info.signedness, .class = if (maybe_backing_bits) |backing_bits|
+                    if (backing_bits == int_info.bits)
+                        ArithmeticTypeInfo.Class.integer
+                    else
+                        ArithmeticTypeInfo.Class.strange_integer
+                else
+                    .composite_integer };
             },
             // As of yet, there is no vector support in the self-hosted compiler.
-            .Vector => self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement arithmeticTypeInfo for Vector", .{}),
+            .Vector => self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement arithmeticTypeInfo for Vector", .{}),
             // TODO: For which types is this the case?
-            else => self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement arithmeticTypeInfo for {}", .{ty}),
+            else => self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement arithmeticTypeInfo for {}", .{ty}),
         };
     }
 
@@ -259,16 +251,8 @@ pub const DeclGen = struct {
                 // f16 and f32 require one word of storage. f64 requires 2, low-order first.
 
                 switch (val.tag()) {
-                    .float_16 => try writeInstruction(code, .OpConstant, &[_]u32{
-                        result_type_id,
-                        result_id,
-                        @bitCast(u16, val.castTag(.float_16).?.data)
-                    }),
-                    .float_32 => try writeInstruction(code, .OpConstant, &[_]u32{
-                        result_type_id,
-                        result_id,
-                        @bitCast(u32, val.castTag(.float_32).?.data)
-                    }),
+                    .float_16 => try writeInstruction(code, .OpConstant, &[_]u32{ result_type_id, result_id, @bitCast(u16, val.castTag(.float_16).?.data) }),
+                    .float_32 => try writeInstruction(code, .OpConstant, &[_]u32{ result_type_id, result_id, @bitCast(u32, val.castTag(.float_32).?.data) }),
                     .float_64 => {
                         const float_bits = @bitCast(u64, val.castTag(.float_64).?.data);
                         try writeInstruction(code, .OpConstant, &[_]u32{
@@ -280,10 +264,10 @@ pub const DeclGen = struct {
                     },
                     .float_128 => unreachable, // Filtered out in the call to getOrGenType.
                     // TODO: What tags do we need to handle here anyway?
-                    else => return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: float constant generation of value {s}\n", .{ val.tag() }),
+                    else => return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: float constant generation of value {s}\n", .{val.tag()}),
                 }
             },
-            else => return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: constant generation of type {s}\n", .{ ty.zigTypeTag() }),
+            else => return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: constant generation of type {s}\n", .{ty.zigTypeTag()}),
         }
 
         return result_id;
@@ -300,13 +284,13 @@ pub const DeclGen = struct {
         const result_id = self.spv.allocResultId();
 
         switch (ty.zigTypeTag()) {
-            .Void => try writeInstruction(code, .OpTypeVoid, &[_]u32{ result_id }),
-            .Bool => try writeInstruction(code, .OpTypeBool, &[_]u32{ result_id }),
+            .Void => try writeInstruction(code, .OpTypeVoid, &[_]u32{result_id}),
+            .Bool => try writeInstruction(code, .OpTypeBool, &[_]u32{result_id}),
             .Int => {
                 const int_info = ty.intInfo(target);
                 const backing_bits = self.backingIntBits(int_info.bits) orelse {
                     // Integers too big for any native type are represented as "composite integers": An array of largestSupportedIntBits.
-                    return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement composite ints {}", .{ ty });
+                    return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement composite ints {}", .{ty});
                 };
 
                 // TODO: If backing_bits != int_info.bits, a duplicate type might be generated here.
@@ -332,7 +316,7 @@ pub const DeclGen = struct {
                 };
 
                 if (!supported) {
-                    return self.fail(.{.node_offset = 0}, "Floating point width of {} bits is not supported for the current SPIR-V feature set", .{ bits });
+                    return self.fail(.{ .node_offset = 0 }, "Floating point width of {} bits is not supported for the current SPIR-V feature set", .{bits});
                 }
 
                 try writeInstruction(code, .OpTypeFloat, &[_]u32{ result_id, bits });
@@ -340,9 +324,9 @@ pub const DeclGen = struct {
             .Fn => {
                 // We only support zig-calling-convention functions, no varargs.
                 if (ty.fnCallingConvention() != .Unspecified)
-                    return self.fail(.{.node_offset = 0}, "Unsupported calling convention for SPIR-V", .{});
+                    return self.fail(.{ .node_offset = 0 }, "Unsupported calling convention for SPIR-V", .{});
                 if (ty.fnIsVarArgs())
-                    return self.fail(.{.node_offset = 0}, "VarArgs unsupported for SPIR-V", .{});
+                    return self.fail(.{ .node_offset = 0 }, "VarArgs unsupported for SPIR-V", .{});
 
                 // In order to avoid a temporary here, first generate all the required types and then simply look them up
                 // when generating the function type.
@@ -355,7 +339,7 @@ pub const DeclGen = struct {
                 const return_type_id = try self.getOrGenType(ty.fnReturnType());
 
                 // result id + result type id + parameter type ids.
-                try writeOpcode(code, .OpTypeFunction, 2 + @intCast(u32, ty.fnParamLen()) );
+                try writeOpcode(code, .OpTypeFunction, 2 + @intCast(u32, ty.fnParamLen()));
                 try code.appendSlice(&.{ result_id, return_type_id });
 
                 i = 0;
@@ -373,7 +357,7 @@ pub const DeclGen = struct {
                 // is adequate at all for this.
 
                 // TODO: Vectors are not yet supported by the self-hosted compiler itself it seems.
-                return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement type Vector", .{});
+                return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement type Vector", .{});
             },
             .Null,
             .Undefined,
@@ -385,7 +369,7 @@ pub const DeclGen = struct {
 
             .BoundFn => unreachable, // this type will be deleted from the language.
 
-            else => |tag| return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement type {}s", .{ tag }),
+            else => |tag| return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement type {}s", .{tag}),
         }
 
         try self.types.putNoClobber(ty, result_id);
@@ -393,25 +377,25 @@ pub const DeclGen = struct {
     }
 
     pub fn gen(self: *DeclGen) !void {
-        const result_id = self.decl.fn_link.spirv.id;
-        const tv = self.decl.typed_value.most_recent.typed_value;
+        const decl = self.decl;
+        const result_id = decl.fn_link.spirv.id;
 
-        if (tv.val.castTag(.function)) |func_payload| {
-            std.debug.assert(tv.ty.zigTypeTag() == .Fn);
-            const prototype_id = try self.getOrGenType(tv.ty);
+        if (decl.val.castTag(.function)) |func_payload| {
+            std.debug.assert(decl.ty.zigTypeTag() == .Fn);
+            const prototype_id = try self.getOrGenType(decl.ty);
             try writeInstruction(&self.spv.fn_decls, .OpFunction, &[_]u32{
-                self.types.get(tv.ty.fnReturnType()).?, // This type should be generated along with the prototype.
+                self.types.get(decl.ty.fnReturnType()).?, // This type should be generated along with the prototype.
                 result_id,
                 @bitCast(u32, spec.FunctionControl{}), // TODO: We can set inline here if the type requires it.
                 prototype_id,
             });
 
-            const params = tv.ty.fnParamLen();
+            const params = decl.ty.fnParamLen();
             var i: usize = 0;
 
             try self.args.ensureCapacity(params);
             while (i < params) : (i += 1) {
-                const param_type_id = self.types.get(tv.ty.fnParamType(i)).?;
+                const param_type_id = self.types.get(decl.ty.fnParamType(i)).?;
                 const arg_result_id = self.spv.allocResultId();
                 try writeInstruction(&self.spv.fn_decls, .OpFunctionParameter, &[_]u32{ param_type_id, arg_result_id });
                 self.args.appendAssumeCapacity(arg_result_id);
@@ -424,7 +408,7 @@ pub const DeclGen = struct {
 
             try writeInstruction(&self.spv.fn_decls, .OpFunctionEnd, &[_]u32{});
         } else {
-            return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: generate decl type {}", .{ tv.ty.zigTypeTag() });
+            return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: generate decl type {}", .{decl.ty.zigTypeTag()});
         }
     }
 
@@ -462,7 +446,7 @@ pub const DeclGen = struct {
             .ret => self.genRet(inst.castTag(.ret).?),
             .retvoid => self.genRetVoid(),
             .unreach => self.genUnreach(),
-            else => self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: implement inst {}", .{inst.tag}),
+            else => self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement inst {}", .{inst.tag}),
         };
     }
 
@@ -486,7 +470,7 @@ pub const DeclGen = struct {
         const info = try self.arithmeticTypeInfo(inst.lhs.ty);
 
         if (info.class == .composite_integer)
-            return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: binary operations for composite integers", .{});
+            return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: binary operations for composite integers", .{});
 
         const is_bool = info.class == .bool;
         const is_float = info.class == .float;
@@ -533,7 +517,7 @@ pub const DeclGen = struct {
         if (info.class != .strange_integer)
             return result_id;
 
-        return self.fail(.{.node_offset = 0}, "TODO: SPIR-V backend: strange integer operation mask", .{});
+        return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: strange integer operation mask", .{});
     }
 
     fn genUnOp(self: *DeclGen, inst: *Inst.UnOp) !u32 {
@@ -563,7 +547,7 @@ pub const DeclGen = struct {
     fn genRet(self: *DeclGen, inst: *Inst.UnOp) !?u32 {
         const operand_id = try self.resolve(inst.operand);
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
-        try writeInstruction(&self.spv.fn_decls, .OpReturnValue, &[_]u32{ operand_id });
+        try writeInstruction(&self.spv.fn_decls, .OpReturnValue, &[_]u32{operand_id});
         return null;
     }
 

@@ -30,7 +30,7 @@ pub const Options = struct {
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
-    object_format: std.builtin.ObjectFormat,
+    object_format: std.Target.ObjectFormat,
     optimize_mode: std.builtin.Mode,
     machine_code_model: std.builtin.CodeModel,
     root_name: []const u8,
@@ -301,6 +301,8 @@ pub const File = struct {
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
+        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty });
+        assert(decl.has_tv);
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDecl(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
@@ -312,6 +314,10 @@ pub const File = struct {
     }
 
     pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) !void {
+        log.debug("updateDeclLineNumber {*} ({s}), line={}", .{
+            decl, decl.name, decl.src_line + 1,
+        });
+        assert(decl.has_tv);
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
@@ -324,6 +330,7 @@ pub const File = struct {
     /// Must be called before any call to updateDecl or updateDeclExports for
     /// any given Decl.
     pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
+        log.debug("allocateDeclIndexes {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
@@ -351,6 +358,7 @@ pub const File = struct {
         base.releaseLock();
         if (base.file) |f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
+        base.options.system_libs.deinit(base.allocator);
         switch (base.tag) {
             .coff => {
                 const parent = @fieldParentPtr(Coff, "base", base);
@@ -434,6 +442,7 @@ pub const File = struct {
 
     /// Called when a Decl is deleted from the Module.
     pub fn freeDecl(base: *File, decl: *Module.Decl) void {
+        log.debug("freeDecl {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
             .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl),
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
@@ -462,6 +471,8 @@ pub const File = struct {
         decl: *Module.Decl,
         exports: []const *Module.Export,
     ) !void {
+        log.debug("updateDeclExports {*} ({s})", .{ decl, decl.name });
+        assert(decl.has_tv);
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl, exports),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),

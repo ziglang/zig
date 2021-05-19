@@ -30541,22 +30541,13 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
         case ZigTypeIdVector:
             return buf_read_value_bytes_array(ira, codegen, source_node, buf, val, val->type->data.vector.elem_type,
                     val->type->data.vector.len);
-        case ZigTypeIdEnum:
-            switch (val->type->data.enumeration.layout) {
-                case ContainerLayoutAuto:
-                    zig_panic("TODO buf_read_value_bytes enum auto");
-                case ContainerLayoutPacked:
-                    zig_panic("TODO buf_read_value_bytes enum packed");
-                case ContainerLayoutExtern: {
-                    ZigType *tag_int_type = val->type->data.enumeration.tag_int_type;
-                    src_assert(tag_int_type->id == ZigTypeIdInt, source_node);
-                    bigint_read_twos_complement(&val->data.x_enum_tag, buf, tag_int_type->data.integral.bit_count,
-                            codegen->is_big_endian, tag_int_type->data.integral.is_signed);
-                    return ErrorNone;
-                }
-            }
-            zig_unreachable();
-        case ZigTypeIdStruct:
+        case ZigTypeIdEnum: {
+            ZigType *tag_int_type = val->type->data.enumeration.tag_int_type;
+            src_assert(tag_int_type->id == ZigTypeIdInt, source_node);
+            bigint_read_twos_complement(&val->data.x_enum_tag, buf, tag_int_type->data.integral.bit_count,
+                    codegen->is_big_endian, tag_int_type->data.integral.is_signed);
+            return ErrorNone;
+        } case ZigTypeIdStruct:
             switch (val->type->data.structure.layout) {
                 case ContainerLayoutAuto: {
                     switch(val->type->data.structure.special){

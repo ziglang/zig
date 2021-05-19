@@ -1595,7 +1595,6 @@ fn renderStructInit(
     return renderToken(ais, tree, rbrace, space);
 }
 
-// TODO: handle comments between elements
 fn renderArrayInit(
     gpa: *Allocator,
     ais: *Ais,

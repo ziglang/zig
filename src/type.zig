@@ -69,7 +69,14 @@ pub const Type = extern union {
             .fn_ccc_void_no_args => return .Fn,
             .function => return .Fn,
 
-            .array, .array_u8_sentinel_0, .array_u8, .array_sentinel => return .Array,
+            .array,
+            .array_u8_sentinel_0,
+            .array_u8,
+            .array_sentinel,
+            => return .Array,
+
+            .vector => return .Vector,
+
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .single_const_pointer,
@@ -83,6 +90,8 @@ pub const Type = extern union {
             .pointer,
             .inferred_alloc_const,
             .inferred_alloc_mut,
+            .manyptr_u8,
+            .manyptr_const_u8,
             => return .Pointer,
 
             .optional,
@@ -93,15 +102,29 @@ pub const Type = extern union {
 
             .anyerror_void_error_union, .error_union => return .ErrorUnion,
 
+            .anyframe_T, .@"anyframe" => return .AnyFrame,
+
             .empty_struct,
             .empty_struct_literal,
             .@"struct",
+            .call_options,
+            .export_options,
+            .extern_options,
             => return .Struct,
 
             .enum_full,
             .enum_nonexhaustive,
             .enum_simple,
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
             => return .Enum,
+
+            .@"union",
+            .union_tagged,
+            => return .Union,
 
             .var_args_param => unreachable, // can be any type
         }
@@ -205,6 +228,8 @@ pub const Type = extern union {
             .mut_slice,
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
+            .manyptr_u8,
+            .manyptr_const_u8,
             => self.cast(Payload.ElemType),
 
             .inferred_alloc_const => unreachable,
@@ -271,8 +296,30 @@ pub const Type = extern union {
                 .@"volatile" = false,
                 .size = .Many,
             } },
+            .manyptr_const_u8 => return .{ .data = .{
+                .pointee_type = Type.initTag(.u8),
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = false,
+                .@"volatile" = false,
+                .size = .Many,
+            } },
             .many_mut_pointer => return .{ .data = .{
                 .pointee_type = self.castPointer().?.data,
+                .sentinel = null,
+                .@"align" = 0,
+                .bit_offset = 0,
+                .host_size = 0,
+                .@"allowzero" = false,
+                .mutable = true,
+                .@"volatile" = false,
+                .size = .Many,
+            } },
+            .manyptr_u8 => return .{ .data = .{
+                .pointee_type = Type.initTag(.u8),
                 .sentinel = null,
                 .@"align" = 0,
                 .bit_offset = 0,
@@ -402,7 +449,7 @@ pub const Type = extern union {
                 const info_b = b.intInfo(@as(Target, undefined));
                 return info_a.signedness == info_b.signedness and info_a.bits == info_b.bits;
             },
-            .Array => {
+            .Array, .Vector => {
                 if (a.arrayLen() != b.arrayLen())
                     return false;
                 if (!a.elemType().eql(b.elemType()))
@@ -442,16 +489,41 @@ pub const Type = extern union {
                 var buf_b: Payload.ElemType = undefined;
                 return a.optionalChild(&buf_a).eql(b.optionalChild(&buf_b));
             },
+            .Struct => {
+                if (a.castTag(.@"struct")) |a_payload| {
+                    if (b.castTag(.@"struct")) |b_payload| {
+                        return a_payload.data == b_payload.data;
+                    }
+                }
+                return a.tag() == b.tag();
+            },
+            .Enum => {
+                if (a.cast(Payload.EnumFull)) |a_payload| {
+                    if (b.cast(Payload.EnumFull)) |b_payload| {
+                        return a_payload.data == b_payload.data;
+                    }
+                }
+                if (a.cast(Payload.EnumSimple)) |a_payload| {
+                    if (b.cast(Payload.EnumSimple)) |b_payload| {
+                        return a_payload.data == b_payload.data;
+                    }
+                }
+                return a.tag() == b.tag();
+            },
+            .Union => {
+                if (a.cast(Payload.Union)) |a_payload| {
+                    if (b.cast(Payload.Union)) |b_payload| {
+                        return a_payload.data == b_payload.data;
+                    }
+                }
+                return a.tag() == b.tag();
+            },
+            .Opaque,
             .Float,
-            .Struct,
             .ErrorUnion,
             .ErrorSet,
-            .Enum,
-            .Union,
             .BoundFn,
-            .Opaque,
             .Frame,
-            .Vector,
             => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
         }
     }
@@ -486,7 +558,7 @@ pub const Type = extern union {
                     std.hash.autoHash(&hasher, info.bits);
                 }
             },
-            .Array => {
+            .Array, .Vector => {
                 std.hash.autoHash(&hasher, self.arrayLen());
                 std.hash.autoHash(&hasher, self.elemType().hash());
                 // TODO hash array sentinel
@@ -516,7 +588,6 @@ pub const Type = extern union {
             .Opaque,
             .Frame,
             .AnyFrame,
-            .Vector,
             .EnumLiteral,
             => {
                 // TODO implement more type hashing
@@ -576,6 +647,17 @@ pub const Type = extern union {
             .inferred_alloc_mut,
             .var_args_param,
             .empty_struct_literal,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            .@"anyframe",
             => unreachable,
 
             .array_u8,
@@ -593,12 +675,20 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .anyframe_T,
             => return self.copyPayloadShallow(allocator, Payload.ElemType),
 
             .int_signed,
             .int_unsigned,
             => return self.copyPayloadShallow(allocator, Payload.Bits),
 
+            .vector => {
+                const payload = self.castTag(.vector).?.data;
+                return Tag.vector.create(allocator, .{
+                    .len = payload.len,
+                    .elem_type = try payload.elem_type.copy(allocator),
+                });
+            },
             .array => {
                 const payload = self.castTag(.array).?.data;
                 return Tag.array.create(allocator, .{
@@ -656,6 +746,7 @@ pub const Type = extern union {
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.Name),
             .empty_struct => return self.copyPayloadShallow(allocator, Payload.ContainerScope),
             .@"struct" => return self.copyPayloadShallow(allocator, Payload.Struct),
+            .@"union", .union_tagged => return self.copyPayloadShallow(allocator, Payload.Union),
             .enum_simple => return self.copyPayloadShallow(allocator, Payload.EnumSimple),
             .enum_full, .enum_nonexhaustive => return self.copyPayloadShallow(allocator, Payload.EnumFull),
             .@"opaque" => return self.copyPayloadShallow(allocator, Payload.Opaque),
@@ -710,6 +801,7 @@ pub const Type = extern union {
                 .void,
                 .type,
                 .anyerror,
+                .@"anyframe",
                 .comptime_int,
                 .comptime_float,
                 .noreturn,
@@ -725,6 +817,10 @@ pub const Type = extern union {
                 .@"struct" => {
                     const struct_obj = ty.castTag(.@"struct").?.data;
                     return struct_obj.owner_decl.renderFullyQualifiedName(writer);
+                },
+                .@"union", .union_tagged => {
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    return union_obj.owner_decl.renderFullyQualifiedName(writer);
                 },
                 .enum_full, .enum_nonexhaustive => {
                     const enum_full = ty.cast(Payload.EnumFull).?.data;
@@ -746,6 +842,16 @@ pub const Type = extern union {
                 .fn_naked_noreturn_no_args => return writer.writeAll("fn() callconv(.Naked) noreturn"),
                 .fn_ccc_void_no_args => return writer.writeAll("fn() callconv(.C) void"),
                 .single_const_pointer_to_comptime_int => return writer.writeAll("*const comptime_int"),
+                .manyptr_u8 => return writer.writeAll("[*]u8"),
+                .manyptr_const_u8 => return writer.writeAll("[*]const u8"),
+                .atomic_ordering => return writer.writeAll("std.builtin.AtomicOrdering"),
+                .atomic_rmw_op => return writer.writeAll("std.builtin.AtomicRmwOp"),
+                .calling_convention => return writer.writeAll("std.builtin.CallingConvention"),
+                .float_mode => return writer.writeAll("std.builtin.FloatMode"),
+                .reduce_op => return writer.writeAll("std.builtin.ReduceOp"),
+                .call_options => return writer.writeAll("std.builtin.CallOptions"),
+                .export_options => return writer.writeAll("std.builtin.ExportOptions"),
+                .extern_options => return writer.writeAll("std.builtin.ExternOptions"),
                 .function => {
                     const payload = ty.castTag(.function).?.data;
                     try writer.writeAll("fn(");
@@ -766,6 +872,12 @@ pub const Type = extern union {
                     continue;
                 },
 
+                .anyframe_T => {
+                    const return_type = ty.castTag(.anyframe_T).?.data;
+                    try writer.print("anyframe->", .{});
+                    ty = return_type;
+                    continue;
+                },
                 .array_u8 => {
                     const len = ty.castTag(.array_u8).?.data;
                     return writer.print("[{d}]u8", .{len});
@@ -773,6 +885,12 @@ pub const Type = extern union {
                 .array_u8_sentinel_0 => {
                     const len = ty.castTag(.array_u8_sentinel_0).?.data;
                     return writer.print("[{d}:0]u8", .{len});
+                },
+                .vector => {
+                    const payload = ty.castTag(.vector).?.data;
+                    try writer.print("@Vector({d}, ", .{payload.len});
+                    try payload.elem_type.format("", .{}, writer);
+                    return writer.writeAll(")");
                 },
                 .array => {
                     const payload = ty.castTag(.array).?.data;
@@ -940,6 +1058,7 @@ pub const Type = extern union {
             .void => return Value.initTag(.void_type),
             .type => return Value.initTag(.type_type),
             .anyerror => return Value.initTag(.anyerror_type),
+            .@"anyframe" => return Value.initTag(.anyframe_type),
             .comptime_int => return Value.initTag(.comptime_int_type),
             .comptime_float => return Value.initTag(.comptime_float_type),
             .noreturn => return Value.initTag(.noreturn_type),
@@ -952,6 +1071,16 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int => return Value.initTag(.single_const_pointer_to_comptime_int_type),
             .const_slice_u8 => return Value.initTag(.const_slice_u8_type),
             .enum_literal => return Value.initTag(.enum_literal_type),
+            .manyptr_u8 => return Value.initTag(.manyptr_u8_type),
+            .manyptr_const_u8 => return Value.initTag(.manyptr_const_u8_type),
+            .atomic_ordering => return Value.initTag(.atomic_ordering_type),
+            .atomic_rmw_op => return Value.initTag(.atomic_rmw_op_type),
+            .calling_convention => return Value.initTag(.calling_convention_type),
+            .float_mode => return Value.initTag(.float_mode_type),
+            .reduce_op => return Value.initTag(.reduce_op_type),
+            .call_options => return Value.initTag(.call_options_type),
+            .export_options => return Value.initTag(.export_options_type),
+            .extern_options => return Value.initTag(.extern_options_type),
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             else => return Value.Tag.ty.create(allocator, self),
@@ -1001,6 +1130,18 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            .@"anyframe",
+            .anyframe_T,
             => true,
 
             .@"struct" => {
@@ -1026,9 +1167,30 @@ pub const Type = extern union {
                 const int_tag_ty = self.intTagType(&buffer);
                 return int_tag_ty.hasCodeGenBits();
             },
+            .@"union" => {
+                const union_obj = self.castTag(.@"union").?.data;
+                for (union_obj.fields.entries.items) |entry| {
+                    if (entry.value.ty.hasCodeGenBits())
+                        return true;
+                } else {
+                    return false;
+                }
+            },
+            .union_tagged => {
+                const union_obj = self.castTag(.@"union").?.data;
+                if (union_obj.tag_ty.hasCodeGenBits()) {
+                    return true;
+                }
+                for (union_obj.fields.entries.items) |entry| {
+                    if (entry.value.ty.hasCodeGenBits())
+                        return true;
+                } else {
+                    return false;
+                }
+            },
 
             // TODO lazy types
-            .array => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
+            .array, .vector => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
             .array_u8 => self.arrayLen() != 0,
             .array_sentinel, .single_const_pointer, .single_mut_pointer, .many_const_pointer, .many_mut_pointer, .c_const_pointer, .c_mut_pointer, .const_slice, .mut_slice, .pointer => self.elemType().hasCodeGenBits(),
             .int_signed, .int_unsigned => self.cast(Payload.Bits).?.data != 0,
@@ -1079,14 +1241,17 @@ pub const Type = extern union {
             .optional_single_mut_pointer,
             => return self.cast(Payload.ElemType).?.data.abiAlignment(target),
 
-            .const_slice_u8 => return 1,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .const_slice_u8,
+            => return 1,
 
             .pointer => {
                 const ptr_info = self.castTag(.pointer).?.data;
                 if (ptr_info.@"align" != 0) {
                     return ptr_info.@"align";
                 } else {
-                    return ptr_info.pointee_type.abiAlignment();
+                    return ptr_info.pointee_type.abiAlignment(target);
                 }
             },
 
@@ -1102,6 +1267,14 @@ pub const Type = extern union {
             .bool,
             .array_u8_sentinel_0,
             .array_u8,
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
             => return 1,
 
             .fn_noreturn_no_args, // represents machine code; not a pointer
@@ -1136,6 +1309,10 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
             .pointer,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .@"anyframe",
+            .anyframe_T,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
             .c_short => return @divExact(CType.short.sizeInBits(target), 8),
@@ -1160,6 +1337,10 @@ pub const Type = extern union {
             => return 2, // TODO revisit this when we have the concept of the error tag type
 
             .array, .array_sentinel => return self.elemType().abiAlignment(target),
+
+            // TODO audit this - is there any more complicated logic to determine
+            // ABI alignment of vectors?
+            .vector => return 16,
 
             .int_signed, .int_unsigned => {
                 const bits: u16 = self.cast(Payload.Bits).?.data;
@@ -1215,6 +1396,34 @@ pub const Type = extern union {
                 const int_tag_ty = self.intTagType(&buffer);
                 return int_tag_ty.abiAlignment(target);
             },
+            .union_tagged => {
+                const union_obj = self.castTag(.union_tagged).?.data;
+                var biggest: u32 = union_obj.tag_ty.abiAlignment(target);
+                for (union_obj.fields.entries.items) |entry| {
+                    const field_ty = entry.value.ty;
+                    if (!field_ty.hasCodeGenBits()) continue;
+                    const field_align = field_ty.abiAlignment(target);
+                    if (field_align > biggest) {
+                        biggest = field_align;
+                    }
+                }
+                assert(biggest != 0);
+                return biggest;
+            },
+            .@"union" => {
+                const union_obj = self.castTag(.@"union").?.data;
+                var biggest: u32 = 0;
+                for (union_obj.fields.entries.items) |entry| {
+                    const field_ty = entry.value.ty;
+                    if (!field_ty.hasCodeGenBits()) continue;
+                    const field_align = field_ty.abiAlignment(target);
+                    if (field_align > biggest) {
+                        biggest = field_align;
+                    }
+                }
+                assert(biggest != 0);
+                return biggest;
+            },
             .c_void,
             .void,
             .type,
@@ -1267,16 +1476,27 @@ pub const Type = extern union {
                 const int_tag_ty = self.intTagType(&buffer);
                 return int_tag_ty.abiSize(target);
             },
+            .@"union", .union_tagged => {
+                @panic("TODO abiSize unions");
+            },
 
             .u8,
             .i8,
             .bool,
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
             => return 1,
 
             .array_u8 => self.castTag(.array_u8).?.data,
             .array_u8_sentinel_0 => self.castTag(.array_u8_sentinel_0).?.data + 1,
-            .array => {
-                const payload = self.castTag(.array).?.data;
+            .array, .vector => {
+                const payload = self.cast(Payload.Array).?.data;
                 const elem_size = std.math.max(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
                 return payload.len * elem_size;
             },
@@ -1293,7 +1513,11 @@ pub const Type = extern union {
             .i64, .u64 => return 8,
             .u128, .i128 => return 16,
 
-            .isize, .usize => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
+            .isize,
+            .usize,
+            .@"anyframe",
+            .anyframe_T,
+            => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
             .const_slice,
             .mut_slice,
@@ -1321,6 +1545,10 @@ pub const Type = extern union {
                 if (self.elemType().hasCodeGenBits()) return 0;
                 return @divExact(target.cpu.arch.ptrBitWidth(), 8);
             },
+
+            .manyptr_u8,
+            .manyptr_const_u8,
+            => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
             .c_short => return @divExact(CType.short.sizeInBits(target), 8),
             .c_ushort => return @divExact(CType.ushort.sizeInBits(target), 8),
@@ -1377,6 +1605,177 @@ pub const Type = extern union {
         };
     }
 
+    /// Asserts the type has the bit size already resolved.
+    pub fn bitSize(self: Type, target: Target) u64 {
+        return switch (self.tag()) {
+            .fn_noreturn_no_args => unreachable, // represents machine code; not a pointer
+            .fn_void_no_args => unreachable, // represents machine code; not a pointer
+            .fn_naked_noreturn_no_args => unreachable, // represents machine code; not a pointer
+            .fn_ccc_void_no_args => unreachable, // represents machine code; not a pointer
+            .function => unreachable, // represents machine code; not a pointer
+            .c_void => unreachable,
+            .void => unreachable,
+            .type => unreachable,
+            .comptime_int => unreachable,
+            .comptime_float => unreachable,
+            .noreturn => unreachable,
+            .@"null" => unreachable,
+            .@"undefined" => unreachable,
+            .enum_literal => unreachable,
+            .single_const_pointer_to_comptime_int => unreachable,
+            .empty_struct => unreachable,
+            .empty_struct_literal => unreachable,
+            .inferred_alloc_const => unreachable,
+            .inferred_alloc_mut => unreachable,
+            .@"opaque" => unreachable,
+            .var_args_param => unreachable,
+
+            .@"struct" => {
+                @panic("TODO bitSize struct");
+            },
+            .enum_simple, .enum_full, .enum_nonexhaustive => {
+                var buffer: Payload.Bits = undefined;
+                const int_tag_ty = self.intTagType(&buffer);
+                return int_tag_ty.bitSize(target);
+            },
+            .@"union", .union_tagged => {
+                @panic("TODO bitSize unions");
+            },
+
+            .u8, .i8 => 8,
+
+            .bool => 1,
+
+            .vector => {
+                const payload = self.castTag(.vector).?.data;
+                const elem_bit_size = payload.elem_type.bitSize(target);
+                return elem_bit_size * payload.len;
+            },
+            .array_u8 => 8 * self.castTag(.array_u8).?.data,
+            .array_u8_sentinel_0 => 8 * (self.castTag(.array_u8_sentinel_0).?.data + 1),
+            .array => {
+                const payload = self.castTag(.array).?.data;
+                const elem_size = std.math.max(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
+                if (elem_size == 0 or payload.len == 0)
+                    return 0;
+                return (payload.len - 1) * 8 * elem_size + payload.elem_type.bitSize(target);
+            },
+            .array_sentinel => {
+                const payload = self.castTag(.array_sentinel).?.data;
+                const elem_size = std.math.max(
+                    payload.elem_type.abiAlignment(target),
+                    payload.elem_type.abiSize(target),
+                );
+                return payload.len * 8 * elem_size + payload.elem_type.bitSize(target);
+            },
+            .i16, .u16, .f16 => 16,
+            .i32, .u32, .f32 => 32,
+            .i64, .u64, .f64 => 64,
+            .u128, .i128, .f128 => 128,
+
+            .isize,
+            .usize,
+            .@"anyframe",
+            .anyframe_T,
+            => target.cpu.arch.ptrBitWidth(),
+
+            .const_slice,
+            .mut_slice,
+            => {
+                if (self.elemType().hasCodeGenBits()) {
+                    return target.cpu.arch.ptrBitWidth() * 2;
+                } else {
+                    return target.cpu.arch.ptrBitWidth();
+                }
+            },
+            .const_slice_u8 => target.cpu.arch.ptrBitWidth() * 2,
+
+            .optional_single_const_pointer,
+            .optional_single_mut_pointer,
+            => {
+                if (self.elemType().hasCodeGenBits()) {
+                    return target.cpu.arch.ptrBitWidth();
+                } else {
+                    return 1;
+                }
+            },
+
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .pointer,
+            => {
+                if (self.elemType().hasCodeGenBits()) {
+                    return target.cpu.arch.ptrBitWidth();
+                } else {
+                    return 0;
+                }
+            },
+
+            .manyptr_u8,
+            .manyptr_const_u8,
+            => return target.cpu.arch.ptrBitWidth(),
+
+            .c_short => return CType.short.sizeInBits(target),
+            .c_ushort => return CType.ushort.sizeInBits(target),
+            .c_int => return CType.int.sizeInBits(target),
+            .c_uint => return CType.uint.sizeInBits(target),
+            .c_long => return CType.long.sizeInBits(target),
+            .c_ulong => return CType.ulong.sizeInBits(target),
+            .c_longlong => return CType.longlong.sizeInBits(target),
+            .c_ulonglong => return CType.ulonglong.sizeInBits(target),
+            .c_longdouble => 128,
+
+            .error_set,
+            .error_set_single,
+            .anyerror_void_error_union,
+            .anyerror,
+            => return 16, // TODO revisit this when we have the concept of the error tag type
+
+            .int_signed, .int_unsigned => self.cast(Payload.Bits).?.data,
+
+            .optional => {
+                var buf: Payload.ElemType = undefined;
+                const child_type = self.optionalChild(&buf);
+                if (!child_type.hasCodeGenBits()) return 8;
+
+                if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr())
+                    return target.cpu.arch.ptrBitWidth();
+
+                // Optional types are represented as a struct with the child type as the first
+                // field and a boolean as the second. Since the child type's abi alignment is
+                // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
+                // to the child type's ABI alignment.
+                return child_type.bitSize(target) + 1;
+            },
+
+            .error_union => {
+                const payload = self.castTag(.error_union).?.data;
+                if (!payload.error_set.hasCodeGenBits() and !payload.payload.hasCodeGenBits()) {
+                    return 0;
+                } else if (!payload.error_set.hasCodeGenBits()) {
+                    return payload.payload.bitSize(target);
+                } else if (!payload.payload.hasCodeGenBits()) {
+                    return payload.error_set.bitSize(target);
+                }
+                @panic("TODO bitSize error union");
+            },
+
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            => @panic("TODO at some point we gotta resolve builtin types"),
+        };
+    }
+
     /// Asserts the type is an enum.
     pub fn intTagType(self: Type, buffer: *Payload.Bits) Type {
         switch (self.tag()) {
@@ -1419,6 +1818,8 @@ pub const Type = extern union {
 
             .many_const_pointer,
             .many_mut_pointer,
+            .manyptr_u8,
+            .manyptr_const_u8,
             => .Many,
 
             .c_const_pointer,
@@ -1459,6 +1860,7 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .const_slice,
+            .manyptr_const_u8,
             => true,
 
             .pointer => !self.castTag(.pointer).?.data.mutable,
@@ -1526,7 +1928,6 @@ pub const Type = extern union {
             .Enum,
             .Frame,
             .AnyFrame,
-            .Vector,
             => return true,
 
             .Opaque => return is_extern,
@@ -1545,7 +1946,7 @@ pub const Type = extern union {
                 var buf: Payload.ElemType = undefined;
                 return ty.optionalChild(&buf).isValidVarType(is_extern);
             },
-            .Pointer, .Array => ty = ty.elemType(),
+            .Pointer, .Array, .Vector => ty = ty.elemType(),
             .ErrorUnion => ty = ty.errorUnionChild(),
 
             .Fn => @panic("TODO fn isValidVarType"),
@@ -1561,6 +1962,7 @@ pub const Type = extern union {
     /// Asserts the type is a pointer or array type.
     pub fn elemType(self: Type) Type {
         return switch (self.tag()) {
+            .vector => self.castTag(.vector).?.data.elem_type,
             .array => self.castTag(.array).?.data.elem_type,
             .array_sentinel => self.castTag(.array_sentinel).?.data.elem_type,
             .single_const_pointer,
@@ -1573,7 +1975,13 @@ pub const Type = extern union {
             .mut_slice,
             => self.castPointer().?.data,
 
-            .array_u8, .array_u8_sentinel_0, .const_slice_u8 => Type.initTag(.u8),
+            .array_u8,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            => Type.initTag(.u8),
+
             .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
             .pointer => self.castTag(.pointer).?.data.pointee_type,
 
@@ -1645,6 +2053,7 @@ pub const Type = extern union {
     /// Asserts the type is an array or vector.
     pub fn arrayLen(self: Type) u64 {
         return switch (self.tag()) {
+            .vector => self.castTag(.vector).?.data.len,
             .array => self.castTag(.array).?.data.len,
             .array_sentinel => self.castTag(.array_sentinel).?.data.len,
             .array_u8 => self.castTag(.array_u8).?.data,
@@ -1664,8 +2073,11 @@ pub const Type = extern union {
             .c_const_pointer,
             .c_mut_pointer,
             .single_const_pointer_to_comptime_int,
+            .vector,
             .array,
             .array_u8,
+            .manyptr_u8,
+            .manyptr_const_u8,
             => return null,
 
             .pointer => return self.castTag(.pointer).?.data.sentinel,
@@ -1922,6 +2334,8 @@ pub const Type = extern union {
         };
     }
 
+    /// During semantic analysis, instead call `Sema.typeHasOnePossibleValue` which
+    /// resolves field types rather than asserting they are already resolved.
     pub fn onePossibleValue(starting_type: Type) ?Value {
         var ty = starting_type;
         while (true) switch (ty.tag()) {
@@ -1977,10 +2391,30 @@ pub const Type = extern union {
             .error_set_single,
             .@"opaque",
             .var_args_param,
+            .manyptr_u8,
+            .manyptr_const_u8,
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            .@"anyframe",
+            .anyframe_T,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .pointer,
             => return null,
 
             .@"struct" => {
                 const s = ty.castTag(.@"struct").?.data;
+                assert(s.haveFieldTypes());
                 for (s.fields.entries.items) |entry| {
                     const field_ty = entry.value.ty;
                     if (field_ty.onePossibleValue() == null) {
@@ -2006,6 +2440,12 @@ pub const Type = extern union {
                 }
             },
             .enum_nonexhaustive => ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty,
+            .@"union" => {
+                return null; // TODO
+            },
+            .union_tagged => {
+                return null; // TODO
+            },
 
             .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
             .void => return Value.initTag(.void_value),
@@ -2020,26 +2460,13 @@ pub const Type = extern union {
                     return null;
                 }
             },
-            .array, .array_u8 => {
+            .vector, .array, .array_u8 => {
                 if (ty.arrayLen() == 0)
                     return Value.initTag(.empty_array);
                 ty = ty.elemType();
                 continue;
             },
-            .many_const_pointer,
-            .many_mut_pointer,
-            .c_const_pointer,
-            .c_mut_pointer,
-            .single_const_pointer,
-            .single_mut_pointer,
-            => {
-                ty = ty.castPointer().?.data;
-                continue;
-            },
-            .pointer => {
-                ty = ty.castTag(.pointer).?.data.pointee_type;
-                continue;
-            },
+
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
         };
@@ -2052,13 +2479,15 @@ pub const Type = extern union {
             (self.isSinglePointer() and self.elemType().zigTypeTag() == .Array);
     }
 
-    /// Returns null if the type has no container.
-    pub fn getContainerScope(self: Type) ?*Module.Scope.Container {
+    /// Returns null if the type has no namespace.
+    pub fn getNamespace(self: Type) ?*Module.Scope.Namespace {
         return switch (self.tag()) {
-            .@"struct" => &self.castTag(.@"struct").?.data.container,
-            .enum_full => &self.castTag(.enum_full).?.data.container,
+            .@"struct" => &self.castTag(.@"struct").?.data.namespace,
+            .enum_full => &self.castTag(.enum_full).?.data.namespace,
             .empty_struct => self.castTag(.empty_struct).?.data,
             .@"opaque" => &self.castTag(.@"opaque").?.data,
+            .@"union" => &self.castTag(.@"union").?.data.namespace,
+            .union_tagged => &self.castTag(.union_tagged).?.data.namespace,
 
             else => null,
         };
@@ -2136,6 +2565,16 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.count();
             },
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            => @panic("TODO resolve std.builtin types"),
+
             else => unreachable,
         }
     }
@@ -2150,6 +2589,15 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.entries.items[field_index].key;
             },
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
     }
@@ -2164,6 +2612,15 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return enum_simple.fields.getIndex(field_name);
             },
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
     }
@@ -2200,6 +2657,15 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return S.fieldWithRange(enum_tag, enum_simple.fields.count());
             },
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
     }
@@ -2222,6 +2688,55 @@ pub const Type = extern union {
                 const error_set = ty.castTag(.error_set).?.data;
                 return error_set.srcLoc();
             },
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
+                return union_obj.srcLoc();
+            },
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            => @panic("TODO resolve std.builtin types"),
+            else => unreachable,
+        }
+    }
+
+    pub fn getOwnerDecl(ty: Type) *Module.Decl {
+        switch (ty.tag()) {
+            .enum_full, .enum_nonexhaustive => {
+                const enum_full = ty.cast(Payload.EnumFull).?.data;
+                return enum_full.owner_decl;
+            },
+            .enum_simple => {
+                const enum_simple = ty.castTag(.enum_simple).?.data;
+                return enum_simple.owner_decl;
+            },
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return struct_obj.owner_decl;
+            },
+            .error_set => {
+                const error_set = ty.castTag(.error_set).?.data;
+                return error_set.owner_decl;
+            },
+            .@"union", .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
+                return union_obj.owner_decl;
+            },
+            .@"opaque" => @panic("TODO"),
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            => @panic("TODO resolve std.builtin types"),
             else => unreachable,
         }
     }
@@ -2254,6 +2769,15 @@ pub const Type = extern union {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 return S.intInRange(int, enum_simple.fields.count());
             },
+            .atomic_ordering,
+            .atomic_rmw_op,
+            .calling_convention,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .export_options,
+            .extern_options,
+            => @panic("TODO resolve std.builtin types"),
 
             else => unreachable,
         }
@@ -2300,16 +2824,27 @@ pub const Type = extern union {
         comptime_int,
         comptime_float,
         noreturn,
-        enum_literal,
+        @"anyframe",
         @"null",
         @"undefined",
+        enum_literal,
+        atomic_ordering,
+        atomic_rmw_op,
+        calling_convention,
+        float_mode,
+        reduce_op,
+        call_options,
+        export_options,
+        extern_options,
+        manyptr_u8,
+        manyptr_const_u8,
         fn_noreturn_no_args,
         fn_void_no_args,
         fn_naked_noreturn_no_args,
         fn_ccc_void_no_args,
         single_const_pointer_to_comptime_int,
-        anyerror_void_error_union,
         const_slice_u8,
+        anyerror_void_error_union,
         /// This is a special type for variadic parameters of a function call.
         /// Casts to it will validate that the type can be passed to a c calling convetion function.
         var_args_param,
@@ -2327,6 +2862,7 @@ pub const Type = extern union {
         array_u8_sentinel_0,
         array,
         array_sentinel,
+        vector,
         pointer,
         single_const_pointer,
         single_mut_pointer,
@@ -2343,11 +2879,14 @@ pub const Type = extern union {
         optional_single_mut_pointer,
         optional_single_const_pointer,
         error_union,
+        anyframe_T,
         error_set,
         error_set_single,
         empty_struct,
         @"opaque",
         @"struct",
+        @"union",
+        union_tagged,
         enum_simple,
         enum_full,
         enum_nonexhaustive,
@@ -2404,6 +2943,17 @@ pub const Type = extern union {
                 .inferred_alloc_mut,
                 .var_args_param,
                 .empty_struct_literal,
+                .manyptr_u8,
+                .manyptr_const_u8,
+                .atomic_ordering,
+                .atomic_rmw_op,
+                .calling_convention,
+                .float_mode,
+                .reduce_op,
+                .call_options,
+                .export_options,
+                .extern_options,
+                .@"anyframe",
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .array_u8,
@@ -2421,6 +2971,7 @@ pub const Type = extern union {
                 .optional,
                 .optional_single_mut_pointer,
                 .optional_single_const_pointer,
+                .anyframe_T,
                 => Payload.ElemType,
 
                 .int_signed,
@@ -2429,7 +2980,7 @@ pub const Type = extern union {
 
                 .error_set => Payload.ErrorSet,
 
-                .array => Payload.Array,
+                .array, .vector => Payload.Array,
                 .array_sentinel => Payload.ArraySentinel,
                 .pointer => Payload.Pointer,
                 .function => Payload.Function,
@@ -2437,6 +2988,7 @@ pub const Type = extern union {
                 .error_set_single => Payload.Name,
                 .@"opaque" => Payload.Opaque,
                 .@"struct" => Payload.Struct,
+                .@"union", .union_tagged => Payload.Union,
                 .enum_full, .enum_nonexhaustive => Payload.EnumFull,
                 .enum_simple => Payload.EnumSimple,
                 .empty_struct => Payload.ContainerScope,
@@ -2472,9 +3024,7 @@ pub const Type = extern union {
         };
 
         pub const Array = struct {
-            pub const base_tag = Tag.array;
-
-            base: Payload = Payload{ .tag = base_tag },
+            base: Payload,
             data: struct {
                 len: u64,
                 elem_type: Type,
@@ -2564,17 +3114,22 @@ pub const Type = extern union {
         /// Most commonly used for files.
         pub const ContainerScope = struct {
             base: Payload,
-            data: *Module.Scope.Container,
+            data: *Module.Scope.Namespace,
         };
 
         pub const Opaque = struct {
             base: Payload = .{ .tag = .@"opaque" },
-            data: Module.Scope.Container,
+            data: Module.Scope.Namespace,
         };
 
         pub const Struct = struct {
             base: Payload = .{ .tag = .@"struct" },
             data: *Module.Struct,
+        };
+
+        pub const Union = struct {
+            base: Payload,
+            data: *Module.Union,
         };
 
         pub const EnumFull = struct {

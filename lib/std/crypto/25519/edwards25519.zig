@@ -226,12 +226,12 @@ pub const Edwards25519 = struct {
         return pc;
     }
 
-    const basePointPc = comptime pc: {
+    const basePointPc = pc: {
         @setEvalBranchQuota(10000);
         break :pc precompute(Edwards25519.basePoint, 15);
     };
 
-    const basePointPc8 = comptime pc: {
+    const basePointPc8 = pc: {
         @setEvalBranchQuota(10000);
         break :pc precompute(Edwards25519.basePoint, 8);
     };
@@ -255,7 +255,7 @@ pub const Edwards25519 = struct {
             return pcMul16(basePointPc, s, true);
         } else {
             const pc = precompute(p, 8);
-            pc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
+            pc[4].rejectIdentity() catch return error.WeakPublicKey;
             return pcMul(pc, s, true);
         }
     }
@@ -306,7 +306,7 @@ pub const Edwards25519 = struct {
                 pcs[i] = basePointPc8;
             } else {
                 pcs[i] = precompute(p, 8);
-                pcs[i][4].rejectIdentity() catch |_| return error.WeakPublicKey;
+                pcs[i][4].rejectIdentity() catch return error.WeakPublicKey;
             }
         }
         var es: [count][2 * 32]i8 = undefined;

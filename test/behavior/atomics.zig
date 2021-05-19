@@ -149,7 +149,7 @@ fn testAtomicStore() !void {
 }
 
 test "atomicrmw with floats" {
-    switch (builtin.arch) {
+    switch (builtin.target.cpu.arch) {
         // https://github.com/ziglang/zig/issues/4457
         .aarch64, .arm, .thumb, .riscv64 => return error.SkipZigTest,
         else => {},

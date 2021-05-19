@@ -1242,11 +1242,7 @@ pub const Target = struct {
         }
     };
 
-    pub const current = Target{
-        .cpu = builtin.cpu,
-        .os = builtin.os,
-        .abi = builtin.abi,
-    };
+    pub const current = builtin.target;
 
     pub const stack_align = 16;
 

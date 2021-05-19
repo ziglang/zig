@@ -3,7 +3,7 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const builtin = @import("builtin");
+const native_arch = @import("std").Target.current.cpu.arch;
 
 // Zig's own stack-probe routine (available only on x86 and x86_64)
 pub fn zig_probe_stack() callconv(.Naked) void {
@@ -13,7 +13,7 @@ pub fn zig_probe_stack() callconv(.Naked) void {
     // invalid so let's update it on the go, otherwise we'll get a segfault
     // instead of triggering the stack growth.
 
-    switch (builtin.arch) {
+    switch (native_arch) {
         .x86_64 => {
             // %rax = probe length, %rsp = stack pointer
             asm volatile (
@@ -65,7 +65,7 @@ pub fn zig_probe_stack() callconv(.Naked) void {
 fn win_probe_stack_only() void {
     @setRuntimeSafety(false);
 
-    switch (builtin.arch) {
+    switch (native_arch) {
         .x86_64 => {
             asm volatile (
                 \\         push   %%rcx
@@ -117,7 +117,7 @@ fn win_probe_stack_only() void {
 fn win_probe_stack_adjust_sp() void {
     @setRuntimeSafety(false);
 
-    switch (builtin.arch) {
+    switch (native_arch) {
         .x86_64 => {
             asm volatile (
                 \\         push   %%rcx
@@ -191,7 +191,7 @@ pub fn _chkstk() callconv(.Naked) void {
 }
 pub fn __chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    switch (builtin.arch) {
+    switch (native_arch) {
         .i386 => @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{}),
         .x86_64 => @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{}),
         else => unreachable,

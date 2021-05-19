@@ -24,6 +24,10 @@ pub fn hashSrc(src: []const u8) SrcHash {
     return out;
 }
 
+pub fn srcHashEql(a: SrcHash, b: SrcHash) bool {
+    return @bitCast(u128, a) == @bitCast(u128, b);
+}
+
 pub fn hashName(parent_hash: SrcHash, sep: []const u8, name: []const u8) SrcHash {
     var out: SrcHash = undefined;
     var hasher = std.crypto.hash.Blake3.init(.{});

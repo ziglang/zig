@@ -111,7 +111,7 @@ fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
                     wipe_mem.ptr,
                     wipe_mem.len,
                     os.MADV_WIPEONFORK,
-                ) catch |_| {
+                ) catch {
                     return initAndFill(buffer);
                 };
             }

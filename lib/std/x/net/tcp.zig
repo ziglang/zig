@@ -50,7 +50,7 @@ pub const Connection = struct {
 };
 
 /// Possible domains that a TCP client/listener may operate over.
-pub const Domain = extern enum(u16) {
+pub const Domain = enum(u16) {
     ip = os.AF_INET,
     ipv6 = os.AF_INET6,
 };

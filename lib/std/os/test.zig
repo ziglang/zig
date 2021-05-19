@@ -19,14 +19,15 @@ const Thread = std.Thread;
 const a = std.testing.allocator;
 
 const builtin = @import("builtin");
-const AtomicRmwOp = builtin.AtomicRmwOp;
-const AtomicOrder = builtin.AtomicOrder;
+const AtomicRmwOp = std.builtin.AtomicRmwOp;
+const AtomicOrder = std.builtin.AtomicOrder;
+const native_os = builtin.target.os.tag;
 const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 test "chdir smoke test" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     // Get current working directory path
     var old_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
@@ -52,7 +53,7 @@ test "chdir smoke test" {
 }
 
 test "open smoke test" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstat`
 
@@ -70,7 +71,7 @@ test "open smoke test" {
 
     var file_path: []u8 = undefined;
     var fd: os.fd_t = undefined;
-    const mode: os.mode_t = if (builtin.os.tag == .windows) 0 else 0o666;
+    const mode: os.mode_t = if (native_os == .windows) 0 else 0o666;
 
     // Create some file using `open`.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
@@ -105,7 +106,7 @@ test "open smoke test" {
 }
 
 test "openat smoke test" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstatat`
 
@@ -113,7 +114,7 @@ test "openat smoke test" {
     defer tmp.cleanup();
 
     var fd: os.fd_t = undefined;
-    const mode: os.mode_t = if (builtin.os.tag == .windows) 0 else 0o666;
+    const mode: os.mode_t = if (native_os == .windows) 0 else 0o666;
 
     // Create some file using `openat`.
     fd = try os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, mode);
@@ -141,7 +142,7 @@ test "openat smoke test" {
 }
 
 test "symlink with relative paths" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     const cwd = fs.cwd();
     cwd.deleteFile("file.txt") catch {};
@@ -150,7 +151,7 @@ test "symlink with relative paths" {
     // First, try relative paths in cwd
     try cwd.writeFile("file.txt", "nonsense");
 
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         os.windows.CreateSymbolicLink(
             cwd.fd,
             &[_]u16{ 's', 'y', 'm', 'l', 'i', 'n', 'k', 'e', 'd' },
@@ -178,7 +179,7 @@ test "symlink with relative paths" {
 }
 
 test "readlink on Windows" {
-    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    if (native_os != .windows) return error.SkipZigTest;
 
     try testReadlink("C:\\ProgramData", "C:\\Users\\All Users");
     try testReadlink("C:\\Users\\Default", "C:\\Users\\Default User");
@@ -192,7 +193,7 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
 }
 
 test "link with relative paths" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (native_os != .linux) return error.SkipZigTest;
     var cwd = fs.cwd();
 
     cwd.deleteFile("example.txt") catch {};
@@ -226,7 +227,7 @@ test "link with relative paths" {
 }
 
 test "linkat with different directories" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (native_os != .linux) return error.SkipZigTest;
     var cwd = fs.cwd();
     var tmp = tmpDir(.{});
 
@@ -262,7 +263,7 @@ test "linkat with different directories" {
 
 test "fstatat" {
     // enable when `fstat` and `fstatat` are implemented on Windows
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -277,7 +278,7 @@ test "fstatat" {
     defer file.close();
 
     // now repeat but using `fstatat` instead
-    const flags = if (builtin.os.tag == .wasi) 0x0 else os.AT_SYMLINK_NOFOLLOW;
+    const flags = if (native_os == .wasi) 0x0 else os.AT_SYMLINK_NOFOLLOW;
     const statat = try os.fstatat(tmp.dir.fd, "file.txt", flags);
     try expectEqual(stat, statat);
 }
@@ -290,7 +291,7 @@ test "readlinkat" {
     try tmp.dir.writeFile("file.txt", "nonsense");
 
     // create a symbolic link
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         os.windows.CreateSymbolicLink(
             tmp.dir.fd,
             &[_]u16{ 'l', 'i', 'n', 'k' },
@@ -324,7 +325,7 @@ test "std.Thread.getCurrentId" {
     thread.wait();
     if (Thread.use_pthreads) {
         try expect(thread_current_id == thread_id);
-    } else if (builtin.os.tag == .windows) {
+    } else if (native_os == .windows) {
         try expect(Thread.getCurrentId() != thread_current_id);
     } else {
         // If the thread completes very quickly, then thread_id can be 0. See the
@@ -361,7 +362,7 @@ fn start2(ctx: *i32) u8 {
 }
 
 test "cpu count" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     const cpu_count = try Thread.cpuCount();
     try expect(cpu_count >= 1);
@@ -394,7 +395,7 @@ test "getrandom" {
 }
 
 test "getcwd" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     // at least call it so it gets compiled
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
@@ -402,7 +403,7 @@ test "getcwd" {
 }
 
 test "sigaltstack" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
 
     var st: os.stack_t = undefined;
     try os.sigaltstack(null, &st);
@@ -455,7 +456,7 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 }
 
 test "dl_iterate_phdr" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi or builtin.os.tag == .macos)
+    if (native_os == .windows or native_os == .wasi or native_os == .macos)
         return error.SkipZigTest;
 
     var counter: usize = 0;
@@ -464,7 +465,7 @@ test "dl_iterate_phdr" {
 }
 
 test "gethostname" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+    if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
     var buf: [os.HOST_NAME_MAX]u8 = undefined;
@@ -473,7 +474,7 @@ test "gethostname" {
 }
 
 test "pipe" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+    if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
     var fds = try os.pipe();
@@ -492,7 +493,7 @@ test "argsAlloc" {
 
 test "memfd_create" {
     // memfd_create is linux specific.
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (native_os != .linux) return error.SkipZigTest;
     const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
         // Related: https://github.com/ziglang/zig/issues/4019
         error.SystemOutdated => return error.SkipZigTest,
@@ -509,7 +510,7 @@ test "memfd_create" {
 }
 
 test "mmap" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+    if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -606,7 +607,7 @@ test "mmap" {
 }
 
 test "getenv" {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         try expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
     } else {
         try expect(os.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
@@ -614,7 +615,7 @@ test "getenv" {
 }
 
 test "fcntl" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+    if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -646,13 +647,13 @@ test "fcntl" {
 }
 
 test "signalfd" {
-    if (builtin.os.tag != .linux)
+    if (native_os != .linux)
         return error.SkipZigTest;
     _ = std.os.signalfd;
 }
 
 test "sync" {
-    if (builtin.os.tag != .linux)
+    if (native_os != .linux)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -670,7 +671,7 @@ test "sync" {
 }
 
 test "fsync" {
-    if (builtin.os.tag != .linux and builtin.os.tag != .windows)
+    if (native_os != .linux and native_os != .windows)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -700,13 +701,13 @@ test "getrlimit and setrlimit" {
 }
 
 test "shutdown socket" {
-    if (builtin.os.tag == .wasi)
+    if (native_os == .wasi)
         return error.SkipZigTest;
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         _ = try std.os.windows.WSAStartup(2, 2);
     }
     defer {
-        if (builtin.os.tag == .windows) {
+        if (native_os == .windows) {
             std.os.windows.WSACleanup() catch unreachable;
         }
     }
@@ -721,11 +722,11 @@ test "shutdown socket" {
 var signal_test_failed = true;
 
 test "sigaction" {
-    if (builtin.os.tag == .wasi or builtin.os.tag == .windows)
+    if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/7427
-    if (builtin.os.tag == .linux and builtin.arch == .i386)
+    if (native_os == .linux and builtin.target.cpu.arch == .i386)
         return error.SkipZigTest;
 
     const S = struct {

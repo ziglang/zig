@@ -3,39 +3,40 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-pub usingnamespace @import("builtin");
+const builtin = @import("builtin");
 
-/// Deprecated: use `std.Target`.
-pub const Target = std.Target;
-
-/// Deprecated: use `std.Target.Os`.
-pub const Os = std.Target.Os;
-
-/// Deprecated: use `std.Target.Cpu.Arch`.
-pub const Arch = std.Target.Cpu.Arch;
-
-/// Deprecated: use `std.Target.Abi`.
-pub const Abi = std.Target.Abi;
-
-/// Deprecated: use `std.Target.ObjectFormat`.
-pub const ObjectFormat = std.Target.ObjectFormat;
-
-/// Deprecated: use `std.Target.SubSystem`.
-pub const SubSystem = std.Target.SubSystem;
-
-/// Deprecated: use `std.Target.Cpu`.
-pub const Cpu = std.Target.Cpu;
+// These are all deprecated.
+pub const zig_version = builtin.zig_version;
+pub const zig_is_stage2 = builtin.zig_is_stage2;
+pub const output_mode = builtin.output_mode;
+pub const link_mode = builtin.link_mode;
+pub const is_test = builtin.is_test;
+pub const single_threaded = builtin.single_threaded;
+pub const abi = builtin.abi;
+pub const cpu = builtin.cpu;
+pub const os = builtin.os;
+pub const target = builtin.target;
+pub const object_format = builtin.object_format;
+pub const mode = builtin.mode;
+pub const link_libc = builtin.link_libc;
+pub const link_libcpp = builtin.link_libcpp;
+pub const have_error_return_tracing = builtin.have_error_return_tracing;
+pub const valgrind_support = builtin.valgrind_support;
+pub const position_independent_code = builtin.position_independent_code;
+pub const position_independent_executable = builtin.position_independent_executable;
+pub const strip_debug_info = builtin.strip_debug_info;
+pub const code_model = builtin.code_model;
 
 /// `explicit_subsystem` is missing when the subsystem is automatically detected,
 /// so Zig standard library has the subsystem detection logic here. This should generally be
 /// used rather than `explicit_subsystem`.
 /// On non-Windows targets, this is `null`.
-pub const subsystem: ?SubSystem = blk: {
-    if (@hasDecl(@This(), "explicit_subsystem")) break :blk explicit_subsystem;
+pub const subsystem: ?std.Target.SubSystem = blk: {
+    if (@hasDecl(builtin, "explicit_subsystem")) break :blk explicit_subsystem;
     switch (os.tag) {
         .windows => {
             if (is_test) {
-                break :blk SubSystem.Console;
+                break :blk std.Target.SubSystem.Console;
             }
             if (@hasDecl(root, "main") or
                 @hasDecl(root, "WinMain") or
@@ -43,9 +44,9 @@ pub const subsystem: ?SubSystem = blk: {
                 @hasDecl(root, "WinMainCRTStartup") or
                 @hasDecl(root, "wWinMainCRTStartup"))
             {
-                break :blk SubSystem.Windows;
+                break :blk std.Target.SubSystem.Windows;
             } else {
-                break :blk SubSystem.Console;
+                break :blk std.Target.SubSystem.Console;
             }
         },
         else => break :blk null,
@@ -262,7 +263,7 @@ pub const TypeInfo = union(enum) {
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
-    pub const ContainerLayout = enum {
+    pub const ContainerLayout = enum(u2) {
         Auto,
         Extern,
         Packed,

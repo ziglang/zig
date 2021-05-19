@@ -352,7 +352,7 @@ pub const IPv6 = extern struct {
         opts: fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        comptime const specifier = &[_]u8{if (layout.len == 0) 'x' else switch (layout[0]) {
+        const specifier = comptime &[_]u8{if (layout.len == 0) 'x' else switch (layout[0]) {
             'x', 'X' => |specifier| specifier,
             's' => 'x',
             'S' => 'X',

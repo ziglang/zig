@@ -193,14 +193,9 @@ pub const Object = struct {
             try stderr.print(
                 \\Zig is expecting LLVM to understand this target: '{s}'
                 \\However LLVM responded with: "{s}"
-                \\Zig is unable to continue. This is a bug in Zig:
-                \\https://github.com/ziglang/zig/issues/438
                 \\
             ,
-                .{
-                    llvm_target_triple,
-                    error_message,
-                },
+                .{ llvm_target_triple, error_message },
             );
             return error.InvalidLLVMTriple;
         }
@@ -325,17 +320,17 @@ pub const DeclGen = struct {
 
     fn genDecl(self: *DeclGen) !void {
         const decl = self.decl;
-        const typed_value = decl.typed_value.most_recent.typed_value;
+        assert(decl.has_tv);
 
-        log.debug("gen: {s} type: {}, value: {}", .{ decl.name, typed_value.ty, typed_value.val });
+        log.debug("gen: {s} type: {}, value: {}", .{ decl.name, decl.ty, decl.val });
 
-        if (typed_value.val.castTag(.function)) |func_payload| {
+        if (decl.val.castTag(.function)) |func_payload| {
             const func = func_payload.data;
 
             const llvm_func = try self.resolveLLVMFunction(func.owner_decl);
 
             // This gets the LLVM values from the function and stores them in `self.args`.
-            const fn_param_len = func.owner_decl.typed_value.most_recent.typed_value.ty.fnParamLen();
+            const fn_param_len = func.owner_decl.ty.fnParamLen();
             var args = try self.gpa.alloc(*const llvm.Value, fn_param_len);
 
             for (args) |*arg, i| {
@@ -368,7 +363,7 @@ pub const DeclGen = struct {
             defer fg.deinit();
 
             try fg.genBody(func.body);
-        } else if (typed_value.val.castTag(.extern_fn)) |extern_fn| {
+        } else if (decl.val.castTag(.extern_fn)) |extern_fn| {
             _ = try self.resolveLLVMFunction(extern_fn.data);
         } else {
             _ = try self.resolveGlobalDecl(decl);
@@ -380,7 +375,8 @@ pub const DeclGen = struct {
         // TODO: do we want to store this in our own datastructure?
         if (self.llvmModule().getNamedFunction(func.name)) |llvm_fn| return llvm_fn;
 
-        const zig_fn_type = func.typed_value.most_recent.typed_value.ty;
+        assert(func.has_tv);
+        const zig_fn_type = func.ty;
         const return_type = zig_fn_type.fnReturnType();
 
         const fn_param_len = zig_fn_type.fnParamLen();
@@ -415,11 +411,11 @@ pub const DeclGen = struct {
         // TODO: do we want to store this in our own datastructure?
         if (self.llvmModule().getNamedGlobal(decl.name)) |val| return val;
 
-        const typed_value = decl.typed_value.most_recent.typed_value;
+        assert(decl.has_tv);
 
         // TODO: remove this redundant `getLLVMType`, it is also called in `genTypedValue`.
-        const llvm_type = try self.getLLVMType(typed_value.ty);
-        const val = try self.genTypedValue(typed_value, null);
+        const llvm_type = try self.getLLVMType(decl.ty);
+        const val = try self.genTypedValue(.{ .ty = decl.ty, .val = decl.val }, null);
         const global = self.llvmModule().addGlobal(llvm_type, decl.name);
         llvm.setInitializer(global, val);
 
@@ -430,6 +426,7 @@ pub const DeclGen = struct {
     }
 
     fn getLLVMType(self: *DeclGen, t: Type) error{ OutOfMemory, CodegenFail }!*const llvm.Type {
+        log.debug("getLLVMType for {}", .{t});
         switch (t.zigTypeTag()) {
             .Void => return self.context().voidType(),
             .NoReturn => return self.context().voidType(),
@@ -464,7 +461,27 @@ pub const DeclGen = struct {
                     return self.todo("implement optional pointers as actual pointers", .{});
                 }
             },
-            else => return self.todo("implement getLLVMType for type '{}'", .{t}),
+            .ComptimeInt => unreachable,
+            .ComptimeFloat => unreachable,
+            .Type => unreachable,
+            .Undefined => unreachable,
+            .Null => unreachable,
+            .EnumLiteral => unreachable,
+
+            .BoundFn => @panic("TODO remove BoundFn from the language"),
+
+            .Float,
+            .Struct,
+            .ErrorUnion,
+            .ErrorSet,
+            .Enum,
+            .Union,
+            .Fn,
+            .Opaque,
+            .Frame,
+            .AnyFrame,
+            .Vector,
+            => return self.todo("implement getLLVMType for type '{}'", .{t}),
         }
     }
 
@@ -688,7 +705,8 @@ pub const FuncGen = struct {
             else
                 unreachable;
 
-            const zig_fn_type = fn_decl.typed_value.most_recent.typed_value.ty;
+            assert(fn_decl.has_tv);
+            const zig_fn_type = fn_decl.ty;
             const llvm_fn = try self.dg.resolveLLVMFunction(fn_decl);
 
             const num_args = inst.args.len;

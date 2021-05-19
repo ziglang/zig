@@ -1200,6 +1200,15 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
         // TODO shrink the __text section size here
         self.last_text_block = text_block.prev;
     }
+    if (self.d_sym) |*ds| {
+        if (ds.dbg_info_decl_first == text_block) {
+            ds.dbg_info_decl_first = text_block.dbg_info_next;
+        }
+        if (ds.dbg_info_decl_last == text_block) {
+            // TODO shrink the .debug_info section size here
+            ds.dbg_info_decl_last = text_block.dbg_info_prev;
+        }
+    }
 
     if (text_block.prev) |prev| {
         prev.next = text_block.next;
@@ -1217,6 +1226,20 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
         next.prev = text_block.prev;
     } else {
         text_block.next = null;
+    }
+
+    if (text_block.dbg_info_prev) |prev| {
+        prev.dbg_info_next = text_block.dbg_info_next;
+
+        // TODO the free list logic like we do for text blocks above
+    } else {
+        text_block.dbg_info_prev = null;
+    }
+
+    if (text_block.dbg_info_next) |next| {
+        next.dbg_info_prev = text_block.dbg_info_prev;
+    } else {
+        text_block.dbg_info_next = null;
     }
 }
 
@@ -1277,8 +1300,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    if (typed_value.val.tag() == .extern_fn) {
+    if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
 
@@ -1299,7 +1321,10 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     }
 
     const res = if (debug_buffers) |*dbg|
-        try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl.val,
+        }, &code_buffer, .{
             .dwarf = .{
                 .dbg_line = &dbg.dbg_line_buffer,
                 .dbg_info = &dbg.dbg_info_buffer,
@@ -1307,7 +1332,10 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             },
         })
     else
-        try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none);
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl.val,
+        }, &code_buffer, .none);
 
     const code = switch (res) {
         .externally_managed => |x| x,
@@ -1323,7 +1351,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         },
     };
 
-    const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    const required_alignment = decl.ty.abiAlignment(self.base.options.target);
     assert(decl.link.macho.local_sym_index != 0); // Caller forgot to call allocateDeclIndexes()
     const symbol = &self.locals.items[decl.link.macho.local_sym_index];
 
@@ -1598,6 +1626,29 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
         self.locals.items[decl.link.macho.local_sym_index].n_type = 0;
 
         decl.link.macho.local_sym_index = 0;
+    }
+    if (self.d_sym) |*ds| {
+        // TODO make this logic match freeTextBlock. Maybe abstract the logic
+        // out since the same thing is desired for both.
+        _ = ds.dbg_line_fn_free_list.remove(&decl.fn_link.macho);
+        if (decl.fn_link.macho.prev) |prev| {
+            ds.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
+            prev.next = decl.fn_link.macho.next;
+            if (decl.fn_link.macho.next) |next| {
+                next.prev = prev;
+            } else {
+                ds.dbg_line_fn_last = prev;
+            }
+        } else if (decl.fn_link.macho.next) |next| {
+            ds.dbg_line_fn_first = next;
+            next.prev = null;
+        }
+        if (ds.dbg_line_fn_first == &decl.fn_link.macho) {
+            ds.dbg_line_fn_first = decl.fn_link.macho.next;
+        }
+        if (ds.dbg_line_fn_last == &decl.fn_link.macho) {
+            ds.dbg_line_fn_last = decl.fn_link.macho.prev;
+        }
     }
 }
 

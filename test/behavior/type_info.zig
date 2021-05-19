@@ -1,9 +1,9 @@
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const mem = std.mem;
 
-const TypeInfo = builtin.TypeInfo;
-const TypeId = builtin.TypeId;
+const TypeInfo = std.builtin.TypeInfo;
+const TypeId = std.builtin.TypeId;
 
 const expect = std.testing.expect;
 const expectEqualStrings = std.testing.expectEqualStrings;
@@ -298,7 +298,7 @@ fn testOpaque() !void {
 
 test "type info: function type info" {
     // wasm doesn't support align attributes on functions
-    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+    if (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64) return error.SkipZigTest;
     try testFunction();
     comptime try testFunction();
 }

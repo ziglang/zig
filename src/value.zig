@@ -55,15 +55,26 @@ pub const Value = extern union {
         comptime_int_type,
         comptime_float_type,
         noreturn_type,
+        anyframe_type,
         null_type,
         undefined_type,
+        enum_literal_type,
+        atomic_ordering_type,
+        atomic_rmw_op_type,
+        calling_convention_type,
+        float_mode_type,
+        reduce_op_type,
+        call_options_type,
+        export_options_type,
+        extern_options_type,
+        manyptr_u8_type,
+        manyptr_const_u8_type,
         fn_noreturn_no_args_type,
         fn_void_no_args_type,
         fn_naked_noreturn_no_args_type,
         fn_ccc_void_no_args_type,
         single_const_pointer_to_comptime_int_type,
         const_slice_u8_type,
-        enum_literal_type,
 
         undef,
         zero,
@@ -93,6 +104,7 @@ pub const Value = extern union {
         /// Represents a pointer to a decl, not the value of the decl.
         decl_ref,
         elem_ptr,
+        field_ptr,
         /// A slice of u8 whose memory is managed externally.
         bytes,
         /// This value is repeated some number of times. The amount of times to repeat
@@ -107,6 +119,10 @@ pub const Value = extern union {
         enum_field_index,
         @"error",
         error_union,
+        /// An instance of a struct.
+        @"struct",
+        /// An instance of a union.
+        @"union",
         /// This is a special value that tracks a set of types that have been stored
         /// to an inferred allocation. It does not support any of the normal value queries.
         inferred_alloc,
@@ -156,6 +172,7 @@ pub const Value = extern union {
                 .fn_naked_noreturn_no_args_type,
                 .fn_ccc_void_no_args_type,
                 .single_const_pointer_to_comptime_int_type,
+                .anyframe_type,
                 .const_slice_u8_type,
                 .enum_literal_type,
                 .undef,
@@ -169,6 +186,16 @@ pub const Value = extern union {
                 .bool_true,
                 .bool_false,
                 .abi_align_default,
+                .manyptr_u8_type,
+                .manyptr_const_u8_type,
+                .atomic_ordering_type,
+                .atomic_rmw_op_type,
+                .calling_convention_type,
+                .float_mode_type,
+                .reduce_op_type,
+                .call_options_type,
+                .export_options_type,
+                .extern_options_type,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .int_big_positive,
@@ -197,12 +224,15 @@ pub const Value = extern union {
                 .function => Payload.Function,
                 .variable => Payload.Variable,
                 .elem_ptr => Payload.ElemPtr,
+                .field_ptr => Payload.FieldPtr,
                 .float_16 => Payload.Float_16,
                 .float_32 => Payload.Float_32,
                 .float_64 => Payload.Float_64,
                 .float_128 => Payload.Float_128,
                 .@"error" => Payload.Error,
                 .inferred_alloc => Payload.InferredAlloc,
+                .@"struct" => Payload.Struct,
+                .@"union" => Payload.Union,
             };
         }
 
@@ -314,6 +344,7 @@ pub const Value = extern union {
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
+            .anyframe_type,
             .const_slice_u8_type,
             .enum_literal_type,
             .undef,
@@ -327,6 +358,16 @@ pub const Value = extern union {
             .bool_false,
             .empty_struct_value,
             .abi_align_default,
+            .manyptr_u8_type,
+            .manyptr_const_u8_type,
+            .atomic_ordering_type,
+            .atomic_rmw_op_type,
+            .calling_convention_type,
+            .float_mode_type,
+            .reduce_op_type,
+            .call_options_type,
+            .export_options_type,
+            .extern_options_type,
             => unreachable,
 
             .ty => {
@@ -375,6 +416,18 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .field_ptr => {
+                const payload = self.castTag(.field_ptr).?;
+                const new_payload = try allocator.create(Payload.FieldPtr);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = .{
+                        .container_ptr = try payload.data.container_ptr.copy(allocator),
+                        .field_index = payload.data.field_index,
+                    },
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
             .bytes => return self.copyPayloadShallow(allocator, Payload.Bytes),
             .repeated => {
                 const payload = self.castTag(.repeated).?;
@@ -409,6 +462,8 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .@"struct" => @panic("TODO can't copy struct value without knowing the type"),
+            .@"union" => @panic("TODO can't copy union value without knowing the type"),
 
             .inferred_alloc => unreachable,
         }
@@ -472,11 +527,28 @@ pub const Value = extern union {
             .fn_naked_noreturn_no_args_type => return out_stream.writeAll("fn() callconv(.Naked) noreturn"),
             .fn_ccc_void_no_args_type => return out_stream.writeAll("fn() callconv(.C) void"),
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
+            .anyframe_type => return out_stream.writeAll("anyframe"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
             .enum_literal_type => return out_stream.writeAll("@Type(.EnumLiteral)"),
+            .manyptr_u8_type => return out_stream.writeAll("[*]u8"),
+            .manyptr_const_u8_type => return out_stream.writeAll("[*]const u8"),
+            .atomic_ordering_type => return out_stream.writeAll("std.builtin.AtomicOrdering"),
+            .atomic_rmw_op_type => return out_stream.writeAll("std.builtin.AtomicRmwOp"),
+            .calling_convention_type => return out_stream.writeAll("std.builtin.CallingConvention"),
+            .float_mode_type => return out_stream.writeAll("std.builtin.FloatMode"),
+            .reduce_op_type => return out_stream.writeAll("std.builtin.ReduceOp"),
+            .call_options_type => return out_stream.writeAll("std.builtin.CallOptions"),
+            .export_options_type => return out_stream.writeAll("std.builtin.ExportOptions"),
+            .extern_options_type => return out_stream.writeAll("std.builtin.ExternOptions"),
             .abi_align_default => return out_stream.writeAll("(default ABI alignment)"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
+            .@"struct" => {
+                return out_stream.writeAll("(struct value)");
+            },
+            .@"union" => {
+                return out_stream.writeAll("(union value)");
+            },
             .null_value => return out_stream.writeAll("null"),
             .undef => return out_stream.writeAll("undefined"),
             .zero => return out_stream.writeAll("0"),
@@ -510,6 +582,11 @@ pub const Value = extern union {
                 const elem_ptr = val.castTag(.elem_ptr).?.data;
                 try out_stream.print("&[{}] ", .{elem_ptr.index});
                 val = elem_ptr.array_ptr;
+            },
+            .field_ptr => {
+                const field_ptr = val.castTag(.field_ptr).?.data;
+                try out_stream.print("fieldptr({d}) ", .{field_ptr.field_index});
+                val = field_ptr.container_ptr;
             },
             .empty_array => return out_stream.writeAll(".{}"),
             .enum_literal => return out_stream.print(".{}", .{std.zig.fmtId(self.castTag(.enum_literal).?.data)}),
@@ -593,8 +670,19 @@ pub const Value = extern union {
             .fn_naked_noreturn_no_args_type => Type.initTag(.fn_naked_noreturn_no_args),
             .fn_ccc_void_no_args_type => Type.initTag(.fn_ccc_void_no_args),
             .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
+            .anyframe_type => Type.initTag(.@"anyframe"),
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
             .enum_literal_type => Type.initTag(.enum_literal),
+            .manyptr_u8_type => Type.initTag(.manyptr_u8),
+            .manyptr_const_u8_type => Type.initTag(.manyptr_const_u8),
+            .atomic_ordering_type => Type.initTag(.atomic_ordering),
+            .atomic_rmw_op_type => Type.initTag(.atomic_rmw_op),
+            .calling_convention_type => Type.initTag(.calling_convention),
+            .float_mode_type => Type.initTag(.float_mode),
+            .reduce_op_type => Type.initTag(.reduce_op),
+            .call_options_type => Type.initTag(.call_options),
+            .export_options_type => Type.initTag(.export_options),
+            .extern_options_type => Type.initTag(.extern_options),
 
             .int_type => {
                 const payload = self.castTag(.int_type).?.data;
@@ -627,6 +715,7 @@ pub const Value = extern union {
             .ref_val,
             .decl_ref,
             .elem_ptr,
+            .field_ptr,
             .bytes,
             .repeated,
             .float_16,
@@ -638,10 +727,21 @@ pub const Value = extern union {
             .@"error",
             .error_union,
             .empty_struct_value,
+            .@"struct",
+            .@"union",
             .inferred_alloc,
             .abi_align_default,
             => unreachable,
         };
+    }
+
+    /// Asserts the type is an enum type.
+    pub fn toEnum(val: Value, enum_ty: Type, comptime E: type) E {
+        // TODO this needs to resolve other kinds of Value tags rather than
+        // assuming the tag will be .enum_field_index.
+        const field_index = val.castTag(.enum_field_index).?.data;
+        // TODO should `@intToEnum` do this `@intCast` for you?
+        return @intToEnum(E, @intCast(@typeInfo(E).Enum.tag_type, field_index));
     }
 
     /// Asserts the value is an integer.
@@ -930,7 +1030,11 @@ pub const Value = extern union {
 
     /// Asserts the value is comparable.
     pub fn compare(lhs: Value, op: std.math.CompareOperator, rhs: Value) bool {
-        return order(lhs, rhs).compare(op);
+        return switch (op) {
+            .eq => lhs.eql(rhs),
+            .neq => !lhs.eql(rhs),
+            else => order(lhs, rhs).compare(op),
+        };
     }
 
     /// Asserts the value is comparable.
@@ -942,12 +1046,19 @@ pub const Value = extern union {
         const a_tag = a.tag();
         const b_tag = b.tag();
         if (a_tag == b_tag) {
-            if (a_tag == .void_value or a_tag == .null_value) {
-                return true;
-            } else if (a_tag == .enum_literal) {
-                const a_name = a.castTag(.enum_literal).?.data;
-                const b_name = b.castTag(.enum_literal).?.data;
-                return std.mem.eql(u8, a_name, b_name);
+            switch (a_tag) {
+                .void_value, .null_value => return true,
+                .enum_literal => {
+                    const a_name = a.castTag(.enum_literal).?.data;
+                    const b_name = b.castTag(.enum_literal).?.data;
+                    return std.mem.eql(u8, a_name, b_name);
+                },
+                .enum_field_index => {
+                    const a_field_index = a.castTag(.enum_field_index).?.data;
+                    const b_field_index = b.castTag(.enum_field_index).?.data;
+                    return a_field_index == b_field_index;
+                },
+                else => {},
             }
         }
         if (a.isType() and b.isType()) {
@@ -958,7 +1069,7 @@ pub const Value = extern union {
             const b_type = b.toType(&fib.allocator) catch unreachable;
             return a_type.eql(b_type);
         }
-        return compare(a, .eq, b);
+        return order(a, b).compare(.eq);
     }
 
     pub fn hash_u32(self: Value) u32 {
@@ -1009,6 +1120,7 @@ pub const Value = extern union {
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
+            .anyframe_type,
             .const_slice_u8_type,
             .enum_literal_type,
             .ty,
@@ -1096,6 +1208,11 @@ pub const Value = extern union {
                 std.hash.autoHash(&hasher, payload.array_ptr.hash());
                 std.hash.autoHash(&hasher, payload.index);
             },
+            .field_ptr => {
+                const payload = self.castTag(.field_ptr).?.data;
+                std.hash.autoHash(&hasher, payload.container_ptr.hash());
+                std.hash.autoHash(&hasher, payload.field_index);
+            },
             .decl_ref => {
                 const decl = self.castTag(.decl_ref).?.data;
                 std.hash.autoHash(&hasher, decl);
@@ -1121,6 +1238,20 @@ pub const Value = extern union {
                 std.hash.autoHash(&hasher, payload.hash());
             },
             .inferred_alloc => unreachable,
+
+            .manyptr_u8_type,
+            .manyptr_const_u8_type,
+            .atomic_ordering_type,
+            .atomic_rmw_op_type,
+            .calling_convention_type,
+            .float_mode_type,
+            .reduce_op_type,
+            .call_options_type,
+            .export_options_type,
+            .extern_options_type,
+            .@"struct",
+            .@"union",
+            => @panic("TODO this hash function looks pretty broken. audit it"),
         }
         return hasher.final();
     }
@@ -1135,6 +1266,11 @@ pub const Value = extern union {
                 const elem_ptr = self.castTag(.elem_ptr).?.data;
                 const array_val = try elem_ptr.array_ptr.pointerDeref(allocator);
                 return array_val.elemValue(allocator, elem_ptr.index);
+            },
+            .field_ptr => {
+                const field_ptr = self.castTag(.field_ptr).?.data;
+                const container_val = try field_ptr.container_ptr.pointerDeref(allocator);
+                return container_val.fieldValue(allocator, field_ptr.field_index);
             },
 
             else => unreachable,
@@ -1151,6 +1287,22 @@ pub const Value = extern union {
 
             // No matter the index; all the elements are the same!
             .repeated => return self.castTag(.repeated).?.data,
+
+            else => unreachable,
+        }
+    }
+
+    pub fn fieldValue(val: Value, allocator: *Allocator, index: usize) error{OutOfMemory}!Value {
+        switch (val.tag()) {
+            .@"struct" => {
+                const field_values = val.castTag(.@"struct").?.data;
+                return field_values[index];
+            },
+            .@"union" => {
+                const payload = val.castTag(.@"union").?.data;
+                // TODO assert the tag is correct
+                return payload.val;
+            },
 
             else => unreachable,
         }
@@ -1265,8 +1417,19 @@ pub const Value = extern union {
             .fn_naked_noreturn_no_args_type,
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
+            .anyframe_type,
             .const_slice_u8_type,
             .enum_literal_type,
+            .manyptr_u8_type,
+            .manyptr_const_u8_type,
+            .atomic_ordering_type,
+            .atomic_rmw_op_type,
+            .calling_convention_type,
+            .float_mode_type,
+            .reduce_op_type,
+            .call_options_type,
+            .export_options_type,
+            .extern_options_type,
             => true,
 
             .zero,
@@ -1284,6 +1447,7 @@ pub const Value = extern union {
             .ref_val,
             .decl_ref,
             .elem_ptr,
+            .field_ptr,
             .bytes,
             .repeated,
             .float_16,
@@ -1296,6 +1460,8 @@ pub const Value = extern union {
             .@"error",
             .error_union,
             .empty_struct_value,
+            .@"struct",
+            .@"union",
             .null_value,
             .abi_align_default,
             => false,
@@ -1369,6 +1535,16 @@ pub const Value = extern union {
             },
         };
 
+        pub const FieldPtr = struct {
+            pub const base_tag = Tag.field_ptr;
+
+            base: Payload = Payload{ .tag = base_tag },
+            data: struct {
+                container_ptr: Value,
+                field_index: usize,
+            },
+        };
+
         pub const Bytes = struct {
             base: Payload,
             data: []const u8,
@@ -1437,6 +1613,24 @@ pub const Value = extern union {
                 /// the items are contiguous in memory and thus can be passed to
                 /// `Module.resolvePeerTypes`.
                 stored_inst_list: std.ArrayListUnmanaged(*ir.Inst) = .{},
+            },
+        };
+
+        pub const Struct = struct {
+            pub const base_tag = Tag.@"struct";
+
+            base: Payload = .{ .tag = base_tag },
+            /// Field values. The number and type are according to the struct type.
+            data: [*]Value,
+        };
+
+        pub const Union = struct {
+            pub const base_tag = Tag.@"union";
+
+            base: Payload = .{ .tag = base_tag },
+            data: struct {
+                tag: Value,
+                val: Value,
             },
         };
     };

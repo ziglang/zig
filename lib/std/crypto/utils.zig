@@ -20,9 +20,9 @@ pub fn timingSafeEql(comptime T: type, a: T, b: T) bool {
             for (a) |x, i| {
                 acc |= x ^ b[i];
             }
-            comptime const s = @typeInfo(C).Int.bits;
-            comptime const Cu = std.meta.Int(.unsigned, s);
-            comptime const Cext = std.meta.Int(.unsigned, s + 1);
+            const s = @typeInfo(C).Int.bits;
+            const Cu = std.meta.Int(.unsigned, s);
+            const Cext = std.meta.Int(.unsigned, s + 1);
             return @bitCast(bool, @truncate(u1, (@as(Cext, @bitCast(Cu, acc)) -% 1) >> s));
         },
         .Vector => |info| {
@@ -31,9 +31,9 @@ pub fn timingSafeEql(comptime T: type, a: T, b: T) bool {
                 @compileError("Elements to be compared must be integers");
             }
             const acc = @reduce(.Or, a ^ b);
-            comptime const s = @typeInfo(C).Int.bits;
-            comptime const Cu = std.meta.Int(.unsigned, s);
-            comptime const Cext = std.meta.Int(.unsigned, s + 1);
+            const s = @typeInfo(C).Int.bits;
+            const Cu = std.meta.Int(.unsigned, s);
+            const Cext = std.meta.Int(.unsigned, s + 1);
             return @bitCast(bool, @truncate(u1, (@as(Cext, @bitCast(Cu, acc)) -% 1) >> s));
         },
         else => {
@@ -50,7 +50,7 @@ pub fn timingSafeCompare(comptime T: type, a: []const T, b: []const T, endian: E
         .Int => |cinfo| if (cinfo.signedness != .unsigned) @compileError("Elements to be compared must be unsigned") else cinfo.bits,
         else => @compileError("Elements to be compared must be integers"),
     };
-    comptime const Cext = std.meta.Int(.unsigned, bits + 1);
+    const Cext = std.meta.Int(.unsigned, bits + 1);
     var gt: T = 0;
     var eq: T = 1;
     if (endian == .Little) {

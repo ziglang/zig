@@ -60,7 +60,7 @@ pub const addrinfo = extern struct {
     next: ?*addrinfo,
 };
 
-pub const EAI = extern enum(c_int) {
+pub const EAI = enum(c_int) {
     /// address family for hostname not supported
     ADDRFAMILY = 1,
 
@@ -1187,7 +1187,7 @@ pub const IPPROTO_PFSYNC = 240;
 /// raw IP packet
 pub const IPPROTO_RAW = 255;
 
-pub const rlimit_resource = extern enum(c_int) {
+pub const rlimit_resource = enum(c_int) {
     CPU = 0,
     FSIZE = 1,
     DATA = 2,
@@ -1198,11 +1198,11 @@ pub const rlimit_resource = extern enum(c_int) {
     NPROC = 7,
     NOFILE = 8,
     SBSIZE = 9,
-    AS = 10,
     VMEM = 10,
     NTHR = 11,
-
     _,
+
+    pub const AS: rlimit_resource = .VMEM;
 };
 
 pub const rlim_t = u64;

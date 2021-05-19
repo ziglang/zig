@@ -62,7 +62,7 @@ pub const sem_t = extern struct {
     _padding: u32,
 };
 
-pub const EAI = extern enum(c_int) {
+pub const EAI = enum(c_int) {
     /// address family for hostname not supported
     ADDRFAMILY = 1,
 

@@ -3,6 +3,7 @@ const expect = std.testing.expect;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
 const Vector = std.meta.Vector;
+const native_endian = @import("builtin").target.cpu.arch.endian();
 
 test "int to ptr cast" {
     const x = @as(usize, 13);
@@ -22,7 +23,7 @@ test "pointer reinterpret const float to int" {
     const float_ptr = &float;
     const int_ptr = @ptrCast(*const i32, float_ptr);
     const int_val = int_ptr.*;
-    if (std.builtin.endian == .Little)
+    if (native_endian == .Little)
         try expect(int_val == 0x33333303)
     else
         try expect(int_val == 0x3fe33333);

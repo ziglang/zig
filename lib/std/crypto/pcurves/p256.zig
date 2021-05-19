@@ -30,8 +30,8 @@ pub const P256 = struct {
 
     /// The P256 base point.
     pub const basePoint = P256{
-        .x = try Fe.fromInt(48439561293906451759052585252797914202762949526041747995844080717082404635286),
-        .y = try Fe.fromInt(36134250956749795798585127919587881956611106672985015071877198253568414405109),
+        .x = Fe.fromInt(48439561293906451759052585252797914202762949526041747995844080717082404635286) catch unreachable,
+        .y = Fe.fromInt(36134250956749795798585127919587881956611106672985015071877198253568414405109) catch unreachable,
         .z = Fe.one,
         .is_base = true,
     };
@@ -39,7 +39,7 @@ pub const P256 = struct {
     /// The P256 neutral element.
     pub const identityElement = P256{ .x = Fe.zero, .y = Fe.one, .z = Fe.zero };
 
-    pub const B = try Fe.fromInt(41058363725152142129326129780047268409114441015993725554835256314039467401291);
+    pub const B = Fe.fromInt(41058363725152142129326129780047268409114441015993725554835256314039467401291) catch unreachable;
 
     /// Reject the neutral element.
     pub fn rejectIdentity(p: P256) IdentityElementError!void {
@@ -390,12 +390,12 @@ pub const P256 = struct {
         return pc;
     }
 
-    const basePointPc = comptime pc: {
+    const basePointPc = pc: {
         @setEvalBranchQuota(50000);
         break :pc precompute(P256.basePoint, 15);
     };
 
-    const basePointPc8 = comptime pc: {
+    const basePointPc8 = pc: {
         @setEvalBranchQuota(50000);
         break :pc precompute(P256.basePoint, 8);
     };

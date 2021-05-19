@@ -6,6 +6,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
+const native_endian = builtin.target.cpu.arch.endian();
 
 const default_seed: u32 = 0xc70f6907;
 
@@ -22,7 +23,7 @@ pub const Murmur2_32 = struct {
         var h1: u32 = seed ^ len;
         for (@ptrCast([*]align(1) const u32, str.ptr)[0..(len >> 2)]) |v| {
             var k1: u32 = v;
-            if (builtin.endian == .Big)
+            if (native_endian == .Big)
                 k1 = @byteSwap(u32, k1);
             k1 *%= m;
             k1 ^= k1 >> 24;
@@ -107,7 +108,7 @@ pub const Murmur2_64 = struct {
         var h1: u64 = seed ^ (len *% m);
         for (@ptrCast([*]align(1) const u64, str.ptr)[0..@intCast(usize, len >> 3)]) |v| {
             var k1: u64 = v;
-            if (builtin.endian == .Big)
+            if (native_endian == .Big)
                 k1 = @byteSwap(u64, k1);
             k1 *%= m;
             k1 ^= k1 >> 47;
@@ -120,7 +121,7 @@ pub const Murmur2_64 = struct {
         if (rest > 0) {
             var k1: u64 = 0;
             @memcpy(@ptrCast([*]u8, &k1), @ptrCast([*]const u8, &str[@intCast(usize, offset)]), @intCast(usize, rest));
-            if (builtin.endian == .Big)
+            if (native_endian == .Big)
                 k1 = @byteSwap(u64, k1);
             h1 ^= k1;
             h1 *%= m;
@@ -187,7 +188,7 @@ pub const Murmur3_32 = struct {
         var h1: u32 = seed;
         for (@ptrCast([*]align(1) const u32, str.ptr)[0..(len >> 2)]) |v| {
             var k1: u32 = v;
-            if (builtin.endian == .Big)
+            if (native_endian == .Big)
                 k1 = @byteSwap(u32, k1);
             k1 *%= c1;
             k1 = rotl32(k1, 15);
@@ -299,7 +300,7 @@ fn SMHasherTest(comptime hash_fn: anytype, comptime hashbits: u32) u32 {
         key[i] = @truncate(u8, i);
 
         var h = hash_fn(key[0..i], 256 - i);
-        if (builtin.endian == .Big)
+        if (native_endian == .Big)
             h = @byteSwap(@TypeOf(h), h);
         @memcpy(@ptrCast([*]u8, &hashes[i * hashbytes]), @ptrCast([*]u8, &h), hashbytes);
     }
@@ -313,7 +314,7 @@ test "murmur2_32" {
     var v1: u64 = 0x1234567812345678;
     var v0le: u32 = v0;
     var v1le: u64 = v1;
-    if (builtin.endian == .Big) {
+    if (native_endian == .Big) {
         v0le = @byteSwap(u32, v0le);
         v1le = @byteSwap(u64, v1le);
     }
@@ -327,7 +328,7 @@ test "murmur2_64" {
     var v1: u64 = 0x1234567812345678;
     var v0le: u32 = v0;
     var v1le: u64 = v1;
-    if (builtin.endian == .Big) {
+    if (native_endian == .Big) {
         v0le = @byteSwap(u32, v0le);
         v1le = @byteSwap(u64, v1le);
     }
@@ -341,7 +342,7 @@ test "murmur3_32" {
     var v1: u64 = 0x1234567812345678;
     var v0le: u32 = v0;
     var v1le: u64 = v1;
-    if (builtin.endian == .Big) {
+    if (native_endian == .Big) {
         v0le = @byteSwap(u32, v0le);
         v1le = @byteSwap(u64, v1le);
     }

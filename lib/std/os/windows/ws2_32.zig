@@ -1209,7 +1209,7 @@ pub const hostent = extern struct {
 };
 
 // https://docs.microsoft.com/en-au/windows/win32/winsock/windows-sockets-error-codes-2
-pub const WinsockError = extern enum(u16) {
+pub const WinsockError = enum(u16) {
     /// Specified event object handle is invalid.
     /// An application attempts to use an event object, but the specified handle is not valid.
     WSA_INVALID_HANDLE = 6,

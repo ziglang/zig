@@ -10,7 +10,6 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/complex/catan.c
 
 const std = @import("../../std.zig");
-const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
 const cmath = math.complex;

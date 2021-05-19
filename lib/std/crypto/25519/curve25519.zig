@@ -102,7 +102,7 @@ pub const Curve25519 = struct {
     /// key is a low-order point.
     pub fn mul(p: Curve25519, s: [32]u8) (IdentityElementError || WeakPublicKeyError)!Curve25519 {
         const cofactor = [_]u8{8} ++ [_]u8{0} ** 31;
-        _ = ladder(p, cofactor, 4) catch |_| return error.WeakPublicKey;
+        _ = ladder(p, cofactor, 4) catch return error.WeakPublicKey;
         return try ladder(p, s, 256);
     }
 

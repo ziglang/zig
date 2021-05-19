@@ -1,7 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
-const builtin = @import("builtin");
 
 test "compile time recursion" {
     try expect(some_data.len == 21);
@@ -290,7 +289,7 @@ test "eval @setFloatMode at compile-time" {
 }
 
 fn fnWithFloatMode() f32 {
-    @setFloatMode(builtin.FloatMode.Strict);
+    @setFloatMode(std.builtin.FloatMode.Strict);
     return 1234.0;
 }
 

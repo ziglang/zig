@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const builtin = @import("builtin");
+const native_arch = builtin.target.cpu.arch;
 
 var foo: u8 align(4) = 100;
 
@@ -26,7 +27,7 @@ fn noop4() align(4) void {}
 
 test "function alignment" {
     // function alignment is a compile error on wasm32/wasm64
-    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+    if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
 
     try expect(derp() == 1234);
     try expect(@TypeOf(noop1) == fn () align(1) void);
@@ -121,7 +122,7 @@ fn sliceExpects4(slice: []align(4) u32) void {
 
 test "implicitly decreasing fn alignment" {
     // function alignment is a compile error on wasm32/wasm64
-    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+    if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
 
     try testImplicitlyDecreaseFnAlign(alignedSmall, 1234);
     try testImplicitlyDecreaseFnAlign(alignedBig, 5678);
@@ -140,8 +141,8 @@ fn alignedBig() align(16) i32 {
 
 test "@alignCast functions" {
     // function alignment is a compile error on wasm32/wasm64
-    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
-    if (builtin.arch == .thumb) return error.SkipZigTest;
+    if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
+    if (native_arch == .thumb) return error.SkipZigTest;
 
     try expect(fnExpectsOnly1(simple4) == 0x19);
 }
@@ -157,8 +158,8 @@ fn simple4() align(4) i32 {
 
 test "generic function with align param" {
     // function alignment is a compile error on wasm32/wasm64
-    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
-    if (builtin.arch == .thumb) return error.SkipZigTest;
+    if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
+    if (native_arch == .thumb) return error.SkipZigTest;
 
     try expect(whyWouldYouEverDoThis(1) == 0x1);
     try expect(whyWouldYouEverDoThis(4) == 0x1);
@@ -339,8 +340,8 @@ test "align(@alignOf(T)) T does not force resolution of T" {
 
 test "align(N) on functions" {
     // function alignment is a compile error on wasm32/wasm64
-    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
-    if (builtin.arch == .thumb) return error.SkipZigTest;
+    if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
+    if (native_arch == .thumb) return error.SkipZigTest;
 
     try expect((@ptrToInt(overaligned_fn) & (0x1000 - 1)) == 0);
 }

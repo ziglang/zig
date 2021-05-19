@@ -195,7 +195,7 @@ pub const StreamingParser = struct {
         p.number_is_integer = undefined;
     }
 
-    pub const State = enum {
+    pub const State = enum(u8) {
         // These must be first with these explicit values as we rely on them for indexing the
         // bit-stack directly and avoiding a branch.
         ObjectSeparator = 0,
@@ -1781,7 +1781,7 @@ test "parse" {
 }
 
 test "parse into enum" {
-    const T = extern enum {
+    const T = enum(u32) {
         Foo = 42,
         Bar,
         @"with\\escape",

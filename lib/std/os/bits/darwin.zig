@@ -1535,19 +1535,19 @@ pub const rusage = extern struct {
     nivcsw: isize,
 };
 
-pub const rlimit_resource = extern enum(c_int) {
+pub const rlimit_resource = enum(c_int) {
     CPU = 0,
     FSIZE = 1,
     DATA = 2,
     STACK = 3,
     CORE = 4,
-    AS = 5,
     RSS = 5,
     MEMLOCK = 6,
     NPROC = 7,
     NOFILE = 8,
-
     _,
+
+    pub const AS: rlimit_resource = .RSS;
 };
 
 pub const rlim_t = u64;
@@ -1683,7 +1683,7 @@ pub const TCSANOW = 0; // make change immediate
 pub const TCSADRAIN = 1; // drain output, then change
 pub const TCSAFLUSH = 2; // drain output, flush input
 pub const TCSASOFT = 0x10; // flag - don't alter h.w. state
-pub const TCSA = extern enum(c_uint) {
+pub const TCSA = enum(c_uint) {
     NOW,
     DRAIN,
     FLUSH,

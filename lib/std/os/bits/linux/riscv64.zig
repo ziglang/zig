@@ -9,7 +9,7 @@ const uid_t = std.os.linux.uid_t;
 const gid_t = std.os.linux.gid_t;
 const pid_t = std.os.linux.pid_t;
 
-pub const SYS = extern enum(usize) {
+pub const SYS = enum(usize) {
     pub const arch_specific_syscall = 244;
 
     io_setup = 0,

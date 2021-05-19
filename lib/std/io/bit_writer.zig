@@ -23,8 +23,8 @@ pub fn BitWriter(endian: builtin.Endian, comptime WriterType: type) type {
         pub const Writer = io.Writer(*Self, Error, write);
 
         const Self = @This();
-        const u8_bit_count = comptime meta.bitCount(u8);
-        const u4_bit_count = comptime meta.bitCount(u4);
+        const u8_bit_count = meta.bitCount(u8);
+        const u4_bit_count = meta.bitCount(u4);
 
         pub fn init(forward_writer: WriterType) Self {
             return Self{

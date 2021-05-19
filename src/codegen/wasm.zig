@@ -591,7 +591,8 @@ pub const Context = struct {
     }
 
     fn genFunctype(self: *Context) InnerError!void {
-        const ty = self.decl.typed_value.most_recent.typed_value.ty;
+        assert(self.decl.has_tv);
+        const ty = self.decl.ty;
         const writer = self.func_type_data.writer();
 
         try writer.writeByte(wasm.function_type);

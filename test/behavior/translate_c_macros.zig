@@ -1,7 +1,7 @@
 const expect = @import("std").testing.expect;
 const expectEqual = @import("std").testing.expectEqual;
 
-const h = @cImport(@cInclude("stage1/behavior/translate_c_macros.h"));
+const h = @cImport(@cInclude("behavior/translate_c_macros.h"));
 
 test "initializer list expression" {
     try expectEqual(h.Color{

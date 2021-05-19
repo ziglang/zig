@@ -255,6 +255,9 @@ pub const Inst = struct {
     }
 
     /// Returns `null` if runtime-known.
+    /// Should be called by codegen, not by Sema. Sema functions should call
+    /// `resolvePossiblyUndefinedValue` or `resolveDefinedValue` instead.
+    /// TODO audit Sema code for violations to the above guidance.
     pub fn value(base: *Inst) ?Value {
         if (base.ty.onePossibleValue()) |opv| return opv;
 
@@ -372,8 +375,7 @@ pub const Inst = struct {
         base: Inst,
         asm_source: []const u8,
         is_volatile: bool,
-        output: ?*Inst,
-        output_name: ?[]const u8,
+        output_constraint: ?[]const u8,
         inputs: []const []const u8,
         clobbers: []const []const u8,
         args: []const *Inst,
@@ -623,7 +625,8 @@ pub const Inst = struct {
         pub const base_tag = Tag.dbg_stmt;
 
         base: Inst,
-        byte_offset: u32,
+        line: u32,
+        column: u32,
 
         pub fn operandCount(self: *const DbgStmt) usize {
             return 0;

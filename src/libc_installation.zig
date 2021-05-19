@@ -383,7 +383,7 @@ pub const LibCInstallation = struct {
         var result_buf = std.ArrayList(u8).init(allocator);
         defer result_buf.deinit();
 
-        const arch_sub_dir = switch (builtin.arch) {
+        const arch_sub_dir = switch (builtin.target.cpu.arch) {
             .i386 => "x86",
             .x86_64 => "x64",
             .arm, .armeb => "arm",
@@ -437,7 +437,7 @@ pub const LibCInstallation = struct {
         var result_buf = std.ArrayList(u8).init(allocator);
         defer result_buf.deinit();
 
-        const arch_sub_dir = switch (builtin.arch) {
+        const arch_sub_dir = switch (builtin.target.cpu.arch) {
             .i386 => "x86",
             .x86_64 => "x64",
             .arm, .armeb => "arm",

@@ -37,12 +37,16 @@ const spec = @import("../codegen/spirv/spec.zig");
 
 // TODO: Should this struct be used at all rather than just a hashmap of aux data for every decl?
 pub const FnData = struct {
-    // We're going to fill these in flushModule, and we're going to fill them unconditionally,
-    // so just set it to undefined.
-    id: u32 = undefined
-};
+// We're going to fill these in flushModule, and we're going to fill them unconditionally,
+// so just set it to undefined.
+id: u32 = undefined };
 
 base: link.File,
+
+/// This linker backend does not try to incrementally link output SPIR-V code.
+/// Instead, it tracks all declarations in this table, and iterates over it
+/// in the flush function.
+decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
 
 pub fn createEmpty(gpa: *Allocator, options: link.Options) !*SpirV {
     const spirv = try gpa.create(SpirV);
@@ -90,9 +94,14 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     return spirv;
 }
 
-pub fn deinit(self: *SpirV) void {}
+pub fn deinit(self: *SpirV) void {
+    self.decl_table.deinit(self.base.allocator);
+}
 
-pub fn updateDecl(self: *SpirV, module: *Module, decl: *Module.Decl) !void {}
+pub fn updateDecl(self: *SpirV, module: *Module, decl: *Module.Decl) !void {
+    // Keep track of all decls so we can iterate over them on flush().
+    _ = try self.decl_table.getOrPut(self.base.allocator, decl);
+}
 
 pub fn updateDeclExports(
     self: *SpirV,
@@ -101,7 +110,9 @@ pub fn updateDeclExports(
     exports: []const *Module.Export,
 ) !void {}
 
-pub fn freeDecl(self: *SpirV, decl: *Module.Decl) void {}
+pub fn freeDecl(self: *SpirV, decl: *Module.Decl) void {
+    self.decl_table.removeAssertDiscard(decl);
+}
 
 pub fn flush(self: *SpirV, comp: *Compilation) !void {
     if (build_options.have_llvm and self.base.options.use_lld) {
@@ -127,10 +138,9 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     // declarations which don't generate a result?
     // TODO: fn_link is used here, but thats probably not the right field. It will work anyway though.
     {
-        for (module.decl_table.items()) |entry| {
-            const decl = entry.value;
-            if (decl.typed_value != .most_recent)
-                continue;
+        for (self.decl_table.items()) |entry| {
+            const decl = entry.key;
+            if (!decl.has_tv) continue;
 
             decl.fn_link.spirv.id = spv.allocResultId();
             log.debug("Allocating id {} to '{s}'", .{ decl.fn_link.spirv.id, std.mem.spanZ(decl.name) });
@@ -157,10 +167,9 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
         defer decl_gen.types.deinit();
         defer decl_gen.args.deinit();
 
-        for (module.decl_table.items()) |entry| {
-            const decl = entry.value;
-            if (decl.typed_value != .most_recent)
-                continue;
+        for (self.decl_table.items()) |entry| {
+            const decl = entry.key;
+            if (!decl.has_tv) continue;
 
             decl_gen.args.items.len = 0;
             decl_gen.next_arg_index = 0;

@@ -2178,6 +2178,10 @@ pub const full = struct {
                         };
                         it.param_i += 1;
                         it.tok_i = it.tree.lastToken(param_type) + 1;
+                        // Look for anytype and ... params afterwards.
+                        if (token_tags[it.tok_i] == .comma) {
+                            it.tok_i += 1;
+                        }
                         it.tok_flag = true;
                         return Param{
                             .first_doc_comment = first_doc_comment,
@@ -2187,10 +2191,7 @@ pub const full = struct {
                             .type_expr = param_type,
                         };
                     }
-                    // Look for anytype and ... params afterwards.
-                    if (token_tags[it.tok_i] == .comma) {
-                        it.tok_i += 1;
-                    } else {
+                    if (token_tags[it.tok_i] == .r_paren) {
                         return null;
                     }
                     if (token_tags[it.tok_i] == .doc_comment) {
@@ -2242,8 +2243,8 @@ pub const full = struct {
                 .tree = &tree,
                 .fn_proto = &fn_proto,
                 .param_i = 0,
-                .tok_i = undefined,
-                .tok_flag = false,
+                .tok_i = fn_proto.lparen + 1,
+                .tok_flag = true,
             };
         }
     };

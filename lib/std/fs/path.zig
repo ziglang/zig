@@ -15,22 +15,23 @@ const math = std.math;
 const windows = std.os.windows;
 const fs = std.fs;
 const process = std.process;
+const native_os = builtin.target.os.tag;
 
 pub const sep_windows = '\\';
 pub const sep_posix = '/';
-pub const sep = if (builtin.os.tag == .windows) sep_windows else sep_posix;
+pub const sep = if (native_os == .windows) sep_windows else sep_posix;
 
 pub const sep_str_windows = "\\";
 pub const sep_str_posix = "/";
-pub const sep_str = if (builtin.os.tag == .windows) sep_str_windows else sep_str_posix;
+pub const sep_str = if (native_os == .windows) sep_str_windows else sep_str_posix;
 
 pub const delimiter_windows = ';';
 pub const delimiter_posix = ':';
-pub const delimiter = if (builtin.os.tag == .windows) delimiter_windows else delimiter_posix;
+pub const delimiter = if (native_os == .windows) delimiter_windows else delimiter_posix;
 
 /// Returns if the given byte is a valid path separator
 pub fn isSep(byte: u8) bool {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return byte == '/' or byte == '\\';
     } else {
         return byte == '/';
@@ -168,7 +169,7 @@ test "join" {
 pub const isAbsoluteC = @compileError("deprecated: renamed to isAbsoluteZ");
 
 pub fn isAbsoluteZ(path_c: [*:0]const u8) bool {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return isAbsoluteWindowsZ(path_c);
     } else {
         return isAbsolutePosixZ(path_c);
@@ -176,7 +177,7 @@ pub fn isAbsoluteZ(path_c: [*:0]const u8) bool {
 }
 
 pub fn isAbsolute(path: []const u8) bool {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return isAbsoluteWindows(path);
     } else {
         return isAbsolutePosix(path);
@@ -365,7 +366,7 @@ test "windowsParsePath" {
 }
 
 pub fn diskDesignator(path: []const u8) []const u8 {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return diskDesignatorWindows(path);
     } else {
         return "";
@@ -430,7 +431,7 @@ fn asciiEqlIgnoreCase(s1: []const u8, s2: []const u8) bool {
 
 /// On Windows, this calls `resolveWindows` and on POSIX it calls `resolvePosix`.
 pub fn resolve(allocator: *Allocator, paths: []const []const u8) ![]u8 {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return resolveWindows(allocator, paths);
     } else {
         return resolvePosix(allocator, paths);
@@ -447,7 +448,7 @@ pub fn resolve(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// Without performing actual syscalls, resolving `..` could be incorrect.
 pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
-        assert(builtin.os.tag == .windows); // resolveWindows called on non windows can't use getCwd
+        assert(native_os == .windows); // resolveWindows called on non windows can't use getCwd
         return process.getCwdAlloc(allocator);
     }
 
@@ -542,7 +543,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
                 result_disk_designator = result[0..result_index];
             },
             WindowsPath.Kind.None => {
-                assert(builtin.os.tag == .windows); // resolveWindows called on non windows can't use getCwd
+                assert(native_os == .windows); // resolveWindows called on non windows can't use getCwd
                 const cwd = try process.getCwdAlloc(allocator);
                 defer allocator.free(cwd);
                 const parsed_cwd = windowsParsePath(cwd);
@@ -557,7 +558,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
             },
         }
     } else {
-        assert(builtin.os.tag == .windows); // resolveWindows called on non windows can't use getCwd
+        assert(native_os == .windows); // resolveWindows called on non windows can't use getCwd
         // TODO call get cwd for the result_disk_designator instead of the global one
         const cwd = try process.getCwdAlloc(allocator);
         defer allocator.free(cwd);
@@ -628,7 +629,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// Without performing actual syscalls, resolving `..` could be incorrect.
 pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
-        assert(builtin.os.tag != .windows); // resolvePosix called on windows can't use getCwd
+        assert(native_os != .windows); // resolvePosix called on windows can't use getCwd
         return process.getCwdAlloc(allocator);
     }
 
@@ -650,7 +651,7 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (have_abs) {
         result = try allocator.alloc(u8, max_size);
     } else {
-        assert(builtin.os.tag != .windows); // resolvePosix called on windows can't use getCwd
+        assert(native_os != .windows); // resolvePosix called on windows can't use getCwd
         const cwd = try process.getCwdAlloc(allocator);
         defer allocator.free(cwd);
         result = try allocator.alloc(u8, max_size + cwd.len + 1);
@@ -690,11 +691,11 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 }
 
 test "resolve" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     const cwd = try process.getCwdAlloc(testing.allocator);
     defer testing.allocator.free(cwd);
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         if (windowsParsePath(cwd).kind == WindowsPath.Kind.Drive) {
             cwd[0] = asciiUpper(cwd[0]);
         }
@@ -706,12 +707,12 @@ test "resolve" {
 }
 
 test "resolveWindows" {
-    if (builtin.arch == .aarch64) {
+    if (builtin.target.cpu.arch == .aarch64) {
         // TODO https://github.com/ziglang/zig/issues/3288
         return error.SkipZigTest;
     }
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-    if (builtin.os.tag == .windows) {
+    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) {
         const cwd = try process.getCwdAlloc(testing.allocator);
         defer testing.allocator.free(cwd);
         const parsed_cwd = windowsParsePath(cwd);
@@ -755,7 +756,7 @@ test "resolveWindows" {
 }
 
 test "resolvePosix" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     try testResolvePosix(&[_][]const u8{ "/a/b", "c" }, "/a/b/c");
     try testResolvePosix(&[_][]const u8{ "/a/b", "c", "//d", "e///" }, "/d/e");
@@ -788,7 +789,7 @@ fn testResolvePosix(paths: []const []const u8, expected: []const u8) !void {
 ///
 /// If the path is the root directory, returns null.
 pub fn dirname(path: []const u8) ?[]const u8 {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return dirnameWindows(path);
     } else {
         return dirnamePosix(path);
@@ -922,7 +923,7 @@ fn testDirnameWindows(input: []const u8, expected_output: ?[]const u8) !void {
 }
 
 pub fn basename(path: []const u8) []const u8 {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return basenameWindows(path);
     } else {
         return basenamePosix(path);
@@ -1038,7 +1039,7 @@ fn testBasenameWindows(input: []const u8, expected_output: []const u8) !void {
 /// string is returned.
 /// On Windows this canonicalizes the drive to a capital letter and paths to `\\`.
 pub fn relative(allocator: *Allocator, from: []const u8, to: []const u8) ![]u8 {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return relativeWindows(allocator, from, to);
     } else {
         return relativePosix(allocator, from, to);
@@ -1164,11 +1165,11 @@ pub fn relativePosix(allocator: *Allocator, from: []const u8, to: []const u8) ![
 }
 
 test "relative" {
-    if (builtin.arch == .aarch64) {
+    if (builtin.target.cpu.arch == .aarch64) {
         // TODO https://github.com/ziglang/zig/issues/3288
         return error.SkipZigTest;
     }
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     try testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");

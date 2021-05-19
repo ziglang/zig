@@ -4,12 +4,12 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
-const builtin = std.builtin;
 const os = std.os;
 const mem = std.mem;
 const elf = std.elf;
 const math = std.math;
 const assert = std.debug.assert;
+const native_arch = std.Target.current.cpu.arch;
 
 // This file implements the two TLS variants [1] used by ELF-based systems.
 //
@@ -52,14 +52,14 @@ const TLSVariant = enum {
     VariantII,
 };
 
-const tls_variant = switch (builtin.arch) {
+const tls_variant = switch (native_arch) {
     .arm, .armeb, .thumb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => TLSVariant.VariantI,
     .x86_64, .i386, .sparcv9 => TLSVariant.VariantII,
     else => @compileError("undefined tls_variant for this architecture"),
 };
 
 // Controls how many bytes are reserved for the Thread Control Block
-const tls_tcb_size = switch (builtin.arch) {
+const tls_tcb_size = switch (native_arch) {
     // ARM EABI mandates enough space for two pointers: the first one points to
     // the DTV while the second one is unspecified but reserved
     .arm, .armeb, .thumb, .aarch64, .aarch64_be => 2 * @sizeOf(usize),
@@ -68,7 +68,7 @@ const tls_tcb_size = switch (builtin.arch) {
 };
 
 // Controls if the TP points to the end of the TCB instead of its beginning
-const tls_tp_points_past_tcb = switch (builtin.arch) {
+const tls_tp_points_past_tcb = switch (native_arch) {
     .riscv32, .riscv64, .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => true,
     else => false,
 };
@@ -76,12 +76,12 @@ const tls_tp_points_past_tcb = switch (builtin.arch) {
 // Some architectures add some offset to the tp and dtv addresses in order to
 // make the generated code more efficient
 
-const tls_tp_offset = switch (builtin.arch) {
+const tls_tp_offset = switch (native_arch) {
     .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => 0x7000,
     else => 0,
 };
 
-const tls_dtv_offset = switch (builtin.arch) {
+const tls_dtv_offset = switch (native_arch) {
     .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => 0x8000,
     .riscv32, .riscv64 => 0x800,
     else => 0,
@@ -114,7 +114,7 @@ const TLSImage = struct {
 pub var tls_image: TLSImage = undefined;
 
 pub fn setThreadPointer(addr: usize) void {
-    switch (builtin.arch) {
+    switch (native_arch) {
         .i386 => {
             var user_desc = std.os.linux.user_desc{
                 .entry_number = tls_image.gdt_entry_number,
@@ -228,7 +228,7 @@ fn initTLS() void {
     // ARMv6 targets (and earlier) have no support for TLS in hardware
     // FIXME: Elide the check for targets >= ARMv7 when the target feature API
     // becomes less verbose (and more usable).
-    if (comptime builtin.arch.isARM()) {
+    if (comptime native_arch.isARM()) {
         if (at_hwcap & std.os.linux.HWCAP_TLS == 0) {
             // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
             // For the time being use a simple abort instead of a @panic call to

@@ -11,22 +11,15 @@ const Module = @import("Module.zig");
 
 pub const Table = std.StringHashMapUnmanaged(*Package);
 
-pub const root_namespace_hash: Module.Scope.NameHash = .{
-    0, 0, 6, 6, 6, 0, 0, 0,
-    6, 9, 0, 0, 0, 4, 2, 0,
-};
-
 root_src_directory: Compilation.Directory,
 /// Relative to `root_src_directory`. May contain path separators.
 root_src_path: []const u8,
 table: Table = .{},
 parent: ?*Package = null,
-namespace_hash: Module.Scope.NameHash,
 /// Whether to free `root_src_directory` on `destroy`.
 root_src_directory_owned: bool = false,
 
 /// Allocate a Package. No references to the slices passed are kept.
-/// Don't forget to set `namespace_hash` later.
 pub fn create(
     gpa: *Allocator,
     /// Null indicates the current working directory
@@ -50,7 +43,6 @@ pub fn create(
         },
         .root_src_path = owned_src_path,
         .root_src_directory_owned = true,
-        .namespace_hash = undefined,
     };
 
     return ptr;
@@ -82,14 +74,12 @@ pub fn createWithDir(
             },
             .root_src_directory_owned = true,
             .root_src_path = owned_src_path,
-            .namespace_hash = undefined,
         };
     } else {
         ptr.* = .{
             .root_src_directory = directory,
             .root_src_directory_owned = false,
             .root_src_path = owned_src_path,
-            .namespace_hash = undefined,
         };
     }
     return ptr;
@@ -129,6 +119,5 @@ pub fn add(pkg: *Package, gpa: *Allocator, name: []const u8, package: *Package) 
 pub fn addAndAdopt(parent: *Package, gpa: *Allocator, name: []const u8, child: *Package) !void {
     assert(child.parent == null); // make up your mind, who is the parent??
     child.parent = parent;
-    child.namespace_hash = std.zig.hashName(parent.namespace_hash, ":", name);
     return parent.add(gpa, name, child);
 }

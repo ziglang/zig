@@ -22,6 +22,9 @@ fn processArgs() void {
 }
 
 pub fn main() anyerror!void {
+    if (builtin.zig_is_stage2) {
+        return main2();
+    }
     processArgs();
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
@@ -121,5 +124,12 @@ pub fn log(
     }
     if (@enumToInt(message_level) <= @enumToInt(std.testing.log_level)) {
         std.debug.print("[{s}] ({s}): " ++ format ++ "\n", .{ @tagName(scope), @tagName(message_level) } ++ args);
+    }
+}
+
+pub fn main2() anyerror!void {
+    // Simpler main(), exercising fewer language features, so that stage2 can handle it.
+    for (builtin.test_functions) |test_fn| {
+        try test_fn.func();
     }
 }

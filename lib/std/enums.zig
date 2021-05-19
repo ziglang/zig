@@ -18,7 +18,7 @@ const EnumField = std.builtin.TypeInfo.EnumField;
 pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_default: ?Data) type {
     const StructField = std.builtin.TypeInfo.StructField;
     var fields: []const StructField = &[_]StructField{};
-    for (uniqueFields(E)) |field, i| {
+    for (std.meta.fields(E)) |field, i| {
         fields = fields ++ &[_]StructField{.{
             .name = field.name,
             .field_type = Data,
@@ -48,70 +48,10 @@ pub fn valuesFromFields(comptime E: type, comptime fields: []const EnumField) []
     }
 }
 
-test "std.enums.valuesFromFields" {
-    const E = extern enum { a, b, c, d = 0 };
-    const fields = valuesFromFields(E, &[_]EnumField{
-        .{ .name = "b", .value = undefined },
-        .{ .name = "a", .value = undefined },
-        .{ .name = "a", .value = undefined },
-        .{ .name = "d", .value = undefined },
-    });
-    try testing.expectEqual(E.b, fields[0]);
-    try testing.expectEqual(E.a, fields[1]);
-    try testing.expectEqual(E.d, fields[2]); // a == d
-    try testing.expectEqual(E.d, fields[3]);
-}
-
 /// Returns the set of all named values in the given enum, in
 /// declaration order.
 pub fn values(comptime E: type) []const E {
     return comptime valuesFromFields(E, @typeInfo(E).Enum.fields);
-}
-
-test "std.enum.values" {
-    const E = extern enum { a, b, c, d = 0 };
-    try testing.expectEqualSlices(E, &.{ .a, .b, .c, .d }, values(E));
-}
-
-/// Returns the set of all unique named values in the given enum, in
-/// declaration order.  For repeated values in extern enums, only the
-/// first name for each value is included.
-pub fn uniqueValues(comptime E: type) []const E {
-    return comptime valuesFromFields(E, uniqueFields(E));
-}
-
-test "std.enum.uniqueValues" {
-    const E = extern enum { a, b, c, d = 0, e, f = 3 };
-    try testing.expectEqualSlices(E, &.{ .a, .b, .c, .f }, uniqueValues(E));
-
-    const F = enum { a, b, c };
-    try testing.expectEqualSlices(F, &.{ .a, .b, .c }, uniqueValues(F));
-}
-
-/// Returns the set of all unique field values in the given enum, in
-/// declaration order.  For repeated values in extern enums, only the
-/// first name for each value is included.
-pub fn uniqueFields(comptime E: type) []const EnumField {
-    comptime {
-        const info = @typeInfo(E).Enum;
-        const raw_fields = info.fields;
-        // Only extern enums can contain duplicates,
-        // so fast path other types.
-        if (info.layout != .Extern) {
-            return raw_fields;
-        }
-
-        var unique_fields: []const EnumField = &[_]EnumField{};
-        outer: for (raw_fields) |candidate| {
-            for (unique_fields) |u| {
-                if (u.value == candidate.value)
-                    continue :outer;
-            }
-            unique_fields = unique_fields ++ &[_]EnumField{candidate};
-        }
-
-        return unique_fields;
-    }
 }
 
 /// Determines the length of a direct-mapped enum array, indexed by
@@ -126,7 +66,7 @@ pub fn uniqueFields(comptime E: type) []const EnumField {
 fn directEnumArrayLen(comptime E: type, comptime max_unused_slots: comptime_int) comptime_int {
     var max_value: comptime_int = -1;
     const max_usize: comptime_int = ~@as(usize, 0);
-    const fields = uniqueFields(E);
+    const fields = std.meta.fields(E);
     for (fields) |f| {
         if (f.value < 0) {
             @compileError("Cannot create a direct enum array for " ++ @typeName(E) ++ ", field ." ++ f.name ++ " has a negative value.");
@@ -248,8 +188,8 @@ pub fn nameCast(comptime E: type, comptime value: anytype) E {
 }
 
 test "std.enums.nameCast" {
-    const A = enum { a = 0, b = 1 };
-    const B = enum { a = 1, b = 0 };
+    const A = enum(u1) { a = 0, b = 1 };
+    const B = enum(u1) { a = 1, b = 0 };
     try testing.expectEqual(A.a, nameCast(A, .a));
     try testing.expectEqual(A.a, nameCast(A, A.a));
     try testing.expectEqual(A.a, nameCast(A, B.a));
@@ -283,8 +223,8 @@ pub fn EnumSet(comptime E: type) type {
                     var result = Self{};
                     comptime var i: usize = 0;
                     inline while (i < Self.len) : (i += 1) {
-                        comptime const key = Indexer.keyForIndex(i);
-                        comptime const tag = @tagName(key);
+                        const key = comptime Indexer.keyForIndex(i);
+                        const tag = comptime @tagName(key);
                         if (@field(init_values, tag)) {
                             result.bits.set(i);
                         }
@@ -311,8 +251,8 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
                     var result = Self{};
                     comptime var i: usize = 0;
                     inline while (i < Self.len) : (i += 1) {
-                        comptime const key = Indexer.keyForIndex(i);
-                        comptime const tag = @tagName(key);
+                        const key = comptime Indexer.keyForIndex(i);
+                        const tag = comptime @tagName(key);
                         if (@field(init_values, tag)) |*v| {
                             result.bits.set(i);
                             result.values[i] = v.*;
@@ -344,8 +284,8 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
                     };
                     comptime var i: usize = 0;
                     inline while (i < Self.len) : (i += 1) {
-                        comptime const key = Indexer.keyForIndex(i);
-                        comptime const tag = @tagName(key);
+                        const key = comptime Indexer.keyForIndex(i);
+                        const tag = comptime @tagName(key);
                         result.values[i] = @field(init_values, tag);
                     }
                     return result;
@@ -796,7 +736,7 @@ pub fn EnumIndexer(comptime E: type) type {
         @compileError("Cannot create an enum indexer for a non-exhaustive enum.");
     }
 
-    const const_fields = uniqueFields(E);
+    const const_fields = std.meta.fields(E);
     var fields = const_fields[0..const_fields.len].*;
     if (fields.len == 0) {
         return struct {
@@ -848,7 +788,7 @@ pub fn EnumIndexer(comptime E: type) type {
 }
 
 test "std.enums.EnumIndexer dense zeroed" {
-    const E = enum { b = 1, a = 0, c = 2 };
+    const E = enum(u2) { b = 1, a = 0, c = 2 };
     const Indexer = EnumIndexer(E);
     ensureIndexer(Indexer);
     try testing.expectEqual(E, Indexer.Key);
@@ -909,380 +849,4 @@ test "std.enums.EnumIndexer sparse" {
     try testing.expectEqual(E.a, Indexer.keyForIndex(0));
     try testing.expectEqual(E.b, Indexer.keyForIndex(1));
     try testing.expectEqual(E.c, Indexer.keyForIndex(2));
-}
-
-test "std.enums.EnumIndexer repeats" {
-    const E = extern enum { a = -2, c = 6, b = 4, b2 = 4 };
-    const Indexer = EnumIndexer(E);
-    ensureIndexer(Indexer);
-    try testing.expectEqual(E, Indexer.Key);
-    try testing.expectEqual(@as(usize, 3), Indexer.count);
-
-    try testing.expectEqual(@as(usize, 0), Indexer.indexOf(.a));
-    try testing.expectEqual(@as(usize, 1), Indexer.indexOf(.b));
-    try testing.expectEqual(@as(usize, 2), Indexer.indexOf(.c));
-
-    try testing.expectEqual(E.a, Indexer.keyForIndex(0));
-    try testing.expectEqual(E.b, Indexer.keyForIndex(1));
-    try testing.expectEqual(E.c, Indexer.keyForIndex(2));
-}
-
-test "std.enums.EnumSet" {
-    const E = extern enum { a, b, c, d, e = 0 };
-    const Set = EnumSet(E);
-    try testing.expectEqual(E, Set.Key);
-    try testing.expectEqual(EnumIndexer(E), Set.Indexer);
-    try testing.expectEqual(@as(usize, 4), Set.len);
-
-    // Empty sets
-    const empty = Set{};
-    comptime try testing.expect(empty.count() == 0);
-
-    var empty_b = Set.init(.{});
-    try testing.expect(empty_b.count() == 0);
-
-    const empty_c = comptime Set.init(.{});
-    comptime try testing.expect(empty_c.count() == 0);
-
-    const full = Set.initFull();
-    try testing.expect(full.count() == Set.len);
-
-    const full_b = comptime Set.initFull();
-    comptime try testing.expect(full_b.count() == Set.len);
-
-    try testing.expectEqual(false, empty.contains(.a));
-    try testing.expectEqual(false, empty.contains(.b));
-    try testing.expectEqual(false, empty.contains(.c));
-    try testing.expectEqual(false, empty.contains(.d));
-    try testing.expectEqual(false, empty.contains(.e));
-    {
-        var iter = empty_b.iterator();
-        try testing.expectEqual(@as(?E, null), iter.next());
-    }
-
-    var mut = Set.init(.{
-        .a = true,
-        .c = true,
-    });
-    try testing.expectEqual(@as(usize, 2), mut.count());
-    try testing.expectEqual(true, mut.contains(.a));
-    try testing.expectEqual(false, mut.contains(.b));
-    try testing.expectEqual(true, mut.contains(.c));
-    try testing.expectEqual(false, mut.contains(.d));
-    try testing.expectEqual(true, mut.contains(.e)); // aliases a
-    {
-        var it = mut.iterator();
-        try testing.expectEqual(@as(?E, .a), it.next());
-        try testing.expectEqual(@as(?E, .c), it.next());
-        try testing.expectEqual(@as(?E, null), it.next());
-    }
-
-    mut.toggleAll();
-    try testing.expectEqual(@as(usize, 2), mut.count());
-    try testing.expectEqual(false, mut.contains(.a));
-    try testing.expectEqual(true, mut.contains(.b));
-    try testing.expectEqual(false, mut.contains(.c));
-    try testing.expectEqual(true, mut.contains(.d));
-    try testing.expectEqual(false, mut.contains(.e)); // aliases a
-    {
-        var it = mut.iterator();
-        try testing.expectEqual(@as(?E, .b), it.next());
-        try testing.expectEqual(@as(?E, .d), it.next());
-        try testing.expectEqual(@as(?E, null), it.next());
-    }
-
-    mut.toggleSet(Set.init(.{ .a = true, .b = true }));
-    try testing.expectEqual(@as(usize, 2), mut.count());
-    try testing.expectEqual(true, mut.contains(.a));
-    try testing.expectEqual(false, mut.contains(.b));
-    try testing.expectEqual(false, mut.contains(.c));
-    try testing.expectEqual(true, mut.contains(.d));
-    try testing.expectEqual(true, mut.contains(.e)); // aliases a
-
-    mut.setUnion(Set.init(.{ .a = true, .b = true }));
-    try testing.expectEqual(@as(usize, 3), mut.count());
-    try testing.expectEqual(true, mut.contains(.a));
-    try testing.expectEqual(true, mut.contains(.b));
-    try testing.expectEqual(false, mut.contains(.c));
-    try testing.expectEqual(true, mut.contains(.d));
-
-    mut.remove(.c);
-    mut.remove(.b);
-    try testing.expectEqual(@as(usize, 2), mut.count());
-    try testing.expectEqual(true, mut.contains(.a));
-    try testing.expectEqual(false, mut.contains(.b));
-    try testing.expectEqual(false, mut.contains(.c));
-    try testing.expectEqual(true, mut.contains(.d));
-
-    mut.setIntersection(Set.init(.{ .a = true, .b = true }));
-    try testing.expectEqual(@as(usize, 1), mut.count());
-    try testing.expectEqual(true, mut.contains(.a));
-    try testing.expectEqual(false, mut.contains(.b));
-    try testing.expectEqual(false, mut.contains(.c));
-    try testing.expectEqual(false, mut.contains(.d));
-
-    mut.insert(.a);
-    mut.insert(.b);
-    try testing.expectEqual(@as(usize, 2), mut.count());
-    try testing.expectEqual(true, mut.contains(.a));
-    try testing.expectEqual(true, mut.contains(.b));
-    try testing.expectEqual(false, mut.contains(.c));
-    try testing.expectEqual(false, mut.contains(.d));
-
-    mut.setPresent(.a, false);
-    mut.toggle(.b);
-    mut.toggle(.c);
-    mut.setPresent(.d, true);
-    try testing.expectEqual(@as(usize, 2), mut.count());
-    try testing.expectEqual(false, mut.contains(.a));
-    try testing.expectEqual(false, mut.contains(.b));
-    try testing.expectEqual(true, mut.contains(.c));
-    try testing.expectEqual(true, mut.contains(.d));
-}
-
-test "std.enums.EnumArray void" {
-    const E = extern enum { a, b, c, d, e = 0 };
-    const ArrayVoid = EnumArray(E, void);
-    try testing.expectEqual(E, ArrayVoid.Key);
-    try testing.expectEqual(EnumIndexer(E), ArrayVoid.Indexer);
-    try testing.expectEqual(void, ArrayVoid.Value);
-    try testing.expectEqual(@as(usize, 4), ArrayVoid.len);
-
-    const undef = ArrayVoid.initUndefined();
-    var inst = ArrayVoid.initFill({});
-    const inst2 = ArrayVoid.init(.{ .a = {}, .b = {}, .c = {}, .d = {} });
-    const inst3 = ArrayVoid.initDefault({}, .{});
-
-    _ = inst.get(.a);
-    _ = inst.getPtr(.b);
-    _ = inst.getPtrConst(.c);
-    inst.set(.a, {});
-
-    var it = inst.iterator();
-    try testing.expectEqual(E.a, it.next().?.key);
-    try testing.expectEqual(E.b, it.next().?.key);
-    try testing.expectEqual(E.c, it.next().?.key);
-    try testing.expectEqual(E.d, it.next().?.key);
-    try testing.expect(it.next() == null);
-}
-
-test "std.enums.EnumArray sized" {
-    const E = extern enum { a, b, c, d, e = 0 };
-    const Array = EnumArray(E, usize);
-    try testing.expectEqual(E, Array.Key);
-    try testing.expectEqual(EnumIndexer(E), Array.Indexer);
-    try testing.expectEqual(usize, Array.Value);
-    try testing.expectEqual(@as(usize, 4), Array.len);
-
-    const undef = Array.initUndefined();
-    var inst = Array.initFill(5);
-    const inst2 = Array.init(.{ .a = 1, .b = 2, .c = 3, .d = 4 });
-    const inst3 = Array.initDefault(6, .{ .b = 4, .c = 2 });
-
-    try testing.expectEqual(@as(usize, 5), inst.get(.a));
-    try testing.expectEqual(@as(usize, 5), inst.get(.b));
-    try testing.expectEqual(@as(usize, 5), inst.get(.c));
-    try testing.expectEqual(@as(usize, 5), inst.get(.d));
-
-    try testing.expectEqual(@as(usize, 1), inst2.get(.a));
-    try testing.expectEqual(@as(usize, 2), inst2.get(.b));
-    try testing.expectEqual(@as(usize, 3), inst2.get(.c));
-    try testing.expectEqual(@as(usize, 4), inst2.get(.d));
-
-    try testing.expectEqual(@as(usize, 6), inst3.get(.a));
-    try testing.expectEqual(@as(usize, 4), inst3.get(.b));
-    try testing.expectEqual(@as(usize, 2), inst3.get(.c));
-    try testing.expectEqual(@as(usize, 6), inst3.get(.d));
-
-    try testing.expectEqual(&inst.values[0], inst.getPtr(.a));
-    try testing.expectEqual(&inst.values[1], inst.getPtr(.b));
-    try testing.expectEqual(&inst.values[2], inst.getPtr(.c));
-    try testing.expectEqual(&inst.values[3], inst.getPtr(.d));
-
-    try testing.expectEqual(@as(*const usize, &inst.values[0]), inst.getPtrConst(.a));
-    try testing.expectEqual(@as(*const usize, &inst.values[1]), inst.getPtrConst(.b));
-    try testing.expectEqual(@as(*const usize, &inst.values[2]), inst.getPtrConst(.c));
-    try testing.expectEqual(@as(*const usize, &inst.values[3]), inst.getPtrConst(.d));
-
-    inst.set(.c, 8);
-    try testing.expectEqual(@as(usize, 5), inst.get(.a));
-    try testing.expectEqual(@as(usize, 5), inst.get(.b));
-    try testing.expectEqual(@as(usize, 8), inst.get(.c));
-    try testing.expectEqual(@as(usize, 5), inst.get(.d));
-
-    var it = inst.iterator();
-    const Entry = Array.Entry;
-    try testing.expectEqual(@as(?Entry, Entry{
-        .key = .a,
-        .value = &inst.values[0],
-    }), it.next());
-    try testing.expectEqual(@as(?Entry, Entry{
-        .key = .b,
-        .value = &inst.values[1],
-    }), it.next());
-    try testing.expectEqual(@as(?Entry, Entry{
-        .key = .c,
-        .value = &inst.values[2],
-    }), it.next());
-    try testing.expectEqual(@as(?Entry, Entry{
-        .key = .d,
-        .value = &inst.values[3],
-    }), it.next());
-    try testing.expectEqual(@as(?Entry, null), it.next());
-}
-
-test "std.enums.EnumMap void" {
-    const E = extern enum { a, b, c, d, e = 0 };
-    const Map = EnumMap(E, void);
-    try testing.expectEqual(E, Map.Key);
-    try testing.expectEqual(EnumIndexer(E), Map.Indexer);
-    try testing.expectEqual(void, Map.Value);
-    try testing.expectEqual(@as(usize, 4), Map.len);
-
-    const b = Map.initFull({});
-    try testing.expectEqual(@as(usize, 4), b.count());
-
-    const c = Map.initFullWith(.{ .a = {}, .b = {}, .c = {}, .d = {} });
-    try testing.expectEqual(@as(usize, 4), c.count());
-
-    const d = Map.initFullWithDefault({}, .{ .b = {} });
-    try testing.expectEqual(@as(usize, 4), d.count());
-
-    var a = Map.init(.{ .b = {}, .d = {} });
-    try testing.expectEqual(@as(usize, 2), a.count());
-    try testing.expectEqual(false, a.contains(.a));
-    try testing.expectEqual(true, a.contains(.b));
-    try testing.expectEqual(false, a.contains(.c));
-    try testing.expectEqual(true, a.contains(.d));
-    try testing.expect(a.get(.a) == null);
-    try testing.expect(a.get(.b) != null);
-    try testing.expect(a.get(.c) == null);
-    try testing.expect(a.get(.d) != null);
-    try testing.expect(a.getPtr(.a) == null);
-    try testing.expect(a.getPtr(.b) != null);
-    try testing.expect(a.getPtr(.c) == null);
-    try testing.expect(a.getPtr(.d) != null);
-    try testing.expect(a.getPtrConst(.a) == null);
-    try testing.expect(a.getPtrConst(.b) != null);
-    try testing.expect(a.getPtrConst(.c) == null);
-    try testing.expect(a.getPtrConst(.d) != null);
-    _ = a.getPtrAssertContains(.b);
-    _ = a.getAssertContains(.d);
-
-    a.put(.a, {});
-    a.put(.a, {});
-    a.putUninitialized(.c).* = {};
-    a.putUninitialized(.c).* = {};
-
-    try testing.expectEqual(@as(usize, 4), a.count());
-    try testing.expect(a.get(.a) != null);
-    try testing.expect(a.get(.b) != null);
-    try testing.expect(a.get(.c) != null);
-    try testing.expect(a.get(.d) != null);
-
-    a.remove(.a);
-    _ = a.fetchRemove(.c);
-
-    var iter = a.iterator();
-    const Entry = Map.Entry;
-    try testing.expectEqual(E.b, iter.next().?.key);
-    try testing.expectEqual(E.d, iter.next().?.key);
-    try testing.expect(iter.next() == null);
-}
-
-test "std.enums.EnumMap sized" {
-    const E = extern enum { a, b, c, d, e = 0 };
-    const Map = EnumMap(E, usize);
-    try testing.expectEqual(E, Map.Key);
-    try testing.expectEqual(EnumIndexer(E), Map.Indexer);
-    try testing.expectEqual(usize, Map.Value);
-    try testing.expectEqual(@as(usize, 4), Map.len);
-
-    const b = Map.initFull(5);
-    try testing.expectEqual(@as(usize, 4), b.count());
-    try testing.expect(b.contains(.a));
-    try testing.expect(b.contains(.b));
-    try testing.expect(b.contains(.c));
-    try testing.expect(b.contains(.d));
-    try testing.expectEqual(@as(?usize, 5), b.get(.a));
-    try testing.expectEqual(@as(?usize, 5), b.get(.b));
-    try testing.expectEqual(@as(?usize, 5), b.get(.c));
-    try testing.expectEqual(@as(?usize, 5), b.get(.d));
-
-    const c = Map.initFullWith(.{ .a = 1, .b = 2, .c = 3, .d = 4 });
-    try testing.expectEqual(@as(usize, 4), c.count());
-    try testing.expect(c.contains(.a));
-    try testing.expect(c.contains(.b));
-    try testing.expect(c.contains(.c));
-    try testing.expect(c.contains(.d));
-    try testing.expectEqual(@as(?usize, 1), c.get(.a));
-    try testing.expectEqual(@as(?usize, 2), c.get(.b));
-    try testing.expectEqual(@as(?usize, 3), c.get(.c));
-    try testing.expectEqual(@as(?usize, 4), c.get(.d));
-
-    const d = Map.initFullWithDefault(6, .{ .b = 2, .c = 4 });
-    try testing.expectEqual(@as(usize, 4), d.count());
-    try testing.expect(d.contains(.a));
-    try testing.expect(d.contains(.b));
-    try testing.expect(d.contains(.c));
-    try testing.expect(d.contains(.d));
-    try testing.expectEqual(@as(?usize, 6), d.get(.a));
-    try testing.expectEqual(@as(?usize, 2), d.get(.b));
-    try testing.expectEqual(@as(?usize, 4), d.get(.c));
-    try testing.expectEqual(@as(?usize, 6), d.get(.d));
-
-    var a = Map.init(.{ .b = 2, .d = 4 });
-    try testing.expectEqual(@as(usize, 2), a.count());
-    try testing.expectEqual(false, a.contains(.a));
-    try testing.expectEqual(true, a.contains(.b));
-    try testing.expectEqual(false, a.contains(.c));
-    try testing.expectEqual(true, a.contains(.d));
-
-    try testing.expectEqual(@as(?usize, null), a.get(.a));
-    try testing.expectEqual(@as(?usize, 2), a.get(.b));
-    try testing.expectEqual(@as(?usize, null), a.get(.c));
-    try testing.expectEqual(@as(?usize, 4), a.get(.d));
-
-    try testing.expectEqual(@as(?*usize, null), a.getPtr(.a));
-    try testing.expectEqual(@as(?*usize, &a.values[1]), a.getPtr(.b));
-    try testing.expectEqual(@as(?*usize, null), a.getPtr(.c));
-    try testing.expectEqual(@as(?*usize, &a.values[3]), a.getPtr(.d));
-
-    try testing.expectEqual(@as(?*const usize, null), a.getPtrConst(.a));
-    try testing.expectEqual(@as(?*const usize, &a.values[1]), a.getPtrConst(.b));
-    try testing.expectEqual(@as(?*const usize, null), a.getPtrConst(.c));
-    try testing.expectEqual(@as(?*const usize, &a.values[3]), a.getPtrConst(.d));
-
-    try testing.expectEqual(@as(*const usize, &a.values[1]), a.getPtrAssertContains(.b));
-    try testing.expectEqual(@as(*const usize, &a.values[3]), a.getPtrAssertContains(.d));
-    try testing.expectEqual(@as(usize, 2), a.getAssertContains(.b));
-    try testing.expectEqual(@as(usize, 4), a.getAssertContains(.d));
-
-    a.put(.a, 3);
-    a.put(.a, 5);
-    a.putUninitialized(.c).* = 7;
-    a.putUninitialized(.c).* = 9;
-
-    try testing.expectEqual(@as(usize, 4), a.count());
-    try testing.expectEqual(@as(?usize, 5), a.get(.a));
-    try testing.expectEqual(@as(?usize, 2), a.get(.b));
-    try testing.expectEqual(@as(?usize, 9), a.get(.c));
-    try testing.expectEqual(@as(?usize, 4), a.get(.d));
-
-    a.remove(.a);
-    try testing.expectEqual(@as(?usize, null), a.fetchRemove(.a));
-    try testing.expectEqual(@as(?usize, 9), a.fetchRemove(.c));
-    a.remove(.c);
-
-    var iter = a.iterator();
-    const Entry = Map.Entry;
-    try testing.expectEqual(@as(?Entry, Entry{
-        .key = .b,
-        .value = &a.values[1],
-    }), iter.next());
-    try testing.expectEqual(@as(?Entry, Entry{
-        .key = .d,
-        .value = &a.values[3],
-    }), iter.next());
-    try testing.expectEqual(@as(?Entry, null), iter.next());
 }

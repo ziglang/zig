@@ -10,7 +10,7 @@ const assert = debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const os = std.os;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const c = std.c;
 const maxInt = std.math.maxInt;
 
@@ -28,17 +28,17 @@ const CAllocator = struct {
         }
     }
 
-    usingnamespace if (comptime @hasDecl(c, "malloc_size"))
+    usingnamespace if (@hasDecl(c, "malloc_size"))
         struct {
             pub const supports_malloc_size = true;
             pub const malloc_size = c.malloc_size;
         }
-    else if (comptime @hasDecl(c, "malloc_usable_size"))
+    else if (@hasDecl(c, "malloc_usable_size"))
         struct {
             pub const supports_malloc_size = true;
             pub const malloc_size = c.malloc_usable_size;
         }
-    else if (comptime @hasDecl(c, "_msize"))
+    else if (@hasDecl(c, "_msize"))
         struct {
             pub const supports_malloc_size = true;
             pub const malloc_size = c._msize;

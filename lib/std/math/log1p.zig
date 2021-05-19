@@ -9,7 +9,6 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/log1pf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/log1p.c
 
-const builtin = @import("builtin");
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;

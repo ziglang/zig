@@ -5,10 +5,10 @@
 // and substantial portions of the software.
 // Platform-dependent types and values that are used along with OS-specific APIs.
 
-const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
+const arch = std.Target.current.cpu.arch;
 
 pub usingnamespace @import("win32error.zig");
 pub usingnamespace @import("ntstatus.zig");
@@ -24,7 +24,7 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
-pub const WINAPI: builtin.CallingConvention = if (builtin.arch == .i386)
+pub const WINAPI: std.builtin.CallingConvention = if (arch == .i386)
     .Stdcall
 else
     .C;
@@ -281,7 +281,7 @@ pub const IO_STATUS_BLOCK = extern struct {
     Information: ULONG_PTR,
 };
 
-pub const FILE_INFORMATION_CLASS = extern enum {
+pub const FILE_INFORMATION_CLASS = enum(c_int) {
     FileDirectoryInformation = 1,
     FileFullDirectoryInformation,
     FileBothDirectoryInformation,
@@ -901,7 +901,7 @@ pub const COINIT_APARTMENTTHREADED = COINIT.COINIT_APARTMENTTHREADED;
 pub const COINIT_MULTITHREADED = COINIT.COINIT_MULTITHREADED;
 pub const COINIT_DISABLE_OLE1DDE = COINIT.COINIT_DISABLE_OLE1DDE;
 pub const COINIT_SPEED_OVER_MEMORY = COINIT.COINIT_SPEED_OVER_MEMORY;
-pub const COINIT = extern enum {
+pub const COINIT = enum(c_int) {
     COINIT_APARTMENTTHREADED = 2,
     COINIT_MULTITHREADED = 0,
     COINIT_DISABLE_OLE1DDE = 4,
@@ -937,7 +937,7 @@ pub const EXCEPTION_RECORD = extern struct {
     ExceptionInformation: [15]usize,
 };
 
-pub usingnamespace switch (builtin.arch) {
+pub usingnamespace switch (arch) {
     .i386 => struct {
         pub const FLOATING_SAVE_AREA = extern struct {
             ControlWord: DWORD,
@@ -1619,7 +1619,7 @@ pub const MOUNTMGR_MOUNT_POINTS = extern struct {
 };
 pub const IOCTL_MOUNTMGR_QUERY_POINTS: ULONG = 0x6d0008;
 
-pub const OBJECT_INFORMATION_CLASS = extern enum {
+pub const OBJECT_INFORMATION_CLASS = enum(c_int) {
     ObjectBasicInformation = 0,
     ObjectNameInformation = 1,
     ObjectTypeInformation = 2,

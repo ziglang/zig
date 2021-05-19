@@ -398,10 +398,10 @@ pub const Insn = packed struct {
 
     /// r0 - r9 are general purpose 64-bit registers, r10 points to the stack
     /// frame
-    pub const Reg = packed enum(u4) { r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10 };
-    const Source = packed enum(u1) { reg, imm };
+    pub const Reg = enum(u4) { r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10 };
+    const Source = enum(u1) { reg, imm };
 
-    const Mode = packed enum(u8) {
+    const Mode = enum(u8) {
         imm = IMM,
         abs = ABS,
         ind = IND,
@@ -410,7 +410,7 @@ pub const Insn = packed struct {
         msh = MSH,
     };
 
-    const AluOp = packed enum(u8) {
+    const AluOp = enum(u8) {
         add = ADD,
         sub = SUB,
         mul = MUL,
@@ -426,14 +426,14 @@ pub const Insn = packed struct {
         arsh = ARSH,
     };
 
-    pub const Size = packed enum(u8) {
+    pub const Size = enum(u8) {
         byte = B,
         half_word = H,
         word = W,
         double_word = DW,
     };
 
-    const JmpOp = packed enum(u8) {
+    const JmpOp = enum(u8) {
         ja = JA,
         jeq = JEQ,
         jgt = JGT,
@@ -854,7 +854,7 @@ test "opcodes" {
     try expect_opcode(0x95, Insn.exit());
 }
 
-pub const Cmd = extern enum(usize) {
+pub const Cmd = enum(usize) {
     /// Create  a map and return a file descriptor that refers to the map.  The
     /// close-on-exec file descriptor flag is automatically enabled for the new
     /// file descriptor.
@@ -977,7 +977,7 @@ pub const Cmd = extern enum(usize) {
     _,
 };
 
-pub const MapType = extern enum(u32) {
+pub const MapType = enum(u32) {
     unspec,
     hash,
     array,
@@ -1044,7 +1044,7 @@ pub const MapType = extern enum(u32) {
     _,
 };
 
-pub const ProgType = extern enum(u32) {
+pub const ProgType = enum(u32) {
     unspec,
 
     /// context type: __sk_buff
@@ -1139,7 +1139,7 @@ pub const ProgType = extern enum(u32) {
     _,
 };
 
-pub const AttachType = extern enum(u32) {
+pub const AttachType = enum(u32) {
     cgroup_inet_ingress,
     cgroup_inet_egress,
     cgroup_inet_sock_create,

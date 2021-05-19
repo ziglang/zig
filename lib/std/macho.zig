@@ -1365,7 +1365,7 @@ pub const BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB: u8 = 0xa0;
 pub const BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED: u8 = 0xb0;
 pub const BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB: u8 = 0xc0;
 
-pub const reloc_type_x86_64 = packed enum(u4) {
+pub const reloc_type_x86_64 = enum(u4) {
     /// for absolute addresses
     X86_64_RELOC_UNSIGNED = 0,
 
@@ -1397,9 +1397,9 @@ pub const reloc_type_x86_64 = packed enum(u4) {
     X86_64_RELOC_TLV,
 };
 
-pub const reloc_type_arm64 = packed enum(u4) {
+pub const reloc_type_arm64 = enum(u4) {
     /// For pointers.
-    ARM64_RELOC_UNSIGNED = 0,
+    ARM64_RELOC_UNSIGNED,
 
     /// Must be followed by a ARM64_RELOC_UNSIGNED.
     ARM64_RELOC_SUBTRACTOR,

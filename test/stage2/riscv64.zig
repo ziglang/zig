@@ -11,7 +11,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("riscv64 hello world", linux_riscv64);
         // Regular old hello world
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print();
             \\
             \\    exit();

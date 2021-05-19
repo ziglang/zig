@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
 fn offsetPtr(ptr: [*]const u8, offset: usize) callconv(.Inline) [*]const u8 {
     // ptr + offset doesn't work at comptime so we need this instead.

@@ -6,15 +6,18 @@
 const std = @import("std");
 const builtin = std.builtin;
 const is_test = builtin.is_test;
+const os_tag = std.Target.current.os.tag;
+const arch = std.Target.current.cpu.arch;
+const abi = std.Target.current.abi;
 
-const is_gnu = std.Target.current.abi.isGnu();
-const is_mingw = builtin.os.tag == .windows and is_gnu;
+const is_gnu = abi.isGnu();
+const is_mingw = os_tag == .windows and is_gnu;
 
 comptime {
     const linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Weak;
     const strong_linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Strong;
 
-    switch (builtin.arch) {
+    switch (arch) {
         .i386,
         .x86_64,
         => @export(@import("compiler_rt/stack_probe.zig").zig_probe_stack, .{
@@ -169,11 +172,11 @@ comptime {
 
     @export(@import("compiler_rt/clzsi2.zig").__clzsi2, .{ .name = "__clzsi2", .linkage = linkage });
 
-    if (builtin.link_libc and builtin.os.tag == .openbsd) {
+    if (builtin.link_libc and os_tag == .openbsd) {
         @export(@import("compiler_rt/emutls.zig").__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = linkage });
     }
 
-    if ((builtin.arch.isARM() or builtin.arch.isThumb()) and !is_test) {
+    if ((arch.isARM() or arch.isThumb()) and !is_test) {
         @export(@import("compiler_rt/arm.zig").__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = linkage });
         @export(@import("compiler_rt/arm.zig").__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = linkage });
         @export(@import("compiler_rt/arm.zig").__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = linkage });
@@ -204,7 +207,7 @@ comptime {
         @export(@import("compiler_rt/arm.zig").__aeabi_memclr, .{ .name = "__aeabi_memclr4", .linkage = linkage });
         @export(@import("compiler_rt/arm.zig").__aeabi_memclr, .{ .name = "__aeabi_memclr8", .linkage = linkage });
 
-        if (builtin.os.tag == .linux) {
+        if (os_tag == .linux) {
             @export(@import("compiler_rt/arm.zig").__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = linkage });
         }
 
@@ -271,7 +274,7 @@ comptime {
         @export(@import("compiler_rt/compareXf2.zig").__aeabi_dcmpun, .{ .name = "__aeabi_dcmpun", .linkage = linkage });
     }
 
-    if (builtin.arch == .i386 and builtin.abi == .msvc) {
+    if (arch == .i386 and abi == .msvc) {
         // Don't let LLVM apply the stdcall name mangling on those MSVC builtins
         @export(@import("compiler_rt/aulldiv.zig")._alldiv, .{ .name = "\x01__alldiv", .linkage = strong_linkage });
         @export(@import("compiler_rt/aulldiv.zig")._aulldiv, .{ .name = "\x01__aulldiv", .linkage = strong_linkage });
@@ -279,7 +282,7 @@ comptime {
         @export(@import("compiler_rt/aullrem.zig")._aullrem, .{ .name = "\x01__aullrem", .linkage = strong_linkage });
     }
 
-    if (builtin.arch.isSPARC()) {
+    if (arch.isSPARC()) {
         // SPARC systems use a different naming scheme
         @export(@import("compiler_rt/sparc.zig")._Qp_add, .{ .name = "_Qp_add", .linkage = linkage });
         @export(@import("compiler_rt/sparc.zig")._Qp_div, .{ .name = "_Qp_div", .linkage = linkage });
@@ -308,7 +311,7 @@ comptime {
         @export(@import("compiler_rt/sparc.zig")._Qp_qtod, .{ .name = "_Qp_qtod", .linkage = linkage });
     }
 
-    if ((builtin.arch == .powerpc or builtin.arch.isPPC64()) and !is_test) {
+    if ((arch == .powerpc or arch.isPPC64()) and !is_test) {
         @export(@import("compiler_rt/addXf3.zig").__addtf3, .{ .name = "__addkf3", .linkage = linkage });
         @export(@import("compiler_rt/addXf3.zig").__subtf3, .{ .name = "__subkf3", .linkage = linkage });
         @export(@import("compiler_rt/mulXf3.zig").__multf3, .{ .name = "__mulkf3", .linkage = linkage });
@@ -346,7 +349,7 @@ comptime {
             @export(@import("compiler_rt/stack_probe.zig").__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
         }
 
-        switch (builtin.arch) {
+        switch (arch) {
             .i386 => {
                 @export(@import("compiler_rt/divti3.zig").__divti3, .{ .name = "__divti3", .linkage = linkage });
                 @export(@import("compiler_rt/modti3.zig").__modti3, .{ .name = "__modti3", .linkage = linkage });

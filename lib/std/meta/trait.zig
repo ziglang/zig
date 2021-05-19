@@ -483,8 +483,8 @@ pub fn hasDecls(comptime T: type, comptime names: anytype) bool {
 test "std.meta.trait.hasDecls" {
     const TestStruct1 = struct {};
     const TestStruct2 = struct {
-        pub var a: u32;
-        pub var b: u32;
+        pub var a: u32 = undefined;
+        pub var b: u32 = undefined;
         c: bool,
         pub fn useless() void {}
     };

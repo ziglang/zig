@@ -1022,7 +1022,7 @@ pub fn QueryObjectName(
     }
 }
 test "QueryObjectName" {
-    if (comptime builtin.os.tag != .windows)
+    if (comptime builtin.target.os.tag != .windows)
         return;
 
     //any file will do; canonicalization works on NTFS junctions and symlinks, hardlinks remain separate paths.
@@ -1177,7 +1177,7 @@ pub fn GetFinalPathNameByHandle(
 }
 
 test "GetFinalPathNameByHandle" {
-    if (comptime builtin.os.tag != .windows)
+    if (comptime builtin.target.os.tag != .windows)
         return;
 
     //any file will do
@@ -1617,7 +1617,7 @@ pub fn SetFileTime(
 }
 
 pub fn teb() *TEB {
-    return switch (builtin.arch) {
+    return switch (builtin.target.cpu.arch) {
         .i386 => asm volatile (
             \\ movl %%fs:0x18, %[ptr]
             : [ptr] "=r" (-> *TEB)

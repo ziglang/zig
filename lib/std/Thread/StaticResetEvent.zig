@@ -262,7 +262,7 @@ pub const AtomicEvent = struct {
                     while (true) {
                         if (waiting == WAKE) {
                             rc = windows.ntdll.NtWaitForKeyedEvent(handle, key, windows.FALSE, null);
-                            assert(rc == .WAIT_0);
+                            assert(rc == windows.NTSTATUS.WAIT_0);
                             break;
                         } else {
                             waiting = @cmpxchgWeak(u32, waiters, waiting, waiting - WAIT, .Acquire, .Monotonic) orelse break;
@@ -271,7 +271,7 @@ pub const AtomicEvent = struct {
                     }
                     return error.TimedOut;
                 },
-                .WAIT_0 => {},
+                windows.NTSTATUS.WAIT_0 => {},
                 else => unreachable,
             }
         }

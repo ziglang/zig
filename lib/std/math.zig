@@ -986,9 +986,9 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.Int(@typeInfo(
     comptime assert(@typeInfo(T) == .Int);
     comptime assert(@typeInfo(T).Int.signedness == .unsigned);
     assert(value != 0);
-    comptime const PromotedType = std.meta.Int(@typeInfo(T).Int.signedness, @typeInfo(T).Int.bits + 1);
-    comptime const shiftType = std.math.Log2Int(PromotedType);
-    return @as(PromotedType, 1) << @intCast(shiftType, @typeInfo(T).Int.bits - @clz(T, value - 1));
+    const PromotedType = std.meta.Int(@typeInfo(T).Int.signedness, @typeInfo(T).Int.bits + 1);
+    const ShiftType = std.math.Log2Int(PromotedType);
+    return @as(PromotedType, 1) << @intCast(ShiftType, @typeInfo(T).Int.bits - @clz(T, value - 1));
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
@@ -998,8 +998,8 @@ pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     comptime assert(@typeInfo(T) == .Int);
     const info = @typeInfo(T).Int;
     comptime assert(info.signedness == .unsigned);
-    comptime const PromotedType = std.meta.Int(info.signedness, info.bits + 1);
-    comptime const overflowBit = @as(PromotedType, 1) << info.bits;
+    const PromotedType = std.meta.Int(info.signedness, info.bits + 1);
+    const overflowBit = @as(PromotedType, 1) << info.bits;
     var x = ceilPowerOfTwoPromote(T, value);
     if (overflowBit & x != 0) {
         return error.Overflow;
@@ -1327,7 +1327,7 @@ test "order.compare" {
 }
 
 test "math.comptime" {
-    comptime const v = sin(@as(f32, 1)) + ln(@as(f32, 5));
+    const v = comptime (sin(@as(f32, 1)) + ln(@as(f32, 5)));
     try testing.expect(v == sin(@as(f32, 1)) + ln(@as(f32, 5)));
 }
 

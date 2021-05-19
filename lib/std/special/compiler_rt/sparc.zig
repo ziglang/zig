@@ -11,7 +11,7 @@ const builtin = @import("builtin");
 
 // The SPARC Architecture Manual, Version 9:
 // A.13 Floating-Point Compare
-const FCMP = extern enum(i32) {
+const FCMP = enum(i32) {
     Equal = 0,
     Less = 1,
     Greater = 2,

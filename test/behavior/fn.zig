@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
@@ -189,9 +190,9 @@ test "return inner function which references comptime variable of outer function
 
 test "extern struct with stdcallcc fn pointer" {
     const S = extern struct {
-        ptr: fn () callconv(if (std.builtin.arch == .i386) .Stdcall else .C) i32,
+        ptr: fn () callconv(if (builtin.target.cpu.arch == .i386) .Stdcall else .C) i32,
 
-        fn foo() callconv(if (std.builtin.arch == .i386) .Stdcall else .C) i32 {
+        fn foo() callconv(if (builtin.target.cpu.arch == .i386) .Stdcall else .C) i32 {
             return 1234;
         }
     };

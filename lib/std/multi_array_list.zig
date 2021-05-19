@@ -147,7 +147,7 @@ pub fn MultiArrayList(comptime S: type) type {
 
         /// Extend the list by 1 element. Allocates more memory as necessary.
         pub fn append(self: *Self, gpa: *Allocator, elem: S) !void {
-            try self.ensureCapacity(gpa, self.len + 1);
+            try self.ensureUnusedCapacity(gpa, 1);
             self.appendAssumeCapacity(elem);
         }
 
@@ -162,7 +162,7 @@ pub fn MultiArrayList(comptime S: type) type {
         /// Adjust the list's length to `new_len`.
         /// Does not initialize added items, if any.
         pub fn resize(self: *Self, gpa: *Allocator, new_len: usize) !void {
-            try self.ensureCapacity(gpa, new_len);
+            try self.ensureTotalCapacity(gpa, new_len);
             self.len = new_len;
         }
 
@@ -224,10 +224,13 @@ pub fn MultiArrayList(comptime S: type) type {
             self.len = new_len;
         }
 
+        /// Deprecated: call `ensureUnusedCapacity` or `ensureTotalCapacity`.
+        pub const ensureCapacity = ensureTotalCapacity;
+
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Implements super-linear growth to achieve amortized O(1) append operations.
         /// Invalidates pointers if additional memory is needed.
-        pub fn ensureCapacity(self: *Self, gpa: *Allocator, new_capacity: usize) !void {
+        pub fn ensureTotalCapacity(self: *Self, gpa: *Allocator, new_capacity: usize) !void {
             var better_capacity = self.capacity;
             if (better_capacity >= new_capacity) return;
 
@@ -237,6 +240,12 @@ pub fn MultiArrayList(comptime S: type) type {
             }
 
             return self.setCapacity(gpa, better_capacity);
+        }
+
+        /// Modify the array so that it can hold at least `additional_count` **more** items.
+        /// Invalidates pointers if additional memory is needed.
+        pub fn ensureUnusedCapacity(self: *Self, gpa: *Allocator, additional_count: usize) !void {
+            return self.ensureTotalCapacity(gpa, self.len + additional_count);
         }
 
         /// Modify the array so that it can hold exactly `new_capacity` items.
@@ -305,7 +314,7 @@ test "basic usage" {
 
     try testing.expectEqual(@as(usize, 0), list.items(.a).len);
 
-    try list.ensureCapacity(ally, 2);
+    try list.ensureTotalCapacity(ally, 2);
 
     list.appendAssumeCapacity(.{
         .a = 1,
@@ -382,7 +391,7 @@ test "regression test for @reduce bug" {
     }){};
     defer list.deinit(ally);
 
-    try list.ensureCapacity(ally, 20);
+    try list.ensureTotalCapacity(ally, 20);
 
     try list.append(ally, .{ .tag = .keyword_const, .start = 0 });
     try list.append(ally, .{ .tag = .identifier, .start = 6 });
@@ -462,7 +471,7 @@ test "ensure capacity on empty list" {
     var list = MultiArrayList(Foo){};
     defer list.deinit(ally);
 
-    try list.ensureCapacity(ally, 2);
+    try list.ensureTotalCapacity(ally, 2);
     list.appendAssumeCapacity(.{ .a = 1, .b = 2 });
     list.appendAssumeCapacity(.{ .a = 3, .b = 4 });
 
@@ -477,7 +486,7 @@ test "ensure capacity on empty list" {
     try testing.expectEqualSlices(u8, &[_]u8{ 6, 8 }, list.items(.b));
 
     list.len = 0;
-    try list.ensureCapacity(ally, 16);
+    try list.ensureTotalCapacity(ally, 16);
 
     list.appendAssumeCapacity(.{ .a = 9, .b = 10 });
     list.appendAssumeCapacity(.{ .a = 11, .b = 12 });

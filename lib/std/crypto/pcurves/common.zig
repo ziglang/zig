@@ -43,7 +43,7 @@ pub fn Field(comptime params: FieldParams) type {
         pub const zero: Fe = Fe{ .limbs = mem.zeroes(Limbs) };
 
         /// One.
-        pub const one = comptime one: {
+        pub const one = one: {
             var fe: Fe = undefined;
             fiat.setOne(&fe.limbs);
             break :one fe;

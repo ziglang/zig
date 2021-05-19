@@ -10,19 +10,22 @@
 // such as memcpy, memset, and some math functions.
 
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const maxInt = std.math.maxInt;
 const isNan = std.math.isNan;
+const native_arch = std.Target.current.cpu.arch;
+const native_abi = std.Target.current.abi;
+const native_os = std.Target.current.os.tag;
 
-const is_wasm = switch (builtin.arch) {
+const is_wasm = switch (native_arch) {
     .wasm32, .wasm64 => true,
     else => false,
 };
-const is_msvc = switch (builtin.abi) {
+const is_msvc = switch (native_abi) {
     .msvc => true,
     else => false,
 };
-const is_freestanding = switch (builtin.os.tag) {
+const is_freestanding = switch (native_os) {
     .freestanding => true,
     else => false,
 };
@@ -174,7 +177,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
         @setCold(true);
         std.debug.panic("{s}", .{msg});
     }
-    if (builtin.os.tag != .freestanding and builtin.os.tag != .other) {
+    if (native_os != .freestanding and native_os != .other) {
         std.os.abort();
     }
     while (true) {}
@@ -275,7 +278,7 @@ test "bcmp" {
 }
 
 comptime {
-    if (builtin.os.tag == .linux) {
+    if (native_os == .linux) {
         @export(clone, .{ .name = "clone" });
     }
 }
@@ -284,7 +287,7 @@ comptime {
 // it causes a segfault in release mode. this is a workaround of calling it
 // across .o file boundaries. fix comptime @ptrCast of nakedcc functions.
 fn clone() callconv(.Naked) void {
-    switch (builtin.arch) {
+    switch (native_arch) {
         .i386 => {
             // __clone(func, stack, flags, arg, ptid, tls, ctid)
             //         +8,   +12,   +16,   +20, +24,  +28, +32

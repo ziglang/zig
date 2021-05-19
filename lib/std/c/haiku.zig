@@ -70,7 +70,7 @@ pub const pthread_rwlock_t = extern struct {
     waiters: [2]?*c_void = [_]?*c_void{ null, null },
 };
 
-pub const EAI = extern enum(c_int) {
+pub const EAI = enum(c_int) {
     /// address family for hostname not supported
     ADDRFAMILY = 1,
 

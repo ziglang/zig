@@ -9,7 +9,6 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/tanhf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/tanh.c
 
-const builtin = @import("builtin");
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;

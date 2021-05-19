@@ -208,7 +208,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("@Type with TypeInfo.Int",
-        \\const builtin = @import("builtin");
+        \\const builtin = @import("std").builtin;
         \\export fn entry() void {
         \\    _ = @Type(builtin.TypeInfo.Int {
         \\        .signedness = .signed,
@@ -242,7 +242,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("@Type for exhaustive enum with undefined tag type",
-        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Tag = @Type(.{
         \\    .Enum = .{
         \\        .layout = .Auto,
@@ -272,7 +272,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("@Type for exhaustive enum with non-integer tag type",
-        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Tag = @Type(.{
         \\    .Enum = .{
         \\        .layout = .Auto,
@@ -331,7 +331,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("@Type for tagged union with extra enum field",
-        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Tag = @Type(.{
         \\    .Enum = .{
         \\        .layout = .Auto,
@@ -397,7 +397,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        .is_generic = true,
         \\        .is_var_args = false,
         \\        .return_type = u0,
-        \\        .args = &[_]@import("builtin").TypeInfo.FnArg{},
+        \\        .args = &[_]@import("std").builtin.TypeInfo.FnArg{},
         \\    },
         \\});
         \\comptime { _ = Foo; }
@@ -413,7 +413,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        .is_generic = false,
         \\        .is_var_args = true,
         \\        .return_type = u0,
-        \\        .args = &[_]@import("builtin").TypeInfo.FnArg{},
+        \\        .args = &[_]@import("std").builtin.TypeInfo.FnArg{},
         \\    },
         \\});
         \\comptime { _ = Foo; }
@@ -429,7 +429,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        .is_generic = false,
         \\        .is_var_args = false,
         \\        .return_type = null,
-        \\        .args = &[_]@import("builtin").TypeInfo.FnArg{},
+        \\        .args = &[_]@import("std").builtin.TypeInfo.FnArg{},
         \\    },
         \\});
         \\comptime { _ = Foo; }
@@ -438,7 +438,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("@Type for union with opaque field",
-        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Untagged = @Type(.{
         \\    .Union = .{
         \\        .layout = .Auto,
@@ -474,7 +474,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("@Type for union with zero fields",
-        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Untagged = @Type(.{
         \\    .Union = .{
         \\        .layout = .Auto,
@@ -492,7 +492,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("@Type for exhaustive enum with zero fields",
-        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Tag = @Type(.{
         \\    .Enum = .{
         \\        .layout = .Auto,
@@ -511,7 +511,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("@Type for tagged union with extra union field",
-        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const TypeInfo = @import("std").builtin.TypeInfo;
         \\const Tag = @Type(.{
         \\    .Enum = .{
         \\        .layout = .Auto,
@@ -1946,7 +1946,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("attempt to create 17 bit float type",
-        \\const builtin = @import("builtin");
+        \\const builtin = @import("std").builtin;
         \\comptime {
         \\    _ = @Type(builtin.TypeInfo { .Float = builtin.TypeInfo.Float { .bits = 17 } });
         \\}
@@ -1963,7 +1963,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("@Type with non-constant expression",
-        \\const builtin = @import("builtin");
+        \\const builtin = @import("std").builtin;
         \\var globalTypeInfo : builtin.TypeInfo = undefined;
         \\export fn entry() void {
         \\    _ = @Type(globalTypeInfo);
@@ -5963,7 +5963,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("atomic orderings of cmpxchg - failure stricter than success",
-        \\const AtomicOrder = @import("builtin").AtomicOrder;
+        \\const AtomicOrder = @import("std").builtin.AtomicOrder;
         \\export fn f() void {
         \\    var x: i32 = 1234;
         \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, AtomicOrder.Monotonic, AtomicOrder.SeqCst)) {}
@@ -5973,7 +5973,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("atomic orderings of cmpxchg - success Monotonic or stricter",
-        \\const AtomicOrder = @import("builtin").AtomicOrder;
+        \\const AtomicOrder = @import("std").builtin.AtomicOrder;
         \\export fn f() void {
         \\    var x: i32 = 1234;
         \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, AtomicOrder.Unordered, AtomicOrder.Unordered)) {}
@@ -6579,12 +6579,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("invalid member of builtin enum",
-        \\const builtin = @import("builtin",);
+        \\const builtin = @import("std").builtin;
         \\export fn entry() void {
-        \\    const foo = builtin.Arch.x86;
+        \\    const foo = builtin.Mode.x86;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:29: error: container 'std.target.Arch' has no member called 'x86'",
+        "tmp.zig:3:29: error: container 'std.builtin.Mode' has no member called 'x86'",
     });
 
     cases.add("int to ptr of 0 bits",
@@ -6853,8 +6853,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("@setFloatMode twice for same scope",
         \\export fn foo() void {
-        \\    @setFloatMode(@import("builtin").FloatMode.Optimized);
-        \\    @setFloatMode(@import("builtin").FloatMode.Optimized);
+        \\    @setFloatMode(@import("std").builtin.FloatMode.Optimized);
+        \\    @setFloatMode(@import("std").builtin.FloatMode.Optimized);
         \\}
     , &[_][]const u8{
         "tmp.zig:3:5: error: float mode set twice for same scope",
@@ -7066,7 +7066,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("passing a not-aligned-enough pointer to cmpxchg",
-        \\const AtomicOrder = @import("builtin").AtomicOrder;
+        \\const AtomicOrder = @import("std").builtin.AtomicOrder;
         \\export fn entry() bool {
         \\    var x: i32 align(1) = 1234;
         \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
@@ -7233,7 +7233,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("storing runtime value in compile time variable then using it",
-        \\const Mode = @import("builtin").Mode;
+        \\const Mode = @import("std").builtin.Mode;
         \\
         \\fn Free(comptime filename: []const u8) TestCase {
         \\    return TestCase {
@@ -7776,11 +7776,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest("nested vectors",
         \\export fn entry() void {
         \\    const V1 = @import("std").meta.Vector(4, u8);
-        \\    const V2 = @Type(@import("builtin").TypeInfo{ .Vector = .{ .len = 4, .child = V1 } });
+        \\    const V2 = @Type(@import("std").builtin.TypeInfo{ .Vector = .{ .len = 4, .child = V1 } });
         \\    var v: V2 = undefined;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:49: error: vector element type must be integer, float, bool, or pointer; '@Vector(4, u8)' is invalid",
+        "tmp.zig:3:53: error: vector element type must be integer, float, bool, or pointer; '@Vector(4, u8)' is invalid",
         "tmp.zig:3:16: note: referenced here",
     });
 

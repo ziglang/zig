@@ -117,7 +117,6 @@ pub fn generateSymbol(
                 //.sparcv9 => return Function(.sparcv9).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
                 //.sparcel => return Function(.sparcel).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
                 //.s390x => return Function(.s390x).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
-                .spu_2 => return Function(.spu_2).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
                 //.tce => return Function(.tce).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
                 //.tcele => return Function(.tcele).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
                 //.thumb => return Function(.thumb).generateSymbol(bin_file, src_loc, typed_value, code, debug_output),
@@ -212,20 +211,50 @@ pub fn generateSymbol(
         },
         .Int => {
             // TODO populate .debug_info for the integer
+            const endian = bin_file.options.target.cpu.arch.endian();
             const info = typed_value.ty.intInfo(bin_file.options.target);
-            if (info.bits == 8 and info.signedness == .unsigned) {
-                const x = typed_value.val.toUnsignedInt();
-                try code.append(@intCast(u8, x));
+            if (info.bits <= 8) {
+                const x = @intCast(u8, typed_value.val.toUnsignedInt());
+                try code.append(x);
                 return Result{ .appended = {} };
             }
-            return Result{
-                .fail = try ErrorMsg.create(
-                    bin_file.allocator,
-                    src_loc,
-                    "TODO implement generateSymbol for int type '{}'",
-                    .{typed_value.ty},
-                ),
-            };
+            if (info.bits > 64) {
+                return Result{
+                    .fail = try ErrorMsg.create(
+                        bin_file.allocator,
+                        src_loc,
+                        "TODO implement generateSymbol for big ints ('{}')",
+                        .{typed_value.ty},
+                    ),
+                };
+            }
+            switch (info.signedness) {
+                .unsigned => {
+                    if (info.bits <= 16) {
+                        const x = @intCast(u16, typed_value.val.toUnsignedInt());
+                        mem.writeInt(u16, try code.addManyAsArray(2), x, endian);
+                    } else if (info.bits <= 32) {
+                        const x = @intCast(u32, typed_value.val.toUnsignedInt());
+                        mem.writeInt(u32, try code.addManyAsArray(4), x, endian);
+                    } else {
+                        const x = typed_value.val.toUnsignedInt();
+                        mem.writeInt(u64, try code.addManyAsArray(8), x, endian);
+                    }
+                },
+                .signed => {
+                    if (info.bits <= 16) {
+                        const x = @intCast(i16, typed_value.val.toSignedInt());
+                        mem.writeInt(i16, try code.addManyAsArray(2), x, endian);
+                    } else if (info.bits <= 32) {
+                        const x = @intCast(i32, typed_value.val.toSignedInt());
+                        mem.writeInt(i32, try code.addManyAsArray(4), x, endian);
+                    } else {
+                        const x = typed_value.val.toSignedInt();
+                        mem.writeInt(i64, try code.addManyAsArray(8), x, endian);
+                    }
+                },
+            }
+            return Result{ .appended = {} };
         },
         else => |t| {
             return Result{
@@ -266,14 +295,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         src_loc: Module.SrcLoc,
         stack_align: u32,
 
-        /// Byte offset within the source file.
-        prev_di_src: usize,
+        prev_di_line: u32,
+        prev_di_column: u32,
+        /// Byte offset within the source file of the ending curly.
+        end_di_line: u32,
+        end_di_column: u32,
         /// Relative to the beginning of `code`.
         prev_di_pc: usize,
-        /// Used to find newlines and count line deltas.
-        source: []const u8,
-        /// Byte offset within the source file of the ending curly.
-        rbrace_src: usize,
 
         /// The value is an offset into the `Function` `code` from the beginning.
         /// To perform the reloc, write 32-bit signed little-endian integer
@@ -402,7 +430,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             const module_fn = typed_value.val.castTag(.function).?.data;
 
-            const fn_type = module_fn.owner_decl.typed_value.most_recent.typed_value.ty;
+            assert(module_fn.owner_decl.has_tv);
+            const fn_type = module_fn.owner_decl.ty;
 
             var branch_stack = std.ArrayList(Branch).init(bin_file.allocator);
             defer {
@@ -411,25 +440,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 branch_stack.deinit();
             }
             try branch_stack.append(.{});
-
-            const src_data: struct { lbrace_src: usize, rbrace_src: usize, source: []const u8 } = blk: {
-                const container_scope = module_fn.owner_decl.container;
-                const tree = container_scope.file_scope.tree;
-                const node_tags = tree.nodes.items(.tag);
-                const node_datas = tree.nodes.items(.data);
-                const token_starts = tree.tokens.items(.start);
-
-                const fn_decl = module_fn.owner_decl.src_node;
-                assert(node_tags[fn_decl] == .fn_decl);
-                const block = node_datas[fn_decl].rhs;
-                const lbrace_src = token_starts[tree.firstToken(block)];
-                const rbrace_src = token_starts[tree.lastToken(block)];
-                break :blk .{
-                    .lbrace_src = lbrace_src,
-                    .rbrace_src = rbrace_src,
-                    .source = tree.source,
-                };
-            };
 
             var function = Self{
                 .gpa = bin_file.allocator,
@@ -447,9 +457,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .src_loc = src_loc,
                 .stack_align = undefined,
                 .prev_di_pc = 0,
-                .prev_di_src = src_data.lbrace_src,
-                .rbrace_src = src_data.rbrace_src,
-                .source = src_data.source,
+                .prev_di_line = module_fn.lbrace_line,
+                .prev_di_column = module_fn.lbrace_column,
+                .end_di_line = module_fn.rbrace_line,
+                .end_di_column = module_fn.rbrace_column,
             };
             defer function.stack.deinit(bin_file.allocator);
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
@@ -702,7 +713,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
             }
             // Drop them off at the rbrace.
-            try self.dbgAdvancePCAndLine(self.rbrace_src);
+            try self.dbgAdvancePCAndLine(self.end_di_line, self.end_di_column);
         }
 
         fn genBody(self: *Self, body: ir.Body) InnerError!void {
@@ -728,7 +739,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
                     try dbg_out.dbg_line.append(DW.LNS_set_prologue_end);
-                    try self.dbgAdvancePCAndLine(self.prev_di_src);
+                    try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
                 },
                 .none => {},
             }
@@ -738,27 +749,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
                     try dbg_out.dbg_line.append(DW.LNS_set_epilogue_begin);
-                    try self.dbgAdvancePCAndLine(self.prev_di_src);
+                    try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
                 },
                 .none => {},
             }
         }
 
-        fn dbgAdvancePCAndLine(self: *Self, abs_byte_off: usize) InnerError!void {
-            self.prev_di_src = abs_byte_off;
-            self.prev_di_pc = self.code.items.len;
+        fn dbgAdvancePCAndLine(self: *Self, line: u32, column: u32) InnerError!void {
             switch (self.debug_output) {
                 .dwarf => |dbg_out| {
-                    // TODO Look into improving the performance here by adding a token-index-to-line
-                    // lookup table, and changing ir.Inst from storing byte offset to token. Currently
-                    // this involves scanning over the source code for newlines
-                    // (but only from the previous byte offset to the new one).
-                    const delta_line = std.zig.lineDelta(self.source, self.prev_di_src, abs_byte_off);
+                    const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
                     const delta_pc = self.code.items.len - self.prev_di_pc;
-                    // TODO Look into using the DWARF special opcodes to compress this data. It lets you emit
-                    // single-byte opcodes that add different numbers to both the PC and the line number
-                    // at the same time.
-                    try dbg_out.dbg_line.ensureCapacity(dbg_out.dbg_line.items.len + 11);
+                    // TODO Look into using the DWARF special opcodes to compress this data.
+                    // It lets you emit single-byte opcodes that add different numbers to
+                    // both the PC and the line number at the same time.
+                    try dbg_out.dbg_line.ensureUnusedCapacity(11);
                     dbg_out.dbg_line.appendAssumeCapacity(DW.LNS_advance_pc);
                     leb128.writeULEB128(dbg_out.dbg_line.writer(), delta_pc) catch unreachable;
                     if (delta_line != 0) {
@@ -769,6 +774,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .none => {},
             }
+            self.prev_di_line = line;
+            self.prev_di_column = column;
+            self.prev_di_pc = self.code.items.len;
         }
 
         /// Asserts there is already capacity to insert into top branch inst_table.
@@ -2230,11 +2238,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .riscv64 => {
                     mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ebreak.toU32());
                 },
-                .spu_2 => {
-                    try self.code.resize(self.code.items.len + 2);
-                    var instr = Instruction{ .condition = .always, .input0 = .zero, .input1 = .zero, .modify_flags = false, .output = .discard, .command = .undefined1 };
-                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], @bitCast(u16, instr));
-                },
                 .arm, .armeb => {
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.bkpt(0).toU32());
                 },
@@ -2334,52 +2337,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                                 try self.genSetReg(inst.base.src, Type.initTag(.usize), .ra, .{ .memory = got_addr });
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.ra, 0, .ra).toU32());
-                            } else if (func_value.castTag(.extern_fn)) |_| {
-                                return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
-                            } else {
-                                return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
-                            }
-                        } else {
-                            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
-                        }
-                    },
-                    .spu_2 => {
-                        if (inst.func.value()) |func_value| {
-                            if (info.args.len != 0) {
-                                return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
-                            }
-                            if (func_value.castTag(.function)) |func_payload| {
-                                const func = func_payload.data;
-                                const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
-                                    const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-                                    break :blk @intCast(u16, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * 2);
-                                } else if (self.bin_file.cast(link.File.Coff)) |coff_file|
-                                    @intCast(u16, coff_file.offset_table_virtual_address + func.owner_decl.link.coff.offset_table_index * 2)
-                                else
-                                    unreachable;
-
-                                const return_type = func.owner_decl.typed_value.most_recent.typed_value.ty.fnReturnType();
-                                // First, push the return address, then jump; if noreturn, don't bother with the first step
-                                // TODO: implement packed struct -> u16 at comptime and move the bitcast here
-                                var instr = Instruction{ .condition = .always, .input0 = .immediate, .input1 = .zero, .modify_flags = false, .output = .jump, .command = .load16 };
-                                if (return_type.zigTypeTag() == .NoReturn) {
-                                    try self.code.resize(self.code.items.len + 4);
-                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 4 ..][0..2], @bitCast(u16, instr));
-                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], got_addr);
-                                    return MCValue.unreach;
-                                } else {
-                                    try self.code.resize(self.code.items.len + 8);
-                                    var push = Instruction{ .condition = .always, .input0 = .immediate, .input1 = .zero, .modify_flags = false, .output = .push, .command = .ipget };
-                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 8 ..][0..2], @bitCast(u16, push));
-                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 6 ..][0..2], @as(u16, 4));
-                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 4 ..][0..2], @bitCast(u16, instr));
-                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], got_addr);
-                                    switch (return_type.zigTypeTag()) {
-                                        .Void => return MCValue{ .none = {} },
-                                        .NoReturn => unreachable,
-                                        else => return self.fail(inst.base.src, "TODO implement fn call with non-void return value", .{}),
-                                    }
-                                }
                             } else if (func_value.castTag(.extern_fn)) |_| {
                                 return self.fail(inst.base.src, "TODO implement calling extern functions", .{});
                             } else {
@@ -2777,11 +2734,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genDbgStmt(self: *Self, inst: *ir.Inst.DbgStmt) !MCValue {
-            // TODO when reworking tzir memory layout, rework source locations here as
+            // TODO when reworking AIR memory layout, rework source locations here as
             // well to be more efficient, as well as support inlined function calls correctly.
             // For now we convert LazySrcLoc to absolute byte offset, to match what the
             // existing codegen code expects.
-            try self.dbgAdvancePCAndLine(inst.byte_offset);
+            try self.dbgAdvancePCAndLine(inst.line, inst.column);
             assert(inst.base.isUnused());
             return MCValue.dead;
         }
@@ -3201,19 +3158,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (!inst.is_volatile and inst.base.isUnused())
                 return MCValue.dead;
             switch (arch) {
-                .spu_2 => {
-                    if (inst.inputs.len > 0 or inst.output != null) {
-                        return self.fail(inst.base.src, "TODO implement inline asm inputs / outputs for SPU Mark II", .{});
-                    }
-                    if (mem.eql(u8, inst.asm_source, "undefined0")) {
-                        try self.code.resize(self.code.items.len + 2);
-                        var instr = Instruction{ .condition = .always, .input0 = .zero, .input1 = .zero, .modify_flags = false, .output = .discard, .command = .undefined0 };
-                        mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], @bitCast(u16, instr));
-                        return MCValue.none;
-                    } else {
-                        return self.fail(inst.base.src, "TODO implement support for more SPU II assembly instructions", .{});
-                    }
-                },
                 .arm, .armeb => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
@@ -3235,7 +3179,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more arm assembly instructions", .{});
                     }
 
-                    if (inst.output_name) |output| {
+                    if (inst.output_constraint) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
@@ -3270,7 +3214,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more aarch64 assembly instructions", .{});
                     }
 
-                    if (inst.output_name) |output| {
+                    if (inst.output_constraint) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
@@ -3303,7 +3247,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more riscv64 assembly instructions", .{});
                     }
 
-                    if (inst.output_name) |output| {
+                    if (inst.output_constraint) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
@@ -3336,7 +3280,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
                     }
 
-                    if (inst.output_name) |output| {
+                    if (inst.output_constraint) |output| {
                         if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                             return self.fail(inst.base.src, "unrecognized asm output constraint: '{s}'", .{output});
                         }
@@ -4528,7 +4472,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             .i386 => @import("codegen/x86.zig"),
             .x86_64 => @import("codegen/x86_64.zig"),
             .riscv64 => @import("codegen/riscv64.zig"),
-            .spu_2 => @import("codegen/spu-mk2.zig"),
             .arm, .armeb => @import("codegen/arm.zig"),
             .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig"),
             else => struct {
