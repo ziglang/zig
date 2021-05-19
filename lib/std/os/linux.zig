@@ -1000,9 +1000,9 @@ pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noal
     return syscall5(.getsockopt, @bitCast(usize, @as(isize, fd)), level, optname, @ptrToInt(optval), @ptrToInt(optlen));
 }
 
-pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
+pub fn sendmsg(fd: i32, msg: *const std.x.os.Socket.Message, flags: c_int) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_sendmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), flags });
+        return socketcall(SC_sendmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)) });
     }
     return syscall3(.sendmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)));
 }
@@ -1054,9 +1054,9 @@ pub fn connect(fd: i32, addr: *const c_void, len: socklen_t) usize {
     return syscall3(.connect, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), len);
 }
 
-pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
+pub fn recvmsg(fd: i32, msg: *std.x.os.Socket.Message, flags: c_int) usize {
     if (native_arch == .i386) {
-        return socketcall(SC_recvmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), flags });
+        return socketcall(SC_recvmsg, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)) });
     }
     return syscall3(.recvmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(msg), @bitCast(usize, @as(isize, flags)));
 }

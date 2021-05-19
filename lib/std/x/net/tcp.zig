@@ -12,8 +12,8 @@ const ip = std.x.net.ip;
 
 const fmt = std.fmt;
 const mem = std.mem;
-const builtin = std.builtin;
 const testing = std.testing;
+const native_os = std.Target.current.os;
 
 const IPv4 = std.x.os.IPv4;
 const IPv6 = std.x.os.IPv6;
@@ -325,7 +325,7 @@ pub const Listener = struct {
 };
 
 test "tcp: create client/listener pair" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os.tag == .wasi) return error.SkipZigTest;
 
     const listener = try tcp.Listener.init(.ip, .{ .close_on_exec = true });
     defer listener.deinit();
@@ -349,7 +349,7 @@ test "tcp: create client/listener pair" {
 }
 
 test "tcp/client: 1ms read timeout" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os.tag == .wasi) return error.SkipZigTest;
 
     const listener = try tcp.Listener.init(.ip, .{ .close_on_exec = true });
     defer listener.deinit();
@@ -377,7 +377,7 @@ test "tcp/client: 1ms read timeout" {
 }
 
 test "tcp/client: read and write multiple vectors" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os.tag == .wasi) return error.SkipZigTest;
 
     const listener = try tcp.Listener.init(.ip, .{ .close_on_exec = true });
     defer listener.deinit();
@@ -416,7 +416,7 @@ test "tcp/client: read and write multiple vectors" {
 }
 
 test "tcp/listener: bind to unspecified ipv4 address" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os.tag == .wasi) return error.SkipZigTest;
 
     const listener = try tcp.Listener.init(.ip, .{ .close_on_exec = true });
     defer listener.deinit();
@@ -429,7 +429,7 @@ test "tcp/listener: bind to unspecified ipv4 address" {
 }
 
 test "tcp/listener: bind to unspecified ipv6 address" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os.tag == .wasi) return error.SkipZigTest;
 
     const listener = try tcp.Listener.init(.ipv6, .{ .close_on_exec = true });
     defer listener.deinit();

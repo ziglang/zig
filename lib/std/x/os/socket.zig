@@ -12,7 +12,8 @@ const fmt = std.fmt;
 const mem = std.mem;
 const time = std.time;
 const meta = std.meta;
-const builtin = std.builtin;
+const native_os = std.Target.current.os;
+const native_endian = std.Target.current.cpu.arch.endian();
 
 const Buffer = std.x.os.Buffer;
 
@@ -35,7 +36,7 @@ pub const Socket = struct {
     /// the fields of a `Socket.Address`.
     pub const Address = union(enum) {
         pub const Native = struct {
-            pub const requires_prepended_length = builtin.os.getVersionRange() == .semver;
+            pub const requires_prepended_length = native_os.getVersionRange() == .semver;
             pub const Length = if (requires_prepended_length) u8 else [0]u8;
 
             pub const Family = if (requires_prepended_length) u8 else c_ushort;
@@ -140,7 +141,7 @@ pub const Socket = struct {
 
     /// POSIX `msghdr`. Denotes a destination address, set of buffers, control data, and flags. Ported
     /// directly from musl.
-    pub const Message = if (builtin.os.isAtLeast(.windows, .vista) != null and builtin.os.isAtLeast(.windows, .vista).?)
+    pub const Message = if (native_os.isAtLeast(.windows, .vista) != null and native_os.isAtLeast(.windows, .vista).?)
         extern struct {
             name: usize = @ptrToInt(@as(?[*]u8, null)),
             name_len: c_int = 0,
@@ -156,7 +157,7 @@ pub const Socket = struct {
 
             pub usingnamespace MessageMixin(Message);
         }
-    else if (builtin.os.tag == .windows)
+    else if (native_os.tag == .windows)
         extern struct {
             name: usize = @ptrToInt(@as(?[*]u8, null)),
             name_len: c_int = 0,
@@ -172,7 +173,7 @@ pub const Socket = struct {
 
             pub usingnamespace MessageMixin(Message);
         }
-    else if (@sizeOf(usize) > 4 and builtin.endian == .Big)
+    else if (@sizeOf(usize) > 4 and native_endian == .Big)
         extern struct {
             name: usize = @ptrToInt(@as(?[*]u8, null)),
             name_len: c_uint = 0,
@@ -189,7 +190,7 @@ pub const Socket = struct {
 
             pub usingnamespace MessageMixin(Message);
         }
-    else if (@sizeOf(usize) > 4 and builtin.endian == .Little)
+    else if (@sizeOf(usize) > 4 and native_endian == .Little)
         extern struct {
             name: usize = @ptrToInt(@as(?[*]u8, null)),
             name_len: c_uint = 0,
@@ -241,7 +242,7 @@ pub const Socket = struct {
             }
 
             pub fn setControl(self: *Self, control: []const u8) void {
-                if (builtin.os.tag == .windows) {
+                if (native_os.tag == .windows) {
                     self.control = Buffer.from(control);
                 } else {
                     self.control = @ptrToInt(control.ptr);
@@ -262,7 +263,7 @@ pub const Socket = struct {
             }
 
             pub fn getControl(self: Self) []const u8 {
-                if (builtin.os.tag == .windows) {
+                if (native_os.tag == .windows) {
                     return self.control.into();
                 } else {
                     return @intToPtr([*]const u8, self.control)[0..@intCast(usize, self.control_len)];
@@ -281,7 +282,7 @@ pub const Socket = struct {
     /// short's on Windows, whereas glibc and musl denote the fields to be
     /// int's on every other platform. 
     pub const Linger = extern struct {
-        pub const Field = switch (builtin.os.tag) {
+        pub const Field = switch (native_os.tag) {
             .windows => c_ushort,
             else => c_int,
         };
@@ -315,7 +316,7 @@ pub const Socket = struct {
     }
 
     /// Mix in socket syscalls depending on the platform we are compiling against.
-    pub usingnamespace switch (builtin.os.tag) {
+    pub usingnamespace switch (native_os.tag) {
         .windows => @import("socket_windows.zig"),
         else => @import("socket_posix.zig"),
     }.Mixin(Socket);

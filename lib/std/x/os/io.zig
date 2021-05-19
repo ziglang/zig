@@ -2,12 +2,12 @@ const std = @import("../../std.zig");
 
 const os = std.os;
 const mem = std.mem;
-const builtin = std.builtin;
 const testing = std.testing;
+const native_os = std.Target.current.os;
 
 /// POSIX `iovec`, or Windows `WSABUF`. The difference between the two are the ordering
 /// of fields, alongside the length being represented as either a ULONG or a size_t.
-pub const Buffer = if (builtin.os.tag == .windows)
+pub const Buffer = if (native_os.tag == .windows)
     extern struct {
         len: c_ulong,
         ptr: usize,
@@ -38,7 +38,7 @@ else
         }
 
         pub fn intoMutable(self: Buffer) []u8 {
-            return @intToptr([*]u8, self.ptr)[0..self.len];
+            return @intToPtr([*]u8, self.ptr)[0..self.len];
         }
     };
 
@@ -115,7 +115,7 @@ pub const Reactor = struct {
 };
 
 test "reactor/linux: drive async tcp client/listener pair" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (native_os.tag != .linux) return error.SkipZigTest;
 
     const ip = std.x.net.ip;
     const tcp = std.x.net.tcp;

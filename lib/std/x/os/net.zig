@@ -10,8 +10,8 @@ const os = std.os;
 const fmt = std.fmt;
 const mem = std.mem;
 const math = std.math;
-const builtin = std.builtin;
 const testing = std.testing;
+const native_os = std.Target.current.os;
 
 /// Resolves a network interface name into a scope/zone ID. It returns
 /// an error if either resolution fails, or if the interface name is
@@ -20,7 +20,7 @@ pub fn resolveScopeID(name: []const u8) !u32 {
     if (comptime @hasDecl(os, "IFNAMESIZE")) {
         if (name.len >= os.IFNAMESIZE - 1) return error.NameTooLong;
 
-        if (comptime builtin.os.tag == .windows) {
+        if (comptime native_os.tag == .windows) {
             var interface_name: [os.IFNAMESIZE]u8 = undefined;
             mem.copy(u8, &interface_name, name);
             interface_name[name.len] = 0;
