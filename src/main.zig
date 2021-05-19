@@ -126,11 +126,20 @@ var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{
 }){};
 
 pub fn main() anyerror!void {
-    const gpa = if (std.builtin.link_libc)
-        std.heap.raw_c_allocator
-    else
-        &general_purpose_allocator.allocator;
-    defer if (!std.builtin.link_libc) {
+    var gpa_need_deinit = false;
+    const gpa = gpa: {
+        if (!std.builtin.link_libc) {
+            gpa_need_deinit = true;
+            break :gpa &general_purpose_allocator.allocator;
+        }
+        // We would prefer to use raw libc allocator here, but cannot
+        // use it if it won't support the alignment we need.
+        if (@alignOf(std.c.max_align_t) < @alignOf(i128)) {
+            break :gpa std.heap.c_allocator;
+        }
+        break :gpa std.heap.raw_c_allocator;
+    };
+    defer if (gpa_need_deinit) {
         _ = general_purpose_allocator.deinit();
     };
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
