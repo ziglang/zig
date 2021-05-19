@@ -808,7 +808,7 @@ comptime {
         std.debug.assert(@sizeOf(siginfo_t) == 136);
 }
 
-pub usingnamespace switch (builtin.arch) {
+pub usingnamespace switch (builtin.target.cpu.arch) {
     .x86_64 => struct {
         pub const ucontext_t = extern struct {
             sc_rdi: c_long,
@@ -985,7 +985,7 @@ pub const EPROTO = 95; // Protocol error
 
 pub const ELAST = 95; // Must equal largest errno
 
-const _MAX_PAGE_SHIFT = switch (builtin.arch) {
+const _MAX_PAGE_SHIFT = switch (builtin.target.cpu.arch) {
     .i386 => 12,
     .sparcv9 => 13,
 };
