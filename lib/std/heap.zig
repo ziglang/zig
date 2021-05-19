@@ -854,6 +854,15 @@ test "raw_c_allocator" {
     }
 }
 
+test "raw_c_allocator alignment check" {
+    if (builtin.link_libc) {
+        const ptr_to_i128 = try raw_c_allocator.create(i128);
+        defer raw_c_allocator.destroy(ptr_to_i128);
+        ptr_to_i128.* = 10;
+        try testing.expect(ptr_to_i128.* == 10);
+    }
+}
+
 test "WasmPageAllocator internals" {
     if (comptime std.Target.current.isWasm()) {
         const conventional_memsize = WasmPageAllocator.conventional.totalPages() * mem.page_size;
