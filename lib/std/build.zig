@@ -1019,6 +1019,23 @@ pub const Builder = struct {
         };
     }
 
+    pub fn truncateFile(self: *Builder, dest_path: []const u8) !void {
+        if (self.verbose) {
+            warn("truncate {s}\n", .{dest_path});
+        }
+        const cwd = fs.cwd();
+        var src_file = cwd.createFile(dest_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => blk: {
+                if (fs.path.dirname(dest_path)) |dirname| {
+                    try cwd.makePath(dirname);
+                }
+                break :blk try cwd.createFile(dest_path, .{});
+            },
+            else => |e| return e,
+        };
+        src_file.close();
+    }
+
     pub fn pathFromRoot(self: *Builder, rel_path: []const u8) []u8 {
         return fs.path.resolve(self.allocator, &[_][]const u8{ self.build_root, rel_path }) catch unreachable;
     }
@@ -2791,17 +2808,23 @@ pub const InstallDirectoryOptions = struct {
     source_dir: []const u8,
     install_dir: InstallDir,
     install_subdir: []const u8,
-    exclude_extensions: ?[]const []const u8 = null,
+    /// File paths which end in any of these suffixes will be excluded
+    /// from being installed.
+    exclude_extensions: []const []const u8 = &.{},
+    /// File paths which end in any of these suffixes will result in
+    /// empty files being installed. This is mainly intended for large
+    /// test.zig files in order to prevent needless installation bloat.
+    /// However if the files were not present at all, then
+    /// `@import("test.zig")` would be a compile error.
+    blank_extensions: []const []const u8 = &.{},
 
     fn dupe(self: InstallDirectoryOptions, b: *Builder) InstallDirectoryOptions {
         return .{
             .source_dir = b.dupe(self.source_dir),
             .install_dir = self.install_dir.dupe(b),
             .install_subdir = b.dupe(self.install_subdir),
-            .exclude_extensions = if (self.exclude_extensions) |extensions|
-                b.dupeStrings(extensions)
-            else
-                null,
+            .exclude_extensions = b.dupeStrings(self.exclude_extensions),
+            .blank_extensions = b.dupeStrings(self.blank_extensions),
         };
     }
 };
@@ -2829,17 +2852,29 @@ pub const InstallDirStep = struct {
         const full_src_dir = self.builder.pathFromRoot(self.options.source_dir);
         var it = try fs.walkPath(self.builder.allocator, full_src_dir);
         next_entry: while (try it.next()) |entry| {
-            if (self.options.exclude_extensions) |ext_list| for (ext_list) |ext| {
+            for (self.options.exclude_extensions) |ext| {
                 if (mem.endsWith(u8, entry.path, ext)) {
                     continue :next_entry;
                 }
-            };
+            }
 
             const rel_path = entry.path[full_src_dir.len + 1 ..];
-            const dest_path = try fs.path.join(self.builder.allocator, &[_][]const u8{ dest_prefix, rel_path });
+            const dest_path = try fs.path.join(self.builder.allocator, &[_][]const u8{
+                dest_prefix, rel_path,
+            });
+
             switch (entry.kind) {
                 .Directory => try fs.cwd().makePath(dest_path),
-                .File => try self.builder.updateFile(entry.path, dest_path),
+                .File => {
+                    for (self.options.blank_extensions) |ext| {
+                        if (mem.endsWith(u8, entry.path, ext)) {
+                            try self.builder.truncateFile(dest_path);
+                            continue :next_entry;
+                        }
+                    }
+
+                    try self.builder.updateFile(entry.path, dest_path);
+                },
                 else => continue,
             }
         }

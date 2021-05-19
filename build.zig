@@ -69,12 +69,14 @@ pub fn build(b: *Builder) !void {
             .install_dir = .Lib,
             .install_subdir = "zig",
             .exclude_extensions = &[_][]const u8{
-                "test.zig",
                 "README.md",
                 ".z.0",
                 ".z.9",
                 ".gz",
                 "rfc1951.txt",
+            },
+            .blank_extensions = &[_][]const u8{
+                "test.zig",
             },
         });
     }
