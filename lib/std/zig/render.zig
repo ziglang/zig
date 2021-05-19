@@ -83,12 +83,22 @@ fn renderMember(gpa: *Allocator, ais: *Ais, tree: ast.Tree, decl: ast.Node.Index
                 }
             }
             while (i < fn_token) : (i += 1) {
-                if (token_tags[i] == .keyword_inline) {
-                    // TODO remove this special case when 0.9.0 is released.
-                    // See the commit that introduced this comment for more details.
-                    continue;
-                }
                 try renderToken(ais, tree, i, .space);
+            }
+            switch (tree.nodes.items(.tag)[fn_proto]) {
+                .fn_proto_one, .fn_proto => {
+                    const callconv_expr = if (tree.nodes.items(.tag)[fn_proto] == .fn_proto_one)
+                        tree.extraData(datas[fn_proto].lhs, ast.Node.FnProtoOne).callconv_expr
+                    else
+                        tree.extraData(datas[fn_proto].lhs, ast.Node.FnProto).callconv_expr;
+                    if (callconv_expr != 0 and tree.nodes.items(.tag)[callconv_expr] == .enum_literal) {
+                        if (mem.eql(u8, "Inline", tree.tokenSlice(main_tokens[callconv_expr]))) {
+                            try ais.writer().writeAll("inline ");
+                        }
+                    }
+                },
+                .fn_proto_simple, .fn_proto_multi => {},
+                else => unreachable,
             }
             assert(datas[decl].rhs != 0);
             try renderExpression(gpa, ais, tree, fn_proto, .space);
@@ -1246,9 +1256,6 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
     const token_tags = tree.tokens.items(.tag);
     const token_starts = tree.tokens.items(.start);
 
-    const is_inline = fn_proto.ast.fn_token > 0 and
-        token_tags[fn_proto.ast.fn_token - 1] == .keyword_inline;
-
     const after_fn_token = fn_proto.ast.fn_token + 1;
     const lparen = if (token_tags[after_fn_token] == .identifier) blk: {
         try renderToken(ais, tree, fn_proto.ast.fn_token, .space); // fn
@@ -1424,7 +1431,9 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
         try renderToken(ais, tree, section_rparen, .space); // )
     }
 
-    if (fn_proto.ast.callconv_expr != 0) {
+    if (fn_proto.ast.callconv_expr != 0 and
+        !mem.eql(u8, "Inline", tree.tokenSlice(tree.nodes.items(.main_token)[fn_proto.ast.callconv_expr])))
+    {
         const callconv_lparen = tree.firstToken(fn_proto.ast.callconv_expr) - 1;
         const callconv_rparen = tree.lastToken(fn_proto.ast.callconv_expr) + 1;
 
@@ -1432,8 +1441,6 @@ fn renderFnProto(gpa: *Allocator, ais: *Ais, tree: ast.Tree, fn_proto: ast.full.
         try renderToken(ais, tree, callconv_lparen, .none); // (
         try renderExpression(gpa, ais, tree, fn_proto.ast.callconv_expr, .none);
         try renderToken(ais, tree, callconv_rparen, .space); // )
-    } else if (is_inline) {
-        try ais.writer().writeAll("callconv(.Inline) ");
     }
 
     if (token_tags[maybe_bang] == .bang) {

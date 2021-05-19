@@ -459,7 +459,8 @@ pub const Tree = struct {
                         .keyword_extern,
                         .keyword_export,
                         .keyword_pub,
-                        .keyword_threadlocal,
+                        .keyword_inline,
+                        .keyword_noinline,
                         .string_literal,
                         => continue,
 
