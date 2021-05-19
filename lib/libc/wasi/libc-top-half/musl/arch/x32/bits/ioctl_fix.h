@@ -1,4 +1,0 @@
-#undef SIOCGSTAMP
-#undef SIOCGSTAMPNS
-#define SIOCGSTAMP      0x8906
-#define SIOCGSTAMPNS    0x8907
