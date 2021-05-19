@@ -3262,7 +3262,8 @@ fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const
 pub fn get_libc_crt_file(comp: *Compilation, arena: *Allocator, basename: []const u8) ![]const u8 {
     if (comp.wantBuildGLibCFromSource() or
         comp.wantBuildMuslFromSource() or
-        comp.wantBuildMinGWFromSource())
+        comp.wantBuildMinGWFromSource() or
+        comp.wantBuildWASILibcSysrootFromSource())
     {
         return comp.crt_files.get(basename).?.full_object_path;
     }

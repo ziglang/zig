@@ -17,6 +17,7 @@ pub fn buildWASILibcSysroot(comp: *Compilation) !void {
     const arena = &arena_allocator.allocator;
 
     {
+        // Compile crt sources.
         var args = std.ArrayList([]const u8).init(arena);
         try addCCArgs(comp, arena, &args, false);
         try args.appendSlice(&[_][]const u8{
@@ -62,9 +63,11 @@ pub fn buildWASILibcSysroot(comp: *Compilation) !void {
     }
 
     {
+        // Compile WASI libc (sysroot).
         var comp_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
 
         {
+            // Compile dlmalloc.
             var args = std.ArrayList([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, true);
             try args.appendSlice(&[_][]const u8{
@@ -88,6 +91,7 @@ pub fn buildWASILibcSysroot(comp: *Compilation) !void {
         }
 
         {
+            // Compile libc-bottom-half.
             var args = std.ArrayList([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, true);
             try args.appendSlice(&[_][]const u8{
@@ -131,6 +135,7 @@ pub fn buildWASILibcSysroot(comp: *Compilation) !void {
         }
 
         {
+            // Compile libc-top-half.
             var args = std.ArrayList([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, true);
             try args.appendSlice(&[_][]const u8{

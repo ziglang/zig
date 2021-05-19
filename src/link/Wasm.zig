@@ -573,6 +573,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         null;
 
     const target = self.base.options.target;
+    const link_in_crt = self.base.options.link_libc and self.base.options.output_mode == .Exe;
 
     const id_symlink_basename = "lld.id";
 
@@ -694,6 +695,18 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             "-o",
             full_out_path,
         });
+
+        if (link_in_crt) {
+            // TODO work out if we want standard crt, a reactor or a command
+            try argv.append(try comp.get_libc_crt_file(arena, "crt.o.wasm"));
+        }
+
+        if (!is_obj and self.base.options.link_libc) {
+            try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
+                .Static => "libc.a",
+                .Dynamic => unreachable,
+            }));
+        }
 
         // Positional arguments to the linker such as object files.
         try argv.appendSlice(self.base.options.objects);

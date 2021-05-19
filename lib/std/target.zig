@@ -1307,9 +1307,6 @@ pub const Target = struct {
     }
 
     pub fn libPrefix_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
-        if (cpu_arch.isWasm()) {
-            return "";
-        }
         switch (abi) {
             .msvc => return "",
             else => return "lib",
