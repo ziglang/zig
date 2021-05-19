@@ -54,8 +54,10 @@ pub const NativePaths = struct {
                     };
                     try self.addIncludeDir(include_path);
                 } else {
+                    if (mem.startsWith(u8, word, "-frandom-seed=")) {
+                        continue;
+                    }
                     try self.addWarningFmt("Unrecognized C flag from NIX_CFLAGS_COMPILE: {s}", .{word});
-                    break;
                 }
             }
         } else |err| switch (err) {
