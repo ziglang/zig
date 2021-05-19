@@ -161,7 +161,7 @@ pub const pthread_rwlock_t = switch (abi) {
             attr: i32 = 0,
             __reserved: [36]u8 = [_]u8{0} ** 36,
         },
-        else => unreachable,
+        else => @compileError("impossible pointer size"),
     },
     else => extern struct {
         size: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
@@ -180,7 +180,8 @@ const __SIZEOF_PTHREAD_MUTEX_T = if (os_tag == .fuchsia) 40 else switch (abi) {
         .mips64, .powerpc64, .powerpc64le, .sparcv9 => 40,
         else => if (@sizeOf(usize) == 8) 40 else 24,
     },
-    else => unreachable,
+    .android => if (@sizeOf(usize) == 8) 40 else 4,
+    else => @compileError("unsupported ABI"),
 };
 const __SIZEOF_SEM_T = 4 * @sizeOf(usize);
 
