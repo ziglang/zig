@@ -1656,6 +1656,22 @@ fn transDeclStmtOne(
                 .init = init_node,
             });
             try block_scope.statements.append(node);
+
+            const cleanup_attr = var_decl.getCleanupAttribute();
+            if (cleanup_attr) |fn_decl| {
+                const cleanup_fn_name = try c.str(@ptrCast(*const clang.NamedDecl, fn_decl).getName_bytes_begin());
+                const fn_id = try Tag.identifier.create(c.arena, cleanup_fn_name);
+
+                const varname = try Tag.identifier.create(c.arena, mangled_name);
+                const args = try c.arena.alloc(Node, 1);
+                args[0] = try Tag.address_of.create(c.arena, varname);
+
+                const cleanup_call = try Tag.call.create(c.arena, .{ .lhs = fn_id, .args = args });
+                const discard = try Tag.discard.create(c.arena, cleanup_call);
+                const deferred_cleanup = try Tag.@"defer".create(c.arena, discard);
+
+                try block_scope.statements.append(deferred_cleanup);
+            }
         },
         .Typedef => {
             try transTypeDef(c, scope, @ptrCast(*const clang.TypedefNameDecl, decl));

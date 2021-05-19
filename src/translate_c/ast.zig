@@ -67,6 +67,7 @@ pub const Node = extern union {
         @"struct",
         @"union",
         @"comptime",
+        @"defer",
         array_init,
         tuple,
         container_init,
@@ -247,6 +248,7 @@ pub const Node = extern union {
                 .std_mem_zeroes,
                 .@"return",
                 .@"comptime",
+                .@"defer",
                 .asm_simple,
                 .discard,
                 .std_math_Log2Int,
@@ -1017,6 +1019,17 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .data = .{
                     .lhs = try renderNode(c, payload),
                     .rhs = undefined,
+                },
+            });
+        },
+        .@"defer" => {
+            const payload = node.castTag(.@"defer").?.data;
+            return c.addNode(.{
+                .tag = .@"defer",
+                .main_token = try c.addToken(.keyword_defer, "defer"),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = try renderNode(c, payload),
                 },
             });
         },
@@ -2273,6 +2286,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .@"continue",
         .@"return",
         .@"comptime",
+        .@"defer",
         .asm_simple,
         .usingnamespace_builtins,
         .while_true,

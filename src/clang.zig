@@ -976,6 +976,9 @@ pub const VarDecl = opaque {
     pub const getAlignedAttribute = ZigClangVarDecl_getAlignedAttribute;
     extern fn ZigClangVarDecl_getAlignedAttribute(*const VarDecl, *const ASTContext) c_uint;
 
+    pub const getCleanupAttribute = ZigClangVarDecl_getCleanupAttribute;
+    extern fn ZigClangVarDecl_getCleanupAttribute(*const VarDecl) ?*const FunctionDecl;
+
     pub const getTypeSourceInfo_getType = ZigClangVarDecl_getTypeSourceInfo_getType;
     extern fn ZigClangVarDecl_getTypeSourceInfo_getType(*const VarDecl) QualType;
 };
