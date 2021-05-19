@@ -157,8 +157,7 @@ var c_allocator_state = Allocator{
     .resizeFn = CAllocator.resize,
 };
 
-/// Asserts allocations are within `@alignOf(std.c.max_align_t)` and directly calls
-/// `malloc`/`free`. Does not attempt to utilize `malloc_usable_size`.
+/// Directly calls `malloc`/`free`. Does not attempt to utilize `malloc_usable_size`.
 /// This allocator is safe to use as the backing allocator with
 /// `ArenaAllocator` for example and is more optimal in such a case
 /// than `c_allocator`.
@@ -175,7 +174,6 @@ fn rawCAlloc(
     len_align: u29,
     ret_addr: usize,
 ) Allocator.Error![]u8 {
-    assert(ptr_align <= @alignOf(std.c.max_align_t));
     const ptr = @ptrCast([*]u8, c.malloc(len) orelse return error.OutOfMemory);
     return ptr[0..len];
 }
