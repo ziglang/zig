@@ -31,6 +31,9 @@ const WValue = union(enum) {
     code_offset: usize,
     /// The label of the block, used by breaks to find its relative distance
     block_idx: u32,
+    /// Used for variables that create multiple locals on the stack when allocated
+    /// such as structs and optionals.
+    multi_value: u32,
 };
 
 /// Wasm ops, but without input/output/signedness information
@@ -587,8 +590,9 @@ pub const Context = struct {
     fn emitWValue(self: *Context, val: WValue) InnerError!void {
         const writer = self.code.writer();
         switch (val) {
-            .block_idx => unreachable,
-            .none, .code_offset => {},
+            .block_idx => unreachable, // block_idx cannot be referenced
+            .multi_value => unreachable, // multi_value can never be written directly, and must be accessed individually
+            .none, .code_offset => {}, // no-op
             .local => |idx| {
                 try writer.writeByte(wasm.opcode(.local_get));
                 try leb.writeULEB128(writer, idx);
@@ -795,7 +799,7 @@ pub const Context = struct {
 
     fn genAlloc(self: *Context, inst: *Inst.NoOp) InnerError!WValue {
         const elem_type = inst.base.ty.elemType();
-        const local_value = WValue{ .local = self.local_index };
+        const initial_index = self.local_index;
 
         switch (elem_type.zigTypeTag()) {
             .Struct => {
@@ -810,16 +814,15 @@ pub const Context = struct {
                     self.locals.appendAssumeCapacity(val_type);
                     self.local_index += 1;
                 }
+                return WValue{ .multi_value = initial_index };
             },
-            // TODO: Add more types that require extra locals such as optionals
             else => {
                 const valtype = try self.genValtype(inst.base.src, elem_type);
                 try self.locals.append(self.gpa, valtype);
                 self.local_index += 1;
+                return WValue{ .local = initial_index };
             },
         }
-
-        return local_value;
     }
 
     fn genStore(self: *Context, inst: *Inst.BinOp) InnerError!WValue {
@@ -827,10 +830,20 @@ pub const Context = struct {
 
         const lhs = self.resolveInst(inst.lhs);
         const rhs = self.resolveInst(inst.rhs);
-        try self.emitWValue(rhs);
 
-        try writer.writeByte(wasm.opcode(.local_set));
-        try leb.writeULEB128(writer, lhs.local);
+        switch (lhs) {
+            // When assigning a value to a multi_value such as a struct,
+            // we simply assign the local_index to the rhs one.
+            // This allows us to update struct fields without having to individually
+            // set each local as each field's index will be calculated off the struct's base index
+            .multi_value => self.values.put(self.gpa, inst.lhs, rhs) catch unreachable, // Instruction does not dominate all uses!
+            .local => |local| {
+                try self.emitWValue(rhs);
+                try writer.writeByte(wasm.opcode(.local_set));
+                try leb.writeULEB128(writer, lhs.local);
+            },
+            else => unreachable,
+        }
         return .none;
     }
 
@@ -1115,6 +1128,6 @@ pub const Context = struct {
     fn genStructFieldPtr(self: *Context, inst: *Inst.StructFieldPtr) InnerError!WValue {
         const struct_ptr = self.resolveInst(inst.struct_ptr);
 
-        return WValue{ .local = struct_ptr.local + @intCast(u32, inst.field_index) };
+        return WValue{ .local = struct_ptr.multi_value + @intCast(u32, inst.field_index) };
     }
 };

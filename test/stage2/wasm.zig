@@ -426,19 +426,52 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addCompareOutput(
             \\const Example = struct { x: u32 };
             \\
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var example: Example = .{ .x = 5 };
             \\    return example.x;
             \\}
         , "5\n");
 
         case.addCompareOutput(
+            \\const Example = struct { x: u32 };
+            \\
+            \\pub export fn _start() u32 {
+            \\    var example: Example = .{ .x = 5 };
+            \\    example.x = 10;
+            \\    return example.x;
+            \\}
+        , "10\n");
+
+        case.addCompareOutput(
             \\const Example = struct { x: u32, y: u32 };
             \\
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var example: Example = .{ .x = 5, .y = 10 };
             \\    return example.y + example.x;
             \\}
         , "15\n");
+
+        case.addCompareOutput(
+            \\const Example = struct { x: u32, y: u32 };
+            \\
+            \\pub export fn _start() u32 {
+            \\    var example: Example = .{ .x = 5, .y = 10 };
+            \\    var example2: Example = .{ .x = 10, .y = 20 };
+            \\
+            \\    example = example2;
+            \\    return example.y + example.x;
+            \\}
+        , "30\n");
+
+        case.addCompareOutput(
+            \\const Example = struct { x: u32, y: u32 };
+            \\
+            \\pub export fn _start() u32 {
+            \\    var example: Example = .{ .x = 5, .y = 10 };
+            \\
+            \\    example = .{ .x = 10, .y = 20 };
+            \\    return example.y + example.x;
+            \\}
+        , "30\n");
     }
 }
