@@ -150,6 +150,9 @@ fn setupPthreadAtforkAndFill(buffer: []u8) void {
 }
 
 fn childAtForkHandler() callconv(.C) void {
+    // The atfork handler is global, this function may be called after
+    // fork()-ing threads that never initialized the CSPRNG context.
+    if (wipe_mem.len == 0) return;
     std.crypto.utils.secureZero(u8, wipe_mem);
 }
 
