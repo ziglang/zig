@@ -348,7 +348,7 @@ pub const DeclGen = struct {
                 const int_info = ty.intInfo(target);
                 const backing_bits = self.backingIntBits(int_info.bits) orelse {
                     // Integers too big for any native type are represented as "composite integers": An array of largestSupportedIntBits.
-                    return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement composite ints {}", .{ty});
+                    return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement composite int {}", .{ty});
                 };
 
                 // TODO: If backing_bits != int_info.bits, a duplicate type might be generated here.
@@ -487,12 +487,12 @@ pub const DeclGen = struct {
             .bit_and => try self.genBinOp(inst.castTag(.bit_and).?),
             .bit_or => try self.genBinOp(inst.castTag(.bit_or).?),
             .xor => try self.genBinOp(inst.castTag(.xor).?),
-            .cmp_eq => try self.genBinOp(inst.castTag(.cmp_eq).?),
-            .cmp_neq => try self.genBinOp(inst.castTag(.cmp_neq).?),
-            .cmp_gt => try self.genBinOp(inst.castTag(.cmp_gt).?),
-            .cmp_gte => try self.genBinOp(inst.castTag(.cmp_gte).?),
-            .cmp_lt => try self.genBinOp(inst.castTag(.cmp_lt).?),
-            .cmp_lte => try self.genBinOp(inst.castTag(.cmp_lte).?),
+            .cmp_eq => try self.genCmp(inst.castTag(.cmp_eq).?),
+            .cmp_neq => try self.genCmp(inst.castTag(.cmp_neq).?),
+            .cmp_gt => try self.genCmp(inst.castTag(.cmp_gt).?),
+            .cmp_gte => try self.genCmp(inst.castTag(.cmp_gte).?),
+            .cmp_lt => try self.genCmp(inst.castTag(.cmp_lt).?),
+            .cmp_lte => try self.genCmp(inst.castTag(.cmp_lte).?),
             .bool_and => try self.genBinOp(inst.castTag(.bool_and).?),
             .bool_or => try self.genBinOp(inst.castTag(.bool_or).?),
             .not => try self.genUnOp(inst.castTag(.not).?),
@@ -504,7 +504,7 @@ pub const DeclGen = struct {
             .ret => self.genRet(inst.castTag(.ret).?),
             .retvoid => self.genRetVoid(),
             .unreach => self.genUnreach(),
-            else => self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement inst {}", .{inst.tag}),
+            else => self.fail(inst.src, "TODO: SPIR-V backend: implement inst {s}", .{@tagName(inst.tag)}),
         };
     }
 
@@ -528,13 +528,14 @@ pub const DeclGen = struct {
         const info = try self.arithmeticTypeInfo(inst.lhs.ty);
 
         if (info.class == .composite_integer)
-            return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: binary operations for composite integers", .{});
+            return self.fail(inst.base.src, "TODO: SPIR-V backend: binary operations for composite integers", .{});
+        else if (info.class == .strange_integer)
+            return self.fail(inst.base.src, "TODO: SPIR-V backend: binary operations for strange integers", .{});
 
         const is_bool = info.class == .bool;
         const is_float = info.class == .float;
         const is_signed = info.signedness == .signed;
-        // **Note**: All these operations must be valid for vectors of floats, integers and bools as well!
-        // For floating points, we generally want ordered operations (which return false if either operand is nan).
+        // **Note**: All these operations must be valid for vectors as well!
         const opcode = switch (inst.base.tag) {
             // The regular integer operations are all defined for wrapping. Since theyre only relevant for integers,
             // we can just switch on both cases here.
@@ -551,16 +552,6 @@ pub const DeclGen = struct {
             .bit_and => Opcode.OpBitwiseAnd,
             .bit_or => Opcode.OpBitwiseOr,
             .xor => Opcode.OpBitwiseXor,
-            // Int/bool/float -> bool operations.
-            .cmp_eq => if (is_float) Opcode.OpFOrdEqual else if (is_bool) Opcode.OpLogicalEqual else Opcode.OpIEqual,
-            .cmp_neq => if (is_float) Opcode.OpFOrdNotEqual else if (is_bool) Opcode.OpLogicalNotEqual else Opcode.OpINotEqual,
-            // Int/float -> bool operations.
-            // TODO: Verify that these OpFOrd type operations produce the right value.
-            // TODO: Is there a more fundamental difference between OpU and OpS operations here than just the type?
-            .cmp_gt => if (is_float) Opcode.OpFOrdGreaterThan else if (is_signed) Opcode.OpSGreaterThan else Opcode.OpUGreaterThan,
-            .cmp_gte => if (is_float) Opcode.OpFOrdGreaterThanEqual else if (is_signed) Opcode.OpSGreaterThanEqual else Opcode.OpUGreaterThanEqual,
-            .cmp_lt => if (is_float) Opcode.OpFOrdLessThan else if (is_signed) Opcode.OpSLessThan else Opcode.OpULessThan,
-            .cmp_lte => if (is_float) Opcode.OpFOrdLessThanEqual else if (is_signed) Opcode.OpSLessThanEqual else Opcode.OpULessThanEqual,
             // Bool -> bool operations.
             .bool_and => Opcode.OpLogicalAnd,
             .bool_or => Opcode.OpLogicalOr,
@@ -575,7 +566,51 @@ pub const DeclGen = struct {
         if (info.class != .strange_integer)
             return result_id;
 
-        return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: strange integer operation mask", .{});
+        return self.fail(inst.base.src, "TODO: SPIR-V backend: strange integer operation mask", .{});
+    }
+
+    fn genCmp(self: *DeclGen, inst: *Inst.BinOp) !ResultId {
+        const lhs_id = try self.resolve(inst.lhs);
+        const rhs_id = try self.resolve(inst.rhs);
+
+        const result_id = self.spv.allocResultId();
+        const result_type_id = try self.getOrGenType(inst.base.ty);
+
+        // All of these operations should be 2 equal types -> bool
+        std.debug.assert(inst.rhs.ty.eql(inst.lhs.ty));
+        std.debug.assert(inst.base.ty.tag() == .bool);
+
+        // Comparisons are generally applicable to both scalar and vector operations in SPIR-V, but int and float
+        // versions of operations require different opcodes.
+        // Since inst.base.ty is always bool and so not very useful, and because both arguments must be the same, just get the info
+        // from either of the operands.
+        const info = try self.arithmeticTypeInfo(inst.lhs.ty);
+
+        if (info.class == .composite_integer)
+            return self.fail(inst.base.src, "TODO: SPIR-V backend: binary operations for composite integers", .{});
+        else if (info.class == .strange_integer)
+            return self.fail(inst.base.src, "TODO: SPIR-V backend: comparison for strange integers", .{});
+
+        const is_bool = info.class == .bool;
+        const is_float = info.class == .float;
+        const is_signed = info.signedness == .signed;
+
+        // **Note**: All these operations must be valid for vectors as well!
+        // For floating points, we generally want ordered operations (which return false if either operand is nan).
+        const opcode = switch (inst.base.tag) {
+            .cmp_eq => if (is_float) Opcode.OpFOrdEqual else if (is_bool) Opcode.OpLogicalEqual else Opcode.OpIEqual,
+            .cmp_neq => if (is_float) Opcode.OpFOrdNotEqual else if (is_bool) Opcode.OpLogicalNotEqual else Opcode.OpINotEqual,
+            // TODO: Verify that these OpFOrd type operations produce the right value.
+            // TODO: Is there a more fundamental difference between OpU and OpS operations here than just the type?
+            .cmp_gt => if (is_float) Opcode.OpFOrdGreaterThan else if (is_signed) Opcode.OpSGreaterThan else Opcode.OpUGreaterThan,
+            .cmp_gte => if (is_float) Opcode.OpFOrdGreaterThanEqual else if (is_signed) Opcode.OpSGreaterThanEqual else Opcode.OpUGreaterThanEqual,
+            .cmp_lt => if (is_float) Opcode.OpFOrdLessThan else if (is_signed) Opcode.OpSLessThan else Opcode.OpULessThan,
+            .cmp_lte => if (is_float) Opcode.OpFOrdLessThanEqual else if (is_signed) Opcode.OpSLessThanEqual else Opcode.OpULessThanEqual,
+            else => unreachable,
+        };
+
+        try writeInstruction(&self.spv.binary.fn_decls, opcode, &[_]Word{ result_type_id, result_id, lhs_id, rhs_id });
+        return result_id;
     }
 
     fn genUnOp(self: *DeclGen, inst: *Inst.UnOp) !ResultId {

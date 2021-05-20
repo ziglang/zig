@@ -41,7 +41,7 @@ const spec = @import("../codegen/spirv/spec.zig");
 pub const FnData = struct {
     // We're going to fill these in flushModule, and we're going to fill them unconditionally,
     // so just set it to undefined.
-    id: ResultId = undefined
+    id: ResultId = undefined,
 };
 
 base: link.File,
