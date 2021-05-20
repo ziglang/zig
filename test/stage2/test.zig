@@ -926,6 +926,24 @@ pub fn addCases(ctx: *TestContext) !void {
         ":5:1: note: declared here",
     });
 
+    ctx.compileError("returns in try", linux_x64,
+        \\pub fn main() !void {
+        \\	try a();
+        \\	try b();
+        \\}
+        \\
+        \\pub fn a() !void {
+        \\	defer try b();
+        \\}
+        \\pub fn b() !void {
+        \\	defer return a();
+        \\}
+
+     , &[_][]const u8{
+        ":7:8: error: try is not allowed inside defer expression",
+        ":10:8: error: cannot return from defer expression",
+    });
+
     ctx.compileError("global variable redeclaration", linux_x64,
         \\// dummy comment
         \\var foo = false;

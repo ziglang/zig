@@ -86,6 +86,7 @@ pub fn generate(gpa: *Allocator, tree: ast.Tree) InnerError!Zir {
 
     var gen_scope: GenZir = .{
         .force_comptime = true,
+        .in_defer = false,
         .parent = &top_scope.base,
         .anon_name_strategy = .parent,
         .decl_node_index = 0,
@@ -2118,14 +2119,20 @@ fn genDefers(
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
                 const expr_node = node_datas[defer_scope.defer_node].rhs;
+                const prev_in_defer = gz.in_defer;
+                gz.in_defer = true;
                 try unusedResultExpr(gz, defer_scope.parent, expr_node);
+                gz.in_defer = prev_in_defer;
             },
             .defer_error => {
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
                 if (err_code == .none) continue;
                 const expr_node = node_datas[defer_scope.defer_node].rhs;
+                const prev_in_defer = gz.in_defer;
+                gz.in_defer = true;
                 try unusedResultExpr(gz, defer_scope.parent, expr_node);
+                gz.in_defer = prev_in_defer;
             },
             .namespace => unreachable,
             .top => unreachable,
@@ -2728,6 +2735,7 @@ fn fnDecl(
 
     var decl_gz: GenZir = .{
         .force_comptime = true,
+        .in_defer = false,
         .decl_node_index = fn_proto.ast.proto_node,
         .decl_line = gz.calcLine(decl_node),
         .parent = scope,
@@ -2851,6 +2859,7 @@ fn fnDecl(
 
         var fn_gz: GenZir = .{
             .force_comptime = false,
+            .in_defer = false,
             .decl_node_index = fn_proto.ast.proto_node,
             .decl_line = decl_gz.decl_line,
             .parent = &decl_gz.base,
@@ -2981,6 +2990,7 @@ fn globalVarDecl(
         .decl_line = gz.calcLine(node),
         .astgen = astgen,
         .force_comptime = true,
+        .in_defer = false,
         .anon_name_strategy = .parent,
     };
     defer block_scope.instructions.deinit(gpa);
@@ -3117,6 +3127,7 @@ fn comptimeDecl(
 
     var decl_block: GenZir = .{
         .force_comptime = true,
+        .in_defer = false,
         .decl_node_index = node,
         .decl_line = gz.calcLine(node),
         .parent = scope,
@@ -3169,6 +3180,7 @@ fn usingnamespaceDecl(
 
     var decl_block: GenZir = .{
         .force_comptime = true,
+        .in_defer = false,
         .decl_node_index = node,
         .decl_line = gz.calcLine(node),
         .parent = scope,
@@ -3214,6 +3226,7 @@ fn testDecl(
 
     var decl_block: GenZir = .{
         .force_comptime = true,
+        .in_defer = false,
         .decl_node_index = node,
         .decl_line = gz.calcLine(node),
         .parent = scope,
@@ -3235,6 +3248,7 @@ fn testDecl(
 
     var fn_block: GenZir = .{
         .force_comptime = false,
+        .in_defer = false,
         .decl_node_index = node,
         .decl_line = decl_block.decl_line,
         .parent = &decl_block.base,
@@ -3319,6 +3333,7 @@ fn structDeclInner(
         .decl_line = gz.calcLine(node),
         .astgen = astgen,
         .force_comptime = true,
+        .in_defer = false,
         .ref_start_index = gz.ref_start_index,
     };
     defer block_scope.instructions.deinit(gpa);
@@ -3580,6 +3595,7 @@ fn unionDeclInner(
         .decl_line = gz.calcLine(node),
         .astgen = astgen,
         .force_comptime = true,
+        .in_defer = false,
         .ref_start_index = gz.ref_start_index,
     };
     defer block_scope.instructions.deinit(gpa);
@@ -3976,6 +3992,7 @@ fn containerDecl(
                 .decl_line = gz.calcLine(node),
                 .astgen = astgen,
                 .force_comptime = true,
+                .in_defer = false,
                 .ref_start_index = gz.ref_start_index,
             };
             defer block_scope.instructions.deinit(gpa);
@@ -4431,6 +4448,8 @@ fn tryExpr(
     const fn_block = astgen.fn_block orelse {
         return astgen.failNode(node, "invalid 'try' outside function scope", .{});
     };
+
+    if (parent_gz.in_defer) return astgen.failNode(node, "try is not allowed inside defer expression", .{});
 
     var block_scope = parent_gz.makeSubBlock(scope);
     block_scope.setBreakResultLoc(rl);
@@ -5961,6 +5980,8 @@ fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
+
+    if (gz.in_defer) return astgen.failNode(node, "cannot return from defer expression", .{});
 
     const operand_node = node_datas[node].lhs;
     if (operand_node != 0) {
@@ -8040,6 +8061,7 @@ const GenZir = struct {
     const base_tag: Scope.Tag = .gen_zir;
     base: Scope = Scope{ .tag = base_tag },
     force_comptime: bool,
+    in_defer: bool,
     /// How decls created in this scope should be named.
     anon_name_strategy: Zir.Inst.NameStrategy = .anon,
     /// The end of special indexes. `Zir.Inst.Ref` subtracts against this number to convert
@@ -8087,6 +8109,7 @@ const GenZir = struct {
     fn makeSubBlock(gz: *GenZir, scope: *Scope) GenZir {
         return .{
             .force_comptime = gz.force_comptime,
+            .in_defer = gz.in_defer,
             .ref_start_index = gz.ref_start_index,
             .decl_node_index = gz.decl_node_index,
             .decl_line = gz.decl_line,
