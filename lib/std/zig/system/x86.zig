@@ -311,6 +311,10 @@ fn detectAMDProcessor(cpu: *Target.Cpu, family: u32, model: u32) void {
             }
             return;
         },
+        25 => {
+            cpu.model = &Target.x86.cpu.znver3;
+            return;
+        },
         else => {
             return;
         },

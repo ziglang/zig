@@ -14,7 +14,7 @@ const gid_t = linux.gid_t;
 const pid_t = linux.pid_t;
 const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
-pub const SYS = extern enum(usize) {
+pub const SYS = enum(usize) {
     restart_syscall = 0,
     exit = 1,
     fork = 2,
@@ -321,7 +321,7 @@ pub const SYS = extern enum(usize) {
     signalfd = 305,
     timerfd_create = 306,
     eventfd = 307,
-    sync_file_range2 = 308,
+    sync_file_range = 308,
     fallocate = 309,
     subpage_prot = 310,
     timerfd_settime = 311,
@@ -557,18 +557,10 @@ pub const kernel_stat = extern struct {
     size: off_t,
     blksize: blksize_t,
     blocks: blkcnt_t,
-    __atim32: timespec32,
-    __mtim32: timespec32,
-    __ctim32: timespec32,
-    __unused: [2]u32,
     atim: timespec,
     mtim: timespec,
     ctim: timespec,
-
-    const timespec32 = extern struct {
-        tv_sec: i32,
-        tv_nsec: i32,
-    };
+    __unused: [2]u32,
 
     pub fn atime(self: @This()) timespec {
         return self.atim;

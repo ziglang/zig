@@ -21,6 +21,9 @@ const root = @import("root");
 const maxInt = std.math.maxInt;
 const File = std.fs.File;
 const windows = std.os.windows;
+const native_arch = std.Target.current.cpu.arch;
+const native_os = std.Target.current.os.tag;
+const native_endian = native_arch.endian();
 
 pub const runtime_safety = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
@@ -90,7 +93,7 @@ pub fn detectTTYConfig() TTY.Config {
         const stderr_file = io.getStdErr();
         if (stderr_file.supportsAnsiEscapeCodes()) {
             return .escape_codes;
-        } else if (builtin.os.tag == .windows and stderr_file.isTty()) {
+        } else if (native_os == .windows and stderr_file.isTty()) {
             return .windows_api;
         } else {
             return .no_color;
@@ -148,7 +151,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
 /// chopping off the irrelevant frames and shifting so that the returned addresses pointer
 /// equals the passed in addresses pointer.
 pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace) void {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         const addrs = stack_trace.instruction_addresses;
         const u32_addrs_len = @intCast(u32, addrs.len);
         const first_addr = first_address orelse {
@@ -226,7 +229,7 @@ pub fn assert(ok: bool) void {
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
     // TODO: remove conditional once wasi / LLVM defines __builtin_return_address
-    const first_trace_addr = if (builtin.os.tag == .wasi) null else @returnAddress();
+    const first_trace_addr = if (native_os == .wasi) null else @returnAddress();
     panicExtra(null, first_trace_addr, format, args);
 }
 
@@ -306,6 +309,7 @@ const RED = "\x1b[31;1m";
 const GREEN = "\x1b[32;1m";
 const CYAN = "\x1b[36;1m";
 const WHITE = "\x1b[37;1m";
+const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
@@ -336,6 +340,13 @@ pub const StackIterator = struct {
     fp: usize,
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
+        if (native_arch == .sparcv9) {
+            // Flush all the register windows on stack.
+            asm volatile (
+                \\ flushw
+                ::: "memory");
+        }
+
         return StackIterator{
             .first_address = first_address,
             .fp = fp orelse @frameAddress(),
@@ -343,25 +354,25 @@ pub const StackIterator = struct {
     }
 
     // Offset of the saved BP wrt the frame pointer.
-    const fp_offset = if (builtin.arch.isRISCV())
+    const fp_offset = if (native_arch.isRISCV())
         // On RISC-V the frame pointer points to the top of the saved register
         // area, on pretty much every other architecture it points to the stack
         // slot where the previous frame pointer is saved.
         2 * @sizeOf(usize)
-    else if (builtin.arch.isSPARC())
+    else if (native_arch.isSPARC())
         // On SPARC the previous frame pointer is stored at 14 slots past %fp+BIAS.
         14 * @sizeOf(usize)
     else
         0;
 
-    const fp_bias = if (builtin.arch.isSPARC())
+    const fp_bias = if (native_arch.isSPARC())
         // On SPARC frame pointers are biased by a constant.
         2047
     else
         0;
 
     // Positive offset of the saved PC wrt the frame pointer.
-    const pc_offset = if (builtin.arch == .powerpc64le)
+    const pc_offset = if (native_arch == .powerpc64le)
         2 * @sizeOf(usize)
     else
         @sizeOf(usize);
@@ -380,7 +391,7 @@ pub const StackIterator = struct {
     }
 
     fn next_internal(self: *StackIterator) ?usize {
-        const fp = if (builtin.arch.isSPARC())
+        const fp = if (comptime native_arch.isSPARC())
             // On SPARC the offset is positive. (!)
             math.add(usize, self.fp, fp_offset) catch return null
         else
@@ -416,7 +427,7 @@ pub fn writeCurrentStackTrace(
     tty_config: TTY.Config,
     start_addr: ?usize,
 ) !void {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return writeCurrentStackTraceWindows(out_stream, debug_info, tty_config, start_addr);
     }
     var it = StackIterator.init(start_addr, null);
@@ -469,11 +480,12 @@ pub const TTY = struct {
                     .Red => out_stream.writeAll(RED) catch return,
                     .Green => out_stream.writeAll(GREEN) catch return,
                     .Cyan => out_stream.writeAll(CYAN) catch return,
-                    .White, .Bold => out_stream.writeAll(WHITE) catch return,
+                    .White => out_stream.writeAll(WHITE) catch return,
                     .Dim => out_stream.writeAll(DIM) catch return,
+                    .Bold => out_stream.writeAll(BOLD) catch return,
                     .Reset => out_stream.writeAll(RESET) catch return,
                 },
-                .windows_api => if (builtin.os.tag == .windows) {
+                .windows_api => if (native_os == .windows) {
                     const stderr_file = io.getStdErr();
                     const S = struct {
                         var attrs: windows.WORD = undefined;
@@ -622,7 +634,7 @@ fn printLineInfo(
     comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
-        tty_config.setColor(out_stream, .White);
+        tty_config.setColor(out_stream, .Bold);
 
         if (line_info) |*li| {
             try out_stream.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
@@ -675,7 +687,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
         if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
             return root.os.debug.openSelfDebugInfo(allocator);
         }
-        switch (builtin.os.tag) {
+        switch (native_os) {
             .linux,
             .freebsd,
             .netbsd,
@@ -888,7 +900,7 @@ pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugI
             elf.ELFDATA2MSB => .Big,
             else => return error.InvalidElfEndian,
         };
-        assert(endian == std.builtin.endian); // this is our own debug info
+        assert(endian == native_endian); // this is our own debug info
 
         const shoff = hdr.e_shoff;
         const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
@@ -1123,9 +1135,9 @@ pub const DebugInfo = struct {
     pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
         if (comptime std.Target.current.isDarwin()) {
             return self.lookupModuleDyld(address);
-        } else if (builtin.os.tag == .windows) {
+        } else if (native_os == .windows) {
             return self.lookupModuleWin32(address);
-        } else if (builtin.os.tag == .haiku) {
+        } else if (native_os == .haiku) {
             return self.lookupModuleHaiku(address);
         } else {
             return self.lookupModuleDl(address);
@@ -1353,7 +1365,7 @@ const SymbolInfo = struct {
     }
 };
 
-pub const ModuleDebugInfo = switch (builtin.os.tag) {
+pub const ModuleDebugInfo = switch (native_os) {
     .macos, .ios, .watchos, .tvos => struct {
         base_address: usize,
         mapped_memory: []const u8,
@@ -1720,7 +1732,7 @@ fn getDebugInfoAllocator() *mem.Allocator {
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
-pub const have_segfault_handling_support = switch (builtin.os.tag) {
+pub const have_segfault_handling_support = switch (native_os) {
     .linux, .netbsd => true,
     .windows => true,
     .freebsd, .openbsd => @hasDecl(os, "ucontext_t"),
@@ -1744,7 +1756,7 @@ pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");
     }
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         windows_segfault_handle = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
@@ -1760,7 +1772,7 @@ pub fn attachSegfaultHandler() void {
 }
 
 fn resetSegfaultHandler() void {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         if (windows_segfault_handle) |handle| {
             assert(windows.kernel32.RemoveVectoredExceptionHandler(handle) != 0);
             windows_segfault_handle = null;
@@ -1783,7 +1795,7 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
     // and the resulting segfault will crash the process rather than continually dump stack traces.
     resetSegfaultHandler();
 
-    const addr = switch (builtin.os.tag) {
+    const addr = switch (native_os) {
         .linux => @ptrToInt(info.fields.sigfault.addr),
         .freebsd => @ptrToInt(info.addr),
         .netbsd => @ptrToInt(info.info.reason.fault.addr),
@@ -1802,7 +1814,7 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         } catch os.abort();
     }
 
-    switch (builtin.arch) {
+    switch (native_arch) {
         .i386 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
             const ip = @intCast(usize, ctx.mcontext.gregs[os.REG_EIP]);
@@ -1811,13 +1823,13 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         },
         .x86_64 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = switch (builtin.os.tag) {
+            const ip = switch (native_os) {
                 .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG_RIP]),
                 .freebsd => @intCast(usize, ctx.mcontext.rip),
                 .openbsd => @intCast(usize, ctx.sc_rip),
                 else => unreachable,
             };
-            const bp = switch (builtin.os.tag) {
+            const bp = switch (native_os) {
                 .linux, .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG_RBP]),
                 .openbsd => @intCast(usize, ctx.sc_rbp),
                 .freebsd => @intCast(usize, ctx.mcontext.rbp),

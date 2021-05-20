@@ -12,6 +12,7 @@
 const std = @import("std");
 const root = @import("root");
 const mem = std.mem;
+const os = std.os;
 
 /// We use this as a layer of indirection because global const pointers cannot
 /// point to thread-local variables.
@@ -42,16 +43,22 @@ const maybe_have_wipe_on_fork = std.Target.current.os.isAtLeast(.linux, .{
     .minor = 14,
 }) orelse true;
 
-const WipeMe = struct {
-    init_state: enum { uninitialized, initialized, failed },
+const Context = struct {
+    init_state: enum(u8) { uninitialized = 0, initialized, failed },
     gimli: std.crypto.core.Gimli,
 };
-const wipe_align = if (maybe_have_wipe_on_fork) mem.page_size else @alignOf(WipeMe);
 
-threadlocal var wipe_me: WipeMe align(wipe_align) = .{
-    .gimli = undefined,
-    .init_state = .uninitialized,
-};
+var install_atfork_handler = std.once(struct {
+    // Install the global handler only once.
+    // The same handler is shared among threads and is inherinted by fork()-ed
+    // processes.
+    fn do() void {
+        const r = std.c.pthread_atfork(null, null, childAtForkHandler);
+        std.debug.assert(r == 0);
+    }
+}.do);
+
+threadlocal var wipe_mem: []align(mem.page_size) u8 = &[_]u8{};
 
 fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
     if (std.builtin.link_libc and @hasDecl(std.c, "arc4random_buf")) {
@@ -64,35 +71,65 @@ fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
     if (comptime std.meta.globalOption("crypto_always_getrandom", bool) orelse false) {
         return fillWithOsEntropy(buffer);
     }
-    switch (wipe_me.init_state) {
+
+    if (wipe_mem.len == 0) {
+        // Not initialized yet.
+        if (want_fork_safety and maybe_have_wipe_on_fork) {
+            // Allocate a per-process page, madvise operates with page
+            // granularity.
+            wipe_mem = os.mmap(
+                null,
+                @sizeOf(Context),
+                os.PROT_READ | os.PROT_WRITE,
+                os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+                -1,
+                0,
+            ) catch |err| {
+                // Could not allocate memory for the local state, fall back to
+                // the OS syscall.
+                return fillWithOsEntropy(buffer);
+            };
+            // The memory is already zero-initialized.
+        } else {
+            // Use a static thread-local buffer.
+            const S = struct {
+                threadlocal var buf: Context align(mem.page_size) = .{
+                    .init_state = .uninitialized,
+                    .gimli = undefined,
+                };
+            };
+            wipe_mem = mem.asBytes(&S.buf);
+        }
+    }
+    const ctx = @ptrCast(*Context, wipe_mem.ptr);
+
+    switch (ctx.init_state) {
         .uninitialized => {
-            if (want_fork_safety) {
-                if (maybe_have_wipe_on_fork) {
-                    if (std.os.madvise(
-                        @ptrCast([*]align(mem.page_size) u8, &wipe_me),
-                        @sizeOf(@TypeOf(wipe_me)),
-                        std.os.MADV_WIPEONFORK,
-                    )) |_| {
-                        return initAndFill(buffer);
-                    } else |_| if (std.Thread.use_pthreads) {
-                        return setupPthreadAtforkAndFill(buffer);
-                    } else {
-                        // Since we failed to set up fork safety, we fall back to always
-                        // calling getrandom every time.
-                        wipe_me.init_state = .failed;
-                        return fillWithOsEntropy(buffer);
-                    }
-                } else if (std.Thread.use_pthreads) {
-                    return setupPthreadAtforkAndFill(buffer);
-                } else {
-                    // We have no mechanism to provide fork safety, but we want fork safety,
-                    // so we fall back to calling getrandom every time.
-                    wipe_me.init_state = .failed;
-                    return fillWithOsEntropy(buffer);
-                }
-            } else {
+            if (!want_fork_safety) {
                 return initAndFill(buffer);
             }
+
+            if (maybe_have_wipe_on_fork) wof: {
+                // Qemu user-mode emulation ignores any valid/invalid madvise
+                // hint and returns success. Check if this is the case by
+                // passing bogus parameters, we expect EINVAL as result.
+                if (os.madvise(wipe_mem.ptr, 0, 0xffffffff)) |_| {
+                    break :wof;
+                } else |_| {}
+
+                if (os.madvise(wipe_mem.ptr, wipe_mem.len, os.MADV_WIPEONFORK)) |_| {
+                    return initAndFill(buffer);
+                } else |_| {}
+            }
+
+            if (std.Thread.use_pthreads) {
+                return setupPthreadAtforkAndFill(buffer);
+            }
+
+            // Since we failed to set up fork safety, we fall back to always
+            // calling getrandom every time.
+            ctx.init_state = .failed;
+            return fillWithOsEntropy(buffer);
         },
         .initialized => {
             return fillWithCsprng(buffer);
@@ -108,31 +145,29 @@ fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
 }
 
 fn setupPthreadAtforkAndFill(buffer: []u8) void {
-    const failed = std.c.pthread_atfork(null, null, childAtForkHandler) != 0;
-    if (failed) {
-        wipe_me.init_state = .failed;
-        return fillWithOsEntropy(buffer);
-    } else {
-        return initAndFill(buffer);
-    }
+    install_atfork_handler.call();
+    return initAndFill(buffer);
 }
 
 fn childAtForkHandler() callconv(.C) void {
-    const wipe_slice = @ptrCast([*]u8, &wipe_me)[0..@sizeOf(@TypeOf(wipe_me))];
-    std.crypto.utils.secureZero(u8, wipe_slice);
+    // The atfork handler is global, this function may be called after
+    // fork()-ing threads that never initialized the CSPRNG context.
+    if (wipe_mem.len == 0) return;
+    std.crypto.utils.secureZero(u8, wipe_mem);
 }
 
 fn fillWithCsprng(buffer: []u8) void {
+    const ctx = @ptrCast(*Context, wipe_mem.ptr);
     if (buffer.len != 0) {
-        wipe_me.gimli.squeeze(buffer);
+        ctx.gimli.squeeze(buffer);
     } else {
-        wipe_me.gimli.permute();
+        ctx.gimli.permute();
     }
-    mem.set(u8, wipe_me.gimli.toSlice()[0..std.crypto.core.Gimli.RATE], 0);
+    mem.set(u8, ctx.gimli.toSlice()[0..std.crypto.core.Gimli.RATE], 0);
 }
 
 fn fillWithOsEntropy(buffer: []u8) void {
-    std.os.getrandom(buffer) catch @panic("getrandom() failed to provide entropy");
+    os.getrandom(buffer) catch @panic("getrandom() failed to provide entropy");
 }
 
 fn initAndFill(buffer: []u8) void {
@@ -147,11 +182,12 @@ fn initAndFill(buffer: []u8) void {
         fillWithOsEntropy(&seed);
     }
 
-    wipe_me.gimli = std.crypto.core.Gimli.init(seed);
+    const ctx = @ptrCast(*Context, wipe_mem.ptr);
+    ctx.gimli = std.crypto.core.Gimli.init(seed);
 
     // This is at the end so that accidental recursive dependencies result
     // in stack overflows instead of invalid random data.
-    wipe_me.init_state = .initialized;
+    ctx.init_state = .initialized;
 
     return fillWithCsprng(buffer);
 }

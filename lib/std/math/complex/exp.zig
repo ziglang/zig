@@ -9,7 +9,6 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/complex/cexpf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/complex/cexp.c
 
-const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
@@ -39,25 +38,25 @@ fn exp32(z: Complex(f32)) Complex(f32) {
     const hy = @bitCast(u32, y) & 0x7fffffff;
     // cexp(x + i0) = exp(x) + i0
     if (hy == 0) {
-        return Complex(f32).new(math.exp(x), y);
+        return Complex(f32).init(math.exp(x), y);
     }
 
     const hx = @bitCast(u32, x);
     // cexp(0 + iy) = cos(y) + isin(y)
     if ((hx & 0x7fffffff) == 0) {
-        return Complex(f32).new(math.cos(y), math.sin(y));
+        return Complex(f32).init(math.cos(y), math.sin(y));
     }
 
     if (hy >= 0x7f800000) {
         // cexp(finite|nan +- i inf|nan) = nan + i nan
         if ((hx & 0x7fffffff) != 0x7f800000) {
-            return Complex(f32).new(y - y, y - y);
+            return Complex(f32).init(y - y, y - y);
         } // cexp(-inf +- i inf|nan) = 0 + i0
         else if (hx & 0x80000000 != 0) {
-            return Complex(f32).new(0, 0);
+            return Complex(f32).init(0, 0);
         } // cexp(+inf +- i inf|nan) = inf + i nan
         else {
-            return Complex(f32).new(x, y - y);
+            return Complex(f32).init(x, y - y);
         }
     }
 
@@ -70,7 +69,7 @@ fn exp32(z: Complex(f32)) Complex(f32) {
     // - x = nan
     else {
         const exp_x = math.exp(x);
-        return Complex(f32).new(exp_x * math.cos(y), exp_x * math.sin(y));
+        return Complex(f32).init(exp_x * math.cos(y), exp_x * math.sin(y));
     }
 }
 
@@ -87,7 +86,7 @@ fn exp64(z: Complex(f64)) Complex(f64) {
 
     // cexp(x + i0) = exp(x) + i0
     if (hy | ly == 0) {
-        return Complex(f64).new(math.exp(x), y);
+        return Complex(f64).init(math.exp(x), y);
     }
 
     const fx = @bitCast(u64, x);
@@ -96,19 +95,19 @@ fn exp64(z: Complex(f64)) Complex(f64) {
 
     // cexp(0 + iy) = cos(y) + isin(y)
     if ((hx & 0x7fffffff) | lx == 0) {
-        return Complex(f64).new(math.cos(y), math.sin(y));
+        return Complex(f64).init(math.cos(y), math.sin(y));
     }
 
     if (hy >= 0x7ff00000) {
         // cexp(finite|nan +- i inf|nan) = nan + i nan
         if (lx != 0 or (hx & 0x7fffffff) != 0x7ff00000) {
-            return Complex(f64).new(y - y, y - y);
+            return Complex(f64).init(y - y, y - y);
         } // cexp(-inf +- i inf|nan) = 0 + i0
         else if (hx & 0x80000000 != 0) {
-            return Complex(f64).new(0, 0);
+            return Complex(f64).init(0, 0);
         } // cexp(+inf +- i inf|nan) = inf + i nan
         else {
-            return Complex(f64).new(x, y - y);
+            return Complex(f64).init(x, y - y);
         }
     }
 
@@ -121,24 +120,24 @@ fn exp64(z: Complex(f64)) Complex(f64) {
     // - x = nan
     else {
         const exp_x = math.exp(x);
-        return Complex(f64).new(exp_x * math.cos(y), exp_x * math.sin(y));
+        return Complex(f64).init(exp_x * math.cos(y), exp_x * math.sin(y));
     }
 }
 
 const epsilon = 0.0001;
 
 test "complex.cexp32" {
-    const a = Complex(f32).new(5, 3);
+    const a = Complex(f32).init(5, 3);
     const c = exp(a);
 
-    testing.expect(math.approxEqAbs(f32, c.re, -146.927917, epsilon));
-    testing.expect(math.approxEqAbs(f32, c.im, 20.944065, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.re, -146.927917, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.im, 20.944065, epsilon));
 }
 
 test "complex.cexp64" {
-    const a = Complex(f64).new(5, 3);
+    const a = Complex(f64).init(5, 3);
     const c = exp(a);
 
-    testing.expect(math.approxEqAbs(f64, c.re, -146.927917, epsilon));
-    testing.expect(math.approxEqAbs(f64, c.im, 20.944065, epsilon));
+    try testing.expect(math.approxEqAbs(f64, c.re, -146.927917, epsilon));
+    try testing.expect(math.approxEqAbs(f64, c.im, 20.944065, epsilon));
 }

@@ -8,6 +8,7 @@ const ctok = std.c.tokenizer;
 const CToken = std.c.Token;
 const mem = std.mem;
 const math = std.math;
+const meta = std.meta;
 const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
 const Tag = Node.Tag;
@@ -446,7 +447,13 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
             // TODO https://github.com/ziglang/zig/issues/3756
             // TODO https://github.com/ziglang/zig/issues/1802
             const name = if (isZigPrimitiveType(decl_name)) try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ decl_name, c.getMangle() }) else decl_name;
-            try c.unnamed_typedefs.putNoClobber(c.gpa, addr, name);
+            const result = try c.unnamed_typedefs.getOrPut(c.gpa, addr);
+            if (result.found_existing) {
+                // One typedef can declare multiple names.
+                // Don't put this one in `decl_table` so it's processed later.
+                return;
+            }
+            result.entry.value = name;
             // Put this typedef in the decl_table to avoid redefinitions.
             try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), name);
         }
@@ -473,11 +480,29 @@ fn declVisitor(c: *Context, decl: *const clang.Decl) Error!void {
         .Empty => {
             // Do nothing
         },
+        .FileScopeAsm => {
+            try transFileScopeAsm(c, &c.global_scope.base, @ptrCast(*const clang.FileScopeAsmDecl, decl));
+        },
         else => {
             const decl_name = try c.str(decl.getDeclKindName());
             try warn(c, &c.global_scope.base, decl.getLocation(), "ignoring {s} declaration", .{decl_name});
         },
     }
+}
+
+fn transFileScopeAsm(c: *Context, scope: *Scope, file_scope_asm: *const clang.FileScopeAsmDecl) Error!void {
+    const asm_string = file_scope_asm.getAsmString();
+    var len: usize = undefined;
+    const bytes_ptr = asm_string.getString_bytes_begin_size(&len);
+
+    const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(bytes_ptr[0..len])});
+    const str_node = try Tag.string_literal.create(c.arena, str);
+
+    const asm_node = try Tag.asm_simple.create(c.arena, str_node);
+    const block = try Tag.block_single.create(c.arena, asm_node);
+    const comptime_node = try Tag.@"comptime".create(c.arena, block);
+
+    try scope.appendNode(comptime_node);
 }
 
 fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
@@ -1353,10 +1378,14 @@ fn transCreatePointerArithmeticSignedOp(
 
     const bitcast_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
 
-    const arith_args = .{ .lhs = lhs_node, .rhs = bitcast_node };
-    const arith_node = try if (is_add) Tag.add.create(c.arena, arith_args) else Tag.sub.create(c.arena, arith_args);
-
-    return maybeSuppressResult(c, scope, result_used, arith_node);
+    return transCreateNodeInfixOp(
+        c,
+        scope,
+        if (is_add) .add else .sub,
+        lhs_node,
+        bitcast_node,
+        result_used,
+    );
 }
 
 fn transBinaryOperator(
@@ -1627,6 +1656,22 @@ fn transDeclStmtOne(
                 .init = init_node,
             });
             try block_scope.statements.append(node);
+
+            const cleanup_attr = var_decl.getCleanupAttribute();
+            if (cleanup_attr) |fn_decl| {
+                const cleanup_fn_name = try c.str(@ptrCast(*const clang.NamedDecl, fn_decl).getName_bytes_begin());
+                const fn_id = try Tag.identifier.create(c.arena, cleanup_fn_name);
+
+                const varname = try Tag.identifier.create(c.arena, mangled_name);
+                const args = try c.arena.alloc(Node, 1);
+                args[0] = try Tag.address_of.create(c.arena, varname);
+
+                const cleanup_call = try Tag.call.create(c.arena, .{ .lhs = fn_id, .args = args });
+                const discard = try Tag.discard.create(c.arena, cleanup_call);
+                const deferred_cleanup = try Tag.@"defer".create(c.arena, discard);
+
+                try block_scope.statements.append(deferred_cleanup);
+            }
         },
         .Typedef => {
             try transTypeDef(c, scope, @ptrCast(*const clang.TypedefNameDecl, decl));
@@ -1737,7 +1782,7 @@ fn transImplicitCastExpr(
 }
 
 fn isBuiltinDefined(name: []const u8) bool {
-    inline for (std.meta.declarations(c_builtins)) |decl| {
+    inline for (meta.declarations(c_builtins)) |decl| {
         if (std.mem.eql(u8, name, decl.name)) return true;
     }
     return false;
@@ -2161,8 +2206,8 @@ fn transCCast(
         return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = bool_to_int });
     }
     if (cIsEnum(dst_type)) {
-        // @intToEnum(dest_type, val)
-        return Tag.int_to_enum.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // import("std").meta.cast(dest_type, val)
+        return Tag.std_meta_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsEnum(src_type) and !cIsEnum(dst_type)) {
         // @enumToInt(val)
@@ -2312,7 +2357,7 @@ fn transInitListExprArray(
     assert(@ptrCast(*const clang.Type, arr_type).isConstantArrayType());
     const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, arr_type);
     const size_ap_int = const_arr_ty.getSize();
-    const all_count = size_ap_int.getLimitedValue(math.maxInt(usize));
+    const all_count = size_ap_int.getLimitedValue(usize);
     const leftover_count = all_count - init_count;
 
     if (all_count == 0) {
@@ -2357,7 +2402,6 @@ fn transInitListExprVector(
     expr: *const clang.InitListExpr,
     ty: *const clang.Type,
 ) TransError!Node {
-
     const qt = getExprQualType(c, @ptrCast(*const clang.Expr, expr));
     const vector_type = try transQualType(c, scope, qt, loc);
     const init_count = expr.getNumInits();
@@ -2416,6 +2460,10 @@ fn transInitListExpr(
     const qt = getExprQualType(c, @ptrCast(*const clang.Expr, expr));
     var qual_type = qt.getTypePtr();
     const source_loc = @ptrCast(*const clang.Expr, expr).getBeginLoc();
+
+    if (qualTypeWasDemotedToOpaque(c, qt)) {
+        return fail(c, error.UnsupportedTranslation, source_loc, "Cannot initialize opaque type", .{});
+    }
 
     if (qual_type.isRecordType()) {
         return maybeSuppressResult(c, scope, used, try transInitListExprRecord(
@@ -2700,9 +2748,19 @@ fn transSwitch(
     scope: *Scope,
     stmt: *const clang.SwitchStmt,
 ) TransError!Node {
+    var loop_scope = Scope{
+        .parent = scope,
+        .id = .loop,
+    };
+
+    var block_scope = try Scope.Block.init(c, &loop_scope, false);
+    defer block_scope.deinit();
+
+    const base_scope = &block_scope.base;
+
     var cond_scope = Scope.Condition{
         .base = .{
-            .parent = scope,
+            .parent = base_scope,
             .id = .condition,
         },
     };
@@ -2725,8 +2783,8 @@ fn transSwitch(
             .CaseStmtClass => {
                 var items = std.ArrayList(Node).init(c.gpa);
                 defer items.deinit();
-                const sub = try transCaseStmt(c, scope, it[0], &items);
-                const res = try transSwitchProngStmt(c, scope, sub, it, end_it);
+                const sub = try transCaseStmt(c, base_scope, it[0], &items);
+                const res = try transSwitchProngStmt(c, base_scope, sub, it, end_it);
 
                 if (items.items.len == 0) {
                     has_default = true;
@@ -2751,7 +2809,7 @@ fn transSwitch(
                     else => break,
                 };
 
-                const res = try transSwitchProngStmt(c, scope, sub, it, end_it);
+                const res = try transSwitchProngStmt(c, base_scope, sub, it, end_it);
 
                 const switch_else = try Tag.switch_else.create(c.arena, res);
                 try cases.append(switch_else);
@@ -2765,10 +2823,15 @@ fn transSwitch(
         try cases.append(else_prong);
     }
 
-    return Tag.@"switch".create(c.arena, .{
+    const switch_node = try Tag.@"switch".create(c.arena, .{
         .cond = switch_expr,
         .cases = try c.arena.dupe(Node, cases.items),
     });
+    try block_scope.statements.append(switch_node);
+    try block_scope.statements.append(Tag.@"break".init());
+    const while_body = try block_scope.complete(c);
+
+    return Tag.while_true.create(c.arena, while_body);
 }
 
 /// Collects all items for this case, returns the first statement after the labels.
@@ -2818,7 +2881,7 @@ fn transSwitchProngStmt(
     parent_end_it: clang.CompoundStmt.ConstBodyIterator,
 ) TransError!Node {
     switch (stmt.getStmtClass()) {
-        .BreakStmtClass => return Tag.empty_block.init(),
+        .BreakStmtClass => return Tag.@"break".init(),
         .ReturnStmtClass => return transStmt(c, scope, stmt, .unused),
         .CaseStmtClass, .DefaultStmtClass => unreachable,
         else => {
@@ -2847,7 +2910,10 @@ fn transSwitchProngStmtInline(
                 try block.statements.append(result);
                 return;
             },
-            .BreakStmtClass => return,
+            .BreakStmtClass => {
+                try block.statements.append(Tag.@"break".init());
+                return;
+            },
             .CaseStmtClass => {
                 var sub = @ptrCast(*const clang.CaseStmt, it[0]).getSubStmt();
                 while (true) switch (sub.getStmtClass()) {
@@ -2897,7 +2963,7 @@ fn transSwitchProngStmtInline(
 
 fn transConstantExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
     var result: clang.ExprEvalResult = undefined;
-    if (!expr.evaluateAsConstantExpr(&result, .EvaluateForCodeGen, c.clang_context))
+    if (!expr.evaluateAsConstantExpr(&result, .Normal, c.clang_context))
         return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "invalid constant expression", .{});
 
     switch (result.Val.getKind()) {
@@ -3136,7 +3202,7 @@ const ClangFunctionType = union(enum) {
     NoProto: *const clang.FunctionType,
 
     fn getReturnType(self: @This()) clang.QualType {
-        switch (@as(std.meta.Tag(@This()), self)) {
+        switch (@as(meta.Tag(@This()), self)) {
             .Proto => return self.Proto.getReturnType(),
             .NoProto => return self.NoProto.getReturnType(),
         }
@@ -3518,7 +3584,7 @@ fn transCPtrCast(
             expr
         else blk: {
             const child_type_node = try transQualType(c, scope, child_type, loc);
-            const alignof = try Tag.alignof.create(c.arena, child_type_node);
+            const alignof = try Tag.std_meta_alignment.create(c.arena, child_type_node);
             const align_cast = try Tag.align_cast.create(c.arena, .{ .lhs = alignof, .rhs = expr });
             break :blk align_cast;
         };
@@ -3526,9 +3592,22 @@ fn transCPtrCast(
     }
 }
 
-fn transFloatingLiteral(c: *Context, scope: *Scope, stmt: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
+fn transFloatingLiteral(c: *Context, scope: *Scope, expr: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
+    switch (expr.getRawSemantics()) {
+        .IEEEhalf, // f16
+        .IEEEsingle, // f32
+        .IEEEdouble, // f64
+        => {},
+        else => |format| return fail(
+            c,
+            error.UnsupportedTranslation,
+            expr.getBeginLoc(),
+            "unsupported floating point constant format {}",
+            .{format},
+        ),
+    }
     // TODO use something more accurate
-    var dbl = stmt.getValueAsApproximateDouble();
+    var dbl = expr.getValueAsApproximateDouble();
     const is_negative = dbl < 0;
     if (is_negative) dbl = -dbl;
     const str = if (dbl == std.math.floor(dbl))
@@ -4072,7 +4151,7 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
 }
 
 fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float }) !Node {
-    const fmt_s = if (comptime std.meta.trait.isNumber(@TypeOf(num))) "{d}" else "{s}";
+    const fmt_s = if (comptime meta.trait.isNumber(@TypeOf(num))) "{d}" else "{s}";
     const str = try std.fmt.allocPrint(c.arena, fmt_s, .{num});
     if (num_kind == .float)
         return Tag.float_literal.create(c.arena, str)
@@ -4207,7 +4286,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const const_arr_ty = @ptrCast(*const clang.ConstantArrayType, ty);
 
             const size_ap_int = const_arr_ty.getSize();
-            const size = size_ap_int.getLimitedValue(math.maxInt(usize));
+            const size = size_ap_int.getLimitedValue(usize);
             const elem_type = try transType(c, scope, const_arr_ty.getElementType().getTypePtr(), source_loc);
 
             return Tag.array_type.create(c.arena, .{ .len = size, .elem_type = elem_type });
@@ -4381,6 +4460,7 @@ fn transCC(
         .X86ThisCall => return CallingConvention.Thiscall,
         .AAPCS => return CallingConvention.AAPCS,
         .AAPCS_VFP => return CallingConvention.AAPCSVFP,
+        .X86_64SysV => return CallingConvention.SysV,
         else => return fail(
             c,
             error.UnsupportedType,
@@ -4827,12 +4907,12 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
             // make the output less noisy by skipping promoteIntLiteral where
             // it's guaranteed to not be required because of C standard type constraints
             const guaranteed_to_fit = switch (suffix) {
-                .none => if (math.cast(i16, value)) |_| true else |_| false,
-                .u => if (math.cast(u16, value)) |_| true else |_| false,
-                .l => if (math.cast(i32, value)) |_| true else |_| false,
-                .lu => if (math.cast(u32, value)) |_| true else |_| false,
-                .ll => if (math.cast(i64, value)) |_| true else |_| false,
-                .llu => if (math.cast(u64, value)) |_| true else |_| false,
+                .none => !meta.isError(math.cast(i16, value)),
+                .u => !meta.isError(math.cast(u16, value)),
+                .l => !meta.isError(math.cast(i32, value)),
+                .lu => !meta.isError(math.cast(u32, value)),
+                .ll => !meta.isError(math.cast(i64, value)),
+                .llu => !meta.isError(math.cast(u64, value)),
                 .f => unreachable,
             };
 

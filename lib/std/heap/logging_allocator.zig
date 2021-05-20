@@ -93,11 +93,11 @@ test "LoggingAllocator" {
 
     var a = try allocator.alloc(u8, 10);
     a = allocator.shrink(a, 5);
-    std.testing.expect(a.len == 5);
-    std.testing.expectError(error.OutOfMemory, allocator.resize(a, 20));
+    try std.testing.expect(a.len == 5);
+    try std.testing.expectError(error.OutOfMemory, allocator.resize(a, 20));
     allocator.free(a);
 
-    std.testing.expectEqualSlices(u8,
+    try std.testing.expectEqualSlices(u8,
         \\alloc : 10 success!
         \\shrink: 10 to 5
         \\expand: 5 to 20 failure!

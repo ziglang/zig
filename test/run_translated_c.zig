@@ -1410,4 +1410,102 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\}
     , "");
 
+    cases.add("break from switch statement. Issue #8387",
+        \\#include <stdlib.h>
+        \\int switcher(int x) {
+        \\    switch (x) {
+        \\        case 0:      // no braces
+        \\            x += 1;
+        \\            break;
+        \\        case 1:      // conditional break
+        \\            if (x == 1) {
+        \\                x += 1;
+        \\                break;
+        \\            }
+        \\            x += 100;
+        \\        case 2: {    // braces with fallthrough
+        \\            x += 1;
+        \\        }
+        \\        case 3:      // fallthrough to return statement
+        \\            x += 1;
+        \\        case 42: {   // random out of order case
+        \\            x += 1;
+        \\            return x;
+        \\        }
+        \\        case 4: {    // break within braces
+        \\            x += 1;
+        \\            break;
+        \\        }
+        \\        case 5:
+        \\            x += 1;  // fallthrough to default
+        \\        default:
+        \\            x += 1;
+        \\    }
+        \\    return x;
+        \\}
+        \\int main(void) {
+        \\    int expected[] = {1, 2, 5, 5, 5, 7, 7};
+        \\    for (int i = 0; i < sizeof(expected) / sizeof(int); i++) {
+        \\        int res = switcher(i);
+        \\        if (res != expected[i]) abort();
+        \\    }
+        \\    if (switcher(42) != 43) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Cast to enum from larger integral type. Issue #6011",
+        \\#include <stdint.h>
+        \\#include <stdlib.h>
+        \\enum Foo { A, B, C };
+        \\static inline enum Foo do_stuff(void) {
+        \\    int64_t i = 1;
+        \\    return (enum Foo)i;
+        \\}
+        \\int main(void) {
+        \\    if (do_stuff() != B) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Render array LHS as grouped node if necessary",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int arr[] = {40, 41, 42, 43};
+        \\    if ((arr + 1)[1] != 42) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("typedef with multiple names",
+        \\#include <stdlib.h>
+        \\typedef struct {
+        \\    char field;
+        \\} a_t, b_t;
+        \\
+        \\int main(void) {
+        \\    a_t a = { .field = 42 };
+        \\    b_t b = a;
+        \\    if (b.field != 42) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("__cleanup__ attribute",
+        \\#include <stdlib.h>
+        \\static int cleanup_count = 0;
+        \\void clean_up(int *final_value) {
+        \\    if (*final_value != cleanup_count++) abort();
+        \\}
+        \\void doit(void) {
+        \\    int a __attribute__ ((__cleanup__(clean_up))) __attribute__ ((unused)) = 2;
+        \\    int b __attribute__ ((__cleanup__(clean_up))) __attribute__ ((unused)) = 1;
+        \\    int c __attribute__ ((__cleanup__(clean_up))) __attribute__ ((unused)) = 0;
+        \\}
+        \\int main(void) {
+        \\    doit();
+        \\    if (cleanup_count != 3) abort();
+        \\    return 0;
+        \\}
+    , "");
 }

@@ -6,7 +6,7 @@
 const magic = 0xeb9f;
 const version = 1;
 
-pub const ext = @import("ext.zig");
+pub const ext = @import("btf_ext.zig");
 
 /// All offsets are in bytes relative to the end of this header
 pub const Header = packed struct {
@@ -92,7 +92,7 @@ pub const IntInfo = packed struct {
 };
 
 test "IntInfo is 32 bits" {
-    std.testing.expectEqual(@bitSizeOf(IntInfo), 32);
+    try std.testing.expectEqual(@bitSizeOf(IntInfo), 32);
 }
 
 /// Enum kind is followed by this struct

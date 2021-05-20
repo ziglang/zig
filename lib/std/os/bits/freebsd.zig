@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("../../std.zig");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
 pub const blksize_t = i32;
@@ -204,6 +204,14 @@ pub const sockaddr = extern struct {
 
     /// actually longer; address value
     data: [14]u8,
+};
+
+pub const sockaddr_storage = extern struct {
+    len: u8,
+    family: sa_family_t,
+    __pad1: [5]u8,
+    __align: i64,
+    __pad2: [112]u8,
 };
 
 pub const sockaddr_in = extern struct {
@@ -834,7 +842,7 @@ pub const sigset_t = extern struct {
 
 pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** _SIG_WORDS };
 
-pub usingnamespace switch (builtin.arch) {
+pub usingnamespace switch (builtin.target.cpu.arch) {
     .x86_64 => struct {
         pub const ucontext_t = extern struct {
             sigmask: sigset_t,
@@ -1003,7 +1011,7 @@ pub const EOWNERDEAD = 96; // Previous owner died
 
 pub const ELAST = 96; // Must be equal largest errno
 
-pub const MINSIGSTKSZ = switch (builtin.arch) {
+pub const MINSIGSTKSZ = switch (builtin.target.cpu.arch) {
     .i386, .x86_64 => 2048,
     .arm, .aarch64 => 4096,
     else => @compileError("MINSIGSTKSZ not defined for this architecture"),
@@ -1459,7 +1467,7 @@ pub const IPPROTO_RESERVED_253 = 253;
 /// Reserved
 pub const IPPROTO_RESERVED_254 = 254;
 
-pub const rlimit_resource = extern enum(c_int) {
+pub const rlimit_resource = enum(c_int) {
     CPU = 0,
     FSIZE = 1,
     DATA = 2,
@@ -1471,13 +1479,13 @@ pub const rlimit_resource = extern enum(c_int) {
     NOFILE = 8,
     SBSIZE = 9,
     VMEM = 10,
-    AS = 10,
     NPTS = 11,
     SWAP = 12,
     KQUEUES = 13,
     UMTXP = 14,
-
     _,
+
+    pub const AS: rlimit_resource = .VMEM;
 };
 
 pub const rlim_t = i64;

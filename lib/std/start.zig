@@ -11,38 +11,44 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
 const tlcsprng = @import("crypto/tlcsprng.zig");
+const native_arch = builtin.cpu.arch;
+const native_os = builtin.os.tag;
 
 var argc_argv_ptr: [*]usize = undefined;
 
-const start_sym_name = if (builtin.arch.isMIPS()) "__start" else "_start";
+const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 
 comptime {
+    // No matter what, we import the root file, so that any export, test, comptime
+    // decls there get run.
+    _ = root;
+
     // The self-hosted compiler is not fully capable of handling all of this start.zig file.
     // Until then, we have simplified logic here for self-hosted. TODO remove this once
     // self-hosted is capable enough to handle all of the real start.zig logic.
     if (builtin.zig_is_stage2) {
         if (builtin.output_mode == .Exe) {
-            if (builtin.link_libc or builtin.object_format == .c) {
-                if (!@hasDecl(root, "main")) {
-                    @export(main2, "main");
+            if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
+                if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
+                    @export(main2, .{ .name = "main" });
                 }
             } else {
                 if (!@hasDecl(root, "_start")) {
-                    @export(_start2, "_start");
+                    @export(_start2, .{ .name = "_start" });
                 }
             }
         }
     } else {
         if (builtin.output_mode == .Lib and builtin.link_mode == .Dynamic) {
-            if (builtin.os.tag == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
+            if (native_os == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
                 @export(_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
             }
         } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
             if (builtin.link_libc and @hasDecl(root, "main")) {
                 if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
-                    @export(main, .{ .name = "main", .linkage = .Weak });
+                    @export(main, .{ .name = "main" });
                 }
-            } else if (builtin.os.tag == .windows) {
+            } else if (native_os == .windows) {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
                 {
@@ -56,11 +62,11 @@ comptime {
                 {
                     @export(wWinMainCRTStartup, .{ .name = "wWinMainCRTStartup" });
                 }
-            } else if (builtin.os.tag == .uefi) {
+            } else if (native_os == .uefi) {
                 if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
-            } else if (builtin.arch.isWasm() and builtin.os.tag == .freestanding) {
+            } else if (native_arch.isWasm() and native_os == .freestanding) {
                 if (!@hasDecl(root, start_sym_name)) @export(wasm_freestanding_start, .{ .name = start_sym_name });
-            } else if (builtin.os.tag != .other and builtin.os.tag != .freestanding) {
+            } else if (native_os != .other and native_os != .freestanding) {
                 if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
             }
         }
@@ -79,8 +85,8 @@ fn _start2() callconv(.Naked) noreturn {
     exit2(0);
 }
 
-fn exit2(code: u8) noreturn {
-    switch (builtin.arch) {
+fn exit2(code: usize) noreturn {
+    switch (builtin.stage2_arch) {
         .x86_64 => {
             asm volatile ("syscall"
                 :
@@ -157,13 +163,13 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
 }
 
 fn _start() callconv(.Naked) noreturn {
-    if (builtin.os.tag == .wasi) {
+    if (native_os == .wasi) {
         // This is marked inline because for some reason LLVM in release mode fails to inline it,
         // and we want fewer call frames in stack traces.
         std.os.wasi.proc_exit(@call(.{ .modifier = .always_inline }, callMain, .{}));
     }
 
-    switch (builtin.arch) {
+    switch (native_arch) {
         .x86_64 => {
             argc_argv_ptr = asm volatile (
                 \\ xor %%rbp, %%rbp
@@ -176,7 +182,7 @@ fn _start() callconv(.Naked) noreturn {
                 : [argc] "={esp}" (-> [*]usize)
             );
         },
-        .aarch64, .aarch64_be, .arm, .armeb => {
+        .aarch64, .aarch64_be, .arm, .armeb, .thumb => {
             argc_argv_ptr = asm volatile (
                 \\ mov fp, #0
                 \\ mov lr, #0
@@ -273,7 +279,7 @@ fn posixCallMainAndExit() noreturn {
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, envp_optional)[0..envp_count];
 
-    if (builtin.os.tag == .linux) {
+    if (native_os == .linux) {
         // Find the beginning of the auxiliary vector
         const auxv = @ptrCast([*]std.elf.Auxv, @alignCast(@alignOf(usize), envp.ptr + envp_count + 1));
         std.os.linux.elf_aux_maybe = auxv;
@@ -291,29 +297,54 @@ fn posixCallMainAndExit() noreturn {
             std.os.linux.tls.initStaticTLS();
         }
 
-        // TODO This is disabled because what should we do when linking libc and this code
-        // does not execute? And also it's causing a test failure in stack traces in release modes.
-
-        //// Linux ignores the stack size from the ELF file, and instead always does 8 MiB. A further
-        //// problem is that it uses PROT_GROWSDOWN which prevents stores to addresses too far down
-        //// the stack and requires "probing". So here we allocate our own stack.
-        //const wanted_stack_size = gnu_stack_phdr.p_memsz;
-        //assert(wanted_stack_size % std.mem.page_size == 0);
-        //// Allocate an extra page as the guard page.
-        //const total_size = wanted_stack_size + std.mem.page_size;
-        //const new_stack = std.os.mmap(
-        //    null,
-        //    total_size,
-        //    std.os.PROT_READ | std.os.PROT_WRITE,
-        //    std.os.MAP_PRIVATE | std.os.MAP_ANONYMOUS,
-        //    -1,
-        //    0,
-        //) catch @panic("out of memory");
-        //std.os.mprotect(new_stack[0..std.mem.page_size], std.os.PROT_NONE) catch {};
-        //std.os.exit(@call(.{.stack = new_stack}, callMainWithArgs, .{argc, argv, envp}));
+        // Linux ignores the stack size from the ELF file, and instead always gives 8 MiB.
+        // Here we look for the stack size in our program headers and tell the kernel,
+        // no, seriously, give me that stack space, I wasn't joking.
+        {
+            var i: usize = 0;
+            var at_phdr: usize = undefined;
+            var at_phnum: usize = undefined;
+            while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
+                switch (auxv[i].a_type) {
+                    std.elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
+                    std.elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
+                    else => continue,
+                }
+            }
+            expandStackSize(at_phdr, at_phnum);
+        }
     }
 
     std.os.exit(@call(.{ .modifier = .always_inline }, callMainWithArgs, .{ argc, argv, envp }));
+}
+
+fn expandStackSize(at_phdr: usize, at_phnum: usize) void {
+    const phdrs = (@intToPtr([*]std.elf.Phdr, at_phdr))[0..at_phnum];
+    for (phdrs) |*phdr| {
+        switch (phdr.p_type) {
+            std.elf.PT_GNU_STACK => {
+                const wanted_stack_size = phdr.p_memsz;
+                assert(wanted_stack_size % std.mem.page_size == 0);
+
+                std.os.setrlimit(.STACK, .{
+                    .cur = wanted_stack_size,
+                    .max = wanted_stack_size,
+                }) catch {
+                    // If this is a debug build, it will be useful to find out
+                    // why this failed. If it is a release build, we allow the
+                    // stack overflow to cause a segmentation fault. Memory safety
+                    // is not compromised, however, depending on runtime state,
+                    // the application may crash due to provided stack space not
+                    // matching the known upper bound.
+                    if (builtin.mode == .Debug) {
+                        @panic("unable to increase stack size");
+                    }
+                };
+                break;
+            },
+            else => {},
+        }
+    }
 }
 
 fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
@@ -329,6 +360,13 @@ fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) 
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
+
+    if (builtin.os.tag == .linux) {
+        const at_phdr = std.c.getauxval(std.elf.AT_PHDR);
+        const at_phnum = std.c.getauxval(std.elf.AT_PHNUM);
+        expandStackSize(at_phdr, at_phnum);
+    }
+
     return @call(.{ .modifier = .always_inline }, callMainWithArgs, .{ @intCast(usize, c_argc), c_argv, envp });
 }
 

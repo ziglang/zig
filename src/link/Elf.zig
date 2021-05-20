@@ -1645,24 +1645,19 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 try argv.append(comp.libcxx_static_lib.?.full_object_path);
             }
 
+            // libunwind dep
+            if (self.base.options.link_libunwind) {
+                try argv.append(comp.libunwind_static_lib.?.full_object_path);
+            }
+
             // libc dep
             if (self.base.options.link_libc) {
                 if (self.base.options.libc_installation != null) {
-                    if (self.base.options.link_mode == .Static) {
-                        try argv.append("--start-group");
-                        try argv.append("-lc");
-                        try argv.append("-lm");
-                        try argv.append("--end-group");
-                    } else {
-                        try argv.append("-lc");
-                        try argv.append("-lm");
-                    }
-
-                    if (target.os.tag == .freebsd or target.os.tag == .netbsd or target.os.tag == .openbsd) {
-                        try argv.append("-lpthread");
-                    }
+                    const needs_grouping = self.base.options.link_mode == .Static;
+                    if (needs_grouping) try argv.append("--start-group");
+                    try argv.appendSlice(target_util.libcFullLinkFlags(target));
+                    if (needs_grouping) try argv.append("--end-group");
                 } else if (target.isGnuLibC()) {
-                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
                     for (glibc.libs) |lib| {
                         const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
                             comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
@@ -1671,13 +1666,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                     }
                     try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
                 } else if (target.isMusl()) {
-                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
                     try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
                         .Static => "libc.a",
                         .Dynamic => "libc.so",
                     }));
-                } else if (self.base.options.link_libcpp) {
-                    try argv.append(comp.libunwind_static_lib.?.full_object_path);
                 } else {
                     unreachable; // Compiler was supposed to emit an error for not being able to provide libc.
                 }
@@ -2191,9 +2183,14 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     if (build_options.have_llvm)
         if (self.llvm_object) |llvm_object| return try llvm_object.updateDecl(module, decl);
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    if (typed_value.val.tag() == .extern_fn) {
+    if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
+    }
+    if (decl.val.castTag(.variable)) |payload| {
+        const variable = payload.data;
+        if (variable.is_extern) {
+            return; // TODO Should we do more when front-end analyzed extern decl?
+        }
     }
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
@@ -2214,7 +2211,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         dbg_info_type_relocs.deinit(self.base.allocator);
     }
 
-    const is_fn: bool = switch (typed_value.ty.zigTypeTag()) {
+    const is_fn: bool = switch (decl.ty.zigTypeTag()) {
         .Fn => true,
         else => false,
     };
@@ -2222,21 +2219,8 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         // For functions we need to add a prologue to the debug line program.
         try dbg_line_buffer.ensureCapacity(26);
 
-        const line_off: u28 = blk: {
-            const tree = decl.container.file_scope.tree;
-            const node_tags = tree.nodes.items(.tag);
-            const node_datas = tree.nodes.items(.data);
-            const token_starts = tree.tokens.items(.start);
-
-            // TODO Look into improving the performance here by adding a token-index-to-line
-            // lookup table. Currently this involves scanning over the source code for newlines.
-            const fn_decl = decl.src_node;
-            assert(node_tags[fn_decl] == .fn_decl);
-            const block = node_datas[fn_decl].rhs;
-            const lbrace = tree.firstToken(block);
-            const line_delta = std.zig.lineDelta(tree.source, 0, token_starts[lbrace]);
-            break :blk @intCast(u28, line_delta);
-        };
+        const func = decl.val.castTag(.function).?.data;
+        const line_off = @intCast(u28, decl.src_line + func.lbrace_line);
 
         const ptr_width_bytes = self.ptrWidthBytes();
         dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{
@@ -2270,7 +2254,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         const decl_name_with_null = decl.name[0 .. mem.lenZ(decl.name) + 1];
         try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 25 + decl_name_with_null.len);
 
-        const fn_ret_type = typed_value.ty.fnReturnType();
+        const fn_ret_type = decl.ty.fnReturnType();
         const fn_ret_has_bits = fn_ret_type.hasCodeGenBits();
         if (fn_ret_has_bits) {
             dbg_info_buffer.appendAssumeCapacity(abbrev_subprogram);
@@ -2299,7 +2283,11 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     } else {
         // TODO implement .debug_info for global variables
     }
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
+    const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+        .ty = decl.ty,
+        .val = decl_val,
+    }, &code_buffer, .{
         .dwarf = .{
             .dbg_line = &dbg_line_buffer,
             .dbg_info = &dbg_info_buffer,
@@ -2316,7 +2304,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         },
     };
 
-    const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    const required_alignment = decl.ty.abiAlignment(self.base.options.target);
 
     const stt_bits: u8 = if (is_fn) elf.STT_FUNC else elf.STT_OBJECT;
 
@@ -2678,7 +2666,6 @@ pub fn updateDeclExports(
     defer tracy.end();
 
     try self.global_symbols.ensureCapacity(self.base.allocator, self.global_symbols.items.len + exports.len);
-    const typed_value = decl.typed_value.most_recent.typed_value;
     if (decl.link.elf.local_sym_index == 0) return;
     const decl_sym = self.local_symbols.items[decl.link.elf.local_sym_index];
 
@@ -2749,19 +2736,8 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
 
     if (self.llvm_object) |_| return;
 
-    const tree = decl.container.file_scope.tree;
-    const node_tags = tree.nodes.items(.tag);
-    const node_datas = tree.nodes.items(.data);
-    const token_starts = tree.tokens.items(.start);
-
-    // TODO Look into improving the performance here by adding a token-index-to-line
-    // lookup table. Currently this involves scanning over the source code for newlines.
-    const fn_decl = decl.src_node;
-    assert(node_tags[fn_decl] == .fn_decl);
-    const block = node_datas[fn_decl].rhs;
-    const lbrace = tree.firstToken(block);
-    const line_delta = std.zig.lineDelta(tree.source, 0, token_starts[lbrace]);
-    const casted_line_off = @intCast(u28, line_delta);
+    const func = decl.val.castTag(.function).?.data;
+    const casted_line_off = @intCast(u28, decl.src_line + func.lbrace_line);
 
     const shdr = &self.sections.items[self.debug_line_section_index.?];
     const file_pos = shdr.sh_offset + decl.fn_link.elf.off + self.getRelocDbgLineOff();

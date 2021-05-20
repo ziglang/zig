@@ -9,9 +9,9 @@ const linux_arm = std.zig.CrossTarget{
 pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("linux_arm hello world", linux_arm);
-        // Regular old hello world
+        // Hello world using _start and inline asm.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub export fn _start() noreturn {
             \\    print();
             \\    exit();
             \\}
@@ -50,9 +50,8 @@ pub fn addCases(ctx: *TestContext) !void {
         // be in a specific order because otherwise the write to r0
         // would overwrite the len parameter which resides in r0
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    print(id(14));
-            \\    exit();
             \\}
             \\
             \\fn id(x: u32) u32 {
@@ -70,16 +69,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    return;
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "Hello, World!\n",
         );
@@ -89,9 +78,8 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("non-leaf functions", linux_arm);
         // Testing non-leaf functions
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    foo();
-            \\    exit();
             \\}
             \\
             \\fn foo() void {
@@ -99,16 +87,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\
             \\fn bar() void {}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
@@ -119,10 +97,9 @@ pub fn addCases(ctx: *TestContext) !void {
 
         // Add two numbers
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    print(2, 4);
             \\    print(1, 7);
-            \\    exit();
             \\}
             \\
             \\fn print(a: u32, b: u32) void {
@@ -136,26 +113,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    return;
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "12345612345678",
         );
 
         // Subtract two numbers
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    print(10, 5);
             \\    print(4, 3);
-            \\    exit();
             \\}
             \\
             \\fn print(a: u32, b: u32) void {
@@ -169,26 +135,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    return;
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "123451",
         );
 
         // Bitwise And
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    print(8, 9);
             \\    print(3, 7);
-            \\    exit();
             \\}
             \\
             \\fn print(a: u32, b: u32) void {
@@ -202,26 +157,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    return;
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "12345678123",
         );
 
         // Bitwise Or
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    print(4, 2);
             \\    print(3, 7);
-            \\    exit();
             \\}
             \\
             \\fn print(a: u32, b: u32) void {
@@ -235,26 +179,15 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    return;
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "1234561234567",
         );
 
         // Bitwise Xor
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    print(42, 42);
             \\    print(3, 5);
-            \\    exit();
             \\}
             \\
             \\fn print(a: u32, b: u32) void {
@@ -268,16 +201,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    return;
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "123456",
         );
@@ -287,25 +210,14 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("if statements", linux_arm);
         // Simple if statement in assert
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    var x: u32 = 123;
             \\    var y: u32 = 42;
             \\    assert(x > y);
-            \\    exit();
             \\}
             \\
             \\fn assert(ok: bool) void {
             \\    if (!ok) unreachable;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "",
@@ -316,7 +228,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("while loops", linux_arm);
         // Simple while loop with assert
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    var x: u32 = 2020;
             \\    var i: u32 = 0;
             \\    while (x > 0) {
@@ -324,21 +236,10 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        i += 1;
             \\    }
             \\    assert(i == 1010);
-            \\    exit();
             \\}
             \\
             \\fn assert(ok: bool) void {
             \\    if (!ok) unreachable;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "",
@@ -349,12 +250,11 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("integer multiplication", linux_arm);
         // Simple u32 integer multiplication
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    assert(mul(1, 1) == 1);
             \\    assert(mul(42, 1) == 42);
             \\    assert(mul(1, 42) == 42);
             \\    assert(mul(123, 42) == 5166);
-            \\    exit();
             \\}
             \\
             \\fn mul(x: u32, y: u32) u32 {
@@ -363,16 +263,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\
             \\fn assert(ok: bool) void {
             \\    if (!ok) unreachable;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
             \\}
         ,
             "",
@@ -385,9 +275,8 @@ pub fn addCases(ctx: *TestContext) !void {
         // callee preserved register, otherwise it will be overwritten
         // by the first parameter to baz.
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    assert(foo() == 43);
-            \\    exit();
             \\}
             \\
             \\fn foo() u32 {
@@ -405,16 +294,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\fn assert(ok: bool) void {
             \\    if (!ok) unreachable;
             \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
-            \\}
         ,
             "",
         );
@@ -423,14 +302,13 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("recursive fibonacci", linux_arm);
         case.addCompareOutput(
-            \\export fn _start() noreturn {
+            \\pub fn main() void {
             \\    assert(fib(0) == 0);
             \\    assert(fib(1) == 1);
             \\    assert(fib(2) == 1);
             \\    assert(fib(3) == 2);
             \\    assert(fib(10) == 55);
             \\    assert(fib(20) == 6765);
-            \\    exit();
             \\}
             \\
             \\fn fib(n: u32) u32 {
@@ -444,15 +322,86 @@ pub fn addCases(ctx: *TestContext) !void {
             \\fn assert(ok: bool) void {
             \\    if (!ok) unreachable;
             \\}
+        ,
+            "",
+        );
+    }
+
+    {
+        var case = ctx.exe("spilling registers", linux_arm);
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    assert(add(3, 4) == 791);
+            \\}
             \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
+            \\fn add(a: u32, b: u32) u32 {
+            \\    const x: u32 = blk: {
+            \\        const c = a + b; // 7
+            \\        const d = a + c; // 10
+            \\        const e = d + b; // 14
+            \\        const f = d + e; // 24
+            \\        const g = e + f; // 38
+            \\        const h = f + g; // 62
+            \\        const i = g + h; // 100
+            \\        const j = i + d; // 110
+            \\        const k = i + j; // 210
+            \\        const l = k + c; // 217
+            \\        const m = l + d; // 227
+            \\        const n = m + e; // 241
+            \\        const o = n + f; // 265
+            \\        const p = o + g; // 303
+            \\        const q = p + h; // 365
+            \\        const r = q + i; // 465
+            \\        const s = r + j; // 575
+            \\        const t = s + k; // 785
+            \\        break :blk t;
+            \\    };
+            \\    const y = x + a; // 788
+            \\    const z = y + a; // 791
+            \\    return z;
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
+            \\}
+        ,
+            "",
+        );
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    assert(addMul(3, 4) == 357747496);
+            \\}
+            \\
+            \\fn addMul(a: u32, b: u32) u32 {
+            \\    const x: u32 = blk: {
+            \\        const c = a + b; // 7
+            \\        const d = a + c; // 10
+            \\        const e = d + b; // 14
+            \\        const f = d + e; // 24
+            \\        const g = e + f; // 38
+            \\        const h = f + g; // 62
+            \\        const i = g + h; // 100
+            \\        const j = i + d; // 110
+            \\        const k = i + j; // 210
+            \\        const l = k + c; // 217
+            \\        const m = l * d; // 2170     
+            \\        const n = m + e; // 2184     
+            \\        const o = n * f; // 52416    
+            \\        const p = o + g; // 52454    
+            \\        const q = p * h; // 3252148  
+            \\        const r = q + i; // 3252248  
+            \\        const s = r * j; // 357747280
+            \\        const t = s + k; // 357747490
+            \\        break :blk t;
+            \\    };
+            \\    const y = x + a; // 357747493
+            \\    const z = y + a; // 357747496
+            \\    return z;
+            \\}
+            \\
+            \\fn assert(ok: bool) void {
+            \\    if (!ok) unreachable;
             \\}
         ,
             "",

@@ -329,26 +329,26 @@ pub fn Reader(
 test "Reader" {
     var buf = "a\x02".*;
     const reader = std.io.fixedBufferStream(&buf).reader();
-    testing.expect((try reader.readByte()) == 'a');
-    testing.expect((try reader.readEnum(enum(u8) {
+    try testing.expect((try reader.readByte()) == 'a');
+    try testing.expect((try reader.readEnum(enum(u8) {
         a = 0,
         b = 99,
         c = 2,
         d = 3,
     }, undefined)) == .c);
-    testing.expectError(error.EndOfStream, reader.readByte());
+    try testing.expectError(error.EndOfStream, reader.readByte());
 }
 
 test "Reader.isBytes" {
     const reader = std.io.fixedBufferStream("foobar").reader();
-    testing.expectEqual(true, try reader.isBytes("foo"));
-    testing.expectEqual(false, try reader.isBytes("qux"));
+    try testing.expectEqual(true, try reader.isBytes("foo"));
+    try testing.expectEqual(false, try reader.isBytes("qux"));
 }
 
 test "Reader.skipBytes" {
     const reader = std.io.fixedBufferStream("foobar").reader();
     try reader.skipBytes(3, .{});
-    testing.expect(try reader.isBytes("bar"));
+    try testing.expect(try reader.isBytes("bar"));
     try reader.skipBytes(0, .{});
-    testing.expectError(error.EndOfStream, reader.skipBytes(1, .{}));
+    try testing.expectError(error.EndOfStream, reader.skipBytes(1, .{}));
 }

@@ -4,7 +4,11 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
-const Error = std.crypto.Error;
+const crypto = std.crypto;
+
+const IdentityElementError = crypto.errors.IdentityElementError;
+const NonCanonicalError = crypto.errors.NonCanonicalError;
+const WeakPublicKeyError = crypto.errors.WeakPublicKeyError;
 
 /// Group operations over Curve25519.
 pub const Curve25519 = struct {
@@ -29,12 +33,12 @@ pub const Curve25519 = struct {
     pub const basePoint = Curve25519{ .x = Fe.curve25519BasePoint };
 
     /// Check that the encoding of a Curve25519 point is canonical.
-    pub fn rejectNonCanonical(s: [32]u8) Error!void {
+    pub fn rejectNonCanonical(s: [32]u8) NonCanonicalError!void {
         return Fe.rejectNonCanonical(s, false);
     }
 
     /// Reject the neutral element.
-    pub fn rejectIdentity(p: Curve25519) Error!void {
+    pub fn rejectIdentity(p: Curve25519) IdentityElementError!void {
         if (p.x.isZero()) {
             return error.IdentityElement;
         }
@@ -45,7 +49,7 @@ pub const Curve25519 = struct {
         return p.dbl().dbl().dbl();
     }
 
-    fn ladder(p: Curve25519, s: [32]u8, comptime bits: usize) Error!Curve25519 {
+    fn ladder(p: Curve25519, s: [32]u8, comptime bits: usize) IdentityElementError!Curve25519 {
         var x1 = p.x;
         var x2 = Fe.one;
         var z2 = Fe.zero;
@@ -86,7 +90,7 @@ pub const Curve25519 = struct {
     /// way to use Curve25519 for a DH operation.
     /// Return error.IdentityElement if the resulting point is
     /// the identity element.
-    pub fn clampedMul(p: Curve25519, s: [32]u8) Error!Curve25519 {
+    pub fn clampedMul(p: Curve25519, s: [32]u8) IdentityElementError!Curve25519 {
         var t: [32]u8 = s;
         scalar.clamp(&t);
         return try ladder(p, t, 255);
@@ -96,16 +100,16 @@ pub const Curve25519 = struct {
     /// Return error.IdentityElement if the resulting point is
     /// the identity element or error.WeakPublicKey if the public
     /// key is a low-order point.
-    pub fn mul(p: Curve25519, s: [32]u8) Error!Curve25519 {
+    pub fn mul(p: Curve25519, s: [32]u8) (IdentityElementError || WeakPublicKeyError)!Curve25519 {
         const cofactor = [_]u8{8} ++ [_]u8{0} ** 31;
-        _ = ladder(p, cofactor, 4) catch |_| return error.WeakPublicKey;
+        _ = ladder(p, cofactor, 4) catch return error.WeakPublicKey;
         return try ladder(p, s, 256);
     }
 
     /// Compute the Curve25519 equivalent to an Edwards25519 point.
-    pub fn fromEdwards25519(p: std.crypto.ecc.Edwards25519) Error!Curve25519 {
+    pub fn fromEdwards25519(p: crypto.ecc.Edwards25519) IdentityElementError!Curve25519 {
         try p.clearCofactor().rejectIdentity();
-        const one = std.crypto.ecc.Edwards25519.Fe.one;
+        const one = crypto.ecc.Edwards25519.Fe.one;
         const x = one.add(p.y).mul(one.sub(p.y).invert()); // xMont=(1+yEd)/(1-yEd)
         return Curve25519{ .x = x };
     }
@@ -116,13 +120,13 @@ test "curve25519" {
     const p = try Curve25519.basePoint.clampedMul(s);
     try p.rejectIdentity();
     var buf: [128]u8 = undefined;
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&p.toBytes())}), "E6F2A4D1C28EE5C7AD0329268255A468AD407D2672824C0C0EB30EA6EF450145");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&p.toBytes())}), "E6F2A4D1C28EE5C7AD0329268255A468AD407D2672824C0C0EB30EA6EF450145");
     const q = try p.clampedMul(s);
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&q.toBytes())}), "3614E119FFE55EC55B87D6B19971A9F4CBC78EFE80BEC55B96392BABCC712537");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&q.toBytes())}), "3614E119FFE55EC55B87D6B19971A9F4CBC78EFE80BEC55B96392BABCC712537");
 
     try Curve25519.rejectNonCanonical(s);
     s[31] |= 0x80;
-    std.testing.expectError(error.NonCanonical, Curve25519.rejectNonCanonical(s));
+    try std.testing.expectError(error.NonCanonical, Curve25519.rejectNonCanonical(s));
 }
 
 test "curve25519 small order check" {
@@ -151,13 +155,13 @@ test "curve25519 small order check" {
         },
     };
     for (small_order_ss) |small_order_s| {
-        std.testing.expectError(error.WeakPublicKey, Curve25519.fromBytes(small_order_s).mul(s));
+        try std.testing.expectError(error.WeakPublicKey, Curve25519.fromBytes(small_order_s).mul(s));
         var extra = small_order_s;
         extra[31] ^= 0x80;
-        std.testing.expectError(error.WeakPublicKey, Curve25519.fromBytes(extra).mul(s));
+        try std.testing.expectError(error.WeakPublicKey, Curve25519.fromBytes(extra).mul(s));
         var valid = small_order_s;
         valid[31] = 0x40;
         s[0] = 0;
-        std.testing.expectError(error.IdentityElement, Curve25519.fromBytes(valid).mul(s));
+        try std.testing.expectError(error.IdentityElement, Curve25519.fromBytes(valid).mul(s));
     }
 }

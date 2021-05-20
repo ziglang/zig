@@ -3,7 +3,7 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
 const std = @import("std.zig");
 const mem = std.mem;
@@ -408,7 +408,7 @@ test "dynamic_library" {
     };
 
     const dynlib = DynLib.open(libname) catch |err| {
-        testing.expect(err == error.FileNotFound);
+        try testing.expect(err == error.FileNotFound);
         return;
     };
 }

@@ -21,7 +21,7 @@ const iovec_const = linux.iovec_const;
 pub const mode_t = usize;
 pub const time_t = isize;
 
-pub const SYS = extern enum(usize) {
+pub const SYS = enum(usize) {
     read = 0,
     write = 1,
     open = 2,
@@ -284,7 +284,6 @@ pub const SYS = extern enum(usize) {
     mknodat = 259,
     fchownat = 260,
     futimesat = 261,
-    newfstatat = 262,
     fstatat = 262,
     unlinkat = 263,
     renameat = 264,

@@ -24,6 +24,10 @@ pub fn isFinite(x: anytype) bool {
             const bits = @bitCast(u64, x);
             return bits & (maxInt(u64) >> 1) < (0x7FF << 52);
         },
+        f128 => {
+            const bits = @bitCast(u128, x);
+            return bits & (maxInt(u128) >> 1) < (0x7FFF << 112);
+        },
         else => {
             @compileError("isFinite not implemented for " ++ @typeName(T));
         },
@@ -31,16 +35,30 @@ pub fn isFinite(x: anytype) bool {
 }
 
 test "math.isFinite" {
-    expect(isFinite(@as(f16, 0.0)));
-    expect(isFinite(@as(f16, -0.0)));
-    expect(isFinite(@as(f32, 0.0)));
-    expect(isFinite(@as(f32, -0.0)));
-    expect(isFinite(@as(f64, 0.0)));
-    expect(isFinite(@as(f64, -0.0)));
-    expect(!isFinite(math.inf(f16)));
-    expect(!isFinite(-math.inf(f16)));
-    expect(!isFinite(math.inf(f32)));
-    expect(!isFinite(-math.inf(f32)));
-    expect(!isFinite(math.inf(f64)));
-    expect(!isFinite(-math.inf(f64)));
+    try expect(isFinite(@as(f16, 0.0)));
+    try expect(isFinite(@as(f16, -0.0)));
+    try expect(isFinite(@as(f32, 0.0)));
+    try expect(isFinite(@as(f32, -0.0)));
+    try expect(isFinite(@as(f64, 0.0)));
+    try expect(isFinite(@as(f64, -0.0)));
+    try expect(isFinite(@as(f128, 0.0)));
+    try expect(isFinite(@as(f128, -0.0)));
+
+    try expect(!isFinite(math.inf(f16)));
+    try expect(!isFinite(-math.inf(f16)));
+    try expect(!isFinite(math.inf(f32)));
+    try expect(!isFinite(-math.inf(f32)));
+    try expect(!isFinite(math.inf(f64)));
+    try expect(!isFinite(-math.inf(f64)));
+    try expect(!isFinite(math.inf(f128)));
+    try expect(!isFinite(-math.inf(f128)));
+
+    try expect(!isFinite(math.nan(f16)));
+    try expect(!isFinite(-math.nan(f16)));
+    try expect(!isFinite(math.nan(f32)));
+    try expect(!isFinite(-math.nan(f32)));
+    try expect(!isFinite(math.nan(f64)));
+    try expect(!isFinite(-math.nan(f64)));
+    try expect(!isFinite(math.nan(f128)));
+    try expect(!isFinite(-math.nan(f128)));
 }

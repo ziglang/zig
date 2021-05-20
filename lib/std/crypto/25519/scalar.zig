@@ -5,7 +5,8 @@
 // and substantial portions of the software.
 const std = @import("std");
 const mem = std.mem;
-const Error = std.crypto.Error;
+
+const NonCanonicalError = std.crypto.errors.NonCanonicalError;
 
 /// 2^252 + 27742317777372353535851937790883648493
 pub const field_size = [32]u8{
@@ -19,7 +20,7 @@ pub const CompressedScalar = [32]u8;
 pub const zero = [_]u8{0} ** 32;
 
 /// Reject a scalar whose encoding is not canonical.
-pub fn rejectNonCanonical(s: [32]u8) Error!void {
+pub fn rejectNonCanonical(s: [32]u8) NonCanonicalError!void {
     var c: u8 = 0;
     var n: u8 = 1;
     var i: usize = 31;
@@ -97,7 +98,7 @@ pub fn sub(a: [32]u8, b: [32]u8) [32]u8 {
     return add(a, neg(b));
 }
 
-/// A scalar in unpacked reprentation
+/// A scalar in unpacked representation
 pub const Scalar = struct {
     const Limbs = [5]u64;
     limbs: Limbs = undefined,
@@ -772,15 +773,15 @@ test "scalar25519" {
     var y = x.toBytes();
     try rejectNonCanonical(y);
     var buf: [128]u8 = undefined;
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&y)}), "1E979B917937F3DE71D18077F961F6CEFF01030405060708010203040506070F");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&y)}), "1E979B917937F3DE71D18077F961F6CEFF01030405060708010203040506070F");
 
     const reduced = reduce(field_size);
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&reduced)}), "0000000000000000000000000000000000000000000000000000000000000000");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&reduced)}), "0000000000000000000000000000000000000000000000000000000000000000");
 }
 
 test "non-canonical scalar25519" {
     const too_targe: [32]u8 = .{ 0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10 };
-    std.testing.expectError(error.NonCanonical, rejectNonCanonical(too_targe));
+    try std.testing.expectError(error.NonCanonical, rejectNonCanonical(too_targe));
 }
 
 test "mulAdd overflow check" {
@@ -789,5 +790,5 @@ test "mulAdd overflow check" {
     const c: [32]u8 = [_]u8{0xff} ** 32;
     const x = mulAdd(a, b, c);
     var buf: [128]u8 = undefined;
-    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&x)}), "D14DF91389432C25AD60FF9791B9FD1D67BEF517D273ECCE3D9A307C1B419903");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&x)}), "D14DF91389432C25AD60FF9791B9FD1D67BEF517D273ECCE3D9A307C1B419903");
 }

@@ -23,6 +23,13 @@ pub const sockaddr = extern struct {
     family: sa_family_t,
     data: [14]u8,
 };
+pub const sockaddr_storage = extern struct {
+    len: u8,
+    family: sa_family_t,
+    __pad1: [5]u8,
+    __align: i64,
+    __pad2: [112]u8,
+};
 pub const sockaddr_in = extern struct {
     len: u8 = @sizeOf(sockaddr_in),
     family: sa_family_t = AF_INET,
@@ -832,6 +839,13 @@ pub const SO_RCVTIMEO = 0x1006;
 pub const SO_ERROR = 0x1007;
 pub const SO_TYPE = 0x1008;
 
+pub const SO_NREAD = 0x1020;
+pub const SO_NKE = 0x1021;
+pub const SO_NOSIGPIPE = 0x1022;
+pub const SO_NOADDRERR = 0x1023;
+pub const SO_NWRITE = 0x1024;
+pub const SO_REUSESHAREUID = 0x1025;
+
 fn wstatus(x: u32) u32 {
     return x & 0o177;
 }
@@ -1521,19 +1535,19 @@ pub const rusage = extern struct {
     nivcsw: isize,
 };
 
-pub const rlimit_resource = extern enum(c_int) {
+pub const rlimit_resource = enum(c_int) {
     CPU = 0,
     FSIZE = 1,
     DATA = 2,
     STACK = 3,
     CORE = 4,
-    AS = 5,
     RSS = 5,
     MEMLOCK = 6,
     NPROC = 7,
     NOFILE = 8,
-
     _,
+
+    pub const AS: rlimit_resource = .RSS;
 };
 
 pub const rlim_t = u64;
@@ -1669,7 +1683,7 @@ pub const TCSANOW = 0; // make change immediate
 pub const TCSADRAIN = 1; // drain output, then change
 pub const TCSAFLUSH = 2; // drain output, flush input
 pub const TCSASOFT = 0x10; // flag - don't alter h.w. state
-pub const TCSA = extern enum(c_uint) {
+pub const TCSA = enum(c_uint) {
     NOW,
     DRAIN,
     FLUSH,
@@ -1737,3 +1751,38 @@ pub const IOCPARM_MASK = 0x1fff;
 fn ior(inout: u32, group: usize, num: usize, len: usize) usize {
     return (inout | ((len & IOCPARM_MASK) << 16) | ((group) << 8) | (num));
 }
+
+// CPU families mapping
+pub const CPUFAMILY = enum(u32) {
+    UNKNOWN = 0,
+    POWERPC_G3 = 0xcee41549,
+    POWERPC_G4 = 0x77c184ae,
+    POWERPC_G5 = 0xed76d8aa,
+    INTEL_6_13 = 0xaa33392b,
+    INTEL_PENRYN = 0x78ea4fbc,
+    INTEL_NEHALEM = 0x6b5a4cd2,
+    INTEL_WESTMERE = 0x573b5eec,
+    INTEL_SANDYBRIDGE = 0x5490b78c,
+    INTEL_IVYBRIDGE = 0x1f65e835,
+    INTEL_HASWELL = 0x10b282dc,
+    INTEL_BROADWELL = 0x582ed09c,
+    INTEL_SKYLAKE = 0x37fc219f,
+    INTEL_KABYLAKE = 0x0f817246,
+    ARM_9 = 0xe73283ae,
+    ARM_11 = 0x8ff620d8,
+    ARM_XSCALE = 0x53b005f5,
+    ARM_12 = 0xbd1b0ae9,
+    ARM_13 = 0x0cc90e64,
+    ARM_14 = 0x96077ef1,
+    ARM_15 = 0xa8511bca,
+    ARM_SWIFT = 0x1e2d6381,
+    ARM_CYCLONE = 0x37a09642,
+    ARM_TYPHOON = 0x2c91a47e,
+    ARM_TWISTER = 0x92fb37c8,
+    ARM_HURRICANE = 0x67ceee93,
+    ARM_MONSOON_MISTRAL = 0xe81e7ef6,
+    ARM_VORTEX_TEMPEST = 0x07d34b9f,
+    ARM_LIGHTNING_THUNDER = 0x462504d2,
+    ARM_FIRESTORM_ICESTORM = 0x1b588bb3,
+    _,
+};

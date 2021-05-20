@@ -820,12 +820,19 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     AstNode *align_expr = ast_parse_byte_align(pc);
     AstNode *section_expr = ast_parse_link_section(pc);
     AstNode *callconv_expr = ast_parse_callconv(pc);
-    Token *anytype = eat_token_if(pc, TokenIdKeywordAnyType);
     Token *exmark = nullptr;
     AstNode *return_type = nullptr;
-    if (anytype == nullptr) {
-        exmark = eat_token_if(pc, TokenIdBang);
-        return_type = ast_expect(pc, ast_parse_type_expr);
+
+    exmark = eat_token_if(pc, TokenIdBang);
+    return_type = ast_parse_type_expr(pc);
+    if (return_type == nullptr) {
+        Token *next = peek_token(pc);
+        ast_error(
+            pc,
+            next,
+            "expected return type (use 'void' to return nothing), found: '%s'",
+            token_name(next->id)
+        );
     }
 
     AstNode *res = ast_create_node(pc, NodeTypeFnProto, first);
@@ -835,7 +842,6 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     res->data.fn_proto.align_expr = align_expr;
     res->data.fn_proto.section_expr = section_expr;
     res->data.fn_proto.callconv_expr = callconv_expr;
-    res->data.fn_proto.return_anytype_token = anytype;
     res->data.fn_proto.auto_err_set = exmark != nullptr;
     res->data.fn_proto.return_type = return_type;
 
@@ -946,10 +952,7 @@ static AstNode *ast_parse_statement(ParseContext *pc) {
 
     Token *suspend = eat_token_if(pc, TokenIdKeywordSuspend);
     if (suspend != nullptr) {
-        AstNode *statement = nullptr;
-        if (eat_token_if(pc, TokenIdSemicolon) == nullptr)
-            statement = ast_expect(pc, ast_parse_block_expr_statement);
-
+        AstNode *statement = ast_expect(pc, ast_parse_block_expr_statement);
         AstNode *res = ast_create_node(pc, NodeTypeSuspend, suspend);
         res->data.suspend.block = statement;
         return res;

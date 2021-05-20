@@ -153,7 +153,7 @@ test "parse" {
     var fixed_buf_alloc = std.heap.FixedBufferAllocator.init(fixed_buf_mem[0..]);
     var alloc = &fixed_buf_alloc.allocator;
 
-    expect(eql(u8, "foo", try parseAlloc(alloc, "\"foo\"")));
-    expect(eql(u8, "foo", try parseAlloc(alloc, "\"f\x6f\x6f\"")));
-    expect(eql(u8, "f💯", try parseAlloc(alloc, "\"f\u{1f4af}\"")));
+    try expect(eql(u8, "foo", try parseAlloc(alloc, "\"foo\"")));
+    try expect(eql(u8, "foo", try parseAlloc(alloc, "\"f\x6f\x6f\"")));
+    try expect(eql(u8, "f💯", try parseAlloc(alloc, "\"f\u{1f4af}\"")));
 }

@@ -85,6 +85,16 @@ const glibc_targets = [_]LibCTarget{
         .abi = MultiAbi{ .specific = Abi.gnueabihf },
     },
     LibCTarget{
+        .name = "csky-linux-gnuabiv2",
+        .arch = MultiArch{ .specific = Arch.csky },
+        .abi = MultiAbi{ .specific = Abi.gnueabihf },
+    },
+    LibCTarget{
+        .name = "csky-linux-gnuabiv2-soft",
+        .arch = MultiArch{ .specific = Arch.csky },
+        .abi = MultiAbi{ .specific = Abi.gnueabi },
+    },
+    LibCTarget{
         .name = "i686-linux-gnu",
         .arch = MultiArch{ .specific = Arch.i386 },
         .abi = MultiAbi{ .specific = Abi.gnu },

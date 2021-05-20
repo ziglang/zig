@@ -19,6 +19,8 @@ namespace std
   class latch
   {
   public:
+    static constexpr ptrdiff_t max() noexcept;
+
     constexpr explicit latch(ptrdiff_t __expected);
     ~latch();
 
@@ -39,6 +41,7 @@ namespace std
 */
 
 #include <__config>
+#include <__availability>
 #include <atomic>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -48,6 +51,9 @@ namespace std
 #ifdef _LIBCPP_HAS_NO_THREADS
 # error <latch> is not supported on this single threaded system
 #endif
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
 
 #if _LIBCPP_STD_VER >= 14
 
@@ -100,5 +106,7 @@ public:
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP_STD_VER >= 14
+
+_LIBCPP_POP_MACROS
 
 #endif //_LIBCPP_LATCH

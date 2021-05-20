@@ -5,6 +5,7 @@
 // and substantial portions of the software.
 const std = @import("std");
 const builtin = std.builtin;
+const arch = std.Target.current.cpu.arch;
 
 const linkage: builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
 
@@ -13,7 +14,7 @@ const linkage: builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak
 // Some architectures support atomic load/stores but no CAS, but we ignore this
 // detail to keep the export logic clean and because we need some kind of CAS to
 // implement the spinlocks.
-const supports_atomic_ops = switch (builtin.arch) {
+const supports_atomic_ops = switch (arch) {
     .msp430, .avr => false,
     .arm, .armeb, .thumb, .thumbeb =>
     // The ARM v6m ISA has no ldrex/strex and so it's impossible to do CAS
@@ -27,7 +28,7 @@ const supports_atomic_ops = switch (builtin.arch) {
 // The size (in bytes) of the biggest object that the architecture can
 // load/store atomically.
 // Objects bigger than this threshold require the use of a lock.
-const largest_atomic_size = switch (builtin.arch) {
+const largest_atomic_size = switch (arch) {
     // XXX: On x86/x86_64 we could check the presence of cmpxchg8b/cmpxchg16b
     // and set this parameter accordingly.
     else => @sizeOf(usize),

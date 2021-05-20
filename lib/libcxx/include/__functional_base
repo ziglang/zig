@@ -298,7 +298,7 @@ struct __weak_result_type<_Rp (_Cp::*)(_A1, _A2, _A3...) const volatile>
 template <class _Tp, class ..._Args>
 struct __invoke_return
 {
-    typedef decltype(__invoke(_VSTD::declval<_Tp>(), _VSTD::declval<_Args>()...)) type;
+    typedef decltype(_VSTD::__invoke(declval<_Tp>(), declval<_Args>()...)) type;
 };
 
 #else // defined(_LIBCPP_CXX03_LANG)
@@ -308,64 +308,64 @@ struct __invoke_return
 #endif  // !defined(_LIBCPP_CXX03_LANG)
 
 
-template <class _Ret>
+template <class _Ret, bool = is_void<_Ret>::value>
 struct __invoke_void_return_wrapper
 {
 #ifndef _LIBCPP_CXX03_LANG
     template <class ..._Args>
     static _Ret __call(_Args&&... __args) {
-        return __invoke(_VSTD::forward<_Args>(__args)...);
+        return _VSTD::__invoke(_VSTD::forward<_Args>(__args)...);
     }
 #else
     template <class _Fn>
     static _Ret __call(_Fn __f) {
-        return __invoke(__f);
+        return _VSTD::__invoke(__f);
     }
 
     template <class _Fn, class _A0>
     static _Ret __call(_Fn __f, _A0& __a0) {
-        return __invoke(__f, __a0);
+        return _VSTD::__invoke(__f, __a0);
     }
 
     template <class _Fn, class _A0, class _A1>
     static _Ret __call(_Fn __f, _A0& __a0, _A1& __a1) {
-        return __invoke(__f, __a0, __a1);
+        return _VSTD::__invoke(__f, __a0, __a1);
     }
 
     template <class _Fn, class _A0, class _A1, class _A2>
     static _Ret __call(_Fn __f, _A0& __a0, _A1& __a1, _A2& __a2){
-        return __invoke(__f, __a0, __a1, __a2);
+        return _VSTD::__invoke(__f, __a0, __a1, __a2);
     }
 #endif
 };
 
-template <>
-struct __invoke_void_return_wrapper<void>
+template <class _Ret>
+struct __invoke_void_return_wrapper<_Ret, true>
 {
 #ifndef _LIBCPP_CXX03_LANG
     template <class ..._Args>
     static void __call(_Args&&... __args) {
-        __invoke(_VSTD::forward<_Args>(__args)...);
+        _VSTD::__invoke(_VSTD::forward<_Args>(__args)...);
     }
 #else
     template <class _Fn>
     static void __call(_Fn __f) {
-        __invoke(__f);
+        _VSTD::__invoke(__f);
     }
 
     template <class _Fn, class _A0>
     static void __call(_Fn __f, _A0& __a0) {
-        __invoke(__f, __a0);
+        _VSTD::__invoke(__f, __a0);
     }
 
     template <class _Fn, class _A0, class _A1>
     static void __call(_Fn __f, _A0& __a0, _A1& __a1) {
-        __invoke(__f, __a0, __a1);
+        _VSTD::__invoke(__f, __a0, __a1);
     }
 
     template <class _Fn, class _A0, class _A1, class _A2>
     static void __call(_Fn __f, _A0& __a0, _A1& __a1, _A2& __a2) {
-        __invoke(__f, __a0, __a1, __a2);
+        _VSTD::__invoke(__f, __a0, __a1, __a2);
     }
 #endif
 };
@@ -382,135 +382,138 @@ private:
 
 public:
     // construct/copy/destroy
-    _LIBCPP_INLINE_VISIBILITY reference_wrapper(type& __f) _NOEXCEPT
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    reference_wrapper(type& __f) _NOEXCEPT
         : __f_(_VSTD::addressof(__f)) {}
 #ifndef _LIBCPP_CXX03_LANG
     private: reference_wrapper(type&&); public: // = delete; // do not bind to temps
 #endif
 
     // access
-    _LIBCPP_INLINE_VISIBILITY operator type&    () const _NOEXCEPT {return *__f_;}
-    _LIBCPP_INLINE_VISIBILITY          type& get() const _NOEXCEPT {return *__f_;}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    operator type&() const _NOEXCEPT {return *__f_;}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    type& get() const _NOEXCEPT {return *__f_;}
 
 #ifndef _LIBCPP_CXX03_LANG
     // invoke
     template <class... _ArgTypes>
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
     typename __invoke_of<type&, _ArgTypes...>::type
     operator() (_ArgTypes&&... __args) const {
-        return __invoke(get(), _VSTD::forward<_ArgTypes>(__args)...);
+        return _VSTD::__invoke(get(), _VSTD::forward<_ArgTypes>(__args)...);
     }
 #else
 
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return<type>::type
     operator() () const {
-        return __invoke(get());
+        return _VSTD::__invoke(get());
     }
 
     template <class _A0>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return0<type, _A0>::type
     operator() (_A0& __a0) const {
-        return __invoke(get(), __a0);
+        return _VSTD::__invoke(get(), __a0);
     }
 
     template <class _A0>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return0<type, _A0 const>::type
     operator() (_A0 const& __a0) const {
-        return __invoke(get(), __a0);
+        return _VSTD::__invoke(get(), __a0);
     }
 
     template <class _A0, class _A1>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return1<type, _A0, _A1>::type
     operator() (_A0& __a0, _A1& __a1) const {
-        return __invoke(get(), __a0, __a1);
+        return _VSTD::__invoke(get(), __a0, __a1);
     }
 
     template <class _A0, class _A1>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return1<type, _A0 const, _A1>::type
     operator() (_A0 const& __a0, _A1& __a1) const {
-        return __invoke(get(), __a0, __a1);
+        return _VSTD::__invoke(get(), __a0, __a1);
     }
 
     template <class _A0, class _A1>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return1<type, _A0, _A1 const>::type
     operator() (_A0& __a0, _A1 const& __a1) const {
-        return __invoke(get(), __a0, __a1);
+        return _VSTD::__invoke(get(), __a0, __a1);
     }
 
     template <class _A0, class _A1>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return1<type, _A0 const, _A1 const>::type
     operator() (_A0 const& __a0, _A1 const& __a1) const {
-        return __invoke(get(), __a0, __a1);
+        return _VSTD::__invoke(get(), __a0, __a1);
     }
 
     template <class _A0, class _A1, class _A2>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return2<type, _A0, _A1, _A2>::type
     operator() (_A0& __a0, _A1& __a1, _A2& __a2) const {
-        return __invoke(get(), __a0, __a1, __a2);
+        return _VSTD::__invoke(get(), __a0, __a1, __a2);
     }
 
     template <class _A0, class _A1, class _A2>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return2<type, _A0 const, _A1, _A2>::type
     operator() (_A0 const& __a0, _A1& __a1, _A2& __a2) const {
-        return __invoke(get(), __a0, __a1, __a2);
+        return _VSTD::__invoke(get(), __a0, __a1, __a2);
     }
 
     template <class _A0, class _A1, class _A2>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return2<type, _A0, _A1 const, _A2>::type
     operator() (_A0& __a0, _A1 const& __a1, _A2& __a2) const {
-        return __invoke(get(), __a0, __a1, __a2);
+        return _VSTD::__invoke(get(), __a0, __a1, __a2);
     }
 
     template <class _A0, class _A1, class _A2>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return2<type, _A0, _A1, _A2 const>::type
     operator() (_A0& __a0, _A1& __a1, _A2 const& __a2) const {
-        return __invoke(get(), __a0, __a1, __a2);
+        return _VSTD::__invoke(get(), __a0, __a1, __a2);
     }
 
     template <class _A0, class _A1, class _A2>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return2<type, _A0 const, _A1 const, _A2>::type
     operator() (_A0 const& __a0, _A1 const& __a1, _A2& __a2) const {
-        return __invoke(get(), __a0, __a1, __a2);
+        return _VSTD::__invoke(get(), __a0, __a1, __a2);
     }
 
     template <class _A0, class _A1, class _A2>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return2<type, _A0 const, _A1, _A2 const>::type
     operator() (_A0 const& __a0, _A1& __a1, _A2 const& __a2) const {
-        return __invoke(get(), __a0, __a1, __a2);
+        return _VSTD::__invoke(get(), __a0, __a1, __a2);
     }
 
     template <class _A0, class _A1, class _A2>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return2<type, _A0, _A1 const, _A2 const>::type
     operator() (_A0& __a0, _A1 const& __a1, _A2 const& __a2) const {
-        return __invoke(get(), __a0, __a1, __a2);
+        return _VSTD::__invoke(get(), __a0, __a1, __a2);
     }
 
     template <class _A0, class _A1, class _A2>
     _LIBCPP_INLINE_VISIBILITY
     typename __invoke_return2<type, _A0 const, _A1 const, _A2 const>::type
     operator() (_A0 const& __a0, _A1 const& __a1, _A2 const& __a2) const {
-        return __invoke(get(), __a0, __a1, __a2);
+        return _VSTD::__invoke(get(), __a0, __a1, __a2);
     }
 #endif // _LIBCPP_CXX03_LANG
 };
 
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 reference_wrapper<_Tp>
 ref(_Tp& __t) _NOEXCEPT
 {
@@ -518,7 +521,7 @@ ref(_Tp& __t) _NOEXCEPT
 }
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 reference_wrapper<_Tp>
 ref(reference_wrapper<_Tp> __t) _NOEXCEPT
 {
@@ -526,7 +529,7 @@ ref(reference_wrapper<_Tp> __t) _NOEXCEPT
 }
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 reference_wrapper<const _Tp>
 cref(const _Tp& __t) _NOEXCEPT
 {
@@ -534,7 +537,7 @@ cref(const _Tp& __t) _NOEXCEPT
 }
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 reference_wrapper<const _Tp>
 cref(reference_wrapper<_Tp> __t) _NOEXCEPT
 {

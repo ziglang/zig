@@ -39,6 +39,7 @@ pub const Tag = enum {
     error_to_int,
     err_set_cast,
     @"export",
+    @"extern",
     fence,
     field,
     field_parent_ptr,
@@ -103,6 +104,7 @@ pub const Tag = enum {
     type_name,
     TypeOf,
     union_init,
+    Vector,
 };
 
 tag: Tag,
@@ -129,7 +131,7 @@ pub const list = list: {
             "@alignCast",
             .{
                 .tag = .align_cast,
-                .param_count = 1,
+                .param_count = 2,
             },
         },
         .{
@@ -388,6 +390,13 @@ pub const list = list: {
             },
         },
         .{
+            "@extern",
+            .{
+                .tag = .@"extern",
+                .param_count = 2,
+            },
+        },
+        .{
             "@fence",
             .{
                 .tag = .fence,
@@ -414,14 +423,14 @@ pub const list = list: {
             "@floatCast",
             .{
                 .tag = .float_cast,
-                .param_count = 1,
+                .param_count = 2,
             },
         },
         .{
             "@floatToInt",
             .{
                 .tag = .float_to_int,
-                .param_count = 1,
+                .param_count = 2,
             },
         },
         .{
@@ -498,7 +507,7 @@ pub const list = list: {
             "@intToFloat",
             .{
                 .tag = .int_to_float,
-                .param_count = 1,
+                .param_count = 2,
             },
         },
         .{
@@ -838,6 +847,13 @@ pub const list = list: {
                 .tag = .union_init,
                 .needs_mem_loc = true,
                 .param_count = 3,
+            },
+        },
+        .{
+            "@Vector",
+            .{
+                .tag = .Vector,
+                .param_count = 2,
             },
         },
     });

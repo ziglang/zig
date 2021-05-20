@@ -88,19 +88,19 @@ pub const Condition = enum(u4) {
 };
 
 test "condition from CompareOperator" {
-    testing.expectEqual(@as(Condition, .eq), Condition.fromCompareOperatorSigned(.eq));
-    testing.expectEqual(@as(Condition, .eq), Condition.fromCompareOperatorUnsigned(.eq));
+    try testing.expectEqual(@as(Condition, .eq), Condition.fromCompareOperatorSigned(.eq));
+    try testing.expectEqual(@as(Condition, .eq), Condition.fromCompareOperatorUnsigned(.eq));
 
-    testing.expectEqual(@as(Condition, .gt), Condition.fromCompareOperatorSigned(.gt));
-    testing.expectEqual(@as(Condition, .hi), Condition.fromCompareOperatorUnsigned(.gt));
+    try testing.expectEqual(@as(Condition, .gt), Condition.fromCompareOperatorSigned(.gt));
+    try testing.expectEqual(@as(Condition, .hi), Condition.fromCompareOperatorUnsigned(.gt));
 
-    testing.expectEqual(@as(Condition, .le), Condition.fromCompareOperatorSigned(.lte));
-    testing.expectEqual(@as(Condition, .ls), Condition.fromCompareOperatorUnsigned(.lte));
+    try testing.expectEqual(@as(Condition, .le), Condition.fromCompareOperatorSigned(.lte));
+    try testing.expectEqual(@as(Condition, .ls), Condition.fromCompareOperatorUnsigned(.lte));
 }
 
 test "negate condition" {
-    testing.expectEqual(@as(Condition, .eq), Condition.ne.negate());
-    testing.expectEqual(@as(Condition, .ne), Condition.eq.negate());
+    try testing.expectEqual(@as(Condition, .eq), Condition.ne.negate());
+    try testing.expectEqual(@as(Condition, .ne), Condition.eq.negate());
 }
 
 /// Represents a register in the ARM instruction set architecture
@@ -175,8 +175,8 @@ pub const Register = enum(u5) {
 };
 
 test "Register.id" {
-    testing.expectEqual(@as(u4, 15), Register.r15.id());
-    testing.expectEqual(@as(u4, 15), Register.pc.id());
+    try testing.expectEqual(@as(u4, 15), Register.r15.id());
+    try testing.expectEqual(@as(u4, 15), Register.pc.id());
 }
 
 /// Program status registers containing flags, mode bits and other
@@ -1225,7 +1225,7 @@ test "serialize instructions" {
 
     for (testcases) |case| {
         const actual = case.inst.toU32();
-        testing.expectEqual(case.expected, actual);
+        try testing.expectEqual(case.expected, actual);
     }
 }
 
@@ -1265,6 +1265,6 @@ test "aliases" {
     };
 
     for (testcases) |case| {
-        testing.expectEqual(case.expected.toU32(), case.actual.toU32());
+        try testing.expectEqual(case.expected.toU32(), case.actual.toU32());
     }
 }

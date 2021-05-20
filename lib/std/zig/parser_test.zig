@@ -4,6 +4,38 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
+test "zig fmt: preserves clobbers in inline asm with stray comma" {
+    try testTransform(
+        \\fn foo() void {
+        \\    asm volatile (""
+        \\        : [_] "" (-> type),
+        \\        :
+        \\        : "clobber"
+        \\    );
+        \\    asm volatile (""
+        \\        :
+        \\        : [_] "" (type),
+        \\        : "clobber"
+        \\    );
+        \\}
+        \\
+    ,
+        \\fn foo() void {
+        \\    asm volatile (""
+        \\        : [_] "" (-> type)
+        \\        :
+        \\        : "clobber"
+        \\    );
+        \\    asm volatile (""
+        \\        :
+        \\        : [_] "" (type)
+        \\        : "clobber"
+        \\    );
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: respect line breaks in struct field value declaration" {
     try testCanonical(
         \\const Foo = struct {
@@ -36,6 +68,21 @@ test "zig fmt: rewrite inline functions as callconv(.Inline)" {
         \\
     ,
         \\fn foo() callconv(.Inline) void {}
+        \\
+    );
+}
+
+// TODO Remove this after zig 0.9.0 is released.
+test "zig fmt: rewrite suspend without block expression" {
+    try testTransform(
+        \\fn foo() void {
+        \\    suspend;
+        \\}
+        \\
+    ,
+        \\fn foo() void {
+        \\    suspend {}
+        \\}
         \\
     );
 }
@@ -941,7 +988,7 @@ test "zig fmt: while else err prong with no block" {
         \\    const result = while (returnError()) |value| {
         \\        break value;
         \\    } else |err| @as(i32, 2);
-        \\    expect(result == 2);
+        \\    try expect(result == 2);
         \\}
         \\
     );
@@ -1315,6 +1362,27 @@ test "zig fmt: 'zig fmt: (off|on)' works in the middle of code" {
     );
 }
 
+test "zig fmt: 'zig fmt: on' indentation is unchanged" {
+    try testCanonical(
+        \\fn initOptionsAndLayouts(output: *Output, context: *Context) !void {
+        \\    // zig fmt: off
+        \\    try output.main_amount.init(output, "main_amount"); errdefer optput.main_amount.deinit();
+        \\    try output.main_factor.init(output, "main_factor"); errdefer optput.main_factor.deinit();
+        \\    try output.view_padding.init(output, "view_padding"); errdefer optput.view_padding.deinit();
+        \\    try output.outer_padding.init(output, "outer_padding"); errdefer optput.outer_padding.deinit();
+        \\    // zig fmt: on
+        \\
+        \\    // zig fmt: off
+        \\    try output.top.init(output, .top); errdefer optput.top.deinit();
+        \\    try output.right.init(output, .right); errdefer optput.right.deinit();
+        \\    try output.bottom.init(output, .bottom); errdefer optput.bottom.deinit();
+        \\    try output.left.init(output, .left); errdefer optput.left.deinit();
+        \\        // zig fmt: on
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: pointer of unknown length" {
     try testCanonical(
         \\fn foo(ptr: [*]u8) void {}
@@ -1540,13 +1608,13 @@ test "zig fmt: if-else with comment before else" {
         \\comptime {
         \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
         \\    if ((hx & 0x7fffffff) != 0x7f800000) {
-        \\        return Complex(f32).new(y - y, y - y);
+        \\        return Complex(f32).init(y - y, y - y);
         \\    } // cexp(-inf +- i inf|nan) = 0 + i0
         \\    else if (hx & 0x80000000 != 0) {
-        \\        return Complex(f32).new(0, 0);
+        \\        return Complex(f32).init(0, 0);
         \\    } // cexp(+inf +- i inf|nan) = inf + i nan
         \\    else {
-        \\        return Complex(f32).new(x, y - y);
+        \\        return Complex(f32).init(x, y - y);
         \\    }
         \\}
         \\
@@ -2199,16 +2267,16 @@ test "zig fmt: line comment between if block and else keyword" {
         \\test "aoeu" {
         \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
         \\    if ((hx & 0x7fffffff) != 0x7f800000) {
-        \\        return Complex(f32).new(y - y, y - y);
+        \\        return Complex(f32).init(y - y, y - y);
         \\    }
         \\    // cexp(-inf +- i inf|nan) = 0 + i0
         \\    else if (hx & 0x80000000 != 0) {
-        \\        return Complex(f32).new(0, 0);
+        \\        return Complex(f32).init(0, 0);
         \\    }
         \\    // cexp(+inf +- i inf|nan) = inf + i nan
         \\    // another comment
         \\    else {
-        \\        return Complex(f32).new(x, y - y);
+        \\        return Complex(f32).init(x, y - y);
         \\    }
         \\}
         \\
@@ -2760,6 +2828,7 @@ test "zig fmt: precedence" {
         \\    a or b and c;
         \\    (a or b) and c;
         \\    (a or b) and c;
+        \\    a == b and c == d;
         \\}
         \\
     );
@@ -3644,9 +3713,9 @@ test "zig fmt: async functions" {
         \\fn simpleAsyncFn() void {
         \\    const a = async a.b();
         \\    x += 1;
-        \\    suspend;
+        \\    suspend {}
         \\    x += 1;
-        \\    suspend;
+        \\    suspend {}
         \\    const p: anyframe->void = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}
@@ -4824,6 +4893,16 @@ test "recovery: missing comma" {
     });
 }
 
+test "recovery: non-associative operators" {
+    try testError(
+        \\const x = a == b == c;
+        \\const x = a == b != c;
+    , &[_]Error{
+        .expected_token,
+        .expected_token,
+    });
+}
+
 test "recovery: extra qualifier" {
     try testError(
         \\const a: *const const u8;
@@ -5001,6 +5080,21 @@ test "recovery: invalid comptime" {
     });
 }
 
+test "recovery: missing block after suspend" {
+    // TODO Enable this after zig 0.9.0 is released.
+    if (true) return error.SkipZigTest;
+
+    try testError(
+        \\fn foo() void {
+        \\    suspend;
+        \\    nosuspend;
+        \\}
+    , &[_]Error{
+        .expected_block_or_expr,
+        .expected_block_or_expr,
+    });
+}
+
 test "recovery: missing block after for/while loops" {
     try testError(
         \\test "" { while (foo) }
@@ -5052,7 +5146,7 @@ test "recovery: missing while rbrace" {
 
 const std = @import("std");
 const mem = std.mem;
-const warn = std.debug.warn;
+const print = std.debug.print;
 const io = std.io;
 const maxInt = std.math.maxInt;
 
@@ -5094,13 +5188,13 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         var failing_allocator = std.testing.FailingAllocator.init(&fixed_allocator.allocator, maxInt(usize));
         var anything_changed: bool = undefined;
         const result_source = try testParse(source, &failing_allocator.allocator, &anything_changed);
-        std.testing.expectEqualStrings(expected_source, result_source);
+        try std.testing.expectEqualStrings(expected_source, result_source);
         const changes_expected = source.ptr != expected_source.ptr;
         if (anything_changed != changes_expected) {
-            warn("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
+            print("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
             return error.TestFailed;
         }
-        std.testing.expect(anything_changed == changes_expected);
+        try std.testing.expect(anything_changed == changes_expected);
         failing_allocator.allocator.free(result_source);
         break :x failing_allocator.index;
     };
@@ -5115,7 +5209,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         } else |err| switch (err) {
             error.OutOfMemory => {
                 if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
-                    warn(
+                    print(
                         "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\n",
                         .{
                             fail_index,
@@ -5129,8 +5223,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
                     return error.MemoryLeakDetected;
                 }
             },
-            error.ParseError => @panic("test failed"),
-            else => @panic("test failed"),
+            else => return err,
         }
     }
 }
@@ -5144,8 +5237,8 @@ fn testError(source: []const u8, expected_errors: []const Error) !void {
     var tree = try std.zig.parse(std.testing.allocator, source);
     defer tree.deinit(std.testing.allocator);
 
-    std.testing.expect(tree.errors.len == expected_errors.len);
+    try std.testing.expectEqual(expected_errors.len, tree.errors.len);
     for (expected_errors) |expected, i| {
-        std.testing.expectEqual(expected, tree.errors[i].tag);
+        try std.testing.expectEqual(expected, tree.errors[i].tag);
     }
 }

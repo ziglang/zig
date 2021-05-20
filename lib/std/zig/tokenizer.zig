@@ -1503,11 +1503,11 @@ pub const Tokenizer = struct {
 };
 
 test "tokenizer" {
-    testTokenize("test", &.{.keyword_test});
+    try testTokenize("test", &.{.keyword_test});
 }
 
 test "line comment followed by top-level comptime" {
-    testTokenize(
+    try testTokenize(
         \\// line comment
         \\comptime {}
         \\
@@ -1519,7 +1519,7 @@ test "line comment followed by top-level comptime" {
 }
 
 test "tokenizer - unknown length pointer and then c pointer" {
-    testTokenize(
+    try testTokenize(
         \\[*]u8
         \\[*c]u8
     , &.{
@@ -1536,72 +1536,72 @@ test "tokenizer - unknown length pointer and then c pointer" {
 }
 
 test "tokenizer - code point literal with hex escape" {
-    testTokenize(
+    try testTokenize(
         \\'\x1b'
     , &.{.char_literal});
-    testTokenize(
+    try testTokenize(
         \\'\x1'
     , &.{ .invalid, .invalid });
 }
 
 test "tokenizer - code point literal with unicode escapes" {
     // Valid unicode escapes
-    testTokenize(
+    try testTokenize(
         \\'\u{3}'
     , &.{.char_literal});
-    testTokenize(
+    try testTokenize(
         \\'\u{01}'
     , &.{.char_literal});
-    testTokenize(
+    try testTokenize(
         \\'\u{2a}'
     , &.{.char_literal});
-    testTokenize(
+    try testTokenize(
         \\'\u{3f9}'
     , &.{.char_literal});
-    testTokenize(
+    try testTokenize(
         \\'\u{6E09aBc1523}'
     , &.{.char_literal});
-    testTokenize(
+    try testTokenize(
         \\"\u{440}"
     , &.{.string_literal});
 
     // Invalid unicode escapes
-    testTokenize(
+    try testTokenize(
         \\'\u'
     , &.{.invalid});
-    testTokenize(
+    try testTokenize(
         \\'\u{{'
     , &.{ .invalid, .invalid });
-    testTokenize(
+    try testTokenize(
         \\'\u{}'
     , &.{ .invalid, .invalid });
-    testTokenize(
+    try testTokenize(
         \\'\u{s}'
     , &.{ .invalid, .invalid });
-    testTokenize(
+    try testTokenize(
         \\'\u{2z}'
     , &.{ .invalid, .invalid });
-    testTokenize(
+    try testTokenize(
         \\'\u{4a'
     , &.{.invalid});
 
     // Test old-style unicode literals
-    testTokenize(
+    try testTokenize(
         \\'\u0333'
     , &.{ .invalid, .invalid });
-    testTokenize(
+    try testTokenize(
         \\'\U0333'
     , &.{ .invalid, .integer_literal, .invalid });
 }
 
 test "tokenizer - code point literal with unicode code point" {
-    testTokenize(
+    try testTokenize(
         \\'💩'
     , &.{.char_literal});
 }
 
 test "tokenizer - float literal e exponent" {
-    testTokenize("a = 4.94065645841246544177e-324;\n", &.{
+    try testTokenize("a = 4.94065645841246544177e-324;\n", &.{
         .identifier,
         .equal,
         .float_literal,
@@ -1610,7 +1610,7 @@ test "tokenizer - float literal e exponent" {
 }
 
 test "tokenizer - float literal p exponent" {
-    testTokenize("a = 0x1.a827999fcef32p+1022;\n", &.{
+    try testTokenize("a = 0x1.a827999fcef32p+1022;\n", &.{
         .identifier,
         .equal,
         .float_literal,
@@ -1619,84 +1619,84 @@ test "tokenizer - float literal p exponent" {
 }
 
 test "tokenizer - chars" {
-    testTokenize("'c'", &.{.char_literal});
+    try testTokenize("'c'", &.{.char_literal});
 }
 
 test "tokenizer - invalid token characters" {
-    testTokenize("#", &.{.invalid});
-    testTokenize("`", &.{.invalid});
-    testTokenize("'c", &.{.invalid});
-    testTokenize("'", &.{.invalid});
-    testTokenize("''", &.{ .invalid, .invalid });
+    try testTokenize("#", &.{.invalid});
+    try testTokenize("`", &.{.invalid});
+    try testTokenize("'c", &.{.invalid});
+    try testTokenize("'", &.{.invalid});
+    try testTokenize("''", &.{ .invalid, .invalid });
 }
 
 test "tokenizer - invalid literal/comment characters" {
-    testTokenize("\"\x00\"", &.{
+    try testTokenize("\"\x00\"", &.{
         .string_literal,
         .invalid,
     });
-    testTokenize("//\x00", &.{
+    try testTokenize("//\x00", &.{
         .invalid,
     });
-    testTokenize("//\x1f", &.{
+    try testTokenize("//\x1f", &.{
         .invalid,
     });
-    testTokenize("//\x7f", &.{
+    try testTokenize("//\x7f", &.{
         .invalid,
     });
 }
 
 test "tokenizer - utf8" {
-    testTokenize("//\xc2\x80", &.{});
-    testTokenize("//\xf4\x8f\xbf\xbf", &.{});
+    try testTokenize("//\xc2\x80", &.{});
+    try testTokenize("//\xf4\x8f\xbf\xbf", &.{});
 }
 
 test "tokenizer - invalid utf8" {
-    testTokenize("//\x80", &.{
+    try testTokenize("//\x80", &.{
         .invalid,
     });
-    testTokenize("//\xbf", &.{
+    try testTokenize("//\xbf", &.{
         .invalid,
     });
-    testTokenize("//\xf8", &.{
+    try testTokenize("//\xf8", &.{
         .invalid,
     });
-    testTokenize("//\xff", &.{
+    try testTokenize("//\xff", &.{
         .invalid,
     });
-    testTokenize("//\xc2\xc0", &.{
+    try testTokenize("//\xc2\xc0", &.{
         .invalid,
     });
-    testTokenize("//\xe0", &.{
+    try testTokenize("//\xe0", &.{
         .invalid,
     });
-    testTokenize("//\xf0", &.{
+    try testTokenize("//\xf0", &.{
         .invalid,
     });
-    testTokenize("//\xf0\x90\x80\xc0", &.{
+    try testTokenize("//\xf0\x90\x80\xc0", &.{
         .invalid,
     });
 }
 
 test "tokenizer - illegal unicode codepoints" {
     // unicode newline characters.U+0085, U+2028, U+2029
-    testTokenize("//\xc2\x84", &.{});
-    testTokenize("//\xc2\x85", &.{
+    try testTokenize("//\xc2\x84", &.{});
+    try testTokenize("//\xc2\x85", &.{
         .invalid,
     });
-    testTokenize("//\xc2\x86", &.{});
-    testTokenize("//\xe2\x80\xa7", &.{});
-    testTokenize("//\xe2\x80\xa8", &.{
+    try testTokenize("//\xc2\x86", &.{});
+    try testTokenize("//\xe2\x80\xa7", &.{});
+    try testTokenize("//\xe2\x80\xa8", &.{
         .invalid,
     });
-    testTokenize("//\xe2\x80\xa9", &.{
+    try testTokenize("//\xe2\x80\xa9", &.{
         .invalid,
     });
-    testTokenize("//\xe2\x80\xaa", &.{});
+    try testTokenize("//\xe2\x80\xaa", &.{});
 }
 
 test "tokenizer - string identifier and builtin fns" {
-    testTokenize(
+    try testTokenize(
         \\const @"if" = @import("std");
     , &.{
         .keyword_const,
@@ -1711,7 +1711,7 @@ test "tokenizer - string identifier and builtin fns" {
 }
 
 test "tokenizer - multiline string literal with literal tab" {
-    testTokenize(
+    try testTokenize(
         \\\\foo	bar
     , &.{
         .multiline_string_literal_line,
@@ -1719,7 +1719,7 @@ test "tokenizer - multiline string literal with literal tab" {
 }
 
 test "tokenizer - comments with literal tab" {
-    testTokenize(
+    try testTokenize(
         \\//foo	bar
         \\//!foo	bar
         \\///foo	bar
@@ -1735,25 +1735,25 @@ test "tokenizer - comments with literal tab" {
 }
 
 test "tokenizer - pipe and then invalid" {
-    testTokenize("||=", &.{
+    try testTokenize("||=", &.{
         .pipe_pipe,
         .equal,
     });
 }
 
 test "tokenizer - line comment and doc comment" {
-    testTokenize("//", &.{});
-    testTokenize("// a / b", &.{});
-    testTokenize("// /", &.{});
-    testTokenize("/// a", &.{.doc_comment});
-    testTokenize("///", &.{.doc_comment});
-    testTokenize("////", &.{});
-    testTokenize("//!", &.{.container_doc_comment});
-    testTokenize("//!!", &.{.container_doc_comment});
+    try testTokenize("//", &.{});
+    try testTokenize("// a / b", &.{});
+    try testTokenize("// /", &.{});
+    try testTokenize("/// a", &.{.doc_comment});
+    try testTokenize("///", &.{.doc_comment});
+    try testTokenize("////", &.{});
+    try testTokenize("//!", &.{.container_doc_comment});
+    try testTokenize("//!!", &.{.container_doc_comment});
 }
 
 test "tokenizer - line comment followed by identifier" {
-    testTokenize(
+    try testTokenize(
         \\    Unexpected,
         \\    // another
         \\    Another,
@@ -1766,14 +1766,14 @@ test "tokenizer - line comment followed by identifier" {
 }
 
 test "tokenizer - UTF-8 BOM is recognized and skipped" {
-    testTokenize("\xEF\xBB\xBFa;\n", &.{
+    try testTokenize("\xEF\xBB\xBFa;\n", &.{
         .identifier,
         .semicolon,
     });
 }
 
 test "correctly parse pointer assignment" {
-    testTokenize("b.*=3;\n", &.{
+    try testTokenize("b.*=3;\n", &.{
         .identifier,
         .period_asterisk,
         .equal,
@@ -1783,14 +1783,14 @@ test "correctly parse pointer assignment" {
 }
 
 test "correctly parse pointer dereference followed by asterisk" {
-    testTokenize("\"b\".* ** 10", &.{
+    try testTokenize("\"b\".* ** 10", &.{
         .string_literal,
         .period_asterisk,
         .asterisk_asterisk,
         .integer_literal,
     });
 
-    testTokenize("(\"b\".*)** 10", &.{
+    try testTokenize("(\"b\".*)** 10", &.{
         .l_paren,
         .string_literal,
         .period_asterisk,
@@ -1799,7 +1799,7 @@ test "correctly parse pointer dereference followed by asterisk" {
         .integer_literal,
     });
 
-    testTokenize("\"b\".*** 10", &.{
+    try testTokenize("\"b\".*** 10", &.{
         .string_literal,
         .invalid_periodasterisks,
         .asterisk_asterisk,
@@ -1808,245 +1808,245 @@ test "correctly parse pointer dereference followed by asterisk" {
 }
 
 test "tokenizer - range literals" {
-    testTokenize("0...9", &.{ .integer_literal, .ellipsis3, .integer_literal });
-    testTokenize("'0'...'9'", &.{ .char_literal, .ellipsis3, .char_literal });
-    testTokenize("0x00...0x09", &.{ .integer_literal, .ellipsis3, .integer_literal });
-    testTokenize("0b00...0b11", &.{ .integer_literal, .ellipsis3, .integer_literal });
-    testTokenize("0o00...0o11", &.{ .integer_literal, .ellipsis3, .integer_literal });
+    try testTokenize("0...9", &.{ .integer_literal, .ellipsis3, .integer_literal });
+    try testTokenize("'0'...'9'", &.{ .char_literal, .ellipsis3, .char_literal });
+    try testTokenize("0x00...0x09", &.{ .integer_literal, .ellipsis3, .integer_literal });
+    try testTokenize("0b00...0b11", &.{ .integer_literal, .ellipsis3, .integer_literal });
+    try testTokenize("0o00...0o11", &.{ .integer_literal, .ellipsis3, .integer_literal });
 }
 
 test "tokenizer - number literals decimal" {
-    testTokenize("0", &.{.integer_literal});
-    testTokenize("1", &.{.integer_literal});
-    testTokenize("2", &.{.integer_literal});
-    testTokenize("3", &.{.integer_literal});
-    testTokenize("4", &.{.integer_literal});
-    testTokenize("5", &.{.integer_literal});
-    testTokenize("6", &.{.integer_literal});
-    testTokenize("7", &.{.integer_literal});
-    testTokenize("8", &.{.integer_literal});
-    testTokenize("9", &.{.integer_literal});
-    testTokenize("1..", &.{ .integer_literal, .ellipsis2 });
-    testTokenize("0a", &.{ .invalid, .identifier });
-    testTokenize("9b", &.{ .invalid, .identifier });
-    testTokenize("1z", &.{ .invalid, .identifier });
-    testTokenize("1z_1", &.{ .invalid, .identifier });
-    testTokenize("9z3", &.{ .invalid, .identifier });
+    try testTokenize("0", &.{.integer_literal});
+    try testTokenize("1", &.{.integer_literal});
+    try testTokenize("2", &.{.integer_literal});
+    try testTokenize("3", &.{.integer_literal});
+    try testTokenize("4", &.{.integer_literal});
+    try testTokenize("5", &.{.integer_literal});
+    try testTokenize("6", &.{.integer_literal});
+    try testTokenize("7", &.{.integer_literal});
+    try testTokenize("8", &.{.integer_literal});
+    try testTokenize("9", &.{.integer_literal});
+    try testTokenize("1..", &.{ .integer_literal, .ellipsis2 });
+    try testTokenize("0a", &.{ .invalid, .identifier });
+    try testTokenize("9b", &.{ .invalid, .identifier });
+    try testTokenize("1z", &.{ .invalid, .identifier });
+    try testTokenize("1z_1", &.{ .invalid, .identifier });
+    try testTokenize("9z3", &.{ .invalid, .identifier });
 
-    testTokenize("0_0", &.{.integer_literal});
-    testTokenize("0001", &.{.integer_literal});
-    testTokenize("01234567890", &.{.integer_literal});
-    testTokenize("012_345_6789_0", &.{.integer_literal});
-    testTokenize("0_1_2_3_4_5_6_7_8_9_0", &.{.integer_literal});
+    try testTokenize("0_0", &.{.integer_literal});
+    try testTokenize("0001", &.{.integer_literal});
+    try testTokenize("01234567890", &.{.integer_literal});
+    try testTokenize("012_345_6789_0", &.{.integer_literal});
+    try testTokenize("0_1_2_3_4_5_6_7_8_9_0", &.{.integer_literal});
 
-    testTokenize("00_", &.{.invalid});
-    testTokenize("0_0_", &.{.invalid});
-    testTokenize("0__0", &.{ .invalid, .identifier });
-    testTokenize("0_0f", &.{ .invalid, .identifier });
-    testTokenize("0_0_f", &.{ .invalid, .identifier });
-    testTokenize("0_0_f_00", &.{ .invalid, .identifier });
-    testTokenize("1_,", &.{ .invalid, .comma });
+    try testTokenize("00_", &.{.invalid});
+    try testTokenize("0_0_", &.{.invalid});
+    try testTokenize("0__0", &.{ .invalid, .identifier });
+    try testTokenize("0_0f", &.{ .invalid, .identifier });
+    try testTokenize("0_0_f", &.{ .invalid, .identifier });
+    try testTokenize("0_0_f_00", &.{ .invalid, .identifier });
+    try testTokenize("1_,", &.{ .invalid, .comma });
 
-    testTokenize("1.", &.{.float_literal});
-    testTokenize("0.0", &.{.float_literal});
-    testTokenize("1.0", &.{.float_literal});
-    testTokenize("10.0", &.{.float_literal});
-    testTokenize("0e0", &.{.float_literal});
-    testTokenize("1e0", &.{.float_literal});
-    testTokenize("1e100", &.{.float_literal});
-    testTokenize("1.e100", &.{.float_literal});
-    testTokenize("1.0e100", &.{.float_literal});
-    testTokenize("1.0e+100", &.{.float_literal});
-    testTokenize("1.0e-100", &.{.float_literal});
-    testTokenize("1_0_0_0.0_0_0_0_0_1e1_0_0_0", &.{.float_literal});
-    testTokenize("1.+", &.{ .float_literal, .plus });
+    try testTokenize("1.", &.{.float_literal});
+    try testTokenize("0.0", &.{.float_literal});
+    try testTokenize("1.0", &.{.float_literal});
+    try testTokenize("10.0", &.{.float_literal});
+    try testTokenize("0e0", &.{.float_literal});
+    try testTokenize("1e0", &.{.float_literal});
+    try testTokenize("1e100", &.{.float_literal});
+    try testTokenize("1.e100", &.{.float_literal});
+    try testTokenize("1.0e100", &.{.float_literal});
+    try testTokenize("1.0e+100", &.{.float_literal});
+    try testTokenize("1.0e-100", &.{.float_literal});
+    try testTokenize("1_0_0_0.0_0_0_0_0_1e1_0_0_0", &.{.float_literal});
+    try testTokenize("1.+", &.{ .float_literal, .plus });
 
-    testTokenize("1e", &.{.invalid});
-    testTokenize("1.0e1f0", &.{ .invalid, .identifier });
-    testTokenize("1.0p100", &.{ .invalid, .identifier });
-    testTokenize("1.0p-100", &.{ .invalid, .identifier, .minus, .integer_literal });
-    testTokenize("1.0p1f0", &.{ .invalid, .identifier });
-    testTokenize("1.0_,", &.{ .invalid, .comma });
-    testTokenize("1_.0", &.{ .invalid, .period, .integer_literal });
-    testTokenize("1._", &.{ .invalid, .identifier });
-    testTokenize("1.a", &.{ .invalid, .identifier });
-    testTokenize("1.z", &.{ .invalid, .identifier });
-    testTokenize("1._0", &.{ .invalid, .identifier });
-    testTokenize("1._+", &.{ .invalid, .identifier, .plus });
-    testTokenize("1._e", &.{ .invalid, .identifier });
-    testTokenize("1.0e", &.{.invalid});
-    testTokenize("1.0e,", &.{ .invalid, .comma });
-    testTokenize("1.0e_", &.{ .invalid, .identifier });
-    testTokenize("1.0e+_", &.{ .invalid, .identifier });
-    testTokenize("1.0e-_", &.{ .invalid, .identifier });
-    testTokenize("1.0e0_+", &.{ .invalid, .plus });
+    try testTokenize("1e", &.{.invalid});
+    try testTokenize("1.0e1f0", &.{ .invalid, .identifier });
+    try testTokenize("1.0p100", &.{ .invalid, .identifier });
+    try testTokenize("1.0p-100", &.{ .invalid, .identifier, .minus, .integer_literal });
+    try testTokenize("1.0p1f0", &.{ .invalid, .identifier });
+    try testTokenize("1.0_,", &.{ .invalid, .comma });
+    try testTokenize("1_.0", &.{ .invalid, .period, .integer_literal });
+    try testTokenize("1._", &.{ .invalid, .identifier });
+    try testTokenize("1.a", &.{ .invalid, .identifier });
+    try testTokenize("1.z", &.{ .invalid, .identifier });
+    try testTokenize("1._0", &.{ .invalid, .identifier });
+    try testTokenize("1._+", &.{ .invalid, .identifier, .plus });
+    try testTokenize("1._e", &.{ .invalid, .identifier });
+    try testTokenize("1.0e", &.{.invalid});
+    try testTokenize("1.0e,", &.{ .invalid, .comma });
+    try testTokenize("1.0e_", &.{ .invalid, .identifier });
+    try testTokenize("1.0e+_", &.{ .invalid, .identifier });
+    try testTokenize("1.0e-_", &.{ .invalid, .identifier });
+    try testTokenize("1.0e0_+", &.{ .invalid, .plus });
 }
 
 test "tokenizer - number literals binary" {
-    testTokenize("0b0", &.{.integer_literal});
-    testTokenize("0b1", &.{.integer_literal});
-    testTokenize("0b2", &.{ .invalid, .integer_literal });
-    testTokenize("0b3", &.{ .invalid, .integer_literal });
-    testTokenize("0b4", &.{ .invalid, .integer_literal });
-    testTokenize("0b5", &.{ .invalid, .integer_literal });
-    testTokenize("0b6", &.{ .invalid, .integer_literal });
-    testTokenize("0b7", &.{ .invalid, .integer_literal });
-    testTokenize("0b8", &.{ .invalid, .integer_literal });
-    testTokenize("0b9", &.{ .invalid, .integer_literal });
-    testTokenize("0ba", &.{ .invalid, .identifier });
-    testTokenize("0bb", &.{ .invalid, .identifier });
-    testTokenize("0bc", &.{ .invalid, .identifier });
-    testTokenize("0bd", &.{ .invalid, .identifier });
-    testTokenize("0be", &.{ .invalid, .identifier });
-    testTokenize("0bf", &.{ .invalid, .identifier });
-    testTokenize("0bz", &.{ .invalid, .identifier });
+    try testTokenize("0b0", &.{.integer_literal});
+    try testTokenize("0b1", &.{.integer_literal});
+    try testTokenize("0b2", &.{ .invalid, .integer_literal });
+    try testTokenize("0b3", &.{ .invalid, .integer_literal });
+    try testTokenize("0b4", &.{ .invalid, .integer_literal });
+    try testTokenize("0b5", &.{ .invalid, .integer_literal });
+    try testTokenize("0b6", &.{ .invalid, .integer_literal });
+    try testTokenize("0b7", &.{ .invalid, .integer_literal });
+    try testTokenize("0b8", &.{ .invalid, .integer_literal });
+    try testTokenize("0b9", &.{ .invalid, .integer_literal });
+    try testTokenize("0ba", &.{ .invalid, .identifier });
+    try testTokenize("0bb", &.{ .invalid, .identifier });
+    try testTokenize("0bc", &.{ .invalid, .identifier });
+    try testTokenize("0bd", &.{ .invalid, .identifier });
+    try testTokenize("0be", &.{ .invalid, .identifier });
+    try testTokenize("0bf", &.{ .invalid, .identifier });
+    try testTokenize("0bz", &.{ .invalid, .identifier });
 
-    testTokenize("0b0000_0000", &.{.integer_literal});
-    testTokenize("0b1111_1111", &.{.integer_literal});
-    testTokenize("0b10_10_10_10", &.{.integer_literal});
-    testTokenize("0b0_1_0_1_0_1_0_1", &.{.integer_literal});
-    testTokenize("0b1.", &.{ .integer_literal, .period });
-    testTokenize("0b1.0", &.{ .integer_literal, .period, .integer_literal });
+    try testTokenize("0b0000_0000", &.{.integer_literal});
+    try testTokenize("0b1111_1111", &.{.integer_literal});
+    try testTokenize("0b10_10_10_10", &.{.integer_literal});
+    try testTokenize("0b0_1_0_1_0_1_0_1", &.{.integer_literal});
+    try testTokenize("0b1.", &.{ .integer_literal, .period });
+    try testTokenize("0b1.0", &.{ .integer_literal, .period, .integer_literal });
 
-    testTokenize("0B0", &.{ .invalid, .identifier });
-    testTokenize("0b_", &.{ .invalid, .identifier });
-    testTokenize("0b_0", &.{ .invalid, .identifier });
-    testTokenize("0b1_", &.{.invalid});
-    testTokenize("0b0__1", &.{ .invalid, .identifier });
-    testTokenize("0b0_1_", &.{.invalid});
-    testTokenize("0b1e", &.{ .invalid, .identifier });
-    testTokenize("0b1p", &.{ .invalid, .identifier });
-    testTokenize("0b1e0", &.{ .invalid, .identifier });
-    testTokenize("0b1p0", &.{ .invalid, .identifier });
-    testTokenize("0b1_,", &.{ .invalid, .comma });
+    try testTokenize("0B0", &.{ .invalid, .identifier });
+    try testTokenize("0b_", &.{ .invalid, .identifier });
+    try testTokenize("0b_0", &.{ .invalid, .identifier });
+    try testTokenize("0b1_", &.{.invalid});
+    try testTokenize("0b0__1", &.{ .invalid, .identifier });
+    try testTokenize("0b0_1_", &.{.invalid});
+    try testTokenize("0b1e", &.{ .invalid, .identifier });
+    try testTokenize("0b1p", &.{ .invalid, .identifier });
+    try testTokenize("0b1e0", &.{ .invalid, .identifier });
+    try testTokenize("0b1p0", &.{ .invalid, .identifier });
+    try testTokenize("0b1_,", &.{ .invalid, .comma });
 }
 
 test "tokenizer - number literals octal" {
-    testTokenize("0o0", &.{.integer_literal});
-    testTokenize("0o1", &.{.integer_literal});
-    testTokenize("0o2", &.{.integer_literal});
-    testTokenize("0o3", &.{.integer_literal});
-    testTokenize("0o4", &.{.integer_literal});
-    testTokenize("0o5", &.{.integer_literal});
-    testTokenize("0o6", &.{.integer_literal});
-    testTokenize("0o7", &.{.integer_literal});
-    testTokenize("0o8", &.{ .invalid, .integer_literal });
-    testTokenize("0o9", &.{ .invalid, .integer_literal });
-    testTokenize("0oa", &.{ .invalid, .identifier });
-    testTokenize("0ob", &.{ .invalid, .identifier });
-    testTokenize("0oc", &.{ .invalid, .identifier });
-    testTokenize("0od", &.{ .invalid, .identifier });
-    testTokenize("0oe", &.{ .invalid, .identifier });
-    testTokenize("0of", &.{ .invalid, .identifier });
-    testTokenize("0oz", &.{ .invalid, .identifier });
+    try testTokenize("0o0", &.{.integer_literal});
+    try testTokenize("0o1", &.{.integer_literal});
+    try testTokenize("0o2", &.{.integer_literal});
+    try testTokenize("0o3", &.{.integer_literal});
+    try testTokenize("0o4", &.{.integer_literal});
+    try testTokenize("0o5", &.{.integer_literal});
+    try testTokenize("0o6", &.{.integer_literal});
+    try testTokenize("0o7", &.{.integer_literal});
+    try testTokenize("0o8", &.{ .invalid, .integer_literal });
+    try testTokenize("0o9", &.{ .invalid, .integer_literal });
+    try testTokenize("0oa", &.{ .invalid, .identifier });
+    try testTokenize("0ob", &.{ .invalid, .identifier });
+    try testTokenize("0oc", &.{ .invalid, .identifier });
+    try testTokenize("0od", &.{ .invalid, .identifier });
+    try testTokenize("0oe", &.{ .invalid, .identifier });
+    try testTokenize("0of", &.{ .invalid, .identifier });
+    try testTokenize("0oz", &.{ .invalid, .identifier });
 
-    testTokenize("0o01234567", &.{.integer_literal});
-    testTokenize("0o0123_4567", &.{.integer_literal});
-    testTokenize("0o01_23_45_67", &.{.integer_literal});
-    testTokenize("0o0_1_2_3_4_5_6_7", &.{.integer_literal});
-    testTokenize("0o7.", &.{ .integer_literal, .period });
-    testTokenize("0o7.0", &.{ .integer_literal, .period, .integer_literal });
+    try testTokenize("0o01234567", &.{.integer_literal});
+    try testTokenize("0o0123_4567", &.{.integer_literal});
+    try testTokenize("0o01_23_45_67", &.{.integer_literal});
+    try testTokenize("0o0_1_2_3_4_5_6_7", &.{.integer_literal});
+    try testTokenize("0o7.", &.{ .integer_literal, .period });
+    try testTokenize("0o7.0", &.{ .integer_literal, .period, .integer_literal });
 
-    testTokenize("0O0", &.{ .invalid, .identifier });
-    testTokenize("0o_", &.{ .invalid, .identifier });
-    testTokenize("0o_0", &.{ .invalid, .identifier });
-    testTokenize("0o1_", &.{.invalid});
-    testTokenize("0o0__1", &.{ .invalid, .identifier });
-    testTokenize("0o0_1_", &.{.invalid});
-    testTokenize("0o1e", &.{ .invalid, .identifier });
-    testTokenize("0o1p", &.{ .invalid, .identifier });
-    testTokenize("0o1e0", &.{ .invalid, .identifier });
-    testTokenize("0o1p0", &.{ .invalid, .identifier });
-    testTokenize("0o_,", &.{ .invalid, .identifier, .comma });
+    try testTokenize("0O0", &.{ .invalid, .identifier });
+    try testTokenize("0o_", &.{ .invalid, .identifier });
+    try testTokenize("0o_0", &.{ .invalid, .identifier });
+    try testTokenize("0o1_", &.{.invalid});
+    try testTokenize("0o0__1", &.{ .invalid, .identifier });
+    try testTokenize("0o0_1_", &.{.invalid});
+    try testTokenize("0o1e", &.{ .invalid, .identifier });
+    try testTokenize("0o1p", &.{ .invalid, .identifier });
+    try testTokenize("0o1e0", &.{ .invalid, .identifier });
+    try testTokenize("0o1p0", &.{ .invalid, .identifier });
+    try testTokenize("0o_,", &.{ .invalid, .identifier, .comma });
 }
 
 test "tokenizer - number literals hexadeciaml" {
-    testTokenize("0x0", &.{.integer_literal});
-    testTokenize("0x1", &.{.integer_literal});
-    testTokenize("0x2", &.{.integer_literal});
-    testTokenize("0x3", &.{.integer_literal});
-    testTokenize("0x4", &.{.integer_literal});
-    testTokenize("0x5", &.{.integer_literal});
-    testTokenize("0x6", &.{.integer_literal});
-    testTokenize("0x7", &.{.integer_literal});
-    testTokenize("0x8", &.{.integer_literal});
-    testTokenize("0x9", &.{.integer_literal});
-    testTokenize("0xa", &.{.integer_literal});
-    testTokenize("0xb", &.{.integer_literal});
-    testTokenize("0xc", &.{.integer_literal});
-    testTokenize("0xd", &.{.integer_literal});
-    testTokenize("0xe", &.{.integer_literal});
-    testTokenize("0xf", &.{.integer_literal});
-    testTokenize("0xA", &.{.integer_literal});
-    testTokenize("0xB", &.{.integer_literal});
-    testTokenize("0xC", &.{.integer_literal});
-    testTokenize("0xD", &.{.integer_literal});
-    testTokenize("0xE", &.{.integer_literal});
-    testTokenize("0xF", &.{.integer_literal});
-    testTokenize("0x0z", &.{ .invalid, .identifier });
-    testTokenize("0xz", &.{ .invalid, .identifier });
+    try testTokenize("0x0", &.{.integer_literal});
+    try testTokenize("0x1", &.{.integer_literal});
+    try testTokenize("0x2", &.{.integer_literal});
+    try testTokenize("0x3", &.{.integer_literal});
+    try testTokenize("0x4", &.{.integer_literal});
+    try testTokenize("0x5", &.{.integer_literal});
+    try testTokenize("0x6", &.{.integer_literal});
+    try testTokenize("0x7", &.{.integer_literal});
+    try testTokenize("0x8", &.{.integer_literal});
+    try testTokenize("0x9", &.{.integer_literal});
+    try testTokenize("0xa", &.{.integer_literal});
+    try testTokenize("0xb", &.{.integer_literal});
+    try testTokenize("0xc", &.{.integer_literal});
+    try testTokenize("0xd", &.{.integer_literal});
+    try testTokenize("0xe", &.{.integer_literal});
+    try testTokenize("0xf", &.{.integer_literal});
+    try testTokenize("0xA", &.{.integer_literal});
+    try testTokenize("0xB", &.{.integer_literal});
+    try testTokenize("0xC", &.{.integer_literal});
+    try testTokenize("0xD", &.{.integer_literal});
+    try testTokenize("0xE", &.{.integer_literal});
+    try testTokenize("0xF", &.{.integer_literal});
+    try testTokenize("0x0z", &.{ .invalid, .identifier });
+    try testTokenize("0xz", &.{ .invalid, .identifier });
 
-    testTokenize("0x0123456789ABCDEF", &.{.integer_literal});
-    testTokenize("0x0123_4567_89AB_CDEF", &.{.integer_literal});
-    testTokenize("0x01_23_45_67_89AB_CDE_F", &.{.integer_literal});
-    testTokenize("0x0_1_2_3_4_5_6_7_8_9_A_B_C_D_E_F", &.{.integer_literal});
+    try testTokenize("0x0123456789ABCDEF", &.{.integer_literal});
+    try testTokenize("0x0123_4567_89AB_CDEF", &.{.integer_literal});
+    try testTokenize("0x01_23_45_67_89AB_CDE_F", &.{.integer_literal});
+    try testTokenize("0x0_1_2_3_4_5_6_7_8_9_A_B_C_D_E_F", &.{.integer_literal});
 
-    testTokenize("0X0", &.{ .invalid, .identifier });
-    testTokenize("0x_", &.{ .invalid, .identifier });
-    testTokenize("0x_1", &.{ .invalid, .identifier });
-    testTokenize("0x1_", &.{.invalid});
-    testTokenize("0x0__1", &.{ .invalid, .identifier });
-    testTokenize("0x0_1_", &.{.invalid});
-    testTokenize("0x_,", &.{ .invalid, .identifier, .comma });
+    try testTokenize("0X0", &.{ .invalid, .identifier });
+    try testTokenize("0x_", &.{ .invalid, .identifier });
+    try testTokenize("0x_1", &.{ .invalid, .identifier });
+    try testTokenize("0x1_", &.{.invalid});
+    try testTokenize("0x0__1", &.{ .invalid, .identifier });
+    try testTokenize("0x0_1_", &.{.invalid});
+    try testTokenize("0x_,", &.{ .invalid, .identifier, .comma });
 
-    testTokenize("0x1.", &.{.float_literal});
-    testTokenize("0x1.0", &.{.float_literal});
-    testTokenize("0xF.", &.{.float_literal});
-    testTokenize("0xF.0", &.{.float_literal});
-    testTokenize("0xF.F", &.{.float_literal});
-    testTokenize("0xF.Fp0", &.{.float_literal});
-    testTokenize("0xF.FP0", &.{.float_literal});
-    testTokenize("0x1p0", &.{.float_literal});
-    testTokenize("0xfp0", &.{.float_literal});
-    testTokenize("0x1.+0xF.", &.{ .float_literal, .plus, .float_literal });
+    try testTokenize("0x1.", &.{.float_literal});
+    try testTokenize("0x1.0", &.{.float_literal});
+    try testTokenize("0xF.", &.{.float_literal});
+    try testTokenize("0xF.0", &.{.float_literal});
+    try testTokenize("0xF.F", &.{.float_literal});
+    try testTokenize("0xF.Fp0", &.{.float_literal});
+    try testTokenize("0xF.FP0", &.{.float_literal});
+    try testTokenize("0x1p0", &.{.float_literal});
+    try testTokenize("0xfp0", &.{.float_literal});
+    try testTokenize("0x1.+0xF.", &.{ .float_literal, .plus, .float_literal });
 
-    testTokenize("0x0123456.789ABCDEF", &.{.float_literal});
-    testTokenize("0x0_123_456.789_ABC_DEF", &.{.float_literal});
-    testTokenize("0x0_1_2_3_4_5_6.7_8_9_A_B_C_D_E_F", &.{.float_literal});
-    testTokenize("0x0p0", &.{.float_literal});
-    testTokenize("0x0.0p0", &.{.float_literal});
-    testTokenize("0xff.ffp10", &.{.float_literal});
-    testTokenize("0xff.ffP10", &.{.float_literal});
-    testTokenize("0xff.p10", &.{.float_literal});
-    testTokenize("0xffp10", &.{.float_literal});
-    testTokenize("0xff_ff.ff_ffp1_0_0_0", &.{.float_literal});
-    testTokenize("0xf_f_f_f.f_f_f_fp+1_000", &.{.float_literal});
-    testTokenize("0xf_f_f_f.f_f_f_fp-1_00_0", &.{.float_literal});
+    try testTokenize("0x0123456.789ABCDEF", &.{.float_literal});
+    try testTokenize("0x0_123_456.789_ABC_DEF", &.{.float_literal});
+    try testTokenize("0x0_1_2_3_4_5_6.7_8_9_A_B_C_D_E_F", &.{.float_literal});
+    try testTokenize("0x0p0", &.{.float_literal});
+    try testTokenize("0x0.0p0", &.{.float_literal});
+    try testTokenize("0xff.ffp10", &.{.float_literal});
+    try testTokenize("0xff.ffP10", &.{.float_literal});
+    try testTokenize("0xff.p10", &.{.float_literal});
+    try testTokenize("0xffp10", &.{.float_literal});
+    try testTokenize("0xff_ff.ff_ffp1_0_0_0", &.{.float_literal});
+    try testTokenize("0xf_f_f_f.f_f_f_fp+1_000", &.{.float_literal});
+    try testTokenize("0xf_f_f_f.f_f_f_fp-1_00_0", &.{.float_literal});
 
-    testTokenize("0x1e", &.{.integer_literal});
-    testTokenize("0x1e0", &.{.integer_literal});
-    testTokenize("0x1p", &.{.invalid});
-    testTokenize("0xfp0z1", &.{ .invalid, .identifier });
-    testTokenize("0xff.ffpff", &.{ .invalid, .identifier });
-    testTokenize("0x0.p", &.{.invalid});
-    testTokenize("0x0.z", &.{ .invalid, .identifier });
-    testTokenize("0x0._", &.{ .invalid, .identifier });
-    testTokenize("0x0_.0", &.{ .invalid, .period, .integer_literal });
-    testTokenize("0x0_.0.0", &.{ .invalid, .period, .float_literal });
-    testTokenize("0x0._0", &.{ .invalid, .identifier });
-    testTokenize("0x0.0_", &.{.invalid});
-    testTokenize("0x0_p0", &.{ .invalid, .identifier });
-    testTokenize("0x0_.p0", &.{ .invalid, .period, .identifier });
-    testTokenize("0x0._p0", &.{ .invalid, .identifier });
-    testTokenize("0x0.0_p0", &.{ .invalid, .identifier });
-    testTokenize("0x0._0p0", &.{ .invalid, .identifier });
-    testTokenize("0x0.0p_0", &.{ .invalid, .identifier });
-    testTokenize("0x0.0p+_0", &.{ .invalid, .identifier });
-    testTokenize("0x0.0p-_0", &.{ .invalid, .identifier });
-    testTokenize("0x0.0p0_", &.{ .invalid, .eof });
+    try testTokenize("0x1e", &.{.integer_literal});
+    try testTokenize("0x1e0", &.{.integer_literal});
+    try testTokenize("0x1p", &.{.invalid});
+    try testTokenize("0xfp0z1", &.{ .invalid, .identifier });
+    try testTokenize("0xff.ffpff", &.{ .invalid, .identifier });
+    try testTokenize("0x0.p", &.{.invalid});
+    try testTokenize("0x0.z", &.{ .invalid, .identifier });
+    try testTokenize("0x0._", &.{ .invalid, .identifier });
+    try testTokenize("0x0_.0", &.{ .invalid, .period, .integer_literal });
+    try testTokenize("0x0_.0.0", &.{ .invalid, .period, .float_literal });
+    try testTokenize("0x0._0", &.{ .invalid, .identifier });
+    try testTokenize("0x0.0_", &.{.invalid});
+    try testTokenize("0x0_p0", &.{ .invalid, .identifier });
+    try testTokenize("0x0_.p0", &.{ .invalid, .period, .identifier });
+    try testTokenize("0x0._p0", &.{ .invalid, .identifier });
+    try testTokenize("0x0.0_p0", &.{ .invalid, .identifier });
+    try testTokenize("0x0._0p0", &.{ .invalid, .identifier });
+    try testTokenize("0x0.0p_0", &.{ .invalid, .identifier });
+    try testTokenize("0x0.0p+_0", &.{ .invalid, .identifier });
+    try testTokenize("0x0.0p-_0", &.{ .invalid, .identifier });
+    try testTokenize("0x0.0p0_", &.{ .invalid, .eof });
 }
 
-fn testTokenize(source: []const u8, expected_tokens: []const Token.Tag) void {
+fn testTokenize(source: []const u8, expected_tokens: []const Token.Tag) !void {
     var tokenizer = Tokenizer.init(source);
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
@@ -2055,6 +2055,6 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Tag) void {
         }
     }
     const last_token = tokenizer.next();
-    std.testing.expect(last_token.tag == .eof);
-    std.testing.expect(last_token.loc.start == source.len);
+    try std.testing.expect(last_token.tag == .eof);
+    try std.testing.expect(last_token.loc.start == source.len);
 }

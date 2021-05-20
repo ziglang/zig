@@ -264,11 +264,13 @@ ZIG_EXTERN_C struct ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigne
 
 ZIG_EXTERN_C void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
 ZIG_EXTERN_C void ZigLLVMSetTailCall(LLVMValueRef Call);
+ZIG_EXTERN_C void ZigLLVMSetCallSret(LLVMValueRef Call, LLVMTypeRef return_type);
 ZIG_EXTERN_C void ZigLLVMFunctionSetPrefixData(LLVMValueRef fn, LLVMValueRef data);
 ZIG_EXTERN_C void ZigLLVMFunctionSetCallingConv(LLVMValueRef function, enum ZigLLVM_CallingConv cc);
 
 ZIG_EXTERN_C void ZigLLVMAddFunctionAttr(LLVMValueRef fn, const char *attr_name, const char *attr_value);
 ZIG_EXTERN_C void ZigLLVMAddByValAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_val);
+ZIG_EXTERN_C void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_val);
 ZIG_EXTERN_C void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn);
 
 ZIG_EXTERN_C void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv);
@@ -288,6 +290,7 @@ enum ZigLLVM_ArchType {
     ZigLLVM_avr,            // AVR: Atmel AVR microcontroller
     ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
     ZigLLVM_bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
+    ZigLLVM_csky,           // CSKY: csky
     ZigLLVM_hexagon,        // Hexagon: hexagon
     ZigLLVM_mips,           // MIPS: mips, mipsallegrex, mipsr6
     ZigLLVM_mipsel,         // MIPSEL: mipsel, mipsallegrexe, mipsr6el
@@ -295,6 +298,7 @@ enum ZigLLVM_ArchType {
     ZigLLVM_mips64el,       // MIPS64EL: mips64el, mips64r6el, mipsn32el, mipsn32r6el
     ZigLLVM_msp430,         // MSP430: msp430
     ZigLLVM_ppc,            // PPC: powerpc
+    ZigLLVM_ppcle,          // PPCLE: powerpc (little endian)
     ZigLLVM_ppc64,          // PPC64: powerpc64, ppu
     ZigLLVM_ppc64le,        // PPC64LE: powerpc64le
     ZigLLVM_r600,           // R600: AMD GPUs HD2XXX - HD6XXX
@@ -340,8 +344,6 @@ enum ZigLLVM_VendorType {
     ZigLLVM_Apple,
     ZigLLVM_PC,
     ZigLLVM_SCEI,
-    ZigLLVM_BGP,
-    ZigLLVM_BGQ,
     ZigLLVM_Freescale,
     ZigLLVM_IBM,
     ZigLLVM_ImaginationTechnologies,
@@ -375,11 +377,11 @@ enum ZigLLVM_OSType {
     ZigLLVM_OpenBSD,
     ZigLLVM_Solaris,
     ZigLLVM_Win32,
+    ZigLLVM_ZOS,
     ZigLLVM_Haiku,
     ZigLLVM_Minix,
     ZigLLVM_RTEMS,
     ZigLLVM_NaCl,       // Native Client
-    ZigLLVM_CNK,        // BG/P Compute-Node Kernel
     ZigLLVM_AIX,
     ZigLLVM_CUDA,       // NVIDIA CUDA
     ZigLLVM_NVCL,       // NVIDIA OpenCL
@@ -409,6 +411,7 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_GNUEABI,
     ZigLLVM_GNUEABIHF,
     ZigLLVM_GNUX32,
+    ZigLLVM_GNUILP32,
     ZigLLVM_CODE16,
     ZigLLVM_EABI,
     ZigLLVM_EABIHF,
@@ -432,6 +435,7 @@ enum ZigLLVM_ObjectFormatType {
 
     ZigLLVM_COFF,
     ZigLLVM_ELF,
+    ZigLLVM_GOFF,
     ZigLLVM_MachO,
     ZigLLVM_Wasm,
     ZigLLVM_XCOFF,

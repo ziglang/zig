@@ -71,6 +71,38 @@ pub const source_version_command = extern struct {
     version: u64,
 };
 
+/// The build_version_command contains the min OS version on which this
+/// binary was built to run for its platform. The list of known platforms and
+/// tool values following it.
+pub const build_version_command = extern struct {
+    /// LC_BUILD_VERSION
+    cmd: u32,
+
+    /// sizeof(struct build_version_command) plus
+    /// ntools * sizeof(struct build_version_command)
+    cmdsize: u32,
+
+    /// platform
+    platform: u32,
+
+    /// X.Y.Z is encoded in nibbles xxxx.yy.zz
+    minos: u32,
+
+    /// X.Y.Z is encoded in nibbles xxxx.yy.zz
+    sdk: u32,
+
+    /// number of tool entries following this
+    ntools: u32,
+};
+
+pub const build_tool_version = extern struct {
+    /// enum for the tool
+    tool: u32,
+
+    /// version number of the tool
+    version: u32,
+};
+
 /// The entry_point_command is a replacement for thread_command.
 /// It is used for main executables to specify the location (file offset)
 /// of main(). If -stack_size was used at link time, the stacksize
@@ -482,6 +514,19 @@ pub const dylib = extern struct {
 
     /// library's compatibility version number
     compatibility_version: u32,
+};
+
+/// The rpath_command contains a path which at runtime should be added to the current
+/// run path used to find @rpath prefixed dylibs.
+pub const rpath_command = extern struct {
+    /// LC_RPATH
+    cmd: u32,
+
+    /// includes string
+    cmdsize: u32,
+
+    /// path to add to run path
+    path: u32,
 };
 
 /// The segment load command indicates that a part of this file is to be
@@ -1314,13 +1359,13 @@ pub const BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM: u8 = 0x40;
 pub const BIND_OPCODE_SET_TYPE_IMM: u8 = 0x50;
 pub const BIND_OPCODE_SET_ADDEND_SLEB: u8 = 0x60;
 pub const BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB: u8 = 0x70;
-pub const BIND_OPCODE_ADD_ADDR_ULEB: 0x80;
+pub const BIND_OPCODE_ADD_ADDR_ULEB: u8 = 0x80;
 pub const BIND_OPCODE_DO_BIND: u8 = 0x90;
 pub const BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB: u8 = 0xa0;
 pub const BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED: u8 = 0xb0;
-pub const BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB: u8 = xc0;
+pub const BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB: u8 = 0xc0;
 
-pub const reloc_type_x86_64 = packed enum(u4) {
+pub const reloc_type_x86_64 = enum(u4) {
     /// for absolute addresses
     X86_64_RELOC_UNSIGNED = 0,
 
@@ -1352,9 +1397,9 @@ pub const reloc_type_x86_64 = packed enum(u4) {
     X86_64_RELOC_TLV,
 };
 
-pub const reloc_type_arm64 = packed enum(u4) {
+pub const reloc_type_arm64 = enum(u4) {
     /// For pointers.
-    ARM64_RELOC_UNSIGNED = 0,
+    ARM64_RELOC_UNSIGNED,
 
     /// Must be followed by a ARM64_RELOC_UNSIGNED.
     ARM64_RELOC_SUBTRACTOR,

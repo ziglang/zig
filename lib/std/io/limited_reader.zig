@@ -43,8 +43,8 @@ test "basic usage" {
     var early_stream = limitedReader(fbs.reader(), 3);
 
     var buf: [5]u8 = undefined;
-    testing.expectEqual(@as(usize, 3), try early_stream.reader().read(&buf));
-    testing.expectEqualSlices(u8, data[0..3], buf[0..3]);
-    testing.expectEqual(@as(usize, 0), try early_stream.reader().read(&buf));
-    testing.expectError(error.EndOfStream, early_stream.reader().skipBytes(10, .{}));
+    try testing.expectEqual(@as(usize, 3), try early_stream.reader().read(&buf));
+    try testing.expectEqualSlices(u8, data[0..3], buf[0..3]);
+    try testing.expectEqual(@as(usize, 0), try early_stream.reader().read(&buf));
+    try testing.expectError(error.EndOfStream, early_stream.reader().skipBytes(10, .{}));
 }

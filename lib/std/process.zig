@@ -181,7 +181,7 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
 
 test "os.getEnvVarOwned" {
     var ga = std.testing.allocator;
-    testing.expectError(error.EnvironmentVariableNotFound, getEnvVarOwned(ga, "BADENV"));
+    try testing.expectError(error.EnvironmentVariableNotFound, getEnvVarOwned(ga, "BADENV"));
 }
 
 pub const ArgIteratorPosix = struct {
@@ -516,10 +516,10 @@ test "args iterator" {
     };
     const given_suffix = std.fs.path.basename(prog_name);
 
-    testing.expect(mem.eql(u8, expected_suffix, given_suffix));
-    testing.expect(it.skip()); // Skip over zig_exe_path, passed to the test runner
-    testing.expect(it.next(ga) == null);
-    testing.expect(!it.skip());
+    try testing.expect(mem.eql(u8, expected_suffix, given_suffix));
+    try testing.expect(it.skip()); // Skip over zig_exe_path, passed to the test runner
+    try testing.expect(it.next(ga) == null);
+    try testing.expect(!it.skip());
 }
 
 /// Caller must call argsFree on result.
@@ -575,14 +575,14 @@ pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const [:0]u8) void {
 
 test "windows arg parsing" {
     const utf16Literal = std.unicode.utf8ToUtf16LeStringLiteral;
-    testWindowsCmdLine(utf16Literal("a   b\tc d"), &[_][]const u8{ "a", "b", "c", "d" });
-    testWindowsCmdLine(utf16Literal("\"abc\" d e"), &[_][]const u8{ "abc", "d", "e" });
-    testWindowsCmdLine(utf16Literal("a\\\\\\b d\"e f\"g h"), &[_][]const u8{ "a\\\\\\b", "de fg", "h" });
-    testWindowsCmdLine(utf16Literal("a\\\\\\\"b c d"), &[_][]const u8{ "a\\\"b", "c", "d" });
-    testWindowsCmdLine(utf16Literal("a\\\\\\\\\"b c\" d e"), &[_][]const u8{ "a\\\\b c", "d", "e" });
-    testWindowsCmdLine(utf16Literal("a   b\tc \"d f"), &[_][]const u8{ "a", "b", "c", "d f" });
+    try testWindowsCmdLine(utf16Literal("a   b\tc d"), &[_][]const u8{ "a", "b", "c", "d" });
+    try testWindowsCmdLine(utf16Literal("\"abc\" d e"), &[_][]const u8{ "abc", "d", "e" });
+    try testWindowsCmdLine(utf16Literal("a\\\\\\b d\"e f\"g h"), &[_][]const u8{ "a\\\\\\b", "de fg", "h" });
+    try testWindowsCmdLine(utf16Literal("a\\\\\\\"b c d"), &[_][]const u8{ "a\\\"b", "c", "d" });
+    try testWindowsCmdLine(utf16Literal("a\\\\\\\\\"b c\" d e"), &[_][]const u8{ "a\\\\b c", "d", "e" });
+    try testWindowsCmdLine(utf16Literal("a   b\tc \"d f"), &[_][]const u8{ "a", "b", "c", "d f" });
 
-    testWindowsCmdLine(utf16Literal("\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\""), &[_][]const u8{
+    try testWindowsCmdLine(utf16Literal("\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\""), &[_][]const u8{
         ".\\..\\zig-cache\\build",
         "bin\\zig.exe",
         ".\\..",
@@ -591,14 +591,14 @@ test "windows arg parsing" {
     });
 }
 
-fn testWindowsCmdLine(input_cmd_line: [*]const u16, expected_args: []const []const u8) void {
+fn testWindowsCmdLine(input_cmd_line: [*]const u16, expected_args: []const []const u8) !void {
     var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
     for (expected_args) |expected_arg| {
         const arg = it.next(std.testing.allocator).? catch unreachable;
         defer std.testing.allocator.free(arg);
-        testing.expectEqualStrings(expected_arg, arg);
+        try testing.expectEqualStrings(expected_arg, arg);
     }
-    testing.expect(it.next(std.testing.allocator) == null);
+    try testing.expect(it.next(std.testing.allocator) == null);
 }
 
 pub const UserInfo = struct {

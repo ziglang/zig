@@ -98,6 +98,7 @@ size_t target_libc_count(void);
 void target_libc_enum(size_t index, ZigTarget *out_target);
 bool target_libc_needs_crti_crtn(const ZigTarget *target);
 
+unsigned target_fn_ptr_align(const ZigTarget *target);
 unsigned target_fn_align(const ZigTarget *target);
 
 #endif

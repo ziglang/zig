@@ -3,7 +3,7 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const std = @import("std.zig");
 const os = std.os;
 const mem = std.mem;
@@ -501,7 +501,9 @@ pub const Dir = struct {
         },
         .linux => struct {
             dir: Dir,
-            buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
+            // The if guard is solely there to prevent compile errors from missing `os.linux.dirent64`
+            // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
+            buf: [8192]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(os.linux.dirent64)),
             index: usize,
             end_index: usize,
 
@@ -570,7 +572,7 @@ pub const Dir = struct {
             /// Memory such as file names referenced in this returned entry becomes invalid
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
-                start_over: while (true) {
+                while (true) {
                     const w = os.windows;
                     if (self.index >= self.end_index) {
                         var io: w.IO_STATUS_BLOCK = undefined;

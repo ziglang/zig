@@ -362,19 +362,31 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
     self.base.file = file;
 
-    // Create dSYM bundle.
-    const d_sym_path = try fmt.allocPrint(allocator, "{s}.dSYM/Contents/Resources/DWARF/", .{sub_path});
-    defer allocator.free(d_sym_path);
-    var d_sym_bundle = try options.emit.?.directory.handle.makeOpenPath(d_sym_path, .{});
-    defer d_sym_bundle.close();
-    const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
-        .truncate = false,
-        .read = true,
-    });
-    self.d_sym = .{
-        .base = self,
-        .file = d_sym_file,
-    };
+    if (!options.strip and options.module != null) {
+        // Create dSYM bundle.
+        const dir = options.module.?.zig_cache_artifact_directory;
+        log.debug("creating {s}.dSYM bundle in {s}", .{ sub_path, dir.path });
+
+        const d_sym_path = try fmt.allocPrint(
+            allocator,
+            "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
+            .{sub_path},
+        );
+        defer allocator.free(d_sym_path);
+
+        var d_sym_bundle = try dir.handle.makeOpenPath(d_sym_path, .{});
+        defer d_sym_bundle.close();
+
+        const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
+            .truncate = false,
+            .read = true,
+        });
+
+        self.d_sym = .{
+            .base = self,
+            .file = d_sym_file,
+        };
+    }
 
     // Index 0 is always a null symbol.
     try self.locals.append(allocator, .{
@@ -442,6 +454,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const main_cmd = &self.load_commands.items[self.main_cmd_index.?].Main;
                 main_cmd.entryoff = addr - text_segment.inner.vmaddr;
+                main_cmd.stacksize = self.base.options.stack_size_override orelse 0;
                 self.load_commands_dirty = true;
             }
             try self.writeRebaseInfoTable();
@@ -535,7 +548,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const target = self.base.options.target;
-    const stack_size = self.base.options.stack_size_override orelse 16777216;
+    const stack_size = self.base.options.stack_size_override orelse 0;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
 
     const id_symlink_basename = "lld.id";
@@ -645,8 +658,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 break :blk true;
             }
 
-            if (self.base.options.link_libcpp or
-                self.base.options.output_mode == .Lib or
+            if (self.base.options.output_mode == .Lib or
                 self.base.options.linker_script != null)
             {
                 // Fallback to LLD in this handful of cases on x86_64 only.
@@ -658,45 +670,174 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
         if (use_zld) {
             var zld = Zld.init(self.base.allocator);
-            defer zld.deinit();
+            defer {
+                zld.closeFiles();
+                zld.deinit();
+            }
             zld.arch = target.cpu.arch;
+            zld.stack_size = stack_size;
 
-            var input_files = std.ArrayList([]const u8).init(self.base.allocator);
-            defer input_files.deinit();
-            // Positional arguments to the linker such as object files.
-            try input_files.appendSlice(self.base.options.objects);
+            // Positional arguments to the linker such as object files and static archives.
+            var positionals = std.ArrayList([]const u8).init(arena);
+
+            try positionals.appendSlice(self.base.options.objects);
+
             for (comp.c_object_table.items()) |entry| {
-                try input_files.append(entry.key.status.success.object_path);
+                try positionals.append(entry.key.status.success.object_path);
             }
+
             if (module_obj_path) |p| {
-                try input_files.append(p);
+                try positionals.append(p);
             }
-            try input_files.append(comp.compiler_rt_static_lib.?.full_object_path);
+
+            try positionals.append(comp.compiler_rt_static_lib.?.full_object_path);
+
             // libc++ dep
             if (self.base.options.link_libcpp) {
-                try input_files.append(comp.libcxxabi_static_lib.?.full_object_path);
-                try input_files.append(comp.libcxx_static_lib.?.full_object_path);
+                try positionals.append(comp.libcxxabi_static_lib.?.full_object_path);
+                try positionals.append(comp.libcxx_static_lib.?.full_object_path);
+            }
+
+            // Shared libraries.
+            var shared_libs = std.ArrayList([]const u8).init(arena);
+            var search_lib_names = std.ArrayList([]const u8).init(arena);
+
+            const system_libs = self.base.options.system_libs.items();
+            for (system_libs) |entry| {
+                const link_lib = entry.key;
+                // By this time, we depend on these libs being dynamically linked libraries and not static libraries
+                // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
+                // case we want to avoid prepending "-l".
+                // TODO I think they should go as an input file instead of via shared_libs.
+                if (Compilation.classifyFileExt(link_lib) == .shared_library) {
+                    try shared_libs.append(link_lib);
+                    continue;
+                }
+
+                try search_lib_names.append(link_lib);
+            }
+
+            var search_lib_dirs = std.ArrayList([]const u8).init(arena);
+
+            for (self.base.options.lib_dirs) |path| {
+                if (fs.path.isAbsolute(path)) {
+                    var candidates = std.ArrayList([]const u8).init(arena);
+                    if (self.base.options.syslibroot) |syslibroot| {
+                        const full_path = try fs.path.join(arena, &[_][]const u8{ syslibroot, path });
+                        try candidates.append(full_path);
+                    }
+                    try candidates.append(path);
+
+                    var found = false;
+                    for (candidates.items) |candidate| {
+                        // Verify that search path actually exists
+                        var tmp = fs.cwd().openDir(candidate, .{}) catch |err| switch (err) {
+                            error.FileNotFound => continue,
+                            else => |e| return e,
+                        };
+                        defer tmp.close();
+
+                        try search_lib_dirs.append(candidate);
+                        found = true;
+                        break;
+                    }
+
+                    if (!found) {
+                        log.warn("directory not found for '-L{s}'", .{path});
+                    }
+                } else {
+                    // Verify that search path actually exists
+                    var tmp = fs.cwd().openDir(path, .{}) catch |err| switch (err) {
+                        error.FileNotFound => {
+                            log.warn("directory not found for '-L{s}'", .{path});
+                            continue;
+                        },
+                        else => |e| return e,
+                    };
+                    defer tmp.close();
+
+                    try search_lib_dirs.append(path);
+                }
+            }
+
+            for (search_lib_names.items) |l_name| {
+                // TODO text-based API, or .tbd files.
+                const l_name_ext = try std.fmt.allocPrint(arena, "lib{s}.dylib", .{l_name});
+
+                var found = false;
+                for (search_lib_dirs.items) |lib_dir| {
+                    const full_path = try fs.path.join(arena, &[_][]const u8{ lib_dir, l_name_ext });
+
+                    // Check if the dylib file exists.
+                    const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
+                        error.FileNotFound => continue,
+                        else => |e| return e,
+                    };
+                    defer tmp.close();
+
+                    try shared_libs.append(full_path);
+                    found = true;
+                    break;
+                }
+
+                if (!found) {
+                    log.warn("library not found for '-l{s}'", .{l_name});
+                    log.warn("Library search paths:", .{});
+                    for (search_lib_dirs.items) |lib_dir| {
+                        log.warn("  {s}", .{lib_dir});
+                    }
+                }
+            }
+
+            // rpaths
+            var rpath_table = std.StringArrayHashMap(void).init(arena);
+            for (self.base.options.rpath_list) |rpath| {
+                if (rpath_table.contains(rpath)) continue;
+                try rpath_table.putNoClobber(rpath, {});
+            }
+
+            var rpaths = std.ArrayList([]const u8).init(arena);
+            try rpaths.ensureCapacity(rpath_table.count());
+            for (rpath_table.items()) |entry| {
+                rpaths.appendAssumeCapacity(entry.key);
             }
 
             if (self.base.options.verbose_link) {
-                var argv = std.ArrayList([]const u8).init(self.base.allocator);
-                defer argv.deinit();
+                var argv = std.ArrayList([]const u8).init(arena);
 
                 try argv.append("zig");
                 try argv.append("ld");
 
-                try argv.ensureCapacity(input_files.items.len);
-                for (input_files.items) |f| {
-                    argv.appendAssumeCapacity(f);
+                if (self.base.options.syslibroot) |syslibroot| {
+                    try argv.append("-syslibroot");
+                    try argv.append(syslibroot);
                 }
+
+                for (rpaths.items) |rpath| {
+                    try argv.append("-rpath");
+                    try argv.append(rpath);
+                }
+
+                try argv.appendSlice(positionals.items);
 
                 try argv.append("-o");
                 try argv.append(full_out_path);
 
+                for (search_lib_names.items) |l_name| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{l_name}));
+                }
+
+                for (self.base.options.lib_dirs) |lib_dir| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir}));
+                }
+
                 Compilation.dump_argv(argv.items);
             }
 
-            try zld.link(input_files.items, full_out_path);
+            try zld.link(positionals.items, full_out_path, .{
+                .shared_libs = shared_libs.items,
+                .rpaths = rpaths.items,
+            });
 
             break :outer;
         }
@@ -1059,6 +1200,15 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
         // TODO shrink the __text section size here
         self.last_text_block = text_block.prev;
     }
+    if (self.d_sym) |*ds| {
+        if (ds.dbg_info_decl_first == text_block) {
+            ds.dbg_info_decl_first = text_block.dbg_info_next;
+        }
+        if (ds.dbg_info_decl_last == text_block) {
+            // TODO shrink the .debug_info section size here
+            ds.dbg_info_decl_last = text_block.dbg_info_prev;
+        }
+    }
 
     if (text_block.prev) |prev| {
         prev.next = text_block.next;
@@ -1076,6 +1226,20 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
         next.prev = text_block.prev;
     } else {
         text_block.next = null;
+    }
+
+    if (text_block.dbg_info_prev) |prev| {
+        prev.dbg_info_next = text_block.dbg_info_next;
+
+        // TODO the free list logic like we do for text blocks above
+    } else {
+        text_block.dbg_info_prev = null;
+    }
+
+    if (text_block.dbg_info_next) |next| {
+        next.dbg_info_prev = text_block.dbg_info_prev;
+    } else {
+        text_block.dbg_info_next = null;
     }
 }
 
@@ -1136,8 +1300,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    if (typed_value.val.tag() == .extern_fn) {
+    if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
 
@@ -1158,7 +1321,10 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     }
 
     const res = if (debug_buffers) |*dbg|
-        try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl.val,
+        }, &code_buffer, .{
             .dwarf = .{
                 .dbg_line = &dbg.dbg_line_buffer,
                 .dbg_info = &dbg.dbg_info_buffer,
@@ -1166,7 +1332,10 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             },
         })
     else
-        try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none);
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl.val,
+        }, &code_buffer, .none);
 
     const code = switch (res) {
         .externally_managed => |x| x,
@@ -1182,7 +1351,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         },
     };
 
-    const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    const required_alignment = decl.ty.abiAlignment(self.base.options.target);
     assert(decl.link.macho.local_sym_index != 0); // Caller forgot to call allocateDeclIndexes()
     const symbol = &self.locals.items[decl.link.macho.local_sym_index];
 
@@ -1191,7 +1360,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
         if (need_realloc) {
             const vaddr = try self.growTextBlock(&decl.link.macho, code.len, required_alignment);
-            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl.name, symbol.n_value, vaddr });
+
+            log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ decl.name, symbol.n_value, vaddr });
+
             if (vaddr != symbol.n_value) {
                 log.debug(" (writing new offset table entry)", .{});
                 self.offset_table.items[decl.link.macho.offset_table_index] = .{
@@ -1201,11 +1372,17 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
                 };
                 try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
             }
+
+            symbol.n_value = vaddr;
         } else if (code.len < decl.link.macho.size) {
             self.shrinkTextBlock(&decl.link.macho, code.len);
         }
         decl.link.macho.size = code.len;
-        symbol.n_strx = try self.updateString(symbol.n_strx, mem.spanZ(decl.name));
+
+        const new_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{mem.spanZ(decl.name)});
+        defer self.base.allocator.free(new_name);
+
+        symbol.n_strx = try self.updateString(symbol.n_strx, new_name);
         symbol.n_type = macho.N_SECT;
         symbol.n_sect = @intCast(u8, self.text_section_index.?) + 1;
         symbol.n_desc = 0;
@@ -1214,10 +1391,14 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         if (self.d_sym) |*ds|
             try ds.writeLocalSymbol(decl.link.macho.local_sym_index);
     } else {
-        const decl_name = mem.spanZ(decl.name);
+        const decl_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{mem.spanZ(decl.name)});
+        defer self.base.allocator.free(decl_name);
+
         const name_str_index = try self.makeString(decl_name);
         const addr = try self.allocateTextBlock(&decl.link.macho, code.len, required_alignment);
+
         log.debug("allocated text block for {s} at 0x{x}", .{ decl_name, addr });
+
         errdefer self.freeTextBlock(&decl.link.macho);
 
         symbol.* = .{
@@ -1351,6 +1532,9 @@ pub fn updateDeclExports(
     const decl_sym = &self.locals.items[decl.link.macho.local_sym_index];
 
     for (exports) |exp| {
+        const exp_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{exp.options.name});
+        defer self.base.allocator.free(exp_name);
+
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, "__text")) {
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
@@ -1361,15 +1545,32 @@ pub fn updateDeclExports(
                 continue;
             }
         }
-        const n_desc = switch (exp.options.linkage) {
-            .Internal => macho.REFERENCE_FLAG_PRIVATE_DEFINED,
-            .Strong => blk: {
-                if (mem.eql(u8, exp.options.name, "_start")) {
+
+        var n_type: u8 = macho.N_SECT | macho.N_EXT;
+        var n_desc: u16 = 0;
+
+        switch (exp.options.linkage) {
+            .Internal => {
+                // Symbol should be hidden, or in MachO lingo, private extern.
+                // We should also mark the symbol as Weak: n_desc == N_WEAK_DEF.
+                // TODO work out when to add N_WEAK_REF.
+                n_type |= macho.N_PEXT;
+                n_desc |= macho.N_WEAK_DEF;
+            },
+            .Strong => {
+                // Check if the export is _main, and note if os.
+                // Otherwise, don't do anything since we already have all the flags
+                // set that we need for global (strong) linkage.
+                // n_type == N_SECT | N_EXT
+                if (mem.eql(u8, exp_name, "_main")) {
                     self.entry_addr = decl_sym.n_value;
                 }
-                break :blk macho.REFERENCE_FLAG_DEFINED;
             },
-            .Weak => macho.N_WEAK_REF,
+            .Weak => {
+                // Weak linkage is specified as part of n_desc field.
+                // Symbol's n_type is like for a symbol with strong linkage.
+                n_desc |= macho.N_WEAK_DEF;
+            },
             .LinkOnce => {
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
@@ -1378,19 +1579,19 @@ pub fn updateDeclExports(
                 );
                 continue;
             },
-        };
-        const n_type = decl_sym.n_type | macho.N_EXT;
+        }
+
         if (exp.link.macho.sym_index) |i| {
             const sym = &self.globals.items[i];
             sym.* = .{
-                .n_strx = try self.updateString(sym.n_strx, exp.options.name),
+                .n_strx = try self.updateString(sym.n_strx, exp_name),
                 .n_type = n_type,
                 .n_sect = @intCast(u8, self.text_section_index.?) + 1,
                 .n_desc = n_desc,
                 .n_value = decl_sym.n_value,
             };
         } else {
-            const name_str_index = try self.makeString(exp.options.name);
+            const name_str_index = try self.makeString(exp_name);
             const i = if (self.globals_free_list.popOrNull()) |i| i else blk: {
                 _ = self.globals.addOneAssumeCapacity();
                 self.export_info_dirty = true;
@@ -1425,6 +1626,29 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
         self.locals.items[decl.link.macho.local_sym_index].n_type = 0;
 
         decl.link.macho.local_sym_index = 0;
+    }
+    if (self.d_sym) |*ds| {
+        // TODO make this logic match freeTextBlock. Maybe abstract the logic
+        // out since the same thing is desired for both.
+        _ = ds.dbg_line_fn_free_list.remove(&decl.fn_link.macho);
+        if (decl.fn_link.macho.prev) |prev| {
+            ds.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
+            prev.next = decl.fn_link.macho.next;
+            if (decl.fn_link.macho.next) |next| {
+                next.prev = prev;
+            } else {
+                ds.dbg_line_fn_last = prev;
+            }
+        } else if (decl.fn_link.macho.next) |next| {
+            ds.dbg_line_fn_first = next;
+            next.prev = null;
+        }
+        if (ds.dbg_line_fn_first == &decl.fn_link.macho) {
+            ds.dbg_line_fn_first = decl.fn_link.macho.next;
+        }
+        if (ds.dbg_line_fn_last == &decl.fn_link.macho) {
+            ds.dbg_line_fn_last = decl.fn_link.macho.prev;
+        }
     }
 }
 
@@ -1947,28 +2171,12 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     }
     if (self.libsystem_cmd_index == null) {
         self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
-            u64,
-            @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH),
-            @sizeOf(u64),
-        ));
-        // TODO Find a way to work out runtime version from the OS version triple stored in std.Target.
-        // In the meantime, we're gonna hardcode to the minimum compatibility version of 0.0.0.
-        const min_version = 0x0;
-        var dylib_cmd = emptyGenericCommandWithData(macho.dylib_command{
-            .cmd = macho.LC_LOAD_DYLIB,
-            .cmdsize = cmdsize,
-            .dylib = .{
-                .name = @sizeOf(macho.dylib_command),
-                .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
-                .current_version = min_version,
-                .compatibility_version = min_version,
-            },
-        });
-        dylib_cmd.data = try self.base.allocator.alloc(u8, cmdsize - dylib_cmd.inner.dylib.name);
-        mem.set(u8, dylib_cmd.data, 0);
-        mem.copy(u8, dylib_cmd.data, mem.spanZ(LIB_SYSTEM_PATH));
+
+        var dylib_cmd = try createLoadDylibCommand(self.base.allocator, mem.spanZ(LIB_SYSTEM_PATH), 2, 0, 0);
+        errdefer dylib_cmd.deinit(self.base.allocator);
+
         try self.load_commands.append(self.base.allocator, .{ .Dylib = dylib_cmd });
+
         self.header_dirty = true;
         self.load_commands_dirty = true;
     }
@@ -2193,9 +2401,12 @@ fn makeString(self: *MachO, bytes: []const u8) !u32 {
 
     try self.string_table.ensureCapacity(self.base.allocator, self.string_table.items.len + bytes.len + 1);
     const offset = @intCast(u32, self.string_table.items.len);
+
     log.debug("writing new string '{s}' into string table at offset 0x{x}", .{ bytes, offset });
+
     self.string_table.appendSliceAssumeCapacity(bytes);
     self.string_table.appendAssumeCapacity(0);
+
     try self.string_table_directory.putNoClobber(
         self.base.allocator,
         try self.base.allocator.dupe(u8, bytes),

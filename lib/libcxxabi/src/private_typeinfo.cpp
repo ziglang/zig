@@ -61,6 +61,16 @@ is_equal(const std::type_info* x, const std::type_info* y, bool use_strcmp)
     return x == y || strcmp(x->name(), y->name()) == 0;
 }
 
+static inline ptrdiff_t update_offset_to_base(const char* vtable,
+                                              ptrdiff_t offset_to_base) {
+#if __has_feature(cxx_abi_relative_vtable)
+  // VTable components are 32 bits in the relative vtables ABI.
+  return *reinterpret_cast<const int32_t*>(vtable + offset_to_base);
+#else
+  return *reinterpret_cast<const ptrdiff_t*>(vtable + offset_to_base);
+#endif
+}
+
 namespace __cxxabiv1
 {
 
@@ -297,7 +307,7 @@ __base_class_type_info::has_unambiguous_public_base(__dynamic_cast_info* info,
         if (__offset_flags & __virtual_mask)
         {
             const char* vtable = *static_cast<const char*const*>(adjustedPtr);
-            offset_to_base = *reinterpret_cast<const ptrdiff_t*>(vtable + offset_to_base);
+            offset_to_base = update_offset_to_base(vtable, offset_to_base);
         }
     }
     __base_type->has_unambiguous_public_base(
@@ -615,10 +625,26 @@ __dynamic_cast(const void *static_ptr, const __class_type_info *static_type,
     // Possible future optimization:  Take advantage of src2dst_offset
 
     // Get (dynamic_ptr, dynamic_type) from static_ptr
+#if __has_feature(cxx_abi_relative_vtable)
+    // The vtable address will point to the first virtual function, which is 8
+    // bytes after the start of the vtable (4 for the offset from top + 4 for the typeinfo component).
+    const int32_t* vtable =
+        *reinterpret_cast<const int32_t* const*>(static_ptr);
+    int32_t offset_to_derived = vtable[-2];
+    const void* dynamic_ptr = static_cast<const char*>(static_ptr) + offset_to_derived;
+
+    // The typeinfo component is now a relative offset to a proxy.
+    int32_t offset_to_ti_proxy = vtable[-1];
+    const uint8_t* ptr_to_ti_proxy =
+        reinterpret_cast<const uint8_t*>(vtable) + offset_to_ti_proxy;
+    const __class_type_info* dynamic_type =
+        *(reinterpret_cast<const __class_type_info* const*>(ptr_to_ti_proxy));
+#else
     void **vtable = *static_cast<void ** const *>(static_ptr);
     ptrdiff_t offset_to_derived = reinterpret_cast<ptrdiff_t>(vtable[-2]);
     const void* dynamic_ptr = static_cast<const char*>(static_ptr) + offset_to_derived;
     const __class_type_info* dynamic_type = static_cast<const __class_type_info*>(vtable[-1]);
+#endif
 
     // Initialize answer to nullptr.  This will be changed from the search
     //    results if a non-null answer is found.  Regardless, this is what will
@@ -641,6 +667,7 @@ __dynamic_cast(const void *static_ptr, const __class_type_info *static_type,
         {
             // We get here only if there is some kind of visibility problem
             //   in client code.
+            static_assert(std::atomic<size_t>::is_always_lock_free, "");
             static std::atomic<size_t> error_count(0);
             size_t error_count_snapshot = error_count.fetch_add(1, std::memory_order_relaxed);
             if ((error_count_snapshot & (error_count_snapshot-1)) == 0)
@@ -667,6 +694,7 @@ __dynamic_cast(const void *static_ptr, const __class_type_info *static_type,
         if (info.path_dst_ptr_to_static_ptr == unknown &&
             info.path_dynamic_ptr_to_static_ptr == unknown)
         {
+            static_assert(std::atomic<size_t>::is_always_lock_free, "");
             static std::atomic<size_t> error_count(0);
             size_t error_count_snapshot = error_count.fetch_add(1, std::memory_order_relaxed);
             if ((error_count_snapshot & (error_count_snapshot-1)) == 0)
@@ -1265,7 +1293,7 @@ __base_class_type_info::search_above_dst(__dynamic_cast_info* info,
     if (__offset_flags & __virtual_mask)
     {
         const char* vtable = *static_cast<const char*const*>(current_ptr);
-        offset_to_base = *reinterpret_cast<const ptrdiff_t*>(vtable + offset_to_base);
+        offset_to_base = update_offset_to_base(vtable, offset_to_base);
     }
     __base_type->search_above_dst(info, dst_ptr,
                                   static_cast<const char*>(current_ptr) + offset_to_base,
@@ -1285,7 +1313,7 @@ __base_class_type_info::search_below_dst(__dynamic_cast_info* info,
     if (__offset_flags & __virtual_mask)
     {
         const char* vtable = *static_cast<const char*const*>(current_ptr);
-        offset_to_base = *reinterpret_cast<const ptrdiff_t*>(vtable + offset_to_base);
+        offset_to_base = update_offset_to_base(vtable, offset_to_base);
     }
     __base_type->search_below_dst(info,
                                   static_cast<const char*>(current_ptr) + offset_to_base,

@@ -94,24 +94,24 @@ test "PeekStream" {
     try ps.putBackByte(10);
 
     var read = try ps.reader().read(dest[0..4]);
-    testing.expect(read == 4);
-    testing.expect(dest[0] == 10);
-    testing.expect(dest[1] == 9);
-    testing.expect(mem.eql(u8, dest[2..4], bytes[0..2]));
+    try testing.expect(read == 4);
+    try testing.expect(dest[0] == 10);
+    try testing.expect(dest[1] == 9);
+    try testing.expect(mem.eql(u8, dest[2..4], bytes[0..2]));
 
     read = try ps.reader().read(dest[0..4]);
-    testing.expect(read == 4);
-    testing.expect(mem.eql(u8, dest[0..4], bytes[2..6]));
+    try testing.expect(read == 4);
+    try testing.expect(mem.eql(u8, dest[0..4], bytes[2..6]));
 
     read = try ps.reader().read(dest[0..4]);
-    testing.expect(read == 2);
-    testing.expect(mem.eql(u8, dest[0..2], bytes[6..8]));
+    try testing.expect(read == 2);
+    try testing.expect(mem.eql(u8, dest[0..2], bytes[6..8]));
 
     try ps.putBackByte(11);
     try ps.putBackByte(12);
 
     read = try ps.reader().read(dest[0..4]);
-    testing.expect(read == 2);
-    testing.expect(dest[0] == 12);
-    testing.expect(dest[1] == 11);
+    try testing.expect(read == 2);
+    try testing.expect(dest[0] == 12);
+    try testing.expect(dest[1] == 11);
 }

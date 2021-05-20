@@ -641,7 +641,7 @@ const reference_test = ReferenceTest{
     },
 };
 
-fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
+fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) !void {
     // Save initial state
     const initial_state = hasher.*;
 
@@ -664,7 +664,7 @@ fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
     // Compare to expected value
     var expected_bytes: [expected_hex.len / 2]u8 = undefined;
     _ = fmt.hexToBytes(expected_bytes[0..], expected_hex[0..]) catch unreachable;
-    testing.expectEqual(actual_bytes, expected_bytes);
+    try testing.expectEqual(actual_bytes, expected_bytes);
 
     // Restore initial state
     hasher.* = initial_state;
@@ -676,8 +676,8 @@ test "BLAKE3 reference test cases" {
     var derive_key = &Blake3.initKdf(reference_test.context_string, .{});
 
     for (reference_test.cases) |t| {
-        testBlake3(hash, t.input_len, t.hash.*);
-        testBlake3(keyed_hash, t.input_len, t.keyed_hash.*);
-        testBlake3(derive_key, t.input_len, t.derive_key.*);
+        try testBlake3(hash, t.input_len, t.hash.*);
+        try testBlake3(keyed_hash, t.input_len, t.keyed_hash.*);
+        try testBlake3(derive_key, t.input_len, t.derive_key.*);
     }
 }

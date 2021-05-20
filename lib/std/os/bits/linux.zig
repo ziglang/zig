@@ -3,21 +3,22 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
+const arch = @import("builtin").target.cpu.arch;
 usingnamespace @import("../bits.zig");
 
-pub usingnamespace switch (builtin.arch) {
+pub usingnamespace switch (arch) {
     .mips, .mipsel => @import("linux/errno-mips.zig"),
+    .sparc, .sparcel, .sparcv9 => @import("linux/errno-sparc.zig"),
     else => @import("linux/errno-generic.zig"),
 };
 
-pub usingnamespace switch (builtin.arch) {
+pub usingnamespace switch (arch) {
     .i386 => @import("linux/i386.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
-    .arm => @import("linux/arm-eabi.zig"),
+    .arm, .thumb => @import("linux/arm-eabi.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparcv9 => @import("linux/sparc64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
@@ -30,9 +31,10 @@ pub usingnamespace @import("linux/netlink.zig");
 pub usingnamespace @import("linux/prctl.zig");
 pub usingnamespace @import("linux/securebits.zig");
 
-const is_mips = builtin.arch.isMIPS();
-const is_ppc64 = builtin.arch.isPPC64();
-const is_sparc = builtin.arch.isSPARC();
+const is_mips = arch.isMIPS();
+const is_ppc = arch.isPPC();
+const is_ppc64 = arch.isPPC64();
+const is_sparc = arch.isSPARC();
 
 pub const pid_t = i32;
 pub const fd_t = i32;
@@ -134,7 +136,7 @@ pub const PROT_WRITE = 0x2;
 pub const PROT_EXEC = 0x4;
 
 /// page may be used for atomic ops
-pub const PROT_SEM = switch (builtin.arch) {
+pub const PROT_SEM = switch (arch) {
     // TODO: also xtensa
     .mips, .mipsel, .mips64, .mips64el => 0x10,
     else => 0x8,
@@ -247,40 +249,78 @@ else
         pub const SIG_SETMASK = 2;
     };
 
-pub const SIGHUP = 1;
-pub const SIGINT = 2;
-pub const SIGQUIT = 3;
-pub const SIGILL = 4;
-pub const SIGTRAP = 5;
-pub const SIGABRT = 6;
-pub const SIGIOT = SIGABRT;
-pub const SIGBUS = 7;
-pub const SIGFPE = 8;
-pub const SIGKILL = 9;
-pub const SIGUSR1 = 10;
-pub const SIGSEGV = 11;
-pub const SIGUSR2 = 12;
-pub const SIGPIPE = 13;
-pub const SIGALRM = 14;
-pub const SIGTERM = 15;
-pub const SIGSTKFLT = 16;
-pub const SIGCHLD = 17;
-pub const SIGCONT = 18;
-pub const SIGSTOP = 19;
-pub const SIGTSTP = 20;
-pub const SIGTTIN = 21;
-pub const SIGTTOU = 22;
-pub const SIGURG = 23;
-pub const SIGXCPU = 24;
-pub const SIGXFSZ = 25;
-pub const SIGVTALRM = 26;
-pub const SIGPROF = 27;
-pub const SIGWINCH = 28;
-pub const SIGIO = 29;
-pub const SIGPOLL = 29;
-pub const SIGPWR = 30;
-pub const SIGSYS = 31;
-pub const SIGUNUSED = SIGSYS;
+pub usingnamespace if (is_sparc) struct {
+    pub const SIGHUP = 1;
+    pub const SIGINT = 2;
+    pub const SIGQUIT = 3;
+    pub const SIGILL = 4;
+    pub const SIGTRAP = 5;
+    pub const SIGABRT = 6;
+    pub const SIGEMT = 7;
+    pub const SIGFPE = 8;
+    pub const SIGKILL = 9;
+    pub const SIGBUS = 10;
+    pub const SIGSEGV = 11;
+    pub const SIGSYS = 12;
+    pub const SIGPIPE = 13;
+    pub const SIGALRM = 14;
+    pub const SIGTERM = 15;
+    pub const SIGURG = 16;
+    pub const SIGSTOP = 17;
+    pub const SIGTSTP = 18;
+    pub const SIGCONT = 19;
+    pub const SIGCHLD = 20;
+    pub const SIGTTIN = 21;
+    pub const SIGTTOU = 22;
+    pub const SIGPOLL = 23;
+    pub const SIGXCPU = 24;
+    pub const SIGXFSZ = 25;
+    pub const SIGVTALRM = 26;
+    pub const SIGPROF = 27;
+    pub const SIGWINCH = 28;
+    pub const SIGLOST = 29;
+    pub const SIGUSR1 = 30;
+    pub const SIGUSR2 = 31;
+    pub const SIGIOT = SIGABRT;
+    pub const SIGCLD = SIGCHLD;
+    pub const SIGPWR = SIGLOST;
+    pub const SIGIO = SIGPOLL;
+} else struct {
+    pub const SIGHUP = 1;
+    pub const SIGINT = 2;
+    pub const SIGQUIT = 3;
+    pub const SIGILL = 4;
+    pub const SIGTRAP = 5;
+    pub const SIGABRT = 6;
+    pub const SIGIOT = SIGABRT;
+    pub const SIGBUS = 7;
+    pub const SIGFPE = 8;
+    pub const SIGKILL = 9;
+    pub const SIGUSR1 = 10;
+    pub const SIGSEGV = 11;
+    pub const SIGUSR2 = 12;
+    pub const SIGPIPE = 13;
+    pub const SIGALRM = 14;
+    pub const SIGTERM = 15;
+    pub const SIGSTKFLT = 16;
+    pub const SIGCHLD = 17;
+    pub const SIGCONT = 18;
+    pub const SIGSTOP = 19;
+    pub const SIGTSTP = 20;
+    pub const SIGTTIN = 21;
+    pub const SIGTTOU = 22;
+    pub const SIGURG = 23;
+    pub const SIGXCPU = 24;
+    pub const SIGXFSZ = 25;
+    pub const SIGVTALRM = 26;
+    pub const SIGPROF = 27;
+    pub const SIGWINCH = 28;
+    pub const SIGIO = 29;
+    pub const SIGPOLL = 29;
+    pub const SIGPWR = 30;
+    pub const SIGSYS = 31;
+    pub const SIGUNUSED = SIGSYS;
+};
 
 pub const O_RDONLY = 0o0;
 pub const O_WRONLY = 0o1;
@@ -419,7 +459,39 @@ pub const AF_QIPCRTR = PF_QIPCRTR;
 pub const AF_SMC = PF_SMC;
 pub const AF_MAX = PF_MAX;
 
-pub usingnamespace if (!is_mips)
+pub usingnamespace if (is_mips)
+    struct {}
+else if (is_ppc or is_ppc64)
+    struct {
+        pub const SO_DEBUG = 1;
+        pub const SO_REUSEADDR = 2;
+        pub const SO_TYPE = 3;
+        pub const SO_ERROR = 4;
+        pub const SO_DONTROUTE = 5;
+        pub const SO_BROADCAST = 6;
+        pub const SO_SNDBUF = 7;
+        pub const SO_RCVBUF = 8;
+        pub const SO_KEEPALIVE = 9;
+        pub const SO_OOBINLINE = 10;
+        pub const SO_NO_CHECK = 11;
+        pub const SO_PRIORITY = 12;
+        pub const SO_LINGER = 13;
+        pub const SO_BSDCOMPAT = 14;
+        pub const SO_REUSEPORT = 15;
+        pub const SO_RCVLOWAT = 16;
+        pub const SO_SNDLOWAT = 17;
+        pub const SO_RCVTIMEO = 18;
+        pub const SO_SNDTIMEO = 19;
+        pub const SO_PASSCRED = 20;
+        pub const SO_PEERCRED = 21;
+        pub const SO_ACCEPTCONN = 30;
+        pub const SO_PEERSEC = 31;
+        pub const SO_SNDBUFFORCE = 32;
+        pub const SO_RCVBUFFORCE = 33;
+        pub const SO_PROTOCOL = 38;
+        pub const SO_DOMAIN = 39;
+    }
+else
     struct {
         pub const SO_DEBUG = 1;
         pub const SO_REUSEADDR = 2;
@@ -448,9 +520,7 @@ pub usingnamespace if (!is_mips)
         pub const SO_RCVBUFFORCE = 33;
         pub const SO_PROTOCOL = 38;
         pub const SO_DOMAIN = 39;
-    }
-else
-    struct {};
+    };
 
 pub const SO_SECURITY_AUTHENTICATION = 22;
 pub const SO_SECURITY_ENCRYPTION_TRANSPORT = 23;
@@ -1004,7 +1074,7 @@ pub const sigset_t = [1024 / 32]u32;
 pub const all_mask: sigset_t = [_]u32{0xffffffff} ** sigset_t.len;
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
-pub const k_sigaction = switch (builtin.arch) {
+pub const k_sigaction = switch (arch) {
     .mips, .mipsel => extern struct {
         flags: c_uint,
         handler: ?fn (c_int) callconv(.C) void,
@@ -1079,6 +1149,13 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 };
 
+pub const sockaddr_storage = extern struct {
+    family: sa_family_t,
+    __pad1: [6]u8,
+    __align: i64,
+    __pad2: [112]u8,
+};
+
 /// IPv4 socket address
 pub const sockaddr_in = extern struct {
     family: sa_family_t = AF_INET,
@@ -1121,7 +1198,7 @@ pub const epoll_data = extern union {
 
 // On x86_64 the structure is packed so that it matches the definition of its
 // 32bit counterpart
-pub const epoll_event = switch (builtin.arch) {
+pub const epoll_event = switch (arch) {
     .x86_64 => packed struct {
         events: u32,
         data: epoll_data,
@@ -1288,12 +1365,12 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
 //#define CPU_ZERO(set) CPU_ZERO_S(sizeof(cpu_set_t),set)
 //#define CPU_EQUAL(s1,s2) CPU_EQUAL_S(sizeof(cpu_set_t),s1,s2)
 
-pub const MINSIGSTKSZ = switch (builtin.arch) {
+pub const MINSIGSTKSZ = switch (arch) {
     .i386, .x86_64, .arm, .mipsel => 2048,
     .aarch64 => 5120,
     else => @compileError("MINSIGSTKSZ not defined for this architecture"),
 };
-pub const SIGSTKSZ = switch (builtin.arch) {
+pub const SIGSTKSZ = switch (arch) {
     .i386, .x86_64, .arm, .mipsel => 8192,
     .aarch64 => 16384,
     else => @compileError("SIGSTKSZ not defined for this architecture"),
@@ -1487,7 +1564,7 @@ pub const io_uring_sqe = extern struct {
     __pad2: [2]u64,
 };
 
-pub const IOSQE_BIT = extern enum(u8) {
+pub const IOSQE_BIT = enum(u8) {
     FIXED_FILE,
     IO_DRAIN,
     IO_LINK,
@@ -1518,7 +1595,7 @@ pub const IOSQE_ASYNC = 1 << @enumToInt(IOSQE_BIT.ASYNC);
 /// select buffer from buf_group
 pub const IOSQE_BUFFER_SELECT = 1 << @enumToInt(IOSQE_BIT.BUFFER_SELECT);
 
-pub const IORING_OP = extern enum(u8) {
+pub const IORING_OP = enum(u8) {
     NOP,
     READV,
     WRITEV,
@@ -1587,7 +1664,7 @@ pub const IORING_ENTER_GETEVENTS = 1 << 0;
 pub const IORING_ENTER_SQ_WAKEUP = 1 << 1;
 
 // io_uring_register opcodes and arguments
-pub const IORING_REGISTER = extern enum(u8) {
+pub const IORING_REGISTER = enum(u8) {
     REGISTER_BUFFERS,
     UNREGISTER_BUFFERS,
     REGISTER_FILES,
@@ -1654,7 +1731,7 @@ pub const io_uring_restriction = extern struct {
 };
 
 /// io_uring_restriction->opcode values
-pub const IORING_RESTRICTION = extern enum(u8) {
+pub const IORING_RESTRICTION = enum(u8) {
     /// Allow an io_uring_register(2) opcode
     REGISTER_OP = 0,
 
@@ -1909,7 +1986,7 @@ pub const tcp_repair_window = extern struct {
     rcv_wup: u32,
 };
 
-pub const TcpRepairOption = extern enum {
+pub const TcpRepairOption = enum {
     TCP_NO_QUEUE,
     TCP_RECV_QUEUE,
     TCP_SEND_QUEUE,
@@ -1917,7 +1994,7 @@ pub const TcpRepairOption = extern enum {
 };
 
 /// why fastopen failed from client perspective
-pub const tcp_fastopen_client_fail = extern enum {
+pub const tcp_fastopen_client_fail = enum {
     /// catch-all
     TFO_STATUS_UNSPEC,
     /// if not in TFO_CLIENT_NO_COOKIE mode
@@ -2053,7 +2130,7 @@ pub const B3000000 = 0o0010015;
 pub const B3500000 = 0o0010016;
 pub const B4000000 = 0o0010017;
 
-pub usingnamespace switch (builtin.arch) {
+pub usingnamespace switch (arch) {
     .powerpc, .powerpc64, .powerpc64le => struct {
         pub const VINTR = 0;
         pub const VQUIT = 1;
@@ -2184,7 +2261,7 @@ pub const NOFLSH = 128;
 pub const TOSTOP = 256;
 pub const IEXTEN = 32768;
 
-pub const TCSA = extern enum(c_uint) {
+pub const TCSA = enum(c_uint) {
     NOW,
     DRAIN,
     FLUSH,
@@ -2235,7 +2312,7 @@ pub const ifreq = extern struct {
 };
 
 // doc comments copied from musl
-pub const rlimit_resource = extern enum(c_int) {
+pub const rlimit_resource = enum(c_int) {
     /// Per-process CPU limit, in seconds.
     CPU,
 

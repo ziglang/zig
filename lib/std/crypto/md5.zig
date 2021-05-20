@@ -241,13 +241,13 @@ pub const Md5 = struct {
 const htest = @import("test.zig");
 
 test "md5 single" {
-    htest.assertEqualHash(Md5, "d41d8cd98f00b204e9800998ecf8427e", "");
-    htest.assertEqualHash(Md5, "0cc175b9c0f1b6a831c399e269772661", "a");
-    htest.assertEqualHash(Md5, "900150983cd24fb0d6963f7d28e17f72", "abc");
-    htest.assertEqualHash(Md5, "f96b697d7cb7938d525a2f31aaf161d0", "message digest");
-    htest.assertEqualHash(Md5, "c3fcd3d76192e4007dfb496cca67e13b", "abcdefghijklmnopqrstuvwxyz");
-    htest.assertEqualHash(Md5, "d174ab98d277d9f5a5611c2c9f419d9f", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
-    htest.assertEqualHash(Md5, "57edf4a22be3c955ac49da2e2107b67a", "12345678901234567890123456789012345678901234567890123456789012345678901234567890");
+    try htest.assertEqualHash(Md5, "d41d8cd98f00b204e9800998ecf8427e", "");
+    try htest.assertEqualHash(Md5, "0cc175b9c0f1b6a831c399e269772661", "a");
+    try htest.assertEqualHash(Md5, "900150983cd24fb0d6963f7d28e17f72", "abc");
+    try htest.assertEqualHash(Md5, "f96b697d7cb7938d525a2f31aaf161d0", "message digest");
+    try htest.assertEqualHash(Md5, "c3fcd3d76192e4007dfb496cca67e13b", "abcdefghijklmnopqrstuvwxyz");
+    try htest.assertEqualHash(Md5, "d174ab98d277d9f5a5611c2c9f419d9f", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+    try htest.assertEqualHash(Md5, "57edf4a22be3c955ac49da2e2107b67a", "12345678901234567890123456789012345678901234567890123456789012345678901234567890");
 }
 
 test "md5 streaming" {
@@ -255,12 +255,12 @@ test "md5 streaming" {
     var out: [16]u8 = undefined;
 
     h.final(out[0..]);
-    htest.assertEqual("d41d8cd98f00b204e9800998ecf8427e", out[0..]);
+    try htest.assertEqual("d41d8cd98f00b204e9800998ecf8427e", out[0..]);
 
     h = Md5.init(.{});
     h.update("abc");
     h.final(out[0..]);
-    htest.assertEqual("900150983cd24fb0d6963f7d28e17f72", out[0..]);
+    try htest.assertEqual("900150983cd24fb0d6963f7d28e17f72", out[0..]);
 
     h = Md5.init(.{});
     h.update("a");
@@ -268,7 +268,7 @@ test "md5 streaming" {
     h.update("c");
     h.final(out[0..]);
 
-    htest.assertEqual("900150983cd24fb0d6963f7d28e17f72", out[0..]);
+    try htest.assertEqual("900150983cd24fb0d6963f7d28e17f72", out[0..]);
 }
 
 test "md5 aligned final" {

@@ -68,11 +68,30 @@ else switch (std.Target.current.os.tag) {
 };
 
 /// Signals the processor that it is inside a busy-wait spin-loop ("spin lock").
-pub fn spinLoopHint() void {
+pub fn spinLoopHint() callconv(.Inline) void {
     switch (std.Target.current.cpu.arch) {
-        .i386, .x86_64 => asm volatile ("pause" ::: "memory"),
-        .arm, .aarch64 => asm volatile ("yield" ::: "memory"),
-        else => {},
+        .i386, .x86_64 => {
+            asm volatile ("pause" ::: "memory");
+        },
+        .arm, .armeb, .thumb, .thumbeb => {
+            // `yield` was introduced in v6k but are also available on v6m.
+            const can_yield = comptime std.Target.arm.featureSetHasAny(std.Target.current.cpu.features, .{ .has_v6k, .has_v6m });
+            if (can_yield) asm volatile ("yield" ::: "memory")
+            // Fallback.
+            else asm volatile ("" ::: "memory");
+        },
+        .aarch64, .aarch64_be, .aarch64_32 => {
+            asm volatile ("isb" ::: "memory");
+        },
+        .powerpc64, .powerpc64le => {
+            // No-op that serves as `yield` hint.
+            asm volatile ("or 27, 27, 27" ::: "memory");
+        },
+        else => {
+            // Do nothing but prevent the compiler from optimizing away the
+            // spinning loop.
+            asm volatile ("" ::: "memory");
+        },
     }
 }
 
@@ -199,7 +218,8 @@ pub fn spawn(comptime startFn: anytype, context: SpawnContextType(@TypeOf(startF
                 inner: Context,
             };
             fn threadMain(raw_arg: windows.LPVOID) callconv(.C) windows.DWORD {
-                const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
+                const arg = if (@sizeOf(Context) == 0) undefined //
+                else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
 
                 switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                     .NoReturn => {
@@ -260,7 +280,8 @@ pub fn spawn(comptime startFn: anytype, context: SpawnContextType(@TypeOf(startF
 
     const MainFuncs = struct {
         fn linuxThreadMain(ctx_addr: usize) callconv(.C) u8 {
-            const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
+            const arg = if (@sizeOf(Context) == 0) undefined //
+            else @intToPtr(*Context, ctx_addr).*;
 
             switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                 .NoReturn => {
@@ -292,7 +313,8 @@ pub fn spawn(comptime startFn: anytype, context: SpawnContextType(@TypeOf(startF
             }
         }
         fn posixThreadMain(ctx: ?*c_void) callconv(.C) ?*c_void {
-            const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), ctx)).*;
+            const arg = if (@sizeOf(Context) == 0) undefined //
+            else @ptrCast(*Context, @alignCast(@alignOf(Context), ctx)).*;
 
             switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                 .NoReturn => {

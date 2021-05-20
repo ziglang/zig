@@ -1230,7 +1230,7 @@ public:
         return __tree_.__emplace_hint_unique_key_args(__h.__i_, __k,
             _VSTD::piecewise_construct,
             _VSTD::forward_as_tuple(__k),
-            _VSTD::forward_as_tuple(_VSTD::forward<_Args>(__args)...));
+            _VSTD::forward_as_tuple(_VSTD::forward<_Args>(__args)...)).first;
     }
 
     template <class... _Args>
@@ -1240,7 +1240,7 @@ public:
         return __tree_.__emplace_hint_unique_key_args(__h.__i_, __k,
             _VSTD::piecewise_construct,
             _VSTD::forward_as_tuple(_VSTD::move(__k)),
-            _VSTD::forward_as_tuple(_VSTD::forward<_Args>(__args)...));
+            _VSTD::forward_as_tuple(_VSTD::forward<_Args>(__args)...)).first;
     }
 
     template <class _Vp>
@@ -1270,30 +1270,30 @@ public:
     }
 
     template <class _Vp>
-        _LIBCPP_INLINE_VISIBILITY
-        iterator insert_or_assign(const_iterator __h, const key_type& __k, _Vp&& __v)
-     {
-        iterator __p = lower_bound(__k);
-        if ( __p != end() && !key_comp()(__k, __p->first))
-        {
-            __p->second = _VSTD::forward<_Vp>(__v);
-            return __p;
-        }
-        return emplace_hint(__h, __k, _VSTD::forward<_Vp>(__v));
-     }
+    _LIBCPP_INLINE_VISIBILITY iterator insert_or_assign(const_iterator __h,
+                                                        const key_type& __k,
+                                                        _Vp&& __v) {
+      auto [__r, __inserted] = __tree_.__emplace_hint_unique_key_args(
+          __h.__i_, __k, __k, _VSTD::forward<_Vp>(__v));
+
+      if (!__inserted)
+        __r->__get_value().second = _VSTD::forward<_Vp>(__v);
+
+      return __r;
+    }
 
     template <class _Vp>
-        _LIBCPP_INLINE_VISIBILITY
-        iterator insert_or_assign(const_iterator __h, key_type&& __k, _Vp&& __v)
-     {
-        iterator __p = lower_bound(__k);
-        if ( __p != end() && !key_comp()(__k, __p->first))
-        {
-            __p->second = _VSTD::forward<_Vp>(__v);
-            return __p;
-        }
-        return emplace_hint(__h, _VSTD::move(__k), _VSTD::forward<_Vp>(__v));
-     }
+    _LIBCPP_INLINE_VISIBILITY iterator insert_or_assign(const_iterator __h,
+                                                        key_type&& __k,
+                                                        _Vp&& __v) {
+      auto [__r, __inserted] = __tree_.__emplace_hint_unique_key_args(
+          __h.__i_, __k, _VSTD::move(__k), _VSTD::forward<_Vp>(__v));
+
+      if (!__inserted)
+        __r->__get_value().second = _VSTD::forward<_Vp>(__v);
+
+      return __r;
+    }
 
 #endif // _LIBCPP_STD_VER > 14
 
@@ -1546,7 +1546,7 @@ map<_Key, _Tp, _Compare, _Allocator>::__construct_node_with_key(const key_type& 
     __h.get_deleter().__first_constructed = true;
     __node_traits::construct(__na, _VSTD::addressof(__h->__value_.__get_value().second));
     __h.get_deleter().__second_constructed = true;
-    return _LIBCPP_EXPLICIT_MOVE(__h);  // explicitly moved for C++03
+    return __h;
 }
 
 template <class _Key, class _Tp, class _Compare, class _Allocator>

@@ -1,3 +1,4 @@
+const std = @import("std");
 pub const builtin = @import("builtin");
 
 pub const SourceLocation = extern struct {
@@ -104,8 +105,20 @@ pub const APFloat = opaque {
     extern fn ZigClangAPFloat_toString(*const APFloat, precision: c_uint, maxPadding: c_uint, truncateZero: bool) [*:0]const u8;
 };
 
+pub const APFloatBaseSemantics = extern enum {
+    IEEEhalf,
+    BFloat,
+    IEEEsingle,
+    IEEEdouble,
+    x86DoubleExtended,
+    IEEEquad,
+    PPCDoubleDouble,
+};
+
 pub const APInt = opaque {
-    pub const getLimitedValue = ZigClangAPInt_getLimitedValue;
+    pub fn getLimitedValue(self: *const APInt, comptime T: type) T {
+        return @truncate(T, ZigClangAPInt_getLimitedValue(self, std.math.maxInt(T)));
+    }
     extern fn ZigClangAPInt_getLimitedValue(*const APInt, limit: u64) u64;
 };
 
@@ -424,7 +437,7 @@ pub const Expr = opaque {
     extern fn ZigClangExpr_getBeginLoc(*const Expr) SourceLocation;
 
     pub const evaluateAsConstantExpr = ZigClangExpr_EvaluateAsConstantExpr;
-    extern fn ZigClangExpr_EvaluateAsConstantExpr(*const Expr, *ExprEvalResult, Expr_ConstExprUsage, *const ASTContext) bool;
+    extern fn ZigClangExpr_EvaluateAsConstantExpr(*const Expr, *ExprEvalResult, Expr_ConstantExprKind, *const ASTContext) bool;
 };
 
 pub const FieldDecl = opaque {
@@ -455,6 +468,12 @@ pub const FileID = opaque {};
 pub const FloatingLiteral = opaque {
     pub const getValueAsApproximateDouble = ZigClangFloatingLiteral_getValueAsApproximateDouble;
     extern fn ZigClangFloatingLiteral_getValueAsApproximateDouble(*const FloatingLiteral) f64;
+
+    pub const getBeginLoc = ZigClangIntegerLiteral_getBeginLoc;
+    extern fn ZigClangIntegerLiteral_getBeginLoc(*const FloatingLiteral) SourceLocation;
+
+    pub const getRawSemantics = ZigClangFloatingLiteral_getRawSemantics;
+    extern fn ZigClangFloatingLiteral_getRawSemantics(*const FloatingLiteral) APFloatBaseSemantics;
 };
 
 pub const ForStmt = opaque {
@@ -889,6 +908,11 @@ pub const TypedefNameDecl = opaque {
     extern fn ZigClangTypedefNameDecl_getLocation(*const TypedefNameDecl) SourceLocation;
 };
 
+pub const FileScopeAsmDecl = opaque {
+    pub const getAsmString = ZigClangFileScopeAsmDecl_getAsmString;
+    extern fn ZigClangFileScopeAsmDecl_getAsmString(*const FileScopeAsmDecl) *const StringLiteral;
+};
+
 pub const TypedefType = opaque {
     pub const getDecl = ZigClangTypedefType_getDecl;
     extern fn ZigClangTypedefType_getDecl(*const TypedefType) *const TypedefNameDecl;
@@ -951,6 +975,9 @@ pub const VarDecl = opaque {
 
     pub const getAlignedAttribute = ZigClangVarDecl_getAlignedAttribute;
     extern fn ZigClangVarDecl_getAlignedAttribute(*const VarDecl, *const ASTContext) c_uint;
+
+    pub const getCleanupAttribute = ZigClangVarDecl_getCleanupAttribute;
+    extern fn ZigClangVarDecl_getCleanupAttribute(*const VarDecl) ?*const FunctionDecl;
 
     pub const getTypeSourceInfo_getType = ZigClangVarDecl_getTypeSourceInfo_getType;
     extern fn ZigClangVarDecl_getTypeSourceInfo_getType(*const VarDecl) QualType;
@@ -1341,6 +1368,8 @@ pub const CK = extern enum {
     IntegralCast,
     IntegralToBoolean,
     IntegralToFloating,
+    FloatingToFixedPoint,
+    FixedPointToFloating,
     FixedPointCast,
     FixedPointToIntegral,
     IntegralToFixedPoint,
@@ -1447,6 +1476,7 @@ pub const DeclKind = extern enum {
     MSGuid,
     OMPDeclareMapper,
     OMPDeclareReduction,
+    TemplateParamObject,
     UnresolvedUsingValue,
     OMPAllocate,
     OMPRequires,
@@ -1557,6 +1587,8 @@ pub const BuiltinTypeKind = extern enum {
     SveFloat64x4,
     SveBFloat16x4,
     SveBool,
+    VectorQuad,
+    VectorPair,
     Void,
     Bool,
     Char_U,
@@ -1710,9 +1742,11 @@ pub const PreprocessedEntity_EntityKind = extern enum {
     InclusionDirectiveKind,
 };
 
-pub const Expr_ConstExprUsage = extern enum {
-    EvaluateForCodeGen,
-    EvaluateForMangling,
+pub const Expr_ConstantExprKind = extern enum {
+    Normal,
+    NonClassTemplateArgument,
+    ClassTemplateArgument,
+    ImmediateInvocation,
 };
 
 pub const UnaryExprOrTypeTrait_Kind = extern enum {

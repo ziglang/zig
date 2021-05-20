@@ -98,15 +98,14 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-        // https://github.com/ziglang/zig/issues/4926
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .i386,
-        //        .os_tag = .linux,
-        //        .abi = .gnu,
-        //    },
-        //    .link_libc = true,
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .i386,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
 
         TestTarget{
             .target = .{
@@ -154,21 +153,25 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        TestTarget{
-            .target = .{
-                .cpu_arch = .mips,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
-        TestTarget{
-            .target = .{
-                .cpu_arch = .mips,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // https://github.com/ziglang/zig/issues/8155
+        //TestTarget{
+        //    .target = .{
+        //        .cpu_arch = .mips,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //},
+
+        // https://github.com/ziglang/zig/issues/8155
+        //TestTarget{
+        //    .target = .{
+        //        .cpu_arch = .mips,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //},
+
         // https://github.com/ziglang/zig/issues/4927
         //TestTarget{
         //    .target = .{
@@ -179,21 +182,25 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        TestTarget{
-            .target = .{
-                .cpu_arch = .mipsel,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
-        TestTarget{
-            .target = .{
-                .cpu_arch = .mipsel,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // https://github.com/ziglang/zig/issues/8155
+        //TestTarget{
+        //    .target = .{
+        //        .cpu_arch = .mipsel,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //},
+
+        // https://github.com/ziglang/zig/issues/8155
+        //TestTarget{
+        //    .target = .{
+        //        .cpu_arch = .mipsel,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //},
+
         // https://github.com/ziglang/zig/issues/4927
         //TestTarget{
         //    .target = .{
@@ -203,6 +210,22 @@ const test_targets = blk: {
         //    },
         //    .link_libc = true,
         //},
+
+        TestTarget{
+            .target = .{
+                .cpu_arch = .powerpc,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        TestTarget{
+            .target = .{
+                .cpu_arch = .powerpc,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
 
         TestTarget{
             .target = .{
@@ -480,6 +503,7 @@ pub fn addPkgTests(
     is_wine_enabled: bool,
     is_qemu_enabled: bool,
     is_wasmtime_enabled: bool,
+    is_darling_enabled: bool,
     glibc_dir: ?[]const u8,
 ) *build.Step {
     const step = b.step(b.fmt("test-{s}", .{name}), desc);
@@ -499,7 +523,7 @@ pub fn addPkgTests(
         if (skip_single_threaded and test_target.single_threaded)
             continue;
 
-        const ArchTag = std.meta.Tag(builtin.Arch);
+        const ArchTag = std.meta.Tag(std.Target.Cpu.Arch);
         if (test_target.disable_native and
             test_target.target.getOsTag() == std.Target.current.os.tag and
             test_target.target.getCpuArch() == std.Target.current.cpu.arch)
@@ -541,6 +565,7 @@ pub fn addPkgTests(
         these_tests.enable_wine = is_wine_enabled;
         these_tests.enable_qemu = is_qemu_enabled;
         these_tests.enable_wasmtime = is_wasmtime_enabled;
+        these_tests.enable_darling = is_darling_enabled;
         these_tests.glibc_multi_install_dir = glibc_dir;
         these_tests.addIncludeDir("test");
 
@@ -563,11 +588,11 @@ pub const StackTracesContext = struct {
             if (config.exclude.exclude()) return;
         }
         if (@hasField(@TypeOf(config), "exclude_arch")) {
-            const exclude_arch: []const builtin.Cpu.Arch = &config.exclude_arch;
+            const exclude_arch: []const std.Target.Cpu.Arch = &config.exclude_arch;
             for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
         }
         if (@hasField(@TypeOf(config), "exclude_os")) {
-            const exclude_os: []const builtin.Os.Tag = &config.exclude_os;
+            const exclude_os: []const std.Target.Os.Tag = &config.exclude_os;
             for (exclude_os) |os| if (os == builtin.os.tag) return;
         }
         for (self.modes) |mode| {
@@ -607,11 +632,11 @@ pub const StackTracesContext = struct {
             if (mode_config.exclude.exclude()) return;
         }
         if (@hasField(@TypeOf(mode_config), "exclude_arch")) {
-            const exclude_arch: []const builtin.Cpu.Arch = &mode_config.exclude_arch;
+            const exclude_arch: []const std.Target.Cpu.Arch = &mode_config.exclude_arch;
             for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
         }
         if (@hasField(@TypeOf(mode_config), "exclude_os")) {
-            const exclude_os: []const builtin.Os.Tag = &mode_config.exclude_os;
+            const exclude_os: []const std.Target.Os.Tag = &mode_config.exclude_os;
             for (exclude_os) |os| if (os == builtin.os.tag) return;
         }
 

@@ -18,7 +18,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return a + b;
             \\}
             \\
-            \\export fn main() c_int {
+            \\pub export fn main() c_int {
             \\    var a: i32 = -5;
             \\    const x = add(a, 7);
             \\    var y = add(2, 0);
@@ -34,7 +34,7 @@ pub fn addCases(ctx: *TestContext) !void {
         case.addCompareOutput(
             \\extern fn puts(s: [*:0]const u8) c_int;
             \\
-            \\export fn main() c_int {
+            \\pub export fn main() c_int {
             \\    _ = puts("hello world!");
             \\    return 0;
             \\}
@@ -53,7 +53,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (!ok) unreachable;
             \\}
             \\
-            \\export fn main() c_int {
+            \\pub export fn main() c_int {
             \\    assert(add(1,2) == 3);
             \\    return 0;
             \\}
@@ -77,7 +77,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return val + 10;
             \\}
             \\
-            \\export fn main() c_int {
+            \\pub export fn main() c_int {
             \\    assert(foo(false) == 20);
             \\    assert(foo(true) == 30);
             \\    return 0;
@@ -104,7 +104,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    return val;
             \\}
             \\
-            \\export fn main() c_int {
+            \\pub export fn main() c_int {
             \\    assert(foo(false) == 10);
             \\    assert(foo(true) == 20);
             \\    return 0;
@@ -120,7 +120,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (!ok) unreachable;
             \\}
             \\
-            \\export fn main() c_int {
+            \\pub export fn main() c_int {
             \\    var sum: u32 = 0;
             \\    var i: u32 = 0;
             \\    while (i < 5) : (i += 1) {
@@ -141,7 +141,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (!ok) unreachable;
             \\}
             \\
-            \\export fn main() c_int {
+            \\pub export fn main() c_int {
             \\    var opt_val: ?i32 = 10;
             \\    var null_val: ?i32 = null;
             \\
@@ -190,7 +190,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (!ok) unreachable;
             \\}
             \\
-            \\export fn main() c_int {
+            \\pub export fn main() c_int {
             \\    var x: u32 = 0;
             \\    for ("hello") |_| {
             \\        x += 1;

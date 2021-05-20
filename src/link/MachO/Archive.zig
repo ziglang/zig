@@ -9,16 +9,14 @@ const mem = std.mem;
 
 const Allocator = mem.Allocator;
 const Object = @import("Object.zig");
-const parseName = @import("Zld.zig").parseName;
 
 usingnamespace @import("commands.zig");
 
 allocator: *Allocator,
-file: fs.File,
-header: ar_hdr,
-name: []u8,
-
-objects: std.ArrayListUnmanaged(Object) = .{},
+arch: ?std.Target.Cpu.Arch = null,
+file: ?fs.File = null,
+header: ?ar_hdr = null,
+name: ?[]const u8 = null,
 
 /// Parsed table of contents.
 /// Each symbol name points to a list of all definition
@@ -29,14 +27,14 @@ toc: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(u32)) = .{},
 // `struct ar_hdr', and as many bytes of member file data as its `ar_size'
 // member indicates, for each member file.
 /// String that begins an archive file.
-const ARMAG: *const [SARMAG:0]u8 = "!<arch>\n";
+pub const ARMAG: *const [SARMAG:0]u8 = "!<arch>\n";
 /// Size of that string.
-const SARMAG: u4 = 8;
+pub const SARMAG: u4 = 8;
 
 /// String in ar_fmag at the end of each header.
-const ARFMAG: *const [2:0]u8 = "`\n";
+pub const ARFMAG: *const [2:0]u8 = "`\n";
 
-const ar_hdr = extern struct {
+pub const ar_hdr = extern struct {
     /// Member file name, sometimes / terminated.
     ar_name: [16]u8,
 
@@ -87,80 +85,94 @@ const ar_hdr = extern struct {
     }
 };
 
+pub fn init(allocator: *Allocator) Archive {
+    return .{
+        .allocator = allocator,
+    };
+}
+
 pub fn deinit(self: *Archive) void {
-    self.allocator.free(self.name);
-    for (self.objects.items) |*object| {
-        object.deinit();
-    }
-    self.objects.deinit(self.allocator);
     for (self.toc.items()) |*entry| {
         self.allocator.free(entry.key);
         entry.value.deinit(self.allocator);
     }
     self.toc.deinit(self.allocator);
-    self.file.close();
+
+    if (self.name) |n| {
+        self.allocator.free(n);
+    }
 }
 
-/// Caller owns the returned Archive instance and is responsible for calling
-/// `deinit` to free allocated memory.
-pub fn initFromFile(allocator: *Allocator, arch: std.Target.Cpu.Arch, ar_name: []const u8, file: fs.File) !Archive {
-    var reader = file.reader();
-    var magic = try readMagic(allocator, reader);
-    defer allocator.free(magic);
-
-    if (!mem.eql(u8, magic, ARMAG)) {
-        // Reset file cursor.
-        try file.seekTo(0);
-        return error.NotArchive;
+pub fn closeFile(self: Archive) void {
+    if (self.file) |f| {
+        f.close();
     }
+}
 
-    const header = try reader.readStruct(ar_hdr);
+pub fn parse(self: *Archive) !void {
+    var reader = self.file.?.reader();
+    const magic = try reader.readBytesNoEof(SARMAG);
 
-    if (!mem.eql(u8, &header.ar_fmag, ARFMAG))
+    if (!mem.eql(u8, &magic, ARMAG)) {
+        log.err("invalid magic: expected '{s}', found '{s}'", .{ ARMAG, magic });
         return error.MalformedArchive;
-
-    var embedded_name = try getName(allocator, header, reader);
-    log.debug("parsing archive '{s}' at '{s}'", .{ embedded_name, ar_name });
-    defer allocator.free(embedded_name);
-
-    var name = try allocator.dupe(u8, ar_name);
-    var self = Archive{
-        .allocator = allocator,
-        .file = file,
-        .header = header,
-        .name = name,
-    };
-
-    var object_offsets = try self.readTableOfContents(reader);
-    defer self.allocator.free(object_offsets);
-
-    var i: usize = 1;
-    while (i < object_offsets.len) : (i += 1) {
-        const offset = object_offsets[i];
-        try reader.context.seekTo(offset);
-        try self.readObject(arch, ar_name, reader);
     }
 
-    return self;
+    self.header = try reader.readStruct(ar_hdr);
+
+    if (!mem.eql(u8, &self.header.?.ar_fmag, ARFMAG)) {
+        log.err("invalid header delimiter: expected '{s}', found '{s}'", .{ ARFMAG, self.header.?.ar_fmag });
+        return error.MalformedArchive;
+    }
+
+    var embedded_name = try parseName(self.allocator, self.header.?, reader);
+    log.debug("parsing archive '{s}' at '{s}'", .{ embedded_name, self.name.? });
+    defer self.allocator.free(embedded_name);
+
+    try self.parseTableOfContents(reader);
+
+    try reader.context.seekTo(0);
 }
 
-fn readTableOfContents(self: *Archive, reader: anytype) ![]u32 {
+fn parseName(allocator: *Allocator, header: ar_hdr, reader: anytype) ![]u8 {
+    const name_or_length = try header.nameOrLength();
+    var name: []u8 = undefined;
+    switch (name_or_length) {
+        .Name => |n| {
+            name = try allocator.dupe(u8, n);
+        },
+        .Length => |len| {
+            var n = try allocator.alloc(u8, len);
+            defer allocator.free(n);
+            try reader.readNoEof(n);
+            const actual_len = mem.indexOfScalar(u8, n, @as(u8, 0)) orelse n.len;
+            name = try allocator.dupe(u8, n[0..actual_len]);
+        },
+    }
+    return name;
+}
+
+fn parseTableOfContents(self: *Archive, reader: anytype) !void {
     const symtab_size = try reader.readIntLittle(u32);
     var symtab = try self.allocator.alloc(u8, symtab_size);
     defer self.allocator.free(symtab);
-    try reader.readNoEof(symtab);
+
+    reader.readNoEof(symtab) catch {
+        log.err("incomplete symbol table: expected symbol table of length 0x{x}", .{symtab_size});
+        return error.MalformedArchive;
+    };
 
     const strtab_size = try reader.readIntLittle(u32);
     var strtab = try self.allocator.alloc(u8, strtab_size);
     defer self.allocator.free(strtab);
-    try reader.readNoEof(strtab);
+
+    reader.readNoEof(strtab) catch {
+        log.err("incomplete symbol table: expected string table of length 0x{x}", .{strtab_size});
+        return error.MalformedArchive;
+    };
 
     var symtab_stream = std.io.fixedBufferStream(symtab);
     var symtab_reader = symtab_stream.reader();
-
-    var object_offsets = std.ArrayList(u32).init(self.allocator);
-    try object_offsets.append(0);
-    var last: usize = 0;
 
     while (true) {
         const n_strx = symtab_reader.readIntLittle(u32) catch |err| switch (err) {
@@ -179,100 +191,43 @@ fn readTableOfContents(self: *Archive, reader: anytype) ![]u32 {
         }
 
         try res.entry.value.append(self.allocator, object_offset);
-
-        // TODO This will go once we properly use archive's TOC to pick
-        // an object which defines a missing symbol rather than pasting in
-        // all of the objects always.
-        // Here, we assume that symbols are NOT sorted in any way, and
-        // they point to objects in sequence.
-        if (object_offsets.items[last] != object_offset) {
-            try object_offsets.append(object_offset);
-            last += 1;
-        }
     }
-
-    return object_offsets.toOwnedSlice();
 }
 
-fn readObject(self: *Archive, arch: std.Target.Cpu.Arch, ar_name: []const u8, reader: anytype) !void {
+/// Caller owns the Object instance.
+pub fn parseObject(self: Archive, offset: u32) !*Object {
+    var reader = self.file.?.reader();
+    try reader.context.seekTo(offset);
+
     const object_header = try reader.readStruct(ar_hdr);
 
-    if (!mem.eql(u8, &object_header.ar_fmag, ARFMAG))
+    if (!mem.eql(u8, &object_header.ar_fmag, ARFMAG)) {
+        log.err("invalid header delimiter: expected '{s}', found '{s}'", .{ ARFMAG, object_header.ar_fmag });
         return error.MalformedArchive;
-
-    var object_name = try getName(self.allocator, object_header, reader);
-    log.debug("extracting object '{s}' from archive '{s}'", .{ object_name, self.name });
-
-    const offset = @intCast(u32, try reader.context.getPos());
-    const header = try reader.readStruct(macho.mach_header_64);
-
-    const this_arch: std.Target.Cpu.Arch = switch (header.cputype) {
-        macho.CPU_TYPE_ARM64 => .aarch64,
-        macho.CPU_TYPE_X86_64 => .x86_64,
-        else => |value| {
-            log.err("unsupported cpu architecture 0x{x}", .{value});
-            return error.UnsupportedCpuArchitecture;
-        },
-    };
-    if (this_arch != arch) {
-        log.err("mismatched cpu architecture: found {s}, expected {s}", .{ this_arch, arch });
-        return error.MismatchedCpuArchitecture;
     }
 
-    // TODO Implement std.fs.File.clone() or similar.
-    var new_file = try fs.cwd().openFile(ar_name, .{});
-    var object = Object{
-        .allocator = self.allocator,
-        .name = object_name,
-        .ar_name = try mem.dupe(self.allocator, u8, ar_name),
-        .file = new_file,
-        .header = header,
+    const object_name = try parseName(self.allocator, object_header, reader);
+    defer self.allocator.free(object_name);
+
+    log.debug("extracting object '{s}' from archive '{s}'", .{ object_name, self.name.? });
+
+    const name = name: {
+        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const path = try std.os.realpath(self.name.?, &buffer);
+        break :name try std.fmt.allocPrint(self.allocator, "{s}({s})", .{ path, object_name });
     };
 
-    try object.readLoadCommands(reader, .{ .offset = offset });
+    var object = try self.allocator.create(Object);
+    errdefer self.allocator.destroy(object);
 
-    if (object.symtab_cmd_index != null) {
-        try object.readSymtab();
-        try object.readStrtab();
-    }
+    object.* = Object.init(self.allocator);
+    object.arch = self.arch.?;
+    object.file = try fs.cwd().openFile(self.name.?, .{});
+    object.name = name;
+    object.file_offset = @intCast(u32, try reader.context.getPos());
+    try object.parse();
 
-    if (object.data_in_code_cmd_index != null) try object.readDataInCode();
+    try reader.context.seekTo(0);
 
-    log.debug("\n\n", .{});
-    log.debug("{s} defines symbols", .{object.name});
-    for (object.symtab.items) |sym| {
-        const symname = object.getString(sym.n_strx);
-        log.debug("'{s}': {}", .{ symname, sym });
-    }
-
-    try self.objects.append(self.allocator, object);
-}
-
-fn readMagic(allocator: *Allocator, reader: anytype) ![]u8 {
-    var magic = std.ArrayList(u8).init(allocator);
-    try magic.ensureCapacity(SARMAG);
-    var i: usize = 0;
-    while (i < SARMAG) : (i += 1) {
-        const next = try reader.readByte();
-        magic.appendAssumeCapacity(next);
-    }
-    return magic.toOwnedSlice();
-}
-
-fn getName(allocator: *Allocator, header: ar_hdr, reader: anytype) ![]u8 {
-    const name_or_length = try header.nameOrLength();
-    var name: []u8 = undefined;
-    switch (name_or_length) {
-        .Name => |n| {
-            name = try allocator.dupe(u8, n);
-        },
-        .Length => |len| {
-            var n = try allocator.alloc(u8, len);
-            defer allocator.free(n);
-            try reader.readNoEof(n);
-            const actual_len = mem.indexOfScalar(u8, n, @as(u8, 0)) orelse n.len;
-            name = try allocator.dupe(u8, n[0..actual_len]);
-        },
-    }
-    return name;
+    return object;
 }

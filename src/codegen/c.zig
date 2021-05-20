@@ -30,6 +30,7 @@ pub const CValue = union(enum) {
     arg: usize,
     /// By-value
     decl: *Decl,
+    decl_ref: *Decl,
 };
 
 pub const CValueMap = std.AutoHashMap(*Inst, CValue);
@@ -60,12 +61,13 @@ fn formatIdent(
     for (ident) |c, i| {
         switch (c) {
             'a'...'z', 'A'...'Z', '_' => try writer.writeByte(c),
+            '.' => try writer.writeByte('_'),
             '0'...'9' => if (i == 0) {
-                try writer.print("${x:2}", .{c});
+                try writer.print("_{x:2}", .{c});
             } else {
                 try writer.writeByte(c);
             },
-            else => try writer.print("${x:2}", .{c}),
+            else => try writer.print("_{x:2}", .{c}),
         }
     }
 }
@@ -117,6 +119,7 @@ pub const Object = struct {
             .constant => |inst| return o.dg.renderValue(w, inst.ty, inst.value().?),
             .arg => |i| return w.print("a{d}", .{i}),
             .decl => |decl| return w.writeAll(mem.span(decl.name)),
+            .decl_ref => |decl| return w.print("&{s}", .{decl.name}),
         }
     }
 
@@ -190,8 +193,8 @@ pub const DeclGen = struct {
                     const decl = val.castTag(.decl_ref).?.data;
 
                     // Determine if we must pointer cast.
-                    const decl_tv = decl.typed_value.most_recent.typed_value;
-                    if (t.eql(decl_tv.ty)) {
+                    assert(decl.has_tv);
+                    if (t.eql(decl.ty)) {
                         try writer.print("&{s}", .{decl.name});
                     } else {
                         try writer.writeAll("(");
@@ -326,12 +329,11 @@ pub const DeclGen = struct {
         if (!is_global) {
             try w.writeAll("static ");
         }
-        const tv = dg.decl.typed_value.most_recent.typed_value;
-        try dg.renderType(w, tv.ty.fnReturnType());
+        try dg.renderType(w, dg.decl.ty.fnReturnType());
         const decl_name = mem.span(dg.decl.name);
         try w.print(" {s}(", .{decl_name});
-        const param_len = tv.ty.fnParamLen();
-        const is_var_args = tv.ty.fnIsVarArgs();
+        const param_len = dg.decl.ty.fnParamLen();
+        const is_var_args = dg.decl.ty.fnIsVarArgs();
         if (param_len == 0 and !is_var_args)
             try w.writeAll("void")
         else {
@@ -340,7 +342,7 @@ pub const DeclGen = struct {
                 if (index > 0) {
                     try w.writeAll(", ");
                 }
-                try dg.renderType(w, tv.ty.fnParamType(index));
+                try dg.renderType(w, dg.decl.ty.fnParamType(index));
                 try w.print(" a{d}", .{index});
             }
         }
@@ -529,12 +531,16 @@ pub const DeclGen = struct {
         }
     }
 
-    fn functionIsGlobal(dg: *DeclGen, tv: TypedValue) bool {
+    fn declIsGlobal(dg: *DeclGen, tv: TypedValue) bool {
         switch (tv.val.tag()) {
             .extern_fn => return true,
             .function => {
                 const func = tv.val.castTag(.function).?.data;
                 return dg.module.decl_exports.contains(func.owner_decl);
+            },
+            .variable => {
+                const variable = tv.val.castTag(.variable).?.data;
+                return dg.module.decl_exports.contains(variable.owner_decl);
             },
             else => unreachable,
         }
@@ -545,10 +551,12 @@ pub fn genDecl(o: *Object) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const tv = o.dg.decl.typed_value.most_recent.typed_value;
-
+    const tv: TypedValue = .{
+        .ty = o.dg.decl.ty,
+        .val = o.dg.decl.val,
+    };
     if (tv.val.castTag(.function)) |func_payload| {
-        const is_global = o.dg.functionIsGlobal(tv);
+        const is_global = o.dg.declIsGlobal(tv);
         const fwd_decl_writer = o.dg.fwd_decl.writer();
         if (is_global) {
             try fwd_decl_writer.writeAll("ZIG_EXTERN_C ");
@@ -569,6 +577,29 @@ pub fn genDecl(o: *Object) !void {
         try writer.writeAll("ZIG_EXTERN_C ");
         try o.dg.renderFunctionSignature(writer, true);
         try writer.writeAll(";\n");
+    } else if (tv.val.castTag(.variable)) |var_payload| {
+        const variable: *Module.Var = var_payload.data;
+        const is_global = o.dg.declIsGlobal(tv);
+        const fwd_decl_writer = o.dg.fwd_decl.writer();
+        if (is_global or variable.is_extern) {
+            try fwd_decl_writer.writeAll("ZIG_EXTERN_C ");
+        }
+        if (variable.is_threadlocal) {
+            try fwd_decl_writer.writeAll("zig_threadlocal ");
+        }
+        try o.dg.renderType(fwd_decl_writer, o.dg.decl.ty);
+        const decl_name = mem.span(o.dg.decl.name);
+        try fwd_decl_writer.print(" {s};\n", .{decl_name});
+
+        try o.indent_writer.insertNewline();
+        const w = o.writer();
+        try o.dg.renderType(w, o.dg.decl.ty);
+        try w.print(" {s} = ", .{decl_name});
+        if (variable.init.tag() != .unreachable_value) {
+            try o.dg.renderValue(w, tv.ty, variable.init);
+        }
+        try w.writeAll(";");
+        try o.indent_writer.insertNewline();
     } else {
         const writer = o.writer();
         try writer.writeAll("static ");
@@ -589,12 +620,15 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const tv = dg.decl.typed_value.most_recent.typed_value;
+    const tv: TypedValue = .{
+        .ty = dg.decl.ty,
+        .val = dg.decl.val,
+    };
     const writer = dg.fwd_decl.writer();
 
     switch (tv.ty.zigTypeTag()) {
         .Fn => {
-            const is_global = dg.functionIsGlobal(tv);
+            const is_global = dg.declIsGlobal(tv);
             if (is_global) {
                 try writer.writeAll("ZIG_EXTERN_C ");
             }
@@ -692,7 +726,7 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
             .wrap_errunion_err => try genWrapErrUnionErr(o, inst.castTag(.wrap_errunion_err).?),
             .br_block_flat => return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement codegen for br_block_flat", .{}),
             .ptrtoint => return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement codegen for ptrtoint", .{}),
-            .varptr => return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement codegen for varptr", .{}),
+            .varptr => try genVarPtr(o, inst.castTag(.varptr).?),
             .floatcast => return o.dg.fail(.{ .node_offset = 0 }, "TODO: C backend: implement codegen for floatcast", .{}),
         };
         switch (result_value) {
@@ -703,6 +737,10 @@ pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!voi
 
     o.indent_writer.popIndent();
     try writer.writeAll("}");
+}
+
+fn genVarPtr(o: *Object, inst: *Inst.VarPtr) !CValue {
+    return CValue{ .decl_ref = inst.variable.owner_decl };
 }
 
 fn genAlloc(o: *Object, alloc: *Inst.NoOp) !CValue {
@@ -735,6 +773,12 @@ fn genLoad(o: *Object, inst: *Inst.UnOp) !CValue {
     switch (operand) {
         .local_ref => |i| {
             const wrapped: CValue = .{ .local = i };
+            try writer.writeAll(" = ");
+            try o.writeCValue(writer, wrapped);
+            try writer.writeAll(";\n");
+        },
+        .decl_ref => |decl| {
+            const wrapped: CValue = .{ .decl = decl };
             try writer.writeAll(" = ");
             try o.writeCValue(writer, wrapped);
             try writer.writeAll(";\n");
@@ -782,6 +826,13 @@ fn genStore(o: *Object, inst: *Inst.BinOp) !CValue {
     switch (dest_ptr) {
         .local_ref => |i| {
             const dest: CValue = .{ .local = i };
+            try o.writeCValue(writer, dest);
+            try writer.writeAll(" = ");
+            try o.writeCValue(writer, src_val);
+            try writer.writeAll(";\n");
+        },
+        .decl_ref => |decl| {
+            const dest: CValue = .{ .decl = decl };
             try o.writeCValue(writer, dest);
             try writer.writeAll(" = ");
             try o.writeCValue(writer, src_val);
@@ -842,7 +893,7 @@ fn genCall(o: *Object, inst: *Inst.Call) !CValue {
         else
             unreachable;
 
-        const fn_ty = fn_decl.typed_value.most_recent.typed_value.ty;
+        const fn_ty = fn_decl.ty;
         const ret_ty = fn_ty.fnReturnType();
         const unused_result = inst.base.isUnused();
         var result_local: CValue = .none;
@@ -1036,11 +1087,11 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
     }
     const volatile_string: []const u8 = if (as.is_volatile) "volatile " else "";
     try writer.print("__asm {s}(\"{s}\"", .{ volatile_string, as.asm_source });
-    if (as.output) |_| {
-        return o.dg.fail(.{ .node_offset = 0 }, "TODO inline asm output", .{});
+    if (as.output_constraint) |_| {
+        return o.dg.fail(.{ .node_offset = 0 }, "TODO: CBE inline asm output", .{});
     }
     if (as.inputs.len > 0) {
-        if (as.output == null) {
+        if (as.output_constraint == null) {
             try writer.writeAll(" :");
         }
         try writer.writeAll(": ");

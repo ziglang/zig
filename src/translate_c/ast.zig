@@ -67,6 +67,7 @@ pub const Node = extern union {
         @"struct",
         @"union",
         @"comptime",
+        @"defer",
         array_init,
         tuple,
         container_init,
@@ -120,8 +121,11 @@ pub const Node = extern union {
         std_math_Log2Int,
         /// @intCast(lhs, rhs)
         int_cast,
-        /// @rem(lhs, rhs)
+        /// @import("std").meta.promoteIntLiteral(value, type, radix)
         std_meta_promoteIntLiteral,
+        /// @import("std").meta.alignment(value)
+        std_meta_alignment,
+        /// @rem(lhs, rhs)
         rem,
         /// @divTrunc(lhs, rhs)
         div_trunc,
@@ -157,6 +161,8 @@ pub const Node = extern union {
         byte_offset_of,
         /// @shuffle(type, a, b, mask)
         shuffle,
+
+        asm_simple,
 
         negate,
         negate_wrap,
@@ -242,6 +248,8 @@ pub const Node = extern union {
                 .std_mem_zeroes,
                 .@"return",
                 .@"comptime",
+                .@"defer",
+                .asm_simple,
                 .discard,
                 .std_math_Log2Int,
                 .negate,
@@ -260,6 +268,7 @@ pub const Node = extern union {
                 .switch_else,
                 .block_single,
                 .std_meta_sizeof,
+                .std_meta_alignment,
                 .bool_to_int,
                 .sizeof,
                 .alignof,
@@ -876,6 +885,11 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const import_node = try renderStdImport(c, "meta", "promoteIntLiteral");
             return renderCall(c, import_node, &.{ payload.type, payload.value, payload.radix });
         },
+        .std_meta_alignment => {
+            const payload = node.castTag(.std_meta_alignment).?.data;
+            const import_node = try renderStdImport(c, "meta", "alignment");
+            return renderCall(c, import_node, &.{payload});
+        },
         .std_meta_sizeof => {
             const payload = node.castTag(.std_meta_sizeof).?.data;
             const import_node = try renderStdImport(c, "meta", "sizeof");
@@ -1005,6 +1019,30 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .data = .{
                     .lhs = try renderNode(c, payload),
                     .rhs = undefined,
+                },
+            });
+        },
+        .@"defer" => {
+            const payload = node.castTag(.@"defer").?.data;
+            return c.addNode(.{
+                .tag = .@"defer",
+                .main_token = try c.addToken(.keyword_defer, "defer"),
+                .data = .{
+                    .lhs = undefined,
+                    .rhs = try renderNode(c, payload),
+                },
+            });
+        },
+        .asm_simple => {
+            const payload = node.castTag(.asm_simple).?.data;
+            const asm_token = try c.addToken(.keyword_asm, "asm");
+            _ = try c.addToken(.l_paren, "(");
+            return c.addNode(.{
+                .tag = .asm_simple,
+                .main_token = asm_token,
+                .data = .{
+                    .lhs = try renderNode(c, payload),
+                    .rhs = try c.addToken(.r_paren, ")"),
                 },
             });
         },
@@ -1665,7 +1703,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .array_access => {
             const payload = node.castTag(.array_access).?.data;
-            const lhs = try renderNode(c, payload.lhs);
+            const lhs = try renderNodeGrouped(c, payload.lhs);
             const l_bracket = try c.addToken(.l_bracket, "[");
             const index_expr = try renderNode(c, payload.rhs);
             _ = try c.addToken(.r_bracket, "]");
@@ -1728,7 +1766,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .field_access => {
             const payload = node.castTag(.field_access).?.data;
-            const lhs = try renderNode(c, payload.lhs);
+            const lhs = try renderNodeGrouped(c, payload.lhs);
             return renderFieldAccess(c, lhs, payload.field_name);
         },
         .@"struct", .@"union" => return renderRecord(c, node),
@@ -2073,7 +2111,7 @@ fn renderNullSentinelArrayType(c: *Context, len: usize, elem_type: Node) !NodeIn
         .main_token = l_bracket,
         .data = .{
             .lhs = len_expr,
-            .rhs = try c.addExtra(std.zig.ast.Node.ArrayTypeSentinel {
+            .rhs = try c.addExtra(std.zig.ast.Node.ArrayTypeSentinel{
                 .sentinel = sentinel_expr,
                 .elem_type = elem_type_expr,
             }),
@@ -2144,6 +2182,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .typeof,
         .typeinfo,
         .std_meta_sizeof,
+        .std_meta_alignment,
         .std_meta_cast,
         .std_meta_promoteIntLiteral,
         .std_meta_vector,
@@ -2247,6 +2286,8 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .@"continue",
         .@"return",
         .@"comptime",
+        .@"defer",
+        .asm_simple,
         .usingnamespace_builtins,
         .while_true,
         .if_not_break,

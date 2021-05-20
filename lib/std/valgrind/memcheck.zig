@@ -7,7 +7,7 @@ const std = @import("../std.zig");
 const testing = std.testing;
 const valgrind = std.valgrind;
 
-pub const MemCheckClientRequest = extern enum {
+pub const MemCheckClientRequest = enum(usize) {
     MakeMemNoAccess = valgrind.ToolBase("MC".*),
     MakeMemUndefined,
     MakeMemDefined,
@@ -76,7 +76,7 @@ pub fn createBlock(qzz: []u8, desc: [*]u8) usize {
 
 /// Discard a block-description-handle. Returns 1 for an
 /// invalid handle, 0 for a valid handle.
-pub fn discard(blkindex) bool {
+pub fn discard(blkindex: usize) bool {
     return doMemCheckClientRequestExpr(0, // default return
         .Discard, 0, blkindex, 0, 0, 0) != 0;
 }
@@ -149,7 +149,7 @@ pub fn countLeaks() CountResult {
 }
 
 test "countLeaks" {
-    testing.expectEqual(
+    try testing.expectEqual(
         @as(CountResult, .{
             .leaked = 0,
             .dubious = 0,
@@ -179,7 +179,7 @@ pub fn countLeakBlocks() CountResult {
 }
 
 test "countLeakBlocks" {
-    testing.expectEqual(
+    try testing.expectEqual(
         @as(CountResult, .{
             .leaked = 0,
             .dubious = 0,

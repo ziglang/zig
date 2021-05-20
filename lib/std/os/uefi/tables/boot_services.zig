@@ -156,13 +156,13 @@ pub const BootServices = extern struct {
     pub const tpl_high_level: usize = 31;
 };
 
-pub const TimerDelay = extern enum(u32) {
+pub const TimerDelay = enum(u32) {
     TimerCancel,
     TimerPeriodic,
     TimerRelative,
 };
 
-pub const MemoryType = extern enum(u32) {
+pub const MemoryType = enum(u32) {
     ReservedMemoryType,
     LoaderCode,
     LoaderData,
@@ -206,7 +206,7 @@ pub const MemoryDescriptor = extern struct {
     },
 };
 
-pub const LocateSearchType = extern enum(u32) {
+pub const LocateSearchType = enum(u32) {
     AllHandles,
     ByRegisterNotify,
     ByProtocol,
@@ -229,7 +229,7 @@ pub const ProtocolInformationEntry = extern struct {
     open_count: u32,
 };
 
-pub const AllocateType = extern enum(u32) {
+pub const AllocateType = enum(u32) {
     AllocateAnyPages,
     AllocateMaxAddress,
     AllocateAddress,

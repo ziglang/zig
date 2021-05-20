@@ -5,8 +5,9 @@
 // and substantial portions of the software.
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
+const native_endian = @import("std").Target.current.cpu.arch.endian();
 
-const low = switch (builtin.endian) {
+const low = switch (native_endian) {
     .Big => 1,
     .Little => 0,
 };

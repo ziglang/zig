@@ -147,6 +147,7 @@ template<class T>
 */
 
 #include <__config>
+#include <__availability>
 #include <__debug>
 #include <__functional_base>
 #include <functional>
@@ -320,7 +321,7 @@ struct __optional_storage_base : __optional_destruct_base<_Tp>
     void __construct(_Args&&... __args)
     {
         _LIBCPP_ASSERT(!has_value(), "__construct called for engaged __optional_storage");
-        ::new((void*)_VSTD::addressof(this->__val_)) value_type(_VSTD::forward<_Args>(__args)...);
+        ::new ((void*)_VSTD::addressof(this->__val_)) value_type(_VSTD::forward<_Args>(__args)...);
         this->__engaged_ = true;
     }
 
@@ -656,7 +657,7 @@ private:
       }
       template <class _Up, class _QUp = _QualUp>
       static constexpr bool __enable_assign() {
-          // Construction and assignability of _Qup to _Tp has already been
+          // Construction and assignability of _QUp to _Tp has already been
           // checked.
           return !__check_constructible_from_opt<_Up>::value &&
               !__check_assignable_from_opt<_Up>::value;

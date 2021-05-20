@@ -6,9 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-// Define _LIBCPP_BUILDING_LIBRARY to ensure _LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
-// is only defined when libc aligned allocation is not available.
-#define _LIBCPP_BUILDING_LIBRARY
 #include "fallback_malloc.h"
 
 #include <__threading_support>
@@ -20,6 +17,7 @@
 
 #include <stdlib.h> // for malloc, calloc, free
 #include <string.h> // for memset
+#include <new> // for std::__libcpp_aligned_{alloc,free}
 
 //  A small, simple heap manager based (loosely) on
 //  the startup heap manager from FreeBSD, optimized for space.
@@ -144,29 +142,26 @@ void fallback_free(void* ptr) {
   mutexor mtx(&heap_mutex);
 
 #ifdef DEBUG_FALLBACK_MALLOC
-  std::cout << "Freeing item at " << offset_from_node(cp) << " of size "
-            << cp->len << std::endl;
+  std::printf("Freeing item at %d of size %d\n", offset_from_node(cp), cp->len);
 #endif
 
   for (p = freelist, prev = 0; p && p != list_end;
        prev = p, p = node_from_offset(p->next_node)) {
 #ifdef DEBUG_FALLBACK_MALLOC
-    std::cout << "  p, cp, after (p), after(cp) " << offset_from_node(p) << ' '
-              << offset_from_node(cp) << ' ' << offset_from_node(after(p))
-              << ' ' << offset_from_node(after(cp)) << std::endl;
+    std::printf("  p=%d, cp=%d, after(p)=%d, after(cp)=%d\n",
+      offset_from_node(p), offset_from_node(cp),
+      offset_from_node(after(p)), offset_from_node(after(cp)));
 #endif
     if (after(p) == cp) {
 #ifdef DEBUG_FALLBACK_MALLOC
-      std::cout << "  Appending onto chunk at " << offset_from_node(p)
-                << std::endl;
+      std::printf("  Appending onto chunk at %d\n", offset_from_node(p));
 #endif
       p->len = static_cast<heap_size>(
           p->len + cp->len); // make the free heap_node larger
       return;
     } else if (after(cp) == p) { // there's a free heap_node right after
 #ifdef DEBUG_FALLBACK_MALLOC
-      std::cout << "  Appending free chunk at " << offset_from_node(p)
-                << std::endl;
+      std::printf("  Appending free chunk at %d\n", offset_from_node(p));
 #endif
       cp->len = static_cast<heap_size>(cp->len + p->len);
       if (prev == 0) {
@@ -179,8 +174,7 @@ void fallback_free(void* ptr) {
   }
 //  Nothing to merge with, add it to the start of the free list
 #ifdef DEBUG_FALLBACK_MALLOC
-  std::cout << "  Making new free list entry " << offset_from_node(cp)
-            << std::endl;
+  std::printf("  Making new free list entry %d\n", offset_from_node(cp));
 #endif
   cp->next_node = offset_from_node(freelist);
   freelist = cp;
@@ -195,11 +189,11 @@ size_t print_free_list() {
 
   for (p = freelist, prev = 0; p && p != list_end;
        prev = p, p = node_from_offset(p->next_node)) {
-    std::cout << (prev == 0 ? "" : "  ") << "Offset: " << offset_from_node(p)
-              << "\tsize: " << p->len << " Next: " << p->next_node << std::endl;
+    std::printf("%sOffset: %d\tsize: %d Next: %d\n",
+      (prev == 0 ? "" : "  "), offset_from_node(p), p->len, p->next_node);
     total_free += p->len;
   }
-  std::cout << "Total Free space: " << total_free << std::endl;
+  std::printf("Total Free space: %d\n", total_free);
   return total_free;
 }
 #endif
@@ -211,7 +205,7 @@ struct __attribute__((aligned)) __aligned_type {};
 
 void* __aligned_malloc_with_fallback(size_t size) {
 #if defined(_WIN32)
-  if (void* dest = _aligned_malloc(size, alignof(__aligned_type)))
+  if (void* dest = std::__libcpp_aligned_alloc(alignof(__aligned_type), size))
     return dest;
 #elif defined(_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION)
   if (void* dest = ::malloc(size))
@@ -219,8 +213,7 @@ void* __aligned_malloc_with_fallback(size_t size) {
 #else
   if (size == 0)
     size = 1;
-  void* dest;
-  if (::posix_memalign(&dest, __alignof(__aligned_type), size) == 0)
+  if (void* dest = std::__libcpp_aligned_alloc(__alignof(__aligned_type), size))
     return dest;
 #endif
   return fallback_malloc(size);
@@ -241,10 +234,10 @@ void __aligned_free_with_fallback(void* ptr) {
   if (is_fallback_ptr(ptr))
     fallback_free(ptr);
   else {
-#if defined(_WIN32)
-    ::_aligned_free(ptr);
-#else
+#if defined(_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION)
     ::free(ptr);
+#else
+    std::__libcpp_aligned_free(ptr);
 #endif
   }
 }

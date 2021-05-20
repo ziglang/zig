@@ -253,7 +253,7 @@ public:
     template <class _Ep>
         _LIBCPP_INLINE_VISIBILITY
         error_condition(_Ep __e,
-              typename enable_if<is_error_condition_enum<_Ep>::value>::type* = 0
+              typename enable_if<is_error_condition_enum<_Ep>::value>::type* = nullptr
                                                                      ) _NOEXCEPT
             {*this = make_error_condition(__e);}
 
@@ -325,7 +325,7 @@ public:
     template <class _Ep>
         _LIBCPP_INLINE_VISIBILITY
         error_code(_Ep __e,
-                   typename enable_if<is_error_code_enum<_Ep>::value>::type* = 0
+                   typename enable_if<is_error_code_enum<_Ep>::value>::type* = nullptr
                                                                      ) _NOEXCEPT
             {*this = make_error_code(__e);}
 

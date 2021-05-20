@@ -339,12 +339,12 @@ test "simple_allocator" {
 
 test "__emutls_get_address zeroed" {
     var ctl = emutls_control.init(usize, null);
-    expect(ctl.object.index == 0);
+    try expect(ctl.object.index == 0);
 
     // retrieve a variable from ctl
     var x = @ptrCast(*usize, @alignCast(@alignOf(usize), __emutls_get_address(&ctl)));
-    expect(ctl.object.index != 0); // index has been allocated for this ctl
-    expect(x.* == 0); // storage has been zeroed
+    try expect(ctl.object.index != 0); // index has been allocated for this ctl
+    try expect(x.* == 0); // storage has been zeroed
 
     // modify the storage
     x.* = 1234;
@@ -352,26 +352,26 @@ test "__emutls_get_address zeroed" {
     // retrieve a variable from ctl (same ctl)
     var y = @ptrCast(*usize, @alignCast(@alignOf(usize), __emutls_get_address(&ctl)));
 
-    expect(y.* == 1234); // same content that x.*
-    expect(x == y); // same pointer
+    try expect(y.* == 1234); // same content that x.*
+    try expect(x == y); // same pointer
 }
 
 test "__emutls_get_address with default_value" {
     var value: usize = 5678; // default value
     var ctl = emutls_control.init(usize, &value);
-    expect(ctl.object.index == 0);
+    try expect(ctl.object.index == 0);
 
     var x: *usize = @ptrCast(*usize, @alignCast(@alignOf(usize), __emutls_get_address(&ctl)));
-    expect(ctl.object.index != 0);
-    expect(x.* == 5678); // storage initialized with default value
+    try expect(ctl.object.index != 0);
+    try expect(x.* == 5678); // storage initialized with default value
 
     // modify the storage
     x.* = 9012;
 
-    expect(value == 5678); // the default value didn't change
+    try expect(value == 5678); // the default value didn't change
 
     var y = @ptrCast(*usize, @alignCast(@alignOf(usize), __emutls_get_address(&ctl)));
-    expect(y.* == 9012); // the modified storage persists
+    try expect(y.* == 9012); // the modified storage persists
 }
 
 test "test default_value with differents sizes" {
@@ -380,7 +380,7 @@ test "test default_value with differents sizes" {
             var def: T = value;
             var ctl = emutls_control.init(T, &def);
             var x = ctl.get_typed_pointer(T);
-            expect(x.* == value);
+            try expect(x.* == value);
         }
     }._testType;
 

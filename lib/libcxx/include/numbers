@@ -100,7 +100,7 @@ template <class T> inline constexpr T egamma_v =     __illformed<T>{};
 template <class T> inline constexpr T phi_v =        __illformed<T>{};
 
 template <class T>
-concept __floating_point = std::is_floating_point_v<T>;
+concept __floating_point = is_floating_point_v<T>;
 
 template <__floating_point T> inline constexpr T e_v<T>          = 2.718281828459045235360287471352662;
 template <__floating_point T> inline constexpr T log2e_v<T>      = 1.442695040888963407359924681001892;

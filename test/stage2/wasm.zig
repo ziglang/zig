@@ -11,7 +11,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("wasm function calls", wasi);
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    foo();
             \\    bar();
             \\    return 42;
@@ -26,7 +26,7 @@ pub fn addCases(ctx: *TestContext) !void {
         );
 
         case.addCompareOutput(
-            \\export fn _start() i64 {
+            \\pub export fn _start() i64 {
             \\    bar();
             \\    foo();
             \\    foo();
@@ -44,7 +44,7 @@ pub fn addCases(ctx: *TestContext) !void {
         );
 
         case.addCompareOutput(
-            \\export fn _start() f32 {
+            \\pub export fn _start() f32 {
             \\    bar();
             \\    foo();
             \\    return 42.0;
@@ -58,12 +58,15 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
         // This is what you get when you take the bits of the IEE-754
         // representation of 42.0 and reinterpret them as an unsigned
-        // integer. Guess that's a bug in wasmtime.
+        // integer.
+        // Bug is fixed in wasmtime v0.26 but updating to v0.26 is blocked
+        // on this issue:
+        // https://github.com/ziglang/zig/issues/8742
             "1109917696\n",
         );
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    foo(10, 20);
             \\    return 5;
             \\}
@@ -75,7 +78,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("wasm locals", wasi);
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    var y: f32 = 42.0;
             \\    var x: u32 = 10;
@@ -84,7 +87,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "5\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    var y: f32 = 42.0;
             \\    var x: u32 = 10;
@@ -103,7 +106,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("wasm binary operands", wasi);
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    i += 20;
             \\    return i;
@@ -111,7 +114,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "25\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    i += 20;
             \\    var result: u32 = foo(i, 10);
@@ -123,7 +126,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "35\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 20;
             \\    i -= 5;
             \\    return i;
@@ -131,7 +134,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "15\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    i -= 3;
             \\    var result: u32 = foo(i, 10);
@@ -143,7 +146,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "8\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    i *= 7;
             \\    var result: u32 = foo(i, 10);
@@ -155,7 +158,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "350\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 352;
             \\    i /= 7; // i = 50
             \\    var result: u32 = foo(i, 7);
@@ -167,7 +170,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "7\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    i &= 6;
             \\    return i;
@@ -175,7 +178,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "4\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    i |= 6;
             \\    return i;
@@ -183,7 +186,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "7\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    i ^= 6;
             \\    return i;
@@ -191,7 +194,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "3\n");
 
         case.addCompareOutput(
-            \\export fn _start() bool {
+            \\pub export fn _start() bool {
             \\    var b: bool = false;
             \\    b = b or false;
             \\    return b;
@@ -199,7 +202,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "0\n");
 
         case.addCompareOutput(
-            \\export fn _start() bool {
+            \\pub export fn _start() bool {
             \\    var b: bool = true;
             \\    b = b or false;
             \\    return b;
@@ -207,7 +210,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "1\n");
 
         case.addCompareOutput(
-            \\export fn _start() bool {
+            \\pub export fn _start() bool {
             \\    var b: bool = false;
             \\    b = b or true;
             \\    return b;
@@ -215,7 +218,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "1\n");
 
         case.addCompareOutput(
-            \\export fn _start() bool {
+            \\pub export fn _start() bool {
             \\    var b: bool = true;
             \\    b = b or true;
             \\    return b;
@@ -223,7 +226,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "1\n");
 
         case.addCompareOutput(
-            \\export fn _start() bool {
+            \\pub export fn _start() bool {
             \\    var b: bool = false;
             \\    b = b and false;
             \\    return b;
@@ -231,7 +234,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "0\n");
 
         case.addCompareOutput(
-            \\export fn _start() bool {
+            \\pub export fn _start() bool {
             \\    var b: bool = true;
             \\    b = b and false;
             \\    return b;
@@ -239,7 +242,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "0\n");
 
         case.addCompareOutput(
-            \\export fn _start() bool {
+            \\pub export fn _start() bool {
             \\    var b: bool = false;
             \\    b = b and true;
             \\    return b;
@@ -247,7 +250,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "0\n");
 
         case.addCompareOutput(
-            \\export fn _start() bool {
+            \\pub export fn _start() bool {
             \\    var b: bool = true;
             \\    b = b and true;
             \\    return b;
@@ -259,7 +262,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("wasm conditions", wasi);
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    if (i > @as(u32, 4)) {
             \\        i += 10;
@@ -269,7 +272,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "15\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    if (i < @as(u32, 4)) {
             \\        i += 10;
@@ -281,7 +284,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "2\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 5;
             \\    if (i < @as(u32, 4)) {
             \\        i += 10;
@@ -293,7 +296,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "20\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 11;
             \\    if (i < @as(u32, 4)) {
             \\        i += 10;
@@ -309,7 +312,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "31\n");
 
         case.addCompareOutput(
-            \\export fn _start() void {
+            \\pub export fn _start() void {
             \\    assert(foo(true) != @as(i32, 30));
             \\}
             \\
@@ -324,7 +327,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "");
 
         case.addCompareOutput(
-            \\export fn _start() void {
+            \\pub export fn _start() void {
             \\    assert(foo(false) == @as(i32, 20));
             \\    assert(foo(true) == @as(i32, 30));
             \\}
@@ -348,7 +351,7 @@ pub fn addCases(ctx: *TestContext) !void {
         var case = ctx.exe("wasm while loops", wasi);
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 0;
             \\    while(i < @as(u32, 5)){
             \\        i += 1;
@@ -359,7 +362,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "5\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 0;
             \\    while(i < @as(u32, 10)){
             \\        var x: u32 = 1;
@@ -370,7 +373,7 @@ pub fn addCases(ctx: *TestContext) !void {
         , "10\n");
 
         case.addCompareOutput(
-            \\export fn _start() u32 {
+            \\pub export fn _start() u32 {
             \\    var i: u32 = 0;
             \\    while(i < @as(u32, 10)){
             \\        var x: u32 = 1;

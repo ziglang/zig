@@ -974,6 +974,7 @@ const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionAAPCS: return "AAPCS";
         case CallingConventionAAPCSVFP: return "AAPCSVFP";
         case CallingConventionInline: return "Inline";
+        case CallingConventionSysV: return "SysV";
     }
     zig_unreachable();
 }
@@ -995,6 +996,7 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionAPCS:
         case CallingConventionAAPCS:
         case CallingConventionAAPCSVFP:
+        case CallingConventionSysV:
             return false;
     }
     zig_unreachable();
@@ -1969,6 +1971,10 @@ Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_
         case CallingConventionAAPCSVFP:
             if (!target_is_arm(g->zig_target))
                 allowed_platforms = "ARM";
+            break;
+        case CallingConventionSysV:
+            if (g->zig_target->arch != ZigLLVM_x86_64)
+                allowed_platforms = "x86_64";
     }
     if (allowed_platforms != nullptr) {
         add_node_error(g, source_node, buf_sprintf(
@@ -2117,18 +2123,6 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
     if (proto_node->data.fn_proto.callconv_expr != nullptr) {
         if ((err = emit_error_unless_callconv_allowed_for_target(g, proto_node->data.fn_proto.callconv_expr, cc)))
             return g->builtin_types.entry_invalid;
-    }
-
-    if (fn_proto->return_anytype_token != nullptr) {
-        if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-            add_node_error(g, fn_proto->return_type,
-                buf_sprintf("return type 'anytype' not allowed in function with calling convention '%s'",
-                calling_convention_name(fn_type_id.cc)));
-            return g->builtin_types.entry_invalid;
-        }
-        add_node_error(g, proto_node,
-            buf_sprintf("TODO implement inferred return types https://github.com/ziglang/zig/issues/447"));
-        return g->builtin_types.entry_invalid;
     }
 
     ZigType *specified_return_type = analyze_type_expr(g, child_scope, fn_proto->return_type);
@@ -3805,6 +3799,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 case CallingConventionAPCS:
                 case CallingConventionAAPCS:
                 case CallingConventionAAPCSVFP:
+                case CallingConventionSysV:
                     add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
                                   GlobalLinkageIdStrong, fn_cc);
                     break;
@@ -4769,11 +4764,11 @@ Error type_is_nonnull_ptr2(CodeGen *g, ZigType *type, bool *result) {
     return ErrorNone;
 }
 
-static uint32_t get_async_frame_align_bytes(CodeGen *g) {
-    uint32_t a = g->pointer_size_bytes * 2;
-    // promises have at least alignment 8 so that we can have 3 extra bits when doing atomicrmw
-    if (a < 8) a = 8;
-    return a;
+uint32_t get_async_frame_align_bytes(CodeGen *g) {
+    // Due to how the frame structure is built the minimum alignment is the one
+    // of a usize (or pointer).
+    // label (grep this): [fn_frame_struct_layout]
+    return max(g->builtin_types.entry_usize->abi_align, target_fn_align(g->zig_target));
 }
 
 uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
@@ -4789,11 +4784,8 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
         return (ptr_type->data.pointer.explicit_alignment == 0) ?
             get_abi_alignment(g, ptr_type->data.pointer.child_type) : ptr_type->data.pointer.explicit_alignment;
     } else if (ptr_type->id == ZigTypeIdFn) {
-        // I tried making this use LLVMABIAlignmentOfType but it trips this assertion in LLVM:
-        // "Cannot getTypeInfo() on a type that is unsized!"
-        // when getting the alignment of `?fn() callconv(.C) void`.
-        // See http://lists.llvm.org/pipermail/llvm-dev/2018-September/126142.html
-        return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
+        return (ptr_type->data.fn.fn_type_id.alignment == 0) ?
+                target_fn_ptr_align(g->zig_target) : ptr_type->data.fn.fn_type_id.alignment;
     } else if (ptr_type->id == ZigTypeIdAnyFrame) {
         return get_async_frame_align_bytes(g);
     } else {
@@ -8185,14 +8177,18 @@ bool err_ptr_eql(const ErrorTableEntry *a, const ErrorTableEntry *b) {
 }
 
 ZigValue *get_builtin_value(CodeGen *codegen, const char *name) {
-    ScopeDecls *builtin_scope = get_container_scope(codegen->compile_var_import);
-    Tld *tld = find_container_decl(codegen, builtin_scope, buf_create_from_str(name));
+    Buf *buf_name = buf_create_from_str(name);
+
+    ScopeDecls *builtin_scope = get_container_scope(codegen->std_builtin_import);
+    Tld *tld = find_container_decl(codegen, builtin_scope, buf_name);
     assert(tld != nullptr);
     resolve_top_level_decl(codegen, tld, nullptr, false);
     assert(tld->id == TldIdVar && tld->resolution == TldResolutionOk);
     TldVar *tld_var = (TldVar *)tld;
     ZigValue *var_value = tld_var->var->const_value;
     assert(var_value != nullptr);
+
+    buf_destroy(buf_name);
     return var_value;
 }
 
@@ -10212,4 +10208,3 @@ const char *float_op_to_name(BuiltinFnId op) {
         zig_unreachable();
     }
 }
-

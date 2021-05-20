@@ -48,16 +48,16 @@ pub fn __aeabi_ui2f(arg: u32) callconv(.AAPCS) f32 {
     return @call(.{ .modifier = .always_inline }, __floatunsisf, .{arg});
 }
 
-fn test_one_floatunsisf(a: u32, expected: u32) void {
+fn test_one_floatunsisf(a: u32, expected: u32) !void {
     const r = __floatunsisf(a);
-    std.testing.expect(@bitCast(u32, r) == expected);
+    try std.testing.expect(@bitCast(u32, r) == expected);
 }
 
 test "floatunsisf" {
     // Test the produced bit pattern
-    test_one_floatunsisf(0, 0);
-    test_one_floatunsisf(1, 0x3f800000);
-    test_one_floatunsisf(0x7FFFFFFF, 0x4f000000);
-    test_one_floatunsisf(0x80000000, 0x4f000000);
-    test_one_floatunsisf(0xFFFFFFFF, 0x4f800000);
+    try test_one_floatunsisf(0, 0);
+    try test_one_floatunsisf(1, 0x3f800000);
+    try test_one_floatunsisf(0x7FFFFFFF, 0x4f000000);
+    try test_one_floatunsisf(0x80000000, 0x4f000000);
+    try test_one_floatunsisf(0xFFFFFFFF, 0x4f800000);
 }

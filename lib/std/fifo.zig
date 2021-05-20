@@ -402,59 +402,59 @@ test "LinearFifo(u8, .Dynamic)" {
     defer fifo.deinit();
 
     try fifo.write("HELLO");
-    testing.expectEqual(@as(usize, 5), fifo.readableLength());
-    testing.expectEqualSlices(u8, "HELLO", fifo.readableSlice(0));
+    try testing.expectEqual(@as(usize, 5), fifo.readableLength());
+    try testing.expectEqualSlices(u8, "HELLO", fifo.readableSlice(0));
 
     {
         var i: usize = 0;
         while (i < 5) : (i += 1) {
             try fifo.write(&[_]u8{fifo.peekItem(i)});
         }
-        testing.expectEqual(@as(usize, 10), fifo.readableLength());
-        testing.expectEqualSlices(u8, "HELLOHELLO", fifo.readableSlice(0));
+        try testing.expectEqual(@as(usize, 10), fifo.readableLength());
+        try testing.expectEqualSlices(u8, "HELLOHELLO", fifo.readableSlice(0));
     }
 
     {
-        testing.expectEqual(@as(u8, 'H'), fifo.readItem().?);
-        testing.expectEqual(@as(u8, 'E'), fifo.readItem().?);
-        testing.expectEqual(@as(u8, 'L'), fifo.readItem().?);
-        testing.expectEqual(@as(u8, 'L'), fifo.readItem().?);
-        testing.expectEqual(@as(u8, 'O'), fifo.readItem().?);
+        try testing.expectEqual(@as(u8, 'H'), fifo.readItem().?);
+        try testing.expectEqual(@as(u8, 'E'), fifo.readItem().?);
+        try testing.expectEqual(@as(u8, 'L'), fifo.readItem().?);
+        try testing.expectEqual(@as(u8, 'L'), fifo.readItem().?);
+        try testing.expectEqual(@as(u8, 'O'), fifo.readItem().?);
     }
-    testing.expectEqual(@as(usize, 5), fifo.readableLength());
+    try testing.expectEqual(@as(usize, 5), fifo.readableLength());
 
     { // Writes that wrap around
-        testing.expectEqual(@as(usize, 11), fifo.writableLength());
-        testing.expectEqual(@as(usize, 6), fifo.writableSlice(0).len);
+        try testing.expectEqual(@as(usize, 11), fifo.writableLength());
+        try testing.expectEqual(@as(usize, 6), fifo.writableSlice(0).len);
         fifo.writeAssumeCapacity("6<chars<11");
-        testing.expectEqualSlices(u8, "HELLO6<char", fifo.readableSlice(0));
-        testing.expectEqualSlices(u8, "s<11", fifo.readableSlice(11));
-        testing.expectEqualSlices(u8, "11", fifo.readableSlice(13));
-        testing.expectEqualSlices(u8, "", fifo.readableSlice(15));
+        try testing.expectEqualSlices(u8, "HELLO6<char", fifo.readableSlice(0));
+        try testing.expectEqualSlices(u8, "s<11", fifo.readableSlice(11));
+        try testing.expectEqualSlices(u8, "11", fifo.readableSlice(13));
+        try testing.expectEqualSlices(u8, "", fifo.readableSlice(15));
         fifo.discard(11);
-        testing.expectEqualSlices(u8, "s<11", fifo.readableSlice(0));
+        try testing.expectEqualSlices(u8, "s<11", fifo.readableSlice(0));
         fifo.discard(4);
-        testing.expectEqual(@as(usize, 0), fifo.readableLength());
+        try testing.expectEqual(@as(usize, 0), fifo.readableLength());
     }
 
     {
         const buf = try fifo.writableWithSize(12);
-        testing.expectEqual(@as(usize, 12), buf.len);
+        try testing.expectEqual(@as(usize, 12), buf.len);
         var i: u8 = 0;
         while (i < 10) : (i += 1) {
             buf[i] = i + 'a';
         }
         fifo.update(10);
-        testing.expectEqualSlices(u8, "abcdefghij", fifo.readableSlice(0));
+        try testing.expectEqualSlices(u8, "abcdefghij", fifo.readableSlice(0));
     }
 
     {
         try fifo.unget("prependedstring");
         var result: [30]u8 = undefined;
-        testing.expectEqualSlices(u8, "prependedstringabcdefghij", result[0..fifo.read(&result)]);
+        try testing.expectEqualSlices(u8, "prependedstringabcdefghij", result[0..fifo.read(&result)]);
         try fifo.unget("b");
         try fifo.unget("a");
-        testing.expectEqualSlices(u8, "ab", result[0..fifo.read(&result)]);
+        try testing.expectEqualSlices(u8, "ab", result[0..fifo.read(&result)]);
     }
 
     fifo.shrink(0);
@@ -462,17 +462,17 @@ test "LinearFifo(u8, .Dynamic)" {
     {
         try fifo.writer().print("{s}, {s}!", .{ "Hello", "World" });
         var result: [30]u8 = undefined;
-        testing.expectEqualSlices(u8, "Hello, World!", result[0..fifo.read(&result)]);
-        testing.expectEqual(@as(usize, 0), fifo.readableLength());
+        try testing.expectEqualSlices(u8, "Hello, World!", result[0..fifo.read(&result)]);
+        try testing.expectEqual(@as(usize, 0), fifo.readableLength());
     }
 
     {
         try fifo.writer().writeAll("This is a test");
         var result: [30]u8 = undefined;
-        testing.expectEqualSlices(u8, "This", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
-        testing.expectEqualSlices(u8, "is", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
-        testing.expectEqualSlices(u8, "a", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
-        testing.expectEqualSlices(u8, "test", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
+        try testing.expectEqualSlices(u8, "This", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
+        try testing.expectEqualSlices(u8, "is", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
+        try testing.expectEqualSlices(u8, "a", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
+        try testing.expectEqualSlices(u8, "test", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
     }
 
     {
@@ -481,7 +481,7 @@ test "LinearFifo(u8, .Dynamic)" {
         var out_buf: [50]u8 = undefined;
         var out_fbs = std.io.fixedBufferStream(&out_buf);
         try fifo.pump(in_fbs.reader(), out_fbs.writer());
-        testing.expectEqualSlices(u8, in_fbs.buffer, out_fbs.getWritten());
+        try testing.expectEqualSlices(u8, in_fbs.buffer, out_fbs.getWritten());
     }
 }
 
@@ -498,28 +498,28 @@ test "LinearFifo" {
             defer fifo.deinit();
 
             try fifo.write(&[_]T{ 0, 1, 1, 0, 1 });
-            testing.expectEqual(@as(usize, 5), fifo.readableLength());
+            try testing.expectEqual(@as(usize, 5), fifo.readableLength());
 
             {
-                testing.expectEqual(@as(T, 0), fifo.readItem().?);
-                testing.expectEqual(@as(T, 1), fifo.readItem().?);
-                testing.expectEqual(@as(T, 1), fifo.readItem().?);
-                testing.expectEqual(@as(T, 0), fifo.readItem().?);
-                testing.expectEqual(@as(T, 1), fifo.readItem().?);
-                testing.expectEqual(@as(usize, 0), fifo.readableLength());
+                try testing.expectEqual(@as(T, 0), fifo.readItem().?);
+                try testing.expectEqual(@as(T, 1), fifo.readItem().?);
+                try testing.expectEqual(@as(T, 1), fifo.readItem().?);
+                try testing.expectEqual(@as(T, 0), fifo.readItem().?);
+                try testing.expectEqual(@as(T, 1), fifo.readItem().?);
+                try testing.expectEqual(@as(usize, 0), fifo.readableLength());
             }
 
             {
                 try fifo.writeItem(1);
                 try fifo.writeItem(1);
                 try fifo.writeItem(1);
-                testing.expectEqual(@as(usize, 3), fifo.readableLength());
+                try testing.expectEqual(@as(usize, 3), fifo.readableLength());
             }
 
             {
                 var readBuf: [3]T = undefined;
                 const n = fifo.read(&readBuf);
-                testing.expectEqual(@as(usize, 3), n); // NOTE: It should be the number of items.
+                try testing.expectEqual(@as(usize, 3), n); // NOTE: It should be the number of items.
             }
         }
     }

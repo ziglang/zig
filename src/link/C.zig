@@ -15,6 +15,10 @@ pub const base_tag: link.File.Tag = .c;
 pub const zig_h = @embedFile("C/zig.h");
 
 base: link.File,
+/// This linker backend does not try to incrementally link output C source code.
+/// Instead, it tracks all declarations in this table, and iterates over it
+/// in the flush function, stitching pre-rendered pieces of C code together.
+decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, void) = .{},
 
 /// Per-declaration data. For functions this is the body, and
 /// the forward declaration is stored in the FnBlock.
@@ -66,15 +70,16 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 }
 
 pub fn deinit(self: *C) void {
-    const module = self.base.options.module orelse return;
-    for (module.decl_table.items()) |entry| {
-        self.freeDecl(entry.value);
+    for (self.decl_table.items()) |entry| {
+        self.freeDecl(entry.key);
     }
+    self.decl_table.deinit(self.base.allocator);
 }
 
 pub fn allocateDeclIndexes(self: *C, decl: *Module.Decl) !void {}
 
 pub fn freeDecl(self: *C, decl: *Module.Decl) void {
+    _ = self.decl_table.swapRemove(decl);
     decl.link.c.code.deinit(self.base.allocator);
     decl.fn_link.c.fwd_decl.deinit(self.base.allocator);
     var it = decl.fn_link.c.typedefs.iterator();
@@ -87,6 +92,9 @@ pub fn freeDecl(self: *C, decl: *Module.Decl) void {
 pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
+
+    // Keep track of all decls so we can iterate over them on flush().
+    _ = try self.decl_table.getOrPut(self.base.allocator, decl);
 
     const fwd_decl = &decl.fn_link.c.fwd_decl;
     const typedefs = &decl.fn_link.c.typedefs;
@@ -168,7 +176,7 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     defer all_buffers.deinit();
 
     // This is at least enough until we get to the function bodies without error handling.
-    try all_buffers.ensureCapacity(module.decl_table.count() + 2);
+    try all_buffers.ensureCapacity(self.decl_table.count() + 2);
 
     var file_size: u64 = zig_h.len;
     all_buffers.appendAssumeCapacity(.{
@@ -197,36 +205,32 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
     // Typedefs, forward decls and non-functions first.
     // TODO: performance investigation: would keeping a list of Decls that we should
     // generate, rather than querying here, be faster?
-    for (module.decl_table.items()) |kv| {
-        const decl = kv.value;
-        switch (decl.typed_value) {
-            .most_recent => |tvm| {
-                const buf = buf: {
-                    if (tvm.typed_value.val.castTag(.function)) |_| {
-                        var it = decl.fn_link.c.typedefs.iterator();
-                        while (it.next()) |new| {
-                            if (typedefs.get(new.key)) |previous| {
-                                try err_typedef_writer.print("typedef {s} {s};\n", .{ previous, new.value.name });
-                            } else {
-                                try typedefs.ensureCapacity(typedefs.capacity() + 1);
-                                try err_typedef_writer.writeAll(new.value.rendered);
-                                typedefs.putAssumeCapacityNoClobber(new.key, new.value.name);
-                            }
-                        }
-                        fn_count += 1;
-                        break :buf decl.fn_link.c.fwd_decl.items;
+    for (self.decl_table.items()) |kv| {
+        const decl = kv.key;
+        if (!decl.has_tv) continue;
+        const buf = buf: {
+            if (decl.val.castTag(.function)) |_| {
+                var it = decl.fn_link.c.typedefs.iterator();
+                while (it.next()) |new| {
+                    if (typedefs.get(new.key)) |previous| {
+                        try err_typedef_writer.print("typedef {s} {s};\n", .{ previous, new.value.name });
                     } else {
-                        break :buf decl.link.c.code.items;
+                        try typedefs.ensureCapacity(typedefs.capacity() + 1);
+                        try err_typedef_writer.writeAll(new.value.rendered);
+                        typedefs.putAssumeCapacityNoClobber(new.key, new.value.name);
                     }
-                };
-                all_buffers.appendAssumeCapacity(.{
-                    .iov_base = buf.ptr,
-                    .iov_len = buf.len,
-                });
-                file_size += buf.len;
-            },
-            .never_succeeded => continue,
-        }
+                }
+                fn_count += 1;
+                break :buf decl.fn_link.c.fwd_decl.items;
+            } else {
+                break :buf decl.link.c.code.items;
+            }
+        };
+        all_buffers.appendAssumeCapacity(.{
+            .iov_base = buf.ptr,
+            .iov_len = buf.len,
+        });
+        file_size += buf.len;
     }
 
     err_typedef_item.* = .{
@@ -237,20 +241,16 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
 
     // Now the function bodies.
     try all_buffers.ensureCapacity(all_buffers.items.len + fn_count);
-    for (module.decl_table.items()) |kv| {
-        const decl = kv.value;
-        switch (decl.typed_value) {
-            .most_recent => |tvm| {
-                if (tvm.typed_value.val.castTag(.function)) |_| {
-                    const buf = decl.link.c.code.items;
-                    all_buffers.appendAssumeCapacity(.{
-                        .iov_base = buf.ptr,
-                        .iov_len = buf.len,
-                    });
-                    file_size += buf.len;
-                }
-            },
-            .never_succeeded => continue,
+    for (self.decl_table.items()) |kv| {
+        const decl = kv.key;
+        if (!decl.has_tv) continue;
+        if (decl.val.castTag(.function)) |_| {
+            const buf = decl.link.c.code.items;
+            all_buffers.appendAssumeCapacity(.{
+                .iov_base = buf.ptr,
+                .iov_len = buf.len,
+            });
+            file_size += buf.len;
         }
     }
 
@@ -263,13 +263,13 @@ pub fn flushEmitH(module: *Module) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const emit_h_loc = module.emit_h orelse return;
+    const emit_h = module.emit_h orelse return;
 
     // We collect a list of buffers to write, and write them all at once with pwritev 😎
     var all_buffers = std.ArrayList(std.os.iovec_const).init(module.gpa);
     defer all_buffers.deinit();
 
-    try all_buffers.ensureCapacity(module.decl_table.count() + 1);
+    try all_buffers.ensureCapacity(emit_h.decl_table.count() + 1);
 
     var file_size: u64 = zig_h.len;
     all_buffers.appendAssumeCapacity(.{
@@ -277,9 +277,10 @@ pub fn flushEmitH(module: *Module) !void {
         .iov_len = zig_h.len,
     });
 
-    for (module.decl_table.items()) |kv| {
-        const emit_h = kv.value.getEmitH(module);
-        const buf = emit_h.fwd_decl.items;
+    for (emit_h.decl_table.items()) |kv| {
+        const decl = kv.key;
+        const decl_emit_h = decl.getEmitH(module);
+        const buf = decl_emit_h.fwd_decl.items;
         all_buffers.appendAssumeCapacity(.{
             .iov_base = buf.ptr,
             .iov_len = buf.len,
@@ -287,8 +288,8 @@ pub fn flushEmitH(module: *Module) !void {
         file_size += buf.len;
     }
 
-    const directory = emit_h_loc.directory orelse module.comp.local_cache_directory;
-    const file = try directory.handle.createFile(emit_h_loc.basename, .{
+    const directory = emit_h.loc.directory orelse module.comp.local_cache_directory;
+    const file = try directory.handle.createFile(emit_h.loc.basename, .{
         // We set the end position explicitly below; by not truncating the file, we possibly
         // make it easier on the file system by doing 1 reallocation instead of two.
         .truncate = false,

@@ -9,6 +9,7 @@ const build_options = @import("build_options");
 const is_darwin = Target.current.isDarwin();
 const is_windows = Target.current.os.tag == .windows;
 const is_gnu = Target.current.isGnu();
+const is_haiku = Target.current.os.tag == .haiku;
 
 const log = std.log.scoped(.libc_installation);
 
@@ -279,8 +280,14 @@ pub const LibCInstallation = struct {
             return error.CCompilerCannotFindHeaders;
         }
 
-        const include_dir_example_file = "stdlib.h";
-        const sys_include_dir_example_file = if (is_windows) "sys\\types.h" else "sys/errno.h";
+        const include_dir_example_file = if (is_haiku) "posix/stdlib.h" else "stdlib.h";
+        const sys_include_dir_example_file = if (is_windows)
+            "sys\\types.h"
+        else if (is_haiku)
+            "posix/errno.h"
+        else
+            "sys/errno.h"
+        ;
 
         var path_i: usize = 0;
         while (path_i < search_paths.items.len) : (path_i += 1) {
@@ -376,7 +383,7 @@ pub const LibCInstallation = struct {
         var result_buf = std.ArrayList(u8).init(allocator);
         defer result_buf.deinit();
 
-        const arch_sub_dir = switch (builtin.arch) {
+        const arch_sub_dir = switch (builtin.target.cpu.arch) {
             .i386 => "x86",
             .x86_64 => "x64",
             .arm, .armeb => "arm",
@@ -430,7 +437,7 @@ pub const LibCInstallation = struct {
         var result_buf = std.ArrayList(u8).init(allocator);
         defer result_buf.deinit();
 
-        const arch_sub_dir = switch (builtin.arch) {
+        const arch_sub_dir = switch (builtin.target.cpu.arch) {
             .i386 => "x86",
             .x86_64 => "x64",
             .arm, .armeb => "arm",

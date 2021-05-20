@@ -10,6 +10,11 @@ const debug = std.debug;
 const fmt = std.fmt;
 const math = std.math;
 const mem = std.mem;
+const debug = std.debug;
+const testing = std.testing;
+const utils = crypto.utils;
+const EncodingError = crypto.errors.EncodingError;
+const PasswordVerificationError = crypto.errors.PasswordVerificationError;
 
 const phc = @import("phc_encoding.zig");
 
@@ -196,7 +201,7 @@ const Codec = struct {
         debug.assert(j == b64.len);
     }
 
-    fn decode(bin: []u8, b64: []const u8) Error!void {
+    fn decode(bin: []u8, b64: []const u8) EncodingError!void {
         var i: usize = 0;
         var j: usize = 0;
         while (j < bin.len) {
@@ -221,52 +226,7 @@ const Codec = struct {
     }
 };
 
-pub const Params = struct {
-    const Self = @This();
-
-    log_rounds: u6,
-
-    /// Public interface for PhcEncoding
-    pub fn fromPhcEncoding(it: *PhcParamsIterator) Error!Self {
-        var lr: ?u6 = null;
-        while (try it.next()) |param| {
-            if (mem.eql(u8, param.key, "lr")) {
-                lr = try param.decimal(u6);
-            } else {
-                return Error.InvalidEncoding;
-            }
-        }
-        return Self{ .log_rounds = lr orelse return Error.InvalidEncoding };
-    }
-
-    /// Public interface for PhcEncoding
-    pub fn toPhcEncoding(self: Self, out: []?PhcParamsIterator.Param) void {
-        var lr = PhcParamsIterator.Param.Value{};
-
-        const s = fmt.bufPrint(&lr.buf, "{d}", .{self.log_rounds}) catch unreachable;
-        lr.len = s.len;
-
-        out[0] = PhcParamsIterator.Param{ .key = "lr", .value = lr };
-    }
-};
-
-fn phcKdf(
-    allocator: *mem.Allocator,
-    derived_key: []u8,
-    password: []const u8,
-    salt: []const u8,
-    params: Params,
-) !void {
-    kdf(derived_key[0..derived_key_length], password, salt[0..salt_length].*, params);
-}
-
-/// Apply BCRYPT to generate a key from a password.
-pub fn kdf(
-    derived_key: *[derived_key_length]u8,
-    password: []const u8,
-    salt: [salt_length]u8,
-    params: Params,
-) void {
+fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) ![hash_length]u8 {
     var state = State{};
     var password_buf: [73]u8 = undefined;
     const trimmed_len = math.min(password.len, password_buf.len - 1);

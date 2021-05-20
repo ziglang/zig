@@ -54,7 +54,13 @@ _mm_malloc(size_t __size, size_t __align)
 static __inline__ void __attribute__((__always_inline__, __nodebug__))
 _mm_free(void *__p)
 {
+#if defined(__MINGW32__)
+  __mingw_aligned_free(__p);
+#elif defined(_WIN32)
+  _aligned_free(__p);
+#else
   free(__p);
+#endif
 }
 #endif
 

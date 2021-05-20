@@ -6,7 +6,7 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const Lock = std.event.Lock;
 
 /// This is a value that starts out unavailable, until resolve() is called
@@ -107,7 +107,7 @@ fn testFuture() void {
 
     const result = (await a) + (await b);
 
-    testing.expect(result == 12);
+    try testing.expect(result == 12);
 }
 
 fn waitOnFuture(future: *Future(i32)) i32 {

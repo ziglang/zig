@@ -4,9 +4,12 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
+const crypto = std.crypto;
 const readIntLittle = std.mem.readIntLittle;
 const writeIntLittle = std.mem.writeIntLittle;
-const Error = std.crypto.Error;
+
+const NonCanonicalError = crypto.errors.NonCanonicalError;
+const NotSquareError = crypto.errors.NotSquareError;
 
 pub const Fe = struct {
     limbs: [5]u64,
@@ -113,7 +116,7 @@ pub const Fe = struct {
     }
 
     /// Reject non-canonical encodings of an element, possibly ignoring the top bit
-    pub fn rejectNonCanonical(s: [32]u8, comptime ignore_extra_bit: bool) Error!void {
+    pub fn rejectNonCanonical(s: [32]u8, comptime ignore_extra_bit: bool) NonCanonicalError!void {
         var c: u16 = (s[31] & 0x7f) ^ 0x7f;
         comptime var i = 30;
         inline while (i > 0) : (i -= 1) {
@@ -289,7 +292,7 @@ pub const Fe = struct {
         return _carry128(&r);
     }
 
-    fn _sq(a: Fe, double: comptime bool) callconv(.Inline) Fe {
+    fn _sq(a: Fe, comptime double: bool) callconv(.Inline) Fe {
         var ax: [5]u128 = undefined;
         var r: [5]u128 = undefined;
         comptime var i = 0;
@@ -352,7 +355,7 @@ pub const Fe = struct {
         return fe;
     }
 
-    /// Compute the inverse of a field element
+    /// Return the inverse of a field element, or 0 if a=0.
     pub fn invert(a: Fe) Fe {
         var t0 = a.sq();
         var t1 = t0.sqn(2).mul(a);
@@ -413,7 +416,7 @@ pub const Fe = struct {
     }
 
     /// Compute the square root of `x2`, returning `error.NotSquare` if `x2` was not a square
-    pub fn sqrt(x2: Fe) Error!Fe {
+    pub fn sqrt(x2: Fe) NotSquareError!Fe {
         var x2_copy = x2;
         const x = x2.uncheckedSqrt();
         const check = x.sq().sub(x2_copy);

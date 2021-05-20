@@ -490,17 +490,13 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, ")");
                 }
 
-                if (node->data.fn_proto.return_anytype_token != nullptr) {
-                    fprintf(ar->f, "anytype");
-                } else {
-                    AstNode *return_type_node = node->data.fn_proto.return_type;
-                    assert(return_type_node != nullptr);
-                    fprintf(ar->f, " ");
-                    if (node->data.fn_proto.auto_err_set) {
-                        fprintf(ar->f, "!");
-                    }
-                    render_node_grouped(ar, return_type_node);
+                AstNode *return_type_node = node->data.fn_proto.return_type;
+                assert(return_type_node != nullptr);
+                fprintf(ar->f, " ");
+                if (node->data.fn_proto.auto_err_set) {
+                    fprintf(ar->f, "!");
                 }
+                render_node_grouped(ar, return_type_node);
                 break;
             }
         case NodeTypeFnDef:

@@ -13,20 +13,24 @@ pub fn addCases(ctx: *TestContext) !void {
         };
         {
             var case = ctx.exe("hello world with updates", target);
-            case.addError("", &[_][]const u8{"error: no entry point found"});
+            case.addError("", &[_][]const u8{
+                ":84:9: error: struct 'test_case.test_case' has no member named 'main'",
+            });
 
             // Incorrect return type
             case.addError(
-                \\export fn _start() noreturn {
+                \\pub export fn main() noreturn {
                 \\}
-            , &[_][]const u8{":2:1: error: expected noreturn, found void"});
+            , &[_][]const u8{
+                ":2:1: error: expected noreturn, found void",
+            });
 
             // Regular old hello world
             case.addCompareOutput(
                 \\extern "c" fn write(usize, usize, usize) usize;
                 \\extern "c" fn exit(usize) noreturn;
                 \\
-                \\export fn _start() noreturn {
+                \\pub export fn main() noreturn {
                 \\    print();
                 \\
                 \\    exit(0);
@@ -41,12 +45,39 @@ pub fn addCases(ctx: *TestContext) !void {
                 "Hello, World!\n",
             );
 
-            // Now change the message only
+            // Print it 4 times and force growth and realloc.
             case.addCompareOutput(
                 \\extern "c" fn write(usize, usize, usize) usize;
                 \\extern "c" fn exit(usize) noreturn;
                 \\
-                \\export fn _start() noreturn {
+                \\pub export fn main() noreturn {
+                \\    print();
+                \\    print();
+                \\    print();
+                \\    print();
+                \\
+                \\    exit(0);
+                \\}
+                \\
+                \\fn print() void {
+                \\    const msg = @ptrToInt("Hello, World!\n");
+                \\    const len = 14;
+                \\    _ = write(1, msg, len);
+                \\}
+            ,
+                \\Hello, World!
+                \\Hello, World!
+                \\Hello, World!
+                \\Hello, World!
+                \\
+            );
+
+            // Print it once, and change the message.
+            case.addCompareOutput(
+                \\extern "c" fn write(usize, usize, usize) usize;
+                \\extern "c" fn exit(usize) noreturn;
+                \\
+                \\pub export fn main() noreturn {
                 \\    print();
                 \\
                 \\    exit(0);
@@ -66,7 +97,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 \\extern "c" fn write(usize, usize, usize) usize;
                 \\extern "c" fn exit(usize) noreturn;
                 \\
-                \\export fn _start() noreturn {
+                \\pub export fn main() noreturn {
                 \\    print();
                 \\    print();
                 \\
@@ -92,7 +123,7 @@ pub fn addCases(ctx: *TestContext) !void {
             case.addCompareOutput(
                 \\extern "c" fn exit(usize) noreturn;
                 \\
-                \\export fn _start() noreturn {
+                \\pub export fn main() noreturn {
                 \\    exit(0);
                 \\}
             ,
@@ -103,7 +134,7 @@ pub fn addCases(ctx: *TestContext) !void {
                 \\extern "c" fn exit(usize) noreturn;
                 \\extern "c" fn write(usize, usize, usize) usize;
                 \\
-                \\export fn _start() noreturn {
+                \\pub export fn main() noreturn {
                 \\    _ = write(1, @ptrToInt("Hey!\n"), 5);
                 \\    exit(0);
                 \\}

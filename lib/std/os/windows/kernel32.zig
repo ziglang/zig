@@ -140,6 +140,14 @@ pub extern "kernel32" fn GetOverlappedResult(hFile: HANDLE, lpOverlapped: *OVERL
 
 pub extern "kernel32" fn GetProcessHeap() callconv(WINAPI) ?HANDLE;
 pub extern "kernel32" fn GetQueuedCompletionStatus(CompletionPort: HANDLE, lpNumberOfBytesTransferred: LPDWORD, lpCompletionKey: *ULONG_PTR, lpOverlapped: *?*OVERLAPPED, dwMilliseconds: DWORD) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn GetQueuedCompletionStatusEx(
+    CompletionPort: HANDLE,
+    lpCompletionPortEntries: [*]OVERLAPPED_ENTRY,
+    ulCount: ULONG,
+    ulNumEntriesRemoved: *ULONG,
+    dwMilliseconds: DWORD,
+    fAlertable: BOOL,
+) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) callconv(WINAPI) void;
 pub extern "kernel32" fn GetSystemTimeAsFileTime(*FILETIME) callconv(WINAPI) void;
@@ -196,6 +204,16 @@ pub extern "kernel32" fn ReadFile(
 pub extern "kernel32" fn RemoveDirectoryW(lpPathName: [*:0]const u16) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn SetConsoleCtrlHandler(
+    HandlerRoutine: ?HANDLER_ROUTINE,
+    Add: BOOL,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn SetFileCompletionNotificationModes(
+    FileHandle: HANDLE,
+    Flags: UCHAR,
+) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn SetFilePointerEx(
     in_fFile: HANDLE,

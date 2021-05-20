@@ -195,7 +195,8 @@ pub const Builder = struct {
             self.install_prefix = install_prefix orelse "/usr";
             self.install_path = fs.path.join(self.allocator, &[_][]const u8{ dest_dir, self.install_prefix }) catch unreachable;
         } else {
-            self.install_prefix = install_prefix orelse self.cache_root;
+            self.install_prefix = install_prefix orelse
+                (fs.path.join(self.allocator, &[_][]const u8{ self.build_root, "zig-out" }) catch unreachable);
             self.install_path = self.install_prefix;
         }
         self.lib_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "lib" }) catch unreachable;
@@ -675,17 +676,19 @@ pub const Builder = struct {
 
     /// Exposes standard `zig build` options for choosing a target.
     pub fn standardTargetOptions(self: *Builder, args: StandardTargetOptionsArgs) CrossTarget {
-        const triple = self.option(
+        const maybe_triple = self.option(
             []const u8,
             "target",
             "The CPU architecture, OS, and ABI to build for",
-        ) orelse return args.default_target;
+        );
+        const mcpu = self.option([]const u8, "cpu", "Target CPU");
 
-        // TODO add cpu and features as part of the target triple
+        const triple = maybe_triple orelse return args.default_target;
 
         var diags: CrossTarget.ParseOptions.Diagnostics = .{};
         const selected_target = CrossTarget.parse(.{
             .arch_os_abi = triple,
+            .cpu_features = mcpu,
             .diagnostics = &diags,
         }) catch |err| switch (err) {
             error.UnknownCpuModel => {
@@ -1014,6 +1017,23 @@ pub const Builder = struct {
             .stale => warn("# installed\n", .{}),
             .fresh => warn("# up-to-date\n", .{}),
         };
+    }
+
+    pub fn truncateFile(self: *Builder, dest_path: []const u8) !void {
+        if (self.verbose) {
+            warn("truncate {s}\n", .{dest_path});
+        }
+        const cwd = fs.cwd();
+        var src_file = cwd.createFile(dest_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => blk: {
+                if (fs.path.dirname(dest_path)) |dirname| {
+                    try cwd.makePath(dirname);
+                }
+                break :blk try cwd.createFile(dest_path, .{});
+            },
+            else => |e| return e,
+        };
+        src_file.close();
     }
 
     pub fn pathFromRoot(self: *Builder, rel_path: []const u8) []u8 {
@@ -1384,6 +1404,8 @@ pub const LibExeObjStep = struct {
     /// safely garbage-collected during the linking phase.
     link_function_sections: bool = false,
 
+    linker_allow_shlib_undefined: ?bool = null,
+
     /// Uses system Wine installation to run cross compiled Windows build artifacts.
     enable_wine: bool = false,
 
@@ -1392,6 +1414,9 @@ pub const LibExeObjStep = struct {
 
     /// Uses system Wasmtime installation to run cross compiled wasm/wasi build artifacts.
     enable_wasmtime: bool = false,
+
+    /// Experimental. Uses system Darling installation to run cross compiled macOS build artifacts.
+    enable_darling: bool = false,
 
     /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
     /// this will be the directory $glibc-build-dir/install/glibcs
@@ -1407,7 +1432,7 @@ pub const LibExeObjStep = struct {
 
     red_zone: ?bool = null,
 
-    subsystem: ?builtin.SubSystem = null,
+    subsystem: ?std.Target.SubSystem = null,
 
     /// Overrides the default stack size
     stack_size: ?u64 = null,
@@ -1959,7 +1984,7 @@ pub const LibExeObjStep = struct {
             },
             std.builtin.Version => {
                 out.print(
-                    \\pub const {}: @import("builtin").Version = .{{
+                    \\pub const {}: @import("std").builtin.Version = .{{
                     \\    .major = {d},
                     \\    .minor = {d},
                     \\    .patch = {d},
@@ -2336,6 +2361,9 @@ pub const LibExeObjStep = struct {
         if (self.link_function_sections) {
             try zig_args.append("-ffunction-sections");
         }
+        if (self.linker_allow_shlib_undefined) |x| {
+            try zig_args.append(if (x) "-fallow-shlib-undefined" else "-fno-allow-shlib-undefined");
+        }
         if (self.single_threaded) {
             try zig_args.append("--single-threaded");
         }
@@ -2472,9 +2500,19 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("--test-cmd");
                 try zig_args.append(bin_name);
                 if (glibc_dir_arg) |dir| {
-                    const full_dir = try fs.path.join(builder.allocator, &[_][]const u8{
-                        dir,
-                        try self.target.linuxTriple(builder.allocator),
+                    // TODO look into making this a call to `linuxTriple`. This
+                    // needs the directory to be called "i686" rather than
+                    // "i386" which is why we do it manually here.
+                    const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
+                    const cpu_arch = self.target.getCpuArch();
+                    const os_tag = self.target.getOsTag();
+                    const abi = self.target.getAbi();
+                    const cpu_arch_name: []const u8 = if (cpu_arch == .i386)
+                        "i686"
+                    else
+                        @tagName(cpu_arch);
+                    const full_dir = try std.fmt.allocPrint(builder.allocator, fmt_str, .{
+                        dir, cpu_arch_name, @tagName(os_tag), @tagName(abi),
                     });
 
                     try zig_args.append("--test-cmd");
@@ -2494,6 +2532,11 @@ pub const LibExeObjStep = struct {
                 try zig_args.append(bin_name);
                 try zig_args.append("--test-cmd");
                 try zig_args.append("--dir=.");
+                try zig_args.append("--test-cmd-bin");
+            },
+            .darling => |bin_name| if (self.enable_darling) {
+                try zig_args.append("--test-cmd");
+                try zig_args.append(bin_name);
                 try zig_args.append("--test-cmd-bin");
             },
         }
@@ -2765,17 +2808,23 @@ pub const InstallDirectoryOptions = struct {
     source_dir: []const u8,
     install_dir: InstallDir,
     install_subdir: []const u8,
-    exclude_extensions: ?[]const []const u8 = null,
+    /// File paths which end in any of these suffixes will be excluded
+    /// from being installed.
+    exclude_extensions: []const []const u8 = &.{},
+    /// File paths which end in any of these suffixes will result in
+    /// empty files being installed. This is mainly intended for large
+    /// test.zig files in order to prevent needless installation bloat.
+    /// However if the files were not present at all, then
+    /// `@import("test.zig")` would be a compile error.
+    blank_extensions: []const []const u8 = &.{},
 
     fn dupe(self: InstallDirectoryOptions, b: *Builder) InstallDirectoryOptions {
         return .{
             .source_dir = b.dupe(self.source_dir),
             .install_dir = self.install_dir.dupe(b),
             .install_subdir = b.dupe(self.install_subdir),
-            .exclude_extensions = if (self.exclude_extensions) |extensions|
-                b.dupeStrings(extensions)
-            else
-                null,
+            .exclude_extensions = b.dupeStrings(self.exclude_extensions),
+            .blank_extensions = b.dupeStrings(self.blank_extensions),
         };
     }
 };
@@ -2803,17 +2852,29 @@ pub const InstallDirStep = struct {
         const full_src_dir = self.builder.pathFromRoot(self.options.source_dir);
         var it = try fs.walkPath(self.builder.allocator, full_src_dir);
         next_entry: while (try it.next()) |entry| {
-            if (self.options.exclude_extensions) |ext_list| for (ext_list) |ext| {
+            for (self.options.exclude_extensions) |ext| {
                 if (mem.endsWith(u8, entry.path, ext)) {
                     continue :next_entry;
                 }
-            };
+            }
 
             const rel_path = entry.path[full_src_dir.len + 1 ..];
-            const dest_path = try fs.path.join(self.builder.allocator, &[_][]const u8{ dest_prefix, rel_path });
+            const dest_path = try fs.path.join(self.builder.allocator, &[_][]const u8{
+                dest_prefix, rel_path,
+            });
+
             switch (entry.kind) {
                 .Directory => try fs.cwd().makePath(dest_path),
-                .File => try self.builder.updateFile(entry.path, dest_path),
+                .File => {
+                    for (self.options.blank_extensions) |ext| {
+                        if (mem.endsWith(u8, entry.path, ext)) {
+                            try self.builder.truncateFile(dest_path);
+                            continue :next_entry;
+                        }
+                    }
+
+                    try self.builder.updateFile(entry.path, dest_path);
+                },
                 else => continue,
             }
         }
@@ -3052,19 +3113,19 @@ test "Builder.dupePkg()" {
     const dupe_deps = dupe.dependencies.?;
 
     // probably the same top level package details
-    std.testing.expectEqualStrings(pkg_top.name, dupe.name);
+    try std.testing.expectEqualStrings(pkg_top.name, dupe.name);
 
     // probably the same dependencies
-    std.testing.expectEqual(original_deps.len, dupe_deps.len);
-    std.testing.expectEqual(original_deps[0].name, pkg_dep.name);
+    try std.testing.expectEqual(original_deps.len, dupe_deps.len);
+    try std.testing.expectEqual(original_deps[0].name, pkg_dep.name);
 
     // could segfault otherwise if pointers in duplicated package's fields are
     // the same as those in stack allocated package's fields
-    std.testing.expect(dupe_deps.ptr != original_deps.ptr);
-    std.testing.expect(dupe.name.ptr != pkg_top.name.ptr);
-    std.testing.expect(dupe.path.ptr != pkg_top.path.ptr);
-    std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
-    std.testing.expect(dupe_deps[0].path.ptr != pkg_dep.path.ptr);
+    try std.testing.expect(dupe_deps.ptr != original_deps.ptr);
+    try std.testing.expect(dupe.name.ptr != pkg_top.name.ptr);
+    try std.testing.expect(dupe.path.ptr != pkg_top.path.ptr);
+    try std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
+    try std.testing.expect(dupe_deps[0].path.ptr != pkg_dep.path.ptr);
 }
 
 test "LibExeObjStep.addBuildOption" {
@@ -3088,7 +3149,7 @@ test "LibExeObjStep.addBuildOption" {
     exe.addBuildOption(?[]const u8, "optional_string", null);
     exe.addBuildOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
 
-    std.testing.expectEqualStrings(
+    try std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
         \\pub const option2: ?usize = null;
         \\pub const string: []const u8 = "zigisthebest";
@@ -3132,10 +3193,10 @@ test "LibExeObjStep.addPackage" {
     var exe = builder.addExecutable("not_an_executable", "/not/an/executable.zig");
     exe.addPackage(pkg_top);
 
-    std.testing.expectEqual(@as(usize, 1), exe.packages.items.len);
+    try std.testing.expectEqual(@as(usize, 1), exe.packages.items.len);
 
     const dupe = exe.packages.items[0];
-    std.testing.expectEqualStrings(pkg_top.name, dupe.name);
+    try std.testing.expectEqualStrings(pkg_top.name, dupe.name);
 }
 
 test {

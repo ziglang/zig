@@ -175,9 +175,8 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
 
     self.offset_table.items[block.offset_index] = 0;
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
-    if (typed_value.ty.zigTypeTag() == .Fn) {
-        switch (typed_value.val.tag()) {
+    if (decl.ty.zigTypeTag() == .Fn) {
+        switch (decl.val.tag()) {
             // dependent on function type, appends it to the correct list
             .function => try self.funcs.append(self.base.allocator, decl),
             .extern_fn => try self.ext_funcs.append(self.base.allocator, decl),
@@ -191,7 +190,6 @@ pub fn allocateDeclIndexes(self: *Wasm, decl: *Module.Decl) !void {
 pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     std.debug.assert(decl.link.wasm.init); // Must call allocateDeclIndexes()
 
-    const typed_value = decl.typed_value.most_recent.typed_value;
     const fn_data = &decl.fn_link.wasm;
     fn_data.functype.items.len = 0;
     fn_data.code.items.len = 0;
@@ -210,7 +208,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     defer context.deinit();
 
     // generate the 'code' section for the function declaration
-    const result = context.gen(typed_value) catch |err| switch (err) {
+    const result = context.gen(.{ .ty = decl.ty, .val = decl.val }) catch |err| switch (err) {
         error.CodegenFail => {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl, context.err_msg);
@@ -228,7 +226,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     fn_data.functype = context.func_type_data.toUnmanaged();
 
     const block = &decl.link.wasm;
-    if (typed_value.ty.zigTypeTag() == .Fn) {
+    if (decl.ty.zigTypeTag() == .Fn) {
         // as locals are patched afterwards, the offsets of funcidx's are off,
         // here we update them to correct them
         for (fn_data.idx_refs.items) |*func| {
@@ -262,7 +260,7 @@ pub fn updateDeclExports(
 
 pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     if (self.getFuncidx(decl)) |func_idx| {
-        switch (decl.typed_value.most_recent.typed_value.val.tag()) {
+        switch (decl.val.tag()) {
             .function => _ = self.funcs.swapRemove(func_idx),
             .extern_fn => _ = self.ext_funcs.swapRemove(func_idx),
             else => unreachable,
@@ -429,7 +427,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
                 try leb.writeULEB128(writer, @intCast(u32, exprt.options.name.len));
                 try writer.writeAll(exprt.options.name);
 
-                switch (exprt.exported_decl.typed_value.most_recent.typed_value.ty.zigTypeTag()) {
+                switch (exprt.exported_decl.ty.zigTypeTag()) {
                     .Fn => {
                         // Type of the export
                         try writer.writeByte(wasm.externalKind(.function));
@@ -802,7 +800,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 /// TODO: we could maintain a hash map to potentially make this simpler
 fn getFuncidx(self: Wasm, decl: *Module.Decl) ?u32 {
     var offset: u32 = 0;
-    const slice = switch (decl.typed_value.most_recent.typed_value.val.tag()) {
+    const slice = switch (decl.val.tag()) {
         .function => blk: {
             // when the target is a regular function, we have to calculate
             // the offset of where the index starts

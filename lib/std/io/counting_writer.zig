@@ -40,5 +40,5 @@ test "io.CountingWriter" {
 
     const bytes = "yay" ** 100;
     stream.writeAll(bytes) catch unreachable;
-    testing.expect(counting_stream.bytes_written == bytes.len);
+    try testing.expect(counting_stream.bytes_written == bytes.len);
 }

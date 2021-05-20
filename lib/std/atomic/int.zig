@@ -31,7 +31,7 @@ pub fn Int(comptime T: type) type {
             return @atomicRmw(T, &self.unprotected_value, op, operand, ordering);
         }
 
-        pub fn load(self: *Self, comptime ordering: builtin.AtomicOrder) T {
+        pub fn load(self: *const Self, comptime ordering: builtin.AtomicOrder) T {
             switch (ordering) {
                 .Unordered, .Monotonic, .Acquire, .SeqCst => {},
                 else => @compileError("Invalid ordering '" ++ @tagName(ordering) ++ "' for a load operation"),
@@ -59,7 +59,7 @@ pub fn Int(comptime T: type) type {
             return self.rmw(.Sub, 1, .SeqCst);
         }
 
-        pub fn get(self: *Self) T {
+        pub fn get(self: *const Self) T {
             return self.load(.SeqCst);
         }
 
@@ -81,12 +81,12 @@ pub fn Int(comptime T: type) type {
 
 test "std.atomic.Int" {
     var a = Int(u8).init(0);
-    testing.expectEqual(@as(u8, 0), a.incr());
-    testing.expectEqual(@as(u8, 1), a.load(.SeqCst));
+    try testing.expectEqual(@as(u8, 0), a.incr());
+    try testing.expectEqual(@as(u8, 1), a.load(.SeqCst));
     a.store(42, .SeqCst);
-    testing.expectEqual(@as(u8, 42), a.decr());
-    testing.expectEqual(@as(u8, 41), a.xchg(100));
-    testing.expectEqual(@as(u8, 100), a.fetchAdd(5));
-    testing.expectEqual(@as(u8, 105), a.get());
+    try testing.expectEqual(@as(u8, 42), a.decr());
+    try testing.expectEqual(@as(u8, 41), a.xchg(100));
+    try testing.expectEqual(@as(u8, 100), a.fetchAdd(5));
+    try testing.expectEqual(@as(u8, 105), a.get());
     a.set(200);
 }

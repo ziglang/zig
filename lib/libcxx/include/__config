@@ -32,13 +32,13 @@
 #  define _GNUC_VER_NEW 0
 #endif
 
-#define _LIBCPP_VERSION 11000
+#define _LIBCPP_VERSION 12000
 
 #ifndef _LIBCPP_ABI_VERSION
 #  define _LIBCPP_ABI_VERSION 1
 #endif
 
-#ifndef __STDC_HOSTED__
+#if __STDC_HOSTED__ == 0
 #  define _LIBCPP_FREESTANDING
 #endif
 
@@ -49,8 +49,10 @@
 #    define _LIBCPP_STD_VER 14
 #  elif __cplusplus <= 201703L
 #    define _LIBCPP_STD_VER 17
+#  elif __cplusplus <= 202002L
+#    define _LIBCPP_STD_VER 20
 #  else
-#    define _LIBCPP_STD_VER 18  // current year, or date of c++2a ratification
+#    define _LIBCPP_STD_VER 21  // current year, or date of c++2b ratification
 #  endif
 #endif  // _LIBCPP_STD_VER
 
@@ -63,7 +65,7 @@
 #elif defined(__wasm__)
 #  define _LIBCPP_OBJECT_FORMAT_WASM  1
 #else
-#  error Unknown object file format
+   // ... add new file formats here ...
 #endif
 
 #if defined(_LIBCPP_ABI_UNSTABLE) || _LIBCPP_ABI_VERSION >= 2
@@ -105,6 +107,10 @@
 // Re-worked external template instantiations for std::string with a focus on
 // performance and fast-path inlining.
 #  define _LIBCPP_ABI_STRING_OPTIMIZED_EXTERNAL_INSTANTIATION
+// Enable clang::trivial_abi on std::unique_ptr.
+#  define _LIBCPP_ABI_ENABLE_UNIQUE_PTR_TRIVIAL_ABI
+// Enable clang::trivial_abi on std::shared_ptr and std::weak_ptr
+#  define _LIBCPP_ABI_ENABLE_SHARED_PTR_TRIVIAL_ABI
 #elif _LIBCPP_ABI_VERSION == 1
 #  if !defined(_LIBCPP_OBJECT_FORMAT_COFF)
 // Enable compiling copies of now inline methods into the dylib to support
@@ -121,9 +127,11 @@
 #  endif
 #endif
 
-#ifdef _LIBCPP_TRIVIAL_PAIR_COPY_CTOR
-#error "_LIBCPP_TRIVIAL_PAIR_COPY_CTOR" is no longer supported. \
-       use _LIBCPP_DEPRECATED_ABI_DISABLE_PAIR_TRIVIAL_COPY_CTOR instead
+#if defined(_LIBCPP_BUILDING_LIBRARY) || defined(_LIBCPP_ABI_UNSTABLE) || _LIBCPP_ABI_VERSION >= 2
+// Enable additional explicit instantiations of iostreams components. This
+// reduces the number of weak definitions generated in programs that use
+// iostreams by providing a single strong definition in the shared library.
+# define _LIBCPP_ABI_ENABLE_ADDITIONAL_IOSTREAM_EXPLICIT_INSTANTIATIONS_1
 #endif
 
 #define _LIBCPP_CONCAT1(_LIBCPP_X,_LIBCPP_Y) _LIBCPP_X##_LIBCPP_Y
@@ -256,14 +264,14 @@
 #  endif  // __LONG_LONG_SUPPORTED
 #endif  // __FreeBSD__
 
-#ifdef __NetBSD__
+#if defined(__NetBSD__) || defined(__OpenBSD__)
 #  include <sys/endian.h>
 #  if _BYTE_ORDER == _LITTLE_ENDIAN
 #    define _LIBCPP_LITTLE_ENDIAN
 #  else  // _BYTE_ORDER == _LITTLE_ENDIAN
 #    define _LIBCPP_BIG_ENDIAN
 #  endif  // _BYTE_ORDER == _LITTLE_ENDIAN
-#endif  // __NetBSD__
+#endif  // defined(__NetBSD__) || defined(__OpenBSD__)
 
 #if defined(_WIN32)
 #  define _LIBCPP_WIN32API
@@ -304,7 +312,7 @@
 #  endif
 #endif // __sun__
 
-#if defined(__CloudABI__)
+#if defined(__OpenBSD__) || defined(__CloudABI__)
    // Certain architectures provide arc4random(). Prefer using
    // arc4random() over /dev/{u,}random to make it possible to obtain
    // random data even when using sandboxing mechanisms such as chroots,
@@ -344,13 +352,11 @@
 #  if defined(__FreeBSD__)
 #    define _LIBCPP_HAS_ALIGNED_ALLOC
 #    define _LIBCPP_HAS_QUICK_EXIT
-#    define _LIBCPP_HAS_C11_FEATURES
 #    if __FreeBSD_version >= 1300064 || \
        (__FreeBSD_version >= 1201504 && __FreeBSD_version < 1300000)
 #      define _LIBCPP_HAS_TIMESPEC_GET
 #    endif
 #  elif defined(__BIONIC__)
-#    define _LIBCPP_HAS_C11_FEATURES
 #    if __ANDROID_API__ >= 21
 #      define _LIBCPP_HAS_QUICK_EXIT
 #    endif
@@ -364,7 +370,9 @@
 #    define _LIBCPP_HAS_ALIGNED_ALLOC
 #    define _LIBCPP_HAS_QUICK_EXIT
 #    define _LIBCPP_HAS_TIMESPEC_GET
-#    define _LIBCPP_HAS_C11_FEATURES
+#  elif defined(__OpenBSD__)
+#    define _LIBCPP_HAS_ALIGNED_ALLOC
+#    define _LIBCPP_HAS_TIMESPEC_GET
 #  elif defined(__linux__)
 #    if !defined(_LIBCPP_HAS_MUSL_LIBC)
 #      if _LIBCPP_GLIBC_PREREQ(2, 15) || defined(__BIONIC__)
@@ -372,16 +380,24 @@
 #      endif
 #      if _LIBCPP_GLIBC_PREREQ(2, 17)
 #        define _LIBCPP_HAS_ALIGNED_ALLOC
-#        define _LIBCPP_HAS_C11_FEATURES
 #        define _LIBCPP_HAS_TIMESPEC_GET
 #      endif
 #    else // defined(_LIBCPP_HAS_MUSL_LIBC)
 #      define _LIBCPP_HAS_ALIGNED_ALLOC
 #      define _LIBCPP_HAS_QUICK_EXIT
 #      define _LIBCPP_HAS_TIMESPEC_GET
-#      define _LIBCPP_HAS_C11_FEATURES
 #    endif
-#  endif // __linux__
+#  elif defined(__APPLE__)
+     // timespec_get and aligned_alloc were introduced in macOS 10.15 and
+     // aligned releases
+#    if (__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101500 || \
+         __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ >= 130000 || \
+         __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__ >= 130000 || \
+         __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__ >= 60000)
+#      define _LIBCPP_HAS_ALIGNED_ALLOC
+#      define _LIBCPP_HAS_TIMESPEC_GET
+#    endif
+#  endif // __APPLE__
 #endif
 
 #ifndef _LIBCPP_CXX03_LANG
@@ -389,9 +405,7 @@
 #elif defined(_LIBCPP_COMPILER_CLANG)
 # define _LIBCPP_ALIGNOF(_Tp) _Alignof(_Tp)
 #else
-// This definition is potentially buggy, but it's only taken with GCC in C++03,
-// which we barely support anyway. See llvm.org/PR39713
-# define _LIBCPP_ALIGNOF(_Tp) __alignof(_Tp)
+# error "We don't know a correct way to implement alignof(T) in C++03 outside of Clang"
 #endif
 
 #define _LIBCPP_PREFERRED_ALIGNOF(_Tp) __alignof(_Tp)
@@ -433,28 +447,12 @@ typedef __char32_t char32_t;
 #  define _LIBCPP_NORETURN __attribute__ ((noreturn))
 #endif
 
-#if !(__has_feature(cxx_lambdas))
-#define _LIBCPP_HAS_NO_LAMBDAS
-#endif
-
 #if !(__has_feature(cxx_nullptr))
 #  if (__has_extension(cxx_nullptr) || __has_keyword(__nullptr)) && defined(_LIBCPP_ABI_ALWAYS_USE_CXX11_NULLPTR)
 #    define nullptr __nullptr
 #  else
 #    define _LIBCPP_HAS_NO_NULLPTR
 #  endif
-#endif
-
-#if !(__has_feature(cxx_rvalue_references))
-#define _LIBCPP_HAS_NO_RVALUE_REFERENCES
-#endif
-
-#if !(__has_feature(cxx_auto_type))
-#define _LIBCPP_HAS_NO_AUTO_TYPE
-#endif
-
-#if !(__has_feature(cxx_variadic_templates))
-#define _LIBCPP_HAS_NO_VARIADICS
 #endif
 
 // Objective-C++ features (opt-in)
@@ -720,7 +718,7 @@ typedef __char32_t char32_t;
 #endif
 
 #ifndef _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS
-#  if !defined(_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS) && __has_attribute(__type_visibility__)
+#  if !defined(_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS)
 #    define _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __attribute__ ((__visibility__("default")))
 #  else
 #    define _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS
@@ -751,16 +749,6 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_HIDE_FROM_ABI_PER_TU 0
 #  else
 #    define _LIBCPP_HIDE_FROM_ABI_PER_TU 1
-#  endif
-#endif
-
-#ifndef _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION
-#  ifdef _LIBCPP_OBJECT_FORMAT_COFF // Windows binaries can't merge typeinfos.
-#    define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION 2
-#  else
-     // TODO: This isn't strictly correct on ELF platforms due to llvm.org/PR37398
-     // And we should consider defaulting to OFF.
-#    define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION 1
 #  endif
 #endif
 
@@ -838,6 +826,12 @@ typedef unsigned int   char32_t;
 #  define _LIBCPP_CONSTEXPR constexpr
 #endif
 
+#ifndef __cpp_consteval
+#  define _LIBCPP_CONSTEVAL _LIBCPP_CONSTEXPR
+#else
+#  define _LIBCPP_CONSTEVAL consteval
+#endif
+
 #ifdef _LIBCPP_CXX03_LANG
 #  define _LIBCPP_DEFAULT {}
 #else
@@ -863,10 +857,6 @@ typedef unsigned int   char32_t;
 #  define _LIBCPP_EXPLICIT
 #endif
 
-#if !__has_builtin(__builtin_operator_new) || !__has_builtin(__builtin_operator_delete)
-#define _LIBCPP_HAS_NO_BUILTIN_OPERATOR_NEW_DELETE
-#endif
-
 #ifdef _LIBCPP_HAS_NO_STRONG_ENUMS
 #  define _LIBCPP_DECLARE_STRONG_ENUM(x) struct _LIBCPP_TYPE_VIS x { enum __lx
 #  define _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(x) \
@@ -880,34 +870,43 @@ typedef unsigned int   char32_t;
 #  define _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(x)
 #endif  // _LIBCPP_HAS_NO_STRONG_ENUMS
 
-#ifdef _LIBCPP_DEBUG
-#  if _LIBCPP_DEBUG == 0
-#    define _LIBCPP_DEBUG_LEVEL 1
-#  elif _LIBCPP_DEBUG == 1
-#    define _LIBCPP_DEBUG_LEVEL 2
-#  else
-#    error Supported values for _LIBCPP_DEBUG are 0 and 1
-#  endif
-#  if !defined(_LIBCPP_BUILDING_LIBRARY)
-#    define _LIBCPP_EXTERN_TEMPLATE(...)
-#  endif
+// _LIBCPP_DEBUG potential values:
+//  - undefined: No assertions. This is the default.
+//  - 0:         Basic assertions
+//  - 1:         Basic assertions + iterator validity checks.
+#if !defined(_LIBCPP_DEBUG)
+# define _LIBCPP_DEBUG_LEVEL 0
+#elif _LIBCPP_DEBUG == 0
+# define _LIBCPP_DEBUG_LEVEL 1
+#elif _LIBCPP_DEBUG == 1
+# define _LIBCPP_DEBUG_LEVEL 2
+#else
+# error Supported values for _LIBCPP_DEBUG are 0 and 1
 #endif
 
-#ifndef _LIBCPP_DEBUG_LEVEL
-# define _LIBCPP_DEBUG_LEVEL 0
+// _LIBCPP_DEBUG_LEVEL is always defined to one of [0, 1, 2] at this point
+#if _LIBCPP_DEBUG_LEVEL >= 1 && !defined(_LIBCPP_DISABLE_EXTERN_TEMPLATE)
+# define _LIBCPP_EXTERN_TEMPLATE(...)
 #endif
 
 #ifdef _LIBCPP_DISABLE_EXTERN_TEMPLATE
-#define _LIBCPP_EXTERN_TEMPLATE(...)
-#define _LIBCPP_EXTERN_TEMPLATE2(...)
+# define _LIBCPP_EXTERN_TEMPLATE(...)
+# define _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(...)
 #endif
 
 #ifndef _LIBCPP_EXTERN_TEMPLATE
 #define _LIBCPP_EXTERN_TEMPLATE(...) extern template __VA_ARGS__;
 #endif
 
-#ifndef _LIBCPP_EXTERN_TEMPLATE2
-#define _LIBCPP_EXTERN_TEMPLATE2(...) extern template __VA_ARGS__;
+// When the Debug mode is enabled, we disable extern declarations because we
+// don't want to use the functions compiled in the library, which might not
+// have had the debug mode enabled when built. However, some extern declarations
+// need to be used, because code correctness depends on it (several instances
+// in the <locale>). Those special declarations are declared with
+// _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE, which is enabled even
+// when the debug mode is enabled.
+#ifndef _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE
+# define _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(...) extern template __VA_ARGS__;
 #endif
 
 #ifndef _LIBCPP_EXTERN_TEMPLATE_DEFINE
@@ -937,6 +936,8 @@ typedef unsigned int   char32_t;
 #elif defined(_LIBCPP_ABI_VCRUNTIME) && !defined(__cpp_aligned_new)
    // We're deferring to Microsoft's STL to provide aligned new et al. We don't
    // have it unless the language feature test macro is defined.
+#  define _LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
+#elif defined(__MVS__)
 #  define _LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
 #endif
 
@@ -999,6 +1000,18 @@ typedef unsigned int   char32_t;
 #  define _LIBCPP_DEPRECATED_IN_CXX17
 #endif
 
+#if _LIBCPP_STD_VER > 17
+#  define _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_DEPRECATED
+#else
+#  define _LIBCPP_DEPRECATED_IN_CXX20
+#endif
+
+#if !defined(_LIBCPP_NO_HAS_CHAR8_T)
+#  define _LIBCPP_DEPRECATED_WITH_CHAR8_T _LIBCPP_DEPRECATED
+#else
+#  define _LIBCPP_DEPRECATED_WITH_CHAR8_T
+#endif
+
 // Macros to enter and leave a state where deprecation warnings are suppressed.
 #if !defined(_LIBCPP_SUPPRESS_DEPRECATED_PUSH) && \
     (defined(_LIBCPP_COMPILER_CLANG) || defined(_LIBCPP_COMPILER_GCC))
@@ -1037,14 +1050,6 @@ typedef unsigned int   char32_t;
 #  define _LIBCPP_CONSTEXPR_AFTER_CXX17
 #endif
 
-#if _LIBCPP_STD_VER > 17 && \
-    !defined(_LIBCPP_HAS_NO_CXX14_CONSTEXPR) && \
-    !defined(_LIBCPP_HAS_NO_BUILTIN_IS_CONSTANT_EVALUATED)
-#  define _LIBCPP_CONSTEXPR_AFTER_CXX17_WITH_IS_CONSTANT_EVALUATED constexpr
-#else
-#  define _LIBCPP_CONSTEXPR_AFTER_CXX17_WITH_IS_CONSTANT_EVALUATED
-#endif
-
 // The _LIBCPP_NODISCARD_ATTRIBUTE should only be used to define other
 // NODISCARD macros to the correct attribute.
 #if __has_cpp_attribute(nodiscard) || defined(_LIBCPP_COMPILER_MSVC)
@@ -1079,12 +1084,6 @@ typedef unsigned int   char32_t;
 #  define _LIBCPP_INLINE_VAR
 #endif
 
-#ifdef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-#  define _LIBCPP_EXPLICIT_MOVE(x) _VSTD::move(x)
-#else
-#  define _LIBCPP_EXPLICIT_MOVE(x) (x)
-#endif
-
 #ifndef _LIBCPP_CONSTEXPR_IF_NODEBUG
 #if defined(_LIBCPP_DEBUG) || defined(_LIBCPP_HAS_NO_CXX14_CONSTEXPR)
 #define _LIBCPP_CONSTEXPR_IF_NODEBUG
@@ -1100,7 +1099,7 @@ typedef unsigned int   char32_t;
 #endif
 
 #ifndef _LIBCPP_HAS_NO_ASAN
-_LIBCPP_FUNC_VIS extern "C" void __sanitizer_annotate_contiguous_container(
+extern "C" _LIBCPP_FUNC_VIS void __sanitizer_annotate_contiguous_container(
   const void *, const void *, const void *, const void *);
 #endif
 
@@ -1125,11 +1124,14 @@ _LIBCPP_FUNC_VIS extern "C" void __sanitizer_annotate_contiguous_container(
 #  if defined(__FreeBSD__) || \
       defined(__wasi__) || \
       defined(__NetBSD__) || \
+      defined(__OpenBSD__) || \
+      defined(__NuttX__) || \
       defined(__linux__) || \
       defined(__GNU__) || \
       defined(__APPLE__) || \
       defined(__CloudABI__) || \
       defined(__sun__) || \
+      defined(__MVS__) || \
       (defined(__MINGW32__) && __has_include(<pthread.h>))
 #    define _LIBCPP_HAS_THREAD_API_PTHREAD
 #  elif defined(__Fuchsia__)
@@ -1165,10 +1167,6 @@ _LIBCPP_FUNC_VIS extern "C" void __sanitizer_annotate_contiguous_container(
 #if defined(_LIBCPP_HAS_NO_MONOTONIC_CLOCK) && !defined(_LIBCPP_HAS_NO_THREADS)
 #error _LIBCPP_HAS_NO_MONOTONIC_CLOCK may only be defined when \
        _LIBCPP_HAS_NO_THREADS is defined.
-#endif
-
-#if defined(__STDCPP_THREADS__) && defined(_LIBCPP_HAS_NO_THREADS)
-#error _LIBCPP_HAS_NO_THREADS cannot be set when __STDCPP_THREADS__ is set.
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_THREADS) && !defined(__STDCPP_THREADS__)
@@ -1222,13 +1220,15 @@ _LIBCPP_FUNC_VIS extern "C" void __sanitizer_annotate_contiguous_container(
 // Some systems do not provide gets() in their C library, for security reasons.
 #ifndef _LIBCPP_C_HAS_NO_GETS
 #  if defined(_LIBCPP_MSVCRT) || \
-      (defined(__FreeBSD_version) && __FreeBSD_version >= 1300043)
+      (defined(__FreeBSD_version) && __FreeBSD_version >= 1300043) || \
+      defined(__OpenBSD__)
 #    define _LIBCPP_C_HAS_NO_GETS
 #  endif
 #endif
 
-#if defined(__BIONIC__) || defined(__CloudABI__) ||                            \
-    defined(__Fuchsia__) || defined(__wasi__) || defined(_LIBCPP_HAS_MUSL_LIBC)
+#if defined(__BIONIC__) || defined(__CloudABI__) || defined(__NuttX__) ||      \
+    defined(__Fuchsia__) || defined(__wasi__) || defined(_LIBCPP_HAS_MUSL_LIBC) || \
+    defined(__MVS__) || defined(__OpenBSD__)
 #define _LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE
 #endif
 
@@ -1337,6 +1337,12 @@ _LIBCPP_FUNC_VIS extern "C" void __sanitizer_annotate_contiguous_container(
 #endif
 #endif // !defined(_LIBCPP_NODEBUG_TYPE)
 
+#if __has_attribute(__preferred_name__)
+#define _LIBCPP_PREFERRED_NAME(x) __attribute__((__preferred_name__(x)))
+#else
+#define _LIBCPP_PREFERRED_NAME(x)
+#endif
+
 #if defined(_LIBCPP_ABI_MICROSOFT) && \
     (defined(_LIBCPP_COMPILER_MSVC) || __has_declspec_attribute(empty_bases))
 #  define _LIBCPP_DECLSPEC_EMPTY_BASES __declspec(empty_bases)
@@ -1365,120 +1371,6 @@ _LIBCPP_FUNC_VIS extern "C" void __sanitizer_annotate_contiguous_container(
 
 #if !defined(__cpp_impl_three_way_comparison) || __cpp_impl_three_way_comparison < 201907L
 #define _LIBCPP_HAS_NO_SPACESHIP_OPERATOR
-#endif
-
-// Decide whether to use availability macros.
-#if !defined(_LIBCPP_BUILDING_LIBRARY) &&                                      \
-    !defined(_LIBCXXABI_BUILDING_LIBRARY) &&                                   \
-    !defined(_LIBCPP_DISABLE_AVAILABILITY) &&                                  \
-    __has_feature(attribute_availability_with_strict) &&                       \
-    __has_feature(attribute_availability_in_templates) &&                      \
-    __has_extension(pragma_clang_attribute_external_declaration)
-#  ifdef __APPLE__
-#    define _LIBCPP_USE_AVAILABILITY_APPLE
-#  endif
-#endif
-
-// Define availability macros.
-#if defined(_LIBCPP_USE_AVAILABILITY_APPLE)
-#  define _LIBCPP_AVAILABILITY_SHARED_MUTEX                                    \
-     __attribute__((availability(macosx,strict,introduced=10.12)))             \
-     __attribute__((availability(ios,strict,introduced=10.0)))                 \
-     __attribute__((availability(tvos,strict,introduced=10.0)))                \
-     __attribute__((availability(watchos,strict,introduced=3.0)))
-#  define _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS                             \
-     __attribute__((availability(macosx,strict,introduced=10.13)))             \
-     __attribute__((availability(ios,strict,introduced=11.0)))                 \
-     __attribute__((availability(tvos,strict,introduced=11.0)))                \
-     __attribute__((availability(watchos,strict,introduced=4.0)))
-#  define _LIBCPP_AVAILABILITY_BAD_VARIANT_ACCESS                              \
-     _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS
-#  define _LIBCPP_AVAILABILITY_BAD_ANY_CAST                                    \
-     _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS
-#  define _LIBCPP_AVAILABILITY_UNCAUGHT_EXCEPTIONS                             \
-     __attribute__((availability(macosx,strict,introduced=10.12)))             \
-     __attribute__((availability(ios,strict,introduced=10.0)))                 \
-     __attribute__((availability(tvos,strict,introduced=10.0)))                \
-     __attribute__((availability(watchos,strict,introduced=3.0)))
-#  define _LIBCPP_AVAILABILITY_SIZED_NEW_DELETE                                \
-     __attribute__((availability(macosx,strict,introduced=10.12)))             \
-     __attribute__((availability(ios,strict,introduced=10.0)))                 \
-     __attribute__((availability(tvos,strict,introduced=10.0)))                \
-     __attribute__((availability(watchos,strict,introduced=3.0)))
-#  define _LIBCPP_AVAILABILITY_FUTURE_ERROR                                    \
-     __attribute__((availability(ios,strict,introduced=6.0)))
-#  define _LIBCPP_AVAILABILITY_TYPEINFO_VTABLE                                 \
-     __attribute__((availability(macosx,strict,introduced=10.9)))              \
-     __attribute__((availability(ios,strict,introduced=7.0)))
-#  define _LIBCPP_AVAILABILITY_LOCALE_CATEGORY                                 \
-     __attribute__((availability(macosx,strict,introduced=10.9)))              \
-     __attribute__((availability(ios,strict,introduced=7.0)))
-#  define _LIBCPP_AVAILABILITY_ATOMIC_SHARED_PTR                               \
-     __attribute__((availability(macosx,strict,introduced=10.9)))              \
-     __attribute__((availability(ios,strict,introduced=7.0)))
-#  define _LIBCPP_AVAILABILITY_FILESYSTEM                                      \
-     __attribute__((availability(macosx,strict,introduced=10.15)))             \
-     __attribute__((availability(ios,strict,introduced=13.0)))                 \
-     __attribute__((availability(tvos,strict,introduced=13.0)))                \
-     __attribute__((availability(watchos,strict,introduced=6.0)))
-#  define _LIBCPP_AVAILABILITY_FILESYSTEM_PUSH                                 \
-     _Pragma("clang attribute push(__attribute__((availability(macosx,strict,introduced=10.15))), apply_to=any(function,record))") \
-     _Pragma("clang attribute push(__attribute__((availability(ios,strict,introduced=13.0))), apply_to=any(function,record))")     \
-     _Pragma("clang attribute push(__attribute__((availability(tvos,strict,introduced=13.0))), apply_to=any(function,record))")    \
-     _Pragma("clang attribute push(__attribute__((availability(watchos,strict,introduced=6.0))), apply_to=any(function,record))")
-#  define _LIBCPP_AVAILABILITY_FILESYSTEM_POP                                  \
-     _Pragma("clang attribute pop")                                            \
-     _Pragma("clang attribute pop")                                            \
-     _Pragma("clang attribute pop")                                            \
-     _Pragma("clang attribute pop")
-#  define _LIBCPP_AVAILABILITY_TO_CHARS                                        \
-     _LIBCPP_AVAILABILITY_FILESYSTEM
-#  define _LIBCPP_AVAILABILITY_SYNC                                            \
-     __attribute__((unavailable))
-#else
-#  define _LIBCPP_AVAILABILITY_SHARED_MUTEX
-#  define _LIBCPP_AVAILABILITY_BAD_VARIANT_ACCESS
-#  define _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS
-#  define _LIBCPP_AVAILABILITY_BAD_ANY_CAST
-#  define _LIBCPP_AVAILABILITY_UNCAUGHT_EXCEPTIONS
-#  define _LIBCPP_AVAILABILITY_SIZED_NEW_DELETE
-#  define _LIBCPP_AVAILABILITY_FUTURE_ERROR
-#  define _LIBCPP_AVAILABILITY_TYPEINFO_VTABLE
-#  define _LIBCPP_AVAILABILITY_LOCALE_CATEGORY
-#  define _LIBCPP_AVAILABILITY_ATOMIC_SHARED_PTR
-#  define _LIBCPP_AVAILABILITY_FILESYSTEM
-#  define _LIBCPP_AVAILABILITY_FILESYSTEM_PUSH
-#  define _LIBCPP_AVAILABILITY_FILESYSTEM_POP
-#  define _LIBCPP_AVAILABILITY_TO_CHARS
-#  define _LIBCPP_AVAILABILITY_SYNC
-#endif
-
-// Define availability that depends on _LIBCPP_NO_EXCEPTIONS.
-#ifdef _LIBCPP_NO_EXCEPTIONS
-#  define _LIBCPP_AVAILABILITY_FUTURE
-#  define _LIBCPP_AVAILABILITY_THROW_BAD_ANY_CAST
-#  define _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS
-#  define _LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS
-#else
-#  define _LIBCPP_AVAILABILITY_FUTURE                    _LIBCPP_AVAILABILITY_FUTURE_ERROR
-#  define _LIBCPP_AVAILABILITY_THROW_BAD_ANY_CAST        _LIBCPP_AVAILABILITY_BAD_ANY_CAST
-#  define _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS
-#  define _LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS  _LIBCPP_AVAILABILITY_BAD_VARIANT_ACCESS
-#endif
-
-// The stream API was dropped and re-added in the dylib shipped on macOS
-// and iOS. We can only assume the dylib to provide these definitions for
-// macosx >= 10.9 and ios >= 7.0. Otherwise, the definitions are available
-// from the headers, but not from the dylib. Explicit instantiation
-// declarations for streams exist conditionally to this; if we provide
-// an explicit instantiation declaration and we try to deploy to a dylib
-// that does not provide those symbols, we'll get a load-time error.
-#if !defined(_LIBCPP_BUILDING_LIBRARY) &&                                      \
-    ((defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) &&                \
-      __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 1090) ||                 \
-     (defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__) &&               \
-      __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ < 70000))
-#  define _LIBCPP_DO_NOT_ASSUME_STREAMS_EXPLICIT_INSTANTIATION_IN_DYLIB
 #endif
 
 #if defined(_LIBCPP_COMPILER_IBM)
@@ -1545,6 +1437,12 @@ _LIBCPP_FUNC_VIS extern "C" void __sanitizer_annotate_contiguous_container(
 // using 64-bit file offsets on LP32.
 #if defined(__BIONIC__) && defined(__USE_FILE_OFFSET64) && __ANDROID_API__ < 24
 #define _LIBCPP_HAS_NO_FGETPOS_FSETPOS
+#endif
+
+#if __has_attribute(init_priority)
+# define _LIBCPP_INIT_PRIORITY_MAX __attribute__((init_priority(101)))
+#else
+# define _LIBCPP_INIT_PRIORITY_MAX
 #endif
 
 #endif // __cplusplus

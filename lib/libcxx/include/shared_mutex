@@ -123,6 +123,7 @@ template <class Mutex>
 */
 
 #include <__config>
+#include <__availability>
 #include <version>
 
 _LIBCPP_PUSH_MACROS

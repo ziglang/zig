@@ -389,6 +389,43 @@ pub fn GetQueuedCompletionStatus(
     return GetQueuedCompletionStatusResult.Normal;
 }
 
+pub const GetQueuedCompletionStatusError = error{
+    Aborted,
+    Cancelled,
+    EOF,
+    Timeout,
+} || std.os.UnexpectedError;
+
+pub fn GetQueuedCompletionStatusEx(
+    completion_port: HANDLE,
+    completion_port_entries: []OVERLAPPED_ENTRY,
+    timeout_ms: ?DWORD,
+    alertable: bool,
+) GetQueuedCompletionStatusError!u32 {
+    var num_entries_removed: u32 = 0;
+
+    const success = kernel32.GetQueuedCompletionStatusEx(
+        completion_port,
+        completion_port_entries.ptr,
+        @intCast(ULONG, completion_port_entries.len),
+        &num_entries_removed,
+        timeout_ms orelse INFINITE,
+        @boolToInt(alertable),
+    );
+
+    if (success == FALSE) {
+        return switch (kernel32.GetLastError()) {
+            .ABANDONED_WAIT_0 => error.Aborted,
+            .OPERATION_ABORTED => error.Cancelled,
+            .HANDLE_EOF => error.EOF,
+            .IMEOUT => error.Timeout,
+            else => |err| unexpectedError(err),
+        };
+    }
+
+    return num_entries_removed;
+}
+
 pub fn CloseHandle(hObject: HANDLE) void {
     assert(ntdll.NtClose(hObject) == .SUCCESS);
 }
@@ -985,7 +1022,7 @@ pub fn QueryObjectName(
     }
 }
 test "QueryObjectName" {
-    if (comptime builtin.os.tag != .windows)
+    if (comptime builtin.target.os.tag != .windows)
         return;
 
     //any file will do; canonicalization works on NTFS junctions and symlinks, hardlinks remain separate paths.
@@ -997,7 +1034,7 @@ test "QueryObjectName" {
     var result_path = try QueryObjectName(handle, &out_buffer);
     const required_len_in_u16 = result_path.len + @divExact(@ptrToInt(result_path.ptr) - @ptrToInt(&out_buffer), 2) + 1;
     //insufficient size
-    std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
+    try std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
     //exactly-sufficient size
     _ = try QueryObjectName(handle, out_buffer[0..required_len_in_u16]);
 }
@@ -1140,7 +1177,7 @@ pub fn GetFinalPathNameByHandle(
 }
 
 test "GetFinalPathNameByHandle" {
-    if (comptime builtin.os.tag != .windows)
+    if (comptime builtin.target.os.tag != .windows)
         return;
 
     //any file will do
@@ -1155,8 +1192,8 @@ test "GetFinalPathNameByHandle" {
 
     const required_len_in_u16 = nt_path.len + @divExact(@ptrToInt(nt_path.ptr) - @ptrToInt(&buffer), 2) + 1;
     //check with insufficient size
-    std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0 .. required_len_in_u16 - 1]));
-    std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0 .. required_len_in_u16 - 1]));
+    try std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0 .. required_len_in_u16 - 1]));
+    try std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0 .. required_len_in_u16 - 1]));
 
     //check with exactly-sufficient size
     _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0..required_len_in_u16]);
@@ -1291,6 +1328,10 @@ pub fn getsockname(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.so
     return ws2_32.getsockname(s, name, @ptrCast(*i32, namelen));
 }
 
+pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
+    return ws2_32.getpeername(s, name, @ptrCast(*i32, namelen));
+}
+
 pub fn sendmsg(
     s: ws2_32.SOCKET,
     msg: *const ws2_32.WSAMSG,
@@ -1401,6 +1442,28 @@ pub fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) SetCon
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
         }
+    }
+}
+
+pub fn SetConsoleCtrlHandler(handler_routine: ?HANDLER_ROUTINE, add: bool) !void {
+    const success = kernel32.SetConsoleCtrlHandler(
+        handler_routine,
+        if (add) TRUE else FALSE,
+    );
+
+    if (success == FALSE) {
+        return switch (kernel32.GetLastError()) {
+            else => |err| unexpectedError(err),
+        };
+    }
+}
+
+pub fn SetFileCompletionNotificationModes(handle: HANDLE, flags: UCHAR) !void {
+    const success = kernel32.SetFileCompletionNotificationModes(handle, flags);
+    if (success == FALSE) {
+        return switch (kernel32.GetLastError()) {
+            else => |err| unexpectedError(err),
+        };
     }
 }
 
@@ -1554,7 +1617,7 @@ pub fn SetFileTime(
 }
 
 pub fn teb() *TEB {
-    return switch (builtin.arch) {
+    return switch (builtin.target.cpu.arch) {
         .i386 => asm volatile (
             \\ movl %%fs:0x18, %[ptr]
             : [ptr] "=r" (-> *TEB)
@@ -1684,6 +1747,38 @@ pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
 
 fn MAKELANGID(p: c_ushort, s: c_ushort) callconv(.Inline) LANGID {
     return (s << 10) | p;
+}
+
+/// Loads a Winsock extension function in runtime specified by a GUID.
+pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid: GUID) !T {
+    var function: T = undefined;
+    var num_bytes: DWORD = undefined;
+
+    const rc = ws2_32.WSAIoctl(
+        sock,
+        ws2_32.SIO_GET_EXTENSION_FUNCTION_POINTER,
+        @ptrCast(*const c_void, &guid),
+        @sizeOf(GUID),
+        &function,
+        @sizeOf(T),
+        &num_bytes,
+        null,
+        null,
+    );
+
+    if (rc == ws2_32.SOCKET_ERROR) {
+        return switch (ws2_32.WSAGetLastError()) {
+            .WSAEOPNOTSUPP => error.OperationNotSupported,
+            .WSAENOTSOCK => error.FileDescriptorNotASocket,
+            else => |err| unexpectedWSAError(err),
+        };
+    }
+
+    if (num_bytes != @sizeOf(T)) {
+        return error.ShortRead;
+    }
+
+    return function;
 }
 
 /// Call this when you made a windows DLL call or something that does SetLastError

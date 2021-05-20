@@ -15,7 +15,7 @@ const windows = os.windows;
 const mem = std.mem;
 const debug = std.debug;
 const BufMap = std.BufMap;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const Os = builtin.Os;
 const TailQueue = std.TailQueue;
 const maxInt = std.math.maxInt;
@@ -264,7 +264,7 @@ pub const ChildProcess = struct {
 
         // TODO collect output in a deadlock-avoiding way on Windows.
         // https://github.com/ziglang/zig/issues/6343
-        if (builtin.os.tag == .windows) {
+        if (builtin.os.tag == .windows or builtin.os.tag == .haiku) {
             const stdout_in = child.stdout.?.reader();
             const stderr_in = child.stderr.?.reader();
 
@@ -1005,7 +1005,7 @@ test "createNullDelimitedEnvMap" {
     defer arena.deinit();
     const environ = try createNullDelimitedEnvMap(&arena.allocator, &envmap);
 
-    testing.expectEqual(@as(usize, 5), environ.len);
+    try testing.expectEqual(@as(usize, 5), environ.len);
 
     inline for (.{
         "HOME=/home/ifreund",
@@ -1017,7 +1017,7 @@ test "createNullDelimitedEnvMap" {
         for (environ) |variable| {
             if (mem.eql(u8, mem.span(variable orelse continue), target)) break;
         } else {
-            testing.expect(false); // Environment variable not found
+            try testing.expect(false); // Environment variable not found
         }
     }
 }

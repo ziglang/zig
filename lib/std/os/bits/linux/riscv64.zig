@@ -9,7 +9,7 @@ const uid_t = std.os.linux.uid_t;
 const gid_t = std.os.linux.gid_t;
 const pid_t = std.os.linux.pid_t;
 
-pub const SYS = extern enum(usize) {
+pub const SYS = enum(usize) {
     pub const arch_specific_syscall = 244;
 
     io_setup = 0,
@@ -374,6 +374,11 @@ pub const blkcnt_t = isize;
 pub const timespec = extern struct {
     tv_sec: time_t,
     tv_nsec: isize,
+};
+
+pub const timeval = extern struct {
+    tv_sec: time_t,
+    tv_usec: i64,
 };
 
 pub const Flock = extern struct {

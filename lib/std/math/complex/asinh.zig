@@ -12,17 +12,17 @@ const Complex = cmath.Complex;
 /// Returns the hyperbolic arc-sine of z.
 pub fn asinh(z: anytype) Complex(@TypeOf(z.re)) {
     const T = @TypeOf(z.re);
-    const q = Complex(T).new(-z.im, z.re);
+    const q = Complex(T).init(-z.im, z.re);
     const r = cmath.asin(q);
-    return Complex(T).new(r.im, -r.re);
+    return Complex(T).init(r.im, -r.re);
 }
 
 const epsilon = 0.0001;
 
 test "complex.casinh" {
-    const a = Complex(f32).new(5, 3);
+    const a = Complex(f32).init(5, 3);
     const c = asinh(a);
 
-    testing.expect(math.approxEqAbs(f32, c.re, 2.459831, epsilon));
-    testing.expect(math.approxEqAbs(f32, c.im, 0.533999, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.re, 2.459831, epsilon));
+    try testing.expect(math.approxEqAbs(f32, c.im, 0.533999, epsilon));
 }
