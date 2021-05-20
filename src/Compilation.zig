@@ -2896,7 +2896,7 @@ pub fn addCCArgs(
                     try argv.append("-D_DEBUG");
                     try argv.append("-Og");
 
-                    if (comp.bin_file.options.link_libc) {
+                    if (comp.bin_file.options.link_libc and target.os.tag != .wasi) {
                         try argv.append("-fstack-protector-strong");
                         try argv.append("--param");
                         try argv.append("ssp-buffer-size=4");
@@ -2908,7 +2908,7 @@ pub fn addCCArgs(
                     // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
                     // than -O3 here.
                     try argv.append("-O2");
-                    if (comp.bin_file.options.link_libc) {
+                    if (comp.bin_file.options.link_libc and target.os.tag != .wasi) {
                         try argv.append("-D_FORTIFY_SOURCE=2");
                         try argv.append("-fstack-protector-strong");
                         try argv.append("--param");
