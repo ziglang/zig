@@ -256,7 +256,7 @@ pub const DeclGen = struct {
         const target = self.module.getTarget();
         const code = &self.spv.binary.types_globals_constants;
         const result_id = self.spv.allocResultId();
-        const result_type_id = try self.getOrGenType(ty);
+        const result_type_id = try self.genType(ty);
 
         if (val.isUndef()) {
             try writeInstruction(code, .OpUndef, &[_]Word{ result_type_id, result_id });
@@ -304,7 +304,7 @@ pub const DeclGen = struct {
             },
             .Float => {
                 // At this point we are guaranteed that the target floating point type is supported, otherwise the function
-                // would have exited at getOrGenType(ty).
+                // would have exited at genType(ty).
 
                 // f16 and f32 require one word of storage. f64 requires 2, low-order first.
 
@@ -320,7 +320,7 @@ pub const DeclGen = struct {
                             @truncate(u32, float_bits >> @bitSizeOf(u32)),
                         });
                     },
-                    128 => unreachable, // Filtered out in the call to getOrGenType.
+                    128 => unreachable, // Filtered out in the call to genType.
                     // TODO: Insert case for long double when the layout for that is determined.
                     else => unreachable,
                 }
@@ -331,7 +331,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn getOrGenType(self: *DeclGen, ty: Type) Error!ResultId {
+    fn genType(self: *DeclGen, ty: Type) Error!ResultId {
         // We can't use getOrPut here so we can recursively generate types.
         if (self.spv.types.get(ty)) |already_generated| {
             return already_generated;
@@ -391,10 +391,10 @@ pub const DeclGen = struct {
                 const params = ty.fnParamLen();
                 var i: usize = 0;
                 while (i < params) : (i += 1) {
-                    _ = try self.getOrGenType(ty.fnParamType(i));
+                    _ = try self.genType(ty.fnParamType(i));
                 }
 
-                const return_type_id = try self.getOrGenType(ty.fnReturnType());
+                const return_type_id = try self.genType(ty.fnReturnType());
 
                 // result id + result type id + parameter type ids.
                 try writeOpcode(code, .OpTypeFunction, 2 + @intCast(u16, ty.fnParamLen()));
@@ -406,6 +406,8 @@ pub const DeclGen = struct {
                     try code.append(param_type_id);
                 }
             },
+            // When recursively generating a type, we cannot infer the pointer's storage class. See genPointerType.
+            .Pointer => return self.fail(.{ .node_offset = 0 }, "Cannot create pointer with unkown storage class", .{}),
             .Vector => {
                 // Although not 100% the same, Zig vectors map quite neatly to SPIR-V vectors (including many integer and float operations
                 // which work on them), so simply use those.
@@ -434,13 +436,31 @@ pub const DeclGen = struct {
         return result_id;
     }
 
+    /// SPIR-V requires pointers to have a storage class (address space), and so we have a special function for that.
+    /// TODO: The result of this needs to be cached.
+    fn genPointerType(self: *DeclGen, ty: Type, storage_class: spec.StorageClass) !ResultId {
+        std.debug.assert(ty.zigTypeTag() == .Pointer);
+
+        const code = &self.spv.binary.types_globals_constants;
+        const result_id = self.spv.allocResultId();
+
+        // TODO: There are many constraints which are ignored for now: We may only create pointers to certain types, and to other types
+        // if more capabilities are enabled. For example, we may only create pointers to f16 if Float16Buffer is enabled.
+        // These also relates to the pointer's address space.
+        const child_id = try self.genType(ty.elemType());
+
+        try writeInstruction(code, .OpTypePointer, &[_]Word{ result_id, @enumToInt(storage_class), child_id });
+
+        return result_id;
+    }
+
     pub fn gen(self: *DeclGen) !void {
         const decl = self.decl;
         const result_id = decl.fn_link.spirv.id;
 
         if (decl.val.castTag(.function)) |func_payload| {
             std.debug.assert(decl.ty.zigTypeTag() == .Fn);
-            const prototype_id = try self.getOrGenType(decl.ty);
+            const prototype_id = try self.genType(decl.ty);
             try writeInstruction(&self.spv.binary.fn_decls, .OpFunction, &[_]Word{
                 self.spv.types.get(decl.ty.fnReturnType()).?, // This type should be generated along with the prototype.
                 result_id,
@@ -496,13 +516,17 @@ pub const DeclGen = struct {
             .bool_and => try self.genBinOp(inst.castTag(.bool_and).?),
             .bool_or => try self.genBinOp(inst.castTag(.bool_or).?),
             .not => try self.genUnOp(inst.castTag(.not).?),
+            .alloc => try self.genAlloc(inst.castTag(.alloc).?),
             .arg => self.genArg(),
             // TODO: Breakpoints won't be supported in SPIR-V, but the compiler seems to insert them
             // throughout the IR.
             .breakpoint => null,
+            .constant => unreachable,
             .dbg_stmt => null,
+            .load => try self.genLoad(inst.castTag(.load).?),
             .ret => self.genRet(inst.castTag(.ret).?),
             .retvoid => self.genRetVoid(),
+            .store => try self.genStore(inst.castTag(.store).?),
             .unreach => self.genUnreach(),
             else => self.fail(inst.src, "TODO: SPIR-V backend: implement inst {s}", .{@tagName(inst.tag)}),
         };
@@ -514,7 +538,7 @@ pub const DeclGen = struct {
         const rhs_id = try self.resolve(inst.rhs);
 
         const result_id = self.spv.allocResultId();
-        const result_type_id = try self.getOrGenType(inst.base.ty);
+        const result_type_id = try self.genType(inst.base.ty);
 
         // TODO: Is the result the same as the argument types?
         // This is supposed to be the case for SPIR-V.
@@ -527,10 +551,11 @@ pub const DeclGen = struct {
         // instead.
         const info = try self.arithmeticTypeInfo(inst.lhs.ty);
 
-        if (info.class == .composite_integer)
+        if (info.class == .composite_integer) {
             return self.fail(inst.base.src, "TODO: SPIR-V backend: binary operations for composite integers", .{});
-        else if (info.class == .strange_integer)
+        } else if (info.class == .strange_integer) {
             return self.fail(inst.base.src, "TODO: SPIR-V backend: binary operations for strange integers", .{});
+        }
 
         const is_bool = info.class == .bool;
         const is_float = info.class == .float;
@@ -574,7 +599,7 @@ pub const DeclGen = struct {
         const rhs_id = try self.resolve(inst.rhs);
 
         const result_id = self.spv.allocResultId();
-        const result_type_id = try self.getOrGenType(inst.base.ty);
+        const result_type_id = try self.genType(inst.base.ty);
 
         // All of these operations should be 2 equal types -> bool
         std.debug.assert(inst.rhs.ty.eql(inst.lhs.ty));
@@ -586,10 +611,11 @@ pub const DeclGen = struct {
         // from either of the operands.
         const info = try self.arithmeticTypeInfo(inst.lhs.ty);
 
-        if (info.class == .composite_integer)
+        if (info.class == .composite_integer) {
             return self.fail(inst.base.src, "TODO: SPIR-V backend: binary operations for composite integers", .{});
-        else if (info.class == .strange_integer)
+        } else if (info.class == .strange_integer) {
             return self.fail(inst.base.src, "TODO: SPIR-V backend: comparison for strange integers", .{});
+        }
 
         const is_bool = info.class == .bool;
         const is_float = info.class == .float;
@@ -617,7 +643,7 @@ pub const DeclGen = struct {
         const operand_id = try self.resolve(inst.operand);
 
         const result_id = self.spv.allocResultId();
-        const result_type_id = try self.getOrGenType(inst.base.ty);
+        const result_type_id = try self.genType(inst.base.ty);
 
         const info = try self.arithmeticTypeInfo(inst.operand.ty);
 
@@ -632,9 +658,35 @@ pub const DeclGen = struct {
         return result_id;
     }
 
+    fn genAlloc(self: *DeclGen, inst: *Inst.NoOp) !ResultId {
+        const storage_class = spec.StorageClass.Function;
+        const result_type_id = try self.genPointerType(inst.base.ty, storage_class);
+        const result_id = self.spv.allocResultId();
+
+        try writeInstruction(&self.spv.binary.fn_decls, .OpVariable, &[_]Word{ result_type_id, result_id, @enumToInt(storage_class) });
+
+        return result_id;
+    }
+
     fn genArg(self: *DeclGen) ResultId {
         defer self.next_arg_index += 1;
         return self.args.items[self.next_arg_index];
+    }
+
+    fn genLoad(self: *DeclGen, inst: *Inst.UnOp) !ResultId {
+        const operand_id = try self.resolve(inst.operand);
+
+        const result_type_id = try self.genType(inst.base.ty);
+        const result_id = self.spv.allocResultId();
+
+        const operands = if (inst.base.ty.isVolatilePtr())
+            &[_]Word{ result_type_id, result_id, operand_id, @bitCast(u32, spec.MemoryAccess{.Volatile = true}) }
+        else
+            &[_]Word{ result_type_id, result_id, operand_id};
+
+        try writeInstruction(&self.spv.binary.fn_decls, .OpLoad, operands);
+
+        return result_id;
     }
 
     fn genRet(self: *DeclGen, inst: *Inst.UnOp) !?ResultId {
@@ -647,6 +699,19 @@ pub const DeclGen = struct {
     fn genRetVoid(self: *DeclGen) !?ResultId {
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
         try writeInstruction(&self.spv.binary.fn_decls, .OpReturn, &[_]Word{});
+        return null;
+    }
+
+    fn genStore(self: *DeclGen, inst: *Inst.BinOp) !?ResultId {
+        const dst_ptr_id = try self.resolve(inst.lhs);
+        const src_val_id = try self.resolve(inst.rhs);
+
+        const operands = if (inst.lhs.ty.isVolatilePtr())
+            &[_]Word{ dst_ptr_id, src_val_id, @bitCast(u32, spec.MemoryAccess{.Volatile = true}) }
+        else
+            &[_]Word{ dst_ptr_id, src_val_id };
+
+        try writeInstruction(&self.spv.binary.fn_decls, .OpStore, operands);
         return null;
     }
 
