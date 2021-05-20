@@ -419,4 +419,120 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "2\n");
     }
+
+    {
+        var case = ctx.exe("wasm structs", wasi);
+
+        case.addCompareOutput(
+            \\const Example = struct { x: u32 };
+            \\
+            \\pub export fn _start() u32 {
+            \\    var example: Example = .{ .x = 5 };
+            \\    return example.x;
+            \\}
+        , "5\n");
+
+        case.addCompareOutput(
+            \\const Example = struct { x: u32 };
+            \\
+            \\pub export fn _start() u32 {
+            \\    var example: Example = .{ .x = 5 };
+            \\    example.x = 10;
+            \\    return example.x;
+            \\}
+        , "10\n");
+
+        case.addCompareOutput(
+            \\const Example = struct { x: u32, y: u32 };
+            \\
+            \\pub export fn _start() u32 {
+            \\    var example: Example = .{ .x = 5, .y = 10 };
+            \\    return example.y + example.x;
+            \\}
+        , "15\n");
+
+        case.addCompareOutput(
+            \\const Example = struct { x: u32, y: u32 };
+            \\
+            \\pub export fn _start() u32 {
+            \\    var example: Example = .{ .x = 5, .y = 10 };
+            \\    var example2: Example = .{ .x = 10, .y = 20 };
+            \\
+            \\    example = example2;
+            \\    return example.y + example.x;
+            \\}
+        , "30\n");
+
+        case.addCompareOutput(
+            \\const Example = struct { x: u32, y: u32 };
+            \\
+            \\pub export fn _start() u32 {
+            \\    var example: Example = .{ .x = 5, .y = 10 };
+            \\
+            \\    example = .{ .x = 10, .y = 20 };
+            \\    return example.y + example.x;
+            \\}
+        , "30\n");
+    }
+
+    {
+        var case = ctx.exe("wasm switch", wasi);
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var val: u32 = 1;
+            \\    var a: u32 = switch (val) {
+            \\        0, 1 => 2,
+            \\        2 => 3,
+            \\        3 => 4,
+            \\        else => 5,
+            \\    };
+            \\
+            \\    return a;
+            \\}
+        , "2\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var val: u32 = 2;
+            \\    var a: u32 = switch (val) {
+            \\        0, 1 => 2,
+            \\        2 => 3,
+            \\        3 => 4,
+            \\        else => 5,
+            \\    };
+            \\
+            \\    return a;
+            \\}
+        , "3\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var val: u32 = 10;
+            \\    var a: u32 = switch (val) {
+            \\        0, 1 => 2,
+            \\        2 => 3,
+            \\        3 => 4,
+            \\        else => 5,
+            \\    };
+            \\
+            \\    return a;
+            \\}
+        , "5\n");
+
+        case.addCompareOutput(
+            \\const MyEnum = enum { One, Two, Three };
+            \\
+            \\pub export fn _start() u32 {
+            \\    var val: MyEnum = .Two;
+            \\    var a: u32 = switch (val) {
+            \\        .One => 1,
+            \\        .Two => 2,
+            \\        .Three => 3,
+            \\    };
+            \\
+            \\    return a;
+            \\}
+        , "2\n");
+    }
 }

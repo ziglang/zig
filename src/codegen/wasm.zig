@@ -31,6 +31,9 @@ const WValue = union(enum) {
     code_offset: usize,
     /// The label of the block, used by breaks to find its relative distance
     block_idx: u32,
+    /// Used for variables that create multiple locals on the stack when allocated
+    /// such as structs and optionals.
+    multi_value: u32,
 };
 
 /// Wasm ops, but without input/output/signedness information
@@ -556,7 +559,7 @@ pub const Context = struct {
                 if (info.bits > 32 and info.bits <= 64) break :blk wasm.Valtype.i64;
                 return self.fail(src, "Integer bit size not supported by wasm: '{d}'", .{info.bits});
             },
-            .Bool, .Pointer => wasm.Valtype.i32,
+            .Bool, .Pointer, .Struct => wasm.Valtype.i32,
             .Enum => switch (ty.tag()) {
                 .enum_simple => wasm.Valtype.i32,
                 else => self.typeToValtype(
@@ -587,8 +590,9 @@ pub const Context = struct {
     fn emitWValue(self: *Context, val: WValue) InnerError!void {
         const writer = self.code.writer();
         switch (val) {
-            .block_idx => unreachable,
-            .none, .code_offset => {},
+            .block_idx => unreachable, // block_idx cannot be referenced
+            .multi_value => unreachable, // multi_value can never be written directly, and must be accessed individually
+            .none, .code_offset => {}, // no-op
             .local => |idx| {
                 try writer.writeByte(wasm.opcode(.local_get));
                 try leb.writeULEB128(writer, idx);
@@ -714,8 +718,8 @@ pub const Context = struct {
             .add => self.genBinOp(inst.castTag(.add).?, .add),
             .alloc => self.genAlloc(inst.castTag(.alloc).?),
             .arg => self.genArg(inst.castTag(.arg).?),
-            .bitcast => self.genBitcast(inst.castTag(.bitcast).?),
             .bit_and => self.genBinOp(inst.castTag(.bit_and).?, .@"and"),
+            .bitcast => self.genBitcast(inst.castTag(.bitcast).?),
             .bit_or => self.genBinOp(inst.castTag(.bit_or).?, .@"or"),
             .block => self.genBlock(inst.castTag(.block).?),
             .bool_and => self.genBinOp(inst.castTag(.bool_and).?, .@"and"),
@@ -740,7 +744,9 @@ pub const Context = struct {
             .ret => self.genRet(inst.castTag(.ret).?),
             .retvoid => WValue.none,
             .store => self.genStore(inst.castTag(.store).?),
+            .struct_field_ptr => self.genStructFieldPtr(inst.castTag(.struct_field_ptr).?),
             .sub => self.genBinOp(inst.castTag(.sub).?, .sub),
+            .switchbr => self.genSwitchBr(inst.castTag(.switchbr).?),
             .unreach => self.genUnreachable(inst.castTag(.unreach).?),
             .xor => self.genBinOp(inst.castTag(.xor).?, .xor),
             else => self.fail(.{ .node_offset = 0 }, "TODO: Implement wasm inst: {s}", .{inst.tag}),
@@ -794,11 +800,30 @@ pub const Context = struct {
 
     fn genAlloc(self: *Context, inst: *Inst.NoOp) InnerError!WValue {
         const elem_type = inst.base.ty.elemType();
-        const valtype = try self.genValtype(inst.base.src, elem_type);
-        try self.locals.append(self.gpa, valtype);
+        const initial_index = self.local_index;
 
-        defer self.local_index += 1;
-        return WValue{ .local = self.local_index };
+        switch (elem_type.zigTypeTag()) {
+            .Struct => {
+                // for each struct field, generate a local
+                const struct_data: *Module.Struct = elem_type.castTag(.@"struct").?.data;
+                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + struct_data.fields.count());
+                for (struct_data.fields.items()) |entry| {
+                    const val_type = try self.genValtype(
+                        .{ .node_offset = struct_data.node_offset },
+                        entry.value.ty,
+                    );
+                    self.locals.appendAssumeCapacity(val_type);
+                    self.local_index += 1;
+                }
+                return WValue{ .multi_value = initial_index };
+            },
+            else => {
+                const valtype = try self.genValtype(inst.base.src, elem_type);
+                try self.locals.append(self.gpa, valtype);
+                self.local_index += 1;
+                return WValue{ .local = initial_index };
+            },
+        }
     }
 
     fn genStore(self: *Context, inst: *Inst.BinOp) InnerError!WValue {
@@ -806,10 +831,20 @@ pub const Context = struct {
 
         const lhs = self.resolveInst(inst.lhs);
         const rhs = self.resolveInst(inst.rhs);
-        try self.emitWValue(rhs);
 
-        try writer.writeByte(wasm.opcode(.local_set));
-        try leb.writeULEB128(writer, lhs.local);
+        switch (lhs) {
+            // When assigning a value to a multi_value such as a struct,
+            // we simply assign the local_index to the rhs one.
+            // This allows us to update struct fields without having to individually
+            // set each local as each field's index will be calculated off the struct's base index
+            .multi_value => self.values.put(self.gpa, inst.lhs, rhs) catch unreachable, // Instruction does not dominate all uses!
+            .local => |local| {
+                try self.emitWValue(rhs);
+                try writer.writeByte(wasm.opcode(.local_set));
+                try leb.writeULEB128(writer, lhs.local);
+            },
+            else => unreachable,
+        }
         return .none;
     }
 
@@ -827,6 +862,14 @@ pub const Context = struct {
         const lhs = self.resolveInst(inst.lhs);
         const rhs = self.resolveInst(inst.rhs);
 
+        // it's possible for both lhs and/or rhs to return an offset as well,
+        // in which case we return the first offset occurance we find.
+        const offset = blk: {
+            if (lhs == .code_offset) break :blk lhs.code_offset;
+            if (rhs == .code_offset) break :blk rhs.code_offset;
+            break :blk self.code.items.len;
+        };
+
         try self.emitWValue(lhs);
         try self.emitWValue(rhs);
 
@@ -836,7 +879,7 @@ pub const Context = struct {
             .signedness = if (inst.base.ty.isSignedInt()) .signed else .unsigned,
         });
         try self.code.append(wasm.opcode(opcode));
-        return .none;
+        return WValue{ .code_offset = offset };
     }
 
     fn emitConstant(self: *Context, src: LazySrcLoc, value: Value, ty: Type) InnerError!void {
@@ -1089,5 +1132,52 @@ pub const Context = struct {
 
     fn genBitcast(self: *Context, bitcast: *Inst.UnOp) InnerError!WValue {
         return self.resolveInst(bitcast.operand);
+    }
+
+    fn genStructFieldPtr(self: *Context, inst: *Inst.StructFieldPtr) InnerError!WValue {
+        const struct_ptr = self.resolveInst(inst.struct_ptr);
+
+        return WValue{ .local = struct_ptr.multi_value + @intCast(u32, inst.field_index) };
+    }
+
+    fn genSwitchBr(self: *Context, inst: *Inst.SwitchBr) InnerError!WValue {
+        const target = self.resolveInst(inst.target);
+        const target_ty = inst.target.ty;
+        const valtype = try self.typeToValtype(.{ .node_offset = 0 }, target_ty);
+        const blocktype = try self.genBlockType(inst.base.src, inst.base.ty);
+
+        const signedness: std.builtin.Signedness = blk: {
+            // by default we tell the operand type is unsigned (i.e. bools and enum values)
+            if (target_ty.zigTypeTag() != .Int) break :blk .unsigned;
+
+            // incase of an actual integer, we emit the correct signedness
+            break :blk target_ty.intInfo(self.target).signedness;
+        };
+        for (inst.cases) |case| {
+            // create a block for each case, when the condition does not match we break out of it
+            try self.startBlock(.block, blocktype, null);
+            try self.emitWValue(target);
+            try self.emitConstant(.{ .node_offset = 0 }, case.item, target_ty);
+            const opcode = buildOpcode(.{
+                .valtype1 = valtype,
+                .op = .ne, // not equal because we jump out the block if it does not match the condition
+                .signedness = signedness,
+            });
+            try self.code.append(wasm.opcode(opcode));
+            try self.code.append(wasm.opcode(.br_if));
+            try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+
+            // emit our block code
+            try self.genBody(case.body);
+
+            // end the block we created earlier
+            try self.endBlock();
+        }
+
+        // finally, emit the else case if it exists. Here we will not have to
+        // check for a condition, so also no need to emit a block.
+        try self.genBody(inst.else_body);
+
+        return .none;
     }
 };
