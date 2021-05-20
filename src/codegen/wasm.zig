@@ -862,6 +862,14 @@ pub const Context = struct {
         const lhs = self.resolveInst(inst.lhs);
         const rhs = self.resolveInst(inst.rhs);
 
+        // it's possible for both lhs and/or rhs to return an offset as well,
+        // in which case we return the first offset occurance we find.
+        const offset = blk: {
+            if (lhs == .code_offset) break :blk lhs.code_offset;
+            if (rhs == .code_offset) break :blk rhs.code_offset;
+            break :blk self.code.items.len;
+        };
+
         try self.emitWValue(lhs);
         try self.emitWValue(rhs);
 
@@ -871,7 +879,7 @@ pub const Context = struct {
             .signedness = if (inst.base.ty.isSignedInt()) .signed else .unsigned,
         });
         try self.code.append(wasm.opcode(opcode));
-        return .none;
+        return WValue{ .code_offset = offset };
     }
 
     fn emitConstant(self: *Context, src: LazySrcLoc, value: Value, ty: Type) InnerError!void {
