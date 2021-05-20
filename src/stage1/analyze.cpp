@@ -1638,6 +1638,9 @@ CallingConvention cc_from_fn_proto(AstNodeFnProto *fn_proto) {
     if (fn_proto->is_extern || fn_proto->is_export)
         return CallingConventionC;
 
+    if (fn_proto->fn_inline == FnInlineAlways)
+        return CallingConventionInline;
+
     return CallingConventionUnspecified;
 }
 
@@ -3649,7 +3652,7 @@ ZigFn *create_fn(CodeGen *g, AstNode *proto_node) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-    ZigFn *fn_entry = create_fn_raw(g, fn_proto->is_noinline);
+    ZigFn *fn_entry = create_fn_raw(g, fn_proto->fn_inline == FnInlineNever);
 
     fn_entry->proto_node = proto_node;
     fn_entry->body_node = (proto_node->data.fn_proto.fn_def_node == nullptr) ? nullptr :
@@ -3742,6 +3745,9 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         CallingConvention cc;
         if (fn_proto->callconv_expr != nullptr) {
+            if (fn_proto->fn_inline == FnInlineAlways) {
+                add_node_error(g, fn_proto->callconv_expr, buf_sprintf("explicit callconv incompatible with inline keyword"));
+            }
             ZigType *cc_enum_value = get_builtin_type(g, "CallingConvention");
 
             ZigValue *result_val = analyze_const_value(g, child_scope, fn_proto->callconv_expr,

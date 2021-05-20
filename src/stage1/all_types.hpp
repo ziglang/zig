@@ -714,6 +714,12 @@ enum NodeType {
     NodeTypeAnyTypeField,
 };
 
+enum FnInline {
+    FnInlineAuto,
+    FnInlineAlways,
+    FnInlineNever,
+};
+
 struct AstNodeFnProto {
     Buf *name;
     ZigList<AstNode *> params;
@@ -729,12 +735,16 @@ struct AstNodeFnProto {
     AstNode *callconv_expr;
     Buf doc_comments;
 
+    // This is set based only on the existence of a noinline or inline keyword.
+    // This is then resolved to an is_noinline bool and (potentially .Inline)
+    // calling convention in resolve_decl_fn() in analyze.cpp.
+    FnInline fn_inline;
+
     VisibMod visib_mod;
     bool auto_err_set;
     bool is_var_args;
     bool is_extern;
     bool is_export;
-    bool is_noinline;
 };
 
 struct AstNodeFnDef {
