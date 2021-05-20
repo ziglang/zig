@@ -107,13 +107,9 @@ fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
                     break :wof;
                 } else |_| {}
 
-                os.madvise(
-                    wipe_mem.ptr,
-                    wipe_mem.len,
-                    os.MADV_WIPEONFORK,
-                ) catch {
+                if (os.madvise(wipe_mem.ptr, wipe_mem.len, os.MADV_WIPEONFORK)) |_| {
                     return initAndFill(buffer);
-                };
+                } else |_| {}
             }
 
             if (std.Thread.use_pthreads) {
