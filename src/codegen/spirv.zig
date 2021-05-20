@@ -20,6 +20,16 @@ pub const ResultId = u32;
 pub const TypeMap = std.HashMap(Type, ResultId, Type.hash, Type.eql, std.hash_map.default_max_load_percentage);
 pub const InstMap = std.AutoHashMap(*Inst, ResultId);
 
+const IncomingBlock = struct {
+    src_label_id: ResultId,
+    break_value_id: ResultId,
+};
+
+pub const BlockMap = std.AutoHashMap(*Inst.Block, struct {
+    label_id: ResultId,
+    incoming_blocks: *std.ArrayListUnmanaged(IncomingBlock),
+});
+
 pub fn writeOpcode(code: *std.ArrayList(Word), opcode: Opcode, arg_count: u16) !void {
     const word_count: Word = arg_count + 1;
     try code.append((word_count << 16) | @enumToInt(opcode));
@@ -86,6 +96,12 @@ pub const DeclGen = struct {
 
     /// A map keeping track of which instruction generated which result-id.
     inst_results: InstMap,
+
+    /// We need to keep track of result ids for block labels, as well as the 'incoming' blocks for a block.
+    blocks: BlockMap,
+
+    /// The label of the SPIR-V block we are currently generating.
+    current_block_label_id: ResultId,
 
     /// The decl we are currently generating code for.
     decl: *Decl,
@@ -154,6 +170,11 @@ pub const DeclGen = struct {
         }
 
         return self.inst_results.get(inst).?; // Instruction does not dominate all uses!
+    }
+
+    fn beginSPIRVBlock(self: *DeclGen, label_id: ResultId) !void {
+        try writeInstruction(&self.spv.binary.fn_decls, .OpLabel, &[_]Word{label_id});
+        self.current_block_label_id = label_id;
     }
 
     /// SPIR-V requires enabling specific integer sizes through capabilities, and so if they are not enabled, we need
@@ -325,7 +346,8 @@ pub const DeclGen = struct {
                     else => unreachable,
                 }
             },
-            else => return self.fail(src, "TODO: SPIR-V backend: constant generation of type {s}\n", .{ty.zigTypeTag()}),
+            .Void => unreachable,
+            else => return self.fail(src, "TODO: SPIR-V backend: constant generation of type {}", .{ty}),
         }
 
         return result_id;
@@ -481,7 +503,7 @@ pub const DeclGen = struct {
 
             // TODO: This could probably be done in a better way...
             const root_block_id = self.spv.allocResultId();
-            _ = try writeInstruction(&self.spv.binary.fn_decls, .OpLabel, &[_]Word{root_block_id});
+            try self.beginSPIRVBlock(root_block_id);
             try self.genBody(func_payload.data.body);
 
             try writeInstruction(&self.spv.binary.fn_decls, .OpFunctionEnd, &[_]Word{});
@@ -490,7 +512,7 @@ pub const DeclGen = struct {
         }
     }
 
-    fn genBody(self: *DeclGen, body: ir.Body) !void {
+    fn genBody(self: *DeclGen, body: ir.Body) Error!void {
         for (body.instructions) |inst| {
             const maybe_result_id = try self.genInst(inst);
             if (maybe_result_id) |result_id|
@@ -518,16 +540,21 @@ pub const DeclGen = struct {
             .not => try self.genUnOp(inst.castTag(.not).?),
             .alloc => try self.genAlloc(inst.castTag(.alloc).?),
             .arg => self.genArg(),
+            .block => try self.genBlock(inst.castTag(.block).?),
+            .br => try self.genBr(inst.castTag(.br).?),
+            .br_void => try self.genBrVoid(inst.castTag(.br_void).?),
             // TODO: Breakpoints won't be supported in SPIR-V, but the compiler seems to insert them
             // throughout the IR.
             .breakpoint => null,
+            .condbr => try self.genCondBr(inst.castTag(.condbr).?),
             .constant => unreachable,
             .dbg_stmt => null,
             .load => try self.genLoad(inst.castTag(.load).?),
-            .ret => self.genRet(inst.castTag(.ret).?),
-            .retvoid => self.genRetVoid(),
+            .loop => try self.genLoop(inst.castTag(.loop).?),
+            .ret => try self.genRet(inst.castTag(.ret).?),
+            .retvoid => try self.genRetVoid(),
             .store => try self.genStore(inst.castTag(.store).?),
-            .unreach => self.genUnreach(),
+            .unreach => try self.genUnreach(),
             else => self.fail(inst.src, "TODO: SPIR-V backend: implement inst {s}", .{@tagName(inst.tag)}),
         };
     }
@@ -673,6 +700,103 @@ pub const DeclGen = struct {
         return self.args.items[self.next_arg_index];
     }
 
+    fn genBlock(self: *DeclGen, inst: *Inst.Block) !?ResultId {
+        // In IR, a block doesn't really define an entry point like a block, but more like a scope that breaks can jump out of and
+        // "return" a value from. This cannot be directly modelled in SPIR-V, so in a block instruction, we're going to split up
+        // the current block by first generating the code of the block, then a label, and then generate the rest of the current
+        // ir.Block in a different SPIR-V block.
+
+        const label_id = self.spv.allocResultId();
+
+        // 4 chosen as arbitrary initial capacity.
+        var incoming_blocks = try std.ArrayListUnmanaged(IncomingBlock).initCapacity(self.module.gpa, 4);
+
+        try self.blocks.putNoClobber(inst, .{
+            .label_id = label_id,
+            .incoming_blocks = &incoming_blocks,
+        });
+        defer {
+            self.blocks.removeAssertDiscard(inst);
+            incoming_blocks.deinit(self.module.gpa);
+        }
+
+        try self.genBody(inst.body);
+        try self.beginSPIRVBlock(label_id);
+
+        // If this block didn't produce a value, simply return here.
+        if (!inst.base.ty.hasCodeGenBits())
+            return null;
+
+        // Combine the result from the blocks using the Phi instruction.
+
+        const result_id = self.spv.allocResultId();
+
+        // TODO: OpPhi is limited in the types that it may produce, such as pointers. Figure out which other types
+        // are not allowed to be created from a phi node, and throw an error for those. For now, genType already throws
+        // an error for pointers.
+        const result_type_id = try self.genType(inst.base.src, inst.base.ty);
+
+        try writeOpcode(&self.spv.binary.fn_decls, .OpPhi, 2 + @intCast(u16, incoming_blocks.items.len * 2)); // result type + result + variable/parent...
+
+        for (incoming_blocks.items) |incoming| {
+            try self.spv.binary.fn_decls.appendSlice(&[_]Word{ incoming.break_value_id, incoming.src_label_id });
+        }
+
+        return result_id;
+    }
+
+    fn genBr(self: *DeclGen, inst: *Inst.Br) !?ResultId {
+        // TODO: This instruction needs to be the last in a block. Is that guaranteed?
+        const target = self.blocks.get(inst.block).?;
+
+        // TODO: For some reason, br is emitted with void parameters.
+        if (inst.operand.ty.hasCodeGenBits()) {
+            const operand_id = try self.resolve(inst.operand);
+            // current_block_label_id should not be undefined here, lest there is a br or br_void in the function's body.
+            try target.incoming_blocks.append(self.module.gpa, .{
+                .src_label_id = self.current_block_label_id,
+                .break_value_id = operand_id
+            });
+        }
+
+        try writeInstruction(&self.spv.binary.fn_decls, .OpBranch, &[_]Word{target.label_id});
+
+        return null;
+    }
+
+    fn genBrVoid(self: *DeclGen, inst: *Inst.BrVoid) !?ResultId {
+        // TODO: This instruction needs to be the last in a block. Is that guaranteed?
+        const target = self.blocks.get(inst.block).?;
+        // Don't need to add this to the incoming block list, as there is no value to insert in the phi node anyway.
+        try writeInstruction(&self.spv.binary.fn_decls, .OpBranch, &[_]Word{target.label_id});
+        return null;
+    }
+
+    fn genCondBr(self: *DeclGen, inst: *Inst.CondBr) !?ResultId {
+        // TODO: This instruction needs to be the last in a block. Is that guaranteed?
+        const condition_id = try self.resolve(inst.condition);
+
+        // These will always generate a new SPIR-V block, since they are ir.Body and not ir.Block.
+        const then_label_id = self.spv.allocResultId();
+        const else_label_id = self.spv.allocResultId();
+
+        // TODO: We can generate OpSelectionMerge here if we know the target block that both of these will resolve to,
+        // but i don't know if those will always resolve to the same block.
+
+        try writeInstruction(&self.spv.binary.fn_decls, .OpBranchConditional, &[_]Word{
+            condition_id,
+            then_label_id,
+            else_label_id,
+        });
+
+        try self.beginSPIRVBlock(then_label_id);
+        try self.genBody(inst.then_body);
+        try self.beginSPIRVBlock(else_label_id);
+        try self.genBody(inst.else_body);
+
+        return null;
+    }
+
     fn genLoad(self: *DeclGen, inst: *Inst.UnOp) !ResultId {
         const operand_id = try self.resolve(inst.operand);
 
@@ -687,6 +811,22 @@ pub const DeclGen = struct {
         try writeInstruction(&self.spv.binary.fn_decls, .OpLoad, operands);
 
         return result_id;
+    }
+
+    fn genLoop(self: *DeclGen, inst: *Inst.Loop) !?ResultId {
+        // TODO: This instruction needs to be the last in a block. Is that guaranteed?
+        const loop_label_id = self.spv.allocResultId();
+
+        // Jump to the loop entry point
+        try writeInstruction(&self.spv.binary.fn_decls, .OpBranch, &[_]Word{ loop_label_id });
+
+        // TODO: Look into OpLoopMerge.
+
+        try self.beginSPIRVBlock(loop_label_id);
+        try self.genBody(inst.body);
+
+        try writeInstruction(&self.spv.binary.fn_decls, .OpBranch, &[_]Word{ loop_label_id });
+        return null;
     }
 
     fn genRet(self: *DeclGen, inst: *Inst.UnOp) !?ResultId {

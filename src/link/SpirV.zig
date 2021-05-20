@@ -161,12 +161,15 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
             .args = std.ArrayList(codegen.Word).init(self.base.allocator),
             .next_arg_index = undefined,
             .inst_results = codegen.InstMap.init(self.base.allocator),
+            .blocks = codegen.BlockMap.init(self.base.allocator),
+            .current_block_label_id = undefined,
             .decl = undefined,
             .error_msg = undefined,
         };
 
         defer decl_gen.inst_results.deinit();
         defer decl_gen.args.deinit();
+        defer decl_gen.blocks.deinit();
 
         for (self.decl_table.items()) |entry| {
             const decl = entry.key;
@@ -175,6 +178,9 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
             // Reset the decl_gen, but retain allocated resources.
             decl_gen.args.items.len = 0;
             decl_gen.next_arg_index = 0;
+            decl_gen.inst_results.clearRetainingCapacity();
+            decl_gen.blocks.clearRetainingCapacity();
+            decl_gen.current_block_label_id = undefined;
             decl_gen.decl = decl;
             decl_gen.error_msg = null;
 
