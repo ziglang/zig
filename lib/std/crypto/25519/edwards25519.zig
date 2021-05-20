@@ -91,7 +91,7 @@ pub const Edwards25519 = struct {
     }
 
     /// Flip the sign of the X coordinate.
-    pub fn neg(p: Edwards25519) callconv(.Inline) Edwards25519 {
+    pub inline fn neg(p: Edwards25519) Edwards25519 {
         return .{ .x = p.x.neg(), .y = p.y, .z = p.z, .t = p.t.neg() };
     }
 
@@ -136,14 +136,14 @@ pub const Edwards25519 = struct {
         return p.add(q.neg());
     }
 
-    fn cMov(p: *Edwards25519, a: Edwards25519, c: u64) callconv(.Inline) void {
+    inline fn cMov(p: *Edwards25519, a: Edwards25519, c: u64) void {
         p.x.cMov(a.x, c);
         p.y.cMov(a.y, c);
         p.z.cMov(a.z, c);
         p.t.cMov(a.t, c);
     }
 
-    fn pcSelect(comptime n: usize, pc: [n]Edwards25519, b: u8) callconv(.Inline) Edwards25519 {
+    inline fn pcSelect(comptime n: usize, pc: [n]Edwards25519, b: u8) Edwards25519 {
         var t = Edwards25519.identityElement;
         comptime var i: u8 = 1;
         inline while (i < pc.len) : (i += 1) {

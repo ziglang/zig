@@ -307,7 +307,7 @@ fn initTLS() void {
     };
 }
 
-fn alignPtrCast(comptime T: type, ptr: [*]u8) callconv(.Inline) *T {
+inline fn alignPtrCast(comptime T: type, ptr: [*]u8) *T {
     return @ptrCast(*T, @alignCast(@alignOf(T), ptr));
 }
 

@@ -375,7 +375,7 @@ const bad_main_ret = "expected return type of main to be 'void', '!void', 'noret
 
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
-fn initEventLoopAndCallMain() callconv(.Inline) u8 {
+inline fn initEventLoopAndCallMain() u8 {
     if (std.event.Loop.instance) |loop| {
         if (!@hasDecl(root, "event_loop")) {
             loop.init() catch |err| {
@@ -404,7 +404,7 @@ fn initEventLoopAndCallMain() callconv(.Inline) u8 {
 // and we want fewer call frames in stack traces.
 // TODO This function is duplicated from initEventLoopAndCallMain instead of using generics
 // because it is working around stage1 compiler bugs.
-fn initEventLoopAndCallWinMain() callconv(.Inline) std.os.windows.INT {
+inline fn initEventLoopAndCallWinMain() std.os.windows.INT {
     if (std.event.Loop.instance) |loop| {
         if (!@hasDecl(root, "event_loop")) {
             loop.init() catch |err| {

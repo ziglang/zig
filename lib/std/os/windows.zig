@@ -1745,7 +1745,7 @@ pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
     return path_space;
 }
 
-fn MAKELANGID(p: c_ushort, s: c_ushort) callconv(.Inline) LANGID {
+inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
     return (s << 10) | p;
 }
 

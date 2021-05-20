@@ -47,7 +47,7 @@ pub const Ristretto255 = struct {
     }
 
     /// Reject the neutral element.
-    pub fn rejectIdentity(p: Ristretto255) callconv(.Inline) IdentityElementError!void {
+    pub inline fn rejectIdentity(p: Ristretto255) IdentityElementError!void {
         return p.p.rejectIdentity();
     }
 
@@ -146,19 +146,19 @@ pub const Ristretto255 = struct {
     }
 
     /// Double a Ristretto255 element.
-    pub fn dbl(p: Ristretto255) callconv(.Inline) Ristretto255 {
+    pub inline fn dbl(p: Ristretto255) Ristretto255 {
         return .{ .p = p.p.dbl() };
     }
 
     /// Add two Ristretto255 elements.
-    pub fn add(p: Ristretto255, q: Ristretto255) callconv(.Inline) Ristretto255 {
+    pub inline fn add(p: Ristretto255, q: Ristretto255) Ristretto255 {
         return .{ .p = p.p.add(q.p) };
     }
 
     /// Multiply a Ristretto255 element with a scalar.
     /// Return error.WeakPublicKey if the resulting element is
     /// the identity element.
-    pub fn mul(p: Ristretto255, s: [encoded_length]u8) callconv(.Inline) (IdentityElementError || WeakPublicKeyError)!Ristretto255 {
+    pub inline fn mul(p: Ristretto255, s: [encoded_length]u8) (IdentityElementError || WeakPublicKeyError)!Ristretto255 {
         return Ristretto255{ .p = try p.p.mul(s) };
     }
 

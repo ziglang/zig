@@ -585,7 +585,7 @@ pub const Parser = struct {
     }
 };
 
-fn isArithmeticOp(inst: *const [4]u8) callconv(.Inline) bool {
+inline fn isArithmeticOp(inst: *const [4]u8) bool {
     const group_decode = @truncate(u5, inst[3]);
     return ((group_decode >> 2) == 4);
 }

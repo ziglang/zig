@@ -83,7 +83,7 @@ pub fn IntegerBitSet(comptime size: u16) type {
         }
 
         /// Returns the number of bits in this bit set
-        pub fn capacity(self: Self) callconv(.Inline) usize {
+        pub inline fn capacity(self: Self) usize {
             return bit_length;
         }
 
@@ -310,7 +310,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         }
 
         /// Returns the number of bits in this bit set
-        pub fn capacity(self: Self) callconv(.Inline) usize {
+        pub inline fn capacity(self: Self) usize {
             return bit_length;
         }
 
@@ -574,7 +574,7 @@ pub const DynamicBitSetUnmanaged = struct {
     }
 
     /// Returns the number of bits in this bit set
-    pub fn capacity(self: Self) callconv(.Inline) usize {
+    pub inline fn capacity(self: Self) usize {
         return self.bit_length;
     }
 
@@ -789,7 +789,7 @@ pub const DynamicBitSet = struct {
     }
 
     /// Returns the number of bits in this bit set
-    pub fn capacity(self: Self) callconv(.Inline) usize {
+    pub inline fn capacity(self: Self) usize {
         return self.unmanaged.capacity();
     }
 
@@ -969,7 +969,7 @@ fn BitSetIterator(comptime MaskInt: type, comptime options: IteratorOptions) typ
         // isn't a next word.  If the next word is the
         // last word, mask off the padding bits so we
         // don't visit them.
-        fn nextWord(self: *Self, comptime is_first_word: bool) callconv(.Inline) void {
+        inline fn nextWord(self: *Self, comptime is_first_word: bool) void {
             var word = switch (direction) {
                 .forward => self.words_remain[0],
                 .reverse => self.words_remain[self.words_remain.len - 1],

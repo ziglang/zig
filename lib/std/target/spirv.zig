@@ -732,8 +732,7 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.Matrix)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Matrix",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.Shader)] = .{
         .llvm_name = null,
@@ -759,20 +758,17 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.Addresses)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Addresses",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.Linkage)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Linkage",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.Kernel)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Kernel",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.Vector16)] = .{
         .llvm_name = null,
@@ -791,20 +787,17 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.Float16)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Float16",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.Float64)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Float64",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.Int64)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Int64",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.Int64Atomics)] = .{
         .llvm_name = null,
@@ -844,8 +837,7 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.Groups)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Groups",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.DeviceEnqueue)] = .{
         .llvm_name = null,
@@ -871,8 +863,7 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.Int16)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Int16",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.TessellationPointSize)] = .{
         .llvm_name = null,
@@ -982,8 +973,7 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.Int8)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Int8",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.InputAttachment)] = .{
         .llvm_name = null,
@@ -1009,8 +999,7 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.Sampled1D)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Sampled1D",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.Image1D)] = .{
         .llvm_name = null,
@@ -1029,8 +1018,7 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.SampledBuffer)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability SampledBuffer",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ImageBuffer)] = .{
         .llvm_name = null,
@@ -1220,8 +1208,7 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.SubgroupBallotKHR)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability SubgroupBallotKHR",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.DrawParameters)] = .{
         .llvm_name = null,
@@ -1255,8 +1242,7 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.SubgroupVoteKHR)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability SubgroupVoteKHR",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.StorageBuffer16BitAccess)] = .{
         .llvm_name = null,
@@ -1338,14 +1324,12 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.AtomicStorageOps)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability AtomicStorageOps",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.SampleMaskPostDepthCoverage)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability SampleMaskPostDepthCoverage",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.StorageBuffer8BitAccess)] = .{
         .llvm_name = null,
@@ -1548,20 +1532,17 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.ImageFootprintNV)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability ImageFootprintNV",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.FragmentBarycentricNV)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FragmentBarycentricNV",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ComputeDerivativeGroupQuadsNV)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability ComputeDerivativeGroupQuadsNV",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.FragmentDensityEXT)] = .{
         .llvm_name = null,
@@ -1580,8 +1561,7 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.GroupNonUniformPartitionedNV)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability GroupNonUniformPartitionedNV",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ShaderNonUniform)] = .{
         .llvm_name = null,
@@ -1835,8 +1815,7 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.ComputeDerivativeGroupLinearNV)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability ComputeDerivativeGroupLinearNV",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.RayTracingProvisionalKHR)] = .{
         .llvm_name = null,
@@ -1890,38 +1869,32 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.SubgroupShuffleINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability SubgroupShuffleINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.SubgroupBufferBlockIOINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability SubgroupBufferBlockIOINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.SubgroupImageBlockIOINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability SubgroupImageBlockIOINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.SubgroupImageMediaBlockIOINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability SubgroupImageMediaBlockIOINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.RoundToInfinityINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability RoundToInfinityINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.FloatingPointModeINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FloatingPointModeINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.IntegerFunctions2INTEL)] = .{
         .llvm_name = null,
@@ -1933,38 +1906,32 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.FunctionPointersINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FunctionPointersINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.IndirectReferencesINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability IndirectReferencesINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.AsmINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability AsmINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.AtomicFloat32MinMaxEXT)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability AtomicFloat32MinMaxEXT",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.AtomicFloat64MinMaxEXT)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability AtomicFloat64MinMaxEXT",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.AtomicFloat16MinMaxEXT)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability AtomicFloat16MinMaxEXT",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.VectorComputeINTEL)] = .{
         .llvm_name = null,
@@ -1976,50 +1943,42 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.VectorAnyINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability VectorAnyINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ExpectAssumeKHR)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability ExpectAssumeKHR",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.SubgroupAvcMotionEstimationINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability SubgroupAvcMotionEstimationINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.SubgroupAvcMotionEstimationIntraINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability SubgroupAvcMotionEstimationIntraINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.SubgroupAvcMotionEstimationChromaINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability SubgroupAvcMotionEstimationChromaINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.VariableLengthArrayINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability VariableLengthArrayINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.FunctionFloatControlINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FunctionFloatControlINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.FPGAMemoryAttributesINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FPGAMemoryAttributesINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.FPFastMathModeINTEL)] = .{
         .llvm_name = null,
@@ -2031,80 +1990,67 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.ArbitraryPrecisionIntegersINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability ArbitraryPrecisionIntegersINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.UnstructuredLoopControlsINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability UnstructuredLoopControlsINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.FPGALoopControlsINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FPGALoopControlsINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.KernelAttributesINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability KernelAttributesINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.FPGAKernelAttributesINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FPGAKernelAttributesINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.FPGAMemoryAccessesINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FPGAMemoryAccessesINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.FPGAClusterAttributesINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FPGAClusterAttributesINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.LoopFuseINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability LoopFuseINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.FPGABufferLocationINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FPGABufferLocationINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.USMStorageClassesINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability USMStorageClassesINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.IOPipesINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability IOPipesINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.BlockingPipesINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability BlockingPipesINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.FPGARegINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FPGARegINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.AtomicFloat32AddEXT)] = .{
         .llvm_name = null,
@@ -2123,8 +2069,7 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.LongConstantCompositeINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability LongConstantCompositeINTEL",
-        .dependencies = featureSet(&[_]Feature{
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
     for (result) |*elem, i| {

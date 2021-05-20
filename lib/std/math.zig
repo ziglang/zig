@@ -1334,7 +1334,7 @@ test "math.comptime" {
 /// Returns a mask of all ones if value is true,
 /// and a mask of all zeroes if value is false.
 /// Compiles to one instruction for register sized integers.
-pub fn boolMask(comptime MaskInt: type, value: bool) callconv(.Inline) MaskInt {
+pub inline fn boolMask(comptime MaskInt: type, value: bool) MaskInt {
     if (@typeInfo(MaskInt) != .Int)
         @compileError("boolMask requires an integer mask type.");
 

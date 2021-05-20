@@ -286,8 +286,7 @@ pub const LibCInstallation = struct {
         else if (is_haiku)
             "posix/errno.h"
         else
-            "sys/errno.h"
-        ;
+            "sys/errno.h";
 
         var path_i: usize = 0;
         while (path_i < search_paths.items.len) : (path_i += 1) {

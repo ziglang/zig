@@ -52,21 +52,21 @@ const Z96 = struct {
     d2: u32,
 
     // d = s >> 1
-    fn shiftRight1(d: *Z96, s: Z96) callconv(.Inline) void {
+    inline fn shiftRight1(d: *Z96, s: Z96) void {
         d.d0 = (s.d0 >> 1) | ((s.d1 & 1) << 31);
         d.d1 = (s.d1 >> 1) | ((s.d2 & 1) << 31);
         d.d2 = s.d2 >> 1;
     }
 
     // d = s << 1
-    fn shiftLeft1(d: *Z96, s: Z96) callconv(.Inline) void {
+    inline fn shiftLeft1(d: *Z96, s: Z96) void {
         d.d2 = (s.d2 << 1) | ((s.d1 & (1 << 31)) >> 31);
         d.d1 = (s.d1 << 1) | ((s.d0 & (1 << 31)) >> 31);
         d.d0 = s.d0 << 1;
     }
 
     // d += s
-    fn add(d: *Z96, s: Z96) callconv(.Inline) void {
+    inline fn add(d: *Z96, s: Z96) void {
         var w = @as(u64, d.d0) + @as(u64, s.d0);
         d.d0 = @truncate(u32, w);
 
@@ -80,7 +80,7 @@ const Z96 = struct {
     }
 
     // d -= s
-    fn sub(d: *Z96, s: Z96) callconv(.Inline) void {
+    inline fn sub(d: *Z96, s: Z96) void {
         var w = @as(u64, d.d0) -% @as(u64, s.d0);
         d.d0 = @truncate(u32, w);
 
