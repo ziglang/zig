@@ -152,45 +152,17 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
 
     // Now, actually generate the code for all declarations.
     {
-        // We are just going to re-use this same DeclGen for every Decl, and we are just going to
-        // change the decl. Otherwise, we would have to keep a separate `args` and `types`, and re-construct this
-        // structure every time.
-        var decl_gen = codegen.DeclGen{
-            .module = module,
-            .spv = &spv,
-            .args = std.ArrayList(codegen.Word).init(self.base.allocator),
-            .next_arg_index = undefined,
-            .inst_results = codegen.InstMap.init(self.base.allocator),
-            .blocks = codegen.BlockMap.init(self.base.allocator),
-            .current_block_label_id = undefined,
-            .decl = undefined,
-            .error_msg = undefined,
-        };
-
-        defer decl_gen.inst_results.deinit();
-        defer decl_gen.args.deinit();
-        defer decl_gen.blocks.deinit();
+        var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &spv);
+        defer decl_gen.deinit();
 
         for (self.decl_table.items()) |entry| {
             const decl = entry.key;
             if (!decl.has_tv) continue;
 
-            // Reset the decl_gen, but retain allocated resources.
-            decl_gen.args.items.len = 0;
-            decl_gen.next_arg_index = 0;
-            decl_gen.inst_results.clearRetainingCapacity();
-            decl_gen.blocks.clearRetainingCapacity();
-            decl_gen.current_block_label_id = undefined;
-            decl_gen.decl = decl;
-            decl_gen.error_msg = null;
-
-            decl_gen.gen() catch |err| switch (err) {
-                error.AnalysisFail => {
-                    try module.failed_decls.put(module.gpa, decl, decl_gen.error_msg.?);
-                    return;
-                },
-                else => |e| return e,
-            };
+            if (try decl_gen.gen(decl)) |msg| {
+                try module.failed_decls.put(module.gpa, decl, msg);
+                return; // TODO: Attempt to generate more decls?
+            }
         }
     }
 

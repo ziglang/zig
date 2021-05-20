@@ -157,6 +157,45 @@ pub const DeclGen = struct {
         class: Class,
     };
 
+    /// Initialize the common resources of a DeclGen. Some fields are left uninitialized, only set when `gen` is called.
+    pub fn init(gpa: *Allocator, module: *Module, spv: *SPIRVModule) DeclGen {
+        return .{
+            .module = module,
+            .spv = spv,
+            .args = std.ArrayList(ResultId).init(gpa),
+            .next_arg_index = undefined,
+            .inst_results = InstMap.init(gpa),
+            .blocks = BlockMap.init(gpa),
+            .current_block_label_id = undefined,
+            .decl = undefined,
+            .error_msg = undefined,
+        };
+    }
+
+    /// Generate the code for `decl`. If a reportable error occured during code generation,
+    /// a message is returned by this function. Callee owns the memory. If this function returns such
+    /// a reportable error, it is valid to be called again for a different decl.
+    pub fn gen(self: *DeclGen, decl: *Decl) !?*Module.ErrorMsg {
+        // Reset internal resources, we don't want to re-allocate these.
+        self.args.items.len = 0;
+        self.next_arg_index = 0;
+        self.inst_results.clearRetainingCapacity();
+        self.blocks.clearRetainingCapacity();
+        self.current_block_label_id = undefined;
+        self.decl = decl;
+        self.error_msg = null;
+
+        try self.genDecl();
+        return self.error_msg;
+    }
+
+    /// Free resources owned by the DeclGen.
+    pub fn deinit(self: *DeclGen) void {
+        self.args.deinit();
+        self.inst_results.deinit();
+        self.blocks.deinit();
+    }
+
     fn fail(self: *DeclGen, src: LazySrcLoc, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
         const src_loc = src.toSrcLocWithDecl(self.decl);
@@ -476,7 +515,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    pub fn gen(self: *DeclGen) !void {
+    fn genDecl(self: *DeclGen) !void {
         const decl = self.decl;
         const result_id = decl.fn_link.spirv.id;
 
