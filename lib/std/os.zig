@@ -2724,29 +2724,25 @@ pub const SocketError = error{
 
     /// The socket type is not supported by the protocol.
     SocketTypeNotSupported,
-
-    /// The environment for socket control has not been initialised.
-    NotInitialised,
 } || UnexpectedError;
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t {
     if (builtin.os.tag == .windows) {
-        // NOTE: windows translates the SOCK_NONBLOCK/SOCK_CLOEXEC flags into windows-analagous operations
+        // NOTE: windows translates the SOCK_NONBLOCK/SOCK_CLOEXEC flags into
+        // windows-analagous operations
         const filtered_sock_type = socket_type & ~@as(u32, SOCK_NONBLOCK | SOCK_CLOEXEC);
-        const flags: u32 = if ((socket_type & SOCK_CLOEXEC) != 0) windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT else 0;
-        const rc = windows.WSASocketW(@bitCast(i32, domain), @bitCast(i32, filtered_sock_type), @bitCast(i32, protocol), null, 0, flags) catch |err| switch (err) {
-            error.NotInitialised => again: {
-                // Before a socket is made Windows requires WSAStartup to be called.
-                // Let's try doing that now, then make the socket again. If socket creation still fails then there is an underlying issue we cannot solve.
-                // WSAStartup is supposed to have a pair in the form of WSACleanup to call once all socket operations concluded.
-                // As of writing that function is never called.
-                _ = windows.WSAStartup(2, 2) catch {
-                    return error.NotInitialised;
-                };
-                break :again try windows.WSASocketW(@bitCast(i32, domain), @bitCast(i32, filtered_sock_type), @bitCast(i32, protocol), null, 0, flags);
-            },
-            else => return err,
-        };
+        const flags: u32 = if ((socket_type & SOCK_CLOEXEC) != 0)
+            windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT
+        else
+            0;
+        const rc = try windows.WSASocketW(
+            @bitCast(i32, domain),
+            @bitCast(i32, filtered_sock_type),
+            @bitCast(i32, protocol),
+            null,
+            0,
+            flags,
+        );
         errdefer windows.closesocket(rc) catch unreachable;
         if ((socket_type & SOCK_NONBLOCK) != 0) {
             var mode: c_ulong = 1; // nonblocking
