@@ -746,6 +746,7 @@ pub const Context = struct {
             .store => self.genStore(inst.castTag(.store).?),
             .struct_field_ptr => self.genStructFieldPtr(inst.castTag(.struct_field_ptr).?),
             .sub => self.genBinOp(inst.castTag(.sub).?, .sub),
+            .switchbr => self.genSwitchBr(inst.castTag(.switchbr).?),
             .unreach => self.genUnreachable(inst.castTag(.unreach).?),
             .xor => self.genBinOp(inst.castTag(.xor).?, .xor),
             else => self.fail(.{ .node_offset = 0 }, "TODO: Implement wasm inst: {s}", .{inst.tag}),
@@ -1129,5 +1130,46 @@ pub const Context = struct {
         const struct_ptr = self.resolveInst(inst.struct_ptr);
 
         return WValue{ .local = struct_ptr.multi_value + @intCast(u32, inst.field_index) };
+    }
+
+    fn genSwitchBr(self: *Context, inst: *Inst.SwitchBr) InnerError!WValue {
+        const target = self.resolveInst(inst.target);
+        const target_ty = inst.target.ty;
+        const valtype = try self.typeToValtype(.{ .node_offset = 0 }, target_ty);
+        const blocktype = try self.genBlockType(inst.base.src, inst.base.ty);
+
+        const signedness: std.builtin.Signedness = blk: {
+            // by default we tell the operand type is unsigned (i.e. bools and enum values)
+            if (target_ty.zigTypeTag() != .Int) break :blk .unsigned;
+
+            // incase of an actual integer, we emit the correct signedness
+            break :blk target_ty.intInfo(self.target).signedness;
+        };
+        for (inst.cases) |case| {
+            // create a block for each case, when the condition does not match we break out of it
+            try self.startBlock(.block, blocktype, null);
+            try self.emitWValue(target);
+            try self.emitConstant(.{ .node_offset = 0 }, case.item, target_ty);
+            const opcode = buildOpcode(.{
+                .valtype1 = valtype,
+                .op = .ne, // not equal because we jump out the block if it does not match the condition
+                .signedness = signedness,
+            });
+            try self.code.append(wasm.opcode(opcode));
+            try self.code.append(wasm.opcode(.br_if));
+            try leb.writeULEB128(self.code.writer(), @as(u32, 0));
+
+            // emit our block code
+            try self.genBody(case.body);
+
+            // end the block we created earlier
+            try self.endBlock();
+        }
+
+        // finally, emit the else case if it exists. Here we will not have to
+        // check for a condition, so also no need to emit a block.
+        try self.genBody(inst.else_body);
+
+        return .none;
     }
 };
