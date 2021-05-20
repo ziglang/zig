@@ -28,6 +28,7 @@ test "self-hosted" {
 
 const ErrorMsg = union(enum) {
     src: struct {
+        src_path: []const u8,
         msg: []const u8,
         line: u32,
         column: u32,
@@ -47,6 +48,7 @@ const ErrorMsg = union(enum) {
         switch (other) {
             .src => |src| return .{
                 .src = .{
+                    .src_path = src.src_path,
                     .msg = src.msg,
                     .line = @intCast(u32, src.line),
                     .column = @intCast(u32, src.column),
@@ -70,7 +72,8 @@ const ErrorMsg = union(enum) {
     ) !void {
         switch (self) {
             .src => |src| {
-                return writer.print(":{d}:{d}: {s}: {s}", .{
+                return writer.print("{s}:{d}:{d}: {s}: {s}", .{
+                    src.src_path,
                     src.line + 1,
                     src.column + 1,
                     @tagName(src.kind),
@@ -188,9 +191,9 @@ pub const TestContext = struct {
                     };
                     continue;
                 }
-                // example: ":1:2: error: bad thing happened"
+                // example: "file.zig:1:2: error: bad thing happened"
                 var it = std.mem.split(err_msg_line, ":");
-                _ = it.next() orelse @panic("missing colon");
+                const src_path = it.next() orelse @panic("missing colon");
                 const line_text = it.next() orelse @panic("missing line");
                 const col_text = it.next() orelse @panic("missing column");
                 const kind_text = it.next() orelse @panic("missing 'error'/'note'");
@@ -211,6 +214,7 @@ pub const TestContext = struct {
 
                 array[i] = .{
                     .src = .{
+                        .src_path = src_path,
                         .msg = msg,
                         .line = line - 1,
                         .column = column - 1,
@@ -692,8 +696,8 @@ pub const TestContext = struct {
                     for (all_errors.list) |err_msg| {
                         switch (err_msg) {
                             .src => |src| {
-                                std.debug.print(":{d}:{d}: error: {s}\n{s}\n", .{
-                                    src.line + 1, src.column + 1, src.msg, hr,
+                                std.debug.print("{s}:{d}:{d}: error: {s}\n{s}\n", .{
+                                    src.src_path, src.line + 1, src.column + 1, src.msg, hr,
                                 });
                             },
                             .plain => |plain| {
@@ -747,7 +751,11 @@ pub const TestContext = struct {
 
                                     if (ex_tag != .src) continue;
 
-                                    if (actual_msg.line == case_msg.src.line and
+                                    const src_path_ok = case_msg.src.src_path.len == 0 or
+                                        std.mem.eql(u8, case_msg.src.src_path, actual_msg.src_path);
+
+                                    if (src_path_ok and
+                                        actual_msg.line == case_msg.src.line and
                                         actual_msg.column == case_msg.src.column and
                                         std.mem.eql(u8, case_msg.src.msg, actual_msg.msg) and
                                         case_msg.src.kind == .@"error")
@@ -959,7 +967,6 @@ pub const TestContext = struct {
             }
         }
     }
-
 };
 
 fn dumpArgs(argv: []const []const u8) void {
