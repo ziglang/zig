@@ -264,6 +264,40 @@ pub const DeclGen = struct {
         }
 
         switch (ty.zigTypeTag()) {
+            .Int => {
+                const int_info = ty.intInfo(target);
+                const backing_bits = self.backingIntBits(int_info.bits) orelse {
+                    // Integers too big for any native type are represented as "composite integers": An array of largestSupportedIntBits.
+                    return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement composite int constants for {}", .{ty});
+                };
+
+                // We can just use toSignedInt/toUnsignedInt here as it returns u64 - a type large enough to hold any
+                // SPIR-V native type (up to i/u64 with Int64). If SPIR-V ever supports native ints of a larger size, this
+                // might need to be updated.
+                std.debug.assert(self.largestSupportedIntBits() <= std.meta.bitCount(u64));
+                var int_bits = if (ty.isSignedInt()) @bitCast(u64, val.toSignedInt()) else val.toUnsignedInt();
+
+                // Mask the low bits which make up the actual integer. This is to make sure that negative values
+                // only use the actual bits of the type.
+                // TODO: Should this be the backing type bits or the actual type bits?
+                int_bits &= (@as(u64, 1) << @intCast(u6, backing_bits)) - 1;
+
+                switch (backing_bits) {
+                    0 => unreachable,
+                    1...32 => try writeInstruction(code, .OpConstant, &[_]Word{
+                        result_type_id,
+                        result_id,
+                        @truncate(u32, int_bits),
+                    }),
+                    33...64 => try writeInstruction(code, .OpConstant, &[_]Word{
+                        result_type_id,
+                        result_id,
+                        @truncate(u32, int_bits),
+                        @truncate(u32, int_bits >> @bitSizeOf(u32)),
+                    }),
+                    else => unreachable, // backing_bits is bounded by largestSupportedIntBits.
+                }
+            },
             .Bool => {
                 const opcode: Opcode = if (val.toBool()) .OpConstantTrue else .OpConstantFalse;
                 try writeInstruction(code, opcode, &[_]Word{ result_type_id, result_id });
@@ -282,8 +316,8 @@ pub const DeclGen = struct {
                         try writeInstruction(code, .OpConstant, &[_]Word{
                             result_type_id,
                             result_id,
-                            @truncate(Word, float_bits),
-                            @truncate(Word, float_bits >> 32),
+                            @truncate(u32, float_bits),
+                            @truncate(u32, float_bits >> @bitSizeOf(u32)),
                         });
                     },
                     128 => unreachable, // Filtered out in the call to getOrGenType.
