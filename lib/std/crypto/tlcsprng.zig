@@ -48,6 +48,16 @@ const Context = struct {
     gimli: std.crypto.core.Gimli,
 };
 
+var install_atfork_handler = std.once(struct {
+    // Install the global handler only once.
+    // The same handler is shared among threads and is inherinted by fork()-ed
+    // processes.
+    fn do() void {
+        const r = std.c.pthread_atfork(null, null, childAtForkHandler);
+        std.debug.assert(r == 0);
+    }
+}.do);
+
 threadlocal var wipe_mem: []align(mem.page_size) u8 = &[_]u8{};
 
 fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
@@ -135,14 +145,8 @@ fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
 }
 
 fn setupPthreadAtforkAndFill(buffer: []u8) void {
-    const failed = std.c.pthread_atfork(null, null, childAtForkHandler) != 0;
-    if (failed) {
-        const ctx = @ptrCast(*Context, wipe_mem.ptr);
-        ctx.init_state = .failed;
-        return fillWithOsEntropy(buffer);
-    } else {
-        return initAndFill(buffer);
-    }
+    install_atfork_handler.call();
+    return initAndFill(buffer);
 }
 
 fn childAtForkHandler() callconv(.C) void {
