@@ -354,7 +354,10 @@ pub const AllErrors = struct {
                     try stderr.print(" {s}\n", .{src.msg});
                     ttyconf.setColor(stderr, .Reset);
                     if (src.source_line) |line| {
-                        try stderr.writeAll(line);
+                        for (line) |b| switch (b) {
+                            '\t' => try stderr.writeByte(' '),
+                            else => try stderr.writeByte(b),
+                        };
                         try stderr.writeByte('\n');
                         try stderr.writeByteNTimes(' ', src.column);
                         ttyconf.setColor(stderr, .Green);
