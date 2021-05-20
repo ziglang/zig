@@ -770,8 +770,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         .Lib => is_dyn_lib,
         .Exe => true,
     };
-    const needs_c_symbols = !options.skip_linker_dependencies and
-        (is_exe_or_dyn_lib or (options.target.isWasm() and options.output_mode != .Obj));
+
+    const needs_c_symbols = !options.skip_linker_dependencies and is_exe_or_dyn_lib;
 
     const comp: *Compilation = comp: {
         // For allocations that have the same lifetime as Compilation. This arena is used only during this
@@ -1418,7 +1418,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 },
             });
         }
-        if (comp.wantBuildWASILibcSysrootFromSource()) {
+        if (comp.wantBuildWasiLibcSysrootFromSource()) {
             try comp.work_queue.write(&[_]Job{.{ .wasi_libc_sysroot = {} }});
         }
         if (comp.wantBuildMinGWFromSource()) {
@@ -1462,7 +1462,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         // Once it is capable this condition should be removed.
         if (build_options.is_stage1) {
             if (comp.bin_file.options.include_compiler_rt) {
-                if (is_exe_or_dyn_lib or comp.getTarget().isWasm()) {
+                if (is_exe_or_dyn_lib) {
                     try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
                 } else {
                     try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
@@ -2147,7 +2147,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .wasi_libc_sysroot => {
-            wasi_libc.buildWASILibcSysroot(self) catch |err| {
+            wasi_libc.buildWasiLibcSysroot(self) catch |err| {
                 // TODO Surface more error details.
                 try self.setMiscFailure(
                     .wasi_libc_sysroot,
@@ -3263,7 +3263,7 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: *Allocator, basename: []cons
     if (comp.wantBuildGLibCFromSource() or
         comp.wantBuildMuslFromSource() or
         comp.wantBuildMinGWFromSource() or
-        comp.wantBuildWASILibcSysrootFromSource())
+        comp.wantBuildWasiLibcSysrootFromSource())
     {
         return comp.crt_files.get(basename).?.full_object_path;
     }
@@ -3303,7 +3303,7 @@ fn wantBuildMuslFromSource(comp: Compilation) bool {
         !comp.getTarget().isWasm();
 }
 
-fn wantBuildWASILibcSysrootFromSource(comp: Compilation) bool {
+fn wantBuildWasiLibcSysrootFromSource(comp: Compilation) bool {
     return comp.wantBuildLibCFromSource() and comp.getTarget().isWasm();
 }
 
@@ -3610,11 +3610,10 @@ fn buildOutputFromZig(
     };
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();
-    const fixed_output_mode = if (target.cpu.arch.isWasm()) .Obj else output_mode;
     const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{
         .root_name = root_name,
         .target = target,
-        .output_mode = fixed_output_mode,
+        .output_mode = output_mode,
     });
     defer comp.gpa.free(bin_basename);
 
@@ -3629,7 +3628,7 @@ fn buildOutputFromZig(
         .target = target,
         .root_name = root_name,
         .root_pkg = &root_pkg,
-        .output_mode = fixed_output_mode,
+        .output_mode = output_mode,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,

@@ -165,9 +165,7 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                     .Static => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
                         target.libPrefix(), root_name,
                     }),
-                    .Dynamic => return std.fmt.allocPrint(allocator, "{s}{s}.wasm", .{
-                        target.libPrefix(), root_name,
-                    }),
+                    .Dynamic => return std.fmt.allocPrint(allocator, "{s}.wasm", .{root_name}),
                 }
             },
             .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.oFileExt() }),

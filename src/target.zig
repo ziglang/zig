@@ -146,6 +146,7 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
         .watchos,
         .tvos,
         .freestanding,
+        .wasi, // Wasm/WASI currently doesn't offer support for libunwind, so don't link it.
         => false,
 
         .windows => target.abi != .msvc,

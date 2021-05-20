@@ -6,7 +6,7 @@ const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const target_util = @import("target.zig");
 
-pub fn buildWASILibcSysroot(comp: *Compilation) !void {
+pub fn buildWasiLibcSysroot(comp: *Compilation) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
