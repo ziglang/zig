@@ -150,7 +150,7 @@ pub const DeclGen = struct {
 
     fn resolve(self: *DeclGen, inst: *Inst) !ResultId {
         if (inst.value()) |val| {
-            return self.genConstant(inst.ty, val);
+            return self.genConstant(inst.src, inst.ty, val);
         }
 
         return self.inst_results.get(inst).?; // Instruction does not dominate all uses!
@@ -252,11 +252,11 @@ pub const DeclGen = struct {
 
     /// Generate a constant representing `val`.
     /// TODO: Deduplication?
-    fn genConstant(self: *DeclGen, ty: Type, val: Value) Error!ResultId {
+    fn genConstant(self: *DeclGen, src: LazySrcLoc, ty: Type, val: Value) Error!ResultId {
         const target = self.module.getTarget();
         const code = &self.spv.binary.types_globals_constants;
         const result_id = self.spv.allocResultId();
-        const result_type_id = try self.genType(ty);
+        const result_type_id = try self.genType(src, ty);
 
         if (val.isUndef()) {
             try writeInstruction(code, .OpUndef, &[_]Word{ result_type_id, result_id });
@@ -268,7 +268,7 @@ pub const DeclGen = struct {
                 const int_info = ty.intInfo(target);
                 const backing_bits = self.backingIntBits(int_info.bits) orelse {
                     // Integers too big for any native type are represented as "composite integers": An array of largestSupportedIntBits.
-                    return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement composite int constants for {}", .{ty});
+                    return self.fail(src, "TODO: SPIR-V backend: implement composite int constants for {}", .{ty});
                 };
 
                 // We can just use toSignedInt/toUnsignedInt here as it returns u64 - a type large enough to hold any
@@ -325,13 +325,13 @@ pub const DeclGen = struct {
                     else => unreachable,
                 }
             },
-            else => return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: constant generation of type {s}\n", .{ty.zigTypeTag()}),
+            else => return self.fail(src, "TODO: SPIR-V backend: constant generation of type {s}\n", .{ty.zigTypeTag()}),
         }
 
         return result_id;
     }
 
-    fn genType(self: *DeclGen, ty: Type) Error!ResultId {
+    fn genType(self: *DeclGen, src: LazySrcLoc, ty: Type) Error!ResultId {
         // We can't use getOrPut here so we can recursively generate types.
         if (self.spv.types.get(ty)) |already_generated| {
             return already_generated;
@@ -348,7 +348,7 @@ pub const DeclGen = struct {
                 const int_info = ty.intInfo(target);
                 const backing_bits = self.backingIntBits(int_info.bits) orelse {
                     // Integers too big for any native type are represented as "composite integers": An array of largestSupportedIntBits.
-                    return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement composite int {}", .{ty});
+                    return self.fail(src, "TODO: SPIR-V backend: implement composite int {}", .{ty});
                 };
 
                 // TODO: If backing_bits != int_info.bits, a duplicate type might be generated here.
@@ -374,7 +374,7 @@ pub const DeclGen = struct {
                 };
 
                 if (!supported) {
-                    return self.fail(.{ .node_offset = 0 }, "Floating point width of {} bits is not supported for the current SPIR-V feature set", .{bits});
+                    return self.fail(src, "Floating point width of {} bits is not supported for the current SPIR-V feature set", .{bits});
                 }
 
                 try writeInstruction(code, .OpTypeFloat, &[_]Word{ result_id, bits });
@@ -382,19 +382,19 @@ pub const DeclGen = struct {
             .Fn => {
                 // We only support zig-calling-convention functions, no varargs.
                 if (ty.fnCallingConvention() != .Unspecified)
-                    return self.fail(.{ .node_offset = 0 }, "Unsupported calling convention for SPIR-V", .{});
+                    return self.fail(src, "Unsupported calling convention for SPIR-V", .{});
                 if (ty.fnIsVarArgs())
-                    return self.fail(.{ .node_offset = 0 }, "VarArgs unsupported for SPIR-V", .{});
+                    return self.fail(src, "VarArgs unsupported for SPIR-V", .{});
 
                 // In order to avoid a temporary here, first generate all the required types and then simply look them up
                 // when generating the function type.
                 const params = ty.fnParamLen();
                 var i: usize = 0;
                 while (i < params) : (i += 1) {
-                    _ = try self.genType(ty.fnParamType(i));
+                    _ = try self.genType(src, ty.fnParamType(i));
                 }
 
-                const return_type_id = try self.genType(ty.fnReturnType());
+                const return_type_id = try self.genType(src, ty.fnReturnType());
 
                 // result id + result type id + parameter type ids.
                 try writeOpcode(code, .OpTypeFunction, 2 + @intCast(u16, ty.fnParamLen()));
@@ -407,7 +407,7 @@ pub const DeclGen = struct {
                 }
             },
             // When recursively generating a type, we cannot infer the pointer's storage class. See genPointerType.
-            .Pointer => return self.fail(.{ .node_offset = 0 }, "Cannot create pointer with unkown storage class", .{}),
+            .Pointer => return self.fail(src, "Cannot create pointer with unkown storage class", .{}),
             .Vector => {
                 // Although not 100% the same, Zig vectors map quite neatly to SPIR-V vectors (including many integer and float operations
                 // which work on them), so simply use those.
@@ -417,7 +417,7 @@ pub const DeclGen = struct {
                 // is adequate at all for this.
 
                 // TODO: Vectors are not yet supported by the self-hosted compiler itself it seems.
-                return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement type Vector", .{});
+                return self.fail(src, "TODO: SPIR-V backend: implement type Vector", .{});
             },
             .Null,
             .Undefined,
@@ -429,7 +429,7 @@ pub const DeclGen = struct {
 
             .BoundFn => unreachable, // this type will be deleted from the language.
 
-            else => |tag| return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: implement type {}s", .{tag}),
+            else => |tag| return self.fail(src, "TODO: SPIR-V backend: implement type {}s", .{tag}),
         }
 
         try self.spv.types.putNoClobber(ty, result_id);
@@ -438,7 +438,7 @@ pub const DeclGen = struct {
 
     /// SPIR-V requires pointers to have a storage class (address space), and so we have a special function for that.
     /// TODO: The result of this needs to be cached.
-    fn genPointerType(self: *DeclGen, ty: Type, storage_class: spec.StorageClass) !ResultId {
+    fn genPointerType(self: *DeclGen, src: LazySrcLoc, ty: Type, storage_class: spec.StorageClass) !ResultId {
         std.debug.assert(ty.zigTypeTag() == .Pointer);
 
         const code = &self.spv.binary.types_globals_constants;
@@ -447,7 +447,7 @@ pub const DeclGen = struct {
         // TODO: There are many constraints which are ignored for now: We may only create pointers to certain types, and to other types
         // if more capabilities are enabled. For example, we may only create pointers to f16 if Float16Buffer is enabled.
         // These also relates to the pointer's address space.
-        const child_id = try self.genType(ty.elemType());
+        const child_id = try self.genType(src, ty.elemType());
 
         try writeInstruction(code, .OpTypePointer, &[_]Word{ result_id, @enumToInt(storage_class), child_id });
 
@@ -460,7 +460,7 @@ pub const DeclGen = struct {
 
         if (decl.val.castTag(.function)) |func_payload| {
             std.debug.assert(decl.ty.zigTypeTag() == .Fn);
-            const prototype_id = try self.genType(decl.ty);
+            const prototype_id = try self.genType(.{ .node_offset = 0 }, decl.ty);
             try writeInstruction(&self.spv.binary.fn_decls, .OpFunction, &[_]Word{
                 self.spv.types.get(decl.ty.fnReturnType()).?, // This type should be generated along with the prototype.
                 result_id,
@@ -538,7 +538,7 @@ pub const DeclGen = struct {
         const rhs_id = try self.resolve(inst.rhs);
 
         const result_id = self.spv.allocResultId();
-        const result_type_id = try self.genType(inst.base.ty);
+        const result_type_id = try self.genType(inst.base.src, inst.base.ty);
 
         // TODO: Is the result the same as the argument types?
         // This is supposed to be the case for SPIR-V.
@@ -599,7 +599,7 @@ pub const DeclGen = struct {
         const rhs_id = try self.resolve(inst.rhs);
 
         const result_id = self.spv.allocResultId();
-        const result_type_id = try self.genType(inst.base.ty);
+        const result_type_id = try self.genType(inst.base.src, inst.base.ty);
 
         // All of these operations should be 2 equal types -> bool
         std.debug.assert(inst.rhs.ty.eql(inst.lhs.ty));
@@ -643,7 +643,7 @@ pub const DeclGen = struct {
         const operand_id = try self.resolve(inst.operand);
 
         const result_id = self.spv.allocResultId();
-        const result_type_id = try self.genType(inst.base.ty);
+        const result_type_id = try self.genType(inst.base.src, inst.base.ty);
 
         const info = try self.arithmeticTypeInfo(inst.operand.ty);
 
@@ -660,7 +660,7 @@ pub const DeclGen = struct {
 
     fn genAlloc(self: *DeclGen, inst: *Inst.NoOp) !ResultId {
         const storage_class = spec.StorageClass.Function;
-        const result_type_id = try self.genPointerType(inst.base.ty, storage_class);
+        const result_type_id = try self.genPointerType(inst.base.src, inst.base.ty, storage_class);
         const result_id = self.spv.allocResultId();
 
         try writeInstruction(&self.spv.binary.fn_decls, .OpVariable, &[_]Word{ result_type_id, result_id, @enumToInt(storage_class) });
@@ -676,7 +676,7 @@ pub const DeclGen = struct {
     fn genLoad(self: *DeclGen, inst: *Inst.UnOp) !ResultId {
         const operand_id = try self.resolve(inst.operand);
 
-        const result_type_id = try self.genType(inst.base.ty);
+        const result_type_id = try self.genType(inst.base.src, inst.base.ty);
         const result_id = self.spv.allocResultId();
 
         const operands = if (inst.base.ty.isVolatilePtr())
