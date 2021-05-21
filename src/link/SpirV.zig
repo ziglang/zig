@@ -152,7 +152,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
 
     // Now, actually generate the code for all declarations.
     {
-        var decl_gen = codegen.DeclGen.init(self.base.allocator, &spv);
+        var decl_gen = codegen.DeclGen.init(&spv);
         defer decl_gen.deinit();
 
         for (self.decl_table.items()) |entry| {

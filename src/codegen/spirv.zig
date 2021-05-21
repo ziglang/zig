@@ -174,6 +174,12 @@ pub const DeclGen = struct {
     /// The label of the SPIR-V block we are currently generating.
     current_block_label_id: ResultId,
 
+    /// The actual instructions for this function. We need to declare all locals in the first block, and because we don't
+    /// know which locals there are going to be, we're just going to generate everything after the locals-section in this array.
+    /// Note: It will not contain OpFunction, OpFunctionParameter, OpVariable and the initial OpLabel. These will be generated
+    /// into spv.binary.fn_decls directly.
+    code: std.ArrayList(Word),
+
     /// The decl we are currently generating code for.
     decl: *Decl,
 
@@ -229,14 +235,15 @@ pub const DeclGen = struct {
     };
 
     /// Initialize the common resources of a DeclGen. Some fields are left uninitialized, only set when `gen` is called.
-    pub fn init(gpa: *Allocator, spv: *SPIRVModule) DeclGen {
+    pub fn init(spv: *SPIRVModule) DeclGen {
         return .{
             .spv = spv,
-            .args = std.ArrayList(ResultId).init(gpa),
+            .args = std.ArrayList(ResultId).init(spv.gpa),
             .next_arg_index = undefined,
-            .inst_results = InstMap.init(gpa),
-            .blocks = BlockMap.init(gpa),
+            .inst_results = InstMap.init(spv.gpa),
+            .blocks = BlockMap.init(spv.gpa),
             .current_block_label_id = undefined,
+            .code = std.ArrayList(Word).init(spv.gpa),
             .decl = undefined,
             .error_msg = undefined,
         };
@@ -252,6 +259,7 @@ pub const DeclGen = struct {
         self.inst_results.clearRetainingCapacity();
         self.blocks.clearRetainingCapacity();
         self.current_block_label_id = undefined;
+        self.code.items.len = 0;
         self.decl = decl;
         self.error_msg = null;
 
@@ -264,6 +272,7 @@ pub const DeclGen = struct {
         self.args.deinit();
         self.inst_results.deinit();
         self.blocks.deinit();
+        self.code.deinit();
     }
 
     fn getTarget(self: *DeclGen) std.Target {
@@ -286,7 +295,7 @@ pub const DeclGen = struct {
     }
 
     fn beginSPIRVBlock(self: *DeclGen, label_id: ResultId) !void {
-        try writeInstruction(&self.spv.binary.fn_decls, .OpLabel, &[_]Word{label_id});
+        try writeInstruction(&self.code, .OpLabel, &[_]Word{label_id});
         self.current_block_label_id = label_id;
     }
 
@@ -616,9 +625,16 @@ pub const DeclGen = struct {
 
             // TODO: This could probably be done in a better way...
             const root_block_id = self.spv.allocResultId();
-            try self.beginSPIRVBlock(root_block_id);
+
+            // We need to generate the label directly in the fn_decls here because we're going to write the local variables after
+            // here. Since we're not generating in self.code, we're just going to bypass self.beginSPIRVBlock here.
+            try writeInstruction(&self.spv.binary.fn_decls, .OpLabel, &[_]Word{root_block_id});
+            self.current_block_label_id = root_block_id;
+
             try self.genBody(func_payload.data.body);
 
+            // Append the actual code into the fn_decls section.
+            try self.spv.binary.fn_decls.appendSlice(self.code.items);
             try writeInstruction(&self.spv.binary.fn_decls, .OpFunctionEnd, &[_]Word{});
         } else {
             return self.fail(.{ .node_offset = 0 }, "TODO: SPIR-V backend: generate decl type {}", .{decl.ty.zigTypeTag()});
@@ -723,7 +739,7 @@ pub const DeclGen = struct {
             else => unreachable,
         };
 
-        try writeInstruction(&self.spv.binary.fn_decls, opcode, &[_]Word{ result_type_id, result_id, lhs_id, rhs_id });
+        try writeInstruction(&self.code, opcode, &[_]Word{ result_type_id, result_id, lhs_id, rhs_id });
 
         // TODO: Trap on overflow? Probably going to be annoying.
         // TODO: Look into SPV_KHR_no_integer_wrap_decoration which provides NoSignedWrap/NoUnsignedWrap.
@@ -775,7 +791,7 @@ pub const DeclGen = struct {
             else => unreachable,
         };
 
-        try writeInstruction(&self.spv.binary.fn_decls, opcode, &[_]Word{ result_type_id, result_id, lhs_id, rhs_id });
+        try writeInstruction(&self.code, opcode, &[_]Word{ result_type_id, result_id, lhs_id, rhs_id });
         return result_id;
     }
 
@@ -793,7 +809,7 @@ pub const DeclGen = struct {
             else => unreachable,
         };
 
-        try writeInstruction(&self.spv.binary.fn_decls, opcode, &[_]Word{ result_type_id, result_id, operand_id });
+        try writeInstruction(&self.code, opcode, &[_]Word{ result_type_id, result_id, operand_id });
 
         return result_id;
     }
@@ -803,6 +819,8 @@ pub const DeclGen = struct {
         const result_type_id = try self.genPointerType(inst.base.src, inst.base.ty, storage_class);
         const result_id = self.spv.allocResultId();
 
+        // Rather than generating into code here, we're just going to generate directly into the fn_decls section so that
+        // variable declarations appear in the first block of the function.
         try writeInstruction(&self.spv.binary.fn_decls, .OpVariable, &[_]Word{ result_type_id, result_id, @enumToInt(storage_class) });
 
         return result_id;
@@ -849,10 +867,10 @@ pub const DeclGen = struct {
         // an error for pointers.
         const result_type_id = try self.genType(inst.base.src, inst.base.ty);
 
-        try writeOpcode(&self.spv.binary.fn_decls, .OpPhi, 2 + @intCast(u16, incoming_blocks.items.len * 2)); // result type + result + variable/parent...
+        try writeOpcode(&self.code, .OpPhi, 2 + @intCast(u16, incoming_blocks.items.len * 2)); // result type + result + variable/parent...
 
         for (incoming_blocks.items) |incoming| {
-            try self.spv.binary.fn_decls.appendSlice(&[_]Word{ incoming.break_value_id, incoming.src_label_id });
+            try self.code.appendSlice(&[_]Word{ incoming.break_value_id, incoming.src_label_id });
         }
 
         return result_id;
@@ -872,7 +890,7 @@ pub const DeclGen = struct {
             });
         }
 
-        try writeInstruction(&self.spv.binary.fn_decls, .OpBranch, &[_]Word{target.label_id});
+        try writeInstruction(&self.code, .OpBranch, &[_]Word{target.label_id});
 
         return null;
     }
@@ -881,7 +899,7 @@ pub const DeclGen = struct {
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
         const target = self.blocks.get(inst.block).?;
         // Don't need to add this to the incoming block list, as there is no value to insert in the phi node anyway.
-        try writeInstruction(&self.spv.binary.fn_decls, .OpBranch, &[_]Word{target.label_id});
+        try writeInstruction(&self.code, .OpBranch, &[_]Word{target.label_id});
         return null;
     }
 
@@ -896,7 +914,7 @@ pub const DeclGen = struct {
         // TODO: We can generate OpSelectionMerge here if we know the target block that both of these will resolve to,
         // but i don't know if those will always resolve to the same block.
 
-        try writeInstruction(&self.spv.binary.fn_decls, .OpBranchConditional, &[_]Word{
+        try writeInstruction(&self.code, .OpBranchConditional, &[_]Word{
             condition_id,
             then_label_id,
             else_label_id,
@@ -912,7 +930,7 @@ pub const DeclGen = struct {
 
     fn genDbgStmt(self: *DeclGen, inst: *Inst.DbgStmt) !?ResultId {
         const src_fname_id = try self.spv.resolveSourceFileName(self.decl);
-        try writeInstruction(&self.spv.binary.fn_decls, .OpLine, &[_]Word{ src_fname_id, inst.line, inst.column });
+        try writeInstruction(&self.code, .OpLine, &[_]Word{ src_fname_id, inst.line, inst.column });
         return null;
     }
 
@@ -927,7 +945,7 @@ pub const DeclGen = struct {
         else
             &[_]Word{ result_type_id, result_id, operand_id};
 
-        try writeInstruction(&self.spv.binary.fn_decls, .OpLoad, operands);
+        try writeInstruction(&self.code, .OpLoad, operands);
 
         return result_id;
     }
@@ -937,27 +955,27 @@ pub const DeclGen = struct {
         const loop_label_id = self.spv.allocResultId();
 
         // Jump to the loop entry point
-        try writeInstruction(&self.spv.binary.fn_decls, .OpBranch, &[_]Word{ loop_label_id });
+        try writeInstruction(&self.code, .OpBranch, &[_]Word{ loop_label_id });
 
         // TODO: Look into OpLoopMerge.
 
         try self.beginSPIRVBlock(loop_label_id);
         try self.genBody(inst.body);
 
-        try writeInstruction(&self.spv.binary.fn_decls, .OpBranch, &[_]Word{ loop_label_id });
+        try writeInstruction(&self.code, .OpBranch, &[_]Word{ loop_label_id });
         return null;
     }
 
     fn genRet(self: *DeclGen, inst: *Inst.UnOp) !?ResultId {
         const operand_id = try self.resolve(inst.operand);
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
-        try writeInstruction(&self.spv.binary.fn_decls, .OpReturnValue, &[_]Word{operand_id});
+        try writeInstruction(&self.code, .OpReturnValue, &[_]Word{operand_id});
         return null;
     }
 
     fn genRetVoid(self: *DeclGen) !?ResultId {
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
-        try writeInstruction(&self.spv.binary.fn_decls, .OpReturn, &[_]Word{});
+        try writeInstruction(&self.code, .OpReturn, &[_]Word{});
         return null;
     }
 
@@ -970,13 +988,13 @@ pub const DeclGen = struct {
         else
             &[_]Word{ dst_ptr_id, src_val_id };
 
-        try writeInstruction(&self.spv.binary.fn_decls, .OpStore, operands);
+        try writeInstruction(&self.code, .OpStore, operands);
         return null;
     }
 
     fn genUnreach(self: *DeclGen) !?ResultId {
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
-        try writeInstruction(&self.spv.binary.fn_decls, .OpUnreachable, &[_]Word{});
+        try writeInstruction(&self.code, .OpUnreachable, &[_]Word{});
         return null;
     }
 };
