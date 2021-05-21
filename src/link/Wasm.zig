@@ -204,6 +204,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         .err_msg = undefined,
         .locals = .{},
         .target = self.base.options.target,
+        .global_error_set = self.base.options.module.?.global_error_set,
     };
     defer context.deinit();
 

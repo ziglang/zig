@@ -510,6 +510,10 @@ pub const Context = struct {
     locals: std.ArrayListUnmanaged(u8),
     /// The Target we're emitting (used to call intInfo)
     target: std.Target,
+    /// Table with the global error set. Consists of every error found in
+    /// the compiled code. Each error name maps to a `Module.ErrorInt` which is emitted
+    /// during codegen to determine the error value.
+    global_error_set: std.StringHashMapUnmanaged(Module.ErrorInt),
 
     const InnerError = error{
         OutOfMemory,
@@ -559,7 +563,6 @@ pub const Context = struct {
                 if (info.bits > 32 and info.bits <= 64) break :blk wasm.Valtype.i64;
                 return self.fail(src, "Integer bit size not supported by wasm: '{d}'", .{info.bits});
             },
-            .Bool, .Pointer, .Struct => wasm.Valtype.i32,
             .Enum => switch (ty.tag()) {
                 .enum_simple => wasm.Valtype.i32,
                 else => self.typeToValtype(
@@ -567,6 +570,11 @@ pub const Context = struct {
                     ty.cast(Type.Payload.EnumFull).?.data.tag_ty,
                 ),
             },
+            .Bool,
+            .Pointer,
+            .Struct,
+            .ErrorSet,
+            => wasm.Valtype.i32,
             else => self.fail(src, "TODO - Wasm valtype for type '{s}'", .{ty.zigTypeTag()}),
         };
     }
@@ -958,6 +966,11 @@ pub const Context = struct {
                     const int_tag_ty = ty.intTagType(&int_tag_buffer);
                     try self.emitConstant(src, value, int_tag_ty);
                 }
+            },
+            .ErrorSet => {
+                const error_index = self.global_error_set.get(value.getError().?).?;
+                try writer.writeByte(wasm.opcode(.i32_const));
+                try leb.writeULEB128(writer, error_index);
             },
             else => |zig_type| return self.fail(src, "Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
         }
