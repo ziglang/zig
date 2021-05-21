@@ -1548,12 +1548,6 @@ fn buildOutputType(
             link_libcpp = true;
     }
 
-    if (cross_target.getCpuArch().isWasm() and output_mode == .Lib and link_mode == null) {
-        // If link_mode is unspecified, always link as dynamic library when targeting Wasm,
-        // so that wasm-ld is invoked rather than standard archiver.
-        link_mode = .Dynamic;
-    }
-
     // Now that we have target info, we can find out if any of the system libraries
     // are part of libc or libc++. We remove them from the list and communicate their
     // existence via flags instead.

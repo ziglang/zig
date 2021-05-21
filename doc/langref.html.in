@@ -10036,10 +10036,11 @@ all your base are belong to us</code></pre>
       {#header_open|WebAssembly#}
       <p>Zig supports building for WebAssembly out of the box.</p>
       {#header_open|Freestanding#}
-      <p>For host environments like the web browser and nodejs, build as a library using the freestanding OS target.
-      Here's an example of running Zig code compiled to WebAssembly with nodejs.</p>
+      <p>For host environments like the web browser and nodejs, build as a dynamic library using the freestanding
+      OS target. Here's an example of running Zig code compiled to WebAssembly with nodejs.</p>
       {#code_begin|lib|math#}
       {#target_wasm#}
+      {#link_mode_dynamic#}
 extern fn print(i32) void;
 
 export fn add(a: i32, b: i32) void {
