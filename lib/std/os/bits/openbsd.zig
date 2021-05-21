@@ -549,93 +549,56 @@ pub const DT_LNK = 10;
 pub const DT_SOCK = 12;
 pub const DT_WHT = 14; // XXX
 
-/// add event to kq (implies enable)
 pub const EV_ADD = 0x0001;
-
-/// delete event from kq
 pub const EV_DELETE = 0x0002;
-
-/// enable event
 pub const EV_ENABLE = 0x0004;
-
-/// disable event (not reported)
 pub const EV_DISABLE = 0x0008;
-
-/// only report one occurrence
 pub const EV_ONESHOT = 0x0010;
-
-/// clear event state after reporting
 pub const EV_CLEAR = 0x0020;
-
-/// force immediate event output
-/// ... with or without EV_ERROR
-/// ... use KEVENT_FLAG_ERROR_EVENTS
-///     on syscalls supporting flags
 pub const EV_RECEIPT = 0x0040;
-
-/// disable event after reporting
 pub const EV_DISPATCH = 0x0080;
+pub const EV_FLAG1 = 0x2000;
+pub const EV_ERROR = 0x4000;
+pub const EV_EOF = 0x8000;
 
 pub const EVFILT_READ = -1;
 pub const EVFILT_WRITE = -2;
-
-/// attached to aio requests
 pub const EVFILT_AIO = -3;
-
-/// attached to vnodes
 pub const EVFILT_VNODE = -4;
-
-/// attached to struct proc
 pub const EVFILT_PROC = -5;
-
-/// attached to struct proc
 pub const EVFILT_SIGNAL = -6;
-
-/// timers
 pub const EVFILT_TIMER = -7;
+pub const EVFILT_EXCEPT = -9;
 
-/// devices
-pub const EVFILT_DEVICE = -8;
-
-/// low water mark
+// data/hint flags for EVFILT_{READ|WRITE}
 pub const NOTE_LOWAT = 0x0001;
-
-/// return on EOF
 pub const NOTE_EOF = 0x0002;
 
-/// vnode was removed
+// data/hint flags for EVFILT_EXCEPT and EVFILT_{READ|WRITE}
+pub const NOTE_OOB = 0x0004;
+
+// data/hint flags for EVFILT_VNODE
 pub const NOTE_DELETE = 0x0001;
-
-/// data contents changed
 pub const NOTE_WRITE = 0x0002;
-
-/// size increased
 pub const NOTE_EXTEND = 0x0004;
-
-/// attributes changed
 pub const NOTE_ATTRIB = 0x0008;
-
-/// link count changed
 pub const NOTE_LINK = 0x0010;
-
-/// vnode was renamed
 pub const NOTE_RENAME = 0x0020;
-
-/// vnode access was revoked
 pub const NOTE_REVOKE = 0x0040;
+pub const NOTE_TRUNCATE = 0x0080;
 
-/// process exited
+// data/hint flags for EVFILT_PROC
 pub const NOTE_EXIT = 0x80000000;
-
-/// process forked
 pub const NOTE_FORK = 0x40000000;
-
-/// process exec'd
 pub const NOTE_EXEC = 0x20000000;
-
-/// mask for signal & exit status
 pub const NOTE_PDATAMASK = 0x000fffff;
 pub const NOTE_PCTRLMASK = 0xf0000000;
+pub const NOTE_TRACK = 0x00000001;
+pub const NOTE_TRACKERR = 0x00000002;
+pub const NOTE_CHILD = 0x00000004;
+
+// data/hint flags for EVFILT_DEVICE
+pub const NOTE_CHANGE = 0x00000001;
 
 pub const TIOCCBRK = 0x2000747a;
 pub const TIOCCDTR = 0x20007478;
