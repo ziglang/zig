@@ -40,34 +40,92 @@ pub fn writeInstruction(code: *std.ArrayList(Word), opcode: Opcode, args: []cons
     try code.appendSlice(args);
 }
 
+pub fn writeInstructionWithString(code: *std.ArrayList(Word), opcode: Opcode, args: []const Word, str: []const u8) !void {
+    // Str needs to be written zero-terminated, so we need to add one to the length.
+    const zero_terminated_len = str.len + 1;
+    const str_words = (zero_terminated_len + @sizeOf(Word) - 1) / @sizeOf(Word);
+
+    try writeOpcode(code, opcode, @intCast(u16, args.len + str_words));
+    try code.ensureUnusedCapacity(args.len + str_words);
+    code.appendSliceAssumeCapacity(args);
+
+    // TODO: Not actually sure whether this is correct for big-endian.
+    // See https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#Literal
+    var i: usize = 0;
+    while (i < zero_terminated_len) : (i += @sizeOf(Word)) {
+        var word: Word = 0;
+
+        var j: usize = 0;
+        while (j < @sizeOf(Word) and i + j < str.len) : (j += 1) {
+            word |= @as(Word, str[i + j]) << @intCast(std.math.Log2Int(Word), j * std.meta.bitCount(u8));
+        }
+
+        code.appendAssumeCapacity(word);
+    }
+}
+
 /// This structure represents a SPIR-V (binary) module being compiled, and keeps track of all relevant information.
 /// That includes the actual instructions, the current result-id bound, and data structures for querying result-id's
 /// of data which needs to be persistent over different calls to Decl code generation.
 pub const SPIRVModule = struct {
+    /// A general-purpose allocator which may be used to allocate temporary resources required for compilation.
+    gpa: *Allocator,
+
+    /// The parent module.
+    module: *Module,
+
+    /// SPIR-V instructions return result-ids. This variable holds the module-wide counter for these.
     next_result_id: ResultId,
 
+    /// Code of the actual SPIR-V binary, divided into the relevant logical sections.
+    /// Note: To save some bytes, these could also be unmanaged, but since there is only one instance of SPIRVModule
+    /// and this removes some clutter in the rest of the backend, it's fine like this.
     binary: struct {
+        /// OpCapability and OpExtension instructions (in that order).
+        capabilities_and_extensions: std.ArrayList(Word),
+
+        /// OpString, OpSourceExtension, OpSource, OpSourceContinued.
+        debug_strings: std.ArrayList(Word),
+
+        /// Type declaration instructions, constant instructions, global variable declarations, OpUndef instructions.
         types_globals_constants: std.ArrayList(Word),
+
+        /// Regular functions.
         fn_decls: std.ArrayList(Word),
     },
 
+    /// Global type cache to reduce the amount of generated types.
     types: TypeMap,
 
-    pub fn init(gpa: *Allocator) SPIRVModule {
+    /// Cache for results of OpString instructions for module file names fed to OpSource.
+    /// Since OpString is pretty much only used for those, we don't need to keep track of all strings,
+    /// just the ones for OpLine. Note that OpLine needs the result of OpString, and not that of OpSource.
+    file_names: std.StringHashMap(ResultId),
+
+    pub fn init(gpa: *Allocator, module: *Module) SPIRVModule {
         return .{
+            .gpa = gpa,
+            .module = module,
             .next_result_id = 1, // 0 is an invalid SPIR-V result ID.
             .binary = .{
+                .capabilities_and_extensions = std.ArrayList(Word).init(gpa),
+                .debug_strings = std.ArrayList(Word).init(gpa),
                 .types_globals_constants = std.ArrayList(Word).init(gpa),
                 .fn_decls = std.ArrayList(Word).init(gpa),
             },
             .types = TypeMap.init(gpa),
+            .file_names = std.StringHashMap(ResultId).init(gpa),
         };
     }
 
     pub fn deinit(self: *SPIRVModule) void {
-        self.binary.types_globals_constants.deinit();
-        self.binary.fn_decls.deinit();
+        self.file_names.deinit();
         self.types.deinit();
+
+        self.binary.fn_decls.deinit();
+        self.binary.types_globals_constants.deinit();
+        self.binary.debug_strings.deinit();
+        self.binary.capabilities_and_extensions.deinit();
     }
 
     pub fn allocResultId(self: *SPIRVModule) Word {
@@ -78,13 +136,26 @@ pub const SPIRVModule = struct {
     pub fn resultIdBound(self: *SPIRVModule) Word {
         return self.next_result_id;
     }
+
+    fn resolveSourceFileName(self: *SPIRVModule, decl: *Decl) !ResultId {
+        const path = decl.namespace.file_scope.sub_file_path;
+        const result = try self.file_names.getOrPut(path);
+        if (!result.found_existing) {
+            result.entry.value = self.allocResultId();
+            try writeInstructionWithString(&self.binary.debug_strings, .OpString, &[_]Word{result.entry.value}, path);
+            try writeInstruction(&self.binary.debug_strings, .OpSource, &[_]Word{
+                @enumToInt(spec.SourceLanguage.Unknown), // TODO: Register Zig source language.
+                0, // TODO: Zig version as u32?
+                result.entry.value,
+            });
+        }
+
+        return result.entry.value;
+    }
 };
 
 /// This structure is used to compile a declaration, and contains all relevant meta-information to deal with that.
 pub const DeclGen = struct {
-    /// The parent module.
-    module: *Module,
-
     /// The SPIR-V module  code should be put in.
     spv: *SPIRVModule,
 
@@ -158,9 +229,8 @@ pub const DeclGen = struct {
     };
 
     /// Initialize the common resources of a DeclGen. Some fields are left uninitialized, only set when `gen` is called.
-    pub fn init(gpa: *Allocator, module: *Module, spv: *SPIRVModule) DeclGen {
+    pub fn init(gpa: *Allocator, spv: *SPIRVModule) DeclGen {
         return .{
-            .module = module,
             .spv = spv,
             .args = std.ArrayList(ResultId).init(gpa),
             .next_arg_index = undefined,
@@ -196,10 +266,14 @@ pub const DeclGen = struct {
         self.blocks.deinit();
     }
 
+    fn getTarget(self: *DeclGen) std.Target {
+        return self.spv.module.getTarget();
+    }
+
     fn fail(self: *DeclGen, src: LazySrcLoc, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
         const src_loc = src.toSrcLocWithDecl(self.decl);
-        self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, format, args);
+        self.error_msg = try Module.ErrorMsg.create(self.spv.module.gpa, src_loc, format, args);
         return error.AnalysisFail;
     }
 
@@ -227,7 +301,7 @@ pub const DeclGen = struct {
     /// TODO: This probably needs an ABI-version as well (especially in combination with SPV_INTEL_arbitrary_precision_integers).
     /// TODO: Should the result of this function be cached?
     fn backingIntBits(self: *DeclGen, bits: u16) ?u16 {
-        const target = self.module.getTarget();
+        const target = self.getTarget();
 
         // The backend will never be asked to compiler a 0-bit integer, so we won't have to handle those in this function.
         std.debug.assert(bits != 0);
@@ -262,7 +336,7 @@ pub const DeclGen = struct {
     /// is no way of knowing whether those are actually supported.
     /// TODO: Maybe this should be cached?
     fn largestSupportedIntBits(self: *DeclGen) u16 {
-        const target = self.module.getTarget();
+        const target = self.getTarget();
         return if (Target.spirv.featureSetHas(target.cpu.features, .Int64))
             64
         else
@@ -277,7 +351,7 @@ pub const DeclGen = struct {
     }
 
     fn arithmeticTypeInfo(self: *DeclGen, ty: Type) !ArithmeticTypeInfo {
-        const target = self.module.getTarget();
+        const target = self.getTarget();
         return switch (ty.zigTypeTag()) {
             .Bool => ArithmeticTypeInfo{
                 .bits = 1, // Doesn't matter for this class.
@@ -313,7 +387,7 @@ pub const DeclGen = struct {
     /// Generate a constant representing `val`.
     /// TODO: Deduplication?
     fn genConstant(self: *DeclGen, src: LazySrcLoc, ty: Type, val: Value) Error!ResultId {
-        const target = self.module.getTarget();
+        const target = self.getTarget();
         const code = &self.spv.binary.types_globals_constants;
         const result_id = self.spv.allocResultId();
         const result_type_id = try self.genType(src, ty);
@@ -398,7 +472,7 @@ pub const DeclGen = struct {
             return already_generated;
         }
 
-        const target = self.module.getTarget();
+        const target = self.getTarget();
         const code = &self.spv.binary.types_globals_constants;
         const result_id = self.spv.allocResultId();
 
@@ -587,7 +661,7 @@ pub const DeclGen = struct {
             .breakpoint => null,
             .condbr => try self.genCondBr(inst.castTag(.condbr).?),
             .constant => unreachable,
-            .dbg_stmt => null,
+            .dbg_stmt => try self.genDbgStmt(inst.castTag(.dbg_stmt).?),
             .load => try self.genLoad(inst.castTag(.load).?),
             .loop => try self.genLoop(inst.castTag(.loop).?),
             .ret => try self.genRet(inst.castTag(.ret).?),
@@ -748,7 +822,7 @@ pub const DeclGen = struct {
         const label_id = self.spv.allocResultId();
 
         // 4 chosen as arbitrary initial capacity.
-        var incoming_blocks = try std.ArrayListUnmanaged(IncomingBlock).initCapacity(self.module.gpa, 4);
+        var incoming_blocks = try std.ArrayListUnmanaged(IncomingBlock).initCapacity(self.spv.gpa, 4);
 
         try self.blocks.putNoClobber(inst, .{
             .label_id = label_id,
@@ -756,7 +830,7 @@ pub const DeclGen = struct {
         });
         defer {
             self.blocks.removeAssertDiscard(inst);
-            incoming_blocks.deinit(self.module.gpa);
+            incoming_blocks.deinit(self.spv.gpa);
         }
 
         try self.genBody(inst.body);
@@ -792,7 +866,7 @@ pub const DeclGen = struct {
         if (inst.operand.ty.hasCodeGenBits()) {
             const operand_id = try self.resolve(inst.operand);
             // current_block_label_id should not be undefined here, lest there is a br or br_void in the function's body.
-            try target.incoming_blocks.append(self.module.gpa, .{
+            try target.incoming_blocks.append(self.spv.gpa, .{
                 .src_label_id = self.current_block_label_id,
                 .break_value_id = operand_id
             });
@@ -833,6 +907,12 @@ pub const DeclGen = struct {
         try self.beginSPIRVBlock(else_label_id);
         try self.genBody(inst.else_body);
 
+        return null;
+    }
+
+    fn genDbgStmt(self: *DeclGen, inst: *Inst.DbgStmt) !?ResultId {
+        const src_fname_id = try self.spv.resolveSourceFileName(self.decl);
+        try writeInstruction(&self.spv.binary.fn_decls, .OpLine, &[_]Word{ src_fname_id, inst.line, inst.column });
         return null;
     }
 

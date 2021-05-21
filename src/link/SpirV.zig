@@ -132,7 +132,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     const module = self.base.options.module.?;
     const target = comp.getTarget();
 
-    var spv = codegen.SPIRVModule.init(self.base.allocator);
+    var spv = codegen.SPIRVModule.init(self.base.allocator, module);
     defer spv.deinit();
 
     // Allocate an ID for every declaration before generating code,
@@ -152,7 +152,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
 
     // Now, actually generate the code for all declarations.
     {
-        var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &spv);
+        var decl_gen = codegen.DeclGen.init(self.base.allocator, &spv);
         defer decl_gen.deinit();
 
         for (self.decl_table.items()) |entry| {
@@ -166,39 +166,45 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
         }
     }
 
-    var binary = std.ArrayList(Word).init(self.base.allocator);
-    defer binary.deinit();
+    try writeCapabilities(&spv.binary.capabilities_and_extensions, target);
+    try writeMemoryModel(&spv.binary.capabilities_and_extensions, target);
 
-    try binary.appendSlice(&[_]Word{
+    const header = [_]Word{
         spec.magic_number,
         (spec.version.major << 16) | (spec.version.minor << 8),
         0, // TODO: Register Zig compiler magic number.
-        spv.resultIdBound(), // ID bound.
+        spv.resultIdBound(),
         0, // Schema (currently reserved for future use in the SPIR-V spec).
-    });
-
-    try writeCapabilities(&binary, target);
-    try writeMemoryModel(&binary, target);
+    };
 
     // Note: The order of adding sections to the final binary
     // follows the SPIR-V logical module format!
-    var all_buffers = [_]std.os.iovec_const{
-        wordsToIovConst(binary.items),
-        wordsToIovConst(spv.binary.types_globals_constants.items),
-        wordsToIovConst(spv.binary.fn_decls.items),
+    const buffers = &[_][]const Word{
+        &header,
+        spv.binary.capabilities_and_extensions.items,
+        spv.binary.debug_strings.items,
+        spv.binary.types_globals_constants.items,
+        spv.binary.fn_decls.items,
     };
 
-    const file = self.base.file.?;
-    const bytes = std.mem.sliceAsBytes(binary.items);
+    var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
+    for (iovc_buffers) |*iovc, i| {
+        const bytes = std.mem.sliceAsBytes(buffers[i]);
+        iovc.* = .{
+            .iov_base = bytes.ptr,
+            .iov_len = bytes.len
+        };
+    }
 
     var file_size: u64 = 0;
-    for (all_buffers) |iov| {
+    for (iovc_buffers) |iov| {
         file_size += iov.iov_len;
     }
 
+    const file = self.base.file.?;
     try file.seekTo(0);
     try file.setEndPos(file_size);
-    try file.pwritevAll(&all_buffers, 0);
+    try file.pwritevAll(&iovc_buffers, 0);
 }
 
 fn writeCapabilities(binary: *std.ArrayList(Word), target: std.Target) !void {
@@ -234,12 +240,4 @@ fn writeMemoryModel(binary: *std.ArrayList(Word), target: std.Target) !void {
     try codegen.writeInstruction(binary, .OpMemoryModel, &[_]Word{
         @enumToInt(addressing_model), @enumToInt(memory_model),
     });
-}
-
-fn wordsToIovConst(words: []const Word) std.os.iovec_const {
-    const bytes = std.mem.sliceAsBytes(words);
-    return .{
-        .iov_base = bytes.ptr,
-        .iov_len = bytes.len,
-    };
 }
