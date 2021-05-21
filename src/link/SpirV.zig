@@ -146,7 +146,6 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
             if (!decl.has_tv) continue;
 
             decl.fn_link.spirv.id = spv.allocResultId();
-            log.debug("Allocating id {} to '{s}'", .{ decl.fn_link.spirv.id, std.mem.spanZ(decl.name) });
         }
     }
 

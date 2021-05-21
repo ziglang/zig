@@ -643,14 +643,12 @@ pub const DeclGen = struct {
 
     fn genBody(self: *DeclGen, body: ir.Body) Error!void {
         for (body.instructions) |inst| {
-            const maybe_result_id = try self.genInst(inst);
-            if (maybe_result_id) |result_id|
-                try self.inst_results.putNoClobber(inst, result_id);
+            try self.genInst(inst);
         }
     }
 
-    fn genInst(self: *DeclGen, inst: *Inst) !?ResultId {
-        return switch (inst.tag) {
+    fn genInst(self: *DeclGen, inst: *Inst) !void {
+        const result_id = switch (inst.tag) {
             .add, .addwrap => try self.genBinOp(inst.castTag(.add).?),
             .sub, .subwrap => try self.genBinOp(inst.castTag(.sub).?),
             .mul, .mulwrap => try self.genBinOp(inst.castTag(.mul).?),
@@ -669,23 +667,25 @@ pub const DeclGen = struct {
             .not => try self.genUnOp(inst.castTag(.not).?),
             .alloc => try self.genAlloc(inst.castTag(.alloc).?),
             .arg => self.genArg(),
-            .block => try self.genBlock(inst.castTag(.block).?),
-            .br => try self.genBr(inst.castTag(.br).?),
-            .br_void => try self.genBrVoid(inst.castTag(.br_void).?),
+            .block => (try self.genBlock(inst.castTag(.block).?)) orelse return,
+            .br => return try self.genBr(inst.castTag(.br).?),
+            .br_void => return try self.genBrVoid(inst.castTag(.br_void).?),
             // TODO: Breakpoints won't be supported in SPIR-V, but the compiler seems to insert them
             // throughout the IR.
-            .breakpoint => null,
-            .condbr => try self.genCondBr(inst.castTag(.condbr).?),
+            .breakpoint => return,
+            .condbr => return try self.genCondBr(inst.castTag(.condbr).?),
             .constant => unreachable,
-            .dbg_stmt => try self.genDbgStmt(inst.castTag(.dbg_stmt).?),
+            .dbg_stmt => return try self.genDbgStmt(inst.castTag(.dbg_stmt).?),
             .load => try self.genLoad(inst.castTag(.load).?),
-            .loop => try self.genLoop(inst.castTag(.loop).?),
-            .ret => try self.genRet(inst.castTag(.ret).?),
-            .retvoid => try self.genRetVoid(),
-            .store => try self.genStore(inst.castTag(.store).?),
-            .unreach => try self.genUnreach(),
-            else => self.fail(inst.src, "TODO: SPIR-V backend: implement inst {s}", .{@tagName(inst.tag)}),
+            .loop => return try self.genLoop(inst.castTag(.loop).?),
+            .ret => return try self.genRet(inst.castTag(.ret).?),
+            .retvoid => return try self.genRetVoid(),
+            .store => return try self.genStore(inst.castTag(.store).?),
+            .unreach => return try self.genUnreach(),
+            else => return self.fail(inst.src, "TODO: SPIR-V backend: implement inst {s}", .{@tagName(inst.tag)}),
         };
+
+        try self.inst_results.putNoClobber(inst, result_id);
     }
 
     fn genBinOp(self: *DeclGen, inst: *Inst.BinOp) !ResultId {
@@ -876,7 +876,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn genBr(self: *DeclGen, inst: *Inst.Br) !?ResultId {
+    fn genBr(self: *DeclGen, inst: *Inst.Br) !void {
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
         const target = self.blocks.get(inst.block).?;
 
@@ -891,19 +891,16 @@ pub const DeclGen = struct {
         }
 
         try writeInstruction(&self.code, .OpBranch, &[_]Word{target.label_id});
-
-        return null;
     }
 
-    fn genBrVoid(self: *DeclGen, inst: *Inst.BrVoid) !?ResultId {
+    fn genBrVoid(self: *DeclGen, inst: *Inst.BrVoid) !void {
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
         const target = self.blocks.get(inst.block).?;
         // Don't need to add this to the incoming block list, as there is no value to insert in the phi node anyway.
         try writeInstruction(&self.code, .OpBranch, &[_]Word{target.label_id});
-        return null;
     }
 
-    fn genCondBr(self: *DeclGen, inst: *Inst.CondBr) !?ResultId {
+    fn genCondBr(self: *DeclGen, inst: *Inst.CondBr) !void {
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
         const condition_id = try self.resolve(inst.condition);
 
@@ -924,14 +921,11 @@ pub const DeclGen = struct {
         try self.genBody(inst.then_body);
         try self.beginSPIRVBlock(else_label_id);
         try self.genBody(inst.else_body);
-
-        return null;
     }
 
-    fn genDbgStmt(self: *DeclGen, inst: *Inst.DbgStmt) !?ResultId {
+    fn genDbgStmt(self: *DeclGen, inst: *Inst.DbgStmt) !void {
         const src_fname_id = try self.spv.resolveSourceFileName(self.decl);
         try writeInstruction(&self.code, .OpLine, &[_]Word{ src_fname_id, inst.line, inst.column });
-        return null;
     }
 
     fn genLoad(self: *DeclGen, inst: *Inst.UnOp) !ResultId {
@@ -950,7 +944,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn genLoop(self: *DeclGen, inst: *Inst.Loop) !?ResultId {
+    fn genLoop(self: *DeclGen, inst: *Inst.Loop) !void {
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
         const loop_label_id = self.spv.allocResultId();
 
@@ -963,23 +957,20 @@ pub const DeclGen = struct {
         try self.genBody(inst.body);
 
         try writeInstruction(&self.code, .OpBranch, &[_]Word{ loop_label_id });
-        return null;
     }
 
-    fn genRet(self: *DeclGen, inst: *Inst.UnOp) !?ResultId {
+    fn genRet(self: *DeclGen, inst: *Inst.UnOp) !void {
         const operand_id = try self.resolve(inst.operand);
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
         try writeInstruction(&self.code, .OpReturnValue, &[_]Word{operand_id});
-        return null;
     }
 
-    fn genRetVoid(self: *DeclGen) !?ResultId {
+    fn genRetVoid(self: *DeclGen) !void {
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
         try writeInstruction(&self.code, .OpReturn, &[_]Word{});
-        return null;
     }
 
-    fn genStore(self: *DeclGen, inst: *Inst.BinOp) !?ResultId {
+    fn genStore(self: *DeclGen, inst: *Inst.BinOp) !void {
         const dst_ptr_id = try self.resolve(inst.lhs);
         const src_val_id = try self.resolve(inst.rhs);
 
@@ -989,12 +980,10 @@ pub const DeclGen = struct {
             &[_]Word{ dst_ptr_id, src_val_id };
 
         try writeInstruction(&self.code, .OpStore, operands);
-        return null;
     }
 
-    fn genUnreach(self: *DeclGen) !?ResultId {
+    fn genUnreach(self: *DeclGen) !void {
         // TODO: This instruction needs to be the last in a block. Is that guaranteed?
         try writeInstruction(&self.code, .OpUnreachable, &[_]Word{});
-        return null;
     }
 };
