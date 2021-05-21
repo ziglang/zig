@@ -1259,9 +1259,6 @@ pub const Target = struct {
     }
 
     pub fn oFileExt_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
-        if (cpu_arch.isWasm()) {
-            return ".o.wasm";
-        }
         switch (abi) {
             .msvc => return ".obj",
             else => return ".o",
@@ -1289,9 +1286,6 @@ pub const Target = struct {
     }
 
     pub fn staticLibSuffix_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
-        if (cpu_arch.isWasm()) {
-            return ".wasm";
-        }
         switch (abi) {
             .msvc => return ".lib",
             else => return ".a",
