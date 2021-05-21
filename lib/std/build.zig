@@ -215,13 +215,17 @@ pub const Builder = struct {
         return addExecutableSource(self, name, convertOptionalPathToFileSource(root_src), .static);
     }
 
-    pub const addExecutableSource = LibExeObjStep.createExecutable;
+    pub fn addExecutableSource(builder: *Builder, name: []const u8, root_src: ?FileSource, linkage: LibExeObjStep.Linkage) *LibExeObjStep {
+        return LibExeObjStep.createExecutable(builder, name, root_src, linkage);
+    }
 
     pub fn addObject(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
         return addObjectSource(self, name, convertOptionalPathToFileSource(root_src));
     }
 
-    pub const addObjectSource = LibExeObjStep.createObject;
+    pub fn addObjectSource(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
+        return LibExeObjStep.createObject(builder, name, root_src);
+    }
 
     pub fn addSharedLibrary(
         self: *Builder,
@@ -232,14 +236,22 @@ pub const Builder = struct {
         return addSharedLibrarySource(self, name, convertOptionalPathToFileSource(root_src), kind);
     }
 
-    pub const addSharedLibrarySource = LibExeObjStep.createSharedLibrary;
-
-    pub fn addStaticLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        const root_src_param = if (root_src) |p| @as(FileSource, .{ .path = p }) else null;
-        return LibExeObjStep.createStaticLibrary(self, name, root_src_param);
+    pub fn addSharedLibrarySource(
+        self: *Builder,
+        name: []const u8,
+        root_src: ?FileSource,
+        kind: LibExeObjStep.SharedLibKind,
+    ) *LibExeObjStep {
+        return LibExeObjStep.createSharedLibrary(self, name, root_src, kind);
     }
 
-    pub const addStaticLibrarySource = LibExeObjStep.createStaticLibrary;
+    pub fn addStaticLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
+        return addStaticLibrarySource(self, name, convertOptionalPathToFileSource(root_src));
+    }
+
+    pub fn addStaticLibrarySource(self: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
+        return LibExeObjStep.createStaticLibrary(self, name, root_src);
+    }
 
     pub fn addTest(self: *Builder, root_src: []const u8) *LibExeObjStep {
         return LibExeObjStep.createTest(self, "test", .{ .path = root_src });
@@ -1232,8 +1244,11 @@ pub const GeneratedFile = struct {
     /// This value must be set in the `fn make()` of the `step` and must not be `null` afterwards.
     path: ?[]const u8 = null,
 
-    pub fn getPath(self: *const GeneratedFile) []const u8 {
-        return self.path orelse @panic("getPath() was called on a GeneratedFile that wasn't build yet. Is there a missing Step dependency?");
+    pub fn getPath(self: GeneratedFile) []const u8 {
+        return self.path orelse std.debug.panic(
+            "getPath() was called on a GeneratedFile that wasn't build yet. Is there a missing Step dependency on step '{s}'?",
+            .{self.step.name},
+        );
     }
 };
 

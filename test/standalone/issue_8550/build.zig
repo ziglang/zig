@@ -11,7 +11,7 @@ pub fn build(b: *std.build.Builder) !void {
     const mode = b.standardReleaseOptions();
     const kernel = b.addExecutable("kernel", "./main.zig");
     kernel.addObjectFile("./boot.S");
-    kernel.setLinkerScriptPath("./linker.ld");
+    kernel.setLinkerScriptPath(.{ .path = "./linker.ld" });
     kernel.setBuildMode(mode);
     kernel.setTarget(target);
     kernel.install();
