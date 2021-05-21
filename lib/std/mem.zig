@@ -2151,7 +2151,7 @@ pub fn collapseRepeats(comptime T: type, slice: []T, elem: T) []T {
 fn testCollapseRepeats(str: []const u8, elem: u8, expected: []const u8) !void {
     const mutable = try std.testing.allocator.dupe(u8, str);
     defer std.testing.allocator.free(mutable);
-    testing.expect(std.mem.eql(u8, collapseRepeats(u8, mutable, elem), expected));
+    try testing.expect(std.mem.eql(u8, collapseRepeats(u8, mutable, elem), expected));
 }
 test "collapseRepeats" {
     try testCollapseRepeats("", '/', "");

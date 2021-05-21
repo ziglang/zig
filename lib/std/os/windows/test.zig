@@ -14,12 +14,12 @@ fn testRemoveDotDirs(str: []const u8, expected: []const u8) !void {
     const mutable = try testing.allocator.dupe(u8, str);
     defer testing.allocator.free(mutable);
     const actual = mutable[0..try windows.removeDotDirsSanitized(u8, mutable)];
-    testing.expect(mem.eql(u8, actual, expected));
+    try testing.expect(mem.eql(u8, actual, expected));
 }
 fn testRemoveDotDirsError(err: anyerror, str: []const u8) !void {
     const mutable = try testing.allocator.dupe(u8, str);
     defer testing.allocator.free(mutable);
-    testing.expectError(err, windows.removeDotDirsSanitized(u8, mutable));
+    try testing.expectError(err, windows.removeDotDirsSanitized(u8, mutable));
 }
 test "removeDotDirs" {
     try testRemoveDotDirs("", "");

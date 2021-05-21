@@ -1817,18 +1817,40 @@ pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
             else => {},
         }
     }
+    const prefix_u16 = [_]u16{ '\\', '?', '?', '\\' };
     const start_index = if (prefix_index > 0 or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        const prefix_u16 = [_]u16{ '\\', '?', '?', '\\' };
         mem.copy(u16, path_space.data[0..], prefix_u16[0..]);
         break :blk prefix_u16.len;
     };
     path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
     if (path_space.len > path_space.data.len) return error.NameTooLong;
     path_space.len = start_index + (normalizePath(u16, path_space.data[start_index..path_space.len]) catch |err| switch (err) {
-        error.TooManyParentDirs => return error.BadPathName,
+        error.TooManyParentDirs => {
+            if (!std.fs.path.isAbsolute(s)) {
+                var temp_path: PathSpace = undefined;
+                temp_path.len = try std.unicode.utf8ToUtf16Le(&temp_path.data, s);
+                std.debug.assert(temp_path.len == path_space.len);
+                temp_path.data[path_space.len] = 0;
+                path_space.len = prefix_u16.len + try getFullPathNameW(&temp_path.data, path_space.data[prefix_u16.len..]);
+                mem.copy(u16, &path_space.data, &prefix_u16);
+                std.debug.assert(path_space.data[path_space.len] == 0);
+                return path_space;
+            }
+            return error.BadPathName;
+        },
     });
     path_space.data[path_space.len] = 0;
     return path_space;
+}
+
+fn getFullPathNameW(path: [*:0]const u16, out: []u16) !usize {
+    const result= kernel32.GetFullPathNameW(path, @intCast(u32, out.len), std.meta.assumeSentinel(out.ptr, 0), null);
+    if (result == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return result;
 }
 
 /// Assumes an absolute path.
