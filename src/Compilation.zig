@@ -2776,6 +2776,15 @@ pub fn addCCArgs(
         try argv.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
     }
 
+    if (comp.bin_file.options.link_libunwind) {
+        const libunwind_include_path = try std.fs.path.join(arena, &[_][]const u8{
+            comp.zig_lib_directory.path.?, "libunwind", "include",
+        });
+
+        try argv.append("-isystem");
+        try argv.append(libunwind_include_path);
+    }
+
     const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
