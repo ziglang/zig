@@ -1,0 +1,118 @@
+#define __LITTLE_ENDIAN 1234
+#define __BIG_ENDIAN 4321
+#define __USE_TIME_BITS64 1
+
+TYPEDEF unsigned _Addr size_t;
+TYPEDEF unsigned _Addr uintptr_t;
+TYPEDEF _Addr ptrdiff_t;
+TYPEDEF _Addr ssize_t;
+TYPEDEF _Addr intptr_t;
+TYPEDEF _Addr regoff_t;
+TYPEDEF _Reg register_t;
+#ifdef __wasilibc_unmodified_upstream /* Use alternate WASI libc headers */
+TYPEDEF _Int64 time_t;
+TYPEDEF _Int64 suseconds_t;
+#else
+#if defined(__NEED_time_t) && !defined(__DEFINED_time_t)
+#include <__typedef_time_t.h>
+#define __DEFINED_time_t
+#endif
+
+#if defined(__NEED_suseconds_t) && !defined(__DEFINED_suseconds_t)
+#include <__typedef_suseconds_t.h>
+#define __DEFINED_suseconds_t
+#endif
+#endif
+
+TYPEDEF signed char     int8_t;
+TYPEDEF signed short    int16_t;
+TYPEDEF signed int      int32_t;
+TYPEDEF signed _Int64   int64_t;
+TYPEDEF signed _Int64   intmax_t;
+TYPEDEF unsigned char   uint8_t;
+TYPEDEF unsigned short  uint16_t;
+TYPEDEF unsigned int    uint32_t;
+TYPEDEF unsigned _Int64 uint64_t;
+TYPEDEF unsigned _Int64 u_int64_t;
+TYPEDEF unsigned _Int64 uintmax_t;
+
+TYPEDEF unsigned mode_t;
+TYPEDEF unsigned _Reg nlink_t;
+TYPEDEF _Int64 off_t;
+TYPEDEF unsigned _Int64 ino_t;
+TYPEDEF unsigned _Int64 dev_t;
+TYPEDEF long blksize_t;
+TYPEDEF _Int64 blkcnt_t;
+TYPEDEF unsigned _Int64 fsblkcnt_t;
+TYPEDEF unsigned _Int64 fsfilcnt_t;
+
+TYPEDEF unsigned wint_t;
+TYPEDEF unsigned long wctype_t;
+
+TYPEDEF void * timer_t;
+TYPEDEF int clockid_t;
+TYPEDEF long clock_t;
+#ifdef __wasilibc_unmodified_upstream /* Use alternate WASI libc headers */
+STRUCT timeval { time_t tv_sec; suseconds_t tv_usec; };
+STRUCT timespec { time_t tv_sec; int :8*(sizeof(time_t)-sizeof(long))*(__BYTE_ORDER==4321); long tv_nsec; int :8*(sizeof(time_t)-sizeof(long))*(__BYTE_ORDER!=4321); };
+#else
+#include <__struct_timeval.h>
+#include <__struct_timespec.h>
+#endif
+
+TYPEDEF int pid_t;
+TYPEDEF unsigned id_t;
+TYPEDEF unsigned uid_t;
+TYPEDEF unsigned gid_t;
+TYPEDEF int key_t;
+TYPEDEF unsigned useconds_t;
+
+#ifdef __cplusplus
+TYPEDEF unsigned long pthread_t;
+#else
+TYPEDEF struct __pthread * pthread_t;
+#endif
+TYPEDEF int pthread_once_t;
+TYPEDEF unsigned pthread_key_t;
+TYPEDEF int pthread_spinlock_t;
+TYPEDEF struct { unsigned __attr; } pthread_mutexattr_t;
+TYPEDEF struct { unsigned __attr; } pthread_condattr_t;
+TYPEDEF struct { unsigned __attr; } pthread_barrierattr_t;
+TYPEDEF struct { unsigned __attr[2]; } pthread_rwlockattr_t;
+
+#ifdef __wasilibc_unmodified_upstream /* WASI doesn't need to define FILE as a complete type */
+STRUCT _IO_FILE { char __x; };
+#endif
+TYPEDEF struct _IO_FILE FILE;
+
+TYPEDEF __builtin_va_list va_list;
+TYPEDEF __builtin_va_list __isoc_va_list;
+
+TYPEDEF struct __mbstate_t { unsigned __opaque1, __opaque2; } mbstate_t;
+
+TYPEDEF struct __locale_struct * locale_t;
+
+TYPEDEF struct __sigset_t { unsigned long __bits[128/sizeof(long)]; } sigset_t;
+
+#ifdef __wasilibc_unmodified_upstream /* Use alternate WASI libc headers */
+STRUCT iovec { void *iov_base; size_t iov_len; };
+#else
+#include <__struct_iovec.h>
+#endif
+
+STRUCT winsize { unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel; };
+
+TYPEDEF unsigned socklen_t;
+TYPEDEF unsigned short sa_family_t;
+
+TYPEDEF struct { union { int __i[sizeof(long)==8?14:9]; volatile int __vi[sizeof(long)==8?14:9]; unsigned long __s[sizeof(long)==8?7:9]; } __u; } pthread_attr_t;
+TYPEDEF struct { union { int __i[sizeof(long)==8?10:6]; volatile int __vi[sizeof(long)==8?10:6]; volatile void *volatile __p[sizeof(long)==8?5:6]; } __u; } pthread_mutex_t;
+TYPEDEF struct { union { int __i[sizeof(long)==8?10:6]; volatile int __vi[sizeof(long)==8?10:6]; volatile void *volatile __p[sizeof(long)==8?5:6]; } __u; } mtx_t;
+TYPEDEF struct { union { int __i[12]; volatile int __vi[12]; void *__p[12*sizeof(int)/sizeof(void*)]; } __u; } pthread_cond_t;
+TYPEDEF struct { union { int __i[12]; volatile int __vi[12]; void *__p[12*sizeof(int)/sizeof(void*)]; } __u; } cnd_t;
+TYPEDEF struct { union { int __i[sizeof(long)==8?14:8]; volatile int __vi[sizeof(long)==8?14:8]; void *__p[sizeof(long)==8?7:8]; } __u; } pthread_rwlock_t;
+TYPEDEF struct { union { int __i[sizeof(long)==8?8:5]; volatile int __vi[sizeof(long)==8?8:5]; void *__p[sizeof(long)==8?4:5]; } __u; } pthread_barrier_t;
+
+#undef _Addr
+#undef _Int64
+#undef _Reg

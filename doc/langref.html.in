@@ -10280,6 +10280,7 @@ Operating Systems:
   ps4
   elfiamcu
   tvos
+  wasi
   watchos
   mesa3d
   contiki
@@ -10348,6 +10349,7 @@ Available libcs:
   sparc-linux-gnu
   sparcv9-linux-gnu
   wasm32-freestanding-musl
+  wasm32-wasi-musl
   x86_64-linux-gnu
   x86_64-linux-gnux32
   x86_64-linux-musl</code></pre>

@@ -21,6 +21,7 @@ const musl = @import("musl.zig");
 const mingw = @import("mingw.zig");
 const libunwind = @import("libunwind.zig");
 const libcxx = @import("libcxx.zig");
+const wasi_libc = @import("wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
 const Module = @import("Module.zig");
 const Cache = @import("Cache.zig");
@@ -202,6 +203,8 @@ const Job = union(enum) {
     /// needed when not linking libc and using LLVM for code generation because it generates
     /// calls to, for example, memcpy and memset.
     zig_libc: void,
+    /// WASI libc sysroot
+    wasi_libc_sysroot: void,
 
     /// Use stage1 C++ code to compile zig code into an object file.
     stage1_module: void,
@@ -276,6 +279,7 @@ pub const MiscTask = enum {
     libcxx,
     libcxxabi,
     libtsan,
+    wasi_libc_sysroot,
     compiler_rt,
     libssp,
     zig_libc,
@@ -769,8 +773,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         .Lib => is_dyn_lib,
         .Exe => true,
     };
-    const needs_c_symbols = !options.skip_linker_dependencies and
-        (is_exe_or_dyn_lib or (options.target.isWasm() and options.output_mode != .Obj));
+
+    const needs_c_symbols = !options.skip_linker_dependencies and is_exe_or_dyn_lib;
 
     const comp: *Compilation = comp: {
         // For allocations that have the same lifetime as Compilation. This arena is used only during this
@@ -1417,6 +1421,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 },
             });
         }
+        if (comp.wantBuildWasiLibcSysrootFromSource()) {
+            try comp.work_queue.write(&[_]Job{.{ .wasi_libc_sysroot = {} }});
+        }
         if (comp.wantBuildMinGWFromSource()) {
             const static_lib_jobs = [_]Job{
                 .{ .mingw_crt_file = .mingw32_lib },
@@ -1458,7 +1465,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         // Once it is capable this condition should be removed.
         if (build_options.is_stage1) {
             if (comp.bin_file.options.include_compiler_rt) {
-                if (is_exe_or_dyn_lib or comp.getTarget().isWasm()) {
+                if (is_exe_or_dyn_lib) {
                     try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
                 } else {
                     try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
@@ -2138,6 +2145,16 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 try self.setMiscFailure(
                     .libtsan,
                     "unable to build TSAN library: {s}",
+                    .{@errorName(err)},
+                );
+            };
+        },
+        .wasi_libc_sysroot => {
+            wasi_libc.buildWasiLibcSysroot(self) catch |err| {
+                // TODO Surface more error details.
+                try self.setMiscFailure(
+                    .wasi_libc_sysroot,
+                    "unable to build WASI libc sysroot: {s}",
                     .{@errorName(err)},
                 );
             };
@@ -2882,7 +2899,7 @@ pub fn addCCArgs(
                     try argv.append("-D_DEBUG");
                     try argv.append("-Og");
 
-                    if (comp.bin_file.options.link_libc) {
+                    if (comp.bin_file.options.link_libc and target.os.tag != .wasi) {
                         try argv.append("-fstack-protector-strong");
                         try argv.append("--param");
                         try argv.append("ssp-buffer-size=4");
@@ -2894,7 +2911,7 @@ pub fn addCCArgs(
                     // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
                     // than -O3 here.
                     try argv.append("-O2");
-                    if (comp.bin_file.options.link_libc) {
+                    if (comp.bin_file.options.link_libc and target.os.tag != .wasi) {
                         try argv.append("-D_FORTIFY_SOURCE=2");
                         try argv.append("-fstack-protector-strong");
                         try argv.append("--param");
@@ -3248,7 +3265,8 @@ fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const
 pub fn get_libc_crt_file(comp: *Compilation, arena: *Allocator, basename: []const u8) ![]const u8 {
     if (comp.wantBuildGLibCFromSource() or
         comp.wantBuildMuslFromSource() or
-        comp.wantBuildMinGWFromSource())
+        comp.wantBuildMinGWFromSource() or
+        comp.wantBuildWasiLibcSysrootFromSource())
     {
         return comp.crt_files.get(basename).?.full_object_path;
     }
@@ -3286,6 +3304,10 @@ fn wantBuildGLibCFromSource(comp: Compilation) bool {
 fn wantBuildMuslFromSource(comp: Compilation) bool {
     return comp.wantBuildLibCFromSource() and comp.getTarget().isMusl() and
         !comp.getTarget().isWasm();
+}
+
+fn wantBuildWasiLibcSysrootFromSource(comp: Compilation) bool {
+    return comp.wantBuildLibCFromSource() and comp.getTarget().isWasm();
 }
 
 fn wantBuildMinGWFromSource(comp: Compilation) bool {
@@ -3591,11 +3613,10 @@ fn buildOutputFromZig(
     };
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();
-    const fixed_output_mode = if (target.cpu.arch.isWasm()) .Obj else output_mode;
     const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{
         .root_name = root_name,
         .target = target,
-        .output_mode = fixed_output_mode,
+        .output_mode = output_mode,
     });
     defer comp.gpa.free(bin_basename);
 
@@ -3610,7 +3631,7 @@ fn buildOutputFromZig(
         .target = target,
         .root_name = root_name,
         .root_pkg = &root_pkg,
-        .output_mode = fixed_output_mode,
+        .output_mode = output_mode,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
