@@ -1355,3 +1355,34 @@ test "isError" {
     try std.testing.expect(isError(math.absInt(@as(i8, -128))));
     try std.testing.expect(!isError(math.absInt(@as(i8, -127))));
 }
+
+/// This function is for translate-c and is not intended for general use.
+/// Constructs a [*c] pointer with the const and volatile annotations
+/// from SelfType for pointing to a C flexible array of ElementType.
+pub fn FlexibleArrayType(comptime SelfType: type, ElementType: type) type {
+    switch (@typeInfo(SelfType)) {
+        .Pointer => |ptr| {
+            return @Type(TypeInfo{ .Pointer = .{
+                .size = .C,
+                .is_const = ptr.is_const,
+                .is_volatile = ptr.is_volatile,
+                .alignment = @alignOf(ElementType),
+                .child = ElementType,
+                .is_allowzero = true,
+                .sentinel = null,
+            } });
+        },
+        else => |info| @compileError("Invalid self type \"" ++ @tagName(info) ++ "\" for flexible array getter: " ++ @typeName(SelfType)),
+    }
+}
+
+test "Flexible Array Type" {
+    const Container = extern struct {
+        size: usize,
+    };
+
+    try testing.expectEqual(FlexibleArrayType(*Container, c_int), [*c]c_int);
+    try testing.expectEqual(FlexibleArrayType(*const Container, c_int), [*c]const c_int);
+    try testing.expectEqual(FlexibleArrayType(*volatile Container, c_int), [*c]volatile c_int);
+    try testing.expectEqual(FlexibleArrayType(*const volatile Container, c_int), [*c]const volatile c_int);
+}

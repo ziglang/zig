@@ -421,13 +421,26 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     });
 
-    cases.add("structs with VLAs are rejected",
+    cases.add("struct with flexible array",
         \\struct foo { int x; int y[]; };
         \\struct bar { int x; int y[0]; };
     , &[_][]const u8{
-        \\pub const struct_foo = opaque {};
-        ,
-        \\pub const struct_bar = opaque {};
+        \\pub const struct_foo = extern struct {
+        \\    x: c_int align(4),
+        \\    pub fn y(self: anytype) @import("std").meta.FlexibleArrayType(@TypeOf(self), c_int) {
+        \\        const Intermediate = @import("std").meta.FlexibleArrayType(@TypeOf(self), u8);
+        \\        const ReturnType = @import("std").meta.FlexibleArrayType(@TypeOf(self), c_int);
+        \\        return @ptrCast(ReturnType, @alignCast(@alignOf(c_int), @ptrCast(Intermediate, self) + 4));
+        \\    }
+        \\};
+        \\pub const struct_bar = extern struct {
+        \\    x: c_int align(4),
+        \\    pub fn y(self: anytype) @import("std").meta.FlexibleArrayType(@TypeOf(self), c_int) {
+        \\        const Intermediate = @import("std").meta.FlexibleArrayType(@TypeOf(self), u8);
+        \\        const ReturnType = @import("std").meta.FlexibleArrayType(@TypeOf(self), c_int);
+        \\        return @ptrCast(ReturnType, @alignCast(@alignOf(c_int), @ptrCast(Intermediate, self) + 4));
+        \\    }
+        \\};
     });
 
     cases.add("nested loops without blocks",
