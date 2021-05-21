@@ -819,6 +819,111 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: *const clang.TypedefNa
     }
 }
 
+/// Build a getter function for a flexible array member at the end of a C struct
+/// e.g. `T items[]` or `T items[0]`. The generated function returns a [*c] pointer
+/// to the flexible array with the correct const and volatile qualifiers
+fn buildFlexibleArrayFn(
+    c: *Context,
+    scope: *Scope,
+    layout: *const clang.ASTRecordLayout,
+    field_name: []const u8,
+    field_decl: *const clang.FieldDecl,
+) TypeError!Node {
+    const field_qt = field_decl.getType();
+
+    const u8_type = try Tag.type.create(c.arena, "u8");
+    const self_param_name = "self";
+    const self_param = try Tag.identifier.create(c.arena, self_param_name);
+    const self_type = try Tag.typeof.create(c.arena, self_param);
+
+    const fn_params = try c.arena.alloc(ast.Payload.Param, 1);
+
+    fn_params[0] = .{
+        .name = self_param_name,
+        .type = Tag.@"anytype".init(),
+        .is_noalias = false,
+    };
+
+    const array_type = @ptrCast(*const clang.ArrayType, field_qt.getTypePtr());
+    const element_qt = array_type.getElementType();
+    const element_type = try transQualType(c, scope, element_qt, field_decl.getLocation());
+
+    var block_scope = try Scope.Block.init(c, scope, false);
+    defer block_scope.deinit();
+
+    const intermediate_type_name = try block_scope.makeMangledName(c, "Intermediate");
+    const intermediate_type = try Tag.std_meta_flexible_array_type.create(c.arena, .{ .lhs = self_type, .rhs = u8_type });
+    const intermediate_type_decl = try Tag.var_simple.create(c.arena, .{
+        .name = intermediate_type_name,
+        .init = intermediate_type,
+    });
+    try block_scope.statements.append(intermediate_type_decl);
+    const intermediate_type_ident = try Tag.identifier.create(c.arena, intermediate_type_name);
+
+    const return_type_name = try block_scope.makeMangledName(c, "ReturnType");
+    const return_type = try Tag.std_meta_flexible_array_type.create(c.arena, .{ .lhs = self_type, .rhs = element_type });
+    const return_type_decl = try Tag.var_simple.create(c.arena, .{
+        .name = return_type_name,
+        .init = return_type,
+    });
+    try block_scope.statements.append(return_type_decl);
+    const return_type_ident = try Tag.identifier.create(c.arena, return_type_name);
+
+    const field_index = field_decl.getFieldIndex();
+    const bit_offset = layout.getFieldOffset(field_index); // this is a target-specific constant based on the struct layout
+    const byte_offset = bit_offset / 8;
+
+    const casted_self = try Tag.ptr_cast.create(c.arena, .{
+        .lhs = intermediate_type_ident,
+        .rhs = self_param,
+    });
+    const field_offset = try transCreateNodeNumber(c, byte_offset, .int);
+    const field_ptr = try Tag.add.create(c.arena, .{ .lhs = casted_self, .rhs = field_offset });
+
+    const alignment = try Tag.alignof.create(c.arena, element_type);
+
+    const ptr_val = try Tag.align_cast.create(c.arena, .{ .lhs = alignment, .rhs = field_ptr });
+    const ptr_cast = try Tag.ptr_cast.create(c.arena, .{ .lhs = return_type_ident, .rhs = ptr_val });
+    const return_stmt = try Tag.@"return".create(c.arena, ptr_cast);
+    try block_scope.statements.append(return_stmt);
+
+    const payload = try c.arena.create(ast.Payload.Func);
+    payload.* = .{
+        .base = .{ .tag = .func },
+        .data = .{
+            .is_pub = true,
+            .is_extern = false,
+            .is_export = false,
+            .is_var_args = false,
+            .name = field_name,
+            .linksection_string = null,
+            .explicit_callconv = null,
+            .params = fn_params,
+            .return_type = return_type,
+            .body = try block_scope.complete(c),
+            .alignment = null,
+        },
+    };
+    return Node.initPayload(&payload.base);
+}
+
+fn isFlexibleArrayFieldDecl(c: *Context, field_decl: *const clang.FieldDecl) bool {
+    return qualTypeCanon(field_decl.getType()).isIncompleteOrZeroLengthArrayType(c.clang_context);
+}
+
+/// clang's RecordDecl::hasFlexibleArrayMember is not suitable for determining
+/// this because it returns false for a record that ends with a zero-length
+/// array, but we consider those to be flexible arrays
+fn hasFlexibleArrayField(c: *Context, record_def: *const clang.RecordDecl) bool {
+    var it = record_def.field_begin();
+    const end_it = record_def.field_end();
+    while (it.neq(end_it)) : (it = it.next()) {
+        const field_decl = it.deref();
+        if (isFlexibleArrayFieldDecl(c, field_decl)) return true;
+    }
+    return false;
+}
+
 fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordDecl) Error!void {
     if (c.decl_table.get(@ptrToInt(record_decl.getCanonicalDecl()))) |name|
         return; // Avoid processing this decl twice
@@ -868,9 +973,16 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         var fields = std.ArrayList(ast.Payload.Record.Field).init(c.gpa);
         defer fields.deinit();
 
+        var functions = std.ArrayList(Node).init(c.gpa);
+        defer functions.deinit();
+
+        const has_flexible_array = hasFlexibleArrayField(c, record_def);
         var unnamed_field_count: u32 = 0;
         var it = record_def.field_begin();
         const end_it = record_def.field_end();
+        const layout = record_def.getASTRecordLayout(c.clang_context);
+        const record_alignment = layout.getAlignment();
+
         while (it.neq(end_it)) : (it = it.next()) {
             const field_decl = it.deref();
             const field_loc = field_decl.getLocation();
@@ -882,12 +994,6 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 break :blk Tag.opaque_literal.init();
             }
 
-            if (qualTypeCanon(field_qt).isIncompleteOrZeroLengthArrayType(c.clang_context)) {
-                try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
-                try warn(c, scope, field_loc, "{s} demoted to opaque type - has variable length array", .{container_kind_name});
-                break :blk Tag.opaque_literal.init();
-            }
-
             var is_anon = false;
             var field_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
             if (field_decl.isAnonymousStructOrUnion() or field_name.len == 0) {
@@ -895,6 +1001,18 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 field_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{unnamed_field_count});
                 unnamed_field_count += 1;
                 is_anon = true;
+            }
+            if (isFlexibleArrayFieldDecl(c, field_decl)) {
+                const flexible_array_fn = buildFlexibleArrayFn(c, scope, layout, field_name, field_decl) catch |err| switch (err) {
+                    error.UnsupportedType => {
+                        try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                        try warn(c, scope, record_loc, "{s} demoted to opaque type - unable to translate type of flexible array field {s}", .{ container_kind_name, field_name });
+                        break :blk Tag.opaque_literal.init();
+                    },
+                    else => |e| return e,
+                };
+                try functions.append(flexible_array_fn);
+                continue;
             }
             const field_type = transQualType(c, scope, field_qt, field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
@@ -905,7 +1023,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 else => |e| return e,
             };
 
-            const alignment = zigAlignment(field_decl.getAlignedAttribute(c.clang_context));
+            const alignment = if (has_flexible_array and field_decl.getFieldIndex() == 0)
+                @intCast(c_uint, record_alignment)
+            else
+                zigAlignment(field_decl.getAlignedAttribute(c.clang_context));
 
             if (is_anon) {
                 try c.decl_table.putNoClobber(c.gpa, @ptrToInt(field_decl.getCanonicalDecl()), field_name);
@@ -924,6 +1045,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             .data = .{
                 .is_packed = is_packed,
                 .fields = try c.arena.dupe(ast.Payload.Record.Field, fields.items),
+                .functions = try c.arena.dupe(Node, functions.items),
             },
         };
         break :blk Node.initPayload(&record_payload.base);
@@ -1737,12 +1859,12 @@ fn transImplicitCastExpr(
             return maybeSuppressResult(c, scope, result_used, sub_expr_node);
         },
         .ArrayToPointerDecay => {
-            if (exprIsNarrowStringLiteral(sub_expr)) {
-                const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
+            const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
+            if (exprIsNarrowStringLiteral(sub_expr) or exprIsFlexibleArrayRef(c, sub_expr)) {
                 return maybeSuppressResult(c, scope, result_used, sub_expr_node);
             }
 
-            const addr = try Tag.address_of.create(c.arena, try transExpr(c, scope, sub_expr, .used));
+            const addr = try Tag.address_of.create(c.arena, sub_expr_node);
             const casted = try transCPtrCast(c, scope, expr.getBeginLoc(), dest_type, src_type, addr);
             return maybeSuppressResult(c, scope, result_used, casted);
         },
@@ -1850,6 +1972,19 @@ fn exprIsNarrowStringLiteral(expr: *const clang.Expr) bool {
         },
         else => return false,
     }
+}
+
+fn exprIsFlexibleArrayRef(c: *Context, expr: *const clang.Expr) bool {
+    if (expr.getStmtClass() == .MemberExprClass) {
+        const member_expr = @ptrCast(*const clang.MemberExpr, expr);
+        const member_decl = member_expr.getMemberDecl();
+        const decl_kind = @ptrCast(*const clang.Decl, member_decl).getKind();
+        if (decl_kind == .Field) {
+            const field_decl = @ptrCast(*const clang.FieldDecl, member_decl);
+            return isFlexibleArrayFieldDecl(c, field_decl);
+        }
+    }
+    return false;
 }
 
 fn isBoolRes(res: Node) bool {
@@ -3056,7 +3191,6 @@ fn transStmtExpr(c: *Context, scope: *Scope, stmt: *const clang.StmtExpr, used: 
 
 fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, result_used: ResultUsed) TransError!Node {
     var container_node = try transExpr(c, scope, stmt.getBase(), .used);
-
     if (stmt.isArrow()) {
         container_node = try Tag.deref.create(c.arena, container_node);
     }
@@ -3076,7 +3210,11 @@ fn transMemberExpr(c: *Context, scope: *Scope, stmt: *const clang.MemberExpr, re
         const decl = @ptrCast(*const clang.NamedDecl, member_decl);
         break :blk try c.str(decl.getName_bytes_begin());
     };
-    const node = try Tag.field_access.create(c.arena, .{ .lhs = container_node, .field_name = name });
+
+    var node = try Tag.field_access.create(c.arena, .{ .lhs = container_node, .field_name = name });
+    if (exprIsFlexibleArrayRef(c, @ptrCast(*const clang.Expr, stmt))) {
+        node = try Tag.call.create(c.arena, .{ .lhs = node, .args = &.{} });
+    }
     return maybeSuppressResult(c, scope, result_used, node);
 }
 

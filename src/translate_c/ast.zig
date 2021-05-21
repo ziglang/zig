@@ -193,6 +193,8 @@ pub const Node = extern union {
 
         /// @import("std").meta.sizeof(operand)
         std_meta_sizeof,
+        /// @import("std").meta.FlexibleArrayType(lhs, rhs)
+        std_meta_flexible_array_type,
         /// @import("std").meta.shuffleVectorIndex(lhs, rhs)
         std_meta_shuffle_vector_index,
         /// @import("std").meta.Vector(lhs, rhs)
@@ -328,6 +330,7 @@ pub const Node = extern union {
                 .align_cast,
                 .array_access,
                 .std_mem_zeroinit,
+                .std_meta_flexible_array_type,
                 .std_meta_shuffle_vector_index,
                 .std_meta_vector,
                 .ptr_cast,
@@ -567,6 +570,7 @@ pub const Payload = struct {
         data: struct {
             is_packed: bool,
             fields: []Field,
+            functions: []Node,
         },
 
         pub const Field = struct {
@@ -907,6 +911,11 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .std_mem_zeroinit => {
             const payload = node.castTag(.std_mem_zeroinit).?.data;
             const import_node = try renderStdImport(c, "mem", "zeroInit");
+            return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
+        },
+        .std_meta_flexible_array_type => {
+            const payload = node.castTag(.std_meta_flexible_array_type).?.data;
+            const import_node = try renderStdImport(c, "meta", "FlexibleArrayType");
             return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
         },
         .std_meta_shuffle_vector_index => {
@@ -1992,7 +2001,10 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
         try c.addToken(.keyword_union, "union");
 
     _ = try c.addToken(.l_brace, "{");
-    const members = try c.gpa.alloc(NodeIndex, std.math.max(payload.fields.len, 2));
+
+    const num_funcs = payload.functions.len;
+    const total_members = payload.fields.len + num_funcs;
+    const members = try c.gpa.alloc(NodeIndex, std.math.max(total_members, 2));
     defer c.gpa.free(members);
     members[0] = 0;
     members[1] = 0;
@@ -2033,9 +2045,12 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
         });
         _ = try c.addToken(.comma, ",");
     }
+    for (payload.functions) |function, i| {
+        members[payload.fields.len + i] = try renderNode(c, function);
+    }
     _ = try c.addToken(.r_brace, "}");
 
-    if (payload.fields.len == 0) {
+    if (total_members == 0) {
         return c.addNode(.{
             .tag = .container_decl_two,
             .main_token = kind_tok,
@@ -2044,9 +2059,9 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
                 .rhs = 0,
             },
         });
-    } else if (payload.fields.len <= 2) {
+    } else if (total_members <= 2) {
         return c.addNode(.{
-            .tag = .container_decl_two_trailing,
+            .tag = if (num_funcs == 0) .container_decl_two_trailing else .container_decl_two,
             .main_token = kind_tok,
             .data = .{
                 .lhs = members[0],
@@ -2056,7 +2071,7 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
     } else {
         const span = try c.listToSpan(members);
         return c.addNode(.{
-            .tag = .container_decl_trailing,
+            .tag = if (num_funcs == 0) .container_decl_trailing else .container_decl,
             .main_token = kind_tok,
             .data = .{
                 .lhs = span.start,
@@ -2229,6 +2244,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .std_meta_promoteIntLiteral,
         .std_meta_vector,
         .std_meta_shuffle_vector_index,
+        .std_meta_flexible_array_type,
         .std_mem_zeroinit,
         .integer_literal,
         .float_literal,

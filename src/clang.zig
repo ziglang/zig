@@ -183,6 +183,14 @@ pub const ArrayType = opaque {
     extern fn ZigClangArrayType_getElementType(*const ArrayType) QualType;
 };
 
+pub const ASTRecordLayout = opaque {
+    pub const getFieldOffset = ZigClangASTRecordLayout_getFieldOffset;
+    extern fn ZigClangASTRecordLayout_getFieldOffset(*const ASTRecordLayout, c_uint) u64;
+
+    pub const getAlignment = ZigClangASTRecordLayout_getAlignment;
+    extern fn ZigClangASTRecordLayout_getAlignment(*const ASTRecordLayout) i64;
+};
+
 pub const AttributedType = opaque {
     pub const getEquivalentType = ZigClangAttributedType_getEquivalentType;
     extern fn ZigClangAttributedType_getEquivalentType(*const AttributedType) QualType;
@@ -461,6 +469,9 @@ pub const FieldDecl = opaque {
 
     pub const getParent = ZigClangFieldDecl_getParent;
     extern fn ZigClangFieldDecl_getParent(*const FieldDecl) ?*const RecordDecl;
+
+    pub const getFieldIndex = ZigClangFieldDecl_getFieldIndex;
+    extern fn ZigClangFieldDecl_getFieldIndex(*const FieldDecl) c_uint;
 };
 
 pub const FileID = opaque {};
@@ -751,6 +762,9 @@ pub const RecordDecl = opaque {
 
     pub const getLocation = ZigClangRecordDecl_getLocation;
     extern fn ZigClangRecordDecl_getLocation(*const RecordDecl) SourceLocation;
+
+    pub const getASTRecordLayout = ZigClangRecordDecl_getASTRecordLayout;
+    extern fn ZigClangRecordDecl_getASTRecordLayout(*const RecordDecl, *const ASTContext) *const ASTRecordLayout;
 
     pub const field_begin = ZigClangRecordDecl_field_begin;
     extern fn ZigClangRecordDecl_field_begin(*const RecordDecl) field_iterator;

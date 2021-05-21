@@ -24,6 +24,7 @@
 #include <clang/AST/APValue.h>
 #include <clang/AST/Attr.h>
 #include <clang/AST/Expr.h>
+#include <clang/AST/RecordLayout.h>
 
 #if __GNUC__ >= 8
 #pragma GCC diagnostic pop
@@ -2716,6 +2717,22 @@ struct ZigClangQualType ZigClangCStyleCastExpr_getType(const struct ZigClangCSty
     return bitcast(casted->getType());
 }
 
+const struct ZigClangASTRecordLayout *ZigClangRecordDecl_getASTRecordLayout(const struct ZigClangRecordDecl *self, const struct ZigClangASTContext *ctx) {
+    auto casted_self = reinterpret_cast<const clang::RecordDecl *>(self);
+    auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
+    const clang::ASTRecordLayout &layout = casted_ctx->getASTRecordLayout(casted_self);
+    return reinterpret_cast<const struct ZigClangASTRecordLayout *>(&layout);
+}
+
+uint64_t ZigClangASTRecordLayout_getFieldOffset(const struct ZigClangASTRecordLayout *self, unsigned field_no) {
+    return reinterpret_cast<const clang::ASTRecordLayout *>(self)->getFieldOffset(field_no);
+}
+
+int64_t ZigClangASTRecordLayout_getAlignment(const struct ZigClangASTRecordLayout *self) {
+    auto casted_self = reinterpret_cast<const clang::ASTRecordLayout *>(self);
+    return casted_self->getAlignment().getQuantity();
+}
+
 bool ZigClangIntegerLiteral_EvaluateAsInt(const struct ZigClangIntegerLiteral *self, struct ZigClangExprEvalResult *result, const struct ZigClangASTContext *ctx) {
     auto casted_self = reinterpret_cast<const clang::IntegerLiteral *>(self);
     auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
@@ -3134,6 +3151,11 @@ ZigClangSourceLocation ZigClangFieldDecl_getLocation(const struct ZigClangFieldD
 const struct ZigClangRecordDecl *ZigClangFieldDecl_getParent(const struct ZigClangFieldDecl *self) {
     auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
     return reinterpret_cast<const ZigClangRecordDecl *>(casted->getParent());
+}
+
+unsigned ZigClangFieldDecl_getFieldIndex(const struct ZigClangFieldDecl *self) {
+    auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
+    return casted->getFieldIndex();
 }
 
 ZigClangQualType ZigClangFieldDecl_getType(const struct ZigClangFieldDecl *self) {
