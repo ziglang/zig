@@ -7,7 +7,7 @@ const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
 const Module = @import("Module.zig");
-const ir = @import("ir.zig");
+const ir = @import("air.zig");
 
 /// This is the raw data, with no bookkeeping, no memory awareness,
 /// no de-duplication, and no type system awareness.

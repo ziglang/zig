@@ -22,7 +22,7 @@ const Zir = @This();
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const TypedValue = @import("TypedValue.zig");
-const ir = @import("ir.zig");
+const ir = @import("air.zig");
 const Module = @import("Module.zig");
 const LazySrcLoc = Module.LazySrcLoc;
 

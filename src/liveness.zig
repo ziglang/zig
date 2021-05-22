@@ -1,5 +1,5 @@
 const std = @import("std");
-const ir = @import("ir.zig");
+const ir = @import("air.zig");
 const trace = @import("tracy.zig").trace;
 const log = std.log.scoped(.liveness);
 

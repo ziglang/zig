@@ -9,7 +9,7 @@ const math = std.math;
 
 const Module = @import("../Module.zig");
 const TypedValue = @import("../TypedValue.zig");
-const ir = @import("../ir.zig");
+const ir = @import("../air.zig");
 const Inst = ir.Inst;
 
 const Value = @import("../value.zig").Value;

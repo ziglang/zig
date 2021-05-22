@@ -9,7 +9,7 @@ const wasm = std.wasm;
 
 const Module = @import("../Module.zig");
 const Decl = Module.Decl;
-const ir = @import("../ir.zig");
+const ir = @import("../air.zig");
 const Inst = ir.Inst;
 const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;

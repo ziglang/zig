@@ -11,7 +11,7 @@ const Decl = Module.Decl;
 const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;
 const LazySrcLoc = Module.LazySrcLoc;
-const ir = @import("../ir.zig");
+const ir = @import("../air.zig");
 const Inst = ir.Inst;
 
 pub const TypeMap = std.HashMap(Type, u32, Type.hash, Type.eql, std.hash_map.default_max_load_percentage);
