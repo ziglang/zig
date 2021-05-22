@@ -2014,7 +2014,10 @@ test "parse into struct with duplicate field" {
     const ballast = try testing.allocator.alloc(u64, 1);
     defer testing.allocator.free(ballast);
 
-    const options_first = ParseOptions{ .allocator = testing.allocator, .duplicate_field_behavior = .UseFirst };
+    const options_first = ParseOptions{
+        .allocator = testing.allocator,
+        .duplicate_field_behavior = .UseFirst,
+    };
 
     const options_last = ParseOptions{
         .allocator = testing.allocator,

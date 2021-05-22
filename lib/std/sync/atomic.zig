@@ -62,6 +62,10 @@ pub fn fence(comptime ordering: Ordering) void {
 }
 
 pub fn compilerFence(comptime ordering: Ordering) void {
+    // TODO(kprotty):
+    // Use LLVM intrinsic `fence syncscope("singlethread")` instead of inline asm.
+    // https://llvm.org/docs/LangRef.html#fence-instruction
+
     switch (ordering) {
         .SeqCst => asm volatile ("" ::: "memory"),
         .AcqRel => compilerFence(.SeqCst),
