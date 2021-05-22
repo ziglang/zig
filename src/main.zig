@@ -3717,7 +3717,7 @@ pub fn cmdAstgen(
     } else if (errors_only_flag) {
         const elapsed = std.time.nanoTimestamp() - start;
 
-        if (elapsed < 1000) {
+        if (elapsed < std.time.ns_per_ms) {
             try io.getStdOut().writer().print("No errors found in {s}!\nCompleted in {d}μ", .{ zig_source_file, @divFloor(elapsed, std.time.ns_per_us) });
         } else {
             try io.getStdOut().writer().print("No errors found in {s}!\nCompleted in {d}ms", .{ zig_source_file, @divFloor(elapsed, std.time.ns_per_ms) });
