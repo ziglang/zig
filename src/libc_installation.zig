@@ -21,6 +21,7 @@ pub const LibCInstallation = struct {
     crt_dir: ?[]const u8 = null,
     msvc_lib_dir: ?[]const u8 = null,
     kernel32_lib_dir: ?[]const u8 = null,
+    crtbegin_dir: ?[]const u8 = null,
 
     pub const FindError = error{
         OutOfMemory,
@@ -113,6 +114,10 @@ pub const LibCInstallation = struct {
             });
             return error.ParseError;
         }
+        if (self.crtbegin_dir == null and is_haiku) {
+            log.err("crtbegin_dir may not be empty for {s}\n", .{@tagName(Target.current.os.tag)});
+            return error.ParseError;
+        }
 
         return self;
     }
@@ -124,6 +129,7 @@ pub const LibCInstallation = struct {
         const crt_dir = self.crt_dir orelse "";
         const msvc_lib_dir = self.msvc_lib_dir orelse "";
         const kernel32_lib_dir = self.kernel32_lib_dir orelse "";
+        const crtbegin_dir = self.crtbegin_dir orelse "";
 
         try out.print(
             \\# The directory that contains `stdlib.h`.
@@ -148,12 +154,17 @@ pub const LibCInstallation = struct {
             \\# Only needed when targeting MSVC on Windows.
             \\kernel32_lib_dir={s}
             \\
+            \\# The directory that contains `crtbeginS.o` and `crtendS.o`
+            \\# Only needed when targeting Haiku.
+            \\crtbegin_dir={s}
+            \\
         , .{
             include_dir,
             sys_include_dir,
             crt_dir,
             msvc_lib_dir,
             kernel32_lib_dir,
+            crtbegin_dir,
         });
     }
 
@@ -188,6 +199,15 @@ pub const LibCInstallation = struct {
                 .NotFound => return error.WindowsSdkNotFound,
                 .PathTooLong => return error.WindowsSdkNotFound,
             }
+        } else if (is_haiku) {
+            try blk: {
+                var batch = Batch(FindError!void, 2, .auto_async).init();
+                errdefer batch.wait() catch {};
+                batch.add(&async self.findNativeIncludeDirPosix(args));
+                batch.add(&async self.findNativeCrtBeginDirHaiku(args));
+                self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/system/develop/lib");
+                break :blk batch.wait();
+            };
         } else {
             try blk: {
                 var batch = Batch(FindError!void, 2, .auto_async).init();
@@ -196,7 +216,6 @@ pub const LibCInstallation = struct {
                 switch (Target.current.os.tag) {
                     .freebsd, .netbsd, .openbsd, .dragonfly => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib"),
                     .linux => batch.add(&async self.findNativeCrtDirPosix(args)),
-                    .haiku => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/system/develop/lib"),
                     else => {},
                 }
                 break :blk batch.wait();
@@ -417,6 +436,15 @@ pub const LibCInstallation = struct {
         self.crt_dir = try ccPrintFileName(.{
             .allocator = args.allocator,
             .search_basename = "crt1.o",
+            .want_dirname = .only_dir,
+            .verbose = args.verbose,
+        });
+    }
+
+    fn findNativeCrtBeginDirHaiku(self: *LibCInstallation, args: FindNativeOptions) FindError!void {
+        self.crtbegin_dir = try ccPrintFileName(.{
+            .allocator = args.allocator,
+            .search_basename = "crtbeginS.o",
             .want_dirname = .only_dir,
             .verbose = args.verbose,
         });

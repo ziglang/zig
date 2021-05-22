@@ -3286,6 +3286,13 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: *Allocator, basename: []cons
     return full_path;
 }
 
+pub fn get_libc_crtbegin_file(comp: *Compilation, arena: *Allocator, basename: []const u8) ![]const u8 {
+    const lci = comp.bin_file.options.libc_installation orelse return error.LibCInstallationNotAvailable;
+    const crtbegin_dir_path = lci.crtbegin_dir orelse return error.LibCInstallationMissingCRTDir;
+    const full_path = try std.fs.path.join(arena, &[_][]const u8{ crtbegin_dir_path, basename });
+    return full_path;
+}
+
 fn addBuildingGLibCJobs(comp: *Compilation) !void {
     try comp.work_queue.write(&[_]Job{
         .{ .glibc_crt_file = .crti_o },
