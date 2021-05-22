@@ -242,6 +242,9 @@ fn addCCArgs(
         "-mthread-model",
         "single",
 
+        "-isysroot",
+        "/",
+
         "-iwithsysroot",
         try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", triple }),
     });
