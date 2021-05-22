@@ -485,3 +485,9 @@ pub fn parseDataInCode(self: *Object) !void {
         try self.data_in_code_entries.append(self.allocator, dice);
     }
 }
+
+pub fn isObject(file: fs.File) !bool {
+    const header = try file.reader().readStruct(macho.mach_header_64);
+    try file.seekTo(0);
+    return header.filetype == macho.MH_OBJECT;
+}
