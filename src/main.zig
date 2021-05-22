@@ -239,7 +239,7 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         return io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
         return io.getStdOut().writeAll(usage);
-    } else if (debug_extensions_enabled and mem.eql(u8, cmd, "astgen")) {
+    } else if (mem.eql(u8, cmd, "astgen")) {
         return cmdAstgen(gpa, arena, cmd_args);
     } else if (debug_extensions_enabled and mem.eql(u8, cmd, "changelist")) {
         return cmdChangelist(gpa, arena, cmd_args);
@@ -3578,15 +3578,59 @@ pub fn cmdAstgen(
     const AstGen = @import("AstGen.zig");
     const Zir = @import("Zir.zig");
 
-    const zig_source_file = args[0];
+    var errors_only_flag: bool = false;
+    var stdin_flag: bool = false;
+    var zig_source_file: []const u8 = undefined;
 
-    var f = try fs.cwd().openFile(zig_source_file, .{});
-    defer f.close();
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--errors-only")) {
+            errors_only_flag = true;
+        } else if (std.mem.eql(u8, arg, "--stdin")) {
+            stdin_flag = true;
+        } else if (arg[0] != '-') {
+            zig_source_file = arg;
+        }
+    }
 
-    const stat = try f.stat();
+    var start: i128 = if (errors_only_flag) std.time.nanoTimestamp() else 0;
+    var source: [:0]const u8 = undefined;
+    var stat: std.fs.File.Stat = undefined;
+    var f: std.fs.File = undefined;
 
-    if (stat.size > max_src_size)
-        return error.FileTooBig;
+    if (!stdin_flag) {
+        f = try fs.cwd().openFile(zig_source_file, .{});
+        stat = try f.stat();
+
+        if (stat.size > max_src_size)
+            return error.FileTooBig;
+
+        const _source = try arena.allocSentinel(u8, stat.size, 0);
+
+        const amt = try f.readAll(_source[0 .. stat.size + 1]);
+        source = _source[0..stat.size :0];
+
+        if (amt != stat.size)
+            return error.UnexpectedEndOfFile;
+    } else {
+        f = std.io.getStdIn();
+        stat = std.mem.zeroes(std.fs.File.Stat);
+
+        const _source = readSourceFileToEndAlloc(arena, &f, null) catch |err| {
+            fatal("unable to read stdin: {s}", .{err});
+        };
+
+        zig_source_file = "<stdin>";
+        // I have no idea what to set this to!
+        source = _source[0.. :0];
+        stat.mtime = std.time.nanoTimestamp();
+        stat.size = _source.len;
+    }
+
+    defer {
+        if (!stdin_flag) {
+            f.close();
+        }
+    }
 
     var file: Module.Scope.File = .{
         .status = .never_loaded,
@@ -3604,10 +3648,6 @@ pub fn cmdAstgen(
         .root_decl = null,
     };
 
-    const source = try arena.allocSentinel(u8, stat.size, 0);
-    const amt = try f.readAll(source);
-    if (amt != stat.size)
-        return error.UnexpectedEndOfFile;
     file.source = source;
     file.source_loaded = true;
 
@@ -3626,23 +3666,24 @@ pub fn cmdAstgen(
     file.zir_loaded = true;
     defer file.zir.deinit(gpa);
 
-    {
-        const token_bytes = @sizeOf(std.zig.ast.TokenList) +
-            file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(std.zig.ast.ByteOffset));
-        const tree_bytes = @sizeOf(std.zig.ast.Tree) + file.tree.nodes.len *
-            (@sizeOf(std.zig.ast.Node.Tag) +
-            @sizeOf(std.zig.ast.Node.Data) +
-            @sizeOf(std.zig.ast.TokenIndex));
-        const instruction_bytes = file.zir.instructions.len *
-            // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
-            // the debug safety tag but we want to measure release size.
-            (@sizeOf(Zir.Inst.Tag) + 8);
-        const extra_bytes = file.zir.extra.len * @sizeOf(u32);
-        const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
-            file.zir.string_bytes.len * @sizeOf(u8);
-        const stdout = io.getStdOut();
-        const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
-        // zig fmt: off
+    if (!errors_only_flag) {
+        {
+            const token_bytes = @sizeOf(std.zig.ast.TokenList) +
+                file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(std.zig.ast.ByteOffset));
+            const tree_bytes = @sizeOf(std.zig.ast.Tree) + file.tree.nodes.len *
+                (@sizeOf(std.zig.ast.Node.Tag) +
+                @sizeOf(std.zig.ast.Node.Data) +
+                @sizeOf(std.zig.ast.TokenIndex));
+            const instruction_bytes = file.zir.instructions.len *
+                // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
+                // the debug safety tag but we want to measure release size.
+                (@sizeOf(Zir.Inst.Tag) + 8);
+            const extra_bytes = file.zir.extra.len * @sizeOf(u32);
+            const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
+                file.zir.string_bytes.len * @sizeOf(u8);
+            const stdout = io.getStdOut();
+            const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
+            // zig fmt: off
         try stdout.writer().print(
             \\# Source bytes:       {}
             \\# Tokens:             {} ({})
@@ -3662,6 +3703,7 @@ pub fn cmdAstgen(
             file.zir.extra.len, fmtIntSizeBin(extra_bytes),
         });
         // zig fmt: on
+        }
     }
 
     if (file.zir.hasCompileErrors()) {
@@ -3672,6 +3714,15 @@ pub fn cmdAstgen(
             full_err_msg.renderToStdErr(ttyconf);
         }
         process.exit(1);
+    } else if (errors_only_flag) {
+        const elapsed = std.time.nanoTimestamp() - start;
+
+        if (elapsed < 1000) {
+            try io.getStdOut().writer().print("No errors found in {s}!\nCompleted in {d}μ", .{ zig_source_file, @divFloor(elapsed, std.time.ns_per_us) });
+        } else {
+            try io.getStdOut().writer().print("No errors found in {s}!\nCompleted in {d}ms", .{ zig_source_file, @divFloor(elapsed, std.time.ns_per_ms) });
+        }
+        process.exit(0);
     }
 
     return Zir.renderAsTextToFile(gpa, &file, io.getStdOut());
