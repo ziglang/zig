@@ -3792,7 +3792,7 @@ pub fn mmap(
 /// Zig's munmap function does not, for two reasons:
 /// * It violates the Zig principle that resource deallocation must succeed.
 /// * The Windows function, VirtualFree, has this restriction.
-pub fn munmap(memory: []align(mem.page_size) u8) void {
+pub fn munmap(memory: []align(mem.page_size) const u8) void {
     switch (errno(system.munmap(memory.ptr, memory.len))) {
         0 => return,
         EINVAL => unreachable, // Invalid parameters.
