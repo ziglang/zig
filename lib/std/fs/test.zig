@@ -79,7 +79,23 @@ test "openDirAbsolute" {
         break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
     };
 
-    var dir = try fs.openDirAbsolute(base_path, .{});
+    {
+        var dir = try fs.openDirAbsolute(base_path, .{});
+        defer dir.close();
+    }
+
+    for ([_][]const u8{ ".", ".." }) |sub_path| {
+        const dir_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, sub_path });
+        defer arena.allocator.free(dir_path);
+        var dir = try fs.openDirAbsolute(dir_path, .{});
+        defer dir.close();
+    }
+}
+
+test "openDir cwd parent .." {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var dir = try fs.cwd().openDir("..", .{});
     defer dir.close();
 }
 
