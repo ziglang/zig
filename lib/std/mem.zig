@@ -1444,7 +1444,7 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
 
     // TODO I want to call writeIntLittle here but comptime eval facilities aren't good enough
     const uint = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
-    var bits = @truncate(uint, value);
+    var bits = @bitCast(uint, value);
     for (buffer) |*b| {
         b.* = @truncate(u8, bits);
         bits >>= 8;
@@ -1464,7 +1464,7 @@ pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
 
     // TODO I want to call writeIntBig here but comptime eval facilities aren't good enough
     const uint = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
-    var bits = @truncate(uint, value);
+    var bits = @bitCast(uint, value);
     var index: usize = buffer.len;
     while (index != 0) {
         index -= 1;
@@ -2027,6 +2027,30 @@ fn testWriteIntImpl() !void {
         0x00,
         0x00,
         0x00,
+    }));
+
+    writeIntSlice(i16, bytes[0..], @as(i16, -21555), Endian.Little);
+    try testing.expect(eql(u8, &bytes, &[_]u8{
+        0xCD,
+        0xAB,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+    }));
+
+    writeIntSlice(i16, bytes[0..], @as(i16, -21555), Endian.Big);
+    try testing.expect(eql(u8, &bytes, &[_]u8{
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0xAB,
+        0xCD,
     }));
 }
 
