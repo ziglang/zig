@@ -499,6 +499,8 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt/umodti3.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/start.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/std.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/sync/atomic.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/sync.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/target.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/target/aarch64.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/target/amdgpu.zig"
