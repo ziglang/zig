@@ -183,3 +183,9 @@ pub fn parseSymbols(self: *Dylib) !void {
         try self.symbols.putNoClobber(self.allocator, name, &proxy.base);
     }
 }
+
+pub fn isDylib(file: fs.File) !bool {
+    const header = try file.reader().readStruct(macho.mach_header_64);
+    try file.seekTo(0);
+    return header.filetype == macho.MH_DYLIB;
+}

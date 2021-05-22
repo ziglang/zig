@@ -187,7 +187,7 @@ pub fn closeFiles(self: Zld) void {
 }
 
 const LinkArgs = struct {
-    shared_libs: []const []const u8,
+    libs: []const []const u8,
     rpaths: []const []const u8,
 };
 
@@ -229,7 +229,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: L
     try self.populateMetadata();
     try self.addRpaths(args.rpaths);
     try self.parseInputFiles(files);
-    try self.parseDylibs(args.shared_libs);
+    try self.parseLibs(args.libs);
     try self.resolveSymbols();
     try self.resolveStubsAndGotEntries();
     try self.updateMetadata();
@@ -265,13 +265,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
         };
 
         try_object: {
-            const header = try file.reader().readStruct(macho.mach_header_64);
-            if (header.filetype != macho.MH_OBJECT) {
-                try file.seekTo(0);
-                break :try_object;
-            }
-
-            try file.seekTo(0);
+            if (!(try Object.isObject(file))) break :try_object;
             try classified.append(.{
                 .kind = .object,
                 .file = file,
@@ -281,13 +275,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
         }
 
         try_archive: {
-            const magic = try file.reader().readBytesNoEof(Archive.SARMAG);
-            if (!mem.eql(u8, &magic, Archive.ARMAG)) {
-                try file.seekTo(0);
-                break :try_archive;
-            }
-
-            try file.seekTo(0);
+            if (!(try Archive.isArchive(file))) break :try_archive;
             try classified.append(.{
                 .kind = .archive,
                 .file = file,
@@ -297,13 +285,7 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
         }
 
         try_dylib: {
-            const header = try file.reader().readStruct(macho.mach_header_64);
-            if (header.filetype != macho.MH_DYLIB) {
-                try file.seekTo(0);
-                break :try_dylib;
-            }
-
-            try file.seekTo(0);
+            if (!(try Dylib.isDylib(file))) break :try_dylib;
             try classified.append(.{
                 .kind = .dylib,
                 .file = file,
@@ -312,7 +294,8 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
             continue;
         }
 
-        log.debug("unexpected input file of unknown type '{s}'", .{file_name});
+        file.close();
+        log.warn("unknown filetype for positional input file: '{s}'", .{file_name});
     }
 
     // Based on our classification, proceed with parsing.
@@ -373,35 +356,52 @@ fn parseInputFiles(self: *Zld, files: []const []const u8) !void {
     }
 }
 
-fn parseDylibs(self: *Zld, shared_libs: []const []const u8) !void {
-    for (shared_libs) |lib| {
-        const dylib = try self.allocator.create(Dylib);
-        errdefer self.allocator.destroy(dylib);
+fn parseLibs(self: *Zld, libs: []const []const u8) !void {
+    for (libs) |lib| {
+        const file = try fs.cwd().openFile(lib, .{});
 
-        dylib.* = Dylib.init(self.allocator);
-        dylib.arch = self.arch.?;
-        dylib.name = try self.allocator.dupe(u8, lib);
-        dylib.file = try fs.cwd().openFile(lib, .{});
+        if (try Dylib.isDylib(file)) {
+            const dylib = try self.allocator.create(Dylib);
+            errdefer self.allocator.destroy(dylib);
 
-        const ordinal = @intCast(u16, self.dylibs.items.len);
-        dylib.ordinal = ordinal + 2; // TODO +2 since 1 is reserved for libSystem
+            dylib.* = Dylib.init(self.allocator);
+            dylib.arch = self.arch.?;
+            dylib.name = try self.allocator.dupe(u8, lib);
+            dylib.file = file;
 
-        // TODO Defer parsing of the dylibs until they are actually needed
-        try dylib.parse();
-        try self.dylibs.append(self.allocator, dylib);
+            const ordinal = @intCast(u16, self.dylibs.items.len);
+            dylib.ordinal = ordinal + 2; // TODO +2 since 1 is reserved for libSystem
 
-        // Add LC_LOAD_DYLIB command
-        const dylib_id = dylib.id orelse unreachable;
-        var dylib_cmd = try createLoadDylibCommand(
-            self.allocator,
-            dylib_id.name,
-            dylib_id.timestamp,
-            dylib_id.current_version,
-            dylib_id.compatibility_version,
-        );
-        errdefer dylib_cmd.deinit(self.allocator);
+            // TODO Defer parsing of the dylibs until they are actually needed
+            try dylib.parse();
+            try self.dylibs.append(self.allocator, dylib);
 
-        try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
+            // Add LC_LOAD_DYLIB command
+            const dylib_id = dylib.id orelse unreachable;
+            var dylib_cmd = try createLoadDylibCommand(
+                self.allocator,
+                dylib_id.name,
+                dylib_id.timestamp,
+                dylib_id.current_version,
+                dylib_id.compatibility_version,
+            );
+            errdefer dylib_cmd.deinit(self.allocator);
+
+            try self.load_commands.append(self.allocator, .{ .Dylib = dylib_cmd });
+        } else if (try Archive.isArchive(file)) {
+            const archive = try self.allocator.create(Archive);
+            errdefer self.allocator.destroy(archive);
+
+            archive.* = Archive.init(self.allocator);
+            archive.arch = self.arch.?;
+            archive.name = try self.allocator.dupe(u8, lib);
+            archive.file = file;
+            try archive.parse();
+            try self.archives.append(self.allocator, archive);
+        } else {
+            file.close();
+            log.warn("unknown filetype for a library: '{s}'", .{lib});
+        }
     }
 }
 

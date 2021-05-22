@@ -27,14 +27,14 @@ toc: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(u32)) = .{},
 // `struct ar_hdr', and as many bytes of member file data as its `ar_size'
 // member indicates, for each member file.
 /// String that begins an archive file.
-pub const ARMAG: *const [SARMAG:0]u8 = "!<arch>\n";
+const ARMAG: *const [SARMAG:0]u8 = "!<arch>\n";
 /// Size of that string.
-pub const SARMAG: u4 = 8;
+const SARMAG: u4 = 8;
 
 /// String in ar_fmag at the end of each header.
-pub const ARFMAG: *const [2:0]u8 = "`\n";
+const ARFMAG: *const [2:0]u8 = "`\n";
 
-pub const ar_hdr = extern struct {
+const ar_hdr = extern struct {
     /// Member file name, sometimes / terminated.
     ar_name: [16]u8,
 
@@ -60,7 +60,7 @@ pub const ar_hdr = extern struct {
         Name: []const u8,
         Length: u64,
     };
-    pub fn nameOrLength(self: ar_hdr) !NameOrLength {
+    fn nameOrLength(self: ar_hdr) !NameOrLength {
         const value = getValue(&self.ar_name);
         const slash_index = mem.indexOf(u8, value, "/") orelse return error.MalformedArchive;
         const len = value.len;
@@ -75,7 +75,7 @@ pub const ar_hdr = extern struct {
         }
     }
 
-    pub fn size(self: ar_hdr) !u64 {
+    fn size(self: ar_hdr) !u64 {
         const value = getValue(&self.ar_size);
         return std.fmt.parseInt(u64, value, 10);
     }
@@ -230,4 +230,10 @@ pub fn parseObject(self: Archive, offset: u32) !*Object {
     try reader.context.seekTo(0);
 
     return object;
+}
+
+pub fn isArchive(file: fs.File) !bool {
+    const magic = try file.reader().readBytesNoEof(Archive.SARMAG);
+    try file.seekTo(0);
+    return mem.eql(u8, &magic, Archive.ARMAG);
 }
