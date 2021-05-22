@@ -1107,7 +1107,9 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
 
     var i: usize = haystack_bytes.len - needle_bytes.len;
     while (true) {
-        if (mem.eql(u8, haystack_bytes[i .. i + needle_bytes.len], needle_bytes)) return i;
+        if (i % @sizeOf(T) == 0 and mem.eql(u8, haystack_bytes[i .. i + needle_bytes.len], needle_bytes)) {
+            return @divExact(i, @sizeOf(T));
+        }
         const skip = skip_table[haystack_bytes[i]];
         if (skip > i) break;
         i -= skip;
@@ -1132,7 +1134,9 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
 
     var i: usize = start_index * @sizeOf(T);
     while (i <= haystack_bytes.len - needle_bytes.len) {
-        if (mem.eql(u8, haystack_bytes[i .. i + needle_bytes.len], needle_bytes)) return i;
+        if (i % @sizeOf(T) == 0 and mem.eql(u8, haystack_bytes[i .. i + needle_bytes.len], needle_bytes)) {
+            return @divExact(i, @sizeOf(T));
+        }
         i += skip_table[haystack_bytes[i + needle_bytes.len - 1]];
     }
 
@@ -1162,6 +1166,34 @@ test "mem.indexOf" {
     try testing.expect(lastIndexOf(u8, "foo foo", "foo").? == 4);
     try testing.expect(lastIndexOfAny(u8, "boo, cat", "abo").? == 6);
     try testing.expect(lastIndexOfScalar(u8, "boo", 'o').? == 2);
+}
+
+test "mem.indexOf multibyte" {
+    {
+        // make haystack and needle long enough to trigger boyer-moore-horspool algorithm
+        const haystack = [1]u16{0} ** 100 ++ [_]u16 { 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff };
+        const needle = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee };
+        try testing.expectEqual(indexOfPos(u16, &haystack, 0, &needle), 100);
+
+        // check for misaligned false positives (little and big endian)
+        const needleLE = [_]u16{ 0xbbbb, 0xcccc, 0xdddd, 0xeeee, 0xffff };
+        try testing.expectEqual(indexOfPos(u16, &haystack, 0, &needleLE), null);
+        const needleBE = [_]u16{ 0xaacc, 0xbbdd, 0xccee, 0xddff, 0xee00 };
+        try testing.expectEqual(indexOfPos(u16, &haystack, 0, &needleBE), null);
+    }
+
+    {
+        // make haystack and needle long enough to trigger boyer-moore-horspool algorithm
+        const haystack = [_]u16 { 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff } ++ [1]u16{0} ** 100;
+        const needle = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee };
+        try testing.expectEqual(lastIndexOf(u16, &haystack, &needle), 0);
+
+        // check for misaligned false positives (little and big endian)
+        const needleLE = [_]u16{ 0xbbbb, 0xcccc, 0xdddd, 0xeeee, 0xffff };
+        try testing.expectEqual(lastIndexOf(u16, &haystack, &needleLE), null);
+        const needleBE = [_]u16{ 0xaacc, 0xbbdd, 0xccee, 0xddff, 0xee00 };
+        try testing.expectEqual(lastIndexOf(u16, &haystack, &needleBE), null);
+    }
 }
 
 /// Returns the number of needles inside the haystack
