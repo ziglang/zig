@@ -498,8 +498,8 @@ pub const Target = struct {
                 .netbsd,
                 .hurd,
                 .haiku,
-                => return .gnu,
                 .windows,
+                => return .gnu,
                 .uefi,
                 => return .msvc,
                 .linux,
@@ -1258,15 +1258,18 @@ pub const Target = struct {
         return linuxTripleSimple(allocator, self.cpu.arch, self.os.tag, self.abi);
     }
 
-    pub fn oFileExt_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
-        switch (abi) {
-            .msvc => return ".obj",
+    pub fn oFileExt_os_abi(os_tag: Os.Tag, abi: Abi) [:0]const u8 {
+        if (abi == .msvc) {
+            return ".obj";
+        }
+        switch (os_tag) {
+            .windows, .uefi => return ".obj",
             else => return ".o",
         }
     }
 
     pub fn oFileExt(self: Target) [:0]const u8 {
-        return oFileExt_cpu_arch_abi(self.cpu.arch, self.abi);
+        return oFileExt_os_abi(self.os.tag, self.abi);
     }
 
     pub fn exeFileExtSimple(cpu_arch: Cpu.Arch, os_tag: Os.Tag) [:0]const u8 {
@@ -1285,30 +1288,36 @@ pub const Target = struct {
         return exeFileExtSimple(self.cpu.arch, self.os.tag);
     }
 
-    pub fn staticLibSuffix_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
-        switch (abi) {
-            .msvc => return ".lib",
+    pub fn staticLibSuffix_os_abi(os_tag: Os.Tag, abi: Abi) [:0]const u8 {
+        if (abi == .msvc) {
+            return ".lib";
+        }
+        switch (os_tag) {
+            .windows, .uefi => return ".lib",
             else => return ".a",
         }
     }
 
     pub fn staticLibSuffix(self: Target) [:0]const u8 {
-        return staticLibSuffix_cpu_arch_abi(self.cpu.arch, self.abi);
+        return staticLibSuffix_os_abi(self.os.tag, self.abi);
     }
 
     pub fn dynamicLibSuffix(self: Target) [:0]const u8 {
         return self.os.tag.dynamicLibSuffix();
     }
 
-    pub fn libPrefix_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
-        switch (abi) {
-            .msvc => return "",
+    pub fn libPrefix_os_abi(os_tag: Os.Tag, abi: Abi) [:0]const u8 {
+        if (abi == .msvc) {
+            return "";
+        }
+        switch (os_tag) {
+            .windows, .uefi => return "",
             else => return "lib",
         }
     }
 
     pub fn libPrefix(self: Target) [:0]const u8 {
-        return libPrefix_cpu_arch_abi(self.cpu.arch, self.abi);
+        return libPrefix_os_abi(self.os.tag, self.abi);
     }
 
     pub fn getObjectFormatSimple(os_tag: Os.Tag, cpu_arch: Cpu.Arch) ObjectFormat {

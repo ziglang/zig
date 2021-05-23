@@ -1137,14 +1137,14 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
                         }
 
                         if (is_dyn_lib) {
-                            try argv.append(try comp.get_libc_crt_file(arena, "dllcrt2.o"));
+                            try argv.append(try comp.get_libc_crt_file(arena, "dllcrt2.obj"));
                             if (target.cpu.arch == .i386) {
                                 try argv.append("-ALTERNATENAME:__DllMainCRTStartup@12=_DllMainCRTStartup@12");
                             } else {
                                 try argv.append("-ALTERNATENAME:_DllMainCRTStartup=DllMainCRTStartup");
                             }
                         } else {
-                            try argv.append(try comp.get_libc_crt_file(arena, "crt2.o"));
+                            try argv.append(try comp.get_libc_crt_file(arena, "crt2.obj"));
                         }
 
                         try argv.append(try comp.get_libc_crt_file(arena, "mingw32.lib"));

@@ -3164,7 +3164,7 @@ fn detectLibCIncludeDirs(
 
     // If linking system libraries and targeting the native abi, default to
     // using the system libc installation.
-    if (link_system_libs and is_native_abi) {
+    if (link_system_libs and is_native_abi and !target.isMinGW()) {
         const libc = try arena.create(LibCInstallation);
         libc.* = try LibCInstallation.findNative(.{ .allocator = arena, .verbose = true });
         return detectLibCFromLibCInstallation(arena, target, libc);

@@ -66,7 +66,6 @@ const char *target_o_file_ext(const ZigTarget *target);
 const char *target_asm_file_ext(const ZigTarget *target);
 const char *target_llvm_ir_file_ext(const ZigTarget *target);
 
-bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target);
 ZigLLVM_OSType get_llvm_os_type(Os os_type);
 
 bool target_is_arm(const ZigTarget *target);
@@ -75,28 +74,14 @@ bool target_is_ppc(const ZigTarget *target);
 bool target_allows_addr_zero(const ZigTarget *target);
 bool target_has_valgrind_support(const ZigTarget *target);
 bool target_os_is_darwin(Os os);
-bool target_os_requires_libc(Os os);
-bool target_can_build_libc(const ZigTarget *target);
-const char *target_libc_generic_name(const ZigTarget *target);
-bool target_is_libc_lib_name(const ZigTarget *target, const char *name);
-bool target_is_libcpp_lib_name(const ZigTarget *target, const char *name);
-bool target_abi_is_gnu(ZigLLVM_EnvironmentType abi);
-bool target_abi_is_musl(ZigLLVM_EnvironmentType abi);
-bool target_is_glibc(const ZigTarget *target);
-bool target_is_musl(const ZigTarget *target);
 bool target_is_wasm(const ZigTarget *target);
 bool target_is_riscv(const ZigTarget *target);
 bool target_is_sparc(const ZigTarget *target);
 bool target_is_android(const ZigTarget *target);
 bool target_has_debug_info(const ZigTarget *target);
-const char *target_arch_musl_name(ZigLLVM_ArchType arch);
 
 uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch);
 uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch);
-
-size_t target_libc_count(void);
-void target_libc_enum(size_t index, ZigTarget *out_target);
-bool target_libc_needs_crti_crtn(const ZigTarget *target);
 
 unsigned target_fn_ptr_align(const ZigTarget *target);
 unsigned target_fn_align(const ZigTarget *target);
