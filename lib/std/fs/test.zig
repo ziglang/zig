@@ -932,3 +932,64 @@ test "walker" {
         try testing.expectEqualStrings(expected_dir_name, try fs.path.relative(allocator, tmp_path, entry.path));
     }
 }
+
+test ". and .. in fs.Dir functions" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makeDir("./subdir");
+    try tmp.dir.access("./subdir", .{});
+    var created_subdir = try tmp.dir.openDir("./subdir", .{});
+    created_subdir.close();
+
+    const created_file = try tmp.dir.createFile("./subdir/../file", .{});
+    created_file.close();
+    try tmp.dir.access("./subdir/../file", .{});
+
+    try tmp.dir.copyFile("./subdir/../file", tmp.dir, "./subdir/../copy", .{});
+    try tmp.dir.rename("./subdir/../copy", "./subdir/../rename");
+    const renamed_file = try tmp.dir.openFile("./subdir/../rename", .{});
+    renamed_file.close();
+    try tmp.dir.deleteFile("./subdir/../rename");
+
+    try tmp.dir.deleteDir("./subdir");
+}
+
+test ". and .. in absolute functions" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = &arena.allocator;
+
+    const base_path = blk: {
+        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+    };
+
+    const subdir_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "./subdir" });
+    try fs.makeDirAbsolute(subdir_path);
+    try fs.accessAbsolute(subdir_path, .{});
+    var created_subdir = try fs.openDirAbsolute(subdir_path, .{});
+    created_subdir.close();
+
+    const created_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../file" });
+    const created_file = try fs.createFileAbsolute(created_file_path, .{});
+    created_file.close();
+    try fs.accessAbsolute(created_file_path, .{});
+
+    const copied_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../copy" });
+    try fs.copyFileAbsolute(created_file_path, copied_file_path, .{});
+    const renamed_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../rename" });
+    try fs.renameAbsolute(copied_file_path, renamed_file_path);
+    const renamed_file = try fs.openFileAbsolute(renamed_file_path, .{});
+    renamed_file.close();
+    try fs.deleteFileAbsolute(renamed_file_path);
+
+    try fs.deleteDirAbsolute(subdir_path);
+}
