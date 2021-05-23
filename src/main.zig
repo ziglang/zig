@@ -2986,13 +2986,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
     defer fmt.out_buffer.deinit();
 
     for (input_files.items) |file_path| {
-        // Get the real path here to avoid Windows failing on relative file paths with . or .. in them.
-        const real_path = fs.realpathAlloc(gpa, file_path) catch |err| {
-            fatal("unable to open '{s}': {s}", .{ file_path, @errorName(err) });
-        };
-        defer gpa.free(real_path);
-
-        try fmtPath(&fmt, file_path, check_flag, fs.cwd(), real_path);
+        try fmtPath(&fmt, file_path, check_flag, fs.cwd(), file_path);
     }
     if (fmt.any_error) {
         process.exit(1);
