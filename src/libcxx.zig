@@ -129,6 +129,8 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
+        try cflags.append("-fvisibility=hidden");
+        try cflags.append("-fvisibility-inlines-hidden");
 
         if (target.abi.isMusl()) {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
@@ -144,7 +146,6 @@ pub fn buildLibCXX(comp: *Compilation) !void {
             try cflags.append("-fPIC");
         }
         try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
         try cflags.append("-std=c++14");
         try cflags.append("-Wno-user-defined-literals");
 
@@ -249,6 +250,8 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         try cflags.append("-D_LIBCXXABI_BUILDING_LIBRARY");
         try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
+        try cflags.append("-fvisibility=hidden");
+        try cflags.append("-fvisibility-inlines-hidden");
 
         if (target.abi.isMusl()) {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");

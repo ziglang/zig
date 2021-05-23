@@ -69,6 +69,8 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         }
         try cflags.append("-D_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-Wa,--noexecstack");
+        try cflags.append("-fvisibility=hidden");
+        try cflags.append("-fvisibility-inlines-hidden");
 
         // This is intentionally always defined because the macro definition means, should it only
         // build for the target specified by compiler defines. Since we pass -target the compiler
