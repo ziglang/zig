@@ -8,7 +8,6 @@ const build_options = @import("build_options");
 
 const is_darwin = Target.current.isDarwin();
 const is_windows = Target.current.os.tag == .windows;
-const is_gnu = Target.current.isGnu();
 const is_haiku = Target.current.os.tag == .haiku;
 
 const log = std.log.scoped(.libc_installation);
@@ -100,14 +99,14 @@ pub const LibCInstallation = struct {
             log.err("crt_dir may not be empty for {s}\n", .{@tagName(Target.current.os.tag)});
             return error.ParseError;
         }
-        if (self.msvc_lib_dir == null and is_windows and !is_gnu) {
+        if (self.msvc_lib_dir == null and is_windows) {
             log.err("msvc_lib_dir may not be empty for {s}-{s}\n", .{
                 @tagName(Target.current.os.tag),
                 @tagName(Target.current.abi),
             });
             return error.ParseError;
         }
-        if (self.kernel32_lib_dir == null and is_windows and !is_gnu) {
+        if (self.kernel32_lib_dir == null and is_windows) {
             log.err("kernel32_lib_dir may not be empty for {s}-{s}\n", .{
                 @tagName(Target.current.os.tag),
                 @tagName(Target.current.abi),
