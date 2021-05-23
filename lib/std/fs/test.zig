@@ -954,6 +954,10 @@ test ". and .. in fs.Dir functions" {
     renamed_file.close();
     try tmp.dir.deleteFile("./subdir/../rename");
 
+    try tmp.dir.writeFile("./subdir/../update", "something");
+    const prev_status = try tmp.dir.updateFile("./subdir/../file", tmp.dir, "./subdir/../update", .{});
+    try testing.expectEqual(fs.PrevStatus.stale, prev_status);
+
     try tmp.dir.deleteDir("./subdir");
 }
 
@@ -990,6 +994,13 @@ test ". and .. in absolute functions" {
     const renamed_file = try fs.openFileAbsolute(renamed_file_path, .{});
     renamed_file.close();
     try fs.deleteFileAbsolute(renamed_file_path);
+
+    const update_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../update" });
+    const update_file = try fs.createFileAbsolute(update_file_path, .{});
+    try update_file.writeAll("something");
+    update_file.close();
+    const prev_status = try fs.updateFileAbsolute(created_file_path, update_file_path, .{});
+    try testing.expectEqual(fs.PrevStatus.stale, prev_status);
 
     try fs.deleteDirAbsolute(subdir_path);
 }
