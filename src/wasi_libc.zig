@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const target_util = @import("target.zig");
+const musl = @import("musl.zig");
 
 pub fn buildWasiLibcSysroot(comp: *Compilation) !void {
     if (!build_options.have_llvm) {
@@ -226,7 +227,7 @@ fn addCCArgs(
     want_O3: bool,
 ) error{OutOfMemory}!void {
     const target = comp.getTarget();
-    const arch_name = target_util.archMuslName(target.cpu.arch);
+    const arch_name = musl.archName(target.cpu.arch);
     const os_name = @tagName(target.os.tag);
     const triple = try std.fmt.allocPrint(arena, "{s}-{s}-musl", .{ arch_name, os_name });
     const o_arg = if (want_O3) "-O3" else "-Os";

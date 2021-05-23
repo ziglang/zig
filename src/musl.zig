@@ -108,7 +108,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             // When there is a src/<arch>/foo.* then it should substitute for src/foo.*
             // Even a .s file can substitute for a .c file.
             const target = comp.getTarget();
-            const arch_name = archMuslName(target.cpu.arch);
+            const arch_name = archName(target.cpu.arch);
             var source_table = std.StringArrayHashMap(Ext).init(comp.gpa);
             defer source_table.deinit();
 
@@ -248,7 +248,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     }
 }
 
-pub fn archMuslName(arch: std.Target.Cpu.Arch) [:0]const u8 {
+pub fn archName(arch: std.Target.Cpu.Arch) [:0]const u8 {
     switch (arch) {
         .aarch64, .aarch64_be => return "aarch64",
         .arm, .armeb, .thumb, .thumbeb => return "arm",
@@ -350,7 +350,7 @@ fn addCcArgs(
     want_O3: bool,
 ) error{OutOfMemory}!void {
     const target = comp.getTarget();
-    const arch_name = archMuslName(target.cpu.arch);
+    const arch_name = archName(target.cpu.arch);
     const os_name = @tagName(target.os.tag);
     const triple = try std.fmt.allocPrint(arena, "{s}-{s}-musl", .{ arch_name, os_name });
     const o_arg = if (want_O3) "-O3" else "-Os";
@@ -398,7 +398,7 @@ fn addCcArgs(
 fn start_asm_path(comp: *Compilation, arena: *Allocator, basename: []const u8) ![]const u8 {
     const target = comp.getTarget();
     return comp.zig_lib_directory.join(arena, &[_][]const u8{
-        "libc", "musl", "crt", archMuslName(target.cpu.arch), basename,
+        "libc", "musl", "crt", archName(target.cpu.arch), basename,
     });
 }
 
