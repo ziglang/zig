@@ -523,7 +523,7 @@ pub const CCPrintFileNameOptions = struct {
 };
 
 /// caller owns returned memory
-pub fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
+fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     const allocator = args.allocator;
 
     const cc_exe = std.os.getenvZ("CC") orelse default_cc_exe;
