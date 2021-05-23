@@ -357,16 +357,18 @@ pub const AllErrors = struct {
                     ttyconf.setColor(stderr, .Bold);
                     try stderr.print(" {s}\n", .{src.msg});
                     ttyconf.setColor(stderr, .Reset);
-                    if (src.source_line) |line| {
-                        for (line) |b| switch (b) {
-                            '\t' => try stderr.writeByte(' '),
-                            else => try stderr.writeByte(b),
-                        };
-                        try stderr.writeByte('\n');
-                        try stderr.writeByteNTimes(' ', src.column);
-                        ttyconf.setColor(stderr, .Green);
-                        try stderr.writeAll("^\n");
-                        ttyconf.setColor(stderr, .Reset);
+                    if (ttyconf != .no_color) {
+                        if (src.source_line) |line| {
+                            for (line) |b| switch (b) {
+                                '\t' => try stderr.writeByte(' '),
+                                else => try stderr.writeByte(b),
+                            };
+                            try stderr.writeByte('\n');
+                            try stderr.writeByteNTimes(' ', src.column);
+                            ttyconf.setColor(stderr, .Green);
+                            try stderr.writeAll("^\n");
+                            ttyconf.setColor(stderr, .Reset);
+                        }
                     }
                     for (src.notes) |note| {
                         try note.renderToStdErrInner(ttyconf, stderr_file, "note:", .Cyan, indent);
