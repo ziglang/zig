@@ -2689,6 +2689,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
 fn renderMacroFunc(c: *Context, node: Node) !NodeIndex {
     const payload = node.castTag(.pub_inline_fn).?.data;
     _ = try c.addToken(.keyword_pub, "pub");
+    _ = try c.addToken(.keyword_inline, "inline");
     const fn_token = try c.addToken(.keyword_fn, "fn");
     _ = try c.addIdentifier(payload.name);
 
@@ -2697,50 +2698,31 @@ fn renderMacroFunc(c: *Context, node: Node) !NodeIndex {
     var span: NodeSubRange = undefined;
     if (params.items.len > 1) span = try c.listToSpan(params.items);
 
-    const callconv_expr = blk: {
-        _ = try c.addToken(.keyword_callconv, "callconv");
-        _ = try c.addToken(.l_paren, "(");
-        _ = try c.addToken(.period, ".");
-        const res = try c.addNode(.{
-            .tag = .enum_literal,
-            .main_token = try c.addToken(.identifier, "Inline"),
-            .data = undefined,
-        });
-        _ = try c.addToken(.r_paren, ")");
-        break :blk res;
-    };
     const return_type_expr = try renderNodeGrouped(c, payload.return_type);
 
-    const fn_proto = try blk: {
-        if (params.items.len < 2)
-            break :blk c.addNode(.{
-                .tag = .fn_proto_one,
+    const fn_proto = blk: {
+        if (params.items.len < 2) {
+            break :blk try c.addNode(.{
+                .tag = .fn_proto_simple,
                 .main_token = fn_token,
                 .data = .{
-                    .lhs = try c.addExtra(std.zig.ast.Node.FnProtoOne{
-                        .param = params.items[0],
-                        .align_expr = 0,
-                        .section_expr = 0,
-                        .callconv_expr = callconv_expr,
-                    }),
+                    .lhs = params.items[0],
                     .rhs = return_type_expr,
                 },
-            })
-        else
-            break :blk c.addNode(.{
-                .tag = .fn_proto,
+            });
+        } else {
+            break :blk try c.addNode(.{
+                .tag = .fn_proto_multi,
                 .main_token = fn_token,
                 .data = .{
-                    .lhs = try c.addExtra(std.zig.ast.Node.FnProto{
-                        .params_start = span.start,
-                        .params_end = span.end,
-                        .align_expr = 0,
-                        .section_expr = 0,
-                        .callconv_expr = callconv_expr,
+                    .lhs = try c.addExtra(std.zig.ast.Node.SubRange{
+                        .start = span.start,
+                        .end = span.end,
                     }),
                     .rhs = return_type_expr,
                 },
             });
+        }
     };
     return c.addNode(.{
         .tag = .fn_decl,

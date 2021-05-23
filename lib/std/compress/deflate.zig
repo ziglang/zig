@@ -209,7 +209,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
 
             // Insert a single byte into the window.
             // Assumes there's enough space.
-            fn appendUnsafe(self: *WSelf, value: u8) callconv(.Inline) void {
+            inline fn appendUnsafe(self: *WSelf, value: u8) void {
                 self.buf[self.wi] = value;
                 self.wi = (self.wi + 1) & (self.buf.len - 1);
                 self.el += 1;

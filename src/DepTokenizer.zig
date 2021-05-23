@@ -275,10 +275,7 @@ fn errorIllegalChar(comptime id: std.meta.Tag(Token), index: usize, char: u8) To
 }
 
 fn finishTarget(must_resolve: bool, bytes: []const u8) Token {
-    return if (must_resolve)
-        .{ .target_must_resolve = bytes }
-    else
-        .{ .target = bytes };
+    return if (must_resolve) .{ .target_must_resolve = bytes } else .{ .target = bytes };
 }
 
 const State = enum {

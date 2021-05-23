@@ -6,7 +6,7 @@
 const std = @import("std");
 const builtin = std.builtin;
 
-fn offsetPtr(ptr: [*]const u8, offset: usize) callconv(.Inline) [*]const u8 {
+inline fn offsetPtr(ptr: [*]const u8, offset: usize) [*]const u8 {
     // ptr + offset doesn't work at comptime so we need this instead.
     return @ptrCast([*]const u8, &ptr[offset]);
 }

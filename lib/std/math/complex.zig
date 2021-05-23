@@ -38,7 +38,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Imaginary part.
         im: T,
-        
+
         /// Deprecated, use init()
         pub const new = init;
 

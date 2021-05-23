@@ -102,7 +102,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize) type {
             };
         }
 
-        fn chacha20Core(x: *BlockVec, input: BlockVec) callconv(.Inline) void {
+        inline fn chacha20Core(x: *BlockVec, input: BlockVec) void {
             x.* = input;
 
             var r: usize = 0;
@@ -147,7 +147,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize) type {
             }
         }
 
-        fn hashToBytes(out: *[64]u8, x: BlockVec) callconv(.Inline) void {
+        inline fn hashToBytes(out: *[64]u8, x: BlockVec) void {
             var i: usize = 0;
             while (i < 4) : (i += 1) {
                 mem.writeIntLittle(u32, out[16 * i + 0 ..][0..4], x[i][0]);
@@ -157,7 +157,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize) type {
             }
         }
 
-        fn contextFeedback(x: *BlockVec, ctx: BlockVec) callconv(.Inline) void {
+        inline fn contextFeedback(x: *BlockVec, ctx: BlockVec) void {
             x[0] +%= ctx[0];
             x[1] +%= ctx[1];
             x[2] +%= ctx[2];
@@ -259,7 +259,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             };
         }
 
-        fn chacha20Core(x: *BlockVec, input: BlockVec) callconv(.Inline) void {
+        inline fn chacha20Core(x: *BlockVec, input: BlockVec) void {
             x.* = input;
 
             const rounds = comptime [_]QuarterRound{
@@ -288,7 +288,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             }
         }
 
-        fn hashToBytes(out: *[64]u8, x: BlockVec) callconv(.Inline) void {
+        inline fn hashToBytes(out: *[64]u8, x: BlockVec) void {
             var i: usize = 0;
             while (i < 4) : (i += 1) {
                 mem.writeIntLittle(u32, out[16 * i + 0 ..][0..4], x[i * 4 + 0]);
@@ -298,7 +298,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             }
         }
 
-        fn contextFeedback(x: *BlockVec, ctx: BlockVec) callconv(.Inline) void {
+        inline fn contextFeedback(x: *BlockVec, ctx: BlockVec) void {
             var i: usize = 0;
             while (i < 16) : (i += 1) {
                 x[i] +%= ctx[i];

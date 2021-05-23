@@ -68,7 +68,7 @@ else switch (std.Target.current.os.tag) {
 };
 
 /// Signals the processor that it is inside a busy-wait spin-loop ("spin lock").
-pub fn spinLoopHint() callconv(.Inline) void {
+pub inline fn spinLoopHint() void {
     switch (std.Target.current.cpu.arch) {
         .i386, .x86_64 => {
             asm volatile ("pause" ::: "memory");

@@ -31,7 +31,7 @@ pub const Ctx = if (enable) ___tracy_c_zone_context else struct {
     pub fn end(self: Ctx) void {}
 };
 
-pub fn trace(comptime src: std.builtin.SourceLocation) callconv(.Inline) Ctx {
+pub inline fn trace(comptime src: std.builtin.SourceLocation) Ctx {
     if (!enable) return .{};
 
     const loc: ___tracy_source_location_data = .{

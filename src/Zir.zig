@@ -1687,6 +1687,8 @@ pub const Inst = struct {
         one_usize,
         /// `std.builtin.CallingConvention.C`
         calling_convention_c,
+        /// `std.builtin.CallingConvention.Inline`
+        calling_convention_inline,
 
         _,
 
@@ -1954,6 +1956,10 @@ pub const Inst = struct {
                 .ty = Type.initTag(.calling_convention),
                 .val = .{ .ptr_otherwise = &calling_convention_c_payload.base },
             },
+            .calling_convention_inline = .{
+                .ty = Type.initTag(.calling_convention),
+                .val = .{ .ptr_otherwise = &calling_convention_inline_payload.base },
+            },
         });
     };
 
@@ -1962,6 +1968,13 @@ pub const Inst = struct {
     var calling_convention_c_payload: Value.Payload.U32 = .{
         .base = .{ .tag = .enum_field_index },
         .data = @enumToInt(std.builtin.CallingConvention.C),
+    };
+
+    /// We would like this to be const but `Value` wants a mutable pointer for
+    /// its payload field. Nothing should mutate this though.
+    var calling_convention_inline_payload: Value.Payload.U32 = .{
+        .base = .{ .tag = .enum_field_index },
+        .data = @enumToInt(std.builtin.CallingConvention.Inline),
     };
 
     /// All instructions have an 8-byte payload, which is contained within

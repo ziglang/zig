@@ -48,7 +48,7 @@ pub fn reduce64(s: [64]u8) [32]u8 {
 
 /// Perform the X25519 "clamping" operation.
 /// The scalar is then guaranteed to be a multiple of the cofactor.
-pub fn clamp(s: *[32]u8) callconv(.Inline) void {
+pub inline fn clamp(s: *[32]u8) void {
     s[0] &= 248;
     s[31] = (s[31] & 127) | 64;
 }

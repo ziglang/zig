@@ -996,7 +996,7 @@ fn fnProtoExpr(
     const token_tags = tree.tokens.items(.tag);
 
     const is_extern = blk: {
-        const maybe_extern_token = fn_proto.extern_export_token orelse break :blk false;
+        const maybe_extern_token = fn_proto.extern_export_inline_token orelse break :blk false;
         break :blk token_tags[maybe_extern_token] == .keyword_extern;
     };
     assert(!is_extern);
@@ -2743,14 +2743,19 @@ fn fnDecl(
     };
     defer decl_gz.instructions.deinit(gpa);
 
+    // TODO: support noinline
     const is_pub = fn_proto.visib_token != null;
     const is_export = blk: {
-        const maybe_export_token = fn_proto.extern_export_token orelse break :blk false;
+        const maybe_export_token = fn_proto.extern_export_inline_token orelse break :blk false;
         break :blk token_tags[maybe_export_token] == .keyword_export;
     };
     const is_extern = blk: {
-        const maybe_extern_token = fn_proto.extern_export_token orelse break :blk false;
+        const maybe_extern_token = fn_proto.extern_export_inline_token orelse break :blk false;
         break :blk token_tags[maybe_extern_token] == .keyword_extern;
+    };
+    const has_inline_keyword = blk: {
+        const maybe_inline_token = fn_proto.extern_export_inline_token orelse break :blk false;
+        break :blk token_tags[maybe_inline_token] == .keyword_inline;
     };
     const align_inst: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
         break :inst try expr(&decl_gz, &decl_gz.base, align_rl, fn_proto.ast.align_expr);
@@ -2820,17 +2825,30 @@ fn fnDecl(
         fn_proto.ast.return_type,
     );
 
-    const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
-        try AstGen.expr(
-            &decl_gz,
-            &decl_gz.base,
-            .{ .ty = .calling_convention_type },
-            fn_proto.ast.callconv_expr,
-        )
-    else if (is_extern) // note: https://github.com/ziglang/zig/issues/5269
-        Zir.Inst.Ref.calling_convention_c
-    else
-        Zir.Inst.Ref.none;
+    const cc: Zir.Inst.Ref = blk: {
+        if (fn_proto.ast.callconv_expr != 0) {
+            if (has_inline_keyword) {
+                return astgen.failNode(
+                    fn_proto.ast.callconv_expr,
+                    "explicit callconv incompatible with inline keyword",
+                    .{},
+                );
+            }
+            break :blk try AstGen.expr(
+                &decl_gz,
+                &decl_gz.base,
+                .{ .ty = .calling_convention_type },
+                fn_proto.ast.callconv_expr,
+            );
+        } else if (is_extern) {
+            // note: https://github.com/ziglang/zig/issues/5269
+            break :blk .calling_convention_c;
+        } else if (has_inline_keyword) {
+            break :blk .calling_convention_inline;
+        } else {
+            break :blk .none;
+        }
+    };
 
     const func_inst: Zir.Inst.Ref = if (body_node == 0) func: {
         if (!is_extern) {

@@ -459,7 +459,8 @@ pub const Tree = struct {
                         .keyword_extern,
                         .keyword_export,
                         .keyword_pub,
-                        .keyword_threadlocal,
+                        .keyword_inline,
+                        .keyword_noinline,
                         .string_literal,
                         => continue,
 
@@ -1833,7 +1834,7 @@ pub const Tree = struct {
         var result: full.FnProto = .{
             .ast = info,
             .visib_token = null,
-            .extern_export_token = null,
+            .extern_export_inline_token = null,
             .lib_name = null,
             .name_token = null,
             .lparen = undefined,
@@ -1842,7 +1843,11 @@ pub const Tree = struct {
         while (i > 0) {
             i -= 1;
             switch (token_tags[i]) {
-                .keyword_extern, .keyword_export => result.extern_export_token = i,
+                .keyword_extern,
+                .keyword_export,
+                .keyword_inline,
+                .keyword_noinline,
+                => result.extern_export_inline_token = i,
                 .keyword_pub => result.visib_token = i,
                 .string_literal => result.lib_name = i,
                 else => break,
@@ -2123,7 +2128,7 @@ pub const full = struct {
 
     pub const FnProto = struct {
         visib_token: ?TokenIndex,
-        extern_export_token: ?TokenIndex,
+        extern_export_inline_token: ?TokenIndex,
         lib_name: ?TokenIndex,
         name_token: ?TokenIndex,
         lparen: TokenIndex,

@@ -41,7 +41,7 @@ const Salsa20VecImpl = struct {
         };
     }
 
-    fn salsa20Core(x: *BlockVec, input: BlockVec, comptime feedback: bool) callconv(.Inline) void {
+    inline fn salsa20Core(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
         const n1n2n3n0 = Lane{ input[3][1], input[3][2], input[3][3], input[3][0] };
         const n1n2 = Half{ n1n2n3n0[0], n1n2n3n0[1] };
         const n3n0 = Half{ n1n2n3n0[2], n1n2n3n0[3] };
@@ -215,7 +215,7 @@ const Salsa20NonVecImpl = struct {
         d: u6,
     };
 
-    fn Rp(a: usize, b: usize, c: usize, d: u6) callconv(.Inline) QuarterRound {
+    inline fn Rp(a: usize, b: usize, c: usize, d: u6) QuarterRound {
         return QuarterRound{
             .a = a,
             .b = b,
@@ -224,7 +224,7 @@ const Salsa20NonVecImpl = struct {
         };
     }
 
-    fn salsa20Core(x: *BlockVec, input: BlockVec, comptime feedback: bool) callconv(.Inline) void {
+    inline fn salsa20Core(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
         const arx_steps = comptime [_]QuarterRound{
             Rp(4, 0, 12, 7),   Rp(8, 4, 0, 9),    Rp(12, 8, 4, 13),   Rp(0, 12, 8, 18),
             Rp(9, 5, 1, 7),    Rp(13, 9, 5, 9),   Rp(1, 13, 9, 13),   Rp(5, 1, 13, 18),

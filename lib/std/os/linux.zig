@@ -145,7 +145,7 @@ pub fn fork() usize {
 /// It is advised to avoid this function and use clone instead, because
 /// the compiler is not aware of how vfork affects control flow and you may
 /// see different results in optimized builds.
-pub fn vfork() callconv(.Inline) usize {
+pub inline fn vfork() usize {
     return @call(.{ .modifier = .always_inline }, syscall0, .{.vfork});
 }
 
