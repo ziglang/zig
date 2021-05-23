@@ -2943,28 +2943,24 @@ pub fn addCCArgs(
                 try argv.append("-fPIC");
             }
         },
-        .shared_library, .ll, .bc, .unknown, .static_library, .object, .zig => {},
-        .assembly => {
-            // Argh, why doesn't the assembler accept the list of CPU features?!
-            // I don't see a way to do this other than hard coding everything.
-            switch (target.cpu.arch) {
-                .riscv32, .riscv64 => {
-                    if (std.Target.riscv.featureSetHas(target.cpu.features, .relax)) {
-                        try argv.append("-mrelax");
-                    } else {
-                        try argv.append("-mno-relax");
-                    }
-                },
-                else => {
-                    // TODO
-                },
-            }
-            if (target.cpu.model.llvm_name) |ln|
-                try argv.append(try std.fmt.allocPrint(arena, "-mcpu={s}", .{ln}));
-        },
+        .shared_library, .assembly, .ll, .bc, .unknown, .static_library, .object, .zig => {},
     }
     if (out_dep_path) |p| {
         try argv.appendSlice(&[_][]const u8{ "-MD", "-MV", "-MF", p });
+    }
+    // Argh, why doesn't the assembler accept the list of CPU features?!
+    // I don't see a way to do this other than hard coding everything.
+    switch (target.cpu.arch) {
+        .riscv32, .riscv64 => {
+            if (std.Target.riscv.featureSetHas(target.cpu.features, .relax)) {
+                try argv.append("-mrelax");
+            } else {
+                try argv.append("-mno-relax");
+            }
+        },
+        else => {
+            // TODO
+        },
     }
 
     if (target_util.clangMightShellOutForAssembly(target)) {
