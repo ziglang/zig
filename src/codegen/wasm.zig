@@ -580,7 +580,7 @@ pub const Context = struct {
             .Pointer,
             .ErrorSet,
             => wasm.Valtype.i32,
-            .Struct, .ErrorUnion => unreachable, // Multi typed, must be handled individually by genAlloc().
+            .Struct, .ErrorUnion => unreachable, // Multi typed, must be handled individually.
             else => self.fail(src, "TODO - Wasm valtype for type '{s}'", .{ty.zigTypeTag()}),
         };
     }
@@ -614,6 +614,55 @@ pub const Context = struct {
         }
     }
 
+    /// Creates one or multiple locals for a given `Type`.
+    /// Returns a corresponding `Wvalue` that can either be of tag
+    /// local or multi_value
+    fn allocLocal(self: *Context, ty: Type) InnerError!WValue {
+        const initial_index = self.local_index;
+        switch (ty.zigTypeTag()) {
+            .Struct => {
+                // for each struct field, generate a local
+                const struct_data: *Module.Struct = ty.castTag(.@"struct").?.data;
+                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + struct_data.fields.count());
+                for (struct_data.fields.items()) |entry| {
+                    const val_type = try self.genValtype(
+                        .{ .node_offset = struct_data.node_offset },
+                        entry.value.ty,
+                    );
+                    self.locals.appendAssumeCapacity(val_type);
+                    self.local_index += 1;
+                }
+                return WValue{ .multi_value = .{
+                    .index = initial_index,
+                    .count = @intCast(u32, struct_data.fields.count()),
+                } };
+            },
+            .ErrorUnion => {
+                // generate a local for both the error and the payload.
+                const payload_type = ty.errorUnionChild();
+
+                // we emit the payload value as the first local, and the error as the second
+                // The first local is also used to find the index of the error.
+                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + 2);
+                const val_type = try self.genValtype(.{ .node_offset = 0 }, payload_type);
+                self.locals.appendAssumeCapacity(val_type);
+                self.locals.appendAssumeCapacity(wasm.valtype(.i32)); // error values are always i32
+                self.local_index += 2;
+
+                return WValue{ .multi_value = .{
+                    .index = initial_index,
+                    .count = 2,
+                } };
+            },
+            else => {
+                const valtype = try self.genValtype(.{ .node_offset = 0 }, ty);
+                try self.locals.append(self.gpa, valtype);
+                self.local_index += 1;
+                return WValue{ .local = initial_index };
+            },
+        }
+    }
+
     fn genFunctype(self: *Context) InnerError!void {
         assert(self.decl.has_tv);
         const ty = self.decl.ty;
@@ -636,8 +685,19 @@ pub const Context = struct {
 
         // return type
         const return_type = ty.fnReturnType();
-        switch (return_type.tag()) {
-            .void, .noreturn => try leb.writeULEB128(writer, @as(u32, 0)),
+        switch (return_type.zigTypeTag()) {
+            .Void, .NoReturn => try leb.writeULEB128(writer, @as(u32, 0)),
+            .Struct => return self.fail(.{ .node_offset = 0 }, "TODO: Implement struct as return type for wasm", .{}),
+            .Optional => return self.fail(.{ .node_offset = 0 }, "TODO: Implement optionals as return type for wasm", .{}),
+            .ErrorUnion => {
+                try leb.writeULEB128(writer, @as(u32, 2));
+                const val_type = try self.genValtype(
+                    .{ .node_offset = 0 },
+                    return_type.errorUnionChild(),
+                );
+                try writer.writeByte(val_type);
+                try writer.writeByte(wasm.valtype(.i32)); // error code is always an i32 integer.
+            },
             else => |ret_type| {
                 try leb.writeULEB128(writer, @as(u32, 1));
                 // Can we maybe get the source index of the return type?
@@ -763,6 +823,7 @@ pub const Context = struct {
             .switchbr => self.genSwitchBr(inst.castTag(.switchbr).?),
             .unreach => self.genUnreachable(inst.castTag(.unreach).?),
             .unwrap_errunion_payload => self.genUnwrapErrUnionPayload(inst.castTag(.unwrap_errunion_payload).?),
+            .wrap_errunion_payload => self.genWrapErrUnionPayload(inst.castTag(.wrap_errunion_payload).?),
             .xor => self.genBinOp(inst.castTag(.xor).?, .xor),
             else => self.fail(.{ .node_offset = 0 }, "TODO: Implement wasm inst: {s}", .{inst.tag}),
         };
@@ -787,7 +848,7 @@ pub const Context = struct {
         const func_inst = inst.func.castTag(.constant).?;
         const func_val = inst.func.value().?;
 
-        const target = blk: {
+        const target: *Decl = blk: {
             if (func_val.castTag(.function)) |func| {
                 break :blk func.data.owner_decl;
             } else if (func_val.castTag(.extern_fn)) |ext_fn| {
@@ -815,50 +876,7 @@ pub const Context = struct {
 
     fn genAlloc(self: *Context, inst: *Inst.NoOp) InnerError!WValue {
         const elem_type = inst.base.ty.elemType();
-        const initial_index = self.local_index;
-
-        switch (elem_type.zigTypeTag()) {
-            .Struct => {
-                // for each struct field, generate a local
-                const struct_data: *Module.Struct = elem_type.castTag(.@"struct").?.data;
-                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + struct_data.fields.count());
-                for (struct_data.fields.items()) |entry| {
-                    const val_type = try self.genValtype(
-                        .{ .node_offset = struct_data.node_offset },
-                        entry.value.ty,
-                    );
-                    self.locals.appendAssumeCapacity(val_type);
-                    self.local_index += 1;
-                }
-                return WValue{ .multi_value = .{
-                    .index = initial_index,
-                    .count = @intCast(u32, struct_data.fields.count()),
-                } };
-            },
-            .ErrorUnion => {
-                // generate a local for both the error and the payload.
-                const payload_type = elem_type.errorUnionChild();
-
-                // we emit the payload value as the first local, and the error as the second
-                // The first local is also used to find the index of the error.
-                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + 2);
-                const val_type = try self.genValtype(.{ .node_offset = 0 }, payload_type);
-                self.locals.appendAssumeCapacity(val_type);
-                self.locals.appendAssumeCapacity(wasm.valtype(.i32)); // error values are always i32
-                self.local_index += 2;
-
-                return WValue{ .multi_value = .{
-                    .index = initial_index,
-                    .count = 2,
-                } };
-            },
-            else => {
-                const valtype = try self.genValtype(inst.base.src, elem_type);
-                try self.locals.append(self.gpa, valtype);
-                self.local_index += 1;
-                return WValue{ .local = initial_index };
-            },
-        }
+        return self.allocLocal(elem_type);
     }
 
     fn genStore(self: *Context, inst: *Inst.BinOp) InnerError!WValue {
@@ -867,21 +885,6 @@ pub const Context = struct {
         const lhs = self.resolveInst(inst.lhs);
         const rhs = self.resolveInst(inst.rhs);
 
-        // switch (lhs) {
-        //     // When assigning a value to a multi_value such as a struct,
-        //     // we simply assign the local_index to the rhs one.
-        //     // This allows us to update struct fields without having to individually
-        //     // set each local as each field's index will be calculated off the struct's base index
-        //     .multi_value => self.values.put(self.gpa, inst.lhs, rhs) catch unreachable, // Instruction does not dominate all uses!
-        //     .local => |local| {
-        //         try self.emitWValue(rhs);
-        //         try writer.writeByte(wasm.opcode(.local_set));
-        //         try leb.writeULEB128(writer, lhs.local);
-        //     },
-        //     else => unreachable,
-        // }
-        // return .none;
-
         switch (lhs) {
             .multi_value => |multi_value| switch (rhs) {
                 // When assigning a value to a multi_value such as a struct,
@@ -889,8 +892,8 @@ pub const Context = struct {
                 // This allows us to update struct fields without having to individually
                 // set each local as each field's index will be calculated off the struct's base index
                 .multi_value => self.values.put(self.gpa, inst.lhs, rhs) catch unreachable, // Instruction does not dominate all uses!
-                .constant => {
-                    // emit all values onto the stack
+                .constant, .none => {
+                    // emit all values onto the stack if constant
                     try self.emitWValue(rhs);
 
                     // for each local, pop the stack value into the local
@@ -1037,8 +1040,14 @@ pub const Context = struct {
                 const payload_type = ty.errorUnionChild();
                 if (value.getError()) |_| {
                     // no payload, so write a '0' const
-                    try writer.writeByte(wasm.opcode(.i32_const));
+                    const opcode: wasm.Opcode = buildOpcode(.{
+                        .op = .@"const",
+                        .valtype1 = try self.typeToValtype(src, payload_type),
+                    });
+                    try writer.writeByte(wasm.opcode(opcode));
                     try leb.writeULEB128(writer, @as(u32, 0));
+
+                    // write the error value
                     try self.emitConstant(src, data, error_type);
                 } else {
                     // payload first
@@ -1286,5 +1295,9 @@ pub const Context = struct {
         const operand = self.resolveInst(inst.operand);
         // payload's local index is that of its multi_value index, so convert it to a `WValue.local`
         return WValue{ .local = operand.multi_value.index };
+    }
+
+    fn genWrapErrUnionPayload(self: *Context, inst: *Inst.UnOp) InnerError!WValue {
+        return self.resolveInst(inst.operand);
     }
 };
