@@ -113,6 +113,8 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,
         .want_pie = comp.bin_file.options.pie,
+        .want_lto = comp.bin_file.options.lto,
+        .function_sections = comp.bin_file.options.function_sections,
         .emit_h = null,
         .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
