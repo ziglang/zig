@@ -30,4 +30,5 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     if (std.Target.current.cpu.arch == .x86_64) { // TODO add C ABI support for other architectures
         cases.addBuildFile("test/stage1/c_abi/build.zig", .{});
     }
+    cases.addBuildFile("test/standalone/c_compiler/build.zig", .{ .build_modes = true, .cross_targets = true });
 }
