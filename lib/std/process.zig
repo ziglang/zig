@@ -800,7 +800,10 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
 }
 
 /// Tells whether calling the `execv` or `execve` functions will be a compile error.
-pub const can_execv = std.builtin.os.tag != .windows;
+pub const can_execv = switch (builtin.os.tag) {
+    .windows, .haiku => false,
+    else => true,
+};
 
 pub const ExecvError = std.os.ExecveError || error{OutOfMemory};
 

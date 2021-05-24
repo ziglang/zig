@@ -1686,7 +1686,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             };
         }
     },
-    .linux, .netbsd, .freebsd, .dragonfly, .openbsd => struct {
+    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,
