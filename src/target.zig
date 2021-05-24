@@ -389,3 +389,12 @@ pub fn clangMightShellOutForAssembly(target: std.Target) bool {
     // when targeting a non-BSD OS.
     return target.cpu.arch.isSPARC();
 }
+
+/// Each backend architecture in Clang has a different codepath which may or may not
+/// support an -mcpu flag.
+pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => true,
+        else => false,
+    };
+}

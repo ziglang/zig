@@ -2943,26 +2943,38 @@ pub fn addCCArgs(
                 try argv.append("-fPIC");
             }
         },
-        .shared_library, .assembly, .ll, .bc, .unknown, .static_library, .object, .zig => {},
+        .shared_library, .ll, .bc, .unknown, .static_library, .object, .zig => {},
+        .assembly => {
+            // The Clang assembler does not accept the list of CPU features like the
+            // compiler frontend does. Therefore we must hard-code the -m flags for
+            // all CPU features here.
+            switch (target.cpu.arch) {
+                .riscv32, .riscv64 => {
+                    if (std.Target.riscv.featureSetHas(target.cpu.features, .relax)) {
+                        try argv.append("-mrelax");
+                    } else {
+                        try argv.append("-mno-relax");
+                    }
+                },
+                else => {
+                    // TODO
+                },
+            }
+            if (target_util.clangAssemblerSupportsMcpuArg(target)) {
+                if (target.cpu.model.llvm_name) |llvm_name| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-mcpu={s}", .{llvm_name}));
+                }
+            }
+        },
     }
     if (out_dep_path) |p| {
         try argv.appendSlice(&[_][]const u8{ "-MD", "-MV", "-MF", p });
     }
-    // Argh, why doesn't the assembler accept the list of CPU features?!
-    // I don't see a way to do this other than hard coding everything.
-    switch (target.cpu.arch) {
-        .riscv32, .riscv64 => {
-            if (std.Target.riscv.featureSetHas(target.cpu.features, .relax)) {
-                try argv.append("-mrelax");
-            } else {
-                try argv.append("-mno-relax");
-            }
-        },
-        else => {
-            // TODO
-        },
-    }
 
+    // We never want clang to invoke the system assembler for anything. So we would want
+    // this option always enabled. However, it only matters for some targets. To avoid
+    // "unused parameter" warnings, and to keep CLI spam to a minimum, we only put this
+    // flag on the command line if it is necessary.
     if (target_util.clangMightShellOutForAssembly(target)) {
         try argv.append("-integrated-as");
     }

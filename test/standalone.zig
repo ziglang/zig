@@ -16,6 +16,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/link_interdependent_static_c_libs/build.zig");
     cases.addBuildFile("test/standalone/link_static_lib_as_system_lib/build.zig");
     cases.addBuildFile("test/standalone/issue_339/build.zig");
+    cases.addBuildFile("test/standalone/issue_8550/build.zig");
     cases.addBuildFile("test/standalone/issue_794/build.zig");
     cases.addBuildFile("test/standalone/issue_5825/build.zig");
     cases.addBuildFile("test/standalone/pkg_import/build.zig");
