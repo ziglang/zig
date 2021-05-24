@@ -3310,7 +3310,7 @@ const CsuObjects = struct {
                     .static_pie  => result.set( "crt0.o", "crti.o", "crtbeginT.o", "crtendS.o", "crtn.o" ),
                     // zig fmt: on
                 },
-                .openbsd => switch(mode) {
+                .openbsd => switch (mode) {
                     // zig fmt: off
                     .dynamic_lib => result.set( null,      null, "crtbeginS.o", "crtendS.o", null ),
                     .dynamic_exe,
@@ -3352,24 +3352,24 @@ const CsuObjects = struct {
                     if (result.crtend) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, gccv, obj.* });
                 },
                 .haiku => {
-                    const crtbegin_dir_path = lci.crtbegin_dir orelse return error.LibCInstallationMissingCRTDir;
+                    const gcc_dir_path = lci.gcc_dir orelse return error.LibCInstallationMissingCRTDir;
                     if (result.crt0) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
                     if (result.crti) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
                     if (result.crtn) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
 
-                    if (result.crtbegin) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crtbegin_dir_path, obj.* });
-                    if (result.crtend) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crtbegin_dir_path, obj.* });
+                    if (result.crtbegin) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ gcc_dir_path, obj.* });
+                    if (result.crtend) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ gcc_dir_path, obj.* });
                 },
                 else => {
-                    inline for (std.meta.fields(@TypeOf(result))) |f,i| {
+                    inline for (std.meta.fields(@TypeOf(result))) |f, i| {
                         if (@field(result, f.name)) |*obj| {
                             obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
                         }
                     }
-                }
+                },
             }
         } else {
-            inline for (std.meta.fields(@TypeOf(result))) |f,i| {
+            inline for (std.meta.fields(@TypeOf(result))) |f, i| {
                 if (@field(result, f.name)) |*obj| {
                     if (comp.crt_files.get(obj.*)) |crtf| {
                         obj.* = crtf.full_object_path;
