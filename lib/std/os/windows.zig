@@ -1406,7 +1406,7 @@ pub fn recvfrom(s: ws2_32.SOCKET, buf: [*]u8, len: usize, flags: u32, from: ?*ws
     var buffer = ws2_32.WSABUF{ .len = @truncate(u31, len), .buf = buf };
     var bytes_received: DWORD = undefined;
     var flags_inout = flags;
-    if (ws2_32.WSARecvFrom(s, @ptrCast([*]ws2_32.WSABUF, &buffer), 1, &bytes_received, &flags_inout, from, from_len, null, null) == ws2_32.SOCKET_ERROR) {
+    if (ws2_32.WSARecvFrom(s, @ptrCast([*]ws2_32.WSABUF, &buffer), 1, &bytes_received, &flags_inout, from, @ptrCast(?*i32, from_len), null, null) == ws2_32.SOCKET_ERROR) {
         return ws2_32.SOCKET_ERROR;
     } else {
         return @as(i32, @intCast(u31, bytes_received));
