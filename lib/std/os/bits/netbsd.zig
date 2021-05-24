@@ -841,7 +841,7 @@ pub const ucontext_t = extern struct {
     stack: stack_t,
     mcontext: mcontext_t,
     __pad: [
-        switch (builtin.arch) {
+        switch (builtin.cpu.arch) {
             .i386 => 4,
             .mips, .mipsel, .mips64, .mips64el => 14,
             .arm, .armeb, .thumb, .thumbeb => 1,

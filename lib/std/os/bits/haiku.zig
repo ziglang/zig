@@ -858,7 +858,7 @@ pub const EOWNERDEAD = 96; // Previous owner died
 
 pub const ELAST = 96; // Must be equal largest errno
 
-pub const MINSIGSTKSZ = switch (builtin.arch) {
+pub const MINSIGSTKSZ = switch (builtin.cpu.arch) {
     .i386, .x86_64 => 2048,
     .arm, .aarch64 => 4096,
     else => @compileError("MINSIGSTKSZ not defined for this architecture"),
