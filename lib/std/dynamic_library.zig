@@ -19,7 +19,7 @@ const max = std.math.max;
 pub const DynLib = switch (builtin.os.tag) {
     .linux => if (builtin.link_libc) DlDynlib else ElfDynLib,
     .windows => WindowsDynLib,
-    .macos, .tvos, .watchos, .ios, .freebsd, .openbsd => DlDynlib,
+    .macos, .tvos, .watchos, .ios, .freebsd, .openbsd, .dragonfly => DlDynlib,
     else => void,
 };
 

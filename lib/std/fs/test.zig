@@ -277,12 +277,15 @@ test "directory operations on files" {
     try testing.expectError(error.NotDir, tmp_dir.dir.openDir(test_file_name, .{}));
     try testing.expectError(error.NotDir, tmp_dir.dir.deleteDir(test_file_name));
 
-    if (builtin.os.tag != .wasi and builtin.os.tag != .freebsd and builtin.os.tag != .openbsd) {
-        const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_file_name);
-        defer testing.allocator.free(absolute_path);
+    switch (builtin.os.tag) {
+        .wasi, .freebsd, .openbsd, .dragonfly => {},
+        else => {
+            const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_file_name);
+            defer testing.allocator.free(absolute_path);
 
-        try testing.expectError(error.PathAlreadyExists, fs.makeDirAbsolute(absolute_path));
-        try testing.expectError(error.NotDir, fs.deleteDirAbsolute(absolute_path));
+            try testing.expectError(error.PathAlreadyExists, fs.makeDirAbsolute(absolute_path));
+            try testing.expectError(error.NotDir, fs.deleteDirAbsolute(absolute_path));
+        },
     }
 
     // ensure the file still exists and is a file as a sanity check
@@ -314,12 +317,15 @@ test "file operations on directories" {
     // TODO: Add a read-only test as well, see https://github.com/ziglang/zig/issues/5732
     try testing.expectError(error.IsDir, tmp_dir.dir.openFile(test_dir_name, .{ .write = true }));
 
-    if (builtin.os.tag != .wasi and builtin.os.tag != .freebsd and builtin.os.tag != .openbsd) {
-        const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_dir_name);
-        defer testing.allocator.free(absolute_path);
+    switch (builtin.os.tag) {
+        .wasi, .freebsd, .openbsd, .dragonfly => {},
+        else => {
+            const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_dir_name);
+            defer testing.allocator.free(absolute_path);
 
-        try testing.expectError(error.IsDir, fs.createFileAbsolute(absolute_path, .{}));
-        try testing.expectError(error.IsDir, fs.deleteFileAbsolute(absolute_path));
+            try testing.expectError(error.IsDir, fs.createFileAbsolute(absolute_path, .{}));
+            try testing.expectError(error.IsDir, fs.deleteFileAbsolute(absolute_path));
+        },
     }
 
     // ensure the directory still exists as a sanity check

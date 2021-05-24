@@ -709,9 +709,9 @@ pub const winsize = extern struct {
 
 const NSIG = 33;
 
-pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
 pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 pub const SIG_CATCH = @intToPtr(?Sigaction.sigaction_fn, 2);
 pub const SIG_HOLD = @intToPtr(?Sigaction.sigaction_fn, 3);
 
