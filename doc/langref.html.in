@@ -1762,14 +1762,13 @@ const B = error{Two};
 a!b
 x{} x.* x.?
 !x -x -%x ~x &x ?x
-! * / % ** *% ||
+* / % ** *% ||
 + - ++ +% -%
 << >>
-& ^ |
+& ^ | orelse catch
 == != < > <= >=
 and
 or
-orelse catch
 = *= /= %= += -= <<= >>= &= ^= |={#endsyntax#}</pre>
       {#header_close#}
       {#header_close#}
