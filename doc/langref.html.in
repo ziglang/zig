@@ -1758,9 +1758,9 @@ const B = error{Two};
       </div>
       {#header_close#}
       {#header_open|Precedence#}
-      <pre>{#syntax#}x() x[] x.y
+      <pre>{#syntax#}x() x[] x.y x.* x.?
 a!b
-x{} x.* x.?
+x{}
 !x -x -%x ~x &x ?x
 * / % ** *% ||
 + - ++ +% -%
