@@ -5534,7 +5534,7 @@ pub const CopyFileRangeError = error{
 
 var has_copy_file_range_syscall = init: {
     const kernel_has_syscall = std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
-    break :init std.atomic.Bool.init(kernel_has_syscall);
+    break :init std.atomic.Atomic(bool).init(kernel_has_syscall);
 };
 
 /// Transfer data between file descriptors at specified offsets.

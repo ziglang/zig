@@ -8,25 +8,10 @@ const std = @import("../std.zig");
 const target = std.Target.current;
 const testing = std.testing;
 
+
 const AtomicOrder = std.builtin.AtomicOrder;
 const AtomicRmwOp = std.builtin.AtomicRmwOp;
 const AtomicBitRmwOp = enum { Set, Reset, Toggle };
-
-pub fn spinLoopHint() void {
-    switch (target.cpu.arch) {
-        .thumb, .thumbeb, .aarch64, .aarch64_be, .aarch64_32 => {
-            asm volatile ("yield");
-        },
-        .i386, .x86_64 => {
-            asm volatile ("pause");
-        },
-        else => {},
-    }
-}
-
-test "spinLoopHint" {
-    spinLoopHint();
-}
 
 pub const Ordering = enum {
     Unordered,
@@ -50,36 +35,7 @@ pub const Ordering = enum {
     }
 };
 
-pub fn fence(comptime ordering: Ordering) void {
-    switch (ordering) {
-        .Acquire, .Release, .AcqRel, .SeqCst => {
-            @fence(comptime ordering.toBuiltin());
-        },
-        else => {
-            @compileLog(ordering, " only applies to a given memory location");
-        },
-    }
-}
 
-pub fn compilerFence(comptime ordering: Ordering) void {
-    // TODO(kprotty):
-    // Use LLVM intrinsic `fence syncscope("singlethread")` instead of inline asm.
-    // https://llvm.org/docs/LangRef.html#fence-instruction
-
-    switch (ordering) {
-        .SeqCst => asm volatile ("" ::: "memory"),
-        .AcqRel => compilerFence(.SeqCst),
-        .Acquire, .Release => compilerFence(.AcqRel),
-        else => @compileLog(ordering, " only applies to a given memory location"),
-    }
-}
-
-test "fence/compilerFence" {
-    inline for (.{ .Acquire, .Release, .AcqRel, .SeqCst }) |ordering| {
-        compilerFence(ordering);
-        fence(ordering);
-    }
-}
 
 pub fn load(ptr: anytype, comptime ordering: Ordering) @TypeOf(ptr.*) {
     switch (ordering) {
