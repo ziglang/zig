@@ -79,7 +79,7 @@ pub fn spinLoopHint() callconv(.Inline) void {
 
     // Memory barrier to prevent the compiler from optimizing away the spin-loop
     // even if no hint_instruction was provided.
-    asm volatile(hint_instruction ::: "memory");
+    asm volatile (hint_instruction ::: "memory");
 }
 
 test "spinLoopHint" {

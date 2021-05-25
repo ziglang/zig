@@ -104,16 +104,16 @@ pub fn Atomic(comptime T: type) type {
         }
 
         fn rmw(
-            self: *Self, 
+            self: *Self,
             comptime op: std.builtin.AtomicRmwOp,
-            value: T, 
+            value: T,
             comptime ordering: Ordering,
         ) callconv(.Inline) T {
             return @atomicRmw(T, &self.value, op, value, ordering);
         }
 
         fn exportWhen(comptime condition: bool, comptime functions: type) type {
-            return if (condition) functions else struct{};
+            return if (condition) functions else struct {};
         }
 
         pub usingnamespace exportWhen(std.meta.trait.isNumber(T), struct {
@@ -171,9 +171,9 @@ pub fn Atomic(comptime T: type) type {
             }
 
             fn bitRmw(
-                self: *Self, 
+                self: *Self,
                 comptime op: BitRmwOp,
-                bit: Bit, 
+                bit: Bit,
                 comptime ordering: Ordering,
             ) callconv(.Inline) u1 {
                 // x86 supports dedicated bitwise instructions
@@ -191,8 +191,7 @@ pub fn Atomic(comptime T: type) type {
                         else => @compileError("Invalid atomic type " ++ @typeName(T)),
                     };
 
-                    const old_bit = asm volatile (
-                        instruction ++ suffix ++ " %[bit], %[ptr]"
+                    const old_bit = asm volatile (instruction ++ suffix ++ " %[bit], %[ptr]"
                         : [result] "={@ccc}" (-> u8) // LLVM doesn't support u1 flag register return values
                         : [ptr] "*p" (&self.value),
                           [bit] "X" (@as(T, bit))
@@ -208,7 +207,7 @@ pub fn Atomic(comptime T: type) type {
                     .Reset => self.fetchAnd(~mask, ordering),
                     .Toggle => self.fetchXor(mask, ordering),
                 };
-                    
+
                 return @boolToInt(value & mask != 0);
             }
         });
@@ -259,10 +258,10 @@ test "Atomic.store" {
 }
 
 const atomic_rmw_orderings = [_]Ordering{
-    .Monotonic, 
-    .Acquire, 
-    .Release, 
-    .AcqRel, 
+    .Monotonic,
+    .Acquire,
+    .Release,
+    .AcqRel,
     .SeqCst,
 };
 
