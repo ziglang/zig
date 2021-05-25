@@ -589,6 +589,13 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         // use the ABI alignment, which is fine.
     }
 
+    if (g->zig_target->llvm_cpu_name != nullptr) {
+        ZigLLVMAddFunctionAttr(llvm_fn, "target-cpu", g->zig_target->llvm_cpu_name);
+    }
+    if (g->zig_target->llvm_cpu_features != nullptr) {
+        ZigLLVMAddFunctionAttr(llvm_fn, "target-features", g->zig_target->llvm_cpu_features);
+    }
+
     if (is_async) {
         addLLVMArgAttr(llvm_fn, 0, "nonnull");
     } else {
