@@ -3642,7 +3642,7 @@ pub fn cmdAstCheck(
         if (stat.size > max_src_size)
             return error.FileTooBig;
 
-        const source = try arena.allocSentinel(u8, stat.size, 0);
+        const source = try arena.allocSentinel(u8, @intCast(usize, stat.size), 0);
         const amt = try f.readAll(source);
         if (amt != stat.size)
             return error.UnexpectedEndOfFile;
@@ -3778,7 +3778,7 @@ pub fn cmdChangelist(
         .root_decl = null,
     };
 
-    const source = try arena.allocSentinel(u8, stat.size, 0);
+    const source = try arena.allocSentinel(u8, @intCast(usize, stat.size), 0);
     const amt = try f.readAll(source);
     if (amt != stat.size)
         return error.UnexpectedEndOfFile;
@@ -3818,7 +3818,7 @@ pub fn cmdChangelist(
     if (new_stat.size > max_src_size)
         return error.FileTooBig;
 
-    const new_source = try arena.allocSentinel(u8, new_stat.size, 0);
+    const new_source = try arena.allocSentinel(u8, @intCast(usize, new_stat.size), 0);
     const new_amt = try new_f.readAll(new_source);
     if (new_amt != new_stat.size)
         return error.UnexpectedEndOfFile;

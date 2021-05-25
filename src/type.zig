@@ -2641,7 +2641,7 @@ pub const Type = extern union {
                 };
                 const end_val = Value.initPayload(&end_payload.base);
                 if (int_val.compare(.gte, end_val)) return null;
-                return int_val.toUnsignedInt();
+                return @intCast(usize, int_val.toUnsignedInt());
             }
         };
         switch (ty.tag()) {
