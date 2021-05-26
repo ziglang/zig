@@ -43,11 +43,13 @@ pub fn parse(gpa: *Allocator, source: []const u8) Allocator.Error!Tree {
         .errors = .{},
         .nodes = .{},
         .extra_data = .{},
+        .scratch = .{},
         .tok_i = 0,
     };
     defer parser.errors.deinit(gpa);
     defer parser.nodes.deinit(gpa);
     defer parser.extra_data.deinit(gpa);
+    defer parser.scratch.deinit(gpa);
 
     // Empirically, Zig source code has a 2:1 ratio of tokens to AST nodes.
     // Make sure at least 1 so we can use appendAssumeCapacity on the root node below.
@@ -93,18 +95,7 @@ const Parser = struct {
     errors: std.ArrayListUnmanaged(AstError),
     nodes: ast.NodeList,
     extra_data: std.ArrayListUnmanaged(Node.Index),
-
-    const SmallSpan = union(enum) {
-        zero_or_one: Node.Index,
-        multi: []Node.Index,
-
-        fn deinit(self: SmallSpan, gpa: *Allocator) void {
-            switch (self) {
-                .zero_or_one => {},
-                .multi => |list| gpa.free(list),
-            }
-        }
-    };
+    scratch: std.ArrayListUnmanaged(Node.Index),
 
     const Members = struct {
         len: usize,
@@ -204,8 +195,8 @@ const Parser = struct {
     ///      /
     /// TopLevelComptime <- KEYWORD_comptime BlockExpr
     fn parseContainerMembers(p: *Parser) !Members {
-        var list = std.ArrayList(Node.Index).init(p.gpa);
-        defer list.deinit();
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
         var field_state: union(enum) {
             /// No fields have been seen.
@@ -233,7 +224,7 @@ const Parser = struct {
                         if (field_state == .seen) {
                             field_state = .{ .end = test_decl_node };
                         }
-                        try list.append(test_decl_node);
+                        try p.scratch.append(p.gpa, test_decl_node);
                     }
                     trailing = false;
                 },
@@ -254,7 +245,7 @@ const Parser = struct {
                                     field_state = .err;
                                 },
                             }
-                            try list.append(container_field);
+                            try p.scratch.append(p.gpa, container_field);
                             switch (p.token_tags[p.tok_i]) {
                                 .comma => {
                                     p.tok_i += 1;
@@ -294,7 +285,7 @@ const Parser = struct {
                             if (field_state == .seen) {
                                 field_state = .{ .end = comptime_node };
                             }
-                            try list.append(comptime_node);
+                            try p.scratch.append(p.gpa, comptime_node);
                         }
                         trailing = false;
                     },
@@ -310,7 +301,7 @@ const Parser = struct {
                         if (field_state == .seen) {
                             field_state = .{ .end = top_level_decl };
                         }
-                        try list.append(top_level_decl);
+                        try p.scratch.append(p.gpa, top_level_decl);
                     }
                     trailing = p.token_tags[p.tok_i - 1] == .semicolon;
                 },
@@ -320,7 +311,7 @@ const Parser = struct {
                         if (field_state == .seen) {
                             field_state = .{ .end = node };
                         }
-                        try list.append(node);
+                        try p.scratch.append(p.gpa, node);
                     }
                     trailing = p.token_tags[p.tok_i - 1] == .semicolon;
                 },
@@ -338,7 +329,7 @@ const Parser = struct {
                         if (field_state == .seen) {
                             field_state = .{ .end = top_level_decl };
                         }
-                        try list.append(top_level_decl);
+                        try p.scratch.append(p.gpa, top_level_decl);
                     }
                     trailing = p.token_tags[p.tok_i - 1] == .semicolon;
                 },
@@ -357,7 +348,7 @@ const Parser = struct {
                                 field_state = .err;
                             },
                         }
-                        try list.append(container_field);
+                        try p.scratch.append(p.gpa, container_field);
                         switch (p.token_tags[p.tok_i]) {
                             .comma => {
                                 p.tok_i += 1;
@@ -393,7 +384,8 @@ const Parser = struct {
             }
         }
 
-        switch (list.items.len) {
+        const items = p.scratch.items[scratch_top..];
+        switch (items.len) {
             0 => return Members{
                 .len = 0,
                 .lhs = 0,
@@ -402,20 +394,20 @@ const Parser = struct {
             },
             1 => return Members{
                 .len = 1,
-                .lhs = list.items[0],
+                .lhs = items[0],
                 .rhs = 0,
                 .trailing = trailing,
             },
             2 => return Members{
                 .len = 2,
-                .lhs = list.items[0],
-                .rhs = list.items[1],
+                .lhs = items[0],
+                .rhs = items[1],
                 .trailing = trailing,
             },
             else => {
-                const span = try p.listToSpan(list.items);
+                const span = try p.listToSpan(items);
                 return Members{
-                    .len = list.items.len,
+                    .len = items.len,
                     .lhs = span.start,
                     .rhs = span.end,
                     .trailing = trailing,
@@ -647,8 +639,10 @@ const Parser = struct {
         const fn_proto_index = try p.reserveNode();
 
         _ = p.eatToken(.identifier);
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
+        // parseParamDeclList does not shrink scratch buffer, but we will
         const params = try p.parseParamDeclList();
-        defer params.deinit(p.gpa);
         const align_expr = try p.parseByteAlign();
         const section_expr = try p.parseLinkSection();
         const callconv_expr = try p.parseCallconv();
@@ -662,17 +656,17 @@ const Parser = struct {
         }
 
         if (align_expr == 0 and section_expr == 0 and callconv_expr == 0) {
-            switch (params) {
-                .zero_or_one => |param| return p.setNode(fn_proto_index, .{
+            switch (params.len) {
+                0, 1 => return p.setNode(fn_proto_index, .{
                     .tag = .fn_proto_simple,
                     .main_token = fn_token,
                     .data = .{
-                        .lhs = param,
+                        .lhs = if (params.len > 0) params[0] else 0,
                         .rhs = return_type_expr,
                     },
                 }),
-                .multi => |list| {
-                    const span = try p.listToSpan(list);
+                else => {
+                    const span = try p.listToSpan(params);
                     return p.setNode(fn_proto_index, .{
                         .tag = .fn_proto_multi,
                         .main_token = fn_token,
@@ -687,13 +681,13 @@ const Parser = struct {
                 },
             }
         }
-        switch (params) {
-            .zero_or_one => |param| return p.setNode(fn_proto_index, .{
+        switch (params.len) {
+            0, 1 => return p.setNode(fn_proto_index, .{
                 .tag = .fn_proto_one,
                 .main_token = fn_token,
                 .data = .{
                     .lhs = try p.addExtra(Node.FnProtoOne{
-                        .param = param,
+                        .param = if (params.len > 0) params[0] else 0,
                         .align_expr = align_expr,
                         .section_expr = section_expr,
                         .callconv_expr = callconv_expr,
@@ -701,8 +695,8 @@ const Parser = struct {
                     .rhs = return_type_expr,
                 },
             }),
-            .multi => |list| {
-                const span = try p.listToSpan(list);
+            else => {
+                const span = try p.listToSpan(params);
                 return p.setNode(fn_proto_index, .{
                     .tag = .fn_proto,
                     .main_token = fn_token,
@@ -1894,20 +1888,20 @@ const Parser = struct {
             });
         }
 
-        var statements = std.ArrayList(Node.Index).init(p.gpa);
-        defer statements.deinit();
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-        try statements.appendSlice(&.{ stmt_one, stmt_two });
+        try p.scratch.appendSlice(p.gpa, &.{ stmt_one, stmt_two });
 
         while (true) {
             const statement = try p.expectStatementRecoverable();
             if (statement == 0) break;
-            try statements.append(statement);
+            try p.scratch.append(p.gpa, statement);
             if (p.token_tags[p.tok_i] == .r_brace) break;
         }
         _ = try p.expectToken(.r_brace);
         const semicolon = p.token_tags[p.tok_i - 2] == .semicolon;
-        const statements_span = try p.listToSpan(statements.items);
+        const statements_span = try p.listToSpan(p.scratch.items[scratch_top..]);
         return p.addNode(.{
             .tag = if (semicolon) .block_semicolon else .block,
             .main_token = lbrace,
@@ -2041,14 +2035,14 @@ const Parser = struct {
                 });
             }
 
-            var init_list = std.ArrayList(Node.Index).init(p.gpa);
-            defer init_list.deinit();
+            const scratch_top = p.scratch.items.len;
+            defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-            try init_list.append(field_init);
+            try p.scratch.append(p.gpa, field_init);
 
             while (true) {
                 const next = try p.expectFieldInit();
-                try init_list.append(next);
+                try p.scratch.append(p.gpa, next);
 
                 switch (p.token_tags[p.nextToken()]) {
                     .comma => {
@@ -2068,7 +2062,7 @@ const Parser = struct {
                     },
                 }
             }
-            const span = try p.listToSpan(init_list.items);
+            const span = try p.listToSpan(p.scratch.items[scratch_top..]);
             return p.addNode(.{
                 .tag = if (p.token_tags[p.tok_i - 2] == .comma) .struct_init_comma else .struct_init,
                 .main_token = lbrace,
@@ -2098,22 +2092,22 @@ const Parser = struct {
             try p.warnExpected(.comma);
         }
 
-        var init_list = std.ArrayList(Node.Index).init(p.gpa);
-        defer init_list.deinit();
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-        try init_list.append(elem_init);
+        try p.scratch.append(p.gpa, elem_init);
 
         var trailing_comma = true;
         var next = try p.parseExpr();
         while (next != 0) : (next = try p.parseExpr()) {
-            try init_list.append(next);
+            try p.scratch.append(p.gpa, next);
             if (p.eatToken(.comma) == null) {
                 trailing_comma = false;
                 break;
             }
         }
         _ = try p.expectToken(.r_brace);
-        const span = try p.listToSpan(init_list.items);
+        const span = try p.listToSpan(p.scratch.items[scratch_top..]);
         return p.addNode(.{
             .tag = if (trailing_comma) .array_init_comma else .array_init,
             .main_token = lbrace,
@@ -2188,18 +2182,18 @@ const Parser = struct {
                 try p.warnExpected(.comma);
             }
 
-            var param_list = std.ArrayList(Node.Index).init(p.gpa);
-            defer param_list.deinit();
+            const scratch_top = p.scratch.items.len;
+            defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-            try param_list.append(param_one);
+            try p.scratch.append(p.gpa, param_one);
 
             while (true) {
                 const next = try p.expectExpr();
-                try param_list.append(next);
+                try p.scratch.append(p.gpa, next);
                 switch (p.token_tags[p.nextToken()]) {
                     .comma => {
                         if (p.eatToken(.r_paren)) |_| {
-                            const span = try p.listToSpan(param_list.items);
+                            const span = try p.listToSpan(p.scratch.items[scratch_top..]);
                             return p.addNode(.{
                                 .tag = .async_call_comma,
                                 .main_token = lparen,
@@ -2216,7 +2210,7 @@ const Parser = struct {
                         }
                     },
                     .r_paren => {
-                        const span = try p.listToSpan(param_list.items);
+                        const span = try p.listToSpan(p.scratch.items[scratch_top..]);
                         return p.addNode(.{
                             .tag = .async_call,
                             .main_token = lparen,
@@ -2277,18 +2271,18 @@ const Parser = struct {
                     try p.warnExpected(.comma);
                 }
 
-                var param_list = std.ArrayList(Node.Index).init(p.gpa);
-                defer param_list.deinit();
+                const scratch_top = p.scratch.items.len;
+                defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-                try param_list.append(param_one);
+                try p.scratch.append(p.gpa, param_one);
 
                 while (true) {
                     const next = try p.expectExpr();
-                    try param_list.append(next);
+                    try p.scratch.append(p.gpa, next);
                     switch (p.token_tags[p.nextToken()]) {
                         .comma => {
                             if (p.eatToken(.r_paren)) |_| {
-                                const span = try p.listToSpan(param_list.items);
+                                const span = try p.listToSpan(p.scratch.items[scratch_top..]);
                                 break :res try p.addNode(.{
                                     .tag = .call_comma,
                                     .main_token = lparen,
@@ -2305,7 +2299,7 @@ const Parser = struct {
                             }
                         },
                         .r_paren => {
-                            const span = try p.listToSpan(param_list.items);
+                            const span = try p.listToSpan(p.scratch.items[scratch_top..]);
                             break :res try p.addNode(.{
                                 .tag = .call,
                                 .main_token = lparen,
@@ -2602,15 +2596,15 @@ const Parser = struct {
                         if (comma_two == null) {
                             try p.warnExpected(.comma);
                         }
-                        var init_list = std.ArrayList(Node.Index).init(p.gpa);
-                        defer init_list.deinit();
+                        const scratch_top = p.scratch.items.len;
+                        defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-                        try init_list.appendSlice(&.{ field_init_one, field_init_two });
+                        try p.scratch.appendSlice(p.gpa, &.{ field_init_one, field_init_two });
 
                         while (true) {
                             const next = try p.expectFieldInit();
                             assert(next != 0);
-                            try init_list.append(next);
+                            try p.scratch.append(p.gpa, next);
                             switch (p.token_tags[p.nextToken()]) {
                                 .comma => {
                                     if (p.eatToken(.r_brace)) |_| break;
@@ -2627,7 +2621,7 @@ const Parser = struct {
                                 },
                             }
                         }
-                        const span = try p.listToSpan(init_list.items);
+                        const span = try p.listToSpan(p.scratch.items[scratch_top..]);
                         const trailing_comma = p.token_tags[p.tok_i - 2] == .comma;
                         return p.addNode(.{
                             .tag = if (trailing_comma) .struct_init_dot_comma else .struct_init_dot,
@@ -2669,15 +2663,15 @@ const Parser = struct {
                     if (comma_two == null) {
                         try p.warnExpected(.comma);
                     }
-                    var init_list = std.ArrayList(Node.Index).init(p.gpa);
-                    defer init_list.deinit();
+                    const scratch_top = p.scratch.items.len;
+                    defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-                    try init_list.appendSlice(&.{ elem_init_one, elem_init_two });
+                    try p.scratch.appendSlice(p.gpa, &.{ elem_init_one, elem_init_two });
 
                     while (true) {
                         const next = try p.expectExpr();
                         if (next == 0) break;
-                        try init_list.append(next);
+                        try p.scratch.append(p.gpa, next);
                         switch (p.token_tags[p.nextToken()]) {
                             .comma => {
                                 if (p.eatToken(.r_brace)) |_| break;
@@ -2694,7 +2688,7 @@ const Parser = struct {
                             },
                         }
                     }
-                    const span = try p.listToSpan(init_list.items);
+                    const span = try p.listToSpan(p.scratch.items[scratch_top..]);
                     return p.addNode(.{
                         .tag = if (p.token_tags[p.tok_i - 2] == .comma) .array_init_dot_comma else .array_init_dot,
                         .main_token = lbrace,
@@ -2924,13 +2918,13 @@ const Parser = struct {
 
         _ = try p.expectToken(.colon);
 
-        var list = std.ArrayList(Node.Index).init(p.gpa);
-        defer list.deinit();
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
         while (true) {
             const output_item = try p.parseAsmOutputItem();
             if (output_item == 0) break;
-            try list.append(output_item);
+            try p.scratch.append(p.gpa, output_item);
             switch (p.token_tags[p.tok_i]) {
                 .comma => p.tok_i += 1,
                 .colon, .r_paren, .r_brace, .r_bracket => break, // All possible delimiters.
@@ -2945,7 +2939,7 @@ const Parser = struct {
             while (true) {
                 const input_item = try p.parseAsmInputItem();
                 if (input_item == 0) break;
-                try list.append(input_item);
+                try p.scratch.append(p.gpa, input_item);
                 switch (p.token_tags[p.tok_i]) {
                     .comma => p.tok_i += 1,
                     .colon, .r_paren, .r_brace, .r_bracket => break, // All possible delimiters.
@@ -2971,7 +2965,7 @@ const Parser = struct {
             }
         }
         const rparen = try p.expectToken(.r_paren);
-        const span = try p.listToSpan(list.items);
+        const span = try p.listToSpan(p.scratch.items[scratch_top..]);
         return p.addNode(.{
             .tag = .@"asm",
             .main_token = asm_token,
@@ -3192,16 +3186,16 @@ const Parser = struct {
             });
         }
 
-        var list = std.ArrayList(Node.Index).init(p.gpa);
-        defer list.deinit();
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-        try list.append(first_item);
+        try p.scratch.append(p.gpa, first_item);
         while (p.eatToken(.comma)) |_| {
             const next_item = try p.parseSwitchItem();
             if (next_item == 0) break;
-            try list.append(next_item);
+            try p.scratch.append(p.gpa, next_item);
         }
-        const span = try p.listToSpan(list.items);
+        const span = try p.listToSpan(p.scratch.items[scratch_top..]);
         const arrow_token = try p.expectToken(.equal_angle_bracket_right);
         _ = try p.parsePtrPayload();
         return p.addNode(.{
@@ -3556,10 +3550,13 @@ const Parser = struct {
     }
 
     /// ParamDeclList <- (ParamDecl COMMA)* ParamDecl?
-    fn parseParamDeclList(p: *Parser) !SmallSpan {
+    fn parseParamDeclList(p: *Parser) ![]Node.Index {
+        const scratch_top = p.scratch.items.len;
+        // don't defer p.scratch.shrinkRetainingCapacity because caller will do it
+
         _ = try p.expectToken(.l_paren);
         if (p.eatToken(.r_paren)) |_| {
-            return SmallSpan{ .zero_or_one = 0 };
+            return p.scratch.items[scratch_top..];
         }
         const param_one = while (true) {
             const param = try p.expectParamDecl();
@@ -3567,10 +3564,10 @@ const Parser = struct {
             switch (p.token_tags[p.nextToken()]) {
                 .comma => {
                     if (p.eatToken(.r_paren)) |_| {
-                        return SmallSpan{ .zero_or_one = 0 };
+                        return p.scratch.items[scratch_top..];
                     }
                 },
-                .r_paren => return SmallSpan{ .zero_or_one = 0 },
+                .r_paren => return p.scratch.items[scratch_top..],
                 else => {
                     // This is likely just a missing comma;
                     // give an error but continue parsing this list.
@@ -3579,11 +3576,12 @@ const Parser = struct {
                 },
             }
         } else unreachable;
+        try p.scratch.append(p.gpa, param_one);
 
         const param_two = while (true) {
             switch (p.token_tags[p.nextToken()]) {
                 .comma => {},
-                .r_paren => return SmallSpan{ .zero_or_one = param_one },
+                .r_paren => return p.scratch.items[scratch_top..],
                 .colon, .r_brace, .r_bracket => {
                     p.tok_i -= 1;
                     return p.failExpected(.r_paren);
@@ -3596,21 +3594,17 @@ const Parser = struct {
                 },
             }
             if (p.eatToken(.r_paren)) |_| {
-                return SmallSpan{ .zero_or_one = param_one };
+                return p.scratch.items[scratch_top..];
             }
             const param = try p.expectParamDecl();
             if (param != 0) break param;
         } else unreachable;
-
-        var list = std.ArrayList(Node.Index).init(p.gpa);
-        defer list.deinit();
-
-        try list.appendSlice(&.{ param_one, param_two });
+        try p.scratch.append(p.gpa, param_two);
 
         while (true) {
             switch (p.token_tags[p.nextToken()]) {
                 .comma => {},
-                .r_paren => return SmallSpan{ .multi = list.toOwnedSlice() },
+                .r_paren => return p.scratch.items[scratch_top..],
                 .colon, .r_brace, .r_bracket => {
                     p.tok_i -= 1;
                     return p.failExpected(.r_paren);
@@ -3623,10 +3617,10 @@ const Parser = struct {
                 },
             }
             if (p.eatToken(.r_paren)) |_| {
-                return SmallSpan{ .multi = list.toOwnedSlice() };
+                return p.scratch.items[scratch_top..];
             }
             const param = try p.expectParamDecl();
-            if (param != 0) try list.append(param);
+            if (param != 0) try p.scratch.append(p.gpa, param);
         }
     }
 
@@ -3635,14 +3629,14 @@ const Parser = struct {
     fn ListParseFn(comptime nodeParseFn: anytype) (fn (p: *Parser) Error!Node.SubRange) {
         return struct {
             pub fn parse(p: *Parser) Error!Node.SubRange {
-                var list = std.ArrayList(Node.Index).init(p.gpa);
-                defer list.deinit();
+                const scratch_top = p.scratch.items.len;
+                defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
                 while (true) {
                     const item = try nodeParseFn(p);
                     if (item == 0) break;
 
-                    try list.append(item);
+                    try p.scratch.append(p.gpa, item);
 
                     switch (p.token_tags[p.tok_i]) {
                         .comma => p.tok_i += 1,
@@ -3655,7 +3649,7 @@ const Parser = struct {
                         },
                     }
                 }
-                return p.listToSpan(list.items);
+                return p.listToSpan(p.scratch.items[scratch_top..]);
             }
         }.parse;
     }
@@ -3746,18 +3740,18 @@ const Parser = struct {
             },
         }
 
-        var list = std.ArrayList(Node.Index).init(p.gpa);
-        defer list.deinit();
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
 
-        try list.appendSlice(&.{ param_one, param_two });
+        try p.scratch.appendSlice(p.gpa, &.{ param_one, param_two });
 
         while (true) {
             const param = try p.expectExpr();
-            try list.append(param);
+            try p.scratch.append(p.gpa, param);
             switch (p.token_tags[p.nextToken()]) {
                 .comma => {
                     if (p.eatToken(.r_paren)) |_| {
-                        const params = try p.listToSpan(list.items);
+                        const params = try p.listToSpan(p.scratch.items[scratch_top..]);
                         return p.addNode(.{
                             .tag = .builtin_call_comma,
                             .main_token = builtin_token,
@@ -3770,7 +3764,7 @@ const Parser = struct {
                     continue;
                 },
                 .r_paren => {
-                    const params = try p.listToSpan(list.items);
+                    const params = try p.listToSpan(p.scratch.items[scratch_top..]);
                     return p.addNode(.{
                         .tag = .builtin_call,
                         .main_token = builtin_token,
