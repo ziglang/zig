@@ -571,8 +571,13 @@ pub fn getCurrentThreadId() u64 {
     }
 }
 
-test {
+test "std.Thread" {
     if (!builtin.single_threaded) {
-        std.testing.refAllDecls(@This());
+        _ = AutoResetEvent;
+        _ = ResetEvent;
+        _ = StaticResetEvent;
+        _ = Mutex;
+        _ = Semaphore;
+        _ = Condition;
     }
 }
