@@ -286,6 +286,11 @@ pub const P256 = struct {
         return p.add(q.neg());
     }
 
+    /// Subtract P256 points, the second being specified using affine coordinates.
+    pub fn subMixed(p: P256, q: AffineCoordinates) P256 {
+        return p.addMixed(q.neg());
+    }
+
     /// Return affine coordinates.
     pub fn affineCoordinates(p: P256) AffineCoordinates {
         const zinv = p.z.invert();
@@ -312,7 +317,7 @@ pub const P256 = struct {
         p.z.cMov(a.z, c);
     }
 
-    fn pcSelect(comptime n: usize, pc: [n]P256, b: u8) P256 {
+    fn pcSelect(comptime n: usize, pc: *const [n]P256, b: u8) P256 {
         var t = P256.identityElement;
         comptime var i: u8 = 1;
         inline while (i < pc.len) : (i += 1) {
@@ -341,7 +346,7 @@ pub const P256 = struct {
         return e;
     }
 
-    fn pcMul(pc: [9]P256, s: [32]u8, comptime vartime: bool) IdentityElementError!P256 {
+    fn pcMul(pc: *const [9]P256, s: [32]u8, comptime vartime: bool) IdentityElementError!P256 {
         std.debug.assert(vartime);
         const e = slide(s);
         var q = P256.identityElement;
@@ -360,7 +365,7 @@ pub const P256 = struct {
         return q;
     }
 
-    fn pcMul16(pc: [16]P256, s: [32]u8, comptime vartime: bool) IdentityElementError!P256 {
+    fn pcMul16(pc: *const [16]P256, s: [32]u8, comptime vartime: bool) IdentityElementError!P256 {
         var q = P256.identityElement;
         var pos: usize = 252;
         while (true) : (pos -= 4) {
@@ -395,33 +400,69 @@ pub const P256 = struct {
         break :pc precompute(P256.basePoint, 15);
     };
 
-    const basePointPc8 = pc: {
-        @setEvalBranchQuota(50000);
-        break :pc precompute(P256.basePoint, 8);
-    };
-
     /// Multiply an elliptic curve point by a scalar.
     /// Return error.IdentityElement if the result is the identity element.
     pub fn mul(p: P256, s_: [32]u8, endian: builtin.Endian) IdentityElementError!P256 {
         const s = if (endian == .Little) s_ else Fe.orderSwap(s_);
-        const pc = if (p.is_base) basePointPc else pc: {
-            try p.rejectIdentity();
-            const xpc = precompute(p, 15);
-            break :pc xpc;
-        };
-        return pcMul16(pc, s, false);
+        if (p.is_base) {
+            return pcMul16(&basePointPc, s, false);
+        }
+        try p.rejectIdentity();
+        const pc = precompute(p, 15);
+        return pcMul16(&pc, s, false);
     }
 
     /// Multiply an elliptic curve point by a *PUBLIC* scalar *IN VARIABLE TIME*
     /// This can be used for signature verification.
     pub fn mulPublic(p: P256, s_: [32]u8, endian: builtin.Endian) IdentityElementError!P256 {
         const s = if (endian == .Little) s_ else Fe.orderSwap(s_);
-        const pc = if (p.is_base) basePointPc8 else pc: {
-            try p.rejectIdentity();
-            const xpc = precompute(p, 8);
-            break :pc xpc;
+        if (p.is_base) {
+            return pcMul16(&basePointPc, s, true);
+        }
+        try p.rejectIdentity();
+        const pc = precompute(p, 8);
+        return pcMul(&pc, s, true);
+    }
+
+    /// Double-base multiplication of public parameters - Compute (p1*s1)+(p2*s2) *IN VARIABLE TIME*
+    /// This can be used for signature verification.
+    pub fn mulDoubleBasePublic(p1: P256, s1_: [32]u8, p2: P256, s2_: [32]u8, endian: builtin.Endian) IdentityElementError!P256 {
+        const s1 = if (endian == .Little) s1_ else Fe.orderSwap(s1_);
+        const s2 = if (endian == .Little) s2_ else Fe.orderSwap(s2_);
+        try p1.rejectIdentity();
+        var pc1_array: [9]P256 = undefined;
+        const pc1 = if (p1.is_base) basePointPc[0..9] else pc: {
+            pc1_array = precompute(p1, 8);
+            break :pc &pc1_array;
         };
-        return pcMul(pc, s, true);
+        try p2.rejectIdentity();
+        var pc2_array: [9]P256 = undefined;
+        const pc2 = if (p2.is_base) basePointPc[0..9] else pc: {
+            pc2_array = precompute(p2, 8);
+            break :pc &pc2_array;
+        };
+        const e1 = slide(s1);
+        const e2 = slide(s2);
+        var q = P256.identityElement;
+        var pos: usize = 2 * 32 - 1;
+        while (true) : (pos -= 1) {
+            const slot1 = e1[pos];
+            if (slot1 > 0) {
+                q = q.add(pc1[@intCast(usize, slot1)]);
+            } else if (slot1 < 0) {
+                q = q.sub(pc1[@intCast(usize, -slot1)]);
+            }
+            const slot2 = e2[pos];
+            if (slot2 > 0) {
+                q = q.add(pc2[@intCast(usize, slot2)]);
+            } else if (slot2 < 0) {
+                q = q.sub(pc2[@intCast(usize, -slot2)]);
+            }
+            if (pos == 0) break;
+            q = q.dbl().dbl().dbl().dbl();
+        }
+        try q.rejectIdentity();
+        return q;
     }
 };
 
