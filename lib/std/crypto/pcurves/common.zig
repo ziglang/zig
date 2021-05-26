@@ -20,12 +20,13 @@ pub const FieldParams = struct {
 /// A field element, internally stored in Montgomery domain.
 pub fn Field(comptime params: FieldParams) type {
     const fiat = params.fiat;
-    const Limbs = fiat.Limbs;
+    const MontgomeryDomainFieldElement = fiat.MontgomeryDomainFieldElement;
+    const NonMontgomeryDomainFieldElement = fiat.NonMontgomeryDomainFieldElement;
 
     return struct {
         const Fe = @This();
 
-        limbs: Limbs,
+        limbs: MontgomeryDomainFieldElement,
 
         /// Field size.
         pub const field_order = params.field_order;
@@ -40,7 +41,7 @@ pub fn Field(comptime params: FieldParams) type {
         pub const encoded_length = params.encoded_length;
 
         /// Zero.
-        pub const zero: Fe = Fe{ .limbs = mem.zeroes(Limbs) };
+        pub const zero: Fe = Fe{ .limbs = mem.zeroes(MontgomeryDomainFieldElement) };
 
         /// One.
         pub const one = one: {
@@ -73,16 +74,16 @@ pub fn Field(comptime params: FieldParams) type {
         pub fn fromBytes(s_: [encoded_length]u8, endian: builtin.Endian) NonCanonicalError!Fe {
             var s = if (endian == .Little) s_ else orderSwap(s_);
             try rejectNonCanonical(s, .Little);
-            var limbs_z: Limbs = undefined;
+            var limbs_z: NonMontgomeryDomainFieldElement = undefined;
             fiat.fromBytes(&limbs_z, s);
-            var limbs: Limbs = undefined;
+            var limbs: MontgomeryDomainFieldElement = undefined;
             fiat.toMontgomery(&limbs, limbs_z);
             return Fe{ .limbs = limbs };
         }
 
         /// Pack a field element.
         pub fn toBytes(fe: Fe, endian: builtin.Endian) [encoded_length]u8 {
-            var limbs_z: Limbs = undefined;
+            var limbs_z: NonMontgomeryDomainFieldElement = undefined;
             fiat.fromMontgomery(&limbs_z, fe.limbs);
             var s: [encoded_length]u8 = undefined;
             fiat.toBytes(&s, limbs_z);
@@ -198,6 +199,7 @@ pub fn Field(comptime params: FieldParams) type {
         // Field inversion from https://eprint.iacr.org/2021/549.pdf
         pub fn invert(a: Fe) Fe {
             const iterations = (49 * field_bits + 57) / 17;
+            const Limbs = @TypeOf(a.limbs);
             const Word = @TypeOf(a.limbs[0]);
             const XLimbs = [a.limbs.len + 1]Word;
 

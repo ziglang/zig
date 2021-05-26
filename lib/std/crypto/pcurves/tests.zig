@@ -107,3 +107,13 @@ test "p256 neutral element decoding" {
     const p = try P256.fromAffineCoordinates(.{ .x = P256.Fe.zero, .y = P256.Fe.one });
     try testing.expectError(error.IdentityElement, p.rejectIdentity());
 }
+
+test "p256 double base multiplication" {
+    const p1 = P256.basePoint;
+    const p2 = P256.basePoint.dbl();
+    const s1 = [_]u8{0x01} ** 32;
+    const s2 = [_]u8{0x02} ** 32;
+    const pr1 = try P256.mulDoubleBasePublic(p1, s1, p2, s2, .Little);
+    const pr2 = (try p1.mul(s1, .Little)).add(try p2.mul(s2, .Little));
+    try testing.expect(pr1.equivalent(pr2));
+}

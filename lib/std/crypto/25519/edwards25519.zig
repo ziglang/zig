@@ -143,7 +143,7 @@ pub const Edwards25519 = struct {
         p.t.cMov(a.t, c);
     }
 
-    inline fn pcSelect(comptime n: usize, pc: [n]Edwards25519, b: u8) Edwards25519 {
+    inline fn pcSelect(comptime n: usize, pc: *const [n]Edwards25519, b: u8) Edwards25519 {
         var t = Edwards25519.identityElement;
         comptime var i: u8 = 1;
         inline while (i < pc.len) : (i += 1) {
@@ -176,7 +176,7 @@ pub const Edwards25519 = struct {
     // Based on real-world benchmarks, we only use this for multi-scalar multiplication.
     // NAF could be useful to half the size of precomputation tables, but we intentionally
     // avoid these to keep the standard library lightweight.
-    fn pcMul(pc: [9]Edwards25519, s: [32]u8, comptime vartime: bool) IdentityElementError!Edwards25519 {
+    fn pcMul(pc: *const [9]Edwards25519, s: [32]u8, comptime vartime: bool) IdentityElementError!Edwards25519 {
         std.debug.assert(vartime);
         const e = slide(s);
         var q = Edwards25519.identityElement;
@@ -196,7 +196,7 @@ pub const Edwards25519 = struct {
     }
 
     // Scalar multiplication with a 4-bit window and the first 15 multiples.
-    fn pcMul16(pc: [16]Edwards25519, s: [32]u8, comptime vartime: bool) IdentityElementError!Edwards25519 {
+    fn pcMul16(pc: *const [16]Edwards25519, s: [32]u8, comptime vartime: bool) IdentityElementError!Edwards25519 {
         var q = Edwards25519.identityElement;
         var pos: usize = 252;
         while (true) : (pos -= 4) {
@@ -231,11 +231,6 @@ pub const Edwards25519 = struct {
         break :pc precompute(Edwards25519.basePoint, 15);
     };
 
-    const basePointPc8 = pc: {
-        @setEvalBranchQuota(10000);
-        break :pc precompute(Edwards25519.basePoint, 8);
-    };
-
     /// Multiply an Edwards25519 point by a scalar without clamping it.
     /// Return error.WeakPublicKey if the base generates a small-order group,
     /// and error.IdentityElement if the result is the identity element.
@@ -245,33 +240,35 @@ pub const Edwards25519 = struct {
             xpc[4].rejectIdentity() catch return error.WeakPublicKey;
             break :pc xpc;
         };
-        return pcMul16(pc, s, false);
+        return pcMul16(&pc, s, false);
     }
 
     /// Multiply an Edwards25519 point by a *PUBLIC* scalar *IN VARIABLE TIME*
     /// This can be used for signature verification.
     pub fn mulPublic(p: Edwards25519, s: [32]u8) (IdentityElementError || WeakPublicKeyError)!Edwards25519 {
         if (p.is_base) {
-            return pcMul16(basePointPc, s, true);
+            return pcMul16(&basePointPc, s, true);
         } else {
             const pc = precompute(p, 8);
             pc[4].rejectIdentity() catch return error.WeakPublicKey;
-            return pcMul(pc, s, true);
+            return pcMul(&pc, s, true);
         }
     }
 
     /// Double-base multiplication of public parameters - Compute (p1*s1)+(p2*s2) *IN VARIABLE TIME*
     /// This can be used for signature verification.
     pub fn mulDoubleBasePublic(p1: Edwards25519, s1: [32]u8, p2: Edwards25519, s2: [32]u8) (IdentityElementError || WeakPublicKeyError)!Edwards25519 {
-        const pc1 = if (p1.is_base) basePointPc8 else pc: {
-            const xpc = precompute(p1, 8);
-            xpc[4].rejectIdentity() catch return error.WeakPublicKey;
-            break :pc xpc;
+        var pc1_array: [9]Edwards25519 = undefined;
+        const pc1 = if (p1.is_base) basePointPc[0..9] else pc: {
+            pc1_array = precompute(p1, 8);
+            pc1_array[4].rejectIdentity() catch return error.WeakPublicKey;
+            break :pc &pc1_array;
         };
-        const pc2 = if (p2.is_base) basePointPc8 else pc: {
-            const xpc = precompute(p2, 8);
-            xpc[4].rejectIdentity() catch return error.WeakPublicKey;
-            break :pc xpc;
+        var pc2_array: [9]Edwards25519 = undefined;
+        const pc2 = if (p2.is_base) basePointPc[0..9] else pc: {
+            pc2_array = precompute(p2, 8);
+            pc2_array[4].rejectIdentity() catch return error.WeakPublicKey;
+            break :pc &pc2_array;
         };
         const e1 = slide(s1);
         const e2 = slide(s2);
@@ -301,9 +298,13 @@ pub const Edwards25519 = struct {
     /// Computes ps0*ss0 + ps1*ss1 + ps2*ss2... faster than doing many of these operations individually
     pub fn mulMulti(comptime count: usize, ps: [count]Edwards25519, ss: [count][32]u8) (IdentityElementError || WeakPublicKeyError)!Edwards25519 {
         var pcs: [count][9]Edwards25519 = undefined;
+
+        var bpc: [9]Edwards25519 = undefined;
+        mem.copy(Edwards25519, bpc[0..], basePointPc[0..bpc.len]);
+
         for (ps) |p, i| {
             if (p.is_base) {
-                pcs[i] = basePointPc8;
+                pcs[i] = bpc;
             } else {
                 pcs[i] = precompute(p, 8);
                 pcs[i][4].rejectIdentity() catch return error.WeakPublicKey;
