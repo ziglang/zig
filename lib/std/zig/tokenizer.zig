@@ -698,7 +698,10 @@ pub const Tokenizer = struct {
                     '\\' => {
                         state = .multiline_string_literal_line;
                     },
-                    else => break,
+                    else => {
+                        result.tag = .invalid;
+                        break;
+                    },
                 },
                 .string_literal => switch (c) {
                     '\\' => {
@@ -1960,7 +1963,7 @@ test "tokenizer - number literals octal" {
     try testTokenize("0o_,", &.{ .invalid, .identifier, .comma });
 }
 
-test "tokenizer - number literals hexadeciaml" {
+test "tokenizer - number literals hexadecimal" {
     try testTokenize("0x0", &.{.integer_literal});
     try testTokenize("0x1", &.{.integer_literal});
     try testTokenize("0x2", &.{.integer_literal});
@@ -2044,6 +2047,10 @@ test "tokenizer - number literals hexadeciaml" {
     try testTokenize("0x0.0p+_0", &.{ .invalid, .identifier });
     try testTokenize("0x0.0p-_0", &.{ .invalid, .identifier });
     try testTokenize("0x0.0p0_", &.{ .invalid, .eof });
+}
+
+test "tokenizer - multi line string literal with only 1 backslash" {
+    try testTokenize("x \\\n;", &.{ .identifier, .invalid, .semicolon });
 }
 
 fn testTokenize(source: []const u8, expected_tokens: []const Token.Tag) !void {
