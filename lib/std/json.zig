@@ -1303,14 +1303,14 @@ pub const Value = union(enum) {
                         try child_whitespace.outputIndent(out_stream);
                     }
 
-                    try stringify(entry.key, options, out_stream);
+                    try stringify(entry.key_ptr.*, options, out_stream);
                     try out_stream.writeByte(':');
                     if (child_options.whitespace) |child_whitespace| {
                         if (child_whitespace.separator) {
                             try out_stream.writeByte(' ');
                         }
                     }
-                    try stringify(entry.value, child_options, out_stream);
+                    try stringify(entry.value_ptr.*, child_options, out_stream);
                 }
                 if (field_output) {
                     if (options.whitespace) |whitespace| {
@@ -2111,10 +2111,7 @@ test "parse into struct with duplicate field" {
     const ballast = try testing.allocator.alloc(u64, 1);
     defer testing.allocator.free(ballast);
 
-    const options_first = ParseOptions{
-        .allocator = testing.allocator,
-        .duplicate_field_behavior = .UseFirst,
-    };
+    const options_first = ParseOptions{ .allocator = testing.allocator, .duplicate_field_behavior = .UseFirst };
 
     const options_last = ParseOptions{
         .allocator = testing.allocator,
@@ -2717,6 +2714,9 @@ pub const StringifyOptions = struct {
     /// Controls the whitespace emitted
     whitespace: ?Whitespace = null,
 
+    /// Should optional fields with null value be written?
+    emit_null_optional_fields: bool = true,
+
     string: StringOptions = StringOptions{ .String = .{} },
 
     /// Should []u8 be serialised as a string? or an array?
@@ -2731,9 +2731,6 @@ pub const StringifyOptions = struct {
 
             /// Should unicode characters be escaped in strings?
             escape_unicode: bool = false,
-
-            /// Should optional fields with null value be written?
-            write_null_optional_fields: bool = true,
         };
     };
 };
@@ -2816,7 +2813,7 @@ pub fn stringify(
             }
 
             try out_stream.writeByte('{');
-            comptime var field_output = false;
+            var field_output = false;
             var child_options = options;
             if (child_options.whitespace) |*child_whitespace| {
                 child_whitespace.indent_level += 1;
@@ -2825,12 +2822,18 @@ pub fn stringify(
                 // don't include void fields
                 if (Field.field_type == void) continue;
 
-                // don't include optional fields that are null when write_null_optional_fields is set to false
-                const write_null_optional_fields = (options.string == .String) and (options.string.String.write_null_optional_fields == false);
-                const is_null = (@typeInfo(Field.field_type) == .Optional) and (@field(value, Field.name) == null);
-                if (write_null_optional_fields and is_null) {
-                    // skip
-                } else {
+                var emit_field = true;
+
+                // don't include optional fields that are null when emit_null_optional_fields is set to false
+                if (@typeInfo(Field.field_type) == .Optional) {
+                    if (options.emit_null_optional_fields == false) {
+                        if (@field(value, Field.name) == null) {
+                            emit_field = false;
+                        }
+                    }
+                }
+
+                if (emit_field) {
                     if (!field_output) {
                         field_output = true;
                     } else {
@@ -3155,7 +3158,7 @@ test "stringify null optional fields" {
         \\{"required":"something","another_required":"something else"}
     ,
         MyStruct{},
-        StringifyOptions{ .string = .{ .String = .{ .write_null_optional_fields = false } } },
+        StringifyOptions{ .emit_null_optional_fields = false },
     );
 
     try std.testing.expect(try parsesTo(
