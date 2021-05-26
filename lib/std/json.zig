@@ -2591,6 +2591,9 @@ pub const StringifyOptions = struct {
 
             /// Should unicode characters be escaped in strings?
             escape_unicode: bool = false,
+
+            /// Should optional fields with null value be written?
+            write_null_optional_fields: bool = true,
         };
     };
 };
@@ -2682,23 +2685,31 @@ pub fn stringify(
                 // don't include void fields
                 if (Field.field_type == void) continue;
 
-                if (!field_output) {
-                    field_output = true;
+                // don't include optional fields that are null when write_null_optional_fields is set to false
+                const skip =
+                    (@typeInfo(Field.field_type) == .Optional) and (options.string == .String) and (options.string.String.write_null_optional_fields == false) and (@field(value, Field.name) == null);
+
+                if (skip) {
+                    field_output = false;
                 } else {
-                    try out_stream.writeByte(',');
-                }
-                if (child_options.whitespace) |child_whitespace| {
-                    try out_stream.writeByte('\n');
-                    try child_whitespace.outputIndent(out_stream);
-                }
-                try stringify(Field.name, options, out_stream);
-                try out_stream.writeByte(':');
-                if (child_options.whitespace) |child_whitespace| {
-                    if (child_whitespace.separator) {
-                        try out_stream.writeByte(' ');
+                    if (!field_output) {
+                        field_output = true;
+                    } else {
+                        try out_stream.writeByte(',');
                     }
+                    if (child_options.whitespace) |child_whitespace| {
+                        try out_stream.writeByte('\n');
+                        try child_whitespace.outputIndent(out_stream);
+                    }
+                    try stringify(Field.name, options, out_stream);
+                    try out_stream.writeByte(':');
+                    if (child_options.whitespace) |child_whitespace| {
+                        if (child_whitespace.separator) {
+                            try out_stream.writeByte(' ');
+                        }
+                    }
+                    try stringify(@field(value, Field.name), child_options, out_stream);
                 }
-                try stringify(@field(value, Field.name), child_options, out_stream);
             }
             if (field_output) {
                 if (options.whitespace) |whitespace| {
