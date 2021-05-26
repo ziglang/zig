@@ -32,9 +32,7 @@ pub fn fence(comptime ordering: Ordering) callconv(.Inline) void {
 
 pub fn compilerFence(comptime ordering: Ordering) callconv(.Inline) void {
     switch (ordering) {
-        .SeqCst => asm volatile ("" ::: "memory"),
-        .AcqRel => compilerFence(.SeqCst),
-        .Acquire, .Release => compilerFence(.AcqRel),
+        .Acquire, .Release, .AcqRel, .SeqCst => asm volatile ("" ::: "memory"),
         else => @compileLog(ordering, " only applies to a given memory location"),
     }
 }
