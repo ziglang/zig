@@ -2998,3 +2998,11 @@ test "stringify struct with custom stringifier" {
 test "stringify vector" {
     try teststringify("[1,1]", @splat(2, @as(u32, 1)), StringifyOptions{});
 }
+
+test "stringify null optional fields" {
+    const MyStruct = struct {
+        optional: ?[]const u8 = null,
+    };
+    try teststringify("{\"optional\":null}", MyStruct{}, StringifyOptions{});
+    try teststringify("{}", MyStruct{}, StringifyOptions{ .string = .{ .String = .{ .write_null_optional_fields = false } } });
+}
