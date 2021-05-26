@@ -67,7 +67,7 @@ else switch (std.Target.current.os.tag) {
     else => struct {},
 };
 
-pub const spinLoopHint = std.atomic.spinLoopHint;
+pub const spinLoopHint = @compileError("deprecated: use std.atomic.spinLoopHint");
 
 /// Returns the ID of the calling thread.
 /// Makes a syscall every time the function is called.

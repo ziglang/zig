@@ -32,11 +32,7 @@ pub fn fence(comptime ordering: Ordering) callconv(.Inline) void {
 
 pub fn compilerFence(comptime ordering: Ordering) callconv(.Inline) void {
     switch (ordering) {
-        .SeqCst => {
-            // TODO: Use LLVM intrinsic `fence syncscope("singlethread")` instead of inline asm.
-            // https://llvm.org/docs/LangRef.html#fence-instruction
-            asm volatile ("" ::: "memory");
-        },
+        .SeqCst => asm volatile ("" ::: "memory"),
         .AcqRel => compilerFence(.SeqCst),
         .Acquire, .Release => compilerFence(.AcqRel),
         else => @compileLog(ordering, " only applies to a given memory location"),
