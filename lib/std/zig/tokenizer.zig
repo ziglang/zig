@@ -568,11 +568,13 @@ pub const Tokenizer = struct {
                         result.tag = .identifier;
                         state = .string_literal;
                     },
-                    else => {
-                        // reinterpret as a builtin
-                        self.index -= 1;
+                    'a'...'z', 'A'...'Z', '_' => {
                         state = .builtin;
                         result.tag = .builtin;
+                    },
+                    else => {
+                        result.tag = .invalid;
+                        break;
                     },
                 },
 
@@ -2051,6 +2053,11 @@ test "tokenizer - number literals hexadecimal" {
 
 test "tokenizer - multi line string literal with only 1 backslash" {
     try testTokenize("x \\\n;", &.{ .identifier, .invalid, .semicolon });
+}
+
+test "tokenizer - invalid builtin identifiers" {
+    try testTokenize("@()", &.{ .invalid, .l_paren, .r_paren });
+    try testTokenize("@0()", &.{ .invalid, .integer_literal, .l_paren, .r_paren });
 }
 
 fn testTokenize(source: []const u8, expected_tokens: []const Token.Tag) !void {
