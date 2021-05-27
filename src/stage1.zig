@@ -252,6 +252,8 @@ const Error = extern enum {
     ZigIsTheCCompiler,
     FileBusy,
     Locked,
+    InvalidCharacter,
+    UnicodePointTooLarge,
 };
 
 // ABI warning

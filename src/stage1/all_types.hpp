@@ -670,7 +670,7 @@ enum NodeType {
     NodeTypeIntLiteral,
     NodeTypeStringLiteral,
     NodeTypeCharLiteral,
-    NodeTypeSymbol,
+    NodeTypeIdentifier,
     NodeTypePrefixOpExpr,
     NodeTypePointerType,
     NodeTypeFnCallExpr,
@@ -710,6 +710,7 @@ enum NodeType {
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
     NodeTypeAnyFrameType,
+    // main_token points to the identifier.
     NodeTypeEnumLiteral,
     NodeTypeAnyTypeField,
 };
@@ -733,7 +734,8 @@ struct AstNodeFnProto {
     AstNode *section_expr;
     // populated if the "callconv(S)" is present
     AstNode *callconv_expr;
-    Buf doc_comments;
+
+    TokenIndex doc_comments;
 
     // This is set based only on the existence of a noinline or inline keyword.
     // This is then resolved to an is_noinline bool and (potentially .Inline)
@@ -755,8 +757,8 @@ struct AstNodeFnDef {
 struct AstNodeParamDecl {
     Buf *name;
     AstNode *type;
-    Token *anytype_token;
-    Buf doc_comments;
+    TokenIndex doc_comments;
+    TokenIndex anytype_token;
     bool is_noalias;
     bool is_comptime;
     bool is_var_args;
@@ -799,9 +801,9 @@ struct AstNodeVariableDeclaration {
     AstNode *align_expr;
     // populated if the "section(S)" is present
     AstNode *section_expr;
-    Token *threadlocal_tok;
-    Buf doc_comments;
+    TokenIndex doc_comments;
 
+    TokenIndex threadlocal_tok;
     VisibMod visib_mod;
     bool is_const;
     bool is_comptime;
@@ -935,13 +937,14 @@ struct AstNodePrefixOpExpr {
 };
 
 struct AstNodePointerType {
-    Token *star_token;
+    TokenIndex star_token;
+    TokenIndex allow_zero_token;
+    TokenIndex bit_offset_start;
+    TokenIndex host_int_bytes;
+
     AstNode *sentinel;
     AstNode *align_expr;
-    BigInt *bit_offset_start;
-    BigInt *host_int_bytes;
     AstNode *op_expr;
-    Token *allow_zero_token;
     bool is_const;
     bool is_volatile;
 };
@@ -956,7 +959,7 @@ struct AstNodeArrayType {
     AstNode *sentinel;
     AstNode *child_type;
     AstNode *align_expr;
-    Token *allow_zero_token;
+    TokenIndex allow_zero_token;
     bool is_const;
     bool is_volatile;
 };
@@ -974,11 +977,11 @@ struct AstNodeIfBoolExpr {
 
 struct AstNodeTryExpr {
     Buf *var_symbol;
-    bool var_is_ptr;
     AstNode *target_node;
     AstNode *then_node;
     AstNode *else_node;
     Buf *err_symbol;
+    bool var_is_ptr;
 };
 
 struct AstNodeTestExpr {
@@ -993,12 +996,12 @@ struct AstNodeWhileExpr {
     Buf *name;
     AstNode *condition;
     Buf *var_symbol;
-    bool var_is_ptr;
     AstNode *continue_expr;
     AstNode *body;
     AstNode *else_node;
     Buf *err_symbol;
     bool is_inline;
+    bool var_is_ptr;
 };
 
 struct AstNodeForExpr {
@@ -1070,7 +1073,7 @@ struct AsmToken {
 };
 
 struct AstNodeAsmExpr {
-    Token *volatile_token;
+    TokenIndex volatile_token;
     AstNode *asm_template;
     ZigList<AsmOutput*> output_list;
     ZigList<AsmInput*> input_list;
@@ -1094,7 +1097,7 @@ struct AstNodeContainerDecl {
     AstNode *init_arg_expr; // enum(T), struct(endianness), or union(T), or union(enum(T))
     ZigList<AstNode *> fields;
     ZigList<AstNode *> decls;
-    Buf doc_comments;
+    TokenIndex doc_comments;
 
     ContainerKind kind;
     ContainerLayout layout;
@@ -1103,7 +1106,7 @@ struct AstNodeContainerDecl {
 };
 
 struct AstNodeErrorSetField {
-    Buf doc_comments;
+    TokenIndex doc_comments;
     AstNode *field_name;
 };
 
@@ -1118,28 +1121,8 @@ struct AstNodeStructField {
     AstNode *value;
     // populated if the "align(A)" is present
     AstNode *align_expr;
-    Buf doc_comments;
-    Token *comptime_token;
-};
-
-struct AstNodeStringLiteral {
-    Buf *buf;
-};
-
-struct AstNodeCharLiteral {
-    uint32_t value;
-};
-
-struct AstNodeFloatLiteral {
-    BigFloat *bigfloat;
-
-    // overflow is true if when parsing the number, we discovered it would not
-    // fit without losing data in a double
-    bool overflow;
-};
-
-struct AstNodeIntLiteral {
-    BigInt *bigint;
+    TokenIndex doc_comments;
+    TokenIndex comptime_token;
 };
 
 struct AstNodeStructValueField {
@@ -1156,19 +1139,6 @@ struct AstNodeContainerInitExpr {
     AstNode *type;
     ZigList<AstNode *> entries;
     ContainerInitKind kind;
-};
-
-struct AstNodeNullLiteral {
-};
-
-struct AstNodeUndefinedLiteral {
-};
-
-struct AstNodeThisLiteral {
-};
-
-struct AstNodeSymbolExpr {
-    Buf *symbol;
 };
 
 struct AstNodeBoolLiteral {
@@ -1188,13 +1158,6 @@ struct AstNodeContinueExpr {
     Buf *name;
 };
 
-struct AstNodeUnreachableExpr {
-};
-
-
-struct AstNodeErrorType {
-};
-
 struct AstNodeAwaitExpr {
     AstNode *expr;
 };
@@ -1207,16 +1170,10 @@ struct AstNodeAnyFrameType {
     AstNode *payload_type; // can be NULL
 };
 
-struct AstNodeEnumLiteral {
-    Token *period;
-    Token *identifier;
-};
-
 struct AstNode {
     enum NodeType type;
+    TokenIndex main_token;
     bool already_traced_this_node;
-    size_t line;
-    size_t column;
     ZigType *owner;
     union {
         AstNodeFnDef fn_def;
@@ -1252,30 +1209,19 @@ struct AstNode {
         AstNodePtrDerefExpr ptr_deref_expr;
         AstNodeContainerDecl container_decl;
         AstNodeStructField struct_field;
-        AstNodeStringLiteral string_literal;
-        AstNodeCharLiteral char_literal;
-        AstNodeFloatLiteral float_literal;
-        AstNodeIntLiteral int_literal;
         AstNodeContainerInitExpr container_init_expr;
         AstNodeStructValueField struct_val_field;
-        AstNodeNullLiteral null_literal;
-        AstNodeUndefinedLiteral undefined_literal;
-        AstNodeThisLiteral this_literal;
-        AstNodeSymbolExpr symbol_expr;
         AstNodeBoolLiteral bool_literal;
         AstNodeBreakExpr break_expr;
         AstNodeContinueExpr continue_expr;
-        AstNodeUnreachableExpr unreachable_expr;
         AstNodeArrayType array_type;
         AstNodeInferredArrayType inferred_array_type;
-        AstNodeErrorType error_type;
         AstNodeErrorSetDecl err_set_decl;
         AstNodeErrorSetField err_set_field;
         AstNodeResumeExpr resume_expr;
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;
         AstNodeAnyFrameType anyframe_type;
-        AstNodeEnumLiteral enum_literal;
     } data;
 
     // This is a function for use in the debugger to print
@@ -1409,9 +1355,11 @@ struct ZigPackage {
 struct RootStruct {
     ZigPackage *package;
     Buf *path; // relative to root_package->root_src_dir
-    ZigList<size_t> *line_offsets;
     Buf *source_code;
     ZigLLVMDIFile *di_file;
+    size_t token_count;
+    TokenId *token_ids;
+    TokenLoc *token_locs;
 };
 
 enum StructSpecial {

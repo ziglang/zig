@@ -6,7 +6,6 @@
  */
 
 #include "analyze.hpp"
-#include "ast_render.hpp"
 #include "codegen.hpp"
 #include "errmsg.hpp"
 #include "error.hpp"
@@ -642,6 +641,18 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn) {
     return fn->llvm_value;
 }
 
+static uint32_t node_line_onebased(AstNode *node) {
+    RootStruct *root_struct = node->owner->data.structure.root_struct;
+    assert(node->main_token < root_struct->token_count);
+    return root_struct->token_locs[node->main_token].line + 1;
+}
+
+static uint32_t node_column_onebased(AstNode *node) {
+    RootStruct *root_struct = node->owner->data.structure.root_struct;
+    assert(node->main_token < root_struct->token_count);
+    return root_struct->token_locs[node->main_token].column + 1;
+}
+
 static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
     if (scope->di_scope)
         return scope->di_scope;
@@ -657,8 +668,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             ZigFn *fn_table_entry = fn_scope->fn_entry;
             if (!fn_table_entry->proto_node)
                 return get_di_scope(g, scope->parent);
-            unsigned line_number = (unsigned)(fn_table_entry->proto_node->line == 0) ?
-                0 : (fn_table_entry->proto_node->line + 1);
+            unsigned line_number = node_line_onebased(fn_table_entry->proto_node);
             unsigned scope_line = line_number;
             bool is_definition = fn_table_entry->body_node != nullptr;
             bool is_optimized = g->build_mode != BuildModeDebug;
@@ -696,8 +706,8 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             ZigLLVMDILexicalBlock *di_block = ZigLLVMCreateLexicalBlock(g->dbuilder,
                 get_di_scope(g, scope->parent),
                 import->data.structure.root_struct->di_file,
-                (unsigned)scope->source_node->line + 1,
-                (unsigned)scope->source_node->column + 1);
+                node_line_onebased(scope->source_node),
+                node_column_onebased(scope->source_node));
             scope->di_scope = ZigLLVMLexicalBlockToScope(di_block);
             return scope->di_scope;
         }
@@ -1798,8 +1808,8 @@ static void gen_var_debug_decl(CodeGen *g, ZigVar *var) {
     if (g->strip_debug_symbols) return;
     assert(var->di_loc_var != nullptr);
     AstNode *source_node = var->decl_node;
-    ZigLLVMDILocation *debug_loc = ZigLLVMGetDebugLoc((unsigned)source_node->line + 1,
-            (unsigned)source_node->column + 1, get_di_scope(g, var->parent_scope));
+    ZigLLVMDILocation *debug_loc = ZigLLVMGetDebugLoc(node_line_onebased(source_node),
+            node_column_onebased(source_node), get_di_scope(g, var->parent_scope));
     ZigLLVMInsertDeclareAtEnd(g->dbuilder, var->value_ref, var->di_loc_var, debug_loc,
             LLVMGetInsertBlock(g->builder));
 }
@@ -2198,7 +2208,7 @@ var_ok:
         // arg index + 1 because the 0 index is return value
         var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                 var->name, fn_walk->data.vars.import->data.structure.root_struct->di_file,
-                (unsigned)(var->decl_node->line + 1),
+                node_line_onebased(var->decl_node),
                 get_llvm_di_type(g, dest_ty), !g->strip_debug_symbols, 0, di_arg_index + 1);
     }
     return true;
@@ -4126,7 +4136,7 @@ static void render_async_spills(CodeGen *g) {
         if (var->decl_node) {
             var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                 var->name, import->data.structure.root_struct->di_file,
-                (unsigned)(var->decl_node->line + 1),
+                node_line_onebased(var->decl_node),
                 get_llvm_di_type(g, var->var_type), !g->strip_debug_symbols, 0);
             gen_var_debug_decl(g, var);
         }
@@ -6797,8 +6807,8 @@ static void set_debug_location(CodeGen *g, IrInstGen *instruction) {
     assert(source_node);
     assert(scope);
 
-    ZigLLVMSetCurrentDebugLocation(g->builder, (int)source_node->line + 1,
-            (int)source_node->column + 1, get_di_scope(g, scope));
+    ZigLLVMSetCurrentDebugLocation(g->builder, node_line_onebased(source_node),
+            node_column_onebased(source_node), get_di_scope(g, scope));
 }
 
 static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutableGen *executable, IrInstGen *instruction) {
@@ -8021,7 +8031,7 @@ static void gen_global_var(CodeGen *g, ZigVar *var, LLVMValueRef init_val,
     bool is_local_to_unit = true;
     ZigLLVMCreateGlobalVariable(g->dbuilder, get_di_scope(g, var->parent_scope), var->name,
         var->name, import->data.structure.root_struct->di_file,
-        (unsigned)(var->decl_node->line + 1),
+        node_line_onebased(var->decl_node),
         get_llvm_di_type(g, type_entry), is_local_to_unit);
 
     // TODO ^^ make an actual global variable
@@ -8296,7 +8306,8 @@ static void do_code_gen(CodeGen *g) {
 
             if (var->src_arg_index == SIZE_MAX) {
                 var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
-                        var->name, import->data.structure.root_struct->di_file, (unsigned)(var->decl_node->line + 1),
+                        var->name, import->data.structure.root_struct->di_file,
+                        node_line_onebased(var->decl_node),
                         get_llvm_di_type(g, var->var_type), !g->strip_debug_symbols, 0);
 
             } else if (is_c_abi) {
@@ -8321,7 +8332,7 @@ static void do_code_gen(CodeGen *g) {
                 if (var->decl_node) {
                     var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                         var->name, import->data.structure.root_struct->di_file,
-                        (unsigned)(var->decl_node->line + 1),
+                        node_line_onebased(var->decl_node),
                         get_llvm_di_type(g, gen_type), !g->strip_debug_symbols, 0, (unsigned)(gen_info->gen_index+1));
                 }
 
@@ -8365,8 +8376,9 @@ static void do_code_gen(CodeGen *g) {
 
             if (!g->strip_debug_symbols) {
                 AstNode *source_node = fn_table_entry->proto_node;
-                ZigLLVMSetCurrentDebugLocation(g->builder, (int)source_node->line + 1,
-                        (int)source_node->column + 1, get_di_scope(g, fn_table_entry->child_scope));
+                ZigLLVMSetCurrentDebugLocation(g->builder,
+                        node_line_onebased(source_node), node_column_onebased(source_node),
+                        get_di_scope(g, fn_table_entry->child_scope));
             }
             IrExecutableGen *executable = &fn_table_entry->analyzed_executable;
             LLVMBasicBlockRef bad_resume_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadResume");

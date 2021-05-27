@@ -69,7 +69,7 @@ void bigfloat_init_bigint(BigFloat *dest, const BigInt *op) {
     }
 }
 
-Error bigfloat_init_buf(BigFloat *dest, const uint8_t *buf_ptr, size_t buf_len) {
+Error bigfloat_init_buf(BigFloat *dest, const uint8_t *buf_ptr) {
     char *str_begin = (char *)buf_ptr;
     char *str_end;
 
@@ -79,7 +79,6 @@ Error bigfloat_init_buf(BigFloat *dest, const uint8_t *buf_ptr, size_t buf_len) 
         return ErrorOverflow;
     }
 
-    assert(str_end <= ((char*)buf_ptr) + buf_len);
     return ErrorNone;
 }
 

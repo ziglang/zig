@@ -12,10 +12,9 @@
 #include "bigint.hpp"
 #include "bigfloat.hpp"
 
-enum TokenId {
+enum TokenId : uint8_t {
     TokenIdAmpersand,
     TokenIdArrow,
-    TokenIdAtSign,
     TokenIdBang,
     TokenIdBarBar,
     TokenIdBinOr,
@@ -27,6 +26,7 @@ enum TokenId {
     TokenIdBitShiftRight,
     TokenIdBitShiftRightEq,
     TokenIdBitXorEq,
+    TokenIdBuiltin,
     TokenIdCharLiteral,
     TokenIdCmpEq,
     TokenIdCmpGreaterOrEq,
@@ -109,9 +109,7 @@ enum TokenId {
     TokenIdMinusPercent,
     TokenIdMinusPercentEq,
     TokenIdModEq,
-    TokenIdNumberSign,
     TokenIdPercent,
-    TokenIdPercentDot,
     TokenIdPlus,
     TokenIdPlusEq,
     TokenIdPlusPercent,
@@ -125,75 +123,35 @@ enum TokenId {
     TokenIdStar,
     TokenIdStarStar,
     TokenIdStringLiteral,
-    TokenIdMultilineStringLiteral,
-    TokenIdSymbol,
+    TokenIdMultilineStringLiteralLine,
+    TokenIdIdentifier,
     TokenIdTilde,
     TokenIdTimesEq,
     TokenIdTimesPercent,
     TokenIdTimesPercentEq,
+
     TokenIdCount,
 };
 
-struct TokenFloatLit {
-    BigFloat bigfloat;
-    // overflow is true if when parsing the number, we discovered it would not fit
-    // without losing data
-    bool overflow;
+typedef uint32_t TokenIndex;
+
+struct TokenLoc {
+    uint32_t offset;
+    uint32_t line;
+    uint32_t column;
 };
-
-struct TokenIntLit {
-    BigInt bigint;
-};
-
-struct TokenStrLit {
-    Buf str;
-};
-
-struct TokenCharLit {
-    uint32_t c;
-};
-
-struct Token {
-    TokenId id;
-    size_t start_pos;
-    size_t end_pos;
-    size_t start_line;
-    size_t start_column;
-
-    union {
-        // TokenIdIntLiteral
-        TokenIntLit int_lit;
-
-        // TokenIdFloatLiteral
-        TokenFloatLit float_lit;
-
-        // TokenIdStringLiteral, TokenIdMultilineStringLiteral or TokenIdSymbol
-        TokenStrLit str_lit;
-
-        // TokenIdCharLiteral
-        TokenCharLit char_lit;
-    } data;
-};
-// work around conflicting name Token which is also found in libclang
-typedef Token ZigToken;
 
 struct Tokenization {
-    ZigList<Token> *tokens;
-    ZigList<size_t> *line_offsets;
+    ZigList<TokenId> ids;
+    ZigList<TokenLoc> locs;
 
     // if an error occurred
     Buf *err;
-    size_t err_line;
-    size_t err_column;
+    uint32_t err_byte_offset;
 };
 
-void tokenize(Buf *buf, Tokenization *out_tokenization);
-
-void print_tokens(Buf *buf, ZigList<Token> *tokens);
+void tokenize(const char *source, Tokenization *out_tokenization);
 
 const char * token_name(TokenId id);
-
-bool valid_symbol_starter(uint8_t c);
-bool is_zig_keyword(Buf *buf);
 
 #endif

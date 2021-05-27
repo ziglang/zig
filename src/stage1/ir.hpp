@@ -10,9 +10,6 @@
 
 #include "all_types.hpp"
 
-bool ir_gen(CodeGen *g, AstNode *node, Scope *scope, IrExecutableSrc *ir_executable);
-bool ir_gen_fn(CodeGen *g, ZigFn *fn_entry);
-
 IrInstGen *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, ZigFn *fn,
         ZigType *var_type, const char *name_hint);
 
@@ -32,9 +29,5 @@ bool ir_inst_src_has_side_effects(IrInstSrc *inst);
 struct IrAnalyze;
 ZigValue *const_ptr_pointee(IrAnalyze *ira, CodeGen *codegen, ZigValue *const_val,
         AstNode *source_node);
-
-// for debugging purposes
-void dbg_ir_break(const char *src_file, uint32_t line);
-void dbg_ir_clear(void);
 
 #endif

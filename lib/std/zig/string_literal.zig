@@ -107,6 +107,7 @@ pub fn parseAppend(buf: *std.ArrayList(u8), bytes: []const u8) error{OutOfMemory
                             const hex_str = slice[index + 2 .. index_end];
                             if (std.fmt.parseUnsigned(u32, hex_str, 16)) |uint| {
                                 if (uint <= 0x10ffff) {
+                                    // TODO this incorrectly depends on endianness
                                     try buf.appendSlice(std.mem.toBytes(uint)[0..]);
                                     state = State.Start;
                                     index = index_end; // loop-header increments

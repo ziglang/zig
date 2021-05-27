@@ -28,7 +28,7 @@ void bigfloat_init_64(BigFloat *dest, double x);
 void bigfloat_init_128(BigFloat *dest, float128_t x);
 void bigfloat_init_bigfloat(BigFloat *dest, const BigFloat *x);
 void bigfloat_init_bigint(BigFloat *dest, const BigInt *op);
-Error bigfloat_init_buf(BigFloat *dest, const uint8_t *buf_ptr, size_t buf_len);
+Error bigfloat_init_buf(BigFloat *dest, const uint8_t *buf_ptr);
 
 float16_t bigfloat_to_f16(const BigFloat *bigfloat);
 float bigfloat_to_f32(const BigFloat *bigfloat);

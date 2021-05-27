@@ -292,7 +292,7 @@ set(ZIG0_SOURCES
 
 set(STAGE1_SOURCES
     "${CMAKE_SOURCE_DIR}/src/stage1/analyze.cpp"
-    "${CMAKE_SOURCE_DIR}/src/stage1/ast_render.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/astgen.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/bigfloat.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/bigint.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/buffer.cpp"
@@ -307,11 +307,11 @@ set(STAGE1_SOURCES
     "${CMAKE_SOURCE_DIR}/src/stage1/os.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/parser.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/range_set.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/softfloat_ext.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/stage1.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/target.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/util.cpp"
-    "${CMAKE_SOURCE_DIR}/src/stage1/softfloat_ext.cpp"
 )
 set(OPTIMIZED_C_SOURCES
     "${CMAKE_SOURCE_DIR}/src/stage1/parse_f128.c"
