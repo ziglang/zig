@@ -759,19 +759,21 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 }
             }
 
+            // Search for static libraries first, then dynamic libraries.
+            // TODO Respect flags such as -search_paths_first to the linker.
             // TODO text-based API, or .tbd files.
-            const exts = &[_][]const u8{ "dylib", "a" };
+            const exts = &[_][]const u8{ "a", "dylib" };
 
             for (search_lib_names.items) |l_name| {
                 var found = false;
 
-                for (exts) |ext| ext: {
+                ext: for (exts) |ext| {
                     const l_name_ext = try std.fmt.allocPrint(arena, "lib{s}.{s}", .{ l_name, ext });
 
                     for (search_lib_dirs.items) |lib_dir| {
                         const full_path = try fs.path.join(arena, &[_][]const u8{ lib_dir, l_name_ext });
 
-                        // Check if the dylib file exists.
+                        // Check if the lib file exists.
                         const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
                             error.FileNotFound => continue,
                             else => |e| return e,
@@ -2517,8 +2519,7 @@ fn allocatedSizeLinkedit(self: *MachO, start: u64) u64 {
 
     return min_pos - start;
 }
-
-inline fn checkForCollision(start: u64, end: u64, off: u64, size: u64) ?u64 {
+fn checkForCollision(start: u64, end: u64, off: u64, size: u64) callconv(.Inline) ?u64 {
     const increased_size = padToIdeal(size);
     const test_end = off + increased_size;
     if (end > off and start < test_end) {
