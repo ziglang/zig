@@ -2574,17 +2574,17 @@ pub const LibExeObjStep = struct {
             try zig_args.append(lib_path);
         }
 
+        for (self.rpaths.items) |rpath| {
+            try zig_args.append("-rpath");
+            try zig_args.append(rpath);
+        }
+
         for (self.c_macros.items) |c_macro| {
             try zig_args.append("-D");
             try zig_args.append(c_macro);
         }
 
         if (self.target.isDarwin()) {
-            for (self.rpaths.items) |rpath| {
-                try zig_args.append("-rpath");
-                try zig_args.append(rpath);
-            }
-
             for (self.framework_dirs.items) |dir| {
                 try zig_args.append("-F");
                 try zig_args.append(dir);
