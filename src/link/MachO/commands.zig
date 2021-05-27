@@ -316,7 +316,7 @@ pub fn createLoadDylibCommand(
 ) !GenericCommandWithData(macho.dylib_command) {
     const cmdsize = @intCast(u32, mem.alignForwardGeneric(
         u64,
-        @sizeOf(macho.dylib_command) + name.len,
+        @sizeOf(macho.dylib_command) + name.len + 1, // +1 for nul
         @sizeOf(u64),
     ));
 
