@@ -1121,9 +1121,12 @@ pub fn formatFloatHexadecimal(
 
     try writer.writeAll("0x");
     try writer.writeByte(buf[0]);
-    if (options.precision != @as(usize, 0))
-        try writer.writeAll(".");
     const trimmed = mem.trimRight(u8, buf[1..], "0");
+    if (options.precision) |precision| {
+        if (precision > 0) try writer.writeAll(".");
+    } else if (trimmed.len > 0) {
+        try writer.writeAll(".");
+    }
     try writer.writeAll(trimmed);
     // Add trailing zeros if explicitly requested.
     if (options.precision) |precision| if (precision > 0) {
@@ -2048,10 +2051,10 @@ test "float.hexadecimal" {
     try expectFmt("f64: 0x1.5555555555555p-2", "f64: {x}", .{@as(f64, 1.0 / 3.0)});
     try expectFmt("f128: 0x1.5555555555555555555555555555p-2", "f128: {x}", .{@as(f128, 1.0 / 3.0)});
 
-    try expectFmt("f16: 0x1.p-14", "f16: {x}", .{@as(f16, math.f16_min)});
-    try expectFmt("f32: 0x1.p-126", "f32: {x}", .{@as(f32, math.f32_min)});
-    try expectFmt("f64: 0x1.p-1022", "f64: {x}", .{@as(f64, math.f64_min)});
-    try expectFmt("f128: 0x1.p-16382", "f128: {x}", .{@as(f128, math.f128_min)});
+    try expectFmt("f16: 0x1p-14", "f16: {x}", .{@as(f16, math.f16_min)});
+    try expectFmt("f32: 0x1p-126", "f32: {x}", .{@as(f32, math.f32_min)});
+    try expectFmt("f64: 0x1p-1022", "f64: {x}", .{@as(f64, math.f64_min)});
+    try expectFmt("f128: 0x1p-16382", "f128: {x}", .{@as(f128, math.f128_min)});
 
     try expectFmt("f16: 0x0.004p-14", "f16: {x}", .{@as(f16, math.f16_true_min)});
     try expectFmt("f32: 0x0.000002p-126", "f32: {x}", .{@as(f32, math.f32_true_min)});

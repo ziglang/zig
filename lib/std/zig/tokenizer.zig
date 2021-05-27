@@ -1210,10 +1210,6 @@ pub const Tokenizer = struct {
                         state = .start;
                         break;
                     },
-                    'e', 'E' => {
-                        result.tag = .float_literal;
-                        state = .float_exponent_unsigned;
-                    },
                     '0'...'9' => {
                         result.tag = .float_literal;
                         state = .float_fraction_dec;
@@ -1231,10 +1227,6 @@ pub const Tokenizer = struct {
                         self.index -= 1;
                         state = .start;
                         break;
-                    },
-                    'p', 'P' => {
-                        result.tag = .float_literal;
-                        state = .float_exponent_unsigned;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {
                         result.tag = .float_literal;
@@ -1861,7 +1853,6 @@ test "tokenizer - number literals decimal" {
     try testTokenize("0e0", &.{.float_literal});
     try testTokenize("1e0", &.{.float_literal});
     try testTokenize("1e100", &.{.float_literal});
-    try testTokenize("1.e100", &.{.float_literal});
     try testTokenize("1.0e100", &.{.float_literal});
     try testTokenize("1.0e+100", &.{.float_literal});
     try testTokenize("1.0e-100", &.{.float_literal});
@@ -1869,6 +1860,7 @@ test "tokenizer - number literals decimal" {
 
     try testTokenize("1.", &.{.invalid});
     try testTokenize("1e", &.{.invalid});
+    try testTokenize("1.e100", &.{ .invalid, .identifier });
     try testTokenize("1.0e1f0", &.{ .invalid, .identifier });
     try testTokenize("1.0p100", &.{ .invalid, .identifier });
     try testTokenize("1.0p-100", &.{ .invalid, .identifier, .minus, .integer_literal });
@@ -2019,6 +2011,7 @@ test "tokenizer - number literals hexadecimal" {
     try testTokenize("0x1.", &.{.invalid});
     try testTokenize("0xF.", &.{.invalid});
     try testTokenize("0x1.+0xF.", &.{ .invalid, .plus, .invalid });
+    try testTokenize("0xff.p10", &.{ .invalid, .identifier });
 
     try testTokenize("0x0123456.789ABCDEF", &.{.float_literal});
     try testTokenize("0x0_123_456.789_ABC_DEF", &.{.float_literal});
@@ -2027,7 +2020,6 @@ test "tokenizer - number literals hexadecimal" {
     try testTokenize("0x0.0p0", &.{.float_literal});
     try testTokenize("0xff.ffp10", &.{.float_literal});
     try testTokenize("0xff.ffP10", &.{.float_literal});
-    try testTokenize("0xff.p10", &.{.float_literal});
     try testTokenize("0xffp10", &.{.float_literal});
     try testTokenize("0xff_ff.ff_ffp1_0_0_0", &.{.float_literal});
     try testTokenize("0xf_f_f_f.f_f_f_fp+1_000", &.{.float_literal});
@@ -2038,7 +2030,7 @@ test "tokenizer - number literals hexadecimal" {
     try testTokenize("0x1p", &.{.invalid});
     try testTokenize("0xfp0z1", &.{ .invalid, .identifier });
     try testTokenize("0xff.ffpff", &.{ .invalid, .identifier });
-    try testTokenize("0x0.p", &.{.invalid});
+    try testTokenize("0x0.p", &.{ .invalid, .identifier });
     try testTokenize("0x0.z", &.{ .invalid, .identifier });
     try testTokenize("0x0._", &.{ .invalid, .identifier });
     try testTokenize("0x0_.0", &.{ .invalid, .period, .integer_literal });

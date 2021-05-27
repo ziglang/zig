@@ -46,7 +46,7 @@ test "fixunstfdi" {
     try test__fixunstfdi(0x1.0000000000000000p+63, 0x8000000000000000);
     try test__fixunstfdi(0x1.FFFFFFFFFFFFFFFCp+62, 0x7FFFFFFFFFFFFFFF);
     try test__fixunstfdi(0x1.FFFFFFFFFFFFFFF8p+62, 0x7FFFFFFFFFFFFFFE);
-    try test__fixunstfdi(0x1.p+64, 0xFFFFFFFFFFFFFFFF);
+    try test__fixunstfdi(0x1p+64, 0xFFFFFFFFFFFFFFFF);
 
     try test__fixunstfdi(-0x1.0000000000000000p+63, 0);
     try test__fixunstfdi(-0x1.FFFFFFFFFFFFFFFCp+62, 0);
