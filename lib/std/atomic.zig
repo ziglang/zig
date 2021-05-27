@@ -63,7 +63,7 @@ pub fn spinLoopHint() callconv(.Inline) void {
         // `yield` was introduced in v6k but is also available on v6m.
         // https://www.keil.com/support/man/docs/armasm/armasm_dom1361289926796.htm
         .arm, .armeb, .thumb, .thumbeb => blk: {
-            const can_yield = std.Target.arm.featureSetHasAny(target.cpu.features, .{ .has_v6k, .has_v6m });
+            const can_yield = comptime std.Target.arm.featureSetHasAny(target.cpu.features, .{ .has_v6k, .has_v6m });
             const instruction = if (can_yield) "yield" else "";
             break :blk instruction;
         },
