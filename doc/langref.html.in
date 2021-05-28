@@ -133,7 +133,7 @@
             color: #bbb;
         }
         a {
-            color: #88f;
+            color: #f7a31d;
         }
         table, th, td {
             border-color: grey;
