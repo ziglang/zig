@@ -5592,36 +5592,35 @@ Error ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
     if (type_is_invalid(return_ptr->type))
         return ErrorSemanticAnalyzeFail;
 
-    Stage1Zir *ir_executable = heap::c_allocator.create<Stage1Zir>();
-    ir_executable->source_node = source_node;
-    ir_executable->name = exec_name;
-    ir_executable->is_inline = true;
-    ir_executable->begin_scope = scope;
+    Stage1Zir *stage1_zir = heap::c_allocator.create<Stage1Zir>();
+    stage1_zir->name = exec_name;
+    stage1_zir->is_inline = true;
+    stage1_zir->begin_scope = scope;
 
     bool in_c_import_scope = c_import_buf != nullptr;
 
-    if (!stage1_astgen(codegen, node, scope, ir_executable, fn_entry, in_c_import_scope))
+    if (!stage1_astgen(codegen, node, scope, stage1_zir, fn_entry, in_c_import_scope))
         return ErrorSemanticAnalyzeFail;
 
-    if (ir_executable->first_err_trace_msg != nullptr) {
-        codegen->trace_err = ir_executable->first_err_trace_msg;
+    if (stage1_zir->first_err_trace_msg != nullptr) {
+        codegen->trace_err = stage1_zir->first_err_trace_msg;
         return ErrorSemanticAnalyzeFail;
     }
 
     if (codegen->verbose_ir) {
         fprintf(stderr, "\n{ // (IR)\n");
-        ir_print_src(codegen, stderr, ir_executable, 2);
+        ir_print_src(codegen, stderr, stage1_zir, 2);
         fprintf(stderr, "}\n");
     }
     Stage1Air *analyzed_executable = heap::c_allocator.create<Stage1Air>();
     analyzed_executable->source_node = source_node;
     analyzed_executable->parent_exec = parent_exec;
-    analyzed_executable->source_exec = ir_executable;
+    analyzed_executable->source_exec = stage1_zir;
     analyzed_executable->name = exec_name;
     analyzed_executable->is_inline = true;
     analyzed_executable->c_import_buf = c_import_buf;
     analyzed_executable->begin_scope = scope;
-    ZigType *result_type = ir_analyze(codegen, ir_executable, analyzed_executable,
+    ZigType *result_type = ir_analyze(codegen, stage1_zir, analyzed_executable,
             backward_branch_count, backward_branch_quota,
             return_ptr->type->data.pointer.child_type, expected_type_source_node, return_ptr,
             fn_entry);
@@ -12935,7 +12934,6 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             if (type_is_invalid(impl_fn->type_entry))
                 return ira->codegen->invalid_inst_gen;
 
-            impl_fn->ir_executable->source_node = source_instr->source_node;
             impl_fn->analyzed_executable.source_node = source_instr->source_node;
             impl_fn->analyzed_executable.parent_exec = ira->new_irb.exec;
             impl_fn->branch_quota = *ira->backward_branch_quota;

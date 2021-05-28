@@ -114,17 +114,12 @@ struct Stage1Zir {
     ZigList<IrBasicBlockSrc *> basic_block_list;
     Buf *name;
     ZigFn *name_fn;
-    AstNode *source_node;
     Scope *begin_scope;
     ErrorMsg *first_err_trace_msg;
     ZigList<Tld *> tld_list;
 
     bool is_inline;
     bool need_err_code_spill;
-
-    // This is a function for use in the debugger to print
-    // the source location.
-    void src();
 };
 
 struct Stage1Air {
@@ -1638,7 +1633,7 @@ struct ZigFn {
     // in the case of async functions this is the implicit return type according to the
     // zig source code, not according to zig ir
     ZigType *src_implicit_return_type;
-    Stage1Zir *ir_executable;
+    Stage1Zir *stage1_zir;
     Stage1Air analyzed_executable;
     size_t branch_quota;
     AstNode **param_source_nodes;

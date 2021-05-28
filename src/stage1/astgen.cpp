@@ -8031,7 +8031,7 @@ static IrInstSrc *ir_gen_node(Stage1AstGen *ag, AstNode *node, Scope *scope) {
     return ir_gen_node_extra(ag, node, scope, LValNone, nullptr);
 }
 
-bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *ir_executable,
+bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *stage1_zir,
         ZigFn *fn, bool in_c_import_scope)
 {
     assert(node->owner);
@@ -8042,7 +8042,7 @@ bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *ir_
     ag->codegen = codegen;
     ag->fn = fn;
     ag->in_c_import_scope = in_c_import_scope;
-    ag->exec = ir_executable;
+    ag->exec = stage1_zir;
     ag->main_block_node = node;
 
     IrBasicBlockSrc *entry_block = ir_create_basic_block(ag, scope, "Entry");
@@ -8076,7 +8076,7 @@ bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *ir_
 bool stage1_astgen_fn(CodeGen *codegen, ZigFn *fn) {
     assert(fn != nullptr);
     assert(fn->child_scope != nullptr);
-    return stage1_astgen(codegen, fn->body_node, fn->child_scope, fn->ir_executable, fn, false);
+    return stage1_astgen(codegen, fn->body_node, fn->child_scope, fn->stage1_zir, fn, false);
 }
 
 void invalidate_exec(Stage1Zir *exec, ErrorMsg *msg) {

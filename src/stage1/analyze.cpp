@@ -3653,7 +3653,7 @@ static void get_fully_qualified_decl_name(CodeGen *g, Buf *buf, Tld *tld, bool i
 
 static ZigFn *create_fn_raw(CodeGen *g, bool is_noinline) {
     ZigFn *fn_entry = heap::c_allocator.create<ZigFn>();
-    fn_entry->ir_executable = heap::c_allocator.create<Stage1Zir>();
+    fn_entry->stage1_zir = heap::c_allocator.create<Stage1Zir>();
     fn_entry->is_noinline = is_noinline;
 
     return fn_entry;
@@ -5129,7 +5129,7 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
     }
     size_t backward_branch_count = 0;
     size_t backward_branch_quota = max(fn->branch_quota, default_backward_branch_quota);
-    ZigType *block_return_type = ir_analyze(g, fn->ir_executable, &fn->analyzed_executable,
+    ZigType *block_return_type = ir_analyze(g, fn->stage1_zir, &fn->analyzed_executable,
             &backward_branch_count, &backward_branch_quota,
             fn_type_id->return_type, return_type_node, nullptr, fn);
     fn->src_implicit_return_type = block_return_type;
@@ -5233,14 +5233,14 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
         return;
     }
 
-    if (fn_table_entry->ir_executable->first_err_trace_msg != nullptr) {
+    if (fn_table_entry->stage1_zir->first_err_trace_msg != nullptr) {
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }
 
     if (g->verbose_ir) {
         fprintf(stderr, "\nfn %s() { // (IR)\n", buf_ptr(&fn_table_entry->symbol_name));
-        ir_print_src(g, stderr, fn_table_entry->ir_executable, 4);
+        ir_print_src(g, stderr, fn_table_entry->stage1_zir, 4);
         fprintf(stderr, "}\n");
     }
 
@@ -9856,12 +9856,6 @@ void AstNode::src() {
     fprintf(stderr, "%s:%" PRIu32 ":%" PRIu32 "\n",
             buf_ptr(root_struct->path),
             line, column);
-}
-
-void Stage1Zir::src() {
-    if (this->source_node != nullptr) {
-        this->source_node->src();
-    }
 }
 
 void Stage1Air::src() {
