@@ -1341,6 +1341,7 @@ pub const LibExeObjStep = struct {
     name_only_filename: []const u8,
     strip: bool,
     lib_paths: ArrayList([]const u8),
+    rpaths: ArrayList([]const u8),
     framework_dirs: ArrayList([]const u8),
     frameworks: BufSet,
     verbose_link: bool,
@@ -1536,6 +1537,7 @@ pub const LibExeObjStep = struct {
             .link_objects = ArrayList(LinkObject).init(builder.allocator),
             .c_macros = ArrayList([]const u8).init(builder.allocator),
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
+            .rpaths = ArrayList([]const u8).init(builder.allocator),
             .framework_dirs = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
             .build_options_contents = std.ArrayList(u8).init(builder.allocator),
@@ -2072,6 +2074,10 @@ pub const LibExeObjStep = struct {
         self.lib_paths.append(self.builder.dupe(path)) catch unreachable;
     }
 
+    pub fn addRPath(self: *LibExeObjStep, path: []const u8) void {
+        self.rpaths.append(self.builder.dupe(path)) catch unreachable;
+    }
+
     pub fn addFrameworkDir(self: *LibExeObjStep, dir_path: []const u8) void {
         self.framework_dirs.append(self.builder.dupe(dir_path)) catch unreachable;
     }
@@ -2566,6 +2572,11 @@ pub const LibExeObjStep = struct {
         for (self.lib_paths.items) |lib_path| {
             try zig_args.append("-L");
             try zig_args.append(lib_path);
+        }
+
+        for (self.rpaths.items) |rpath| {
+            try zig_args.append("-rpath");
+            try zig_args.append(rpath);
         }
 
         for (self.c_macros.items) |c_macro| {
