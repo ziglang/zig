@@ -2353,6 +2353,7 @@ fn varDecl(
                 .name = ident_name,
                 .ptr = init_scope.rl_ptr,
                 .token_src = name_token,
+                .is_comptime = true,
             };
             return &sub_scope.base;
         },
@@ -2408,6 +2409,7 @@ fn varDecl(
                 .name = ident_name,
                 .ptr = var_data.alloc,
                 .token_src = name_token,
+                .is_comptime = is_comptime,
             };
             return &sub_scope.base;
         },
@@ -3352,7 +3354,7 @@ fn structDeclInner(
     };
     defer block_scope.instructions.deinit(gpa);
 
-    var namespace: Scope.Namespace = .{ .parent = &gz.base };
+    var namespace: Scope.Namespace = .{ .parent = scope };
     defer namespace.decls.deinit(gpa);
 
     var wip_decls: WipDecls = .{};
@@ -5345,6 +5347,7 @@ fn forExpr(
             .name = index_name,
             .ptr = index_ptr,
             .token_src = index_token,
+            .is_comptime = parent_gz.force_comptime,
         };
         break :blk &index_scope.base;
     };
@@ -6070,9 +6073,16 @@ fn identifier(
     const name_str_index = try astgen.identAsString(ident_token);
     {
         var s = scope;
+        var found_already: ?ast.Node.Index = null; // we have found a decl with the same name already
+        var hit_namespace = false;
         while (true) switch (s.tag) {
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
+                if (hit_namespace) {
+                    // captures of non-locals need to be emitted as decl_val or decl_ref
+                    // This *might* be capturable depending on if it is comptime known
+                    break;
+                }
                 if (local_val.name == name_str_index) {
                     return rvalue(gz, scope, rl, local_val.inst, ident);
                 }
@@ -6081,6 +6091,15 @@ fn identifier(
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (local_ptr.name == name_str_index) {
+                    if (hit_namespace) {
+                        if (local_ptr.is_comptime)
+                            break
+                        else
+                            return astgen.failNodeNotes(ident, "'{s}' not accessible from inner function", .{ident_name}, &.{
+                                try astgen.errNoteTok(local_ptr.token_src, "declared here", .{}),
+                                // TODO add crossed function definition here note.
+                            });
+                    }
                     switch (rl) {
                         .ref, .none_or_ref => return local_ptr.ptr,
                         else => {
@@ -6093,7 +6112,22 @@ fn identifier(
             },
             .gen_zir => s = s.cast(GenZir).?.parent,
             .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
-            .namespace, .top => break, // TODO look for ambiguous references to decls
+            // look for ambiguous references to decls
+            .namespace => {
+                const ns = s.cast(Scope.Namespace).?;
+                if (ns.decls.get(name_str_index)) |i| {
+                    if (found_already) |f|
+                        return astgen.failNodeNotes(ident, "ambiguous reference", .{}, &.{
+                            try astgen.errNoteNode(i, "declared here", .{}),
+                            try astgen.errNoteNode(f, "also declared here", .{}),
+                        })
+                    else
+                        found_already = i;
+                }
+                hit_namespace = true;
+                s = ns.parent;
+            },
+            .top => break,
         };
     }
 
@@ -8042,6 +8076,7 @@ const Scope = struct {
         token_src: ast.TokenIndex,
         /// String table index.
         name: u32,
+        is_comptime: bool,
     };
 
     const Defer = struct {
