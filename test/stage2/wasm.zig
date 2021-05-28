@@ -535,4 +535,68 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "2\n");
     }
+
+    {
+        var case = ctx.exe("wasm error unions", wasi);
+
+        case.addCompareOutput(
+            \\pub export fn _start() void {
+            \\    var e1 = error.Foo;
+            \\    var e2 = error.Bar;
+            \\    assert(e1 != e2);
+            \\    assert(e1 == error.Foo);
+            \\    assert(e2 == error.Bar);
+            \\}
+            \\
+            \\fn assert(b: bool) void {
+            \\    if (!b) unreachable;
+            \\}
+        , "");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var e: anyerror!u32 = 5;
+            \\    const i = e catch 10;
+            \\    return i;
+            \\}
+        , "5\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var e: anyerror!u32 = error.Foo;
+            \\    const i = e catch 10;
+            \\    return i;
+            \\}
+        , "10\n");
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var e = foo();
+            \\    const i = e catch 69;
+            \\    return i;
+            \\}
+            \\
+            \\fn foo() anyerror!u32 {
+            \\    return 5;
+            \\}
+        , "5\n");
+    }
+
+    {
+        // TODO implement Type equality comparison of error unions in SEMA
+        // before we can incrementally compile functions with an error union as return type
+        var case = ctx.exe("wasm error union part 2", wasi);
+
+        case.addCompareOutput(
+            \\pub export fn _start() u32 {
+            \\    var e = foo();
+            \\    const i = e catch 69;
+            \\    return i;
+            \\}
+            \\
+            \\fn foo() anyerror!u32 {
+            \\    return error.Bruh;
+            \\}
+        , "69\n");
+    }
 }

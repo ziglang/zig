@@ -692,13 +692,15 @@ pub const Context = struct {
             .Struct => return self.fail(.{ .node_offset = 0 }, "TODO: Implement struct as return type for wasm", .{}),
             .Optional => return self.fail(.{ .node_offset = 0 }, "TODO: Implement optionals as return type for wasm", .{}),
             .ErrorUnion => {
-                try leb.writeULEB128(writer, @as(u32, 2));
                 const val_type = try self.genValtype(
                     .{ .node_offset = 0 },
                     return_type.errorUnionChild(),
                 );
-                try writer.writeByte(val_type);
+
+                // write down the amount of return values
+                try leb.writeULEB128(writer, @as(u32, 2));
                 try writer.writeByte(wasm.valtype(.i32)); // error code is always an i32 integer.
+                try writer.writeByte(val_type);
             },
             else => |ret_type| {
                 try leb.writeULEB128(writer, @as(u32, 1));
