@@ -202,6 +202,19 @@ static void put_back_token(ParseContext *pc) {
     pc->current_token -= 1;
 }
 
+static Buf *token_string_literal_buf(RootStruct *root_struct, TokenIndex token) {
+    Error err;
+    assert(root_struct->token_ids[token] == TokenIdStringLiteral);
+    const char *source = buf_ptr(root_struct->source_code);
+    size_t byte_offset = root_struct->token_locs[token].offset;
+    size_t bad_index;
+    Buf *str = buf_alloc();
+    if ((err = source_string_literal_buf(source + byte_offset, str, &bad_index))) {
+        zig_panic("TODO handle string literal parse error");
+    }
+    return str;
+}
+
 static Buf *token_buf(ParseContext *pc, TokenIndex token) {
     if (token == 0)
         return nullptr;
@@ -3465,19 +3478,6 @@ Error source_char_literal(const char *source, uint32_t *result, size_t *bad_inde
 }
 
 
-Buf *token_string_literal_buf(RootStruct *root_struct, TokenIndex token) {
-    Error err;
-    assert(root_struct->token_ids[token] == TokenIdStringLiteral);
-    const char *source = buf_ptr(root_struct->source_code);
-    size_t byte_offset = root_struct->token_locs[token].offset;
-    size_t bad_index;
-    Buf *str = buf_alloc();
-    if ((err = source_string_literal_buf(source + byte_offset, str, &bad_index))) {
-        zig_panic("TODO handle string literal parse error");
-    }
-    return str;
-}
-
 Buf *token_identifier_buf(RootStruct *root_struct, TokenIndex token) {
     Error err;
     const char *source = buf_ptr(root_struct->source_code);
@@ -3515,14 +3515,15 @@ Buf *token_identifier_buf(RootStruct *root_struct, TokenIndex token) {
 
 Buf *node_identifier_buf(AstNode *node) {
     assert(node->type == NodeTypeIdentifier);
-    RootStruct *root_struct = node->owner->data.structure.root_struct;
-    return token_identifier_buf(root_struct, node->main_token);
-}
-
-Buf *node_string_literal_buf(AstNode *node) {
-    assert(node->type == NodeTypeStringLiteral);
-    RootStruct *root_struct = node->owner->data.structure.root_struct;
-    return token_string_literal_buf(root_struct, node->main_token);
+    // Currently, stage1 runs astgen for every comptime function call,
+    // resulting the allocation here wasting memory. As a workaround until
+    // the code is adjusted to make astgen run only once per source node,
+    // we memoize the result into the AST here.
+    if (node->data.identifier.name == nullptr) {
+        RootStruct *root_struct = node->owner->data.structure.root_struct;
+        node->data.identifier.name = token_identifier_buf(root_struct, node->main_token);
+    }
+    return node->data.identifier.name;
 }
 
 void token_number_literal_bigint(RootStruct *root_struct, BigInt *result, TokenIndex token) {

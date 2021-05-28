@@ -19,10 +19,8 @@ void ast_print(AstNode *node, int indent);
 void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *context), void *context);
 
 Buf *node_identifier_buf(AstNode *node);
-Buf *node_string_literal_buf(AstNode *node);
 
 Buf *token_identifier_buf(RootStruct *root_struct, TokenIndex token);
-Buf *token_string_literal_buf(RootStruct *root_struct, TokenIndex token);
 
 void token_number_literal_bigint(RootStruct *root_struct, BigInt *result, TokenIndex token);
 

@@ -291,11 +291,11 @@ static void tokenize_error(Tokenize *t, const char *format, ...) {
 
 static void begin_token(Tokenize *t, TokenId id) {
     t->out->ids.append(id);
-    t->out->locs.append({
-        .offset = (uint32_t) t->pos,
-        .line = t->line,
-        .column = t->column,
-    });
+    TokenLoc tok_loc;
+    tok_loc.offset = (uint32_t) t->pos;
+    tok_loc.line = t->line;
+    tok_loc.column = t->column;
+    t->out->locs.append(tok_loc);
 }
 
 static void cancel_token(Tokenize *t) {

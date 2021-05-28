@@ -1123,6 +1123,14 @@ struct AstNodeContainerInitExpr {
     ContainerInitKind kind;
 };
 
+struct AstNodeIdentifier {
+    Buf *name;
+};
+
+struct AstNodeEnumLiteral {
+    Buf *name;
+};
+
 struct AstNodeBoolLiteral {
     bool value;
 };
@@ -1204,6 +1212,12 @@ struct AstNode {
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;
         AstNodeAnyFrameType anyframe_type;
+
+        // These are part of an astgen workaround to use less memory by
+        // memoizing into the AST. Once astgen is modified to only run once
+        // per corresponding source, this workaround can be removed.
+        AstNodeIdentifier identifier;
+        AstNodeEnumLiteral enum_literal;
     } data;
 
     // This is a function for use in the debugger to print

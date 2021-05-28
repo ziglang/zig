@@ -21,15 +21,15 @@ struct Stage1AstGen {
     bool in_c_import_scope;
 };
 
-static IrInstSrc *ir_gen_node(Stage1AstGen *ag, AstNode *node, Scope *scope);
-static IrInstSrc *ir_gen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scope, LVal lval,
+static IrInstSrc *astgen_node(Stage1AstGen *ag, AstNode *node, Scope *scope);
+static IrInstSrc *astgen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scope, LVal lval,
         ResultLoc *result_loc);
 
 static IrInstSrc *ir_lval_wrap(Stage1AstGen *ag, Scope *scope, IrInstSrc *value, LVal lval,
         ResultLoc *result_loc);
 static IrInstSrc *ir_expr_wrap(Stage1AstGen *ag, Scope *scope, IrInstSrc *inst,
         ResultLoc *result_loc);
-static IrInstSrc *ir_gen_union_init_expr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static IrInstSrc *astgen_union_init_expr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
     IrInstSrc *union_type, IrInstSrc *field_name, AstNode *expr_node,
     LVal lval, ResultLoc *parent_result_loc);
 static ResultLocCast *ir_build_cast_result_loc(Stage1AstGen *ag, IrInstSrc *dest_type,
@@ -2890,7 +2890,7 @@ static IrInstSrc *ir_mark_gen(IrInstSrc *instruction) {
     return instruction;
 }
 
-static bool ir_gen_defers_for_block(Stage1AstGen *ag, Scope *inner_scope, Scope *outer_scope, bool *is_noreturn, IrInstSrc *err_value) {
+static bool astgen_defers_for_block(Stage1AstGen *ag, Scope *inner_scope, Scope *outer_scope, bool *is_noreturn, IrInstSrc *err_value) {
     Scope *scope = inner_scope;
     if (is_noreturn != nullptr) *is_noreturn = false;
     while (scope != outer_scope) {
@@ -2941,7 +2941,7 @@ static bool ir_gen_defers_for_block(Stage1AstGen *ag, Scope *inner_scope, Scope 
                     defer_expr_scope = err_var->child_scope;
                 }
 
-                IrInstSrc *defer_expr_value = ir_gen_node(ag, defer_expr_node, defer_expr_scope);
+                IrInstSrc *defer_expr_value = astgen_node(ag, defer_expr_node, defer_expr_scope);
                 if (defer_expr_value == ag->codegen->invalid_inst_src)
                     return ag->codegen->invalid_inst_src;
 
@@ -3011,7 +3011,7 @@ static ScopeDeferExpr *get_scope_defer_expr(Scope *scope) {
     return nullptr;
 }
 
-static IrInstSrc *ir_gen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
+static IrInstSrc *astgen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
     assert(node->type == NodeTypeReturnExpr);
 
     ScopeDeferExpr *scope_defer_expr = get_scope_defer_expr(scope);
@@ -3038,7 +3038,7 @@ static IrInstSrc *ir_gen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                     // Temporarily set this so that if we return a type it gets the name of the function
                     ZigFn *prev_name_fn = ag->exec->name_fn;
                     ag->exec->name_fn = ag->fn;
-                    return_value = ir_gen_node_extra(ag, expr_node, scope, LValNone, &result_loc_ret->base);
+                    return_value = astgen_node_extra(ag, expr_node, scope, LValNone, &result_loc_ret->base);
                     ag->exec->name_fn = prev_name_fn;
                     if (return_value == ag->codegen->invalid_inst_src)
                         return ag->codegen->invalid_inst_src;
@@ -3054,7 +3054,7 @@ static IrInstSrc *ir_gen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                 bool have_err_defers = defer_counts[ReturnKindError] > 0;
                 if (!have_err_defers && !ag->codegen->have_err_ret_tracing) {
                     // only generate unconditional defers
-                    if (!ir_gen_defers_for_block(ag, scope, outer_scope, nullptr, nullptr))
+                    if (!astgen_defers_for_block(ag, scope, outer_scope, nullptr, nullptr))
                         return ag->codegen->invalid_inst_src;
                     IrInstSrc *result = ir_build_return_src(ag, scope, node, nullptr);
                     result_loc_ret->base.source_instruction = result;
@@ -3078,7 +3078,7 @@ static IrInstSrc *ir_gen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                 Stage1ZirBasicBlock *ret_stmt_block = ir_create_basic_block(ag, scope, "RetStmt");
 
                 ir_set_cursor_at_end_and_append_block(ag, err_block);
-                if (!ir_gen_defers_for_block(ag, scope, outer_scope, nullptr, return_value))
+                if (!astgen_defers_for_block(ag, scope, outer_scope, nullptr, return_value))
                     return ag->codegen->invalid_inst_src;
                 if (ag->codegen->have_err_ret_tracing && !should_inline) {
                     ir_build_save_err_ret_addr_src(ag, scope, node);
@@ -3086,7 +3086,7 @@ static IrInstSrc *ir_gen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                 ir_build_br(ag, scope, node, ret_stmt_block, is_comptime);
 
                 ir_set_cursor_at_end_and_append_block(ag, ok_block);
-                if (!ir_gen_defers_for_block(ag, scope, outer_scope, nullptr, nullptr))
+                if (!astgen_defers_for_block(ag, scope, outer_scope, nullptr, nullptr))
                     return ag->codegen->invalid_inst_src;
                 ir_build_br(ag, scope, node, ret_stmt_block, is_comptime);
 
@@ -3098,7 +3098,7 @@ static IrInstSrc *ir_gen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
         case ReturnKindError:
             {
                 assert(expr_node);
-                IrInstSrc *err_union_ptr = ir_gen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
+                IrInstSrc *err_union_ptr = astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
                 if (err_union_ptr == ag->codegen->invalid_inst_src)
                     return ag->codegen->invalid_inst_src;
                 IrInstSrc *is_err_val = ir_build_test_err_src(ag, scope, node, err_union_ptr, true, false);
@@ -3126,7 +3126,7 @@ static IrInstSrc *ir_gen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                 ir_build_end_expr(ag, scope, node, err_val, &result_loc_ret->base);
 
                 bool is_noreturn = false;
-                if (!ir_gen_defers_for_block(ag, scope, outer_scope, &is_noreturn, err_val)) {
+                if (!astgen_defers_for_block(ag, scope, outer_scope, &is_noreturn, err_val)) {
                     return ag->codegen->invalid_inst_src;
                 }
                 if (!is_noreturn) {
@@ -3260,7 +3260,7 @@ static bool is_duplicate_label(CodeGen *g, Scope *scope, AstNode *node, Buf *nam
     return false;
 }
 
-static IrInstSrc *ir_gen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *block_node, LVal lval,
+static IrInstSrc *astgen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *block_node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(block_node->type == NodeTypeBlock);
@@ -3313,7 +3313,7 @@ static IrInstSrc *ir_gen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *b
     for (size_t i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
 
-        IrInstSrc *statement_value = ir_gen_node(ag, statement_node, child_scope);
+        IrInstSrc *statement_value = astgen_node(ag, statement_node, child_scope);
         if (statement_value == ag->codegen->invalid_inst_src) {
             // keep generating all the elements of the block in case of error,
             // we want to collect other compile errors
@@ -3381,7 +3381,7 @@ static IrInstSrc *ir_gen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *b
 
     bool is_return_from_fn = block_node == ag->main_block_node;
     if (!is_return_from_fn) {
-        if (!ir_gen_defers_for_block(ag, child_scope, outer_block_scope, nullptr, nullptr))
+        if (!astgen_defers_for_block(ag, child_scope, outer_block_scope, nullptr, nullptr))
             return ag->codegen->invalid_inst_src;
     }
 
@@ -3407,19 +3407,19 @@ static IrInstSrc *ir_gen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *b
     result_loc_ret->base.id = ResultLocIdReturn;
     ir_build_reset_result(ag, parent_scope, block_node, &result_loc_ret->base);
     ir_mark_gen(ir_build_end_expr(ag, parent_scope, block_node, result, &result_loc_ret->base));
-    if (!ir_gen_defers_for_block(ag, child_scope, outer_block_scope, nullptr, nullptr))
+    if (!astgen_defers_for_block(ag, child_scope, outer_block_scope, nullptr, nullptr))
         return ag->codegen->invalid_inst_src;
     return ir_mark_gen(ir_build_return_src(ag, child_scope, result->base.source_node, result));
 }
 
-static IrInstSrc *ir_gen_bin_op_id(Stage1AstGen *ag, Scope *scope, AstNode *node, IrBinOp op_id) {
+static IrInstSrc *astgen_bin_op_id(Stage1AstGen *ag, Scope *scope, AstNode *node, IrBinOp op_id) {
     Scope *inner_scope = scope;
     if (op_id == IrBinOpArrayCat || op_id == IrBinOpArrayMult) {
         inner_scope = create_comptime_scope(ag->codegen, node, scope);
     }
 
-    IrInstSrc *op1 = ir_gen_node(ag, node->data.bin_op_expr.op1, inner_scope);
-    IrInstSrc *op2 = ir_gen_node(ag, node->data.bin_op_expr.op2, inner_scope);
+    IrInstSrc *op1 = astgen_node(ag, node->data.bin_op_expr.op1, inner_scope);
+    IrInstSrc *op2 = astgen_node(ag, node->data.bin_op_expr.op2, inner_scope);
 
     if (op1 == ag->codegen->invalid_inst_src || op2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
@@ -3427,9 +3427,9 @@ static IrInstSrc *ir_gen_bin_op_id(Stage1AstGen *ag, Scope *scope, AstNode *node
     return ir_build_bin_op(ag, scope, node, op_id, op1, op2, true);
 }
 
-static IrInstSrc *ir_gen_merge_err_sets(Stage1AstGen *ag, Scope *scope, AstNode *node) {
-    IrInstSrc *op1 = ir_gen_node(ag, node->data.bin_op_expr.op1, scope);
-    IrInstSrc *op2 = ir_gen_node(ag, node->data.bin_op_expr.op2, scope);
+static IrInstSrc *astgen_merge_err_sets(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+    IrInstSrc *op1 = astgen_node(ag, node->data.bin_op_expr.op1, scope);
+    IrInstSrc *op2 = astgen_node(ag, node->data.bin_op_expr.op2, scope);
 
     if (op1 == ag->codegen->invalid_inst_src || op2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
@@ -3441,8 +3441,8 @@ static IrInstSrc *ir_gen_merge_err_sets(Stage1AstGen *ag, Scope *scope, AstNode 
     return ir_build_merge_err_sets(ag, scope, node, op1, op2, type_name);
 }
 
-static IrInstSrc *ir_gen_assign(Stage1AstGen *ag, Scope *scope, AstNode *node) {
-    IrInstSrc *lvalue = ir_gen_node_extra(ag, node->data.bin_op_expr.op1, scope, LValAssign, nullptr);
+static IrInstSrc *astgen_assign(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+    IrInstSrc *lvalue = astgen_node_extra(ag, node->data.bin_op_expr.op1, scope, LValAssign, nullptr);
     if (lvalue == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
@@ -3452,7 +3452,7 @@ static IrInstSrc *ir_gen_assign(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     ir_ref_instruction(lvalue, ag->current_basic_block);
     ir_build_reset_result(ag, scope, node, &result_loc_inst->base);
 
-    IrInstSrc *rvalue = ir_gen_node_extra(ag, node->data.bin_op_expr.op2, scope, LValNone,
+    IrInstSrc *rvalue = astgen_node_extra(ag, node->data.bin_op_expr.op2, scope, LValNone,
             &result_loc_inst->base);
     if (rvalue == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
@@ -3460,12 +3460,12 @@ static IrInstSrc *ir_gen_assign(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     return ir_build_const_void(ag, scope, node);
 }
 
-static IrInstSrc *ir_gen_assign_op(Stage1AstGen *ag, Scope *scope, AstNode *node, IrBinOp op_id) {
-    IrInstSrc *lvalue = ir_gen_node_extra(ag, node->data.bin_op_expr.op1, scope, LValAssign, nullptr);
+static IrInstSrc *astgen_assign_op(Stage1AstGen *ag, Scope *scope, AstNode *node, IrBinOp op_id) {
+    IrInstSrc *lvalue = astgen_node_extra(ag, node->data.bin_op_expr.op1, scope, LValAssign, nullptr);
     if (lvalue == ag->codegen->invalid_inst_src)
         return lvalue;
     IrInstSrc *op1 = ir_build_load_ptr(ag, scope, node->data.bin_op_expr.op1, lvalue);
-    IrInstSrc *op2 = ir_gen_node(ag, node->data.bin_op_expr.op2, scope);
+    IrInstSrc *op2 = astgen_node(ag, node->data.bin_op_expr.op2, scope);
     if (op2 == ag->codegen->invalid_inst_src)
         return op2;
     IrInstSrc *result = ir_build_bin_op(ag, scope, node, op_id, op1, op2, true);
@@ -3473,10 +3473,10 @@ static IrInstSrc *ir_gen_assign_op(Stage1AstGen *ag, Scope *scope, AstNode *node
     return ir_build_const_void(ag, scope, node);
 }
 
-static IrInstSrc *ir_gen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
-    IrInstSrc *val1 = ir_gen_node(ag, node->data.bin_op_expr.op1, scope);
+    IrInstSrc *val1 = astgen_node(ag, node->data.bin_op_expr.op1, scope);
     if (val1 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
     Stage1ZirBasicBlock *post_val1_block = ag->current_basic_block;
@@ -3496,7 +3496,7 @@ static IrInstSrc *ir_gen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) 
     ir_build_cond_br(ag, scope, node, val1, true_block, false_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, false_block);
-    IrInstSrc *val2 = ir_gen_node(ag, node->data.bin_op_expr.op2, scope);
+    IrInstSrc *val2 = astgen_node(ag, node->data.bin_op_expr.op2, scope);
     if (val2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
     Stage1ZirBasicBlock *post_val2_block = ag->current_basic_block;
@@ -3515,10 +3515,10 @@ static IrInstSrc *ir_gen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) 
     return ir_build_phi(ag, scope, node, 2, incoming_blocks, incoming_values, nullptr);
 }
 
-static IrInstSrc *ir_gen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
-    IrInstSrc *val1 = ir_gen_node(ag, node->data.bin_op_expr.op1, scope);
+    IrInstSrc *val1 = astgen_node(ag, node->data.bin_op_expr.op1, scope);
     if (val1 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
     Stage1ZirBasicBlock *post_val1_block = ag->current_basic_block;
@@ -3538,7 +3538,7 @@ static IrInstSrc *ir_gen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node)
     ir_build_cond_br(ag, scope, node, val1, true_block, false_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, true_block);
-    IrInstSrc *val2 = ir_gen_node(ag, node->data.bin_op_expr.op2, scope);
+    IrInstSrc *val2 = astgen_node(ag, node->data.bin_op_expr.op2, scope);
     if (val2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
     Stage1ZirBasicBlock *post_val2_block = ag->current_basic_block;
@@ -3591,7 +3591,7 @@ static ResultLocPeerParent *ir_build_binary_result_peers(Stage1AstGen *ag, IrIns
     return peer_parent;
 }
 
-static IrInstSrc *ir_gen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeBinOpExpr);
@@ -3599,7 +3599,7 @@ static IrInstSrc *ir_gen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *
     AstNode *op1_node = node->data.bin_op_expr.op1;
     AstNode *op2_node = node->data.bin_op_expr.op2;
 
-    IrInstSrc *maybe_ptr = ir_gen_node_extra(ag, op1_node, parent_scope, LValPtr, nullptr);
+    IrInstSrc *maybe_ptr = astgen_node_extra(ag, op1_node, parent_scope, LValPtr, nullptr);
     if (maybe_ptr == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
@@ -3622,7 +3622,7 @@ static IrInstSrc *ir_gen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *
             result_loc, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, null_block);
-    IrInstSrc *null_result = ir_gen_node_extra(ag, op2_node, parent_scope, LValNone,
+    IrInstSrc *null_result = astgen_node_extra(ag, op2_node, parent_scope, LValNone,
             &peer_parent->peers.at(0)->base);
     if (null_result == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
@@ -3648,24 +3648,24 @@ static IrInstSrc *ir_gen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *
     return ir_lval_wrap(ag, parent_scope, phi, lval, result_loc);
 }
 
-static IrInstSrc *ir_gen_error_union(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
+static IrInstSrc *astgen_error_union(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
     AstNode *op1_node = node->data.bin_op_expr.op1;
     AstNode *op2_node = node->data.bin_op_expr.op2;
 
-    IrInstSrc *err_set = ir_gen_node(ag, op1_node, parent_scope);
+    IrInstSrc *err_set = astgen_node(ag, op1_node, parent_scope);
     if (err_set == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *payload = ir_gen_node(ag, op2_node, parent_scope);
+    IrInstSrc *payload = astgen_node(ag, op2_node, parent_scope);
     if (payload == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
     return ir_build_error_union(ag, parent_scope, node, err_set, payload);
 }
 
-static IrInstSrc *ir_gen_bin_op(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
+static IrInstSrc *astgen_bin_op(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
     assert(node->type == NodeTypeBinOpExpr);
 
     BinOpType bin_op_type = node->data.bin_op_expr.bin_op;
@@ -3673,90 +3673,90 @@ static IrInstSrc *ir_gen_bin_op(Stage1AstGen *ag, Scope *scope, AstNode *node, L
         case BinOpTypeInvalid:
             zig_unreachable();
         case BinOpTypeAssign:
-            return ir_lval_wrap(ag, scope, ir_gen_assign(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign(ag, scope, node), lval, result_loc);
         case BinOpTypeAssignTimes:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpMult), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpMult), lval, result_loc);
         case BinOpTypeAssignTimesWrap:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpMultWrap), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpMultWrap), lval, result_loc);
         case BinOpTypeAssignDiv:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpDivUnspecified), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpDivUnspecified), lval, result_loc);
         case BinOpTypeAssignMod:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpRemUnspecified), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpRemUnspecified), lval, result_loc);
         case BinOpTypeAssignPlus:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpAdd), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpAdd), lval, result_loc);
         case BinOpTypeAssignPlusWrap:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpAddWrap), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpAddWrap), lval, result_loc);
         case BinOpTypeAssignMinus:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpSub), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpSub), lval, result_loc);
         case BinOpTypeAssignMinusWrap:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpSubWrap), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpSubWrap), lval, result_loc);
         case BinOpTypeAssignBitShiftLeft:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpBitShiftLeftLossy), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpBitShiftLeftLossy), lval, result_loc);
         case BinOpTypeAssignBitShiftRight:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpBitShiftRightLossy), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpBitShiftRightLossy), lval, result_loc);
         case BinOpTypeAssignBitAnd:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpBinAnd), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpBinAnd), lval, result_loc);
         case BinOpTypeAssignBitXor:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpBinXor), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpBinXor), lval, result_loc);
         case BinOpTypeAssignBitOr:
-            return ir_lval_wrap(ag, scope, ir_gen_assign_op(ag, scope, node, IrBinOpBinOr), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_assign_op(ag, scope, node, IrBinOpBinOr), lval, result_loc);
         case BinOpTypeBoolOr:
-            return ir_lval_wrap(ag, scope, ir_gen_bool_or(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bool_or(ag, scope, node), lval, result_loc);
         case BinOpTypeBoolAnd:
-            return ir_lval_wrap(ag, scope, ir_gen_bool_and(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bool_and(ag, scope, node), lval, result_loc);
         case BinOpTypeCmpEq:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpCmpEq), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpCmpEq), lval, result_loc);
         case BinOpTypeCmpNotEq:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpCmpNotEq), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpCmpNotEq), lval, result_loc);
         case BinOpTypeCmpLessThan:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpCmpLessThan), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpCmpLessThan), lval, result_loc);
         case BinOpTypeCmpGreaterThan:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpCmpGreaterThan), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpCmpGreaterThan), lval, result_loc);
         case BinOpTypeCmpLessOrEq:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpCmpLessOrEq), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpCmpLessOrEq), lval, result_loc);
         case BinOpTypeCmpGreaterOrEq:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpCmpGreaterOrEq), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpCmpGreaterOrEq), lval, result_loc);
         case BinOpTypeBinOr:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpBinOr), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpBinOr), lval, result_loc);
         case BinOpTypeBinXor:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpBinXor), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpBinXor), lval, result_loc);
         case BinOpTypeBinAnd:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpBinAnd), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpBinAnd), lval, result_loc);
         case BinOpTypeBitShiftLeft:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpBitShiftLeftLossy), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpBitShiftLeftLossy), lval, result_loc);
         case BinOpTypeBitShiftRight:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpBitShiftRightLossy), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpBitShiftRightLossy), lval, result_loc);
         case BinOpTypeAdd:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpAdd), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpAdd), lval, result_loc);
         case BinOpTypeAddWrap:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpAddWrap), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpAddWrap), lval, result_loc);
         case BinOpTypeSub:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpSub), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpSub), lval, result_loc);
         case BinOpTypeSubWrap:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpSubWrap), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpSubWrap), lval, result_loc);
         case BinOpTypeMult:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpMult), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpMult), lval, result_loc);
         case BinOpTypeMultWrap:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpMultWrap), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpMultWrap), lval, result_loc);
         case BinOpTypeDiv:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpDivUnspecified), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpDivUnspecified), lval, result_loc);
         case BinOpTypeMod:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpRemUnspecified), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpRemUnspecified), lval, result_loc);
         case BinOpTypeArrayCat:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpArrayCat), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpArrayCat), lval, result_loc);
         case BinOpTypeArrayMult:
-            return ir_lval_wrap(ag, scope, ir_gen_bin_op_id(ag, scope, node, IrBinOpArrayMult), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bin_op_id(ag, scope, node, IrBinOpArrayMult), lval, result_loc);
         case BinOpTypeMergeErrorSets:
-            return ir_lval_wrap(ag, scope, ir_gen_merge_err_sets(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_merge_err_sets(ag, scope, node), lval, result_loc);
         case BinOpTypeUnwrapOptional:
-            return ir_gen_orelse(ag, scope, node, lval, result_loc);
+            return astgen_orelse(ag, scope, node, lval, result_loc);
         case BinOpTypeErrorUnion:
-            return ir_lval_wrap(ag, scope, ir_gen_error_union(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_error_union(ag, scope, node), lval, result_loc);
     }
     zig_unreachable();
 }
 
-static IrInstSrc *ir_gen_int_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_int_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeIntLiteral);
 
     RootStruct *root_struct = node->owner->data.structure.root_struct;
@@ -3765,7 +3765,7 @@ static IrInstSrc *ir_gen_int_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) 
     return ir_build_const_bigint(ag, scope, node, bigint);
 }
 
-static IrInstSrc *ir_gen_float_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_float_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     Error err;
     assert(node->type == NodeTypeFloatLiteral);
 
@@ -3782,7 +3782,7 @@ static IrInstSrc *ir_gen_float_lit(Stage1AstGen *ag, Scope *scope, AstNode *node
     return ir_build_const_bigfloat(ag, scope, node, bigfloat);
 }
 
-static IrInstSrc *ir_gen_char_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_char_lit(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     Error err;
     assert(node->type == NodeTypeCharLiteral);
 
@@ -3802,13 +3802,15 @@ static IrInstSrc *ir_gen_char_lit(Stage1AstGen *ag, Scope *scope, AstNode *node)
     return ir_build_const_uint(ag, scope, node, codepoint);
 }
 
-static IrInstSrc *ir_gen_null_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_null_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeNullLiteral);
 
     return ir_build_const_null(ag, scope, node);
 }
 
-static IrInstSrc *ir_gen_symbol(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
+static IrInstSrc *astgen_identifier(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+        ResultLoc *result_loc)
+{
     Error err;
     assert(node->type == NodeTypeIdentifier);
 
@@ -3877,13 +3879,13 @@ static IrInstSrc *ir_gen_symbol(Stage1AstGen *ag, Scope *scope, AstNode *node, L
     return ir_build_undeclared_identifier(ag, scope, node, variable_name);
 }
 
-static IrInstSrc *ir_gen_array_access(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_array_access(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeArrayAccessExpr);
 
     AstNode *array_ref_node = node->data.array_access_expr.array_ref_expr;
-    IrInstSrc *array_ref_instruction = ir_gen_node_extra(ag, array_ref_node, scope, LValPtr, nullptr);
+    IrInstSrc *array_ref_instruction = astgen_node_extra(ag, array_ref_node, scope, LValPtr, nullptr);
     if (array_ref_instruction == ag->codegen->invalid_inst_src)
         return array_ref_instruction;
 
@@ -3894,7 +3896,7 @@ static IrInstSrc *ir_gen_array_access(Stage1AstGen *ag, Scope *scope, AstNode *n
     ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, usize_type_inst, no_result_loc());
 
     AstNode *subscript_node = node->data.array_access_expr.subscript;
-    IrInstSrc *subscript_value = ir_gen_node_extra(ag, subscript_node, scope, LValNone, &result_loc_cast->base);
+    IrInstSrc *subscript_value = astgen_node_extra(ag, subscript_node, scope, LValNone, &result_loc_cast->base);
     if (subscript_value == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
@@ -3909,20 +3911,20 @@ static IrInstSrc *ir_gen_array_access(Stage1AstGen *ag, Scope *scope, AstNode *n
     return ir_expr_wrap(ag, scope, load_ptr, result_loc);
 }
 
-static IrInstSrc *ir_gen_field_access(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_field_access(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeFieldAccessExpr);
 
     AstNode *container_ref_node = node->data.field_access_expr.struct_expr;
     Buf *field_name = node->data.field_access_expr.field_name;
 
-    IrInstSrc *container_ref_instruction = ir_gen_node_extra(ag, container_ref_node, scope, LValPtr, nullptr);
+    IrInstSrc *container_ref_instruction = astgen_node_extra(ag, container_ref_node, scope, LValPtr, nullptr);
     if (container_ref_instruction == ag->codegen->invalid_inst_src)
         return container_ref_instruction;
 
     return ir_build_field_ptr(ag, scope, node, container_ref_instruction, field_name, false);
 }
 
-static IrInstSrc *ir_gen_overflow_op(Stage1AstGen *ag, Scope *scope, AstNode *node, IrOverflowOp op) {
+static IrInstSrc *astgen_overflow_op(Stage1AstGen *ag, Scope *scope, AstNode *node, IrOverflowOp op) {
     assert(node->type == NodeTypeFnCallExpr);
 
     AstNode *type_node = node->data.fn_call_expr.params.at(0);
@@ -3931,26 +3933,26 @@ static IrInstSrc *ir_gen_overflow_op(Stage1AstGen *ag, Scope *scope, AstNode *no
     AstNode *result_ptr_node = node->data.fn_call_expr.params.at(3);
 
 
-    IrInstSrc *type_value = ir_gen_node(ag, type_node, scope);
+    IrInstSrc *type_value = astgen_node(ag, type_node, scope);
     if (type_value == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *op1 = ir_gen_node(ag, op1_node, scope);
+    IrInstSrc *op1 = astgen_node(ag, op1_node, scope);
     if (op1 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *op2 = ir_gen_node(ag, op2_node, scope);
+    IrInstSrc *op2 = astgen_node(ag, op2_node, scope);
     if (op2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *result_ptr = ir_gen_node(ag, result_ptr_node, scope);
+    IrInstSrc *result_ptr = astgen_node(ag, result_ptr_node, scope);
     if (result_ptr == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
     return ir_build_overflow_op_src(ag, scope, node, op, type_value, op1, op2, result_ptr);
 }
 
-static IrInstSrc *ir_gen_mul_add(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_mul_add(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
     AstNode *type_node = node->data.fn_call_expr.params.at(0);
@@ -3958,26 +3960,26 @@ static IrInstSrc *ir_gen_mul_add(Stage1AstGen *ag, Scope *scope, AstNode *node) 
     AstNode *op2_node = node->data.fn_call_expr.params.at(2);
     AstNode *op3_node = node->data.fn_call_expr.params.at(3);
 
-    IrInstSrc *type_value = ir_gen_node(ag, type_node, scope);
+    IrInstSrc *type_value = astgen_node(ag, type_node, scope);
     if (type_value == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *op1 = ir_gen_node(ag, op1_node, scope);
+    IrInstSrc *op1 = astgen_node(ag, op1_node, scope);
     if (op1 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *op2 = ir_gen_node(ag, op2_node, scope);
+    IrInstSrc *op2 = astgen_node(ag, op2_node, scope);
     if (op2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *op3 = ir_gen_node(ag, op3_node, scope);
+    IrInstSrc *op3 = astgen_node(ag, op3_node, scope);
     if (op3 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
     return ir_build_mul_add_src(ag, scope, node, type_value, op1, op2, op3);
 }
 
-static IrInstSrc *ir_gen_this(Stage1AstGen *ag, Scope *orig_scope, AstNode *node) {
+static IrInstSrc *astgen_this(Stage1AstGen *ag, Scope *orig_scope, AstNode *node) {
     for (Scope *it_scope = orig_scope; it_scope != nullptr; it_scope = it_scope->parent) {
         if (it_scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)it_scope;
@@ -3992,7 +3994,7 @@ static IrInstSrc *ir_gen_this(Stage1AstGen *ag, Scope *orig_scope, AstNode *node
     zig_unreachable();
 }
 
-static IrInstSrc *ir_gen_async_call(Stage1AstGen *ag, Scope *scope, AstNode *await_node, AstNode *call_node,
+static IrInstSrc *astgen_async_call(Stage1AstGen *ag, Scope *scope, AstNode *await_node, AstNode *call_node,
         LVal lval, ResultLoc *result_loc)
 {
     if (call_node->data.fn_call_expr.params.length != 4) {
@@ -4003,17 +4005,17 @@ static IrInstSrc *ir_gen_async_call(Stage1AstGen *ag, Scope *scope, AstNode *awa
     }
 
     AstNode *bytes_node = call_node->data.fn_call_expr.params.at(0);
-    IrInstSrc *bytes = ir_gen_node(ag, bytes_node, scope);
+    IrInstSrc *bytes = astgen_node(ag, bytes_node, scope);
     if (bytes == ag->codegen->invalid_inst_src)
         return bytes;
 
     AstNode *ret_ptr_node = call_node->data.fn_call_expr.params.at(1);
-    IrInstSrc *ret_ptr = ir_gen_node(ag, ret_ptr_node, scope);
+    IrInstSrc *ret_ptr = astgen_node(ag, ret_ptr_node, scope);
     if (ret_ptr == ag->codegen->invalid_inst_src)
         return ret_ptr;
 
     AstNode *fn_ref_node = call_node->data.fn_call_expr.params.at(2);
-    IrInstSrc *fn_ref = ir_gen_node(ag, fn_ref_node, scope);
+    IrInstSrc *fn_ref = astgen_node(ag, fn_ref_node, scope);
     if (fn_ref == ag->codegen->invalid_inst_src)
         return fn_ref;
 
@@ -4028,7 +4030,7 @@ static IrInstSrc *ir_gen_async_call(Stage1AstGen *ag, Scope *scope, AstNode *awa
             IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(arg_count);
             for (size_t i = 0; i < arg_count; i += 1) {
                 AstNode *arg_node = args_node->data.container_init_expr.entries.at(i);
-                IrInstSrc *arg = ir_gen_node(ag, arg_node, scope);
+                IrInstSrc *arg = astgen_node(ag, arg_node, scope);
                 if (arg == ag->codegen->invalid_inst_src)
                     return arg;
                 args[i] = arg;
@@ -4043,7 +4045,7 @@ static IrInstSrc *ir_gen_async_call(Stage1AstGen *ag, Scope *scope, AstNode *awa
             return ag->codegen->invalid_inst_src;
         }
     }
-    IrInstSrc *args = ir_gen_node(ag, args_node, scope);
+    IrInstSrc *args = astgen_node(ag, args_node, scope);
     if (args == ag->codegen->invalid_inst_src)
         return args;
 
@@ -4051,11 +4053,11 @@ static IrInstSrc *ir_gen_async_call(Stage1AstGen *ag, Scope *scope, AstNode *awa
     return ir_lval_wrap(ag, scope, call, lval, result_loc);
 }
 
-static IrInstSrc *ir_gen_fn_call_with_args(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static IrInstSrc *astgen_fn_call_with_args(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
         AstNode *fn_ref_node, CallModifier modifier, IrInstSrc *options,
         AstNode **args_ptr, size_t args_len, LVal lval, ResultLoc *result_loc)
 {
-    IrInstSrc *fn_ref = ir_gen_node(ag, fn_ref_node, scope);
+    IrInstSrc *fn_ref = astgen_node(ag, fn_ref_node, scope);
     if (fn_ref == ag->codegen->invalid_inst_src)
         return fn_ref;
 
@@ -4071,7 +4073,7 @@ static IrInstSrc *ir_gen_fn_call_with_args(Stage1AstGen *ag, Scope *scope, AstNo
         ir_build_reset_result(ag, scope, source_node, no_result);
         ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, arg_type, no_result);
 
-        IrInstSrc *arg = ir_gen_node_extra(ag, arg_node, scope, LValNone, &result_loc_cast->base);
+        IrInstSrc *arg = astgen_node_extra(ag, arg_node, scope, LValNone, &result_loc_cast->base);
         if (arg == ag->codegen->invalid_inst_src)
             return arg;
 
@@ -4088,7 +4090,7 @@ static IrInstSrc *ir_gen_fn_call_with_args(Stage1AstGen *ag, Scope *scope, AstNo
     return ir_lval_wrap(ag, scope, fn_call, lval, result_loc);
 }
 
-static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeFnCallExpr);
@@ -4130,7 +4132,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                     return ag->codegen->invalid_inst_src;
                 } else if (arg_count == 1) {
                     AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                    IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, sub_scope);
+                    IrInstSrc *arg0_value = astgen_node(ag, arg0_node, sub_scope);
                     if (arg0_value == ag->codegen->invalid_inst_src)
                         return arg0_value;
 
@@ -4139,7 +4141,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                     IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(arg_count);
                     for (size_t i = 0; i < arg_count; i += 1) {
                         AstNode *arg_node = node->data.fn_call_expr.params.at(i);
-                        IrInstSrc *arg = ir_gen_node(ag, arg_node, sub_scope);
+                        IrInstSrc *arg = astgen_node(ag, arg_node, sub_scope);
                         if (arg == ag->codegen->invalid_inst_src)
                             return ag->codegen->invalid_inst_src;
                         args[i] = arg;
@@ -4152,7 +4154,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdSetCold:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4162,7 +4164,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdSetRuntimeSafety:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4172,7 +4174,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdSetFloatMode:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4183,7 +4185,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdBitSizeof:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4193,7 +4195,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdImport:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4208,7 +4210,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdCInclude:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4223,12 +4225,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdCDefine:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4243,7 +4245,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdCUndef:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4258,7 +4260,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdCompileErr:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4271,7 +4273,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
 
                 for (size_t i = 0; i < actual_param_count; i += 1) {
                     AstNode *arg_node = node->data.fn_call_expr.params.at(i);
-                    args[i] = ir_gen_node(ag, arg_node, scope);
+                    args[i] = astgen_node(ag, arg_node, scope);
                     if (args[i] == ag->codegen->invalid_inst_src)
                         return ag->codegen->invalid_inst_src;
                 }
@@ -4282,7 +4284,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdErrName:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4292,7 +4294,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdEmbedFile:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4303,32 +4305,32 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdCmpxchgStrong:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = ir_gen_node(ag, arg2_node, scope);
+                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
                 AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
-                IrInstSrc *arg3_value = ir_gen_node(ag, arg3_node, scope);
+                IrInstSrc *arg3_value = astgen_node(ag, arg3_node, scope);
                 if (arg3_value == ag->codegen->invalid_inst_src)
                     return arg3_value;
 
                 AstNode *arg4_node = node->data.fn_call_expr.params.at(4);
-                IrInstSrc *arg4_value = ir_gen_node(ag, arg4_node, scope);
+                IrInstSrc *arg4_value = astgen_node(ag, arg4_node, scope);
                 if (arg4_value == ag->codegen->invalid_inst_src)
                     return arg4_value;
 
                 AstNode *arg5_node = node->data.fn_call_expr.params.at(5);
-                IrInstSrc *arg5_value = ir_gen_node(ag, arg5_node, scope);
+                IrInstSrc *arg5_value = astgen_node(ag, arg5_node, scope);
                 if (arg5_value == ag->codegen->invalid_inst_src)
                     return arg5_value;
 
@@ -4340,7 +4342,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdFence:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4350,12 +4352,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdReduce:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4365,12 +4367,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdDivExact:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4380,12 +4382,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdDivTrunc:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4395,12 +4397,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdDivFloor:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4410,12 +4412,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdRem:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4425,12 +4427,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdMod:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4453,7 +4455,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdRound:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4463,12 +4465,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdTruncate:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4478,12 +4480,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdIntCast:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4493,12 +4495,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdFloatCast:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4508,12 +4510,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdErrSetCast:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4523,12 +4525,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdIntToFloat:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4538,12 +4540,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdFloatToInt:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4553,7 +4555,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdErrToInt:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4563,7 +4565,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdIntToErr:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4573,7 +4575,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdBoolToInt:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4583,12 +4585,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdVectorType:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4598,22 +4600,22 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdShuffle:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = ir_gen_node(ag, arg2_node, scope);
+                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
                 AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
-                IrInstSrc *arg3_value = ir_gen_node(ag, arg3_node, scope);
+                IrInstSrc *arg3_value = astgen_node(ag, arg3_node, scope);
                 if (arg3_value == ag->codegen->invalid_inst_src)
                     return arg3_value;
 
@@ -4624,12 +4626,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdSplat:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4640,17 +4642,17 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdMemcpy:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = ir_gen_node(ag, arg2_node, scope);
+                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
@@ -4660,17 +4662,17 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdMemset:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = ir_gen_node(ag, arg2_node, scope);
+                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
@@ -4680,7 +4682,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdWasmMemorySize:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4690,12 +4692,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdWasmMemoryGrow:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4705,12 +4707,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdField:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node_extra(ag, arg0_node, scope, LValPtr, nullptr);
+                IrInstSrc *arg0_value = astgen_node_extra(ag, arg0_node, scope, LValPtr, nullptr);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4726,12 +4728,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdHasField:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4741,7 +4743,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdTypeInfo:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4751,7 +4753,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdType:
             {
                 AstNode *arg_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg = ir_gen_node(ag, arg_node, scope);
+                IrInstSrc *arg = astgen_node(ag, arg_node, scope);
                 if (arg == ag->codegen->invalid_inst_src)
                     return arg;
 
@@ -4773,7 +4775,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
             return ir_lval_wrap(ag, scope, ir_build_handle_src(ag, scope, node), lval, result_loc);
         case BuiltinFnIdFrameType: {
             AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-            IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+            IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
             if (arg0_value == ag->codegen->invalid_inst_src)
                 return arg0_value;
 
@@ -4782,7 +4784,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         }
         case BuiltinFnIdFrameSize: {
             AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-            IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+            IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
             if (arg0_value == ag->codegen->invalid_inst_src)
                 return arg0_value;
 
@@ -4792,7 +4794,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdAlignOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4800,19 +4802,19 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                 return ir_lval_wrap(ag, scope, align_of, lval, result_loc);
             }
         case BuiltinFnIdAddWithOverflow:
-            return ir_lval_wrap(ag, scope, ir_gen_overflow_op(ag, scope, node, IrOverflowOpAdd), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_overflow_op(ag, scope, node, IrOverflowOpAdd), lval, result_loc);
         case BuiltinFnIdSubWithOverflow:
-            return ir_lval_wrap(ag, scope, ir_gen_overflow_op(ag, scope, node, IrOverflowOpSub), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_overflow_op(ag, scope, node, IrOverflowOpSub), lval, result_loc);
         case BuiltinFnIdMulWithOverflow:
-            return ir_lval_wrap(ag, scope, ir_gen_overflow_op(ag, scope, node, IrOverflowOpMul), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_overflow_op(ag, scope, node, IrOverflowOpMul), lval, result_loc);
         case BuiltinFnIdShlWithOverflow:
-            return ir_lval_wrap(ag, scope, ir_gen_overflow_op(ag, scope, node, IrOverflowOpShl), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_overflow_op(ag, scope, node, IrOverflowOpShl), lval, result_loc);
         case BuiltinFnIdMulAdd:
-            return ir_lval_wrap(ag, scope, ir_gen_mul_add(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_mul_add(ag, scope, node), lval, result_loc);
         case BuiltinFnIdTypeName:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4822,7 +4824,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdPanic:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4832,12 +4834,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdPtrCast:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4847,7 +4849,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdBitCast:
             {
                 AstNode *dest_type_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *dest_type = ir_gen_node(ag, dest_type_node, scope);
+                IrInstSrc *dest_type = astgen_node(ag, dest_type_node, scope);
                 if (dest_type == ag->codegen->invalid_inst_src)
                     return dest_type;
 
@@ -4861,7 +4863,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                 ir_build_reset_result(ag, scope, node, &result_loc_bit_cast->base);
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node_extra(ag, arg1_node, scope, LValNone,
+                IrInstSrc *arg1_value = astgen_node_extra(ag, arg1_node, scope, LValNone,
                         &result_loc_bit_cast->base);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
@@ -4872,14 +4874,14 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdAs:
             {
                 AstNode *dest_type_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *dest_type = ir_gen_node(ag, dest_type_node, scope);
+                IrInstSrc *dest_type = astgen_node(ag, dest_type_node, scope);
                 if (dest_type == ag->codegen->invalid_inst_src)
                     return dest_type;
 
                 ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, dest_type, result_loc);
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node_extra(ag, arg1_node, scope, LValNone,
+                IrInstSrc *arg1_value = astgen_node_extra(ag, arg1_node, scope, LValNone,
                         &result_loc_cast->base);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
@@ -4890,12 +4892,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdIntToPtr:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4905,7 +4907,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdPtrToInt:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4915,7 +4917,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdTagName:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -4925,17 +4927,17 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdFieldParentPtr:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = ir_gen_node(ag, arg2_node, scope);
+                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
@@ -4946,12 +4948,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdByteOffsetOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4961,12 +4963,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdBitOffsetOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -4980,7 +4982,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
             ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, options_type_inst, no_result_loc());
 
             AstNode *options_node = node->data.fn_call_expr.params.at(0);
-            IrInstSrc *options_inner = ir_gen_node_extra(ag, options_node, scope,
+            IrInstSrc *options_inner = astgen_node_extra(ag, options_node, scope,
                     LValNone, &result_loc_cast->base);
             if (options_inner == ag->codegen->invalid_inst_src)
                 return options_inner;
@@ -4992,7 +4994,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                 if (args_node->data.container_init_expr.kind == ContainerInitKindArray ||
                     args_node->data.container_init_expr.entries.length == 0)
                 {
-                    return ir_gen_fn_call_with_args(ag, scope, node,
+                    return astgen_fn_call_with_args(ag, scope, node,
                             fn_ref_node, CallModifierNone, options,
                             args_node->data.container_init_expr.entries.items,
                             args_node->data.container_init_expr.entries.length,
@@ -5003,11 +5005,11 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                     return ag->codegen->invalid_inst_src;
                 }
             } else {
-                IrInstSrc *fn_ref = ir_gen_node(ag, fn_ref_node, scope);
+                IrInstSrc *fn_ref = astgen_node(ag, fn_ref_node, scope);
                 if (fn_ref == ag->codegen->invalid_inst_src)
                     return fn_ref;
 
-                IrInstSrc *args = ir_gen_node(ag, args_node, scope);
+                IrInstSrc *args = astgen_node(ag, args_node, scope);
                 if (args == ag->codegen->invalid_inst_src)
                     return args;
 
@@ -5016,16 +5018,16 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
             }
         }
         case BuiltinFnIdAsyncCall:
-            return ir_gen_async_call(ag, scope, nullptr, node, lval, result_loc);
+            return astgen_async_call(ag, scope, nullptr, node, lval, result_loc);
         case BuiltinFnIdShlExact:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -5035,12 +5037,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdShrExact:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -5050,7 +5052,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdSetEvalBranchQuota:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -5060,12 +5062,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdAlignCast:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -5074,13 +5076,13 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
             }
         case BuiltinFnIdThis:
             {
-                IrInstSrc *this_inst = ir_gen_this(ag, scope, node);
+                IrInstSrc *this_inst = astgen_this(ag, scope, node);
                 return ir_lval_wrap(ag, scope, this_inst, lval, result_loc);
             }
         case BuiltinFnIdSetAlignStack:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -5095,12 +5097,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                 ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, options_type_inst, no_result_loc());
 
                 AstNode *target_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *target_value = ir_gen_node(ag, target_node, scope);
+                IrInstSrc *target_value = astgen_node(ag, target_node, scope);
                 if (target_value == ag->codegen->invalid_inst_src)
                     return target_value;
 
                 AstNode *options_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *options_value = ir_gen_node_extra(ag, options_node,
+                IrInstSrc *options_value = astgen_node_extra(ag, options_node,
                     scope, LValNone, &result_loc_cast->base);
                 if (options_value == ag->codegen->invalid_inst_src)
                     return options_value;
@@ -5119,12 +5121,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                 ResultLocCast *result_loc_cast = ir_build_cast_result_loc(ag, options_type_inst, no_result_loc());
 
                 AstNode *type_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *type_value = ir_gen_node(ag, type_node, scope);
+                IrInstSrc *type_value = astgen_node(ag, type_node, scope);
                 if (type_value == ag->codegen->invalid_inst_src)
                     return type_value;
 
                 AstNode *options_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *options_value = ir_gen_node_extra(ag, options_node,
+                IrInstSrc *options_value = astgen_node_extra(ag, options_node,
                     scope, LValNone, &result_loc_cast->base);
                 if (options_value == ag->codegen->invalid_inst_src)
                     return options_value;
@@ -5144,27 +5146,27 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdAtomicRmw:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = ir_gen_node(ag, arg2_node, scope);
+                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
                 AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
-                IrInstSrc *arg3_value = ir_gen_node(ag, arg3_node, scope);
+                IrInstSrc *arg3_value = astgen_node(ag, arg3_node, scope);
                 if (arg3_value == ag->codegen->invalid_inst_src)
                     return arg3_value;
 
                 AstNode *arg4_node = node->data.fn_call_expr.params.at(4);
-                IrInstSrc *arg4_value = ir_gen_node(ag, arg4_node, scope);
+                IrInstSrc *arg4_value = astgen_node(ag, arg4_node, scope);
                 if (arg4_value == ag->codegen->invalid_inst_src)
                     return arg4_value;
 
@@ -5175,17 +5177,17 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdAtomicLoad:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = ir_gen_node(ag, arg2_node, scope);
+                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
@@ -5195,22 +5197,22 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdAtomicStore:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
                 AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                IrInstSrc *arg2_value = ir_gen_node(ag, arg2_node, scope);
+                IrInstSrc *arg2_value = astgen_node(ag, arg2_node, scope);
                 if (arg2_value == ag->codegen->invalid_inst_src)
                     return arg2_value;
 
                 AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
-                IrInstSrc *arg3_value = ir_gen_node(ag, arg3_node, scope);
+                IrInstSrc *arg3_value = astgen_node(ag, arg3_node, scope);
                 if (arg3_value == ag->codegen->invalid_inst_src)
                     return arg3_value;
 
@@ -5221,12 +5223,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdIntToEnum:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -5236,7 +5238,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdEnumToInt:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -5250,12 +5252,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdBitReverse:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -5284,12 +5286,12 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdHasDecl:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(ag, arg0_node, scope);
+                IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(ag, arg1_node, scope);
+                IrInstSrc *arg1_value = astgen_node(ag, arg1_node, scope);
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
@@ -5299,18 +5301,18 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdUnionInit:
             {
                 AstNode *union_type_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *union_type_inst = ir_gen_node(ag, union_type_node, scope);
+                IrInstSrc *union_type_inst = astgen_node(ag, union_type_node, scope);
                 if (union_type_inst == ag->codegen->invalid_inst_src)
                     return union_type_inst;
 
                 AstNode *name_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *name_inst = ir_gen_node(ag, name_node, scope);
+                IrInstSrc *name_inst = astgen_node(ag, name_node, scope);
                 if (name_inst == ag->codegen->invalid_inst_src)
                     return name_inst;
 
                 AstNode *init_node = node->data.fn_call_expr.params.at(2);
 
-                return ir_gen_union_init_expr(ag, scope, node, union_type_inst, name_inst, init_node,
+                return astgen_union_init_expr(ag, scope, node, union_type_inst, name_inst, init_node,
                         lval, result_loc);
             }
         case BuiltinFnIdSrc:
@@ -5334,13 +5336,13 @@ static ScopeNoSuspend *get_scope_nosuspend(Scope *scope) {
     return nullptr;
 }
 
-static IrInstSrc *ir_gen_fn_call(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_fn_call(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeFnCallExpr);
 
     if (node->data.fn_call_expr.modifier == CallModifierBuiltin)
-        return ir_gen_builtin_fn_call(ag, scope, node, lval, result_loc);
+        return astgen_builtin_fn_call(ag, scope, node, lval, result_loc);
 
     bool is_nosuspend = get_scope_nosuspend(scope) != nullptr;
     CallModifier modifier = node->data.fn_call_expr.modifier;
@@ -5349,16 +5351,16 @@ static IrInstSrc *ir_gen_fn_call(Stage1AstGen *ag, Scope *scope, AstNode *node, 
     }
 
     AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
-    return ir_gen_fn_call_with_args(ag, scope, node, fn_ref_node, modifier,
+    return astgen_fn_call_with_args(ag, scope, node, fn_ref_node, modifier,
         nullptr, node->data.fn_call_expr.params.items, node->data.fn_call_expr.params.length, lval, result_loc);
 }
 
-static IrInstSrc *ir_gen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeIfBoolExpr);
 
-    IrInstSrc *condition = ir_gen_node(ag, node->data.if_bool_expr.condition, scope);
+    IrInstSrc *condition = astgen_node(ag, node->data.if_bool_expr.condition, scope);
     if (condition == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
@@ -5384,7 +5386,7 @@ static IrInstSrc *ir_gen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *n
     ir_set_cursor_at_end_and_append_block(ag, then_block);
 
     Scope *subexpr_scope = create_runtime_scope(ag->codegen, node, scope, is_comptime);
-    IrInstSrc *then_expr_result = ir_gen_node_extra(ag, then_node, subexpr_scope, lval,
+    IrInstSrc *then_expr_result = astgen_node_extra(ag, then_node, subexpr_scope, lval,
             &peer_parent->peers.at(0)->base);
     if (then_expr_result == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
@@ -5395,7 +5397,7 @@ static IrInstSrc *ir_gen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *n
     ir_set_cursor_at_end_and_append_block(ag, else_block);
     IrInstSrc *else_expr_result;
     if (else_node) {
-        else_expr_result = ir_gen_node_extra(ag, else_node, subexpr_scope, lval, &peer_parent->peers.at(1)->base);
+        else_expr_result = astgen_node_extra(ag, else_node, subexpr_scope, lval, &peer_parent->peers.at(1)->base);
         if (else_expr_result == ag->codegen->invalid_inst_src)
             return ag->codegen->invalid_inst_src;
     } else {
@@ -5418,19 +5420,19 @@ static IrInstSrc *ir_gen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *n
     return ir_expr_wrap(ag, scope, phi, result_loc);
 }
 
-static IrInstSrc *ir_gen_prefix_op_id_lval(Stage1AstGen *ag, Scope *scope, AstNode *node, IrUnOp op_id, LVal lval) {
+static IrInstSrc *astgen_prefix_op_id_lval(Stage1AstGen *ag, Scope *scope, AstNode *node, IrUnOp op_id, LVal lval) {
     assert(node->type == NodeTypePrefixOpExpr);
     AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
 
-    IrInstSrc *value = ir_gen_node_extra(ag, expr_node, scope, lval, nullptr);
+    IrInstSrc *value = astgen_node_extra(ag, expr_node, scope, lval, nullptr);
     if (value == ag->codegen->invalid_inst_src)
         return value;
 
     return ir_build_un_op(ag, scope, node, op_id, value);
 }
 
-static IrInstSrc *ir_gen_prefix_op_id(Stage1AstGen *ag, Scope *scope, AstNode *node, IrUnOp op_id) {
-    return ir_gen_prefix_op_id_lval(ag, scope, node, op_id, LValNone);
+static IrInstSrc *astgen_prefix_op_id(Stage1AstGen *ag, Scope *scope, AstNode *node, IrUnOp op_id) {
+    return astgen_prefix_op_id_lval(ag, scope, node, op_id, LValNone);
 }
 
 static IrInstSrc *ir_expr_wrap(Stage1AstGen *ag, Scope *scope, IrInstSrc *inst, ResultLoc *result_loc) {
@@ -5499,7 +5501,7 @@ static Error token_number_literal_u32(Stage1AstGen *ag, AstNode *source_node,
 
 }
 
-static IrInstSrc *ir_gen_pointer_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_pointer_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     Error err;
     assert(node->type == NodeTypePointerType);
 
@@ -5516,7 +5518,7 @@ static IrInstSrc *ir_gen_pointer_type(Stage1AstGen *ag, Scope *scope, AstNode *n
 
     IrInstSrc *sentinel;
     if (sentinel_expr != nullptr) {
-        sentinel = ir_gen_node(ag, sentinel_expr, scope);
+        sentinel = astgen_node(ag, sentinel_expr, scope);
         if (sentinel == ag->codegen->invalid_inst_src)
             return sentinel;
     } else {
@@ -5525,14 +5527,14 @@ static IrInstSrc *ir_gen_pointer_type(Stage1AstGen *ag, Scope *scope, AstNode *n
 
     IrInstSrc *align_value;
     if (align_expr != nullptr) {
-        align_value = ir_gen_node(ag, align_expr, scope);
+        align_value = astgen_node(ag, align_expr, scope);
         if (align_value == ag->codegen->invalid_inst_src)
             return align_value;
     } else {
         align_value = nullptr;
     }
 
-    IrInstSrc *child_type = ir_gen_node(ag, expr_node, scope);
+    IrInstSrc *child_type = astgen_node(ag, expr_node, scope);
     if (child_type == ag->codegen->invalid_inst_src)
         return child_type;
 
@@ -5564,10 +5566,10 @@ static IrInstSrc *ir_gen_pointer_type(Stage1AstGen *ag, Scope *scope, AstNode *n
             ptr_len, sentinel, align_value, bit_offset_start, host_int_bytes, is_allow_zero);
 }
 
-static IrInstSrc *ir_gen_catch_unreachable(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static IrInstSrc *astgen_catch_unreachable(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
         AstNode *expr_node, LVal lval, ResultLoc *result_loc)
 {
-    IrInstSrc *err_union_ptr = ir_gen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
+    IrInstSrc *err_union_ptr = astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
     if (err_union_ptr == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
@@ -5582,18 +5584,18 @@ static IrInstSrc *ir_gen_catch_unreachable(Stage1AstGen *ag, Scope *scope, AstNo
     return ir_expr_wrap(ag, scope, load_ptr, result_loc);
 }
 
-static IrInstSrc *ir_gen_bool_not(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_bool_not(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypePrefixOpExpr);
     AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
 
-    IrInstSrc *value = ir_gen_node(ag, expr_node, scope);
+    IrInstSrc *value = astgen_node(ag, expr_node, scope);
     if (value == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
     return ir_build_bool_not(ag, scope, node, value);
 }
 
-static IrInstSrc *ir_gen_prefix_op_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_prefix_op_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypePrefixOpExpr);
@@ -5604,24 +5606,24 @@ static IrInstSrc *ir_gen_prefix_op_expr(Stage1AstGen *ag, Scope *scope, AstNode 
         case PrefixOpInvalid:
             zig_unreachable();
         case PrefixOpBoolNot:
-            return ir_lval_wrap(ag, scope, ir_gen_bool_not(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bool_not(ag, scope, node), lval, result_loc);
         case PrefixOpBinNot:
-            return ir_lval_wrap(ag, scope, ir_gen_prefix_op_id(ag, scope, node, IrUnOpBinNot), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_prefix_op_id(ag, scope, node, IrUnOpBinNot), lval, result_loc);
         case PrefixOpNegation:
-            return ir_lval_wrap(ag, scope, ir_gen_prefix_op_id(ag, scope, node, IrUnOpNegation), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_prefix_op_id(ag, scope, node, IrUnOpNegation), lval, result_loc);
         case PrefixOpNegationWrap:
-            return ir_lval_wrap(ag, scope, ir_gen_prefix_op_id(ag, scope, node, IrUnOpNegationWrap), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_prefix_op_id(ag, scope, node, IrUnOpNegationWrap), lval, result_loc);
         case PrefixOpOptional:
-            return ir_lval_wrap(ag, scope, ir_gen_prefix_op_id(ag, scope, node, IrUnOpOptional), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_prefix_op_id(ag, scope, node, IrUnOpOptional), lval, result_loc);
         case PrefixOpAddrOf: {
             AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
-            return ir_lval_wrap(ag, scope, ir_gen_node_extra(ag, expr_node, scope, LValPtr, nullptr), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr), lval, result_loc);
         }
     }
     zig_unreachable();
 }
 
-static IrInstSrc *ir_gen_union_init_expr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static IrInstSrc *astgen_union_init_expr(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
     IrInstSrc *union_type, IrInstSrc *field_name, AstNode *expr_node,
     LVal lval, ResultLoc *parent_result_loc)
 {
@@ -5635,7 +5637,7 @@ static IrInstSrc *ir_gen_union_init_expr(Stage1AstGen *ag, Scope *scope, AstNode
     ir_ref_instruction(field_ptr, ag->current_basic_block);
     ir_build_reset_result(ag, scope, expr_node, &result_loc_inst->base);
 
-    IrInstSrc *expr_value = ir_gen_node_extra(ag, expr_node, scope, LValNone,
+    IrInstSrc *expr_value = astgen_node_extra(ag, expr_node, scope, LValNone,
             &result_loc_inst->base);
     if (expr_value == ag->codegen->invalid_inst_src)
         return expr_value;
@@ -5646,7 +5648,7 @@ static IrInstSrc *ir_gen_union_init_expr(Stage1AstGen *ag, Scope *scope, AstNode
     return ir_lval_wrap(ag, scope, init_union, lval, parent_result_loc);
 }
 
-static IrInstSrc *ir_gen_container_init_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_container_init_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *parent_result_loc)
 {
     assert(node->type == NodeTypeContainerInitExpr);
@@ -5667,14 +5669,14 @@ static IrInstSrc *ir_gen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
             }
             IrInstSrc *sentinel;
             if (container_init_expr->type->data.inferred_array_type.sentinel != nullptr) {
-                sentinel = ir_gen_node(ag, container_init_expr->type->data.inferred_array_type.sentinel, scope);
+                sentinel = astgen_node(ag, container_init_expr->type->data.inferred_array_type.sentinel, scope);
                 if (sentinel == ag->codegen->invalid_inst_src)
                     return sentinel;
             } else {
                 sentinel = nullptr;
             }
 
-            IrInstSrc *elem_type = ir_gen_node(ag,
+            IrInstSrc *elem_type = astgen_node(ag,
                     container_init_expr->type->data.inferred_array_type.child_type, scope);
             if (elem_type == ag->codegen->invalid_inst_src)
                 return elem_type;
@@ -5682,7 +5684,7 @@ static IrInstSrc *ir_gen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
             IrInstSrc *item_count_inst = ir_build_const_usize(ag, scope, node, item_count);
             container_type = ir_build_array_type(ag, scope, node, item_count_inst, sentinel, elem_type);
         } else {
-            container_type = ir_gen_node(ag, container_init_expr->type, scope);
+            container_type = astgen_node(ag, container_init_expr->type, scope);
             if (container_type == ag->codegen->invalid_inst_src)
                 return container_type;
         }
@@ -5721,7 +5723,7 @@ static IrInstSrc *ir_gen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
                 ir_ref_instruction(field_ptr, ag->current_basic_block);
                 ir_build_reset_result(ag, scope, expr_node, &result_loc_inst->base);
 
-                IrInstSrc *expr_value = ir_gen_node_extra(ag, expr_node, scope, LValNone,
+                IrInstSrc *expr_value = astgen_node_extra(ag, expr_node, scope, LValNone,
                         &result_loc_inst->base);
                 if (expr_value == ag->codegen->invalid_inst_src)
                     return expr_value;
@@ -5758,7 +5760,7 @@ static IrInstSrc *ir_gen_container_init_expr(Stage1AstGen *ag, Scope *scope, Ast
                 ir_ref_instruction(elem_ptr, ag->current_basic_block);
                 ir_build_reset_result(ag, scope, expr_node, &result_loc_inst->base);
 
-                IrInstSrc *expr_value = ir_gen_node_extra(ag, expr_node, scope, LValNone,
+                IrInstSrc *expr_value = astgen_node_extra(ag, expr_node, scope, LValNone,
                         &result_loc_inst->base);
                 if (expr_value == ag->codegen->invalid_inst_src)
                     return expr_value;
@@ -5812,7 +5814,7 @@ static void build_decl_var_and_init(Stage1AstGen *ag, Scope *scope, AstNode *sou
     ir_build_var_decl_src(ag, scope, source_node, var, nullptr, alloca);
 }
 
-static IrInstSrc *ir_gen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeVariableDeclaration);
 
     AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;
@@ -5827,7 +5829,7 @@ static IrInstSrc *ir_gen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node)
 
     IrInstSrc *type_instruction;
     if (variable_declaration->type != nullptr) {
-        type_instruction = ir_gen_node(ag, variable_declaration->type, comptime_scope);
+        type_instruction = astgen_node(ag, variable_declaration->type, comptime_scope);
         if (type_instruction == ag->codegen->invalid_inst_src)
             return type_instruction;
     } else {
@@ -5853,7 +5855,7 @@ static IrInstSrc *ir_gen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node)
 
     IrInstSrc *align_value = nullptr;
     if (variable_declaration->align_expr != nullptr) {
-        align_value = ir_gen_node(ag, variable_declaration->align_expr, comptime_scope);
+        align_value = astgen_node(ag, variable_declaration->align_expr, comptime_scope);
         if (align_value == ag->codegen->invalid_inst_src)
             return align_value;
     }
@@ -5888,7 +5890,7 @@ static IrInstSrc *ir_gen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node)
     // so that the struct or enum from the init expression inherits the name.
     Buf *old_exec_name = ag->exec->name;
     ag->exec->name = variable_declaration->symbol;
-    IrInstSrc *init_value = ir_gen_node_extra(ag, variable_declaration->expr, init_scope,
+    IrInstSrc *init_value = astgen_node_extra(ag, variable_declaration->expr, init_scope,
             LValNone, init_result_loc);
     ag->exec->name = old_exec_name;
 
@@ -5904,7 +5906,7 @@ static IrInstSrc *ir_gen_var_decl(Stage1AstGen *ag, Scope *scope, AstNode *node)
     return ir_build_var_decl_src(ag, scope, node, var, align_value, alloca);
 }
 
-static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeWhileExpr);
@@ -5942,7 +5944,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             payload_scope = subexpr_scope;
         }
         ScopeExpr *spill_scope = create_expr_scope(ag->codegen, node, payload_scope);
-        IrInstSrc *err_val_ptr = ir_gen_node_extra(ag, node->data.while_expr.condition, subexpr_scope,
+        IrInstSrc *err_val_ptr = astgen_node_extra(ag, node->data.while_expr.condition, subexpr_scope,
                 LValPtr, nullptr);
         if (err_val_ptr == ag->codegen->invalid_inst_src)
             return err_val_ptr;
@@ -5990,8 +5992,8 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
         // Note the body block of the loop is not the place that lval and result_loc are used -
         // it's actually in break statements, handled similarly to return statements.
-        // That is why we set those values in loop_scope above and not in this ir_gen_node call.
-        IrInstSrc *body_result = ir_gen_node(ag, node->data.while_expr.body, &loop_scope->base);
+        // That is why we set those values in loop_scope above and not in this astgen_node call.
+        IrInstSrc *body_result = astgen_node(ag, node->data.while_expr.body, &loop_scope->base);
         if (body_result == ag->codegen->invalid_inst_src)
             return body_result;
 
@@ -6006,7 +6008,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(ag, continue_block);
-            IrInstSrc *expr_result = ir_gen_node(ag, continue_expr_node, payload_scope);
+            IrInstSrc *expr_result = astgen_node(ag, continue_expr_node, payload_scope);
             if (expr_result == ag->codegen->invalid_inst_src)
                 return expr_result;
             if (!instr_is_unreachable(expr_result)) {
@@ -6032,7 +6034,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         }
         ResultLocPeer *peer_result = create_peer_result(peer_parent);
         peer_parent->peers.append(peer_result);
-        IrInstSrc *else_result = ir_gen_node_extra(ag, else_node, err_scope, lval, &peer_result->base);
+        IrInstSrc *else_result = astgen_node_extra(ag, else_node, err_scope, lval, &peer_result->base);
         if (else_result == ag->codegen->invalid_inst_src)
             return else_result;
         if (!instr_is_unreachable(else_result))
@@ -6063,7 +6065,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
                 true, false, false, is_comptime);
         Scope *child_scope = payload_var->child_scope;
         ScopeExpr *spill_scope = create_expr_scope(ag->codegen, node, child_scope);
-        IrInstSrc *maybe_val_ptr = ir_gen_node_extra(ag, node->data.while_expr.condition, subexpr_scope,
+        IrInstSrc *maybe_val_ptr = astgen_node_extra(ag, node->data.while_expr.condition, subexpr_scope,
                 LValPtr, nullptr);
         if (maybe_val_ptr == ag->codegen->invalid_inst_src)
             return maybe_val_ptr;
@@ -6108,8 +6110,8 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
         // Note the body block of the loop is not the place that lval and result_loc are used -
         // it's actually in break statements, handled similarly to return statements.
-        // That is why we set those values in loop_scope above and not in this ir_gen_node call.
-        IrInstSrc *body_result = ir_gen_node(ag, node->data.while_expr.body, &loop_scope->base);
+        // That is why we set those values in loop_scope above and not in this astgen_node call.
+        IrInstSrc *body_result = astgen_node(ag, node->data.while_expr.body, &loop_scope->base);
         if (body_result == ag->codegen->invalid_inst_src)
             return body_result;
 
@@ -6124,7 +6126,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(ag, continue_block);
-            IrInstSrc *expr_result = ir_gen_node(ag, continue_expr_node, child_scope);
+            IrInstSrc *expr_result = astgen_node(ag, continue_expr_node, child_scope);
             if (expr_result == ag->codegen->invalid_inst_src)
                 return expr_result;
             if (!instr_is_unreachable(expr_result)) {
@@ -6142,7 +6144,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             }
             ResultLocPeer *peer_result = create_peer_result(peer_parent);
             peer_parent->peers.append(peer_result);
-            else_result = ir_gen_node_extra(ag, else_node, scope, lval, &peer_result->base);
+            else_result = astgen_node_extra(ag, else_node, scope, lval, &peer_result->base);
             if (else_result == ag->codegen->invalid_inst_src)
                 return else_result;
             if (!instr_is_unreachable(else_result))
@@ -6166,7 +6168,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         return ir_expr_wrap(ag, scope, phi, result_loc);
     } else {
         ir_set_cursor_at_end_and_append_block(ag, cond_block);
-        IrInstSrc *cond_val = ir_gen_node(ag, node->data.while_expr.condition, scope);
+        IrInstSrc *cond_val = astgen_node(ag, node->data.while_expr.condition, scope);
         if (cond_val == ag->codegen->invalid_inst_src)
             return cond_val;
         Stage1ZirBasicBlock *after_cond_block = ag->current_basic_block;
@@ -6204,8 +6206,8 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
         // Note the body block of the loop is not the place that lval and result_loc are used -
         // it's actually in break statements, handled similarly to return statements.
-        // That is why we set those values in loop_scope above and not in this ir_gen_node call.
-        IrInstSrc *body_result = ir_gen_node(ag, node->data.while_expr.body, &loop_scope->base);
+        // That is why we set those values in loop_scope above and not in this astgen_node call.
+        IrInstSrc *body_result = astgen_node(ag, node->data.while_expr.body, &loop_scope->base);
         if (body_result == ag->codegen->invalid_inst_src)
             return body_result;
 
@@ -6220,7 +6222,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
         if (continue_expr_node) {
             ir_set_cursor_at_end_and_append_block(ag, continue_block);
-            IrInstSrc *expr_result = ir_gen_node(ag, continue_expr_node, subexpr_scope);
+            IrInstSrc *expr_result = astgen_node(ag, continue_expr_node, subexpr_scope);
             if (expr_result == ag->codegen->invalid_inst_src)
                 return expr_result;
             if (!instr_is_unreachable(expr_result)) {
@@ -6239,7 +6241,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             ResultLocPeer *peer_result = create_peer_result(peer_parent);
             peer_parent->peers.append(peer_result);
 
-            else_result = ir_gen_node_extra(ag, else_node, subexpr_scope, lval, &peer_result->base);
+            else_result = astgen_node_extra(ag, else_node, subexpr_scope, lval, &peer_result->base);
             if (else_result == ag->codegen->invalid_inst_src)
                 return else_result;
             if (!instr_is_unreachable(else_result))
@@ -6264,7 +6266,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
     }
 }
 
-static IrInstSrc *ir_gen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeForExpr);
@@ -6283,7 +6285,7 @@ static IrInstSrc *ir_gen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
 
     ScopeExpr *spill_scope = create_expr_scope(ag->codegen, node, parent_scope);
 
-    IrInstSrc *array_val_ptr = ir_gen_node_extra(ag, array_node, &spill_scope->base, LValPtr, nullptr);
+    IrInstSrc *array_val_ptr = astgen_node_extra(ag, array_node, &spill_scope->base, LValPtr, nullptr);
     if (array_val_ptr == ag->codegen->invalid_inst_src)
         return array_val_ptr;
 
@@ -6362,8 +6364,8 @@ static IrInstSrc *ir_gen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
 
     // Note the body block of the loop is not the place that lval and result_loc are used -
     // it's actually in break statements, handled similarly to return statements.
-    // That is why we set those values in loop_scope above and not in this ir_gen_node call.
-    IrInstSrc *body_result = ir_gen_node(ag, body_node, &loop_scope->base);
+    // That is why we set those values in loop_scope above and not in this astgen_node call.
+    IrInstSrc *body_result = astgen_node(ag, body_node, &loop_scope->base);
     if (body_result == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
@@ -6390,7 +6392,7 @@ static IrInstSrc *ir_gen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
         }
         ResultLocPeer *peer_result = create_peer_result(peer_parent);
         peer_parent->peers.append(peer_result);
-        else_result = ir_gen_node_extra(ag, else_node, parent_scope, LValNone, &peer_result->base);
+        else_result = astgen_node_extra(ag, else_node, parent_scope, LValNone, &peer_result->base);
         if (else_result == ag->codegen->invalid_inst_src)
             return else_result;
         if (!instr_is_unreachable(else_result))
@@ -6415,19 +6417,25 @@ static IrInstSrc *ir_gen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
     return ir_lval_wrap(ag, parent_scope, phi, lval, result_loc);
 }
 
-static IrInstSrc *ir_gen_bool_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_bool_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeBoolLiteral);
     return ir_build_const_bool(ag, scope, node, node->data.bool_literal.value);
 }
 
-static IrInstSrc *ir_gen_enum_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_enum_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeEnumLiteral);
-    RootStruct *root_struct = node->owner->data.structure.root_struct;
-    Buf *name = token_identifier_buf(root_struct, node->main_token + 1);
-    return ir_build_const_enum_literal(ag, scope, node, name);
+    // Currently, stage1 runs astgen for every comptime function call,
+    // resulting the allocation here wasting memory. As a workaround until
+    // the code is adjusted to make astgen run only once per source node,
+    // we memoize the result into the AST here.
+    if (node->data.enum_literal.name == nullptr) {
+        RootStruct *root_struct = node->owner->data.structure.root_struct;
+        node->data.enum_literal.name = token_identifier_buf(root_struct, node->main_token + 1);
+    }
+    return ir_build_const_enum_literal(ag, scope, node, node->data.enum_literal.name);
 }
 
-static IrInstSrc *ir_gen_string_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_string_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     Error err;
     assert(node->type == NodeTypeStringLiteral);
 
@@ -6465,10 +6473,11 @@ static IrInstSrc *ir_gen_string_literal(Stage1AstGen *ag, Scope *scope, AstNode 
     } else {
         zig_unreachable();
     }
+
     return ir_build_const_str_lit(ag, scope, node, str);
 }
 
-static IrInstSrc *ir_gen_array_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_array_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeArrayType);
 
     AstNode *size_node = node->data.array_type.size;
@@ -6483,7 +6492,7 @@ static IrInstSrc *ir_gen_array_type(Stage1AstGen *ag, Scope *scope, AstNode *nod
 
     IrInstSrc *sentinel;
     if (sentinel_expr != nullptr) {
-        sentinel = ir_gen_node(ag, sentinel_expr, comptime_scope);
+        sentinel = astgen_node(ag, sentinel_expr, comptime_scope);
         if (sentinel == ag->codegen->invalid_inst_src)
             return sentinel;
     } else {
@@ -6508,11 +6517,11 @@ static IrInstSrc *ir_gen_array_type(Stage1AstGen *ag, Scope *scope, AstNode *nod
             return ag->codegen->invalid_inst_src;
         }
 
-        IrInstSrc *size_value = ir_gen_node(ag, size_node, comptime_scope);
+        IrInstSrc *size_value = astgen_node(ag, size_node, comptime_scope);
         if (size_value == ag->codegen->invalid_inst_src)
             return size_value;
 
-        IrInstSrc *child_type = ir_gen_node(ag, child_type_node, comptime_scope);
+        IrInstSrc *child_type = astgen_node(ag, child_type_node, comptime_scope);
         if (child_type == ag->codegen->invalid_inst_src)
             return child_type;
 
@@ -6520,14 +6529,14 @@ static IrInstSrc *ir_gen_array_type(Stage1AstGen *ag, Scope *scope, AstNode *nod
     } else {
         IrInstSrc *align_value;
         if (align_expr != nullptr) {
-            align_value = ir_gen_node(ag, align_expr, comptime_scope);
+            align_value = astgen_node(ag, align_expr, comptime_scope);
             if (align_value == ag->codegen->invalid_inst_src)
                 return align_value;
         } else {
             align_value = nullptr;
         }
 
-        IrInstSrc *child_type = ir_gen_node(ag, child_type_node, comptime_scope);
+        IrInstSrc *child_type = astgen_node(ag, child_type_node, comptime_scope);
         if (child_type == ag->codegen->invalid_inst_src)
             return child_type;
 
@@ -6536,14 +6545,14 @@ static IrInstSrc *ir_gen_array_type(Stage1AstGen *ag, Scope *scope, AstNode *nod
     }
 }
 
-static IrInstSrc *ir_gen_anyframe_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_anyframe_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeAnyFrameType);
 
     AstNode *payload_type_node = node->data.anyframe_type.payload_type;
     IrInstSrc *payload_type_value = nullptr;
 
     if (payload_type_node != nullptr) {
-        payload_type_value = ir_gen_node(ag, payload_type_node, scope);
+        payload_type_value = astgen_node(ag, payload_type_node, scope);
         if (payload_type_value == ag->codegen->invalid_inst_src)
             return payload_type_value;
 
@@ -6552,16 +6561,16 @@ static IrInstSrc *ir_gen_anyframe_type(Stage1AstGen *ag, Scope *scope, AstNode *
     return ir_build_anyframe_type(ag, scope, node, payload_type_value);
 }
 
-static IrInstSrc *ir_gen_undefined_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_undefined_literal(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeUndefinedLiteral);
     return ir_build_const_undefined(ag, scope, node);
 }
 
-static IrInstSrc *ir_gen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeAsmExpr);
     AstNodeAsmExpr *asm_expr = &node->data.asm_expr;
 
-    IrInstSrc *asm_template = ir_gen_node(ag, asm_expr->asm_template, scope);
+    IrInstSrc *asm_template = astgen_node(ag, asm_expr->asm_template, scope);
     if (asm_template == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
@@ -6601,7 +6610,7 @@ static IrInstSrc *ir_gen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node)
         if (asm_output->return_type) {
             return_count += 1;
 
-            IrInstSrc *return_type = ir_gen_node(ag, asm_output->return_type, scope);
+            IrInstSrc *return_type = astgen_node(ag, asm_output->return_type, scope);
             if (return_type == ag->codegen->invalid_inst_src)
                 return ag->codegen->invalid_inst_src;
             if (return_count > 1) {
@@ -6612,7 +6621,7 @@ static IrInstSrc *ir_gen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node)
             output_types[i] = return_type;
         } else {
             Buf *variable_name = asm_output->variable_name;
-            // TODO there is some duplication here with ir_gen_symbol. I need to do a full audit of how
+            // TODO there is some duplication here with astgen_identifier. I need to do a full audit of how
             // inline assembly works. https://github.com/ziglang/zig/issues/215
             ZigVar *var = find_variable(ag->codegen, scope, variable_name, nullptr);
             if (var) {
@@ -6635,7 +6644,7 @@ static IrInstSrc *ir_gen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node)
     }
     for (size_t i = 0; i < asm_expr->input_list.length; i += 1) {
         AsmInput *asm_input = asm_expr->input_list.at(i);
-        IrInstSrc *input_value = ir_gen_node(ag, asm_input->expr, scope);
+        IrInstSrc *input_value = astgen_node(ag, asm_input->expr, scope);
         if (input_value == ag->codegen->invalid_inst_src)
             return ag->codegen->invalid_inst_src;
 
@@ -6646,7 +6655,7 @@ static IrInstSrc *ir_gen_asm_expr(Stage1AstGen *ag, Scope *scope, AstNode *node)
                             output_vars, return_count, is_volatile, false);
 }
 
-static IrInstSrc *ir_gen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeIfOptional);
@@ -6660,7 +6669,7 @@ static IrInstSrc *ir_gen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNod
     ScopeExpr *spill_scope = create_expr_scope(ag->codegen, expr_node, scope);
     spill_scope->spill_harder = true;
 
-    IrInstSrc *maybe_val_ptr = ir_gen_node_extra(ag, expr_node, &spill_scope->base, LValPtr, nullptr);
+    IrInstSrc *maybe_val_ptr = astgen_node_extra(ag, expr_node, &spill_scope->base, LValPtr, nullptr);
     if (maybe_val_ptr == ag->codegen->invalid_inst_src)
         return maybe_val_ptr;
 
@@ -6701,7 +6710,7 @@ static IrInstSrc *ir_gen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNod
     } else {
         var_scope = subexpr_scope;
     }
-    IrInstSrc *then_expr_result = ir_gen_node_extra(ag, then_node, var_scope, lval,
+    IrInstSrc *then_expr_result = astgen_node_extra(ag, then_node, var_scope, lval,
             &peer_parent->peers.at(0)->base);
     if (then_expr_result == ag->codegen->invalid_inst_src)
         return then_expr_result;
@@ -6712,7 +6721,7 @@ static IrInstSrc *ir_gen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNod
     ir_set_cursor_at_end_and_append_block(ag, else_block);
     IrInstSrc *else_expr_result;
     if (else_node) {
-        else_expr_result = ir_gen_node_extra(ag, else_node, subexpr_scope, lval, &peer_parent->peers.at(1)->base);
+        else_expr_result = astgen_node_extra(ag, else_node, subexpr_scope, lval, &peer_parent->peers.at(1)->base);
         if (else_expr_result == ag->codegen->invalid_inst_src)
             return else_expr_result;
     } else {
@@ -6735,7 +6744,7 @@ static IrInstSrc *ir_gen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNod
     return ir_expr_wrap(ag, scope, phi, result_loc);
 }
 
-static IrInstSrc *ir_gen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeIfErrorExpr);
@@ -6748,7 +6757,7 @@ static IrInstSrc *ir_gen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
     Buf *var_symbol = node->data.if_err_expr.var_symbol;
     Buf *err_symbol = node->data.if_err_expr.err_symbol;
 
-    IrInstSrc *err_val_ptr = ir_gen_node_extra(ag, target_node, scope, LValPtr, nullptr);
+    IrInstSrc *err_val_ptr = astgen_node_extra(ag, target_node, scope, LValPtr, nullptr);
     if (err_val_ptr == ag->codegen->invalid_inst_src)
         return err_val_ptr;
 
@@ -6784,7 +6793,7 @@ static IrInstSrc *ir_gen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
     } else {
         var_scope = subexpr_scope;
     }
-    IrInstSrc *then_expr_result = ir_gen_node_extra(ag, then_node, var_scope, lval,
+    IrInstSrc *then_expr_result = astgen_node_extra(ag, then_node, var_scope, lval,
             &peer_parent->peers.at(0)->base);
     if (then_expr_result == ag->codegen->invalid_inst_src)
         return then_expr_result;
@@ -6810,7 +6819,7 @@ static IrInstSrc *ir_gen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
         } else {
             err_var_scope = subexpr_scope;
         }
-        else_expr_result = ir_gen_node_extra(ag, else_node, err_var_scope, lval, &peer_parent->peers.at(1)->base);
+        else_expr_result = astgen_node_extra(ag, else_node, err_var_scope, lval, &peer_parent->peers.at(1)->base);
         if (else_expr_result == ag->codegen->invalid_inst_src)
             return else_expr_result;
     } else {
@@ -6833,7 +6842,7 @@ static IrInstSrc *ir_gen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
     return ir_expr_wrap(ag, scope, phi, result_loc);
 }
 
-static bool ir_gen_switch_prong_expr(Stage1AstGen *ag, Scope *scope, AstNode *switch_node, AstNode *prong_node,
+static bool astgen_switch_prong_expr(Stage1AstGen *ag, Scope *scope, AstNode *switch_node, AstNode *prong_node,
         Stage1ZirBasicBlock *end_block, IrInstSrc *is_comptime, IrInstSrc *var_is_comptime,
         IrInstSrc *target_value_ptr, IrInstSrc **prong_values, size_t prong_values_len,
         ZigList<Stage1ZirBasicBlock *> *incoming_blocks, ZigList<IrInstSrc *> *incoming_values,
@@ -6877,7 +6886,7 @@ static bool ir_gen_switch_prong_expr(Stage1AstGen *ag, Scope *scope, AstNode *sw
         child_scope = scope;
     }
 
-    IrInstSrc *expr_result = ir_gen_node_extra(ag, expr_node, child_scope, lval, result_loc);
+    IrInstSrc *expr_result = astgen_node_extra(ag, expr_node, child_scope, lval, result_loc);
     if (expr_result == ag->codegen->invalid_inst_src)
         return false;
     if (!instr_is_unreachable(expr_result))
@@ -6887,13 +6896,13 @@ static bool ir_gen_switch_prong_expr(Stage1AstGen *ag, Scope *scope, AstNode *sw
     return true;
 }
 
-static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeSwitchExpr);
 
     AstNode *target_node = node->data.switch_expr.expr;
-    IrInstSrc *target_value_ptr = ir_gen_node_extra(ag, target_node, scope, LValPtr, nullptr);
+    IrInstSrc *target_value_ptr = astgen_node_extra(ag, target_node, scope, LValPtr, nullptr);
     if (target_value_ptr == ag->codegen->invalid_inst_src)
         return target_value_ptr;
     IrInstSrc *target_value = ir_build_switch_target(ag, scope, node, target_value_ptr);
@@ -6949,11 +6958,11 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
                     AstNode *start_node = item_node->data.switch_range.start;
                     AstNode *end_node = item_node->data.switch_range.end;
 
-                    IrInstSrc *start_value = ir_gen_node(ag, start_node, comptime_scope);
+                    IrInstSrc *start_value = astgen_node(ag, start_node, comptime_scope);
                     if (start_value == ag->codegen->invalid_inst_src)
                         return ag->codegen->invalid_inst_src;
 
-                    IrInstSrc *end_value = ir_gen_node(ag, end_node, comptime_scope);
+                    IrInstSrc *end_value = astgen_node(ag, end_node, comptime_scope);
                     if (end_value == ag->codegen->invalid_inst_src)
                         return ag->codegen->invalid_inst_src;
 
@@ -6973,7 +6982,7 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
                         ok_bit = both_ok;
                     }
                 } else {
-                    IrInstSrc *item_value = ir_gen_node(ag, item_node, comptime_scope);
+                    IrInstSrc *item_value = astgen_node(ag, item_node, comptime_scope);
                     if (item_value == ag->codegen->invalid_inst_src)
                         return ag->codegen->invalid_inst_src;
 
@@ -7007,7 +7016,7 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
             }
             peer_parent->peers.append(this_peer_result_loc);
             ir_set_cursor_at_end_and_append_block(ag, range_block_yes);
-            if (!ir_gen_switch_prong_expr(ag, subexpr_scope, node, prong_node, end_block,
+            if (!astgen_switch_prong_expr(ag, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, 0,
                 &incoming_blocks, &incoming_values, nullptr, LValNone, &this_peer_result_loc->base))
             {
@@ -7058,7 +7067,7 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
             }
             peer_parent->peers.append(this_peer_result_loc);
             ir_set_cursor_at_end_and_append_block(ag, else_block);
-            if (!ir_gen_switch_prong_expr(ag, subexpr_scope, node, prong_node, end_block,
+            if (!astgen_switch_prong_expr(ag, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, 0, &incoming_blocks, &incoming_values,
                 &switch_else_var, LValNone, &this_peer_result_loc->base))
             {
@@ -7088,7 +7097,7 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
             AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
             assert(item_node->type != NodeTypeSwitchRange);
 
-            IrInstSrc *item_value = ir_gen_node(ag, item_node, comptime_scope);
+            IrInstSrc *item_value = astgen_node(ag, item_node, comptime_scope);
             if (item_value == ag->codegen->invalid_inst_src)
                 return ag->codegen->invalid_inst_src;
 
@@ -7109,7 +7118,7 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
         }
         peer_parent->peers.append(this_peer_result_loc);
         ir_set_cursor_at_end_and_append_block(ag, prong_block);
-        if (!ir_gen_switch_prong_expr(ag, subexpr_scope, node, prong_node, end_block,
+        if (!astgen_switch_prong_expr(ag, subexpr_scope, node, prong_node, end_block,
             is_comptime, var_is_comptime, target_value_ptr, items, prong_item_count,
             &incoming_blocks, &incoming_values, nullptr, LValNone, &this_peer_result_loc->base))
         {
@@ -7165,23 +7174,23 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
     return ir_lval_wrap(ag, scope, result_instruction, lval, result_loc);
 }
 
-static IrInstSrc *ir_gen_comptime(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval) {
+static IrInstSrc *astgen_comptime(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval) {
     assert(node->type == NodeTypeCompTime);
 
     Scope *child_scope = create_comptime_scope(ag->codegen, node, parent_scope);
     // purposefully pass null for result_loc and let EndExpr handle it
-    return ir_gen_node_extra(ag, node->data.comptime_expr.expr, child_scope, lval, nullptr);
+    return astgen_node_extra(ag, node->data.comptime_expr.expr, child_scope, lval, nullptr);
 }
 
-static IrInstSrc *ir_gen_nosuspend(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval) {
+static IrInstSrc *astgen_nosuspend(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval) {
     assert(node->type == NodeTypeNoSuspend);
 
     Scope *child_scope = create_nosuspend_scope(ag->codegen, node, parent_scope);
     // purposefully pass null for result_loc and let EndExpr handle it
-    return ir_gen_node_extra(ag, node->data.nosuspend_expr.expr, child_scope, lval, nullptr);
+    return astgen_node_extra(ag, node->data.nosuspend_expr.expr, child_scope, lval, nullptr);
 }
 
-static IrInstSrc *ir_gen_return_from_block(Stage1AstGen *ag, Scope *break_scope, AstNode *node, ScopeBlock *block_scope) {
+static IrInstSrc *astgen_return_from_block(Stage1AstGen *ag, Scope *break_scope, AstNode *node, ScopeBlock *block_scope) {
     IrInstSrc *is_comptime;
     if (ir_should_inline(ag->exec, break_scope)) {
         is_comptime = ir_build_const_bool(ag, break_scope, node, true);
@@ -7194,7 +7203,7 @@ static IrInstSrc *ir_gen_return_from_block(Stage1AstGen *ag, Scope *break_scope,
         ResultLocPeer *peer_result = create_peer_result(block_scope->peer_parent);
         block_scope->peer_parent->peers.append(peer_result);
 
-        result_value = ir_gen_node_extra(ag, node->data.break_expr.expr, break_scope, block_scope->lval,
+        result_value = astgen_node_extra(ag, node->data.break_expr.expr, break_scope, block_scope->lval,
                 &peer_result->base);
         if (result_value == ag->codegen->invalid_inst_src)
             return ag->codegen->invalid_inst_src;
@@ -7203,7 +7212,7 @@ static IrInstSrc *ir_gen_return_from_block(Stage1AstGen *ag, Scope *break_scope,
     }
 
     Stage1ZirBasicBlock *dest_block = block_scope->end_block;
-    if (!ir_gen_defers_for_block(ag, break_scope, dest_block->scope, nullptr, nullptr))
+    if (!astgen_defers_for_block(ag, break_scope, dest_block->scope, nullptr, nullptr))
         return ag->codegen->invalid_inst_src;
 
     block_scope->incoming_blocks->append(ag->current_basic_block);
@@ -7211,7 +7220,7 @@ static IrInstSrc *ir_gen_return_from_block(Stage1AstGen *ag, Scope *break_scope,
     return ir_build_br(ag, break_scope, node, dest_block, is_comptime);
 }
 
-static IrInstSrc *ir_gen_break(Stage1AstGen *ag, Scope *break_scope, AstNode *node) {
+static IrInstSrc *astgen_break(Stage1AstGen *ag, Scope *break_scope, AstNode *node) {
     assert(node->type == NodeTypeBreak);
 
     // Search up the scope. We'll find one of these things first:
@@ -7250,7 +7259,7 @@ static IrInstSrc *ir_gen_break(Stage1AstGen *ag, Scope *break_scope, AstNode *no
             {
                 assert(this_block_scope->end_block != nullptr);
                 this_block_scope->name_used = true;
-                return ir_gen_return_from_block(ag, break_scope, node, this_block_scope);
+                return astgen_return_from_block(ag, break_scope, node, this_block_scope);
             }
         } else if (search_scope->id == ScopeIdSuspend) {
             add_node_error(ag->codegen, node, buf_sprintf("cannot break out of suspend block"));
@@ -7271,7 +7280,7 @@ static IrInstSrc *ir_gen_break(Stage1AstGen *ag, Scope *break_scope, AstNode *no
         ResultLocPeer *peer_result = create_peer_result(loop_scope->peer_parent);
         loop_scope->peer_parent->peers.append(peer_result);
 
-        result_value = ir_gen_node_extra(ag, node->data.break_expr.expr, break_scope,
+        result_value = astgen_node_extra(ag, node->data.break_expr.expr, break_scope,
                 loop_scope->lval, &peer_result->base);
         if (result_value == ag->codegen->invalid_inst_src)
             return ag->codegen->invalid_inst_src;
@@ -7280,7 +7289,7 @@ static IrInstSrc *ir_gen_break(Stage1AstGen *ag, Scope *break_scope, AstNode *no
     }
 
     Stage1ZirBasicBlock *dest_block = loop_scope->break_block;
-    if (!ir_gen_defers_for_block(ag, break_scope, dest_block->scope, nullptr, nullptr))
+    if (!astgen_defers_for_block(ag, break_scope, dest_block->scope, nullptr, nullptr))
         return ag->codegen->invalid_inst_src;
 
     loop_scope->incoming_blocks->append(ag->current_basic_block);
@@ -7288,7 +7297,7 @@ static IrInstSrc *ir_gen_break(Stage1AstGen *ag, Scope *break_scope, AstNode *no
     return ir_build_br(ag, break_scope, node, dest_block, is_comptime);
 }
 
-static IrInstSrc *ir_gen_continue(Stage1AstGen *ag, Scope *continue_scope, AstNode *node) {
+static IrInstSrc *astgen_continue(Stage1AstGen *ag, Scope *continue_scope, AstNode *node) {
     assert(node->type == NodeTypeContinue);
 
     // Search up the scope. We'll find one of these things first:
@@ -7342,17 +7351,17 @@ static IrInstSrc *ir_gen_continue(Stage1AstGen *ag, Scope *continue_scope, AstNo
     runtime_scopes.deinit();
 
     Stage1ZirBasicBlock *dest_block = loop_scope->continue_block;
-    if (!ir_gen_defers_for_block(ag, continue_scope, dest_block->scope, nullptr, nullptr))
+    if (!astgen_defers_for_block(ag, continue_scope, dest_block->scope, nullptr, nullptr))
         return ag->codegen->invalid_inst_src;
     return ir_mark_gen(ir_build_br(ag, continue_scope, node, dest_block, is_comptime));
 }
 
-static IrInstSrc *ir_gen_error_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_error_type(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeErrorType);
     return ir_build_const_type(ag, scope, node, ag->codegen->builtin_types.entry_global_error_set);
 }
 
-static IrInstSrc *ir_gen_defer(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
+static IrInstSrc *astgen_defer(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeDefer);
 
     ScopeDefer *defer_child_scope = create_defer_scope(ag->codegen, node, parent_scope);
@@ -7364,7 +7373,7 @@ static IrInstSrc *ir_gen_defer(Stage1AstGen *ag, Scope *parent_scope, AstNode *n
     return ir_build_const_void(ag, parent_scope, node);
 }
 
-static IrInstSrc *ir_gen_slice(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
+static IrInstSrc *astgen_slice(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
     assert(node->type == NodeTypeSliceExpr);
 
     AstNodeSliceExpr *slice_expr = &node->data.slice_expr;
@@ -7373,17 +7382,17 @@ static IrInstSrc *ir_gen_slice(Stage1AstGen *ag, Scope *scope, AstNode *node, LV
     AstNode *end_node = slice_expr->end;
     AstNode *sentinel_node = slice_expr->sentinel;
 
-    IrInstSrc *ptr_value = ir_gen_node_extra(ag, array_node, scope, LValPtr, nullptr);
+    IrInstSrc *ptr_value = astgen_node_extra(ag, array_node, scope, LValPtr, nullptr);
     if (ptr_value == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
-    IrInstSrc *start_value = ir_gen_node(ag, start_node, scope);
+    IrInstSrc *start_value = astgen_node(ag, start_node, scope);
     if (start_value == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
     IrInstSrc *end_value;
     if (end_node) {
-        end_value = ir_gen_node(ag, end_node, scope);
+        end_value = astgen_node(ag, end_node, scope);
         if (end_value == ag->codegen->invalid_inst_src)
             return ag->codegen->invalid_inst_src;
     } else {
@@ -7392,7 +7401,7 @@ static IrInstSrc *ir_gen_slice(Stage1AstGen *ag, Scope *scope, AstNode *node, LV
 
     IrInstSrc *sentinel_value;
     if (sentinel_node) {
-        sentinel_value = ir_gen_node(ag, sentinel_node, scope);
+        sentinel_value = astgen_node(ag, sentinel_node, scope);
         if (sentinel_value == ag->codegen->invalid_inst_src)
             return ag->codegen->invalid_inst_src;
     } else {
@@ -7404,7 +7413,7 @@ static IrInstSrc *ir_gen_slice(Stage1AstGen *ag, Scope *scope, AstNode *node, LV
     return ir_lval_wrap(ag, scope, slice, lval, result_loc);
 }
 
-static IrInstSrc *ir_gen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeCatchExpr);
@@ -7420,14 +7429,14 @@ static IrInstSrc *ir_gen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *n
             add_node_error(ag->codegen, var_node, buf_sprintf("unused variable: '%s'", buf_ptr(var_name)));
             return ag->codegen->invalid_inst_src;
         }
-        return ir_gen_catch_unreachable(ag, parent_scope, node, op1_node, lval, result_loc);
+        return astgen_catch_unreachable(ag, parent_scope, node, op1_node, lval, result_loc);
     }
 
 
     ScopeExpr *spill_scope = create_expr_scope(ag->codegen, op1_node, parent_scope);
     spill_scope->spill_harder = true;
 
-    IrInstSrc *err_union_ptr = ir_gen_node_extra(ag, op1_node, &spill_scope->base, LValPtr, nullptr);
+    IrInstSrc *err_union_ptr = astgen_node_extra(ag, op1_node, &spill_scope->base, LValPtr, nullptr);
     if (err_union_ptr == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
@@ -7465,7 +7474,7 @@ static IrInstSrc *ir_gen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *n
     } else {
         err_scope = subexpr_scope;
     }
-    IrInstSrc *err_result = ir_gen_node_extra(ag, op2_node, err_scope, LValNone, &peer_parent->peers.at(0)->base);
+    IrInstSrc *err_result = astgen_node_extra(ag, op2_node, err_scope, LValNone, &peer_parent->peers.at(0)->base);
     if (err_result == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
     Stage1ZirBasicBlock *after_err_block = ag->current_basic_block;
@@ -7535,7 +7544,7 @@ Buf *get_anon_type_name(CodeGen *codegen, Stage1Zir *exec, const char *kind_name
     }
 }
 
-static IrInstSrc *ir_gen_container_decl(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
+static IrInstSrc *astgen_container_decl(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeContainerDecl);
 
     ContainerKind kind = node->data.container_decl.kind;
@@ -7564,7 +7573,7 @@ static IrInstSrc *ir_gen_container_decl(Stage1AstGen *ag, Scope *parent_scope, A
     return ir_build_const_type(ag, parent_scope, node, container_type);
 }
 
-static IrInstSrc *ir_gen_err_set_decl(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
+static IrInstSrc *astgen_err_set_decl(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeErrorSetDecl);
 
     uint32_t err_count = node->data.err_set_decl.decls.length;
@@ -7615,7 +7624,7 @@ static IrInstSrc *ir_gen_err_set_decl(Stage1AstGen *ag, Scope *parent_scope, Ast
     return ir_build_const_type(ag, parent_scope, node, err_set_type);
 }
 
-static IrInstSrc *ir_gen_fn_proto(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
+static IrInstSrc *astgen_fn_proto(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeFnProto);
 
     size_t param_count = node->data.fn_proto.params.length;
@@ -7630,7 +7639,7 @@ static IrInstSrc *ir_gen_fn_proto(Stage1AstGen *ag, Scope *parent_scope, AstNode
         }
         if (param_node->data.param_decl.anytype_token == 0) {
             AstNode *type_node = param_node->data.param_decl.type;
-            IrInstSrc *type_value = ir_gen_node(ag, type_node, parent_scope);
+            IrInstSrc *type_value = astgen_node(ag, type_node, parent_scope);
             if (type_value == ag->codegen->invalid_inst_src)
                 return ag->codegen->invalid_inst_src;
             param_types[i] = type_value;
@@ -7641,14 +7650,14 @@ static IrInstSrc *ir_gen_fn_proto(Stage1AstGen *ag, Scope *parent_scope, AstNode
 
     IrInstSrc *align_value = nullptr;
     if (node->data.fn_proto.align_expr != nullptr) {
-        align_value = ir_gen_node(ag, node->data.fn_proto.align_expr, parent_scope);
+        align_value = astgen_node(ag, node->data.fn_proto.align_expr, parent_scope);
         if (align_value == ag->codegen->invalid_inst_src)
             return ag->codegen->invalid_inst_src;
     }
 
     IrInstSrc *callconv_value = nullptr;
     if (node->data.fn_proto.callconv_expr != nullptr) {
-        callconv_value = ir_gen_node(ag, node->data.fn_proto.callconv_expr, parent_scope);
+        callconv_value = astgen_node(ag, node->data.fn_proto.callconv_expr, parent_scope);
         if (callconv_value == ag->codegen->invalid_inst_src)
             return ag->codegen->invalid_inst_src;
     }
@@ -7657,7 +7666,7 @@ static IrInstSrc *ir_gen_fn_proto(Stage1AstGen *ag, Scope *parent_scope, AstNode
     if (node->data.fn_proto.return_type == nullptr) {
         return_type = ir_build_const_type(ag, parent_scope, node, ag->codegen->builtin_types.entry_void);
     } else {
-        return_type = ir_gen_node(ag, node->data.fn_proto.return_type, parent_scope);
+        return_type = astgen_node(ag, node->data.fn_proto.return_type, parent_scope);
         if (return_type == ag->codegen->invalid_inst_src)
             return ag->codegen->invalid_inst_src;
     }
@@ -7665,17 +7674,17 @@ static IrInstSrc *ir_gen_fn_proto(Stage1AstGen *ag, Scope *parent_scope, AstNode
     return ir_build_fn_proto(ag, parent_scope, node, param_types, align_value, callconv_value, return_type, is_var_args);
 }
 
-static IrInstSrc *ir_gen_resume(Stage1AstGen *ag, Scope *scope, AstNode *node) {
+static IrInstSrc *astgen_resume(Stage1AstGen *ag, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeResume);
 
-    IrInstSrc *target_inst = ir_gen_node_extra(ag, node->data.resume_expr.expr, scope, LValPtr, nullptr);
+    IrInstSrc *target_inst = astgen_node_extra(ag, node->data.resume_expr.expr, scope, LValPtr, nullptr);
     if (target_inst == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
     return ir_build_resume_src(ag, scope, node, target_inst);
 }
 
-static IrInstSrc *ir_gen_await_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
+static IrInstSrc *astgen_await_expr(Stage1AstGen *ag, Scope *scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
     assert(node->type == NodeTypeAwaitExpr);
@@ -7690,7 +7699,7 @@ static IrInstSrc *ir_gen_await_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         if (entry != nullptr) {
             BuiltinFnEntry *builtin_fn = entry->value;
             if (builtin_fn->id == BuiltinFnIdAsyncCall) {
-                return ir_gen_async_call(ag, scope, node, expr_node, lval, result_loc);
+                return astgen_async_call(ag, scope, node, expr_node, lval, result_loc);
             }
         }
     }
@@ -7709,7 +7718,7 @@ static IrInstSrc *ir_gen_await_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         return ag->codegen->invalid_inst_src;
     }
 
-    IrInstSrc *target_inst = ir_gen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
+    IrInstSrc *target_inst = astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
     if (target_inst == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
 
@@ -7717,7 +7726,7 @@ static IrInstSrc *ir_gen_await_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
     return ir_lval_wrap(ag, scope, await_inst, lval, result_loc);
 }
 
-static IrInstSrc *ir_gen_suspend(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
+static IrInstSrc *astgen_suspend(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeSuspend);
 
     if (!ag->fn) {
@@ -7742,7 +7751,7 @@ static IrInstSrc *ir_gen_suspend(Stage1AstGen *ag, Scope *parent_scope, AstNode 
     IrInstSrcSuspendBegin *begin = ir_build_suspend_begin_src(ag, parent_scope, node);
     ScopeSuspend *suspend_scope = create_suspend_scope(ag->codegen, node, parent_scope);
     Scope *child_scope = &suspend_scope->base;
-    IrInstSrc *susp_res = ir_gen_node(ag, node->data.suspend.block, child_scope);
+    IrInstSrc *susp_res = astgen_node(ag, node->data.suspend.block, child_scope);
     if (susp_res == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
     ir_mark_gen(ir_build_check_statement_is_void(ag, child_scope, node->data.suspend.block, susp_res));
@@ -7750,7 +7759,7 @@ static IrInstSrc *ir_gen_suspend(Stage1AstGen *ag, Scope *parent_scope, AstNode 
     return ir_mark_gen(ir_build_suspend_finish_src(ag, parent_scope, node, begin));
 }
 
-static IrInstSrc *ir_gen_node_raw(Stage1AstGen *ag, AstNode *node, Scope *scope,
+static IrInstSrc *astgen_node_raw(Stage1AstGen *ag, AstNode *node, Scope *scope,
         LVal lval, ResultLoc *result_loc)
 {
     assert(scope);
@@ -7766,40 +7775,40 @@ static IrInstSrc *ir_gen_node_raw(Stage1AstGen *ag, AstNode *node, Scope *scope,
         case NodeTypeTestDecl:
             zig_unreachable();
         case NodeTypeBlock:
-            return ir_gen_block(ag, scope, node, lval, result_loc);
+            return astgen_block(ag, scope, node, lval, result_loc);
         case NodeTypeGroupedExpr:
-            return ir_gen_node_raw(ag, node->data.grouped_expr, scope, lval, result_loc);
+            return astgen_node_raw(ag, node->data.grouped_expr, scope, lval, result_loc);
         case NodeTypeBinOpExpr:
-            return ir_gen_bin_op(ag, scope, node, lval, result_loc);
+            return astgen_bin_op(ag, scope, node, lval, result_loc);
         case NodeTypeIntLiteral:
-            return ir_lval_wrap(ag, scope, ir_gen_int_lit(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_int_lit(ag, scope, node), lval, result_loc);
         case NodeTypeFloatLiteral:
-            return ir_lval_wrap(ag, scope, ir_gen_float_lit(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_float_lit(ag, scope, node), lval, result_loc);
         case NodeTypeCharLiteral:
-            return ir_lval_wrap(ag, scope, ir_gen_char_lit(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_char_lit(ag, scope, node), lval, result_loc);
         case NodeTypeIdentifier:
-            return ir_gen_symbol(ag, scope, node, lval, result_loc);
+            return astgen_identifier(ag, scope, node, lval, result_loc);
         case NodeTypeFnCallExpr:
-            return ir_gen_fn_call(ag, scope, node, lval, result_loc);
+            return astgen_fn_call(ag, scope, node, lval, result_loc);
         case NodeTypeIfBoolExpr:
-            return ir_gen_if_bool_expr(ag, scope, node, lval, result_loc);
+            return astgen_if_bool_expr(ag, scope, node, lval, result_loc);
         case NodeTypePrefixOpExpr:
-            return ir_gen_prefix_op_expr(ag, scope, node, lval, result_loc);
+            return astgen_prefix_op_expr(ag, scope, node, lval, result_loc);
         case NodeTypeContainerInitExpr:
-            return ir_gen_container_init_expr(ag, scope, node, lval, result_loc);
+            return astgen_container_init_expr(ag, scope, node, lval, result_loc);
         case NodeTypeVariableDeclaration:
-            return ir_gen_var_decl(ag, scope, node);
+            return astgen_var_decl(ag, scope, node);
         case NodeTypeWhileExpr:
-            return ir_gen_while_expr(ag, scope, node, lval, result_loc);
+            return astgen_while_expr(ag, scope, node, lval, result_loc);
         case NodeTypeForExpr:
-            return ir_gen_for_expr(ag, scope, node, lval, result_loc);
+            return astgen_for_expr(ag, scope, node, lval, result_loc);
         case NodeTypeArrayAccessExpr:
-            return ir_gen_array_access(ag, scope, node, lval, result_loc);
+            return astgen_array_access(ag, scope, node, lval, result_loc);
         case NodeTypeReturnExpr:
-            return ir_gen_return(ag, scope, node, lval, result_loc);
+            return astgen_return(ag, scope, node, lval, result_loc);
         case NodeTypeFieldAccessExpr:
             {
-                IrInstSrc *ptr_instruction = ir_gen_field_access(ag, scope, node);
+                IrInstSrc *ptr_instruction = astgen_field_access(ag, scope, node);
                 if (ptr_instruction == ag->codegen->invalid_inst_src)
                     return ptr_instruction;
                 if (lval == LValPtr || lval == LValAssign)
@@ -7815,7 +7824,7 @@ static IrInstSrc *ir_gen_node_raw(Stage1AstGen *ag, AstNode *node, Scope *scope,
             if (child_lval == LValAssign)
                 child_lval = LValPtr;
 
-            IrInstSrc *value = ir_gen_node_extra(ag, expr_node, scope, child_lval, nullptr);
+            IrInstSrc *value = astgen_node_extra(ag, expr_node, scope, child_lval, nullptr);
             if (value == ag->codegen->invalid_inst_src)
                 return value;
 
@@ -7828,7 +7837,7 @@ static IrInstSrc *ir_gen_node_raw(Stage1AstGen *ag, AstNode *node, Scope *scope,
         case NodeTypeUnwrapOptional: {
             AstNode *expr_node = node->data.unwrap_optional.expr;
 
-            IrInstSrc *maybe_ptr = ir_gen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
+            IrInstSrc *maybe_ptr = astgen_node_extra(ag, expr_node, scope, LValPtr, nullptr);
             if (maybe_ptr == ag->codegen->invalid_inst_src)
                 return ag->codegen->invalid_inst_src;
 
@@ -7840,59 +7849,59 @@ static IrInstSrc *ir_gen_node_raw(Stage1AstGen *ag, AstNode *node, Scope *scope,
             return ir_expr_wrap(ag, scope, load_ptr, result_loc);
         }
         case NodeTypeBoolLiteral:
-            return ir_lval_wrap(ag, scope, ir_gen_bool_literal(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_bool_literal(ag, scope, node), lval, result_loc);
         case NodeTypeArrayType:
-            return ir_lval_wrap(ag, scope, ir_gen_array_type(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_array_type(ag, scope, node), lval, result_loc);
         case NodeTypePointerType:
-            return ir_lval_wrap(ag, scope, ir_gen_pointer_type(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_pointer_type(ag, scope, node), lval, result_loc);
         case NodeTypeAnyFrameType:
-            return ir_lval_wrap(ag, scope, ir_gen_anyframe_type(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_anyframe_type(ag, scope, node), lval, result_loc);
         case NodeTypeStringLiteral:
-            return ir_lval_wrap(ag, scope, ir_gen_string_literal(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_string_literal(ag, scope, node), lval, result_loc);
         case NodeTypeUndefinedLiteral:
-            return ir_lval_wrap(ag, scope, ir_gen_undefined_literal(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_undefined_literal(ag, scope, node), lval, result_loc);
         case NodeTypeAsmExpr:
-            return ir_lval_wrap(ag, scope, ir_gen_asm_expr(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_asm_expr(ag, scope, node), lval, result_loc);
         case NodeTypeNullLiteral:
-            return ir_lval_wrap(ag, scope, ir_gen_null_literal(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_null_literal(ag, scope, node), lval, result_loc);
         case NodeTypeIfErrorExpr:
-            return ir_gen_if_err_expr(ag, scope, node, lval, result_loc);
+            return astgen_if_err_expr(ag, scope, node, lval, result_loc);
         case NodeTypeIfOptional:
-            return ir_gen_if_optional_expr(ag, scope, node, lval, result_loc);
+            return astgen_if_optional_expr(ag, scope, node, lval, result_loc);
         case NodeTypeSwitchExpr:
-            return ir_gen_switch_expr(ag, scope, node, lval, result_loc);
+            return astgen_switch_expr(ag, scope, node, lval, result_loc);
         case NodeTypeCompTime:
-            return ir_expr_wrap(ag, scope, ir_gen_comptime(ag, scope, node, lval), result_loc);
+            return ir_expr_wrap(ag, scope, astgen_comptime(ag, scope, node, lval), result_loc);
         case NodeTypeNoSuspend:
-            return ir_expr_wrap(ag, scope, ir_gen_nosuspend(ag, scope, node, lval), result_loc);
+            return ir_expr_wrap(ag, scope, astgen_nosuspend(ag, scope, node, lval), result_loc);
         case NodeTypeErrorType:
-            return ir_lval_wrap(ag, scope, ir_gen_error_type(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_error_type(ag, scope, node), lval, result_loc);
         case NodeTypeBreak:
-            return ir_lval_wrap(ag, scope, ir_gen_break(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_break(ag, scope, node), lval, result_loc);
         case NodeTypeContinue:
-            return ir_lval_wrap(ag, scope, ir_gen_continue(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_continue(ag, scope, node), lval, result_loc);
         case NodeTypeUnreachable:
             return ir_build_unreachable(ag, scope, node);
         case NodeTypeDefer:
-            return ir_lval_wrap(ag, scope, ir_gen_defer(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_defer(ag, scope, node), lval, result_loc);
         case NodeTypeSliceExpr:
-            return ir_gen_slice(ag, scope, node, lval, result_loc);
+            return astgen_slice(ag, scope, node, lval, result_loc);
         case NodeTypeCatchExpr:
-            return ir_gen_catch(ag, scope, node, lval, result_loc);
+            return astgen_catch(ag, scope, node, lval, result_loc);
         case NodeTypeContainerDecl:
-            return ir_lval_wrap(ag, scope, ir_gen_container_decl(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_container_decl(ag, scope, node), lval, result_loc);
         case NodeTypeFnProto:
-            return ir_lval_wrap(ag, scope, ir_gen_fn_proto(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_fn_proto(ag, scope, node), lval, result_loc);
         case NodeTypeErrorSetDecl:
-            return ir_lval_wrap(ag, scope, ir_gen_err_set_decl(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_err_set_decl(ag, scope, node), lval, result_loc);
         case NodeTypeResume:
-            return ir_lval_wrap(ag, scope, ir_gen_resume(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_resume(ag, scope, node), lval, result_loc);
         case NodeTypeAwaitExpr:
-            return ir_gen_await_expr(ag, scope, node, lval, result_loc);
+            return astgen_await_expr(ag, scope, node, lval, result_loc);
         case NodeTypeSuspend:
-            return ir_lval_wrap(ag, scope, ir_gen_suspend(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_suspend(ag, scope, node), lval, result_loc);
         case NodeTypeEnumLiteral:
-            return ir_lval_wrap(ag, scope, ir_gen_enum_literal(ag, scope, node), lval, result_loc);
+            return ir_lval_wrap(ag, scope, astgen_enum_literal(ag, scope, node), lval, result_loc);
         case NodeTypeInferredArrayType:
             add_node_error(ag->codegen, node,
                 buf_sprintf("inferred array size invalid here"));
@@ -7910,7 +7919,7 @@ ResultLoc *no_result_loc(void) {
     return &result_loc_none->base;
 }
 
-static IrInstSrc *ir_gen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scope, LVal lval,
+static IrInstSrc *astgen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scope, LVal lval,
         ResultLoc *result_loc)
 {
     if (lval == LValAssign) {
@@ -8018,7 +8027,7 @@ static IrInstSrc *ir_gen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scop
     } else {
         child_scope = &create_expr_scope(ag->codegen, node, scope)->base;
     }
-    IrInstSrc *result = ir_gen_node_raw(ag, node, child_scope, lval, result_loc);
+    IrInstSrc *result = astgen_node_raw(ag, node, child_scope, lval, result_loc);
     if (result == ag->codegen->invalid_inst_src) {
         if (ag->exec->first_err_trace_msg == nullptr) {
             ag->exec->first_err_trace_msg = ag->codegen->trace_err;
@@ -8027,8 +8036,8 @@ static IrInstSrc *ir_gen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scop
     return result;
 }
 
-static IrInstSrc *ir_gen_node(Stage1AstGen *ag, AstNode *node, Scope *scope) {
-    return ir_gen_node_extra(ag, node, scope, LValNone, nullptr);
+static IrInstSrc *astgen_node(Stage1AstGen *ag, AstNode *node, Scope *scope) {
+    return astgen_node_extra(ag, node, scope, LValNone, nullptr);
 }
 
 bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *stage1_zir,
@@ -8050,7 +8059,7 @@ bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *sta
     // Entry block gets a reference because we enter it to begin.
     ir_ref_bb(ag->current_basic_block);
 
-    IrInstSrc *result = ir_gen_node_extra(ag, node, scope, LValNone, nullptr);
+    IrInstSrc *result = astgen_node_extra(ag, node, scope, LValNone, nullptr);
 
     if (result == ag->codegen->invalid_inst_src)
         return false;
