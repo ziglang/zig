@@ -623,7 +623,8 @@ pub const Context = struct {
             .Struct => {
                 // for each struct field, generate a local
                 const struct_data: *Module.Struct = ty.castTag(.@"struct").?.data;
-                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + struct_data.fields.count());
+                const fields_len = @intCast(u32, struct_data.fields.count());
+                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + fields_len);
                 for (struct_data.fields.items()) |entry| {
                     const val_type = try self.genValtype(
                         .{ .node_offset = struct_data.node_offset },
@@ -634,19 +635,20 @@ pub const Context = struct {
                 }
                 return WValue{ .multi_value = .{
                     .index = initial_index,
-                    .count = @intCast(u32, struct_data.fields.count()),
+                    .count = fields_len,
                 } };
             },
             .ErrorUnion => {
-                // generate a local for both the error and the payload.
                 const payload_type = ty.errorUnionChild();
-
-                // we emit the payload value as the first local, and the error as the second
-                // The first local is also used to find the index of the error.
-                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + 2);
                 const val_type = try self.genValtype(.{ .node_offset = 0 }, payload_type);
-                self.locals.appendAssumeCapacity(val_type);
+
+                // we emit the error value as the first local, and the payload as the following.
+                // The first local is also used to find the index of the error and payload.
+                //
+                // TODO: Add support where the payload is a type that contains multiple locals such as a struct.
+                try self.locals.ensureCapacity(self.gpa, self.locals.items.len + 2);
                 self.locals.appendAssumeCapacity(wasm.valtype(.i32)); // error values are always i32
+                self.locals.appendAssumeCapacity(val_type);
                 self.local_index += 2;
 
                 return WValue{ .multi_value = .{
@@ -1039,6 +1041,9 @@ pub const Context = struct {
                 const error_type = ty.errorUnionSet();
                 const payload_type = ty.errorUnionChild();
                 if (value.getError()) |_| {
+                    // write the error value
+                    try self.emitConstant(src, data, error_type);
+
                     // no payload, so write a '0' const
                     const opcode: wasm.Opcode = buildOpcode(.{
                         .op = .@"const",
@@ -1046,15 +1051,12 @@ pub const Context = struct {
                     });
                     try writer.writeByte(wasm.opcode(opcode));
                     try leb.writeULEB128(writer, @as(u32, 0));
-
-                    // write the error value
-                    try self.emitConstant(src, data, error_type);
                 } else {
-                    // payload first
-                    try self.emitConstant(src, data, payload_type);
                     // no error, so write a '0' const
                     try writer.writeByte(wasm.opcode(.i32_const));
                     try leb.writeULEB128(writer, @as(u32, 0));
+                    // after the error code, we emit the payload
+                    try self.emitConstant(src, data, payload_type);
                 }
             },
             else => |zig_type| return self.fail(src, "Wasm TODO: emitConstant for zigTypeTag {s}", .{zig_type}),
@@ -1278,8 +1280,8 @@ pub const Context = struct {
         const offset = self.code.items.len;
         const writer = self.code.writer();
 
-        // load the error value which is the payload's multi_value index + 1
-        try self.emitWValue(.{ .local = operand.multi_value.index + 1 });
+        // load the error value which is positioned at multi_value's index
+        try self.emitWValue(.{ .local = operand.multi_value.index });
         // Compare the error value with '0'
         try writer.writeByte(wasm.opcode(.i32_const));
         try leb.writeILEB128(writer, @as(i32, 0));
@@ -1293,8 +1295,11 @@ pub const Context = struct {
 
     fn genUnwrapErrUnionPayload(self: *Context, inst: *Inst.UnOp) InnerError!WValue {
         const operand = self.resolveInst(inst.operand);
-        // payload's local index is that of its multi_value index, so convert it to a `WValue.local`
-        return WValue{ .local = operand.multi_value.index };
+        // The index of multi_value contains the error code. To get the initial index of the payload we get
+        // the following index. Next, convert it to a `WValue.local`
+        //
+        // TODO: Check if payload is a type that requires a multi_value as well and emit that instead. i.e. a struct.
+        return WValue{ .local = operand.multi_value.index + 1 };
     }
 
     fn genWrapErrUnionPayload(self: *Context, inst: *Inst.UnOp) InnerError!WValue {
