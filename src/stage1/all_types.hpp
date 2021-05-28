@@ -2720,8 +2720,7 @@ enum IrInstGenId {
     IrInstGenIdExtern,
 };
 
-// Common fields between IrInstSrc and IrInstGen. This allows future passes
-// after pass2 to be added to zig.
+// Common fields between IrInstSrc and IrInstGen.
 struct IrInst {
     // if ref_count is zero and the instruction has no side effects,
     // the instruction can be omitted in codegen
