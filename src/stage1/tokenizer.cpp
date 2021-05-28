@@ -1290,12 +1290,9 @@ void tokenize(const char *source, Tokenization *out) {
                     case DIGIT:
                         t.state = TokenizeState_float_fraction_dec;
                         break;
-                    case ALPHA_EXCEPT_E:
+                    default:
                         invalid_char_error(&t, c);
                         break;
-                    default:
-                        t.state = TokenizeState_start;
-                        continue;
                 }
                 break;
             case TokenizeState_num_dot_hex:
@@ -1316,12 +1313,9 @@ void tokenize(const char *source, Tokenization *out) {
                         t.out->ids.last() = TokenIdFloatLiteral;
                         t.state = TokenizeState_float_fraction_hex;
                         break;
-                    case ALPHA_EXCEPT_HEX_AND_P:
+                    default:
                         invalid_char_error(&t, c);
                         break;
-                    default:
-                        t.state = TokenizeState_start;
-                        continue;
                 }
                 break;
             case TokenizeState_float_fraction_dec_no_underscore:
