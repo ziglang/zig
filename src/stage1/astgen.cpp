@@ -11,6 +11,13 @@
 #include "os.hpp"
 #include "parser.hpp"
 
+struct IrBuilderSrc {
+    CodeGen *codegen;
+    Stage1Zir *exec;
+    IrBasicBlockSrc *current_basic_block;
+    AstNode *main_block_node;
+};
+
 static IrInstSrc *ir_gen_node(IrBuilderSrc *irb, AstNode *node, Scope *scope);
 static IrInstSrc *ir_gen_node_extra(IrBuilderSrc *irb, AstNode *node, Scope *scope, LVal lval,
         ResultLoc *result_loc);
@@ -34,14 +41,14 @@ static void ir_assert_impl(bool ok, IrInst *source_instruction, char const *file
     src_assert_impl(ok, source_instruction->source_node, file, line);
 }
 
-static void ir_add_call_stack_errors(CodeGen *codegen, IrExecutableSrc *exec, ErrorMsg *err_msg, int limit) {
+static void ir_add_call_stack_errors(CodeGen *codegen, Stage1Zir *exec, ErrorMsg *err_msg, int limit) {
     if (!exec || !exec->source_node || limit < 0) return;
     add_error_note(codegen, err_msg, exec->source_node, buf_sprintf("called from here"));
 
     ir_add_call_stack_errors_gen(codegen, exec->parent_exec, err_msg, limit - 1);
 }
 
-static ErrorMsg *exec_add_error_node(CodeGen *codegen, IrExecutableSrc *exec, AstNode *source_node, Buf *msg) {
+static ErrorMsg *exec_add_error_node(CodeGen *codegen, Stage1Zir *exec, AstNode *source_node, Buf *msg) {
     ErrorMsg *err_msg = add_node_error(codegen, source_node, msg);
     invalidate_exec(exec, err_msg);
     if (exec->parent_exec) {
@@ -342,7 +349,7 @@ void destroy_instruction_src(IrInstSrc *inst) {
 }
 
 
-bool ir_should_inline(IrExecutableSrc *exec, Scope *scope) {
+bool ir_should_inline(Stage1Zir *exec, Scope *scope) {
     if (exec->is_inline)
         return true;
 
@@ -364,17 +371,17 @@ static void ir_instruction_append(IrBasicBlockSrc *basic_block, IrInstSrc *instr
     basic_block->instruction_list.append(instruction);
 }
 
-static size_t exec_next_debug_id(IrExecutableSrc *exec) {
+static size_t exec_next_debug_id(Stage1Zir *exec) {
     size_t result = exec->next_debug_id;
     exec->next_debug_id += 1;
     return result;
 }
 
-static ZigFn *exec_fn_entry(IrExecutableSrc *exec) {
+static ZigFn *exec_fn_entry(Stage1Zir *exec) {
     return exec->fn_entry;
 }
 
-static Buf *exec_c_import_buf(IrExecutableSrc *exec) {
+static Buf *exec_c_import_buf(Stage1Zir *exec) {
     return exec->c_import_buf;
 }
 
@@ -5891,7 +5898,7 @@ static IrInstSrc *ir_gen_var_decl(IrBuilderSrc *irb, Scope *scope, AstNode *node
     Scope *init_scope = is_comptime_scalar ?
         create_comptime_scope(irb->codegen, variable_declaration->expr, scope) : scope;
 
-    // Temporarily set the name of the IrExecutableSrc to the VariableDeclaration
+    // Temporarily set the name of the Stage1Zir to the VariableDeclaration
     // so that the struct or enum from the init expression inherits the name.
     Buf *old_exec_name = irb->exec->name;
     irb->exec->name = variable_declaration->symbol;
@@ -7511,7 +7518,7 @@ static bool render_instance_name_recursive(CodeGen *codegen, Buf *name, Scope *o
     return true;
 }
 
-Buf *get_anon_type_name(CodeGen *codegen, IrExecutableSrc *exec, const char *kind_name,
+Buf *get_anon_type_name(CodeGen *codegen, Stage1Zir *exec, const char *kind_name,
         Scope *scope, AstNode *source_node, Buf *out_bare_name)
 {
     if (exec != nullptr && exec->name) {
@@ -8040,7 +8047,7 @@ static IrInstSrc *ir_gen_node(IrBuilderSrc *irb, AstNode *node, Scope *scope) {
     return ir_gen_node_extra(irb, node, scope, LValNone, nullptr);
 }
 
-bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutableSrc *ir_executable) {
+bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *ir_executable) {
     assert(node->owner);
 
     IrBuilderSrc ir_builder = {0};
@@ -8081,7 +8088,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutableSrc *ir_e
 bool ir_gen_fn(CodeGen *codegen, ZigFn *fn_entry) {
     assert(fn_entry);
 
-    IrExecutableSrc *ir_executable = fn_entry->ir_executable;
+    Stage1Zir *ir_executable = fn_entry->ir_executable;
     AstNode *body_node = fn_entry->body_node;
 
     assert(fn_entry->child_scope);
@@ -8089,7 +8096,7 @@ bool ir_gen_fn(CodeGen *codegen, ZigFn *fn_entry) {
     return ir_gen(codegen, body_node, fn_entry->child_scope, ir_executable);
 }
 
-void invalidate_exec(IrExecutableSrc *exec, ErrorMsg *msg) {
+void invalidate_exec(Stage1Zir *exec, ErrorMsg *msg) {
     if (exec->first_err_trace_msg != nullptr)
         return;
 

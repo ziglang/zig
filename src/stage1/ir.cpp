@@ -33,7 +33,8 @@ struct IrBuilderGen {
 
 struct IrAnalyze {
     CodeGen *codegen;
-    IrBuilderSrc old_irb;
+    Stage1Zir *zir;
+    IrBasicBlockSrc *zir_current_basic_block;
     IrBuilderGen new_irb;
     size_t old_bb_index;
     size_t instruction_index;
@@ -476,17 +477,17 @@ static void ira_deref(IrAnalyze *ira) {
     }
     assert(ira->ref_count != 0);
 
-    for (size_t bb_i = 0; bb_i < ira->old_irb.exec->basic_block_list.length; bb_i += 1) {
-        IrBasicBlockSrc *pass1_bb = ira->old_irb.exec->basic_block_list.items[bb_i];
+    for (size_t bb_i = 0; bb_i < ira->zir->basic_block_list.length; bb_i += 1) {
+        IrBasicBlockSrc *pass1_bb = ira->zir->basic_block_list.items[bb_i];
         for (size_t inst_i = 0; inst_i < pass1_bb->instruction_list.length; inst_i += 1) {
             IrInstSrc *pass1_inst = pass1_bb->instruction_list.items[inst_i];
             destroy_instruction_src(pass1_inst);
         }
         heap::c_allocator.destroy(pass1_bb);
     }
-    ira->old_irb.exec->basic_block_list.deinit();
-    ira->old_irb.exec->tld_list.deinit();
-    heap::c_allocator.destroy(ira->old_irb.exec);
+    ira->zir->basic_block_list.deinit();
+    ira->zir->tld_list.deinit();
+    heap::c_allocator.destroy(ira->zir);
     ira->src_implicit_return_type_list.deinit();
     ira->resume_stack.deinit();
 
@@ -2630,7 +2631,7 @@ static Error ir_exec_scan_for_side_effects(CodeGen *codegen, IrExecutableGen *ex
 }
 
 static bool ir_emit_global_runtime_side_effect(IrAnalyze *ira, IrInst* source_instruction) {
-    if (ir_should_inline(ira->old_irb.exec, source_instruction->scope)) {
+    if (ir_should_inline(ira->zir, source_instruction->scope)) {
         ir_add_error(ira, source_instruction, buf_sprintf("unable to evaluate constant expression"));
         return false;
     }
@@ -5287,7 +5288,7 @@ static IrBasicBlockGen *ir_get_new_bb_runtime(IrAnalyze *ira, IrBasicBlockSrc *o
 static void ir_start_bb(IrAnalyze *ira, IrBasicBlockSrc *old_bb, IrBasicBlockSrc *const_predecessor_bb) {
     ir_assert(!old_bb->suspended, (old_bb->instruction_list.length != 0) ? &old_bb->instruction_list.at(0)->base : nullptr);
     ira->instruction_index = 0;
-    ira->old_irb.current_basic_block = old_bb;
+    ira->zir_current_basic_block = old_bb;
     ira->const_predecessor_bb = const_predecessor_bb;
     ira->old_bb_index = old_bb->index;
 }
@@ -5297,23 +5298,23 @@ static IrInstGen *ira_suspend(IrAnalyze *ira, IrInst *old_instruction, IrBasicBl
 {
     if (ira->codegen->verbose_ir) {
         fprintf(stderr, "suspend %s_%" PRIu32 " %s_%" PRIu32 " #%" PRIu32 " (%zu,%zu)\n",
-                ira->old_irb.current_basic_block->name_hint,
-                ira->old_irb.current_basic_block->debug_id,
-                ira->old_irb.exec->basic_block_list.at(ira->old_bb_index)->name_hint,
-                ira->old_irb.exec->basic_block_list.at(ira->old_bb_index)->debug_id,
-                ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index)->base.debug_id,
+                ira->zir_current_basic_block->name_hint,
+                ira->zir_current_basic_block->debug_id,
+                ira->zir->basic_block_list.at(ira->old_bb_index)->name_hint,
+                ira->zir->basic_block_list.at(ira->old_bb_index)->debug_id,
+                ira->zir_current_basic_block->instruction_list.at(ira->instruction_index)->base.debug_id,
                 ira->old_bb_index, ira->instruction_index);
     }
     suspend_pos->basic_block_index = ira->old_bb_index;
     suspend_pos->instruction_index = ira->instruction_index;
 
-    ira->old_irb.current_basic_block->suspended = true;
+    ira->zir_current_basic_block->suspended = true;
 
     // null next_bb means that the caller plans to call ira_resume before returning
     if (next_bb != nullptr) {
         ira->old_bb_index = next_bb->index;
-        ira->old_irb.current_basic_block = ira->old_irb.exec->basic_block_list.at(ira->old_bb_index);
-        assert(ira->old_irb.current_basic_block == next_bb);
+        ira->zir_current_basic_block = ira->zir->basic_block_list.at(ira->old_bb_index);
+        assert(ira->zir_current_basic_block == next_bb);
         ira->instruction_index = 0;
         ira->const_predecessor_bb = nullptr;
         next_bb->child = ir_get_new_bb_runtime(ira, next_bb, old_instruction);
@@ -5328,19 +5329,19 @@ static IrInstGen *ira_resume(IrAnalyze *ira) {
         fprintf(stderr, "resume (%zu,%zu) ", pos.basic_block_index, pos.instruction_index);
     }
     ira->old_bb_index = pos.basic_block_index;
-    ira->old_irb.current_basic_block = ira->old_irb.exec->basic_block_list.at(ira->old_bb_index);
-    assert(ira->old_irb.current_basic_block->in_resume_stack);
-    ira->old_irb.current_basic_block->in_resume_stack = false;
-    ira->old_irb.current_basic_block->suspended = false;
+    ira->zir_current_basic_block = ira->zir->basic_block_list.at(ira->old_bb_index);
+    assert(ira->zir_current_basic_block->in_resume_stack);
+    ira->zir_current_basic_block->in_resume_stack = false;
+    ira->zir_current_basic_block->suspended = false;
     ira->instruction_index = pos.instruction_index;
-    assert(pos.instruction_index < ira->old_irb.current_basic_block->instruction_list.length);
+    assert(pos.instruction_index < ira->zir_current_basic_block->instruction_list.length);
     if (ira->codegen->verbose_ir) {
-        fprintf(stderr, "%s_%" PRIu32 " #%" PRIu32 "\n", ira->old_irb.current_basic_block->name_hint,
-                ira->old_irb.current_basic_block->debug_id,
-                ira->old_irb.current_basic_block->instruction_list.at(pos.instruction_index)->base.debug_id);
+        fprintf(stderr, "%s_%" PRIu32 " #%" PRIu32 "\n", ira->zir_current_basic_block->name_hint,
+                ira->zir_current_basic_block->debug_id,
+                ira->zir_current_basic_block->instruction_list.at(pos.instruction_index)->base.debug_id);
     }
     ira->const_predecessor_bb = nullptr;
-    ira->new_irb.current_basic_block = ira->old_irb.current_basic_block->child;
+    ira->new_irb.current_basic_block = ira->zir_current_basic_block->child;
     assert(ira->new_irb.current_basic_block != nullptr);
     return ira->codegen->unreach_instruction;
 }
@@ -5350,8 +5351,8 @@ static void ir_start_next_bb(IrAnalyze *ira) {
 
     bool need_repeat = true;
     for (;;) {
-        while (ira->old_bb_index < ira->old_irb.exec->basic_block_list.length) {
-            IrBasicBlockSrc *old_bb = ira->old_irb.exec->basic_block_list.at(ira->old_bb_index);
+        while (ira->old_bb_index < ira->zir->basic_block_list.length) {
+            IrBasicBlockSrc *old_bb = ira->zir->basic_block_list.at(ira->old_bb_index);
             if (old_bb->child == nullptr && old_bb->suspend_instruction_ref == nullptr) {
                 ira->old_bb_index += 1;
                 continue;
@@ -5403,8 +5404,8 @@ static void ir_finish_bb(IrAnalyze *ira) {
         }
     }
     ira->instruction_index += 1;
-    while (ira->instruction_index < ira->old_irb.current_basic_block->instruction_list.length) {
-        IrInstSrc *next_instruction = ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index);
+    while (ira->instruction_index < ira->zir_current_basic_block->instruction_list.length) {
+        IrInstSrc *next_instruction = ira->zir_current_basic_block->instruction_list.at(ira->instruction_index);
         if (!next_instruction->is_gen) {
             ir_add_error(ira, &next_instruction->base, buf_sprintf("unreachable code"));
             break;
@@ -5443,13 +5444,13 @@ static bool ir_emit_backward_branch(IrAnalyze *ira, IrInst* source_instruction) 
 }
 
 static IrInstGen *ir_inline_bb(IrAnalyze *ira, IrInst* source_instruction, IrBasicBlockSrc *old_bb) {
-    if (old_bb->debug_id <= ira->old_irb.current_basic_block->debug_id) {
+    if (old_bb->debug_id <= ira->zir_current_basic_block->debug_id) {
         if (!ir_emit_backward_branch(ira, source_instruction))
             return ir_unreach_error(ira);
     }
 
-    old_bb->child = ira->old_irb.current_basic_block->child;
-    ir_start_bb(ira, old_bb, ira->old_irb.current_basic_block);
+    old_bb->child = ira->zir_current_basic_block->child;
+    ir_start_bb(ira, old_bb, ira->zir_current_basic_block);
     return ira->codegen->unreach_instruction;
 }
 
@@ -5587,7 +5588,7 @@ Error ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
     if (type_is_invalid(return_ptr->type))
         return ErrorSemanticAnalyzeFail;
 
-    IrExecutableSrc *ir_executable = heap::c_allocator.create<IrExecutableSrc>();
+    Stage1Zir *ir_executable = heap::c_allocator.create<Stage1Zir>();
     ir_executable->source_node = source_node;
     ir_executable->parent_exec = parent_exec;
     ir_executable->name = exec_name;
@@ -6914,7 +6915,7 @@ static IrInstGen *ir_analyze_struct_literal_to_array(IrAnalyze *ira, IrInst* sou
     size_t instr_field_count = actual_type->data.structure.src_field_count;
     assert(array_len == instr_field_count);
 
-    bool need_comptime = ir_should_inline(ira->old_irb.exec, source_instr->scope)
+    bool need_comptime = ir_should_inline(ira->zir, source_instr->scope)
         || type_requires_comptime(ira->codegen, wanted_type) == ReqCompTimeYes;
     bool is_comptime = true;
 
@@ -7004,7 +7005,7 @@ static IrInstGen *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, IrInst* so
     size_t actual_field_count = wanted_type->data.structure.src_field_count;
     size_t instr_field_count = actual_type->data.structure.src_field_count;
 
-    bool need_comptime = ir_should_inline(ira->old_irb.exec, source_instr->scope)
+    bool need_comptime = ir_should_inline(ira->zir, source_instr->scope)
         || type_requires_comptime(ira->codegen, wanted_type) == ReqCompTimeYes;
     bool is_comptime = true;
 
@@ -11419,7 +11420,7 @@ static IrInstGen *ir_analyze_instruction_extern(IrAnalyze *ira, IrInstSrcExtern 
             is_thread_local, expr_type);
 }
 
-static bool exec_has_err_ret_trace(CodeGen *g, IrExecutableSrc *exec) {
+static bool exec_has_err_ret_trace(CodeGen *g, Stage1Zir *exec) {
     ZigFn *fn_entry = exec->fn_entry;
     return fn_entry != nullptr && fn_entry->calls_or_awaits_errorable_fn && g->have_err_ret_tracing;
 }
@@ -11430,7 +11431,7 @@ static IrInstGen *ir_analyze_instruction_error_return_trace(IrAnalyze *ira,
     ZigType *ptr_to_stack_trace_type = get_pointer_to_type(ira->codegen, get_stack_trace_type(ira->codegen), false);
     if (instruction->optional == IrInstErrorReturnTraceNull) {
         ZigType *optional_type = get_optional_type(ira->codegen, ptr_to_stack_trace_type);
-        if (!exec_has_err_ret_trace(ira->codegen, ira->old_irb.exec)) {
+        if (!exec_has_err_ret_trace(ira->codegen, ira->zir)) {
             IrInstGen *result = ir_const(ira, &instruction->base.base, optional_type);
             ZigValue *out_val = result->value;
             assert(get_src_ptr_type(optional_type) != nullptr);
@@ -13213,7 +13214,7 @@ static IrInstGen *ir_analyze_call_extra(IrAnalyze *ira, IrInst* source_instr,
         return ira->codegen->invalid_inst_gen;
     CallModifier modifier = (CallModifier)bigint_as_u32(&modifier_val->data.x_enum_tag);
 
-    if (ir_should_inline(ira->old_irb.exec, source_instr->scope)) {
+    if (ir_should_inline(ira->zir, source_instr->scope)) {
         switch (modifier) {
             case CallModifierBuiltin:
                 zig_unreachable();
@@ -13302,7 +13303,7 @@ static IrInstGen *ir_analyze_async_call_extra(IrAnalyze *ira, IrInst* source_ins
     if (type_is_invalid(fn_ref->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    if (ir_should_inline(ira->old_irb.exec, source_instr->scope)) {
+    if (ir_should_inline(ira->zir, source_instr->scope)) {
         ir_add_error(ira, source_instr, buf_sprintf("TODO: comptime @asyncCall"));
             return ira->codegen->invalid_inst_gen;
     }
@@ -13415,7 +13416,7 @@ static IrInstGen *ir_analyze_instruction_call(IrAnalyze *ira, IrInstSrcCall *cal
         return ira->codegen->invalid_inst_gen;
 
     bool is_comptime = (call_instruction->modifier == CallModifierCompileTime) ||
-        ir_should_inline(ira->old_irb.exec, call_instruction->base.base.scope);
+        ir_should_inline(ira->zir, call_instruction->base.base.scope);
     CallModifier modifier = is_comptime ? CallModifierCompileTime : call_instruction->modifier;
 
     if (is_comptime || instr_is_comptime(fn_ref)) {
@@ -13777,7 +13778,7 @@ static IrInstGen *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstSrcUnOp *in
 }
 
 static void ir_push_resume(IrAnalyze *ira, IrSuspendPosition pos) {
-    IrBasicBlockSrc *old_bb = ira->old_irb.exec->basic_block_list.at(pos.basic_block_index);
+    IrBasicBlockSrc *old_bb = ira->zir->basic_block_list.at(pos.basic_block_index);
     if (old_bb->in_resume_stack) return;
     ira->resume_stack.append(pos);
     old_bb->in_resume_stack = true;
@@ -13864,7 +13865,7 @@ static IrInstGen *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstSrcCondBr
 static IrInstGen *ir_analyze_instruction_unreachable(IrAnalyze *ira,
         IrInstSrcUnreachable *unreachable_instruction)
 {
-    if (ir_should_inline(ira->old_irb.exec, unreachable_instruction->base.base.scope)) {
+    if (ir_should_inline(ira->zir, unreachable_instruction->base.base.scope)) {
         ir_add_error(ira, &unreachable_instruction->base.base, buf_sprintf("reached unreachable code"));
         return ir_unreach_error(ira);
     }
@@ -16479,7 +16480,7 @@ static IrInstGen *ir_analyze_union_init(IrAnalyze *ira, IrInst* source_instructi
         }
     }
 
-    bool is_comptime = ir_should_inline(ira->old_irb.exec, source_instruction->scope)
+    bool is_comptime = ir_should_inline(ira->zir, source_instruction->scope)
         || type_requires_comptime(ira->codegen, union_type) == ReqCompTimeYes;
 
     IrInstGen *result = ir_get_deref(ira, source_instruction, result_loc, nullptr);
@@ -16532,7 +16533,7 @@ static IrInstGen *ir_analyze_container_init_fields(IrAnalyze *ira, IrInst *sourc
     AstNode **field_assign_nodes = heap::c_allocator.allocate<AstNode *>(actual_field_count);
     ZigList<IrInstGen *> const_ptrs = {};
 
-    bool is_comptime = ir_should_inline(ira->old_irb.exec, source_instr->scope)
+    bool is_comptime = ir_should_inline(ira->zir, source_instr->scope)
         || type_requires_comptime(ira->codegen, container_type) == ReqCompTimeYes;
 
 
@@ -16719,7 +16720,7 @@ static IrInstGen *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         case ReqCompTimeInvalid:
             return ira->codegen->invalid_inst_gen;
         case ReqCompTimeNo:
-            is_comptime = ir_should_inline(ira->old_irb.exec, instruction->base.base.scope);
+            is_comptime = ir_should_inline(ira->zir, instruction->base.base.scope);
             break;
         case ReqCompTimeYes:
             is_comptime = true;
@@ -18491,7 +18492,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
 
             Buf *bare_name = buf_alloc();
             Buf *full_name = get_anon_type_name(ira->codegen,
-                ira->old_irb.exec, "opaque", source_instr->scope, source_instr->source_node, bare_name);
+                ira->zir, "opaque", source_instr->scope, source_instr->source_node, bare_name);
             return get_opaque_type(ira->codegen,
                 source_instr->scope, source_instr->source_node, buf_ptr(full_name), bare_name);
         }
@@ -18538,7 +18539,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             assert(is_slice(slice->type));
             ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
             Buf bare_name = BUF_INIT;
-            buf_init_from_buf(&err_set_type->name, get_anon_type_name(ira->codegen, ira->old_irb.exec, "error", source_instr->scope, source_instr->source_node, &bare_name));
+            buf_init_from_buf(&err_set_type->name, get_anon_type_name(ira->codegen, ira->zir, "error", source_instr->scope, source_instr->source_node, &bare_name));
             err_set_type->size_in_bits = ira->codegen->builtin_types.entry_global_error_set->size_in_bits;
             err_set_type->abi_align = ira->codegen->builtin_types.entry_global_error_set->abi_align;
             err_set_type->abi_size = ira->codegen->builtin_types.entry_global_error_set->abi_size;
@@ -18617,7 +18618,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
 
             ZigType *entry = new_type_table_entry(ZigTypeIdStruct);
             buf_init_from_buf(&entry->name,
-                get_anon_type_name(ira->codegen, ira->old_irb.exec, "struct", source_instr->scope, source_instr->source_node, &entry->name));
+                get_anon_type_name(ira->codegen, ira->zir, "struct", source_instr->scope, source_instr->source_node, &entry->name));
             entry->data.structure.decl_node = source_instr->source_node;
             entry->data.structure.fields = alloc_type_struct_fields(fields_len);
             entry->data.structure.fields_by_name.init(fields_len);
@@ -18727,7 +18728,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
 
             ZigType *entry = new_type_table_entry(ZigTypeIdEnum);
             buf_init_from_buf(&entry->name,
-                get_anon_type_name(ira->codegen, ira->old_irb.exec, "enum", source_instr->scope, source_instr->source_node, &entry->name));
+                get_anon_type_name(ira->codegen, ira->zir, "enum", source_instr->scope, source_instr->source_node, &entry->name));
             entry->data.enumeration.decl_node = source_instr->source_node;
             entry->data.enumeration.tag_int_type = tag_type;
             entry->data.enumeration.decls_scope = create_decls_scope(
@@ -18809,7 +18810,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
 
             ZigType *entry = new_type_table_entry(ZigTypeIdUnion);
             buf_init_from_buf(&entry->name,
-                get_anon_type_name(ira->codegen, ira->old_irb.exec, "union", source_instr->scope, source_instr->source_node, &entry->name));
+                get_anon_type_name(ira->codegen, ira->zir, "union", source_instr->scope, source_instr->source_node, &entry->name));
             entry->data.unionation.decl_node = source_instr->source_node;
             entry->data.unionation.fields = heap::c_allocator.allocate<TypeUnionField>(fields_len);
             entry->data.unionation.fields_by_name.init(fields_len);
@@ -22004,7 +22005,7 @@ static IrInstGen *ir_analyze_instruction_panic(IrAnalyze *ira, IrInstSrcPanic *i
     if (type_is_invalid(msg->value->type))
         return ir_unreach_error(ira);
 
-    if (ir_should_inline(ira->old_irb.exec, instruction->base.base.scope)) {
+    if (ir_should_inline(ira->zir, instruction->base.base.scope)) {
         ir_add_error(ira, &instruction->base.base, buf_sprintf("encountered @panic at compile-time"));
         return ir_unreach_error(ira);
     }
@@ -24077,7 +24078,7 @@ static IrInstGen *ir_analyze_instruction_resume(IrAnalyze *ira, IrInstSrcResume 
 }
 
 static IrInstGen *ir_analyze_instruction_spill_begin(IrAnalyze *ira, IrInstSrcSpillBegin *instruction) {
-    if (ir_should_inline(ira->old_irb.exec, instruction->base.base.scope))
+    if (ir_should_inline(ira->zir, instruction->base.base.scope))
         return ir_const_void(ira, &instruction->base.base);
 
     IrInstGen *operand = instruction->operand->child;
@@ -24103,7 +24104,7 @@ static IrInstGen *ir_analyze_instruction_spill_end(IrAnalyze *ira, IrInstSrcSpil
     if (type_is_invalid(operand->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    if (ir_should_inline(ira->old_irb.exec, instruction->base.base.scope) ||
+    if (ir_should_inline(ira->zir, instruction->base.base.scope) ||
         !type_has_bits(ira->codegen, operand->value->type) ||
         instr_is_comptime(operand))
     {
@@ -24467,7 +24468,7 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
 
 // This function attempts to evaluate IR code while doing type checking and other analysis.
 // It emits to a new IrExecutableGen which is partially evaluated IR code.
-ZigType *ir_analyze(CodeGen *codegen, IrExecutableSrc *old_exec, IrExecutableGen *new_exec,
+ZigType *ir_analyze(CodeGen *codegen, Stage1Zir *old_exec, IrExecutableGen *new_exec,
         ZigType *expected_type, AstNode *expected_type_source_node, ZigValue *result_ptr)
 {
     assert(old_exec->first_err_trace_msg == nullptr);
@@ -24481,13 +24482,12 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutableSrc *old_exec, IrExecutableGen
     ira->explicit_return_type = expected_type;
     ira->explicit_return_type_source_node = expected_type_source_node;
 
-    ira->old_irb.codegen = codegen;
-    ira->old_irb.exec = old_exec;
+    ira->zir = old_exec;
 
     ira->new_irb.codegen = codegen;
     ira->new_irb.exec = new_exec;
 
-    IrBasicBlockSrc *old_entry_bb = ira->old_irb.exec->basic_block_list.at(0);
+    IrBasicBlockSrc *old_entry_bb = ira->zir->basic_block_list.at(0);
     IrBasicBlockGen *new_entry_bb = ir_get_new_bb(ira, old_entry_bb, nullptr);
     ira->new_irb.current_basic_block = new_entry_bb;
     ira->old_bb_index = 0;
@@ -24507,8 +24507,8 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutableSrc *old_exec, IrExecutableGen
                 get_pointer_to_type(codegen, expected_type, false));
     }
 
-    while (ira->old_bb_index < ira->old_irb.exec->basic_block_list.length) {
-        IrInstSrc *old_instruction = ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index);
+    while (ira->old_bb_index < ira->zir->basic_block_list.length) {
+        IrInstSrc *old_instruction = ira->zir_current_basic_block->instruction_list.at(ira->instruction_index);
 
         if (old_instruction->base.ref_count == 0 && !ir_inst_src_has_side_effects(old_instruction)) {
             ira->instruction_index += 1;

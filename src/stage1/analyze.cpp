@@ -3653,7 +3653,7 @@ static void get_fully_qualified_decl_name(CodeGen *g, Buf *buf, Tld *tld, bool i
 
 static ZigFn *create_fn_raw(CodeGen *g, bool is_noinline) {
     ZigFn *fn_entry = heap::c_allocator.create<ZigFn>();
-    fn_entry->ir_executable = heap::c_allocator.create<IrExecutableSrc>();
+    fn_entry->ir_executable = heap::c_allocator.create<Stage1Zir>();
 
     fn_entry->prealloc_backward_branch_quota = default_backward_branch_quota;
 
@@ -9862,7 +9862,7 @@ void AstNode::src() {
             line, column);
 }
 
-void IrExecutableSrc::src() {
+void Stage1Zir::src() {
     if (this->source_node != nullptr) {
         this->source_node->src();
     }

@@ -10,7 +10,7 @@
 
 #include "all_types.hpp"
 
-bool ir_gen(CodeGen *g, AstNode *node, Scope *scope, IrExecutableSrc *ir_executable);
+bool ir_gen(CodeGen *g, AstNode *node, Scope *scope, Stage1Zir *ir_executable);
 bool ir_gen_fn(CodeGen *g, ZigFn *fn_entry);
 
 bool ir_inst_src_has_side_effects(IrInstSrc *inst);
@@ -21,7 +21,7 @@ ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
 
 ResultLoc *no_result_loc(void);
 
-void invalidate_exec(IrExecutableSrc *exec, ErrorMsg *msg);
+void invalidate_exec(Stage1Zir *exec, ErrorMsg *msg);
 
 AstNode *ast_field_to_symbol_node(AstNode *err_set_field_node);
 void ir_add_call_stack_errors_gen(CodeGen *codegen, IrExecutableGen *exec, ErrorMsg *err_msg,
@@ -29,15 +29,8 @@ void ir_add_call_stack_errors_gen(CodeGen *codegen, IrExecutableGen *exec, Error
 
 void destroy_instruction_src(IrInstSrc *inst);
 
-struct IrBuilderSrc {
-    CodeGen *codegen;
-    IrExecutableSrc *exec;
-    IrBasicBlockSrc *current_basic_block;
-    AstNode *main_block_node;
-};
-
-bool ir_should_inline(IrExecutableSrc *exec, Scope *scope);
-Buf *get_anon_type_name(CodeGen *codegen, IrExecutableSrc *exec, const char *kind_name,
+bool ir_should_inline(Stage1Zir *exec, Scope *scope);
+Buf *get_anon_type_name(CodeGen *codegen, Stage1Zir *exec, const char *kind_name,
         Scope *scope, AstNode *source_node, Buf *out_bare_name);
 
 #endif

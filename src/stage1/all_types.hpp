@@ -110,7 +110,7 @@ enum X64CABIClass {
     X64CABIClass_SSE,
 };
 
-struct IrExecutableSrc {
+struct Stage1Zir {
     ZigList<IrBasicBlockSrc *> basic_block_list;
     Buf *name;
     ZigFn *name_fn;
@@ -148,7 +148,7 @@ struct IrExecutableGen {
     Buf *c_import_buf;
     AstNode *source_node;
     IrExecutableGen *parent_exec;
-    IrExecutableSrc *source_exec;
+    Stage1Zir *source_exec;
     Scope *begin_scope;
     ErrorMsg *first_err_trace_msg;
     ZigList<Tld *> tld_list;
@@ -1651,7 +1651,7 @@ struct ZigFn {
     // in the case of async functions this is the implicit return type according to the
     // zig source code, not according to zig ir
     ZigType *src_implicit_return_type;
-    IrExecutableSrc *ir_executable;
+    Stage1Zir *ir_executable;
     IrExecutableGen analyzed_executable;
     size_t prealloc_bbc;
     size_t prealloc_backward_branch_quota;

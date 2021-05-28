@@ -3395,7 +3395,7 @@ void ir_print_basic_block_gen(CodeGen *codegen, FILE *f, IrBasicBlockGen *bb, in
     ir_print.printed.deinit();
 }
 
-void ir_print_src(CodeGen *codegen, FILE *f, IrExecutableSrc *executable, int indent_size) {
+void ir_print_src(CodeGen *codegen, FILE *f, Stage1Zir *executable, int indent_size) {
     IrPrintSrc ir_print = {};
     IrPrintSrc *irp = &ir_print;
     irp->codegen = codegen;

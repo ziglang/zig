@@ -20,7 +20,7 @@ Error ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
 
 Error ir_resolve_lazy(CodeGen *codegen, AstNode *source_node, ZigValue *val);
 
-ZigType *ir_analyze(CodeGen *g, IrExecutableSrc *old_executable, IrExecutableGen *new_executable,
+ZigType *ir_analyze(CodeGen *g, Stage1Zir *old_executable, IrExecutableGen *new_executable,
         ZigType *expected_type, AstNode *expected_type_source_node, ZigValue *return_ptr);
 
 bool ir_inst_gen_has_side_effects(IrInstGen *inst);
