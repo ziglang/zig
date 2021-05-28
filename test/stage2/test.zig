@@ -943,6 +943,34 @@ pub fn addCases(ctx: *TestContext) !void {
         ":10:8: error: cannot return from defer expression",
     });
 
+    ctx.compileError("ambiguous references", linux_x64,
+        \\const T = struct {
+        \\    const T = struct {
+        \\        fn f() void {
+        \\            _ = T;
+        \\        }
+        \\    };
+        \\};
+    , &.{
+        ":4:17: error: ambiguous reference",
+        ":1:1: note: declared here",
+        ":2:5: note: also declared here",
+    });
+
+    ctx.compileError("inner func accessing outer var", linux_x64,
+        \\pub fn f() void {
+        \\    var bar: bool = true;
+        \\    const S = struct {
+        \\        fn baz() bool {
+        \\            return bar;
+        \\        }
+        \\    };
+        \\}
+    , &.{
+        ":5:20: error: 'bar' not accessible from inner function",
+        ":2:9: note: declared here",
+    });
+
     ctx.compileError("global variable redeclaration", linux_x64,
         \\// dummy comment
         \\var foo = false;
