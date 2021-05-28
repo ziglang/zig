@@ -191,12 +191,11 @@ const Parser = struct {
         return error.ParseError;
     }
 
-    /// ContainerMembers
-    ///     <- TestDecl ContainerMembers
-    ///      / TopLevelComptime ContainerMembers
-    ///      / KEYWORD_pub? TopLevelDecl ContainerMembers
-    ///      / ContainerField COMMA ContainerMembers
-    ///      / ContainerField
+    /// ContainerMembers <- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)
+    /// ContainerDeclarations
+    ///     <- TestDecl ContainerDeclarations
+    ///      / TopLevelComptime ContainerDeclarations
+    ///      / KEYWORD_pub? TopLevelDecl ContainerDeclarations
     ///      /
     /// TopLevelComptime <- KEYWORD_comptime BlockExpr
     fn parseContainerMembers(p: *Parser) !Members {
@@ -774,7 +773,7 @@ const Parser = struct {
         }
     }
 
-    /// ContainerField <- KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
+    /// ContainerField <- KEYWORD_comptime? IDENTIFIER (COLON (KEYWORD_anytype / TypeExpr) ByteAlign?)? (EQUAL Expr)?
     fn expectContainerField(p: *Parser) !Node.Index {
         const comptime_token = p.eatToken(.keyword_comptime);
         const name_token = p.assertToken(.identifier);
