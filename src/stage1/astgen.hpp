@@ -10,7 +10,8 @@
 
 #include "all_types.hpp"
 
-bool stage1_astgen(CodeGen *g, AstNode *node, Scope *scope, Stage1Zir *ir_executable, ZigFn *fn);
+bool stage1_astgen(CodeGen *g, AstNode *node, Scope *scope, Stage1Zir *ir_executable,
+        ZigFn *fn, bool in_c_import_scope);
 bool stage1_astgen_fn(CodeGen *g, ZigFn *fn_entry);
 
 bool ir_inst_src_has_side_effects(IrInstSrc *inst);

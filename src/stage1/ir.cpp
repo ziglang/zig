@@ -5596,10 +5596,11 @@ Error ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
     ir_executable->source_node = source_node;
     ir_executable->name = exec_name;
     ir_executable->is_inline = true;
-    ir_executable->c_import_buf = c_import_buf;
     ir_executable->begin_scope = scope;
 
-    if (!stage1_astgen(codegen, node, scope, ir_executable, fn_entry))
+    bool in_c_import_scope = c_import_buf != nullptr;
+
+    if (!stage1_astgen(codegen, node, scope, ir_executable, fn_entry, in_c_import_scope))
         return ErrorSemanticAnalyzeFail;
 
     if (ir_executable->first_err_trace_msg != nullptr) {

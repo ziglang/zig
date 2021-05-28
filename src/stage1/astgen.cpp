@@ -18,6 +18,7 @@ struct Stage1AstGen {
     AstNode *main_block_node;
     size_t next_debug_id;
     ZigFn *fn;
+    bool in_c_import_scope;
 };
 
 static IrInstSrc *ir_gen_node(Stage1AstGen *ag, AstNode *node, Scope *scope);
@@ -367,10 +368,6 @@ static size_t irb_next_debug_id(Stage1AstGen *ag) {
     size_t result = ag->next_debug_id;
     ag->next_debug_id += 1;
     return result;
-}
-
-static Buf *exec_c_import_buf(Stage1Zir *exec) {
-    return exec->c_import_buf;
 }
 
 static void ir_ref_bb(IrBasicBlockSrc *bb) {
@@ -4215,7 +4212,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                if (!exec_c_import_buf(ag->exec)) {
+                if (!ag->in_c_import_scope) {
                     add_node_error(ag->codegen, node, buf_sprintf("C include valid only inside C import block"));
                     return ag->codegen->invalid_inst_src;
                 }
@@ -4235,7 +4232,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                if (!exec_c_import_buf(ag->exec)) {
+                if (!ag->in_c_import_scope) {
                     add_node_error(ag->codegen, node, buf_sprintf("C define valid only inside C import block"));
                     return ag->codegen->invalid_inst_src;
                 }
@@ -4250,7 +4247,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                if (!exec_c_import_buf(ag->exec)) {
+                if (!ag->in_c_import_scope) {
                     add_node_error(ag->codegen, node, buf_sprintf("C undef valid only inside C import block"));
                     return ag->codegen->invalid_inst_src;
                 }
@@ -8035,7 +8032,7 @@ static IrInstSrc *ir_gen_node(Stage1AstGen *ag, AstNode *node, Scope *scope) {
 }
 
 bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *ir_executable,
-        ZigFn *fn)
+        ZigFn *fn, bool in_c_import_scope)
 {
     assert(node->owner);
 
@@ -8044,6 +8041,7 @@ bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *ir_
 
     ag->codegen = codegen;
     ag->fn = fn;
+    ag->in_c_import_scope = in_c_import_scope;
     ag->exec = ir_executable;
     ag->main_block_node = node;
 
@@ -8078,7 +8076,7 @@ bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *ir_
 bool stage1_astgen_fn(CodeGen *codegen, ZigFn *fn) {
     assert(fn != nullptr);
     assert(fn->child_scope != nullptr);
-    return stage1_astgen(codegen, fn->body_node, fn->child_scope, fn->ir_executable, fn);
+    return stage1_astgen(codegen, fn->body_node, fn->child_scope, fn->ir_executable, fn, false);
 }
 
 void invalidate_exec(Stage1Zir *exec, ErrorMsg *msg) {

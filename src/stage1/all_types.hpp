@@ -114,7 +114,6 @@ struct Stage1Zir {
     ZigList<IrBasicBlockSrc *> basic_block_list;
     Buf *name;
     ZigFn *name_fn;
-    Buf *c_import_buf;
     AstNode *source_node;
     Scope *begin_scope;
     ErrorMsg *first_err_trace_msg;
