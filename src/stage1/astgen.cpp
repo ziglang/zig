@@ -16,6 +16,7 @@ struct IrBuilderSrc {
     Stage1Zir *exec;
     IrBasicBlockSrc *current_basic_block;
     AstNode *main_block_node;
+    size_t next_debug_id;
 };
 
 static IrInstSrc *ir_gen_node(IrBuilderSrc *irb, AstNode *node, Scope *scope);
@@ -361,9 +362,9 @@ static void ir_instruction_append(IrBasicBlockSrc *basic_block, IrInstSrc *instr
     basic_block->instruction_list.append(instruction);
 }
 
-static size_t exec_next_debug_id(Stage1Zir *exec) {
-    size_t result = exec->next_debug_id;
-    exec->next_debug_id += 1;
+static size_t irb_next_debug_id(IrBuilderSrc *irb) {
+    size_t result = irb->next_debug_id;
+    irb->next_debug_id += 1;
     return result;
 }
 
@@ -393,7 +394,7 @@ static IrBasicBlockSrc *ir_create_basic_block(IrBuilderSrc *irb, Scope *scope, c
     IrBasicBlockSrc *result = heap::c_allocator.create<IrBasicBlockSrc>();
     result->scope = scope;
     result->name_hint = name_hint;
-    result->debug_id = exec_next_debug_id(irb->exec);
+    result->debug_id = irb_next_debug_id(irb);
     result->index = UINT32_MAX; // set later
     return result;
 }
@@ -936,7 +937,7 @@ static T *ir_create_instruction(IrBuilderSrc *irb, Scope *scope, AstNode *source
     special_instruction->base.id = ir_inst_id(special_instruction);
     special_instruction->base.base.scope = scope;
     special_instruction->base.base.source_node = source_node;
-    special_instruction->base.base.debug_id = exec_next_debug_id(irb->exec);
+    special_instruction->base.base.debug_id = irb_next_debug_id(irb);
     special_instruction->base.owner_bb = irb->current_basic_block;
     return special_instruction;
 }
@@ -1325,7 +1326,7 @@ static IrInstSrc *ir_build_ptr_type_simple(IrBuilderSrc *irb, Scope *scope, AstN
     inst->base.id = is_const ? IrInstSrcIdPtrTypeSimpleConst : IrInstSrcIdPtrTypeSimple;
     inst->base.base.scope = scope;
     inst->base.base.source_node = source_node;
-    inst->base.base.debug_id = exec_next_debug_id(irb->exec);
+    inst->base.base.debug_id = irb_next_debug_id(irb);
     inst->base.owner_bb = irb->current_basic_block;
     ir_instruction_append(irb->current_basic_block, &inst->base);
 
@@ -2393,7 +2394,7 @@ static IrInstSrc *ir_build_check_switch_prongs(IrBuilderSrc *irb, Scope *scope, 
         IrInstSrcIdCheckSwitchProngsUnderYes : IrInstSrcIdCheckSwitchProngsUnderNo;
     instruction->base.base.scope = scope;
     instruction->base.base.source_node = source_node;
-    instruction->base.base.debug_id = exec_next_debug_id(irb->exec);
+    instruction->base.base.debug_id = irb_next_debug_id(irb);
     instruction->base.owner_bb = irb->current_basic_block;
     ir_instruction_append(irb->current_basic_block, &instruction->base);
 
@@ -2586,7 +2587,7 @@ static IrInstSrc *ir_build_arg_type(IrBuilderSrc *irb, Scope *scope, AstNode *so
         IrInstSrcIdArgTypeAllowVarTrue : IrInstSrcIdArgTypeAllowVarFalse;
     instruction->base.base.scope = scope;
     instruction->base.base.source_node = source_node;
-    instruction->base.base.debug_id = exec_next_debug_id(irb->exec);
+    instruction->base.base.debug_id = irb_next_debug_id(irb);
     instruction->base.owner_bb = irb->current_basic_block;
     ir_instruction_append(irb->current_basic_block, &instruction->base);
 
