@@ -126,6 +126,19 @@ static AstNode *ast_parse_container_decl_auto(ParseContext *pc);
 static AstNode *ast_parse_container_decl_type(ParseContext *pc);
 static AstNode *ast_parse_byte_align(ParseContext *pc);
 
+ATTRIBUTE_NORETURN
+static void ast_error_offset(RootStruct *root_struct, ErrColor err_color,
+        TokenIndex token, size_t bad_index, Buf *msg)
+{
+    assert(token < root_struct->token_count);
+    uint32_t byte_offset = root_struct->token_locs[token].offset;
+    ErrorMsg *err = err_msg_create_with_offset(root_struct->path,
+            byte_offset + bad_index, buf_ptr(root_struct->source_code), msg);
+
+    print_err_msg(err, err_color);
+    exit(EXIT_FAILURE);
+}
+
 ATTRIBUTE_PRINTF(3, 4)
 ATTRIBUTE_NORETURN
 static void ast_error(ParseContext *pc, TokenIndex token, const char *format, ...) {
@@ -135,13 +148,7 @@ static void ast_error(ParseContext *pc, TokenIndex token, const char *format, ..
     va_end(ap);
 
     RootStruct *root_struct = pc->owner->data.structure.root_struct;
-    assert(token < root_struct->token_count);
-    uint32_t byte_offset = root_struct->token_locs[token].offset;
-    ErrorMsg *err = err_msg_create_with_offset(root_struct->path,
-            byte_offset, buf_ptr(root_struct->source_code), msg);
-
-    print_err_msg(err, pc->err_color);
-    exit(EXIT_FAILURE);
+    ast_error_offset(root_struct, pc->err_color, token, 0, msg);
 }
 
 ATTRIBUTE_NORETURN
@@ -202,20 +209,9 @@ static void put_back_token(ParseContext *pc) {
     pc->current_token -= 1;
 }
 
-static Buf *token_string_literal_buf(RootStruct *root_struct, TokenIndex token) {
-    Error err;
-    assert(root_struct->token_ids[token] == TokenIdStringLiteral);
-    const char *source = buf_ptr(root_struct->source_code);
-    size_t byte_offset = root_struct->token_locs[token].offset;
-    size_t bad_index;
-    Buf *str = buf_alloc();
-    if ((err = source_string_literal_buf(source + byte_offset, str, &bad_index))) {
-        zig_panic("TODO handle string literal parse error");
-    }
-    return str;
-}
-
 static Buf *token_buf(ParseContext *pc, TokenIndex token) {
+    Error err;
+
     if (token == 0)
         return nullptr;
 
@@ -223,7 +219,16 @@ static Buf *token_buf(ParseContext *pc, TokenIndex token) {
     if (root_struct->token_ids[token] == TokenIdIdentifier) {
         return token_identifier_buf(root_struct, token);
     } else if (root_struct->token_ids[token] == TokenIdStringLiteral) {
-        return token_string_literal_buf(root_struct, token);
+        assert(root_struct->token_ids[token] == TokenIdStringLiteral);
+        const char *source = buf_ptr(root_struct->source_code);
+        size_t byte_offset = root_struct->token_locs[token].offset;
+        size_t bad_index;
+        Buf *str = buf_alloc();
+        if ((err = source_string_literal_buf(source + byte_offset, str, &bad_index))) {
+            ast_error_offset(root_struct, pc->err_color, token, bad_index,
+                buf_create_from_str("invalid string literal character"));
+        }
+        return str;
     } else {
         zig_unreachable();
     }
@@ -3493,7 +3498,8 @@ Buf *token_identifier_buf(RootStruct *root_struct, TokenIndex token) {
         size_t bad_index;
         Buf *str = buf_alloc();
         if ((err = source_string_literal_buf(source + byte_offset + 1, str, &bad_index))) {
-            zig_panic("TODO handle string literal parse error");
+            ast_error_offset(root_struct, ErrColorAuto, token, bad_index + 1,
+                buf_create_from_str("invalid string literal character"));
         }
         return str;
     } else {
