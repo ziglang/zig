@@ -34,7 +34,7 @@ struct IrBuilderGen {
 struct IrAnalyze {
     CodeGen *codegen;
     Stage1Zir *zir;
-    IrBasicBlockSrc *zir_current_basic_block;
+    Stage1ZirBasicBlock *zir_current_basic_block;
     IrBuilderGen new_irb;
     size_t old_bb_index;
     size_t instruction_index;
@@ -42,7 +42,7 @@ struct IrAnalyze {
     AstNode *explicit_return_type_source_node;
     ZigList<IrInstGen *> src_implicit_return_type_list;
     ZigList<IrSuspendPosition> resume_stack;
-    IrBasicBlockSrc *const_predecessor_bb;
+    Stage1ZirBasicBlock *const_predecessor_bb;
     size_t ref_count;
     size_t break_debug_id; // for debugging purposes
     IrInstGen *return_ptr;
@@ -482,7 +482,7 @@ static void ira_deref(IrAnalyze *ira) {
     assert(ira->ref_count != 0);
 
     for (size_t bb_i = 0; bb_i < ira->zir->basic_block_list.length; bb_i += 1) {
-        IrBasicBlockSrc *pass1_bb = ira->zir->basic_block_list.items[bb_i];
+        Stage1ZirBasicBlock *pass1_bb = ira->zir->basic_block_list.items[bb_i];
         for (size_t inst_i = 0; inst_i < pass1_bb->instruction_list.length; inst_i += 1) {
             IrInstSrc *pass1_inst = pass1_bb->instruction_list.items[inst_i];
             destroy_instruction_src(pass1_inst);
@@ -742,7 +742,7 @@ static IrBasicBlockGen *ir_create_basic_block_gen(IrAnalyze *ira, Scope *scope, 
     return result;
 }
 
-static IrBasicBlockGen *ir_build_bb_from(IrAnalyze *ira, IrBasicBlockSrc *other_bb) {
+static IrBasicBlockGen *ir_build_bb_from(IrAnalyze *ira, Stage1ZirBasicBlock *other_bb) {
     IrBasicBlockGen *new_bb = ir_create_basic_block_gen(ira, other_bb->scope, other_bb->name_hint);
     other_bb->child = new_bb;
     return new_bb;
@@ -5261,7 +5261,7 @@ static IrInstGen *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInst* sourc
     return ir_build_ptr_of_array_to_slice(ira, source_instr, wanted_type, array_ptr, result_loc_inst);
 }
 
-static IrBasicBlockGen *ir_get_new_bb(IrAnalyze *ira, IrBasicBlockSrc *old_bb, IrInst *ref_old_instruction) {
+static IrBasicBlockGen *ir_get_new_bb(IrAnalyze *ira, Stage1ZirBasicBlock *old_bb, IrInst *ref_old_instruction) {
     assert(old_bb);
 
     if (old_bb->child) {
@@ -5276,7 +5276,7 @@ static IrBasicBlockGen *ir_get_new_bb(IrAnalyze *ira, IrBasicBlockSrc *old_bb, I
     return new_bb;
 }
 
-static IrBasicBlockGen *ir_get_new_bb_runtime(IrAnalyze *ira, IrBasicBlockSrc *old_bb, IrInst *ref_old_instruction) {
+static IrBasicBlockGen *ir_get_new_bb_runtime(IrAnalyze *ira, Stage1ZirBasicBlock *old_bb, IrInst *ref_old_instruction) {
     assert(ref_old_instruction != nullptr);
     IrBasicBlockGen *new_bb = ir_get_new_bb(ira, old_bb, ref_old_instruction);
     if (new_bb->must_be_comptime_source_instr) {
@@ -5289,7 +5289,7 @@ static IrBasicBlockGen *ir_get_new_bb_runtime(IrAnalyze *ira, IrBasicBlockSrc *o
     return new_bb;
 }
 
-static void ir_start_bb(IrAnalyze *ira, IrBasicBlockSrc *old_bb, IrBasicBlockSrc *const_predecessor_bb) {
+static void ir_start_bb(IrAnalyze *ira, Stage1ZirBasicBlock *old_bb, Stage1ZirBasicBlock *const_predecessor_bb) {
     ir_assert(!old_bb->suspended, (old_bb->instruction_list.length != 0) ? &old_bb->instruction_list.at(0)->base : nullptr);
     ira->instruction_index = 0;
     ira->zir_current_basic_block = old_bb;
@@ -5297,7 +5297,7 @@ static void ir_start_bb(IrAnalyze *ira, IrBasicBlockSrc *old_bb, IrBasicBlockSrc
     ira->old_bb_index = old_bb->index;
 }
 
-static IrInstGen *ira_suspend(IrAnalyze *ira, IrInst *old_instruction, IrBasicBlockSrc *next_bb,
+static IrInstGen *ira_suspend(IrAnalyze *ira, IrInst *old_instruction, Stage1ZirBasicBlock *next_bb,
         IrSuspendPosition *suspend_pos)
 {
     if (ira->codegen->verbose_ir) {
@@ -5356,7 +5356,7 @@ static void ir_start_next_bb(IrAnalyze *ira) {
     bool need_repeat = true;
     for (;;) {
         while (ira->old_bb_index < ira->zir->basic_block_list.length) {
-            IrBasicBlockSrc *old_bb = ira->zir->basic_block_list.at(ira->old_bb_index);
+            Stage1ZirBasicBlock *old_bb = ira->zir->basic_block_list.at(ira->old_bb_index);
             if (old_bb->child == nullptr && old_bb->suspend_instruction_ref == nullptr) {
                 ira->old_bb_index += 1;
                 continue;
@@ -5447,7 +5447,7 @@ static bool ir_emit_backward_branch(IrAnalyze *ira, IrInst* source_instruction) 
     return true;
 }
 
-static IrInstGen *ir_inline_bb(IrAnalyze *ira, IrInst* source_instruction, IrBasicBlockSrc *old_bb) {
+static IrInstGen *ir_inline_bb(IrAnalyze *ira, IrInst* source_instruction, Stage1ZirBasicBlock *old_bb) {
     if (old_bb->debug_id <= ira->zir_current_basic_block->debug_id) {
         if (!ir_emit_backward_branch(ira, source_instruction))
             return ir_unreach_error(ira);
@@ -13776,20 +13776,20 @@ static IrInstGen *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstSrcUnOp *in
 }
 
 static void ir_push_resume(IrAnalyze *ira, IrSuspendPosition pos) {
-    IrBasicBlockSrc *old_bb = ira->zir->basic_block_list.at(pos.basic_block_index);
+    Stage1ZirBasicBlock *old_bb = ira->zir->basic_block_list.at(pos.basic_block_index);
     if (old_bb->in_resume_stack) return;
     ira->resume_stack.append(pos);
     old_bb->in_resume_stack = true;
 }
 
-static void ir_push_resume_block(IrAnalyze *ira, IrBasicBlockSrc *old_bb) {
+static void ir_push_resume_block(IrAnalyze *ira, Stage1ZirBasicBlock *old_bb) {
     if (ira->resume_stack.length != 0) {
         ir_push_resume(ira, {old_bb->index, 0});
     }
 }
 
 static IrInstGen *ir_analyze_instruction_br(IrAnalyze *ira, IrInstSrcBr *br_instruction) {
-    IrBasicBlockSrc *old_dest_block = br_instruction->dest_block;
+    Stage1ZirBasicBlock *old_dest_block = br_instruction->dest_block;
 
     bool is_comptime;
     if (!ir_resolve_comptime(ira, br_instruction->is_comptime->child, &is_comptime))
@@ -13827,7 +13827,7 @@ static IrInstGen *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstSrcCondBr
         if (!ir_resolve_bool(ira, casted_condition, &cond_is_true))
             return ir_unreach_error(ira);
 
-        IrBasicBlockSrc *old_dest_block = cond_is_true ?
+        Stage1ZirBasicBlock *old_dest_block = cond_is_true ?
             cond_br_instruction->then_block : cond_br_instruction->else_block;
 
         if (is_comptime || (old_dest_block->ref_count == 1 && old_dest_block->suspend_instruction_ref == nullptr))
@@ -13877,7 +13877,7 @@ static IrInstGen *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstSrcPhi *phi_i
 
     if (ira->const_predecessor_bb) {
         for (size_t i = 0; i < phi_instruction->incoming_count; i += 1) {
-            IrBasicBlockSrc *predecessor = phi_instruction->incoming_blocks[i];
+            Stage1ZirBasicBlock *predecessor = phi_instruction->incoming_blocks[i];
             if (predecessor != ira->const_predecessor_bb)
                 continue;
             IrInstGen *value = phi_instruction->incoming_values[i]->child;
@@ -13977,7 +13977,7 @@ static IrInstGen *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstSrcPhi *phi_i
     ZigList<IrInstGen*> new_incoming_values = {0};
 
     for (size_t i = 0; i < phi_instruction->incoming_count; i += 1) {
-        IrBasicBlockSrc *predecessor = phi_instruction->incoming_blocks[i];
+        Stage1ZirBasicBlock *predecessor = phi_instruction->incoming_blocks[i];
         if (predecessor->ref_count == 0)
             continue;
 
@@ -15996,7 +15996,7 @@ static IrInstGen *ir_analyze_instruction_switch_br(IrAnalyze *ira,
         if (!target_val)
             return ir_unreach_error(ira);
 
-        IrBasicBlockSrc *old_dest_block = switch_br_instruction->else_block;
+        Stage1ZirBasicBlock *old_dest_block = switch_br_instruction->else_block;
         for (size_t i = 0; i < case_count; i += 1) {
             IrInstSrcSwitchBrCase *old_case = &switch_br_instruction->cases[i];
             IrInstGen *case_value = old_case->value->child;
@@ -24488,7 +24488,7 @@ ZigType *ir_analyze(CodeGen *codegen, Stage1Zir *stage1_zir, Stage1Air *stage1_a
     ira->new_irb.codegen = codegen;
     ira->new_irb.exec = stage1_air;
 
-    IrBasicBlockSrc *old_entry_bb = ira->zir->basic_block_list.at(0);
+    Stage1ZirBasicBlock *old_entry_bb = ira->zir->basic_block_list.at(0);
     IrBasicBlockGen *new_entry_bb = ir_get_new_bb(ira, old_entry_bb, nullptr);
     ira->new_irb.current_basic_block = new_entry_bb;
     ira->old_bb_index = 0;

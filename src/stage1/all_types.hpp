@@ -38,7 +38,7 @@ struct IrInstGenCast;
 struct IrInstGenAlloca;
 struct IrInstGenCall;
 struct IrInstGenAwait;
-struct IrBasicBlockSrc;
+struct Stage1ZirBasicBlock;
 struct IrBasicBlockGen;
 struct ScopeDecls;
 struct ZigWindowsSDK;
@@ -111,7 +111,7 @@ enum X64CABIClass {
 };
 
 struct Stage1Zir {
-    ZigList<IrBasicBlockSrc *> basic_block_list;
+    ZigList<Stage1ZirBasicBlock *> basic_block_list;
     Buf *name;
     ZigFn *name_fn;
     Scope *begin_scope;
@@ -2255,11 +2255,11 @@ struct ScopeBlock {
     Scope base;
 
     Buf *name;
-    IrBasicBlockSrc *end_block;
+    Stage1ZirBasicBlock *end_block;
     IrInstSrc *is_comptime;
     ResultLocPeerParent *peer_parent;
     ZigList<IrInstSrc *> *incoming_values;
-    ZigList<IrBasicBlockSrc *> *incoming_blocks;
+    ZigList<Stage1ZirBasicBlock *> *incoming_blocks;
 
     AstNode *safety_set_node;
     AstNode *fast_math_set_node;
@@ -2311,11 +2311,11 @@ struct ScopeLoop {
 
     LVal lval;
     Buf *name;
-    IrBasicBlockSrc *break_block;
-    IrBasicBlockSrc *continue_block;
+    Stage1ZirBasicBlock *break_block;
+    Stage1ZirBasicBlock *continue_block;
     IrInstSrc *is_comptime;
     ZigList<IrInstSrc *> *incoming_values;
-    ZigList<IrBasicBlockSrc *> *incoming_blocks;
+    ZigList<Stage1ZirBasicBlock *> *incoming_blocks;
     ResultLocPeerParent *peer_parent;
     ScopeExpr *spill_scope;
 
@@ -2426,7 +2426,7 @@ enum AtomicRmwOp {
 // to another basic block.
 // Phi instructions must be first in a basic block.
 // The last instruction in a basic block must be of type unreachable.
-struct IrBasicBlockSrc {
+struct Stage1ZirBasicBlock {
     ZigList<IrInstSrc *> instruction_list;
     IrBasicBlockGen *child;
     Scope *scope;
@@ -2729,7 +2729,7 @@ struct IrInstSrc {
     // can find the instruction that corresponds to this value in the "new ir"
     // with this child field.
     IrInstGen *child;
-    IrBasicBlockSrc *owner_bb;
+    Stage1ZirBasicBlock *owner_bb;
 
     // for debugging purposes, these are useful to call to inspect the instruction
     void dump();
@@ -2774,8 +2774,8 @@ struct IrInstSrcCondBr {
     IrInstSrc base;
 
     IrInstSrc *condition;
-    IrBasicBlockSrc *then_block;
-    IrBasicBlockSrc *else_block;
+    Stage1ZirBasicBlock *then_block;
+    Stage1ZirBasicBlock *else_block;
     IrInstSrc *is_comptime;
     ResultLoc *result_loc;
 };
@@ -2791,7 +2791,7 @@ struct IrInstGenCondBr {
 struct IrInstSrcBr {
     IrInstSrc base;
 
-    IrBasicBlockSrc *dest_block;
+    Stage1ZirBasicBlock *dest_block;
     IrInstSrc *is_comptime;
 };
 
@@ -2803,14 +2803,14 @@ struct IrInstGenBr {
 
 struct IrInstSrcSwitchBrCase {
     IrInstSrc *value;
-    IrBasicBlockSrc *block;
+    Stage1ZirBasicBlock *block;
 };
 
 struct IrInstSrcSwitchBr {
     IrInstSrc base;
 
     IrInstSrc *target_value;
-    IrBasicBlockSrc *else_block;
+    Stage1ZirBasicBlock *else_block;
     size_t case_count;
     IrInstSrcSwitchBrCase *cases;
     IrInstSrc *is_comptime;
@@ -2856,7 +2856,7 @@ struct IrInstSrcPhi {
     IrInstSrc base;
 
     size_t incoming_count;
-    IrBasicBlockSrc **incoming_blocks;
+    Stage1ZirBasicBlock **incoming_blocks;
     IrInstSrc **incoming_values;
     ResultLocPeerParent *peer_parent;
 };
@@ -4520,7 +4520,7 @@ struct ResultLocPeerParent {
 
     bool skipped;
     bool done_resuming;
-    IrBasicBlockSrc *end_bb;
+    Stage1ZirBasicBlock *end_bb;
     ResultLoc *parent;
     ZigList<ResultLocPeer *> peers;
     ZigType *resolved_type;
@@ -4531,7 +4531,7 @@ struct ResultLocPeer {
     ResultLoc base;
 
     ResultLocPeerParent *parent;
-    IrBasicBlockSrc *next_bb;
+    Stage1ZirBasicBlock *next_bb;
     IrSuspendPosition suspend_pos;
 };
 

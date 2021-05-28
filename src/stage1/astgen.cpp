@@ -14,7 +14,7 @@
 struct Stage1AstGen {
     CodeGen *codegen;
     Stage1Zir *exec;
-    IrBasicBlockSrc *current_basic_block;
+    Stage1ZirBasicBlock *current_basic_block;
     AstNode *main_block_node;
     size_t next_debug_id;
     ZigFn *fn;
@@ -358,7 +358,7 @@ bool ir_should_inline(Stage1Zir *exec, Scope *scope) {
     return false;
 }
 
-static void ir_instruction_append(IrBasicBlockSrc *basic_block, IrInstSrc *instruction) {
+static void ir_instruction_append(Stage1ZirBasicBlock *basic_block, IrInstSrc *instruction) {
     assert(basic_block);
     assert(instruction);
     basic_block->instruction_list.append(instruction);
@@ -370,11 +370,11 @@ static size_t irb_next_debug_id(Stage1AstGen *ag) {
     return result;
 }
 
-static void ir_ref_bb(IrBasicBlockSrc *bb) {
+static void ir_ref_bb(Stage1ZirBasicBlock *bb) {
     bb->ref_count += 1;
 }
 
-static void ir_ref_instruction(IrInstSrc *instruction, IrBasicBlockSrc *cur_bb) {
+static void ir_ref_instruction(IrInstSrc *instruction, Stage1ZirBasicBlock *cur_bb) {
     assert(instruction->id != IrInstSrcIdInvalid);
     instruction->base.ref_count += 1;
     if (instruction->owner_bb != cur_bb && !instr_is_unreachable(instruction)
@@ -384,8 +384,8 @@ static void ir_ref_instruction(IrInstSrc *instruction, IrBasicBlockSrc *cur_bb) 
     }
 }
 
-static IrBasicBlockSrc *ir_create_basic_block(Stage1AstGen *ag, Scope *scope, const char *name_hint) {
-    IrBasicBlockSrc *result = heap::c_allocator.create<IrBasicBlockSrc>();
+static Stage1ZirBasicBlock *ir_create_basic_block(Stage1AstGen *ag, Scope *scope, const char *name_hint) {
+    Stage1ZirBasicBlock *result = heap::c_allocator.create<Stage1ZirBasicBlock>();
     result->scope = scope;
     result->name_hint = name_hint;
     result->debug_id = irb_next_debug_id(ag);
@@ -944,7 +944,7 @@ static T *ir_build_instruction(Stage1AstGen *ag, Scope *scope, AstNode *source_n
 }
 
 static IrInstSrc *ir_build_cond_br(Stage1AstGen *ag, Scope *scope, AstNode *source_node, IrInstSrc *condition,
-        IrBasicBlockSrc *then_block, IrBasicBlockSrc *else_block, IrInstSrc *is_comptime)
+        Stage1ZirBasicBlock *then_block, Stage1ZirBasicBlock *else_block, IrInstSrc *is_comptime)
 {
     IrInstSrcCondBr *inst = ir_build_instruction<IrInstSrcCondBr>(ag, scope, source_node);
     inst->base.is_noreturn = true;
@@ -1279,7 +1279,7 @@ static IrInstSrc *ir_build_call_src(Stage1AstGen *ag, Scope *scope, AstNode *sou
 }
 
 static IrInstSrc *ir_build_phi(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        size_t incoming_count, IrBasicBlockSrc **incoming_blocks, IrInstSrc **incoming_values,
+        size_t incoming_count, Stage1ZirBasicBlock **incoming_blocks, IrInstSrc **incoming_values,
         ResultLocPeerParent *peer_parent)
 {
     assert(incoming_count != 0);
@@ -1300,7 +1300,7 @@ static IrInstSrc *ir_build_phi(Stage1AstGen *ag, Scope *scope, AstNode *source_n
 }
 
 static IrInstSrc *ir_build_br(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrBasicBlockSrc *dest_block, IrInstSrc *is_comptime)
+        Stage1ZirBasicBlock *dest_block, IrInstSrc *is_comptime)
 {
     IrInstSrcBr *inst = ir_build_instruction<IrInstSrcBr>(ag, scope, source_node);
     inst->base.is_noreturn = true;
@@ -1714,7 +1714,7 @@ static IrInstSrc *ir_build_bit_reverse(Stage1AstGen *ag, Scope *scope, AstNode *
 }
 
 static IrInstSrcSwitchBr *ir_build_switch_br_src(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
-        IrInstSrc *target_value, IrBasicBlockSrc *else_block, size_t case_count, IrInstSrcSwitchBrCase *cases,
+        IrInstSrc *target_value, Stage1ZirBasicBlock *else_block, size_t case_count, IrInstSrcSwitchBrCase *cases,
         IrInstSrc *is_comptime, IrInstSrc *switch_prongs_void)
 {
     IrInstSrcSwitchBr *instruction = ir_build_instruction<IrInstSrcSwitchBr>(ag, scope, source_node);
@@ -2976,12 +2976,12 @@ static bool ir_gen_defers_for_block(Stage1AstGen *ag, Scope *inner_scope, Scope 
     return true;
 }
 
-static void ir_set_cursor_at_end(Stage1AstGen *ag, IrBasicBlockSrc *basic_block) {
+static void ir_set_cursor_at_end(Stage1AstGen *ag, Stage1ZirBasicBlock *basic_block) {
     assert(basic_block);
     ag->current_basic_block = basic_block;
 }
 
-static void ir_set_cursor_at_end_and_append_block(Stage1AstGen *ag, IrBasicBlockSrc *basic_block) {
+static void ir_set_cursor_at_end_and_append_block(Stage1AstGen *ag, Stage1ZirBasicBlock *basic_block) {
     basic_block->index = ag->exec->basic_block_list.length;
     ag->exec->basic_block_list.append(basic_block);
     ir_set_cursor_at_end(ag, basic_block);
@@ -3062,8 +3062,8 @@ static IrInstSrc *ir_gen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                 }
                 bool should_inline = ir_should_inline(ag->exec, scope);
 
-                IrBasicBlockSrc *err_block = ir_create_basic_block(ag, scope, "ErrRetErr");
-                IrBasicBlockSrc *ok_block = ir_create_basic_block(ag, scope, "ErrRetOk");
+                Stage1ZirBasicBlock *err_block = ir_create_basic_block(ag, scope, "ErrRetErr");
+                Stage1ZirBasicBlock *ok_block = ir_create_basic_block(ag, scope, "ErrRetOk");
 
                 IrInstSrc *is_err = ir_build_test_err_src(ag, scope, node, return_value, false, true);
 
@@ -3075,7 +3075,7 @@ static IrInstSrc *ir_gen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                 }
 
                 ir_mark_gen(ir_build_cond_br(ag, scope, node, is_err, err_block, ok_block, is_comptime));
-                IrBasicBlockSrc *ret_stmt_block = ir_create_basic_block(ag, scope, "RetStmt");
+                Stage1ZirBasicBlock *ret_stmt_block = ir_create_basic_block(ag, scope, "RetStmt");
 
                 ir_set_cursor_at_end_and_append_block(ag, err_block);
                 if (!ir_gen_defers_for_block(ag, scope, outer_scope, nullptr, return_value))
@@ -3103,8 +3103,8 @@ static IrInstSrc *ir_gen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                     return ag->codegen->invalid_inst_src;
                 IrInstSrc *is_err_val = ir_build_test_err_src(ag, scope, node, err_union_ptr, true, false);
 
-                IrBasicBlockSrc *return_block = ir_create_basic_block(ag, scope, "ErrRetReturn");
-                IrBasicBlockSrc *continue_block = ir_create_basic_block(ag, scope, "ErrRetContinue");
+                Stage1ZirBasicBlock *return_block = ir_create_basic_block(ag, scope, "ErrRetReturn");
+                Stage1ZirBasicBlock *continue_block = ir_create_basic_block(ag, scope, "ErrRetContinue");
                 IrInstSrc *is_comptime;
                 bool should_inline = ir_should_inline(ag->exec, scope);
                 if (should_inline) {
@@ -3266,7 +3266,7 @@ static IrInstSrc *ir_gen_block(Stage1AstGen *ag, Scope *parent_scope, AstNode *b
     assert(block_node->type == NodeTypeBlock);
 
     ZigList<IrInstSrc *> incoming_values = {0};
-    ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
+    ZigList<Stage1ZirBasicBlock *> incoming_blocks = {0};
 
     if (is_duplicate_label(ag->codegen, parent_scope, block_node, block_node->data.block.name))
         return ag->codegen->invalid_inst_src;
@@ -3479,7 +3479,7 @@ static IrInstSrc *ir_gen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) 
     IrInstSrc *val1 = ir_gen_node(ag, node->data.bin_op_expr.op1, scope);
     if (val1 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
-    IrBasicBlockSrc *post_val1_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *post_val1_block = ag->current_basic_block;
 
     IrInstSrc *is_comptime;
     if (ir_should_inline(ag->exec, scope)) {
@@ -3489,9 +3489,9 @@ static IrInstSrc *ir_gen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) 
     }
 
     // block for when val1 == false
-    IrBasicBlockSrc *false_block = ir_create_basic_block(ag, scope, "BoolOrFalse");
+    Stage1ZirBasicBlock *false_block = ir_create_basic_block(ag, scope, "BoolOrFalse");
     // block for when val1 == true (don't even evaluate the second part)
-    IrBasicBlockSrc *true_block = ir_create_basic_block(ag, scope, "BoolOrTrue");
+    Stage1ZirBasicBlock *true_block = ir_create_basic_block(ag, scope, "BoolOrTrue");
 
     ir_build_cond_br(ag, scope, node, val1, true_block, false_block, is_comptime);
 
@@ -3499,7 +3499,7 @@ static IrInstSrc *ir_gen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) 
     IrInstSrc *val2 = ir_gen_node(ag, node->data.bin_op_expr.op2, scope);
     if (val2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
-    IrBasicBlockSrc *post_val2_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *post_val2_block = ag->current_basic_block;
 
     ir_build_br(ag, scope, node, true_block, is_comptime);
 
@@ -3508,7 +3508,7 @@ static IrInstSrc *ir_gen_bool_or(Stage1AstGen *ag, Scope *scope, AstNode *node) 
     IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = val1;
     incoming_values[1] = val2;
-    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
+    Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = post_val1_block;
     incoming_blocks[1] = post_val2_block;
 
@@ -3521,7 +3521,7 @@ static IrInstSrc *ir_gen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node)
     IrInstSrc *val1 = ir_gen_node(ag, node->data.bin_op_expr.op1, scope);
     if (val1 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
-    IrBasicBlockSrc *post_val1_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *post_val1_block = ag->current_basic_block;
 
     IrInstSrc *is_comptime;
     if (ir_should_inline(ag->exec, scope)) {
@@ -3531,9 +3531,9 @@ static IrInstSrc *ir_gen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node)
     }
 
     // block for when val1 == true
-    IrBasicBlockSrc *true_block = ir_create_basic_block(ag, scope, "BoolAndTrue");
+    Stage1ZirBasicBlock *true_block = ir_create_basic_block(ag, scope, "BoolAndTrue");
     // block for when val1 == false (don't even evaluate the second part)
-    IrBasicBlockSrc *false_block = ir_create_basic_block(ag, scope, "BoolAndFalse");
+    Stage1ZirBasicBlock *false_block = ir_create_basic_block(ag, scope, "BoolAndFalse");
 
     ir_build_cond_br(ag, scope, node, val1, true_block, false_block, is_comptime);
 
@@ -3541,7 +3541,7 @@ static IrInstSrc *ir_gen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node)
     IrInstSrc *val2 = ir_gen_node(ag, node->data.bin_op_expr.op2, scope);
     if (val2 == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
-    IrBasicBlockSrc *post_val2_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *post_val2_block = ag->current_basic_block;
 
     ir_build_br(ag, scope, node, false_block, is_comptime);
 
@@ -3550,7 +3550,7 @@ static IrInstSrc *ir_gen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node)
     IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = val1;
     incoming_values[1] = val2;
-    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
+    Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = post_val1_block;
     incoming_blocks[1] = post_val2_block;
 
@@ -3558,7 +3558,7 @@ static IrInstSrc *ir_gen_bool_and(Stage1AstGen *ag, Scope *scope, AstNode *node)
 }
 
 static ResultLocPeerParent *ir_build_result_peers(Stage1AstGen *ag, IrInstSrc *cond_br_inst,
-        IrBasicBlockSrc *end_block, ResultLoc *parent, IrInstSrc *is_comptime)
+        Stage1ZirBasicBlock *end_block, ResultLoc *parent, IrInstSrc *is_comptime)
 {
     ResultLocPeerParent *peer_parent = heap::c_allocator.create<ResultLocPeerParent>();
     peer_parent->base.id = ResultLocIdPeerParent;
@@ -3578,7 +3578,7 @@ static ResultLocPeerParent *ir_build_result_peers(Stage1AstGen *ag, IrInstSrc *c
 }
 
 static ResultLocPeerParent *ir_build_binary_result_peers(Stage1AstGen *ag, IrInstSrc *cond_br_inst,
-        IrBasicBlockSrc *else_block, IrBasicBlockSrc *end_block, ResultLoc *parent, IrInstSrc *is_comptime)
+        Stage1ZirBasicBlock *else_block, Stage1ZirBasicBlock *end_block, ResultLoc *parent, IrInstSrc *is_comptime)
 {
     ResultLocPeerParent *peer_parent = ir_build_result_peers(ag, cond_br_inst, end_block, parent, is_comptime);
 
@@ -3613,9 +3613,9 @@ static IrInstSrc *ir_gen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *
         is_comptime = ir_build_test_comptime(ag, parent_scope, node, is_non_null);
     }
 
-    IrBasicBlockSrc *ok_block = ir_create_basic_block(ag, parent_scope, "OptionalNonNull");
-    IrBasicBlockSrc *null_block = ir_create_basic_block(ag, parent_scope, "OptionalNull");
-    IrBasicBlockSrc *end_block = ir_create_basic_block(ag, parent_scope, "OptionalEnd");
+    Stage1ZirBasicBlock *ok_block = ir_create_basic_block(ag, parent_scope, "OptionalNonNull");
+    Stage1ZirBasicBlock *null_block = ir_create_basic_block(ag, parent_scope, "OptionalNull");
+    Stage1ZirBasicBlock *end_block = ir_create_basic_block(ag, parent_scope, "OptionalEnd");
     IrInstSrc *cond_br_inst = ir_build_cond_br(ag, parent_scope, node, is_non_null, ok_block, null_block, is_comptime);
 
     ResultLocPeerParent *peer_parent = ir_build_binary_result_peers(ag, cond_br_inst, ok_block, end_block,
@@ -3626,7 +3626,7 @@ static IrInstSrc *ir_gen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *
             &peer_parent->peers.at(0)->base);
     if (null_result == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
-    IrBasicBlockSrc *after_null_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *after_null_block = ag->current_basic_block;
     if (!instr_is_unreachable(null_result))
         ir_mark_gen(ir_build_br(ag, parent_scope, node, end_block, is_comptime));
 
@@ -3634,14 +3634,14 @@ static IrInstSrc *ir_gen_orelse(Stage1AstGen *ag, Scope *parent_scope, AstNode *
     IrInstSrc *unwrapped_ptr = ir_build_optional_unwrap_ptr(ag, parent_scope, node, maybe_ptr, false);
     IrInstSrc *unwrapped_payload = ir_build_load_ptr(ag, parent_scope, node, unwrapped_ptr);
     ir_build_end_expr(ag, parent_scope, node, unwrapped_payload, &peer_parent->peers.at(1)->base);
-    IrBasicBlockSrc *after_ok_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *after_ok_block = ag->current_basic_block;
     ir_build_br(ag, parent_scope, node, end_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, end_block);
     IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = null_result;
     incoming_values[1] = unwrapped_payload;
-    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
+    Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = after_null_block;
     incoming_blocks[1] = after_ok_block;
     IrInstSrc *phi = ir_build_phi(ag, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
@@ -5372,9 +5372,9 @@ static IrInstSrc *ir_gen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *n
     AstNode *then_node = node->data.if_bool_expr.then_block;
     AstNode *else_node = node->data.if_bool_expr.else_node;
 
-    IrBasicBlockSrc *then_block = ir_create_basic_block(ag, scope, "Then");
-    IrBasicBlockSrc *else_block = ir_create_basic_block(ag, scope, "Else");
-    IrBasicBlockSrc *endif_block = ir_create_basic_block(ag, scope, "EndIf");
+    Stage1ZirBasicBlock *then_block = ir_create_basic_block(ag, scope, "Then");
+    Stage1ZirBasicBlock *else_block = ir_create_basic_block(ag, scope, "Else");
+    Stage1ZirBasicBlock *endif_block = ir_create_basic_block(ag, scope, "EndIf");
 
     IrInstSrc *cond_br_inst = ir_build_cond_br(ag, scope, node, condition,
             then_block, else_block, is_comptime);
@@ -5388,7 +5388,7 @@ static IrInstSrc *ir_gen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *n
             &peer_parent->peers.at(0)->base);
     if (then_expr_result == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
-    IrBasicBlockSrc *after_then_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *after_then_block = ag->current_basic_block;
     if (!instr_is_unreachable(then_expr_result))
         ir_mark_gen(ir_build_br(ag, scope, node, endif_block, is_comptime));
 
@@ -5402,7 +5402,7 @@ static IrInstSrc *ir_gen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *n
         else_expr_result = ir_build_const_void(ag, scope, node);
         ir_build_end_expr(ag, scope, node, else_expr_result, &peer_parent->peers.at(1)->base);
     }
-    IrBasicBlockSrc *after_else_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *after_else_block = ag->current_basic_block;
     if (!instr_is_unreachable(else_expr_result))
         ir_mark_gen(ir_build_br(ag, scope, node, endif_block, is_comptime));
 
@@ -5410,7 +5410,7 @@ static IrInstSrc *ir_gen_if_bool_expr(Stage1AstGen *ag, Scope *scope, AstNode *n
     IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = then_expr_result;
     incoming_values[1] = else_expr_result;
-    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
+    Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
@@ -5912,12 +5912,12 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
     AstNode *continue_expr_node = node->data.while_expr.continue_expr;
     AstNode *else_node = node->data.while_expr.else_node;
 
-    IrBasicBlockSrc *cond_block = ir_create_basic_block(ag, scope, "WhileCond");
-    IrBasicBlockSrc *body_block = ir_create_basic_block(ag, scope, "WhileBody");
-    IrBasicBlockSrc *continue_block = continue_expr_node ?
+    Stage1ZirBasicBlock *cond_block = ir_create_basic_block(ag, scope, "WhileCond");
+    Stage1ZirBasicBlock *body_block = ir_create_basic_block(ag, scope, "WhileBody");
+    Stage1ZirBasicBlock *continue_block = continue_expr_node ?
         ir_create_basic_block(ag, scope, "WhileContinue") : cond_block;
-    IrBasicBlockSrc *end_block = ir_create_basic_block(ag, scope, "WhileEnd");
-    IrBasicBlockSrc *else_block = else_node ?
+    Stage1ZirBasicBlock *end_block = ir_create_basic_block(ag, scope, "WhileEnd");
+    Stage1ZirBasicBlock *else_block = else_node ?
         ir_create_basic_block(ag, scope, "WhileElse") : end_block;
 
     IrInstSrc *is_comptime = ir_build_const_bool(ag, scope, node,
@@ -5948,7 +5948,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             return err_val_ptr;
         IrInstSrc *is_err = ir_build_test_err_src(ag, scope, node->data.while_expr.condition, err_val_ptr,
                 true, false);
-        IrBasicBlockSrc *after_cond_block = ag->current_basic_block;
+        Stage1ZirBasicBlock *after_cond_block = ag->current_basic_block;
         IrInstSrc *void_else_result = else_node ? nullptr : ir_mark_gen(ir_build_const_void(ag, scope, node));
         IrInstSrc *cond_br_inst;
         if (!instr_is_unreachable(is_err)) {
@@ -5973,7 +5973,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         }
 
         ZigList<IrInstSrc *> incoming_values = {0};
-        ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
+        ZigList<Stage1ZirBasicBlock *> incoming_blocks = {0};
 
         if (is_duplicate_label(ag->codegen, payload_scope, node, node->data.while_expr.name))
             return ag->codegen->invalid_inst_src;
@@ -6037,7 +6037,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             return else_result;
         if (!instr_is_unreachable(else_result))
             ir_mark_gen(ir_build_br(ag, scope, node, end_block, is_comptime));
-        IrBasicBlockSrc *after_else_block = ag->current_basic_block;
+        Stage1ZirBasicBlock *after_else_block = ag->current_basic_block;
         ir_set_cursor_at_end_and_append_block(ag, end_block);
         if (else_result) {
             incoming_blocks.append(after_else_block);
@@ -6069,7 +6069,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             return maybe_val_ptr;
         IrInstSrc *maybe_val = ir_build_load_ptr(ag, scope, node->data.while_expr.condition, maybe_val_ptr);
         IrInstSrc *is_non_null = ir_build_test_non_null_src(ag, scope, node->data.while_expr.condition, maybe_val);
-        IrBasicBlockSrc *after_cond_block = ag->current_basic_block;
+        Stage1ZirBasicBlock *after_cond_block = ag->current_basic_block;
         IrInstSrc *void_else_result = else_node ? nullptr : ir_mark_gen(ir_build_const_void(ag, scope, node));
         IrInstSrc *cond_br_inst;
         if (!instr_is_unreachable(is_non_null)) {
@@ -6091,7 +6091,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         build_decl_var_and_init(ag, child_scope, symbol_node, payload_var, var_value, buf_ptr(var_symbol), is_comptime);
 
         ZigList<IrInstSrc *> incoming_values = {0};
-        ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
+        ZigList<Stage1ZirBasicBlock *> incoming_blocks = {0};
 
         if (is_duplicate_label(ag->codegen, child_scope, node, node->data.while_expr.name))
             return ag->codegen->invalid_inst_src;
@@ -6148,7 +6148,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             if (!instr_is_unreachable(else_result))
                 ir_mark_gen(ir_build_br(ag, scope, node, end_block, is_comptime));
         }
-        IrBasicBlockSrc *after_else_block = ag->current_basic_block;
+        Stage1ZirBasicBlock *after_else_block = ag->current_basic_block;
         ir_set_cursor_at_end_and_append_block(ag, end_block);
         if (else_result) {
             incoming_blocks.append(after_else_block);
@@ -6169,7 +6169,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         IrInstSrc *cond_val = ir_gen_node(ag, node->data.while_expr.condition, scope);
         if (cond_val == ag->codegen->invalid_inst_src)
             return cond_val;
-        IrBasicBlockSrc *after_cond_block = ag->current_basic_block;
+        Stage1ZirBasicBlock *after_cond_block = ag->current_basic_block;
         IrInstSrc *void_else_result = else_node ? nullptr : ir_mark_gen(ir_build_const_void(ag, scope, node));
         IrInstSrc *cond_br_inst;
         if (!instr_is_unreachable(cond_val)) {
@@ -6186,7 +6186,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         ir_set_cursor_at_end_and_append_block(ag, body_block);
 
         ZigList<IrInstSrc *> incoming_values = {0};
-        ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
+        ZigList<Stage1ZirBasicBlock *> incoming_blocks = {0};
 
         Scope *subexpr_scope = create_runtime_scope(ag->codegen, node, scope, is_comptime);
 
@@ -6245,7 +6245,7 @@ static IrInstSrc *ir_gen_while_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
             if (!instr_is_unreachable(else_result))
                 ir_mark_gen(ir_build_br(ag, scope, node, end_block, is_comptime));
         }
-        IrBasicBlockSrc *after_else_block = ag->current_basic_block;
+        Stage1ZirBasicBlock *after_else_block = ag->current_basic_block;
         ir_set_cursor_at_end_and_append_block(ag, end_block);
         if (else_result) {
             incoming_blocks.append(after_else_block);
@@ -6312,11 +6312,11 @@ static IrInstSrc *ir_gen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
     IrInstSrc *index_ptr = ir_build_var_ptr(ag, parent_scope, node, index_var);
 
 
-    IrBasicBlockSrc *cond_block = ir_create_basic_block(ag, parent_scope, "ForCond");
-    IrBasicBlockSrc *body_block = ir_create_basic_block(ag, parent_scope, "ForBody");
-    IrBasicBlockSrc *end_block = ir_create_basic_block(ag, parent_scope, "ForEnd");
-    IrBasicBlockSrc *else_block = else_node ? ir_create_basic_block(ag, parent_scope, "ForElse") : end_block;
-    IrBasicBlockSrc *continue_block = ir_create_basic_block(ag, parent_scope, "ForContinue");
+    Stage1ZirBasicBlock *cond_block = ir_create_basic_block(ag, parent_scope, "ForCond");
+    Stage1ZirBasicBlock *body_block = ir_create_basic_block(ag, parent_scope, "ForBody");
+    Stage1ZirBasicBlock *end_block = ir_create_basic_block(ag, parent_scope, "ForEnd");
+    Stage1ZirBasicBlock *else_block = else_node ? ir_create_basic_block(ag, parent_scope, "ForElse") : end_block;
+    Stage1ZirBasicBlock *continue_block = ir_create_basic_block(ag, parent_scope, "ForContinue");
 
     Buf *len_field_name = buf_create_from_str("len");
     IrInstSrc *len_ref = ir_build_field_ptr(ag, parent_scope, node, array_val_ptr, len_field_name, false);
@@ -6326,7 +6326,7 @@ static IrInstSrc *ir_gen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
     ir_set_cursor_at_end_and_append_block(ag, cond_block);
     IrInstSrc *index_val = ir_build_load_ptr(ag, &spill_scope->base, node, index_ptr);
     IrInstSrc *cond = ir_build_bin_op(ag, parent_scope, node, IrBinOpCmpLessThan, index_val, len_val, false);
-    IrBasicBlockSrc *after_cond_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *after_cond_block = ag->current_basic_block;
     IrInstSrc *void_else_value = else_node ? nullptr : ir_mark_gen(ir_build_const_void(ag, parent_scope, node));
     IrInstSrc *cond_br_inst = ir_mark_gen(ir_build_cond_br(ag, parent_scope, node, cond,
                 body_block, else_block, is_comptime));
@@ -6349,7 +6349,7 @@ static IrInstSrc *ir_gen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
         return ag->codegen->invalid_inst_src;
 
     ZigList<IrInstSrc *> incoming_values = {0};
-    ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
+    ZigList<Stage1ZirBasicBlock *> incoming_blocks = {0};
     ScopeLoop *loop_scope = create_loop_scope(ag->codegen, node, child_scope);
     loop_scope->break_block = end_block;
     loop_scope->continue_block = continue_block;
@@ -6396,7 +6396,7 @@ static IrInstSrc *ir_gen_for_expr(Stage1AstGen *ag, Scope *parent_scope, AstNode
         if (!instr_is_unreachable(else_result))
             ir_mark_gen(ir_build_br(ag, parent_scope, node, end_block, is_comptime));
     }
-    IrBasicBlockSrc *after_else_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *after_else_block = ag->current_basic_block;
     ir_set_cursor_at_end_and_append_block(ag, end_block);
 
     if (else_result) {
@@ -6667,9 +6667,9 @@ static IrInstSrc *ir_gen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNod
     IrInstSrc *maybe_val = ir_build_load_ptr(ag, scope, node, maybe_val_ptr);
     IrInstSrc *is_non_null = ir_build_test_non_null_src(ag, scope, node, maybe_val);
 
-    IrBasicBlockSrc *then_block = ir_create_basic_block(ag, scope, "OptionalThen");
-    IrBasicBlockSrc *else_block = ir_create_basic_block(ag, scope, "OptionalElse");
-    IrBasicBlockSrc *endif_block = ir_create_basic_block(ag, scope, "OptionalEndIf");
+    Stage1ZirBasicBlock *then_block = ir_create_basic_block(ag, scope, "OptionalThen");
+    Stage1ZirBasicBlock *else_block = ir_create_basic_block(ag, scope, "OptionalElse");
+    Stage1ZirBasicBlock *endif_block = ir_create_basic_block(ag, scope, "OptionalEndIf");
 
     IrInstSrc *is_comptime;
     if (ir_should_inline(ag->exec, scope)) {
@@ -6705,7 +6705,7 @@ static IrInstSrc *ir_gen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNod
             &peer_parent->peers.at(0)->base);
     if (then_expr_result == ag->codegen->invalid_inst_src)
         return then_expr_result;
-    IrBasicBlockSrc *after_then_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *after_then_block = ag->current_basic_block;
     if (!instr_is_unreachable(then_expr_result))
         ir_mark_gen(ir_build_br(ag, scope, node, endif_block, is_comptime));
 
@@ -6719,7 +6719,7 @@ static IrInstSrc *ir_gen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNod
         else_expr_result = ir_build_const_void(ag, scope, node);
         ir_build_end_expr(ag, scope, node, else_expr_result, &peer_parent->peers.at(1)->base);
     }
-    IrBasicBlockSrc *after_else_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *after_else_block = ag->current_basic_block;
     if (!instr_is_unreachable(else_expr_result))
         ir_mark_gen(ir_build_br(ag, scope, node, endif_block, is_comptime));
 
@@ -6727,7 +6727,7 @@ static IrInstSrc *ir_gen_if_optional_expr(Stage1AstGen *ag, Scope *scope, AstNod
     IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = then_expr_result;
     incoming_values[1] = else_expr_result;
-    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
+    Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
@@ -6755,9 +6755,9 @@ static IrInstSrc *ir_gen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
     IrInstSrc *err_val = ir_build_load_ptr(ag, scope, node, err_val_ptr);
     IrInstSrc *is_err = ir_build_test_err_src(ag, scope, node, err_val_ptr, true, false);
 
-    IrBasicBlockSrc *ok_block = ir_create_basic_block(ag, scope, "TryOk");
-    IrBasicBlockSrc *else_block = ir_create_basic_block(ag, scope, "TryElse");
-    IrBasicBlockSrc *endif_block = ir_create_basic_block(ag, scope, "TryEnd");
+    Stage1ZirBasicBlock *ok_block = ir_create_basic_block(ag, scope, "TryOk");
+    Stage1ZirBasicBlock *else_block = ir_create_basic_block(ag, scope, "TryElse");
+    Stage1ZirBasicBlock *endif_block = ir_create_basic_block(ag, scope, "TryEnd");
 
     bool force_comptime = ir_should_inline(ag->exec, scope);
     IrInstSrc *is_comptime = force_comptime ? ir_build_const_bool(ag, scope, node, true) : ir_build_test_comptime(ag, scope, node, is_err);
@@ -6788,7 +6788,7 @@ static IrInstSrc *ir_gen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
             &peer_parent->peers.at(0)->base);
     if (then_expr_result == ag->codegen->invalid_inst_src)
         return then_expr_result;
-    IrBasicBlockSrc *after_then_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *after_then_block = ag->current_basic_block;
     if (!instr_is_unreachable(then_expr_result))
         ir_mark_gen(ir_build_br(ag, scope, node, endif_block, is_comptime));
 
@@ -6817,7 +6817,7 @@ static IrInstSrc *ir_gen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
         else_expr_result = ir_build_const_void(ag, scope, node);
         ir_build_end_expr(ag, scope, node, else_expr_result, &peer_parent->peers.at(1)->base);
     }
-    IrBasicBlockSrc *after_else_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *after_else_block = ag->current_basic_block;
     if (!instr_is_unreachable(else_expr_result))
         ir_mark_gen(ir_build_br(ag, scope, node, endif_block, is_comptime));
 
@@ -6825,7 +6825,7 @@ static IrInstSrc *ir_gen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
     IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = then_expr_result;
     incoming_values[1] = else_expr_result;
-    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
+    Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
@@ -6834,9 +6834,9 @@ static IrInstSrc *ir_gen_if_err_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
 }
 
 static bool ir_gen_switch_prong_expr(Stage1AstGen *ag, Scope *scope, AstNode *switch_node, AstNode *prong_node,
-        IrBasicBlockSrc *end_block, IrInstSrc *is_comptime, IrInstSrc *var_is_comptime,
+        Stage1ZirBasicBlock *end_block, IrInstSrc *is_comptime, IrInstSrc *var_is_comptime,
         IrInstSrc *target_value_ptr, IrInstSrc **prong_values, size_t prong_values_len,
-        ZigList<IrBasicBlockSrc *> *incoming_blocks, ZigList<IrInstSrc *> *incoming_values,
+        ZigList<Stage1ZirBasicBlock *> *incoming_blocks, ZigList<IrInstSrc *> *incoming_values,
         IrInstSrcSwitchElseVar **out_switch_else_var, LVal lval, ResultLoc *result_loc)
 {
     assert(switch_node->type == NodeTypeSwitchExpr);
@@ -6898,8 +6898,8 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
         return target_value_ptr;
     IrInstSrc *target_value = ir_build_switch_target(ag, scope, node, target_value_ptr);
 
-    IrBasicBlockSrc *else_block = ir_create_basic_block(ag, scope, "SwitchElse");
-    IrBasicBlockSrc *end_block = ir_create_basic_block(ag, scope, "SwitchEnd");
+    Stage1ZirBasicBlock *else_block = ir_create_basic_block(ag, scope, "SwitchElse");
+    Stage1ZirBasicBlock *end_block = ir_create_basic_block(ag, scope, "SwitchEnd");
 
     size_t prong_count = node->data.switch_expr.prongs.length;
     ZigList<IrInstSrcSwitchBrCase> cases = {0};
@@ -6915,7 +6915,7 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
     }
 
     ZigList<IrInstSrc *> incoming_values = {0};
-    ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
+    ZigList<Stage1ZirBasicBlock *> incoming_blocks = {0};
     ZigList<IrInstSrcCheckSwitchProngsRange> check_ranges = {0};
 
     IrInstSrcSwitchElseVar *switch_else_var = nullptr;
@@ -6991,8 +6991,8 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
                 }
             }
 
-            IrBasicBlockSrc *range_block_yes = ir_create_basic_block(ag, scope, "SwitchRangeYes");
-            IrBasicBlockSrc *range_block_no = ir_create_basic_block(ag, scope, "SwitchRangeNo");
+            Stage1ZirBasicBlock *range_block_yes = ir_create_basic_block(ag, scope, "SwitchRangeYes");
+            Stage1ZirBasicBlock *range_block_no = ir_create_basic_block(ag, scope, "SwitchRangeNo");
 
             assert(ok_bit);
             assert(last_item_node);
@@ -7052,7 +7052,7 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
             }
             ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);
 
-            IrBasicBlockSrc *prev_block = ag->current_basic_block;
+            Stage1ZirBasicBlock *prev_block = ag->current_basic_block;
             if (peer_parent->peers.length > 0) {
                 peer_parent->peers.last()->next_bb = else_block;
             }
@@ -7081,7 +7081,7 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
 
         ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);
 
-        IrBasicBlockSrc *prong_block = ir_create_basic_block(ag, scope, "SwitchProng");
+        Stage1ZirBasicBlock *prong_block = ir_create_basic_block(ag, scope, "SwitchProng");
         IrInstSrc **items = heap::c_allocator.allocate<IrInstSrc *>(prong_item_count);
 
         for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
@@ -7103,7 +7103,7 @@ static IrInstSrc *ir_gen_switch_expr(Stage1AstGen *ag, Scope *scope, AstNode *no
             items[item_i] = item_value;
         }
 
-        IrBasicBlockSrc *prev_block = ag->current_basic_block;
+        Stage1ZirBasicBlock *prev_block = ag->current_basic_block;
         if (peer_parent->peers.length > 0) {
             peer_parent->peers.last()->next_bb = prong_block;
         }
@@ -7202,7 +7202,7 @@ static IrInstSrc *ir_gen_return_from_block(Stage1AstGen *ag, Scope *break_scope,
         result_value = ir_build_const_void(ag, break_scope, node);
     }
 
-    IrBasicBlockSrc *dest_block = block_scope->end_block;
+    Stage1ZirBasicBlock *dest_block = block_scope->end_block;
     if (!ir_gen_defers_for_block(ag, break_scope, dest_block->scope, nullptr, nullptr))
         return ag->codegen->invalid_inst_src;
 
@@ -7279,7 +7279,7 @@ static IrInstSrc *ir_gen_break(Stage1AstGen *ag, Scope *break_scope, AstNode *no
         result_value = ir_build_const_void(ag, break_scope, node);
     }
 
-    IrBasicBlockSrc *dest_block = loop_scope->break_block;
+    Stage1ZirBasicBlock *dest_block = loop_scope->break_block;
     if (!ir_gen_defers_for_block(ag, break_scope, dest_block->scope, nullptr, nullptr))
         return ag->codegen->invalid_inst_src;
 
@@ -7341,7 +7341,7 @@ static IrInstSrc *ir_gen_continue(Stage1AstGen *ag, Scope *continue_scope, AstNo
     }
     runtime_scopes.deinit();
 
-    IrBasicBlockSrc *dest_block = loop_scope->continue_block;
+    Stage1ZirBasicBlock *dest_block = loop_scope->continue_block;
     if (!ir_gen_defers_for_block(ag, continue_scope, dest_block->scope, nullptr, nullptr))
         return ag->codegen->invalid_inst_src;
     return ir_mark_gen(ir_build_br(ag, continue_scope, node, dest_block, is_comptime));
@@ -7440,9 +7440,9 @@ static IrInstSrc *ir_gen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *n
         is_comptime = ir_build_test_comptime(ag, parent_scope, node, is_err);
     }
 
-    IrBasicBlockSrc *ok_block = ir_create_basic_block(ag, parent_scope, "UnwrapErrOk");
-    IrBasicBlockSrc *err_block = ir_create_basic_block(ag, parent_scope, "UnwrapErrError");
-    IrBasicBlockSrc *end_block = ir_create_basic_block(ag, parent_scope, "UnwrapErrEnd");
+    Stage1ZirBasicBlock *ok_block = ir_create_basic_block(ag, parent_scope, "UnwrapErrOk");
+    Stage1ZirBasicBlock *err_block = ir_create_basic_block(ag, parent_scope, "UnwrapErrError");
+    Stage1ZirBasicBlock *end_block = ir_create_basic_block(ag, parent_scope, "UnwrapErrEnd");
     IrInstSrc *cond_br_inst = ir_build_cond_br(ag, parent_scope, node, is_err, err_block, ok_block, is_comptime);
 
     ResultLocPeerParent *peer_parent = ir_build_binary_result_peers(ag, cond_br_inst, ok_block, end_block, result_loc,
@@ -7468,7 +7468,7 @@ static IrInstSrc *ir_gen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *n
     IrInstSrc *err_result = ir_gen_node_extra(ag, op2_node, err_scope, LValNone, &peer_parent->peers.at(0)->base);
     if (err_result == ag->codegen->invalid_inst_src)
         return ag->codegen->invalid_inst_src;
-    IrBasicBlockSrc *after_err_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *after_err_block = ag->current_basic_block;
     if (!instr_is_unreachable(err_result))
         ir_mark_gen(ir_build_br(ag, parent_scope, node, end_block, is_comptime));
 
@@ -7476,14 +7476,14 @@ static IrInstSrc *ir_gen_catch(Stage1AstGen *ag, Scope *parent_scope, AstNode *n
     IrInstSrc *unwrapped_ptr = ir_build_unwrap_err_payload_src(ag, parent_scope, node, err_union_ptr, false, false);
     IrInstSrc *unwrapped_payload = ir_build_load_ptr(ag, parent_scope, node, unwrapped_ptr);
     ir_build_end_expr(ag, parent_scope, node, unwrapped_payload, &peer_parent->peers.at(1)->base);
-    IrBasicBlockSrc *after_ok_block = ag->current_basic_block;
+    Stage1ZirBasicBlock *after_ok_block = ag->current_basic_block;
     ir_build_br(ag, parent_scope, node, end_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(ag, end_block);
     IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = err_result;
     incoming_values[1] = unwrapped_payload;
-    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
+    Stage1ZirBasicBlock **incoming_blocks = heap::c_allocator.allocate<Stage1ZirBasicBlock *>(2);
     incoming_blocks[0] = after_err_block;
     incoming_blocks[1] = after_ok_block;
     IrInstSrc *phi = ir_build_phi(ag, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
@@ -8045,7 +8045,7 @@ bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *sta
     ag->exec = stage1_zir;
     ag->main_block_node = node;
 
-    IrBasicBlockSrc *entry_block = ir_create_basic_block(ag, scope, "Entry");
+    Stage1ZirBasicBlock *entry_block = ir_create_basic_block(ag, scope, "Entry");
     ir_set_cursor_at_end_and_append_block(ag, entry_block);
     // Entry block gets a reference because we enter it to begin.
     ir_ref_bb(ag->current_basic_block);
