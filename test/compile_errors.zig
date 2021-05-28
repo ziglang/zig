@@ -34,9 +34,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const c: *S = &.{};
         \\}
     , &[_][]const u8{
-        "mp.zig:2:31: error: expected type '[][]const u8', found '*const struct:2:31'",
-        "mp.zig:5:33: error: expected type '*[2][]const u8', found '*const struct:5:33'",
-        "mp.zig:9:21: error: expected type '*S', found '*const struct:9:21'",
+        "tmp.zig:2:31: error: expected type '[][]const u8', found '*const struct:2:31'",
+        "tmp.zig:5:33: error: expected type '*[2][]const u8', found '*const struct:5:33'",
+        "tmp.zig:9:21: error: expected type '*S', found '*const struct:9:21'",
     });
 
     cases.add("@Type() union payload is undefined",
@@ -8416,6 +8416,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var sequence = "repeat".*** 10;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:30: error: `.*` can't be followed by `*`. Are you missing a space?",
+        "tmp.zig:2:30: error: `.*` cannot be followed by `*`. Are you missing a space?",
     });
 }

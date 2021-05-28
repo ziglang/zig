@@ -747,6 +747,9 @@ void tokenize(const char *source, Tokenization *out) {
                     case 'u':
                         t.state = TokenizeState_char_literal_unicode_escape_saw_u;
                         break;
+                    case 'U':
+                        invalid_char_error(&t, c);
+                        break;
                     default:
                         t.state = TokenizeState_char_literal_end;
                         break;
@@ -785,7 +788,7 @@ void tokenize(const char *source, Tokenization *out) {
                         break;
                     case '}':
                         if (seen_escape_digits == 0) {
-                            tokenize_error(&t, "missing unicode escape sequence");
+                            tokenize_error(&t, "empty unicode escape sequence");
                             break;
                         }
                         t.state = TokenizeState_char_literal_end;
