@@ -34,6 +34,12 @@ pub fn Writer(
             return std.fmt.format(self, format, args);
         }
 
+        pub fn printAndCount(self: Self, comptime format: []const u8, args: anytype) Error!u64 {
+            var countingWriter = std.io.countingWriter(self);
+            try countingWriter.writer().print(format, args);
+            return countingWriter.bytes_written;
+        }
+
         pub fn writeByte(self: Self, byte: u8) Error!void {
             const array = [1]u8{byte};
             return self.writeAll(&array);
@@ -94,4 +100,11 @@ pub fn Writer(
             return self.writeAll(mem.asBytes(&value));
         }
     };
+}
+
+test "Writer.printAndCount" {
+    const constantText = "bruh moment";
+    var writer = std.io.null_writer;
+    const bytesPrinted = writer.printAndCount("{s}", .{constantText}) catch unreachable;
+    try std.testing.expectEqual(@as(u64, constantText.len), bytesPrinted);
 }
