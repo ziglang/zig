@@ -5491,9 +5491,11 @@ static enum ZigLLVM_AtomicRMWBinOp to_ZigLLVMAtomicRMWBinOp(AtomicRmwOp op, bool
     zig_unreachable();
 }
 
-static LLVMTypeRef get_atomic_abi_type(CodeGen *g, IrInstGen *instruction) {
+static LLVMTypeRef get_atomic_abi_type(CodeGen *g, IrInstGen *instruction, bool RMWXchg) {
     // If the operand type of an atomic operation is not byte sized we need to
     // widen it before using it and then truncate the result.
+    // RMW exchange of floating-point values is bitcasted to same-sized integer
+    // types to work around a LLVM deficiency when targeting ARM/AArch64.
 
     ir_assert(instruction->value->type->id == ZigTypeIdPointer, instruction);
     ZigType *operand_type = instruction->value->type->data.pointer.child_type;
@@ -5511,7 +5513,7 @@ static LLVMTypeRef get_atomic_abi_type(CodeGen *g, IrInstGen *instruction) {
             return nullptr;
         }
     } else if (operand_type->id == ZigTypeIdFloat) {
-        return nullptr;
+        return RMWXchg ? LLVMIntType(operand_type->abi_size * 8) : nullptr;
     } else if (operand_type->id == ZigTypeIdBool) {
         return g->builtin_types.entry_u8->llvm_type;
     } else {
@@ -5526,7 +5528,7 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutableGen *executable, I
     LLVMValueRef new_val = ir_llvm_value(g, instruction->new_value);
 
     ZigType *operand_type = instruction->new_value->value->type;
-    LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr);
+    LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr, false);
     if (actual_abi_type != nullptr) {
         // operand needs widening and truncating
         ptr_val = LLVMBuildBitCast(g->builder, ptr_val,
@@ -6315,20 +6317,27 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutableGen *executable
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
 
-    LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr);
+    LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr,
+            op == ZigLLVMAtomicRMWBinOpXchg);
     if (actual_abi_type != nullptr) {
-        // operand needs widening and truncating
+        // operand needs widening and truncating or bitcasting.
         LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, ptr,
             LLVMPointerType(actual_abi_type, 0), "");
         LLVMValueRef casted_operand;
-        if (operand_type->data.integral.is_signed) {
+        if (is_float) {
+            casted_operand = LLVMBuildBitCast(g->builder, operand, actual_abi_type, "");
+        } else if (operand_type->data.integral.is_signed) {
             casted_operand = LLVMBuildSExt(g->builder, operand, actual_abi_type, "");
         } else {
             casted_operand = LLVMBuildZExt(g->builder, operand, actual_abi_type, "");
         }
         LLVMValueRef uncasted_result = ZigLLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering,
                 g->is_single_threaded);
-        return LLVMBuildTrunc(g->builder, uncasted_result, get_llvm_type(g, operand_type), "");
+        if (is_float) {
+            return LLVMBuildBitCast(g->builder, uncasted_result, get_llvm_type(g, operand_type), "");
+        } else {
+            return LLVMBuildTrunc(g->builder, uncasted_result, get_llvm_type(g, operand_type), "");
+        }
     }
 
     if (get_codegen_ptr_type_bail(g, operand_type) == nullptr) {
@@ -6351,7 +6360,7 @@ static LLVMValueRef ir_render_atomic_load(CodeGen *g, IrExecutableGen *executabl
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
 
     ZigType *operand_type = instruction->ptr->value->type->data.pointer.child_type;
-    LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr);
+    LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr, false);
     if (actual_abi_type != nullptr) {
         // operand needs widening and truncating
         ptr = LLVMBuildBitCast(g->builder, ptr,
@@ -6372,7 +6381,7 @@ static LLVMValueRef ir_render_atomic_store(CodeGen *g, IrExecutableGen *executab
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
 
-    LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr);
+    LLVMTypeRef actual_abi_type = get_atomic_abi_type(g, instruction->ptr, false);
     if (actual_abi_type != nullptr) {
         // operand needs widening
         ptr = LLVMBuildBitCast(g->builder, ptr,
