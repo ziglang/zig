@@ -3654,9 +3654,6 @@ static void get_fully_qualified_decl_name(CodeGen *g, Buf *buf, Tld *tld, bool i
 static ZigFn *create_fn_raw(CodeGen *g, bool is_noinline) {
     ZigFn *fn_entry = heap::c_allocator.create<ZigFn>();
     fn_entry->ir_executable = heap::c_allocator.create<Stage1Zir>();
-
-    fn_entry->analyzed_executable.fn_entry = fn_entry;
-    fn_entry->ir_executable->fn_entry = fn_entry;
     fn_entry->is_noinline = is_noinline;
 
     return fn_entry;
@@ -5134,7 +5131,7 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
     size_t backward_branch_quota = max(fn->branch_quota, default_backward_branch_quota);
     ZigType *block_return_type = ir_analyze(g, fn->ir_executable, &fn->analyzed_executable,
             &backward_branch_count, &backward_branch_quota,
-            fn_type_id->return_type, return_type_node, nullptr);
+            fn_type_id->return_type, return_type_node, nullptr, fn);
     fn->src_implicit_return_type = block_return_type;
 
     if (type_is_invalid(block_return_type) || fn->analyzed_executable.first_err_trace_msg != nullptr) {
@@ -5231,7 +5228,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     ZigType *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
 
-    if (!ir_gen_fn(g, fn_table_entry)) {
+    if (!stage1_astgen_fn(g, fn_table_entry)) {
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }

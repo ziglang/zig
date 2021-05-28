@@ -49,6 +49,7 @@ struct IrAnalyze {
     Stage1Air *parent_exec;
     size_t *backward_branch_count;
     size_t *backward_branch_quota;
+    ZigFn *fn;
 
     // For the purpose of using in a debugger
     void dump();
@@ -4259,7 +4260,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                     continue;
                 }
                 bool allow_infer = cur_type->data.error_set.infer_fn != nullptr &&
-                        cur_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+                    cur_type->data.error_set.infer_fn == ira->fn;
                 if (!allow_infer && !resolve_inferred_error_set(ira->codegen, cur_type, cur_inst->base.source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
@@ -4327,7 +4328,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                 }
                 ZigType *cur_err_set_type = cur_type->data.error_union.err_set_type;
                 bool allow_infer = cur_err_set_type->data.error_set.infer_fn != nullptr &&
-                    cur_err_set_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+                    cur_err_set_type->data.error_set.infer_fn == ira->fn;
                 if (!allow_infer && !resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->base.source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
@@ -4382,7 +4383,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
 
         if (cur_type->id == ZigTypeIdErrorSet) {
             bool allow_infer = cur_type->data.error_set.infer_fn != nullptr &&
-                    cur_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+                    cur_type->data.error_set.infer_fn == ira->fn;
             if (!allow_infer && !resolve_inferred_error_set(ira->codegen, cur_type, cur_inst->base.source_node)) {
                 return ira->codegen->builtin_types.entry_invalid;
             }
@@ -4401,7 +4402,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                 if (prev_type->id == ZigTypeIdErrorUnion) {
                     err_set_type = prev_type->data.error_union.err_set_type;
                     allow_infer = err_set_type->data.error_set.infer_fn != nullptr &&
-                        err_set_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+                        err_set_type->data.error_set.infer_fn == ira->fn;
                 } else {
                     err_set_type = cur_type;
                 }
@@ -4465,9 +4466,9 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                     continue;
 
                 bool allow_infer_prev = prev_err_set_type->data.error_set.infer_fn != nullptr &&
-                        prev_err_set_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+                        prev_err_set_type->data.error_set.infer_fn == ira->fn;
                 bool allow_infer_cur = cur_err_set_type->data.error_set.infer_fn != nullptr &&
-                        cur_err_set_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+                        cur_err_set_type->data.error_set.infer_fn == ira->fn;
 
                 if (!allow_infer_prev && !resolve_inferred_error_set(ira->codegen, prev_err_set_type, cur_inst->base.source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
@@ -4651,7 +4652,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             if (err_set_type != nullptr) {
                 ZigType *cur_err_set_type = cur_type->data.error_union.err_set_type;
                 bool allow_infer = cur_err_set_type->data.error_set.infer_fn != nullptr &&
-                    cur_err_set_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+                    cur_err_set_type->data.error_set.infer_fn == ira->fn;
                 if (!allow_infer && !resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->base.source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
@@ -5595,11 +5596,10 @@ Error ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
     ir_executable->source_node = source_node;
     ir_executable->name = exec_name;
     ir_executable->is_inline = true;
-    ir_executable->fn_entry = fn_entry;
     ir_executable->c_import_buf = c_import_buf;
     ir_executable->begin_scope = scope;
 
-    if (!ir_gen(codegen, node, scope, ir_executable))
+    if (!stage1_astgen(codegen, node, scope, ir_executable, fn_entry))
         return ErrorSemanticAnalyzeFail;
 
     if (ir_executable->first_err_trace_msg != nullptr) {
@@ -5618,12 +5618,12 @@ Error ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
     analyzed_executable->source_exec = ir_executable;
     analyzed_executable->name = exec_name;
     analyzed_executable->is_inline = true;
-    analyzed_executable->fn_entry = fn_entry;
     analyzed_executable->c_import_buf = c_import_buf;
     analyzed_executable->begin_scope = scope;
     ZigType *result_type = ir_analyze(codegen, ir_executable, analyzed_executable,
             backward_branch_count, backward_branch_quota,
-            return_ptr->type->data.pointer.child_type, expected_type_source_node, return_ptr);
+            return_ptr->type->data.pointer.child_type, expected_type_source_node, return_ptr,
+            fn_entry);
     if (type_is_invalid(result_type)) {
         return ErrorSemanticAnalyzeFail;
     }
@@ -11025,7 +11025,7 @@ static IrInstGen *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstSrcDeclV
         return ira->codegen->invalid_inst_gen;
     }
 
-    ZigFn *fn_entry = ira->new_irb.exec->fn_entry;
+    ZigFn *fn_entry = ira->fn;
     if (fn_entry)
         fn_entry->variable_list.append(var);
 
@@ -11421,9 +11421,9 @@ static IrInstGen *ir_analyze_instruction_extern(IrAnalyze *ira, IrInstSrcExtern 
             is_thread_local, expr_type);
 }
 
-static bool exec_has_err_ret_trace(CodeGen *g, Stage1Zir *exec) {
-    ZigFn *fn_entry = exec->fn_entry;
-    return fn_entry != nullptr && fn_entry->calls_or_awaits_errorable_fn && g->have_err_ret_tracing;
+static bool ira_has_err_ret_trace(IrAnalyze *ira) {
+    ZigFn *fn = ira->fn;
+    return fn != nullptr && fn->calls_or_awaits_errorable_fn && ira->codegen->have_err_ret_tracing;
 }
 
 static IrInstGen *ir_analyze_instruction_error_return_trace(IrAnalyze *ira,
@@ -11432,7 +11432,7 @@ static IrInstGen *ir_analyze_instruction_error_return_trace(IrAnalyze *ira,
     ZigType *ptr_to_stack_trace_type = get_pointer_to_type(ira->codegen, get_stack_trace_type(ira->codegen), false);
     if (instruction->optional == IrInstErrorReturnTraceNull) {
         ZigType *optional_type = get_optional_type(ira->codegen, ptr_to_stack_trace_type);
-        if (!exec_has_err_ret_trace(ira->codegen, ira->zir)) {
+        if (!ira_has_err_ret_trace(ira)) {
             IrInstGen *result = ir_const(ira, &instruction->base.base, optional_type);
             ZigValue *out_val = result->value;
             assert(get_src_ptr_type(optional_type) != nullptr);
@@ -11504,7 +11504,7 @@ static IrInstGen *ir_analyze_alloca(IrAnalyze *ira, IrInst *source_inst, ZigType
             PtrLenSingle, align, 0, 0, false);
 
     if (!force_comptime) {
-        ZigFn *fn_entry = ira->new_irb.exec->fn_entry;
+        ZigFn *fn_entry = ira->fn;
         if (fn_entry != nullptr) {
             fn_entry->alloca_gen_list.append(result);
         }
@@ -11603,7 +11603,7 @@ static IrInstGen *ir_resolve_no_result_loc(IrAnalyze *ira, IrInst *suspend_sourc
     alloca_gen->base.value->type = get_pointer_to_type_extra(ira->codegen, value_type, false, false,
             PtrLenSingle, 0, 0, 0, false);
     set_up_result_loc_for_inferred_comptime(ira, &alloca_gen->base);
-    ZigFn *fn_entry = ira->new_irb.exec->fn_entry;
+    ZigFn *fn_entry = ira->fn;
     if (fn_entry != nullptr && get_scope_typeof(suspend_source_instr->scope) == nullptr) {
         fn_entry->alloca_gen_list.append(alloca_gen);
     }
@@ -12131,7 +12131,7 @@ static IrInstGen *ir_analyze_instruction_resolve_result(IrAnalyze *ira, IrInstSr
     if (result_loc != nullptr)
         return result_loc;
 
-    ZigFn *fn = ira->new_irb.exec->fn_entry;
+    ZigFn *fn = ira->fn;
     if (fn != nullptr && fn->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync &&
             instruction->result_loc->id == ResultLocIdReturn)
     {
@@ -12849,7 +12849,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             }
         }
 
-        ZigFn *parent_fn_entry = ira->new_irb.exec->fn_entry;
+        ZigFn *parent_fn_entry = ira->fn;
         assert(parent_fn_entry);
         for (size_t call_i = 0; call_i < args_len; call_i += 1) {
             IrInstGen *arg = args_ptr[call_i];
@@ -13017,7 +13017,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
         return ir_finish_anal(ira, &new_call_instruction->base);
     }
 
-    ZigFn *parent_fn_entry = ira->new_irb.exec->fn_entry;
+    ZigFn *parent_fn_entry = ira->fn;
     assert(fn_type_id->return_type != nullptr);
     assert(parent_fn_entry != nullptr);
     if (fn_type_can_fail(fn_type_id)) {
@@ -21069,7 +21069,7 @@ static IrInstGen *ir_analyze_instruction_frame_address(IrAnalyze *ira, IrInstSrc
 }
 
 static IrInstGen *ir_analyze_instruction_frame_handle(IrAnalyze *ira, IrInstSrcFrameHandle *instruction) {
-    ZigFn *fn = ira->new_irb.exec->fn_entry;
+    ZigFn *fn = ira->fn;
     ir_assert(fn != nullptr, &instruction->base.base);
 
     if (fn->inferred_async_node == nullptr) {
@@ -22932,7 +22932,7 @@ static IrInstGen *ir_analyze_instruction_set_align_stack(IrAnalyze *ira, IrInstS
         return ira->codegen->invalid_inst_gen;
     }
 
-    ZigFn *fn_entry = ira->new_irb.exec->fn_entry;
+    ZigFn *fn_entry = ira->fn;
     if (fn_entry == nullptr) {
         ir_add_error(ira, &instruction->base.base, buf_sprintf("@setAlignStack outside function"));
         return ira->codegen->invalid_inst_gen;
@@ -23952,7 +23952,7 @@ static IrInstGen *ir_analyze_instruction_suspend_finish(IrAnalyze *ira, IrInstSr
     ir_assert(begin_base->id == IrInstGenIdSuspendBegin, &instruction->base.base);
     IrInstGenSuspendBegin *begin = reinterpret_cast<IrInstGenSuspendBegin *>(begin_base);
 
-    ZigFn *fn_entry = ira->new_irb.exec->fn_entry;
+    ZigFn *fn_entry = ira->fn;
     ir_assert(fn_entry != nullptr, &instruction->base.base);
 
     if (fn_entry->inferred_async_node == nullptr) {
@@ -24019,7 +24019,7 @@ static IrInstGen *ir_analyze_instruction_await(IrAnalyze *ira, IrInstSrcAwait *i
 
     ZigType *result_type = frame->value->type->data.any_frame.result_type;
 
-    ZigFn *fn_entry = ira->new_irb.exec->fn_entry;
+    ZigFn *fn_entry = ira->fn;
     ir_assert(fn_entry != nullptr, &instruction->base.base);
 
     // If it's not @Frame(func) then it's definitely a suspend point
@@ -24465,16 +24465,17 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
     zig_unreachable();
 }
 
-// This function attempts to evaluate IR code while doing type checking and other analysis.
+// This function attempts to evaluate stage1 ZIR code while doing type checking and other analysis.
 // It emits to a new Stage1Air which is partially evaluated IR code.
 ZigType *ir_analyze(CodeGen *codegen, Stage1Zir *stage1_zir, Stage1Air *stage1_air,
         size_t *backward_branch_count, size_t *backward_branch_quota,
-        ZigType *expected_type, AstNode *expected_type_source_node, ZigValue *result_ptr)
+        ZigType *expected_type, AstNode *expected_type_source_node, ZigValue *result_ptr, ZigFn *fn)
 {
     assert(stage1_zir->first_err_trace_msg == nullptr);
     assert(expected_type == nullptr || !type_is_invalid(expected_type));
 
     IrAnalyze *ira = heap::c_allocator.create<IrAnalyze>();
+    ira->fn = fn;
     ira->backward_branch_count = backward_branch_count;
     ira->backward_branch_quota = backward_branch_quota;
     ira->ref_count = 1;

@@ -17,6 +17,7 @@ struct Stage1AstGen {
     IrBasicBlockSrc *current_basic_block;
     AstNode *main_block_node;
     size_t next_debug_id;
+    ZigFn *fn;
 };
 
 static IrInstSrc *ir_gen_node(Stage1AstGen *ag, AstNode *node, Scope *scope);
@@ -366,10 +367,6 @@ static size_t irb_next_debug_id(Stage1AstGen *ag) {
     size_t result = ag->next_debug_id;
     ag->next_debug_id += 1;
     return result;
-}
-
-static ZigFn *exec_fn_entry(Stage1Zir *exec) {
-    return exec->fn_entry;
 }
 
 static Buf *exec_c_import_buf(Stage1Zir *exec) {
@@ -3043,7 +3040,7 @@ static IrInstSrc *ir_gen_return(Stage1AstGen *ag, Scope *scope, AstNode *node, L
                 if (expr_node) {
                     // Temporarily set this so that if we return a type it gets the name of the function
                     ZigFn *prev_name_fn = ag->exec->name_fn;
-                    ag->exec->name_fn = exec_fn_entry(ag->exec);
+                    ag->exec->name_fn = ag->fn;
                     return_value = ir_gen_node_extra(ag, expr_node, scope, LValNone, &result_loc_ret->base);
                     ag->exec->name_fn = prev_name_fn;
                     if (return_value == ag->codegen->invalid_inst_src)
@@ -4771,8 +4768,9 @@ static IrInstSrc *ir_gen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
         case BuiltinFnIdFrameAddress:
             return ir_lval_wrap(ag, scope, ir_build_frame_address_src(ag, scope, node), lval, result_loc);
         case BuiltinFnIdFrameHandle:
-            if (!ag->exec->fn_entry) {
-                add_node_error(ag->codegen, node, buf_sprintf("@frame() called outside of function definition"));
+            if (ag->fn == nullptr) {
+                add_node_error(ag->codegen, node,
+                        buf_sprintf("@frame() called outside of function definition"));
                 return ag->codegen->invalid_inst_src;
             }
             return ir_lval_wrap(ag, scope, ir_build_handle_src(ag, scope, node), lval, result_loc);
@@ -7700,8 +7698,7 @@ static IrInstSrc *ir_gen_await_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
         }
     }
 
-    ZigFn *fn_entry = exec_fn_entry(ag->exec);
-    if (!fn_entry) {
+    if (!ag->fn) {
         add_node_error(ag->codegen, node, buf_sprintf("await outside function definition"));
         return ag->codegen->invalid_inst_src;
     }
@@ -7726,8 +7723,7 @@ static IrInstSrc *ir_gen_await_expr(Stage1AstGen *ag, Scope *scope, AstNode *nod
 static IrInstSrc *ir_gen_suspend(Stage1AstGen *ag, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeSuspend);
 
-    ZigFn *fn_entry = exec_fn_entry(ag->exec);
-    if (!fn_entry) {
+    if (!ag->fn) {
         add_node_error(ag->codegen, node, buf_sprintf("suspend outside function definition"));
         return ag->codegen->invalid_inst_src;
     }
@@ -8019,7 +8015,7 @@ static IrInstSrc *ir_gen_node_extra(Stage1AstGen *ag, AstNode *node, Scope *scop
     }
     Scope *child_scope;
     if (ag->exec->is_inline ||
-        (ag->exec->fn_entry != nullptr && ag->exec->fn_entry->child_scope == scope))
+        (ag->fn != nullptr && ag->fn->child_scope == scope))
     {
         child_scope = scope;
     } else {
@@ -8038,13 +8034,16 @@ static IrInstSrc *ir_gen_node(Stage1AstGen *ag, AstNode *node, Scope *scope) {
     return ir_gen_node_extra(ag, node, scope, LValNone, nullptr);
 }
 
-bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *ir_executable) {
+bool stage1_astgen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *ir_executable,
+        ZigFn *fn)
+{
     assert(node->owner);
 
     Stage1AstGen ir_builder = {0};
     Stage1AstGen *ag = &ir_builder;
 
     ag->codegen = codegen;
+    ag->fn = fn;
     ag->exec = ir_executable;
     ag->main_block_node = node;
 
@@ -8076,15 +8075,10 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, Stage1Zir *ir_executa
     return true;
 }
 
-bool ir_gen_fn(CodeGen *codegen, ZigFn *fn_entry) {
-    assert(fn_entry);
-
-    Stage1Zir *ir_executable = fn_entry->ir_executable;
-    AstNode *body_node = fn_entry->body_node;
-
-    assert(fn_entry->child_scope);
-
-    return ir_gen(codegen, body_node, fn_entry->child_scope, ir_executable);
+bool stage1_astgen_fn(CodeGen *codegen, ZigFn *fn) {
+    assert(fn != nullptr);
+    assert(fn->child_scope != nullptr);
+    return stage1_astgen(codegen, fn->body_node, fn->child_scope, fn->ir_executable, fn);
 }
 
 void invalidate_exec(Stage1Zir *exec, ErrorMsg *msg) {

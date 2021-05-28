@@ -114,7 +114,6 @@ struct Stage1Zir {
     ZigList<IrBasicBlockSrc *> basic_block_list;
     Buf *name;
     ZigFn *name_fn;
-    ZigFn *fn_entry;
     Buf *c_import_buf;
     AstNode *source_node;
     Scope *begin_scope;
@@ -135,7 +134,6 @@ struct Stage1Air {
     ZigFn *name_fn;
     size_t mem_slot_count;
     size_t next_debug_id;
-    ZigFn *fn_entry;
     Buf *c_import_buf;
     AstNode *source_node;
     Stage1Air *parent_exec;

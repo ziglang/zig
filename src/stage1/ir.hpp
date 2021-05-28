@@ -22,10 +22,10 @@ Error ir_resolve_lazy(CodeGen *codegen, AstNode *source_node, ZigValue *val);
 
 ZigType *ir_analyze(CodeGen *codegen, Stage1Zir *stage1_zir, Stage1Air *stage1_air,
         size_t *backward_branch_count, size_t *backward_branch_quota,
-        ZigType *expected_type, AstNode *expected_type_source_node, ZigValue *result_ptr);
+        ZigType *expected_type, AstNode *expected_type_source_node, ZigValue *result_ptr,
+        ZigFn *fn);
 
 bool ir_inst_gen_has_side_effects(IrInstGen *inst);
-bool ir_inst_src_has_side_effects(IrInstSrc *inst);
 
 struct IrAnalyze;
 ZigValue *const_ptr_pointee(IrAnalyze *ira, CodeGen *codegen, ZigValue *const_val,

@@ -8,6 +8,7 @@
 #include "all_types.hpp"
 #include "analyze.hpp"
 #include "ir.hpp"
+#include "astgen.hpp"
 #include "ir_print.hpp"
 #include "os.hpp"
 
