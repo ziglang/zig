@@ -13,7 +13,7 @@
 #include <stdio.h>
 
 void ir_print_src(CodeGen *codegen, FILE *f, Stage1Zir *executable, int indent_size);
-void ir_print_gen(CodeGen *codegen, FILE *f, IrExecutableGen *executable, int indent_size);
+void ir_print_gen(CodeGen *codegen, FILE *f, Stage1Air *executable, int indent_size);
 void ir_print_inst_src(CodeGen *codegen, FILE *f, IrInstSrc *inst, int indent_size);
 void ir_print_inst_gen(CodeGen *codegen, FILE *f, IrInstGen *inst, int indent_size);
 void ir_print_basic_block_src(CodeGen *codegen, FILE *f, IrBasicBlockSrc *bb, int indent_size);

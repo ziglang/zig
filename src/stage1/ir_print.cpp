@@ -3408,7 +3408,7 @@ void ir_print_src(CodeGen *codegen, FILE *f, Stage1Zir *executable, int indent_s
     }
 }
 
-void ir_print_gen(CodeGen *codegen, FILE *f, IrExecutableGen *executable, int indent_size) {
+void ir_print_gen(CodeGen *codegen, FILE *f, Stage1Air *executable, int indent_size) {
     IrPrintGen ir_print = {};
     IrPrintGen *irp = &ir_print;
     irp->codegen = codegen;

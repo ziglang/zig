@@ -24,7 +24,7 @@ ResultLoc *no_result_loc(void);
 void invalidate_exec(Stage1Zir *exec, ErrorMsg *msg);
 
 AstNode *ast_field_to_symbol_node(AstNode *err_set_field_node);
-void ir_add_call_stack_errors_gen(CodeGen *codegen, IrExecutableGen *exec, ErrorMsg *err_msg,
+void ir_add_call_stack_errors_gen(CodeGen *codegen, Stage1Air *exec, ErrorMsg *err_msg,
         int limit);
 
 void destroy_instruction_src(IrInstSrc *inst);

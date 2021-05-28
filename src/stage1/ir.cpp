@@ -24,7 +24,7 @@
 
 struct IrBuilderGen {
     CodeGen *codegen;
-    IrExecutableGen *exec;
+    Stage1Air *exec;
     IrBasicBlockGen *current_basic_block;
 
     // track for immediate post-analysis destruction
@@ -46,6 +46,9 @@ struct IrAnalyze {
     size_t ref_count;
     size_t break_debug_id; // for debugging purposes
     IrInstGen *return_ptr;
+    Stage1Air *parent_exec;
+    size_t *backward_branch_count;
+    size_t *backward_branch_quota;
 
     // For the purpose of using in a debugger
     void dump();
@@ -672,7 +675,7 @@ static void ir_inst_gen_append(IrBasicBlockGen *basic_block, IrInstGen *instruct
     basic_block->instruction_list.append(instruction);
 }
 
-static size_t exec_next_debug_id_gen(IrExecutableGen *exec) {
+static size_t exec_next_debug_id_gen(Stage1Air *exec) {
     size_t result = exec->next_debug_id;
     exec->next_debug_id += 1;
     return result;
@@ -716,7 +719,7 @@ ZigType *ir_analyze_type_expr(IrAnalyze *ira, Scope *scope, AstNode *node) {
     create_result_ptr(ira->codegen, ira->codegen->builtin_types.entry_type, &result, &result_ptr);
 
     if ((err = ir_eval_const_value(ira->codegen, scope, node, result_ptr,
-            ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota,
+            ira->backward_branch_count, ira->backward_branch_quota,
             nullptr, nullptr, node, nullptr, ira->new_irb.exec, nullptr, UndefBad)))
     {
         return ira->codegen->builtin_types.entry_invalid;
@@ -2512,7 +2515,7 @@ static ZigType *make_err_set_with_one_item(CodeGen *g, Scope *parent_scope, AstN
     return err_set_type;
 }
 
-static void invalidate_exec_gen(IrExecutableGen *exec, ErrorMsg *msg) {
+static void invalidate_exec_gen(Stage1Air *exec, ErrorMsg *msg) {
     if (exec->first_err_trace_msg != nullptr)
         return;
 
@@ -2527,7 +2530,7 @@ static void invalidate_exec_gen(IrExecutableGen *exec, ErrorMsg *msg) {
 }
 
 
-static ErrorMsg *exec_add_error_node_gen(CodeGen *codegen, IrExecutableGen *exec, AstNode *source_node, Buf *msg) {
+static ErrorMsg *exec_add_error_node_gen(CodeGen *codegen, Stage1Air *exec, AstNode *source_node, Buf *msg) {
     ErrorMsg *err_msg = add_node_error(codegen, source_node, msg);
     invalidate_exec_gen(exec, err_msg);
     if (exec->parent_exec) {
@@ -2601,7 +2604,7 @@ ZigValue *const_ptr_pointee(IrAnalyze *ira, CodeGen *codegen, ZigValue *const_va
     return val;
 }
 
-static Error ir_exec_scan_for_side_effects(CodeGen *codegen, IrExecutableGen *exec) {
+static Error ir_exec_scan_for_side_effects(CodeGen *codegen, Stage1Air *exec) {
     IrBasicBlockGen *bb = exec->basic_block_list.at(0);
     for (size_t i = 0; i < bb->instruction_list.length; i += 1) {
         IrInstGen *instruction = bb->instruction_list.at(i);
@@ -5425,8 +5428,8 @@ static IrInstGen *ir_unreach_error(IrAnalyze *ira) {
 }
 
 static bool ir_emit_backward_branch(IrAnalyze *ira, IrInst* source_instruction) {
-    size_t *bbc = ira->new_irb.exec->backward_branch_count;
-    size_t *quota = ira->new_irb.exec->backward_branch_quota;
+    size_t *bbc = ira->backward_branch_count;
+    size_t *quota = ira->backward_branch_quota;
 
     // If we're already over quota, we've already given an error message for this.
     if (*bbc > *quota) {
@@ -5532,7 +5535,7 @@ static IrInstGen *ir_get_const_ptr(IrAnalyze *ira, IrInst *instruction,
     return const_instr;
 }
 
-static Error ir_resolve_const_val(CodeGen *codegen, IrExecutableGen *exec, AstNode *source_node,
+static Error ir_resolve_const_val(CodeGen *codegen, Stage1Air *exec, AstNode *source_node,
         ZigValue *val, UndefAllowed undef_allowed)
 {
     Error err;
@@ -5579,7 +5582,7 @@ static ZigValue *ir_resolve_const(IrAnalyze *ira, IrInstGen *value, UndefAllowed
 Error ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         ZigValue *return_ptr, size_t *backward_branch_count, size_t *backward_branch_quota,
         ZigFn *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
-        IrExecutableGen *parent_exec, AstNode *expected_type_source_node, UndefAllowed undef_allowed)
+        Stage1Air *parent_exec, AstNode *expected_type_source_node, UndefAllowed undef_allowed)
 {
     Error err;
 
@@ -5590,7 +5593,6 @@ Error ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
 
     Stage1Zir *ir_executable = heap::c_allocator.create<Stage1Zir>();
     ir_executable->source_node = source_node;
-    ir_executable->parent_exec = parent_exec;
     ir_executable->name = exec_name;
     ir_executable->is_inline = true;
     ir_executable->fn_entry = fn_entry;
@@ -5610,7 +5612,7 @@ Error ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         ir_print_src(codegen, stderr, ir_executable, 2);
         fprintf(stderr, "}\n");
     }
-    IrExecutableGen *analyzed_executable = heap::c_allocator.create<IrExecutableGen>();
+    Stage1Air *analyzed_executable = heap::c_allocator.create<Stage1Air>();
     analyzed_executable->source_node = source_node;
     analyzed_executable->parent_exec = parent_exec;
     analyzed_executable->source_exec = ir_executable;
@@ -5618,10 +5620,9 @@ Error ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
     analyzed_executable->is_inline = true;
     analyzed_executable->fn_entry = fn_entry;
     analyzed_executable->c_import_buf = c_import_buf;
-    analyzed_executable->backward_branch_count = backward_branch_count;
-    analyzed_executable->backward_branch_quota = backward_branch_quota;
     analyzed_executable->begin_scope = scope;
     ZigType *result_type = ir_analyze(codegen, ir_executable, analyzed_executable,
+            backward_branch_count, backward_branch_quota,
             return_ptr->type->data.pointer.child_type, expected_type_source_node, return_ptr);
     if (type_is_invalid(result_type)) {
         return ErrorSemanticAnalyzeFail;
@@ -5663,7 +5664,7 @@ static ErrorTableEntry *ir_resolve_error(IrAnalyze *ira, IrInstGen *err_value) {
     return const_val->data.x_err_set;
 }
 
-static ZigType *ir_resolve_const_type(CodeGen *codegen, IrExecutableGen *exec, AstNode *source_node,
+static ZigType *ir_resolve_const_type(CodeGen *codegen, Stage1Air *exec, AstNode *source_node,
         ZigValue *val)
 {
     Error err;
@@ -8071,7 +8072,7 @@ static IrInstGen *ir_get_deref(IrAnalyze *ira, IrInst* source_instruction, IrIns
     return ir_build_load_ptr_gen(ira, source_instruction, ptr, child_type, result_loc_inst);
 }
 
-static bool ir_resolve_const_align(CodeGen *codegen, IrExecutableGen *exec, AstNode *source_node,
+static bool ir_resolve_const_align(CodeGen *codegen, Stage1Air *exec, AstNode *source_node,
         ZigValue *const_val, uint32_t *out)
 {
     Error err;
@@ -12752,7 +12753,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             create_result_ptr(ira->codegen, return_type, &result, &result_ptr);
 
             if ((err = ir_eval_const_value(ira->codegen, exec_scope, body_node, result_ptr,
-                ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota,
+                ira->backward_branch_count, ira->backward_branch_quota,
                 fn_entry, nullptr, source_instr->source_node, nullptr, ira->new_irb.exec, return_type_node,
                 UndefOk)))
             {
@@ -12869,7 +12870,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             create_result_ptr(ira->codegen, get_align_amt_type(ira->codegen), &align_result, &result_ptr);
             if ((err = ir_eval_const_value(ira->codegen, impl_fn->child_scope,
                 fn_proto_node->data.fn_proto.align_expr, result_ptr,
-                ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota,
+                ira->backward_branch_count, ira->backward_branch_quota,
                 nullptr, nullptr, fn_proto_node->data.fn_proto.align_expr, nullptr, ira->new_irb.exec,
                 nullptr, UndefBad)))
             {
@@ -12934,11 +12935,9 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
                 return ira->codegen->invalid_inst_gen;
 
             impl_fn->ir_executable->source_node = source_instr->source_node;
-            impl_fn->ir_executable->parent_exec = ira->new_irb.exec;
             impl_fn->analyzed_executable.source_node = source_instr->source_node;
             impl_fn->analyzed_executable.parent_exec = ira->new_irb.exec;
-            impl_fn->analyzed_executable.backward_branch_quota = ira->new_irb.exec->backward_branch_quota;
-            impl_fn->analyzed_executable.is_generic_instantiation = true;
+            impl_fn->branch_quota = *ira->backward_branch_quota;
 
             ira->codegen->fn_defs.append(impl_fn);
         }
@@ -18980,8 +18979,8 @@ static IrInstGen *ir_analyze_instruction_set_eval_branch_quota(IrAnalyze *ira,
     if (!ir_resolve_unsigned(ira, instruction->new_quota->child, ira->codegen->builtin_types.entry_u32, &new_quota))
         return ira->codegen->invalid_inst_gen;
 
-    if (new_quota > *ira->new_irb.exec->backward_branch_quota) {
-        *ira->new_irb.exec->backward_branch_quota = new_quota;
+    if (new_quota > *ira->backward_branch_quota) {
+        *ira->backward_branch_quota = new_quota;
     }
 
     return ir_const_void(ira, &instruction->base.base);
@@ -19015,7 +19014,7 @@ static IrInstGen *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstSrcCImpo
     ZigValue *result_ptr;
     create_result_ptr(ira->codegen, void_type, &cimport_result, &result_ptr);
     if ((err = ir_eval_const_value(ira->codegen, &cimport_scope->base, block_node, result_ptr,
-        ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, nullptr,
+        ira->backward_branch_count, ira->backward_branch_quota, nullptr,
         &cimport_scope->buf, block_node, nullptr, nullptr, nullptr, UndefBad)))
     {
         return ira->codegen->invalid_inst_gen;
@@ -24467,25 +24466,27 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
 }
 
 // This function attempts to evaluate IR code while doing type checking and other analysis.
-// It emits to a new IrExecutableGen which is partially evaluated IR code.
-ZigType *ir_analyze(CodeGen *codegen, Stage1Zir *old_exec, IrExecutableGen *new_exec,
+// It emits to a new Stage1Air which is partially evaluated IR code.
+ZigType *ir_analyze(CodeGen *codegen, Stage1Zir *stage1_zir, Stage1Air *stage1_air,
+        size_t *backward_branch_count, size_t *backward_branch_quota,
         ZigType *expected_type, AstNode *expected_type_source_node, ZigValue *result_ptr)
 {
-    assert(old_exec->first_err_trace_msg == nullptr);
+    assert(stage1_zir->first_err_trace_msg == nullptr);
     assert(expected_type == nullptr || !type_is_invalid(expected_type));
 
     IrAnalyze *ira = heap::c_allocator.create<IrAnalyze>();
+    ira->backward_branch_count = backward_branch_count;
+    ira->backward_branch_quota = backward_branch_quota;
     ira->ref_count = 1;
-    old_exec->analysis = ira;
     ira->codegen = codegen;
 
     ira->explicit_return_type = expected_type;
     ira->explicit_return_type_source_node = expected_type_source_node;
 
-    ira->zir = old_exec;
+    ira->zir = stage1_zir;
 
     ira->new_irb.codegen = codegen;
-    ira->new_irb.exec = new_exec;
+    ira->new_irb.exec = stage1_air;
 
     IrBasicBlockSrc *old_entry_bb = ira->zir->basic_block_list.at(0);
     IrBasicBlockGen *new_entry_bb = ir_get_new_bb(ira, old_entry_bb, nullptr);
@@ -24497,13 +24498,13 @@ ZigType *ir_analyze(CodeGen *codegen, Stage1Zir *old_exec, IrExecutableGen *new_
     if (result_ptr != nullptr) {
         assert(result_ptr->type->id == ZigTypeIdPointer);
         IrInstGenConst *const_inst = ir_create_inst_noval<IrInstGenConst>(
-                &ira->new_irb, new_exec->begin_scope, new_exec->source_node);
+                &ira->new_irb, stage1_air->begin_scope, stage1_air->source_node);
         const_inst->base.value = result_ptr;
         ira->return_ptr = &const_inst->base;
     } else {
-        assert(new_exec->begin_scope != nullptr);
-        assert(new_exec->source_node != nullptr);
-        ira->return_ptr = ir_build_return_ptr(ira, new_exec->begin_scope, new_exec->source_node,
+        assert(stage1_air->begin_scope != nullptr);
+        assert(stage1_air->source_node != nullptr);
+        ira->return_ptr = ir_build_return_ptr(ira, stage1_air->begin_scope, stage1_air->source_node,
                 get_pointer_to_type(codegen, expected_type, false));
     }
 
@@ -24531,16 +24532,16 @@ ZigType *ir_analyze(CodeGen *codegen, Stage1Zir *old_exec, IrExecutableGen *new_
                     fprintf(stderr, "-> (invalid)");
                 }
 
-                if (new_exec->first_err_trace_msg != nullptr) {
-                    ira->codegen->trace_err = new_exec->first_err_trace_msg;
+                if (stage1_air->first_err_trace_msg != nullptr) {
+                    ira->codegen->trace_err = stage1_air->first_err_trace_msg;
                 } else {
-                    new_exec->first_err_trace_msg = ira->codegen->trace_err;
+                    stage1_air->first_err_trace_msg = ira->codegen->trace_err;
                 }
-                if (new_exec->first_err_trace_msg != nullptr &&
+                if (stage1_air->first_err_trace_msg != nullptr &&
                     !old_instruction->base.source_node->already_traced_this_node)
                 {
                     old_instruction->base.source_node->already_traced_this_node = true;
-                    new_exec->first_err_trace_msg = add_error_note(ira->codegen, new_exec->first_err_trace_msg,
+                    stage1_air->first_err_trace_msg = add_error_note(ira->codegen, stage1_air->first_err_trace_msg,
                             old_instruction->base.source_node, buf_create_from_str("referenced here"));
                 }
                 return ira->codegen->builtin_types.entry_invalid;
@@ -24566,14 +24567,14 @@ ZigType *ir_analyze(CodeGen *codegen, Stage1Zir *old_exec, IrExecutableGen *new_
     }
 
     ZigType *res_type;
-    if (new_exec->first_err_trace_msg != nullptr) {
-        codegen->trace_err = new_exec->first_err_trace_msg;
-        if (codegen->trace_err != nullptr && new_exec->source_node != nullptr &&
-            !new_exec->source_node->already_traced_this_node)
+    if (stage1_air->first_err_trace_msg != nullptr) {
+        codegen->trace_err = stage1_air->first_err_trace_msg;
+        if (codegen->trace_err != nullptr && stage1_air->source_node != nullptr &&
+            !stage1_air->source_node->already_traced_this_node)
         {
-            new_exec->source_node->already_traced_this_node = true;
+            stage1_air->source_node->already_traced_this_node = true;
             codegen->trace_err = add_error_note(codegen, codegen->trace_err,
-                    new_exec->source_node, buf_create_from_str("referenced here"));
+                    stage1_air->source_node, buf_create_from_str("referenced here"));
         }
         res_type = ira->codegen->builtin_types.entry_invalid;
     } else if (ira->src_implicit_return_type_list.length == 0) {

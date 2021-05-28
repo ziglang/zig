@@ -3655,10 +3655,6 @@ static ZigFn *create_fn_raw(CodeGen *g, bool is_noinline) {
     ZigFn *fn_entry = heap::c_allocator.create<ZigFn>();
     fn_entry->ir_executable = heap::c_allocator.create<Stage1Zir>();
 
-    fn_entry->prealloc_backward_branch_quota = default_backward_branch_quota;
-
-    fn_entry->analyzed_executable.backward_branch_count = &fn_entry->prealloc_bbc;
-    fn_entry->analyzed_executable.backward_branch_quota = &fn_entry->prealloc_backward_branch_quota;
     fn_entry->analyzed_executable.fn_entry = fn_entry;
     fn_entry->ir_executable->fn_entry = fn_entry;
     fn_entry->is_noinline = is_noinline;
@@ -5134,8 +5130,11 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
     if (fn->analyzed_executable.source_node == nullptr) {
         fn->analyzed_executable.source_node = fn->body_node;
     }
-    ZigType *block_return_type = ir_analyze(g, fn->ir_executable,
-            &fn->analyzed_executable, fn_type_id->return_type, return_type_node, nullptr);
+    size_t backward_branch_count = 0;
+    size_t backward_branch_quota = max(fn->branch_quota, default_backward_branch_quota);
+    ZigType *block_return_type = ir_analyze(g, fn->ir_executable, &fn->analyzed_executable,
+            &backward_branch_count, &backward_branch_quota,
+            fn_type_id->return_type, return_type_node, nullptr);
     fn->src_implicit_return_type = block_return_type;
 
     if (type_is_invalid(block_return_type) || fn->analyzed_executable.first_err_trace_msg != nullptr) {
@@ -9866,13 +9865,10 @@ void Stage1Zir::src() {
     if (this->source_node != nullptr) {
         this->source_node->src();
     }
-    if (this->parent_exec != nullptr) {
-        this->parent_exec->src();
-    }
 }
 
-void IrExecutableGen::src() {
-    IrExecutableGen *it;
+void Stage1Air::src() {
+    Stage1Air *it;
     for (it = this; it != nullptr && it->source_node != nullptr; it = it->parent_exec) {
         it->source_node->src();
     }

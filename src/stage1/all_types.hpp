@@ -51,7 +51,7 @@ struct ResultLocPeerParent;
 struct ResultLocBitCast;
 struct ResultLocCast;
 struct ResultLocReturn;
-struct IrExecutableGen;
+struct Stage1Air;
 
 enum FileExt {
     FileExtUnknown,
@@ -116,19 +116,14 @@ struct Stage1Zir {
     ZigFn *name_fn;
     size_t mem_slot_count;
     size_t next_debug_id;
-    size_t *backward_branch_count;
-    size_t *backward_branch_quota;
     ZigFn *fn_entry;
     Buf *c_import_buf;
     AstNode *source_node;
-    IrExecutableGen *parent_exec;
-    IrAnalyze *analysis;
     Scope *begin_scope;
     ErrorMsg *first_err_trace_msg;
     ZigList<Tld *> tld_list;
 
     bool is_inline;
-    bool is_generic_instantiation;
     bool need_err_code_spill;
 
     // This is a function for use in the debugger to print
@@ -136,25 +131,22 @@ struct Stage1Zir {
     void src();
 };
 
-struct IrExecutableGen {
+struct Stage1Air {
     ZigList<IrBasicBlockGen *> basic_block_list;
     Buf *name;
     ZigFn *name_fn;
     size_t mem_slot_count;
     size_t next_debug_id;
-    size_t *backward_branch_count;
-    size_t *backward_branch_quota;
     ZigFn *fn_entry;
     Buf *c_import_buf;
     AstNode *source_node;
-    IrExecutableGen *parent_exec;
+    Stage1Air *parent_exec;
     Stage1Zir *source_exec;
     Scope *begin_scope;
     ErrorMsg *first_err_trace_msg;
     ZigList<Tld *> tld_list;
 
     bool is_inline;
-    bool is_generic_instantiation;
     bool need_err_code_spill;
 
     // This is a function for use in the debugger to print
@@ -1652,9 +1644,8 @@ struct ZigFn {
     // zig source code, not according to zig ir
     ZigType *src_implicit_return_type;
     Stage1Zir *ir_executable;
-    IrExecutableGen analyzed_executable;
-    size_t prealloc_bbc;
-    size_t prealloc_backward_branch_quota;
+    Stage1Air analyzed_executable;
+    size_t branch_quota;
     AstNode **param_source_nodes;
     Buf **param_names;
     IrInstGen *err_code_spill;

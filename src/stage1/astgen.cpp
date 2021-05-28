@@ -41,19 +41,9 @@ static void ir_assert_impl(bool ok, IrInst *source_instruction, char const *file
     src_assert_impl(ok, source_instruction->source_node, file, line);
 }
 
-static void ir_add_call_stack_errors(CodeGen *codegen, Stage1Zir *exec, ErrorMsg *err_msg, int limit) {
-    if (!exec || !exec->source_node || limit < 0) return;
-    add_error_note(codegen, err_msg, exec->source_node, buf_sprintf("called from here"));
-
-    ir_add_call_stack_errors_gen(codegen, exec->parent_exec, err_msg, limit - 1);
-}
-
 static ErrorMsg *exec_add_error_node(CodeGen *codegen, Stage1Zir *exec, AstNode *source_node, Buf *msg) {
     ErrorMsg *err_msg = add_node_error(codegen, source_node, msg);
     invalidate_exec(exec, err_msg);
-    if (exec->parent_exec) {
-        ir_add_call_stack_errors(codegen, exec, err_msg, 10);
-    }
     return err_msg;
 }
 
@@ -8118,7 +8108,7 @@ AstNode *ast_field_to_symbol_node(AstNode *err_set_field_node) {
     }
 }
 
-void ir_add_call_stack_errors_gen(CodeGen *codegen, IrExecutableGen *exec, ErrorMsg *err_msg, int limit) {
+void ir_add_call_stack_errors_gen(CodeGen *codegen, Stage1Air *exec, ErrorMsg *err_msg, int limit) {
     if (!exec || !exec->source_node || limit < 0) return;
     add_error_note(codegen, err_msg, exec->source_node, buf_sprintf("called from here"));
 
