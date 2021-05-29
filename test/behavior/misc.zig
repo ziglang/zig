@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
+const expectEqualStrings = std.testing.expectEqualStrings;
 const mem = std.mem;
 const builtin = @import("builtin");
 
@@ -147,13 +148,13 @@ test "array mult operator" {
 }
 
 test "string escapes" {
-    try expect(mem.eql(u8, "\"", "\x22"));
-    try expect(mem.eql(u8, "\'", "\x27"));
-    try expect(mem.eql(u8, "\n", "\x0a"));
-    try expect(mem.eql(u8, "\r", "\x0d"));
-    try expect(mem.eql(u8, "\t", "\x09"));
-    try expect(mem.eql(u8, "\\", "\x5c"));
-    try expect(mem.eql(u8, "\u{1234}\u{069}\u{1}", "\xe1\x88\xb4\x69\x01"));
+    try expectEqualStrings("\"", "\x22");
+    try expectEqualStrings("\'", "\x27");
+    try expectEqualStrings("\n", "\x0a");
+    try expectEqualStrings("\r", "\x0d");
+    try expectEqualStrings("\t", "\x09");
+    try expectEqualStrings("\\", "\x5c");
+    try expectEqualStrings("\u{1234}\u{069}\u{1}", "\xe1\x88\xb4\x69\x01");
 }
 
 test "multiline string" {
