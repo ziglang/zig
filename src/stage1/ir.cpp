@@ -27603,6 +27603,18 @@ static IrInstGen *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstSrcTrunc
         return ir_implicit_cast2(ira, &instruction->target->base, target, dest_type);
     }
 
+    if (src_type->id != ZigTypeIdComptimeInt) {
+        if (src_type->data.integral.is_signed != dest_type->data.integral.is_signed) {
+            const char *sign_str = dest_type->data.integral.is_signed ? "signed" : "unsigned";
+            ir_add_error(ira, &target->base, buf_sprintf("expected %s integer type, found '%s'", sign_str, buf_ptr(&src_type->name)));
+            return ira->codegen->invalid_inst_gen;
+        } else if (src_type->data.integral.bit_count > 0 && src_type->data.integral.bit_count < dest_type->data.integral.bit_count) {
+            ir_add_error(ira, &target->base, buf_sprintf("type '%s' has fewer bits than destination type '%s'",
+                        buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
+            return ira->codegen->invalid_inst_gen;
+        }
+    }
+
     if (instr_is_comptime(target)) {
         ZigValue *val = ir_resolve_const(ira, target, UndefBad);
         if (val == nullptr)
@@ -27618,16 +27630,6 @@ static IrInstGen *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstSrcTrunc
         IrInstGen *result = ir_const(ira, &instruction->base.base, dest_type);
         bigint_init_unsigned(&result->value->data.x_bigint, 0);
         return result;
-    }
-
-    if (src_type->data.integral.is_signed != dest_type->data.integral.is_signed) {
-        const char *sign_str = dest_type->data.integral.is_signed ? "signed" : "unsigned";
-        ir_add_error(ira, &target->base, buf_sprintf("expected %s integer type, found '%s'", sign_str, buf_ptr(&src_type->name)));
-        return ira->codegen->invalid_inst_gen;
-    } else if (src_type->data.integral.bit_count < dest_type->data.integral.bit_count) {
-        ir_add_error(ira, &target->base, buf_sprintf("type '%s' has fewer bits than destination type '%s'",
-                    buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
-        return ira->codegen->invalid_inst_gen;
     }
 
     return ir_build_truncate_gen(ira, &instruction->base.base, dest_type, target);
