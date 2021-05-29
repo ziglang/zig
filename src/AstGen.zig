@@ -249,9 +249,9 @@ pub const bool_rl: ResultLoc = .{ .ty = .bool_type };
 fn typeExpr(gz: *GenZir, scope: *Scope, type_node: ast.Node.Index) InnerError!Zir.Inst.Ref {
     const prev_force_comptime = gz.force_comptime;
     gz.force_comptime = true;
-    const e = expr(gz, scope, .{ .ty = .type_type }, type_node);
-    gz.force_comptime = prev_force_comptime;
-    return e;
+    defer gz.force_comptime = prev_force_comptime;
+
+    return expr(gz, scope, .{ .ty = .type_type }, type_node);
 }
 
 fn lvalExpr(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -1465,9 +1465,9 @@ fn comptimeExpr(
 ) InnerError!Zir.Inst.Ref {
     const prev_force_comptime = gz.force_comptime;
     gz.force_comptime = true;
-    const result = try expr(gz, scope, rl, node);
-    gz.force_comptime = prev_force_comptime;
-    return result;
+    defer gz.force_comptime = prev_force_comptime;
+
+    return expr(gz, scope, rl, node);
 }
 
 /// This one is for an actual `comptime` syntax, and will emit a compile error if
@@ -2121,8 +2121,8 @@ fn genDefers(
                 const expr_node = node_datas[defer_scope.defer_node].rhs;
                 const prev_in_defer = gz.in_defer;
                 gz.in_defer = true;
+                defer gz.in_defer = prev_in_defer;
                 try unusedResultExpr(gz, defer_scope.parent, expr_node);
-                gz.in_defer = prev_in_defer;
             },
             .defer_error => {
                 const defer_scope = scope.cast(Scope.Defer).?;
@@ -2131,8 +2131,8 @@ fn genDefers(
                 const expr_node = node_datas[defer_scope.defer_node].rhs;
                 const prev_in_defer = gz.in_defer;
                 gz.in_defer = true;
+                defer gz.in_defer = prev_in_defer;
                 try unusedResultExpr(gz, defer_scope.parent, expr_node);
-                gz.in_defer = prev_in_defer;
             },
             .namespace => unreachable,
             .top => unreachable,
@@ -2887,6 +2887,7 @@ fn fnDecl(
 
         const prev_fn_block = astgen.fn_block;
         astgen.fn_block = &fn_gz;
+        defer astgen.fn_block = prev_fn_block;
 
         // Iterate over the parameters. We put the param names as the first N
         // items inside `extra` so that debug info later can refer to the parameter names
@@ -2937,8 +2938,6 @@ fn fnDecl(
             // We do this by using the `ret_coerce` instruction.
             _ = try fn_gz.addUnTok(.ret_coerce, .void_value, tree.lastToken(body_node));
         }
-
-        astgen.fn_block = prev_fn_block;
 
         break :func try decl_gz.addFunc(.{
             .src_node = decl_node,
@@ -3276,6 +3275,7 @@ fn testDecl(
 
     const prev_fn_block = astgen.fn_block;
     astgen.fn_block = &fn_block;
+    defer astgen.fn_block = prev_fn_block;
 
     const block_result = try expr(&fn_block, &fn_block.base, .none, body_node);
     if (fn_block.instructions.items.len == 0 or !fn_block.refIsNoReturn(block_result)) {
@@ -3283,8 +3283,6 @@ fn testDecl(
         // We do this by using the `ret_coerce` instruction.
         _ = try fn_block.addUnTok(.ret_coerce, .void_value, tree.lastToken(body_node));
     }
-
-    astgen.fn_block = prev_fn_block;
 
     const func_inst = try decl_block.addFunc(.{
         .src_node = node,

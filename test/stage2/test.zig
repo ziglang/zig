@@ -938,8 +938,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\pub fn b() !void {
         \\	defer return a();
         \\}
-
-     , &[_][]const u8{
+    , &[_][]const u8{
         ":7:8: error: try is not allowed inside defer expression",
         ":10:8: error: cannot return from defer expression",
     });
@@ -978,6 +977,19 @@ pub fn addCases(ctx: *TestContext) !void {
         , &[_][]const u8{
             ":3:9: error: local shadows declaration of 'testing'",
             ":1:1: note: declared here",
+        });
+        case.addError(
+            \\fn a() type {
+            \\    return struct {
+            \\        pub fn b() void {
+            \\            const c = 6;
+            \\            const c = 69;
+            \\        }
+            \\    };
+            \\}
+        , &[_][]const u8{
+            ":5:19: error: redeclaration of 'c'",
+            ":4:19: note: previously declared here",
         });
     }
 
