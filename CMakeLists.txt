@@ -319,6 +319,7 @@ set(OPTIMIZED_C_SOURCES
 set(ZIG_CPP_SOURCES
     # These are planned to stay even when we are self-hosted.
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
+    "${CMAKE_SOURCE_DIR}/src/zig_llvm-ar.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_clang.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_clang_driver.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_clang_cc1_main.cpp"
