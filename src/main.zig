@@ -43,22 +43,29 @@ const normal_usage =
     \\Commands:
     \\
     \\  build            Build project from build.zig
+    \\  init-exe         Initialize a `zig build` application in the cwd
+    \\  init-lib         Initialize a `zig build` library in the cwd
+    \\
+    \\  ast-check        Look for simple compile errors in any set of files
     \\  build-exe        Create executable from source or object files
     \\  build-lib        Create library from source or object files
     \\  build-obj        Create object from source or object files
+    \\  fmt              Reformat Zig source into canonical form
+    \\  run              Create executable and run immediately
+    \\  test             Create and run a test build
+    \\  translate-c      Convert C code to Zig code
+    \\
+    \\  ar               Use Zig as a drop-in archiver
     \\  cc               Use Zig as a drop-in C compiler
     \\  c++              Use Zig as a drop-in C++ compiler
+    \\  dlltool          Use Zig as a drop-in dlltool.exe
+    \\  lib              Use Zig as a drop-in lib.exe
+    \\  ranlib           Use Zig as a drop-in ranlib
+    \\
     \\  env              Print lib path, std path, cache directory, and version
-    \\  fmt              Reformat Zig source into canonical form
-    \\  ast-check        Look for simple compile errors in any set of files
     \\  help             Print this help and exit
-    \\  init-exe         Initialize a `zig build` application in the cwd
-    \\  init-lib         Initialize a `zig build` library in the cwd
     \\  libc             Display native libc paths file or validate one
-    \\  run              Create executable and run immediately
-    \\  translate-c      Convert C code to Zig code
     \\  targets          List available compilation targets
-    \\  test             Create and run a test build
     \\  version          Print version number and exit
     \\  zen              Print Zen of Zig and exit
     \\
@@ -201,6 +208,12 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         return buildOutputType(gpa, arena, args, .zig_test);
     } else if (mem.eql(u8, cmd, "run")) {
         return buildOutputType(gpa, arena, args, .run);
+    } else if (mem.eql(u8, cmd, "dlltool") or
+        mem.eql(u8, cmd, "ranlib") or
+        mem.eql(u8, cmd, "lib") or
+        mem.eql(u8, cmd, "ar"))
+    {
+        return punt_to_llvm_ar(arena, args);
     } else if (mem.eql(u8, cmd, "cc")) {
         return buildOutputType(gpa, arena, args, .cc);
     } else if (mem.eql(u8, cmd, "c++")) {
@@ -3197,6 +3210,7 @@ pub const info_zen =
 ;
 
 extern "c" fn ZigClang_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
+extern "c" fn ZigLlvmAr_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 
 /// TODO https://github.com/ziglang/zig/issues/3257
 fn punt_to_clang(arena: *Allocator, args: []const []const u8) error{OutOfMemory} {
@@ -3209,6 +3223,23 @@ fn punt_to_clang(arena: *Allocator, args: []const []const u8) error{OutOfMemory}
     }
     argv[args.len] = null;
     const exit_code = ZigClang_main(@intCast(c_int, args.len), argv[0..args.len :null].ptr);
+    process.exit(@bitCast(u8, @truncate(i8, exit_code)));
+}
+
+/// TODO https://github.com/ziglang/zig/issues/3257
+fn punt_to_llvm_ar(arena: *Allocator, args: []const []const u8) error{OutOfMemory} {
+    if (!build_options.have_llvm)
+        fatal("`zig ar`, `zig dlltool`, `zig ranlib', and `zig lib` unavailable: compiler built without LLVM extensions", .{});
+
+    // Convert the args to the format llvm-ar expects.
+    // We subtract 1 to shave off the zig binary from args[0].
+    const argv = try arena.allocSentinel(?[*:0]u8, args.len - 1, null);
+    for (args[1..]) |arg, i| {
+        // TODO If there was an argsAllocZ we could avoid this allocation.
+        argv[i] = try arena.dupeZ(u8, arg);
+    }
+    const argc = @intCast(c_int, argv.len);
+    const exit_code = ZigLlvmAr_main(argc, argv.ptr);
     process.exit(@bitCast(u8, @truncate(i8, exit_code)));
 }
 

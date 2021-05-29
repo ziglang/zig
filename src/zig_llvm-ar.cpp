@@ -1260,7 +1260,8 @@ static int ranlib_main(int argc, char **argv) {
   return performOperation(CreateSymTab, nullptr);
 }
 
-int main(int argc, char **argv) {
+extern "C" int ZigLlvmAr_main(int argc, char **argv);
+int ZigLlvmAr_main(int argc, char **argv) {
   InitLLVM X(argc, argv);
   ToolName = argv[0];
 
