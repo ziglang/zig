@@ -1493,7 +1493,7 @@ test "skipValue" {
     { // An absurd number of nestings
         const nestings = 256;
 
-        testing.expectError(
+        try testing.expectError(
             error.TooManyNestedItems,
             skipValue(&TokenStream.init("[" ** nestings ++ "]" ** nestings)),
         );
@@ -1505,14 +1505,14 @@ test "skipValue" {
 
         try skipValue(&TokenStream.init(deeply_nested_array));
 
-        testing.expectError(
+        try testing.expectError(
             error.TooManyNestedItems,
             skipValue(&TokenStream.init("[" ++ deeply_nested_array ++ "]")),
         );
     }
 
     // Mismatched brace/square bracket
-    testing.expectError(
+    try testing.expectError(
         error.UnexpectedClosingBrace,
         skipValue(&TokenStream.init("[102, 111, 111}")),
     );
@@ -1520,11 +1520,11 @@ test "skipValue" {
     { // should fail if no value found (e.g. immediate close of object)
         var empty_object = TokenStream.init("{}");
         assert(.ObjectBegin == (try empty_object.next()).?);
-        testing.expectError(error.UnexpectedJsonDepth, skipValue(&empty_object));
+        try testing.expectError(error.UnexpectedJsonDepth, skipValue(&empty_object));
 
         var empty_array = TokenStream.init("[]");
         assert(.ArrayBegin == (try empty_array.next()).?);
-        testing.expectError(error.UnexpectedJsonDepth, skipValue(&empty_array));
+        try testing.expectError(error.UnexpectedJsonDepth, skipValue(&empty_array));
     }
 }
 
@@ -2152,8 +2152,8 @@ test "parse into struct ignoring unknown fields" {
     ), ops);
     defer parseFree(T, r, ops);
 
-    testing.expectEqual(@as(i64, 420), r.int);
-    testing.expectEqualSlices(u8, "zig", r.language);
+    try testing.expectEqual(@as(i64, 420), r.int);
+    try testing.expectEqualSlices(u8, "zig", r.language);
 }
 
 /// A non-stream JSON parser which constructs a tree of Value's.
