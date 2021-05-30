@@ -741,7 +741,7 @@ const softfloat_sources = [_][]const u8{
 
 const stage1_sources = [_][]const u8{
     "src/stage1/analyze.cpp",
-    "src/stage1/ast_render.cpp",
+    "src/stage1/astgen.cpp",
     "src/stage1/bigfloat.cpp",
     "src/stage1/bigint.cpp",
     "src/stage1/buffer.cpp",
