@@ -1464,6 +1464,8 @@ pub const ParseOptions = struct {
 
     /// If false, finding an unknown field returns an error.
     ignore_unknown_fields: bool = false,
+
+    allow_trailing_data: bool = false,
 };
 
 fn skipValue(tokens: *TokenStream) !void {
@@ -1627,6 +1629,8 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                     .ObjectEnd => break,
                     .String => |stringToken| {
                         const key_source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
+                        var child_options = options;
+                        child_options.allow_trailing_data = true;
                         var found = false;
                         inline for (structInfo.fields) |field, i| {
                             // TODO: using switches here segfault the compiler (#2727?)
@@ -1643,24 +1647,24 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                     // }
                                     if (options.duplicate_field_behavior == .UseFirst) {
                                         // unconditonally ignore value. for comptime fields, this skips check against default_value
-                                        parseFree(field.field_type, try parse(field.field_type, tokens, options), options);
+                                        parseFree(field.field_type, try parse(field.field_type, tokens, child_options), child_options);
                                         found = true;
                                         break;
                                     } else if (options.duplicate_field_behavior == .Error) {
                                         return error.DuplicateJSONField;
                                     } else if (options.duplicate_field_behavior == .UseLast) {
                                         if (!field.is_comptime) {
-                                            parseFree(field.field_type, @field(r, field.name), options);
+                                            parseFree(field.field_type, @field(r, field.name), child_options);
                                         }
                                         fields_seen[i] = false;
                                     }
                                 }
                                 if (field.is_comptime) {
-                                    if (!try parsesTo(field.field_type, field.default_value.?, tokens, options)) {
+                                    if (!try parsesTo(field.field_type, field.default_value.?, tokens, child_options)) {
                                         return error.UnexpectedValue;
                                     }
                                 } else {
-                                    @field(r, field.name) = try parse(field.field_type, tokens, options);
+                                    @field(r, field.name) = try parse(field.field_type, tokens, child_options);
                                 }
                                 fields_seen[i] = true;
                                 found = true;
@@ -1697,6 +1701,8 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                 .ArrayBegin => {
                     var r: T = undefined;
                     var i: usize = 0;
+                    var child_options = options;
+                    child_options.allow_trailing_data = true;
                     errdefer {
                         // Without the r.len check `r[i]` is not allowed
                         if (r.len > 0) while (true) : (i -= 1) {
@@ -1705,7 +1711,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                         };
                     }
                     while (i < r.len) : (i += 1) {
-                        r[i] = try parse(arrayInfo.child, tokens, options);
+                        r[i] = try parse(arrayInfo.child, tokens, child_options);
                     }
                     const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
                     switch (tok) {
@@ -1786,7 +1792,13 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
 
 pub fn parse(comptime T: type, tokens: *TokenStream, options: ParseOptions) !T {
     const token = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
-    return parseInternal(T, token, tokens, options);
+    const r = try parseInternal(T, token, tokens, options);
+    errdefer parseFree(T, r, options);
+    if (!options.allow_trailing_data) {
+        if ((try tokens.next()) != null) unreachable;
+        assert(tokens.i >= tokens.slice.len);
+    }
+    return r;
 }
 
 /// Releases resources created by `parse`.
@@ -1869,6 +1881,13 @@ test "parse into enum" {
     try testing.expectEqual(@as(T, .@"with\\escape"), try parse(T, &TokenStream.init("\"with\\\\escape\""), ParseOptions{}));
     try testing.expectError(error.InvalidEnumTag, parse(T, &TokenStream.init("5"), ParseOptions{}));
     try testing.expectError(error.InvalidEnumTag, parse(T, &TokenStream.init("\"Qux\""), ParseOptions{}));
+}
+
+test "parse with trailing data" {
+    try testing.expectEqual(false, try parse(bool, &TokenStream.init("falsed"), ParseOptions{ .allow_trailing_data = true }));
+    try testing.expectError(error.InvalidTopLevelTrailing, parse(bool, &TokenStream.init("falsed"), ParseOptions{ .allow_trailing_data = false }));
+    // trailing whitespace is okay
+    try testing.expectEqual(false, try parse(bool, &TokenStream.init("false \n"), ParseOptions{ .allow_trailing_data = false }));
 }
 
 test "parse into that allocates a slice" {
