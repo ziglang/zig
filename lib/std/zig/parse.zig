@@ -3551,58 +3551,17 @@ const Parser = struct {
     /// ParamDeclList <- (ParamDecl COMMA)* ParamDecl?
     fn parseParamDeclList(p: *Parser) !SmallSpan {
         _ = try p.expectToken(.l_paren);
-        if (p.eatToken(.r_paren)) |_| {
-            return SmallSpan{ .zero_or_one = 0 };
-        }
-        const param_one = while (true) {
-            const param = try p.expectParamDecl();
-            if (param != 0) break param;
-            switch (p.token_tags[p.nextToken()]) {
-                .comma => {
-                    if (p.eatToken(.r_paren)) |_| {
-                        return SmallSpan{ .zero_or_one = 0 };
-                    }
-                },
-                .r_paren => return SmallSpan{ .zero_or_one = 0 },
-                else => {
-                    // This is likely just a missing comma;
-                    // give an error but continue parsing this list.
-                    p.tok_i -= 1;
-                    try p.warnExpected(.comma);
-                },
-            }
-        } else unreachable;
-
-        const param_two = while (true) {
-            switch (p.token_tags[p.nextToken()]) {
-                .comma => {},
-                .r_paren => return SmallSpan{ .zero_or_one = param_one },
-                .colon, .r_brace, .r_bracket => {
-                    p.tok_i -= 1;
-                    return p.failExpected(.r_paren);
-                },
-                else => {
-                    // This is likely just a missing comma;
-                    // give an error but continue parsing this list.
-                    p.tok_i -= 1;
-                    try p.warnExpected(.comma);
-                },
-            }
-            if (p.eatToken(.r_paren)) |_| {
-                return SmallSpan{ .zero_or_one = param_one };
-            }
-            const param = try p.expectParamDecl();
-            if (param != 0) break param;
-        } else unreachable;
-
         const scratch_top = p.scratch.items.len;
         defer p.scratch.shrinkRetainingCapacity(scratch_top);
-        try p.scratch.appendSlice(p.gpa, &.{ param_one, param_two });
-
         while (true) {
+            if (p.eatToken(.r_paren)) |_| break;
+            const param = try p.expectParamDecl();
+            if (param != 0) {
+                try p.scratch.append(p.gpa, param);
+            }
             switch (p.token_tags[p.nextToken()]) {
                 .comma => {},
-                .r_paren => return SmallSpan{ .multi = try p.listToSpan(p.scratch.items[scratch_top..]) },
+                .r_paren => break,
                 .colon, .r_brace, .r_bracket => {
                     p.tok_i -= 1;
                     return p.failExpected(.r_paren);
@@ -3614,12 +3573,13 @@ const Parser = struct {
                     try p.warnExpected(.comma);
                 },
             }
-            if (p.eatToken(.r_paren)) |_| {
-                return SmallSpan{ .multi = try p.listToSpan(p.scratch.items[scratch_top..]) };
-            }
-            const param = try p.expectParamDecl();
-            if (param != 0) try p.scratch.append(p.gpa, param);
         }
+        const params = p.scratch.items[scratch_top..];
+        return switch (params.len) {
+            0 => SmallSpan { .zero_or_one = 0 },
+            1 => SmallSpan { .zero_or_one = params[0] },
+            else => SmallSpan { .multi = try p.listToSpan(params) },
+        };
     }
 
     const NodeParseFn = fn (p: *Parser) Error!Node.Index;
