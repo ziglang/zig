@@ -275,17 +275,9 @@ test "Atomic.swap" {
         try testing.expectEqual(y.swap(.a, ordering), .c);
         try testing.expectEqual(y.load(.SeqCst), .a);
 
-        const is_aarch64 = switch (target.cpu.arch) {
-            .aarch64, .aarch64_be, .aarch64_32 => true,
-            else => false,
-        };
-
-        // TODO: https://github.com/ziglang/zig/pull/8866#discussion_r639956783
-        if (!is_aarch64) {
-            var z = Atomic(f32).init(5.0);
-            try testing.expectEqual(z.swap(10.0, ordering), 5.0);
-            try testing.expectEqual(z.load(.SeqCst), 10.0);
-        }
+        var z = Atomic(f32).init(5.0);
+        try testing.expectEqual(z.swap(10.0, ordering), 5.0);
+        try testing.expectEqual(z.load(.SeqCst), 10.0);
 
         var a = Atomic(bool).init(false);
         try testing.expectEqual(a.swap(true, ordering), false);
