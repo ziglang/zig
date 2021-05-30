@@ -9,7 +9,7 @@ sudo apt-get install -y cmake s3cmd tidy
 ZIGDIR="$(pwd)"
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.0-dev.2168+2d1196773"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.8.0-dev.2703+c12704a33"
 PREFIX="$HOME/$CACHE_BASENAME"
 MCPU="baseline"
 JOBS="-j$(nproc)"
