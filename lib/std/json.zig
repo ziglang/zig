@@ -1698,10 +1698,11 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                     var r: T = undefined;
                     var i: usize = 0;
                     errdefer {
-                        while (true) : (i -= 1) {
+                        // Without the r.len check `r[i]` is not allowed
+                        if (r.len > 0) while (true) : (i -= 1) {
                             parseFree(arrayInfo.child, r[i], options);
                             if (i == 0) break;
-                        }
+                        };
                     }
                     while (i < r.len) : (i += 1) {
                         r[i] = try parse(arrayInfo.child, tokens, options);
@@ -1854,6 +1855,7 @@ test "parse" {
 
     try testing.expectEqual(@as([3]u8, "foo".*), try parse([3]u8, &TokenStream.init("\"foo\""), ParseOptions{}));
     try testing.expectEqual(@as([3]u8, "foo".*), try parse([3]u8, &TokenStream.init("[102, 111, 111]"), ParseOptions{}));
+    try testing.expectEqual(@as([0]u8, undefined), try parse([0]u8, &TokenStream.init("[]"), ParseOptions{}));
 }
 
 test "parse into enum" {
