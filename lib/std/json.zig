@@ -1105,6 +1105,10 @@ pub const TokenStream = struct {
         };
     }
 
+    fn stackUsed(self: *TokenStream) u8 {
+        return self.parser.stack_used + if (self.token != null) @as(u8, 1) else 0;
+    }
+
     pub fn next(self: *TokenStream) Error!?Token {
         if (self.token) |token| {
             self.token = null;
@@ -1457,7 +1461,72 @@ pub const ParseOptions = struct {
         Error,
         UseLast,
     } = .Error,
+
+    /// If false, finding an unknown field returns an error.
+    ignore_unknown_fields: bool = false,
 };
+
+fn skipValue(tokens: *TokenStream) !void {
+    const original_depth = tokens.stackUsed();
+
+    // Return an error if no value is found
+    _ = try tokens.next();
+    if (tokens.stackUsed() < original_depth) return error.UnexpectedJsonDepth;
+    if (tokens.stackUsed() == original_depth) return;
+
+    while (try tokens.next()) |_| {
+        if (tokens.stackUsed() == original_depth) return;
+    }
+}
+
+test "skipValue" {
+    try skipValue(&TokenStream.init("false"));
+    try skipValue(&TokenStream.init("true"));
+    try skipValue(&TokenStream.init("null"));
+    try skipValue(&TokenStream.init("42"));
+    try skipValue(&TokenStream.init("42.0"));
+    try skipValue(&TokenStream.init("\"foo\""));
+    try skipValue(&TokenStream.init("[101, 111, 121]"));
+    try skipValue(&TokenStream.init("{}"));
+    try skipValue(&TokenStream.init("{\"foo\": \"bar\"}"));
+
+    { // An absurd number of nestings
+        const nestings = 256;
+
+        try testing.expectError(
+            error.TooManyNestedItems,
+            skipValue(&TokenStream.init("[" ** nestings ++ "]" ** nestings)),
+        );
+    }
+
+    { // Would a number token cause problems in a deeply-nested array?
+        const nestings = 255;
+        const deeply_nested_array = "[" ** nestings ++ "0.118, 999, 881.99, 911.9, 725, 3" ++ "]" ** nestings;
+
+        try skipValue(&TokenStream.init(deeply_nested_array));
+
+        try testing.expectError(
+            error.TooManyNestedItems,
+            skipValue(&TokenStream.init("[" ++ deeply_nested_array ++ "]")),
+        );
+    }
+
+    // Mismatched brace/square bracket
+    try testing.expectError(
+        error.UnexpectedClosingBrace,
+        skipValue(&TokenStream.init("[102, 111, 111}")),
+    );
+
+    { // should fail if no value found (e.g. immediate close of object)
+        var empty_object = TokenStream.init("{}");
+        assert(.ObjectBegin == (try empty_object.next()).?);
+        try testing.expectError(error.UnexpectedJsonDepth, skipValue(&empty_object));
+
+        var empty_array = TokenStream.init("[]");
+        assert(.ArrayBegin == (try empty_array.next()).?);
+        try testing.expectError(error.UnexpectedJsonDepth, skipValue(&empty_array));
+    }
+}
 
 fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: ParseOptions) !T {
     switch (@typeInfo(T)) {
@@ -1598,7 +1667,14 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                 break;
                             }
                         }
-                        if (!found) return error.UnknownField;
+                        if (!found) {
+                            if (options.ignore_unknown_fields) {
+                                try skipValue(tokens);
+                                continue;
+                            } else {
+                                return error.UnknownField;
+                            }
+                        }
                     },
                     else => return error.UnexpectedToken,
                 }
@@ -2038,6 +2114,46 @@ test "parse into struct with duplicate field" {
     try testing.expectEqual(t3, try parse(T3, &TokenStream.init(str), options_first));
     // .UseLast should fail because second "a" value is 0.25 which is not equal to default value of 1.0
     try testing.expectError(error.UnexpectedValue, parse(T3, &TokenStream.init(str), options_last));
+}
+
+test "parse into struct ignoring unknown fields" {
+    const T = struct {
+        int: i64,
+        language: []const u8,
+    };
+
+    const ops = ParseOptions{
+        .allocator = testing.allocator,
+        .ignore_unknown_fields = true,
+    };
+
+    const r = try parse(T, &std.json.TokenStream.init(
+        \\{
+        \\  "int": 420,
+        \\  "float": 3.14,
+        \\  "with\\escape": true,
+        \\  "with\u0105unicode\ud83d\ude02": false,
+        \\  "optional": null,
+        \\  "static_array": [66.6, 420.420, 69.69],
+        \\  "dynamic_array": [66.6, 420.420, 69.69],
+        \\  "complex": {
+        \\    "nested": "zig"
+        \\  },
+        \\  "veryComplex": [
+        \\    {
+        \\      "foo": "zig"
+        \\    }, {
+        \\      "foo": "rocks"
+        \\    }
+        \\  ],
+        \\  "a_union": 100000,
+        \\  "language": "zig"
+        \\}
+    ), ops);
+    defer parseFree(T, r, ops);
+
+    try testing.expectEqual(@as(i64, 420), r.int);
+    try testing.expectEqualSlices(u8, "zig", r.language);
 }
 
 /// A non-stream JSON parser which constructs a tree of Value's.
