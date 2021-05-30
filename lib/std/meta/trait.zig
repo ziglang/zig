@@ -554,13 +554,12 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
         else => return false, // TODO can we know if it's true for some of these types ?
 
         .AnyFrame,
+        .Bool,
         .BoundFn,
         .Enum,
         .ErrorSet,
         .Fn,
         => return true,
-
-        .Bool => return false,
 
         // The padding bits are undefined.
         .Int => |info| return (info.bits % 8) == 0 and
