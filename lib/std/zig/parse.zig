@@ -3553,11 +3553,15 @@ const Parser = struct {
         _ = try p.expectToken(.l_paren);
         const scratch_top = p.scratch.items.len;
         defer p.scratch.shrinkRetainingCapacity(scratch_top);
+        var varargs: union(enum){ none, seen, nonfinal: TokenIndex } = .none;
         while (true) {
             if (p.eatToken(.r_paren)) |_| break;
+            if (varargs == .seen) varargs = .{ .nonfinal = p.tok_i };
             const param = try p.expectParamDecl();
             if (param != 0) {
                 try p.scratch.append(p.gpa, param);
+            } else if (p.token_tags[p.tok_i - 1] == .ellipsis3) {
+                if (varargs == .none) varargs = .seen;
             }
             switch (p.token_tags[p.nextToken()]) {
                 .comma => {},
@@ -3573,6 +3577,9 @@ const Parser = struct {
                     try p.warnExpected(.comma);
                 },
             }
+        }
+        if (varargs == .nonfinal) {
+            try p.warnMsg(.{ .tag = .varargs_nonfinal, .token = varargs.nonfinal });
         }
         const params = p.scratch.items[scratch_top..];
         return switch (params.len) {

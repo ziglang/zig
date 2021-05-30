@@ -297,6 +297,9 @@ pub const Tree = struct {
             .unattached_doc_comment => {
                 return stream.writeAll("unattached documentation comment");
             },
+            .varargs_nonfinal => {
+                return stream.writeAll("function prototype has parameter after varargs");
+            },
 
             .expected_token => {
                 const found_tag = token_tags[parse_error.token];
@@ -2414,6 +2417,7 @@ pub const Error = struct {
         invalid_token,
         same_line_doc_comment,
         unattached_doc_comment,
+        varargs_nonfinal,
 
         /// `expected_tag` is populated.
         expected_token,
