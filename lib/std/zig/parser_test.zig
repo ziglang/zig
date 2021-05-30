@@ -5164,6 +5164,18 @@ test "recovery: missing while rbrace" {
     });
 }
 
+test "recovery: nonfinal varargs" {
+    try testError(
+        \\extern fn f(a: u32, ..., b: u32) void;
+        \\extern fn g(a: u32, ..., b: anytype) void;
+        \\extern fn h(a: u32, ..., ...) void;
+    , &[_]Error{
+        .varargs_nonfinal,
+        .varargs_nonfinal,
+        .varargs_nonfinal,
+    });
+}
+
 const std = @import("std");
 const mem = std.mem;
 const print = std.debug.print;
