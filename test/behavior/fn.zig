@@ -114,7 +114,7 @@ test "assign inline fn to const variable" {
     a();
 }
 
-fn inlineFn() callconv(.Inline) void {}
+inline fn inlineFn() void {}
 
 test "pass by non-copying value" {
     try expect(addPointCoords(Point{ .x = 1, .y = 2 }) == 3);
@@ -284,4 +284,23 @@ test "function with inferred error set but returning no error" {
 
     const return_ty = @typeInfo(@TypeOf(S.foo)).Fn.return_type.?;
     try expectEqual(0, @typeInfo(@typeInfo(return_ty).ErrorUnion.error_set).ErrorSet.?.len);
+}
+
+test "instantiate with bound fn argument" {
+    const S = struct {
+        const U = struct {
+            fn foo(x: U) void {}
+        };
+        fn f(x: anytype) void {}
+
+        fn doTheTest() void {
+            var x: U = .{};
+            // Instantiante f twice so that the compiler is forced to look
+            // into its cache and call const_values_equal on the parameter.
+            f(x.foo);
+            f(x.foo);
+        }
+    };
+
+    S.doTheTest();
 }

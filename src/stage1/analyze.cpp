@@ -7326,6 +7326,7 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
             }
         }
         case ZigTypeIdBoundFn:
+            return a->data.x_bound_fn.fn == b->data.x_bound_fn.fn;
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
             zig_unreachable();
