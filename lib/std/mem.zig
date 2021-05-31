@@ -2201,7 +2201,7 @@ pub fn collapseRepeatsLen(comptime T: type, slice: []T, elem: T) usize {
 
 /// Collapse consecutive duplicate elements into one entry.
 pub fn collapseRepeats(comptime T: type, slice: []T, elem: T) []T {
-    return slice[0 .. collapseRepeatsLen(T, slice, elem)];
+    return slice[0..collapseRepeatsLen(T, slice, elem)];
 }
 
 fn testCollapseRepeats(str: []const u8, elem: u8, expected: []const u8) !void {
