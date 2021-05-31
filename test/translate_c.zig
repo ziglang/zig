@@ -336,6 +336,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    int i1;
         \\} boom_t;
         \\#define FOO ((boom_t){1})
+        \\typedef struct { float x; } MyCStruct;
+        \\#define A(_x)   (MyCStruct) { .x = (_x) }
+        \\#define B A(0.f)
     , &[_][]const u8{
         \\pub const struct_Color = extern struct {
         \\    r: u8,
@@ -357,6 +360,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const boom_t = struct_boom_t;
         ,
         \\pub const FOO = @import("std").mem.zeroInit(boom_t, .{@as(c_int, 1)});
+        ,
+        \\pub const MyCStruct = extern struct {
+        \\    x: f32,
+        \\};
+        ,
+        \\pub inline fn A(_x: anytype) MyCStruct {
+        \\    return @import("std").mem.zeroInit(MyCStruct, .{
+        \\        .x = _x,
+        \\    });
+        \\}
+        ,
+        \\pub const B = A(@as(f32, 0.0));
     });
 
     cases.add("complex switch",

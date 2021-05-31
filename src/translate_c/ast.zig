@@ -71,6 +71,7 @@ pub const Node = extern union {
         array_init,
         tuple,
         container_init,
+        container_init_dot,
         std_meta_cast,
         /// _ = operand;
         discard,
@@ -332,6 +333,7 @@ pub const Node = extern union {
                 .ptr_cast,
                 .div_exact,
                 .byte_offset_of,
+                .std_meta_cast,
                 => Payload.BinOp,
 
                 .integer_literal,
@@ -354,7 +356,7 @@ pub const Node = extern union {
                 .@"struct", .@"union" => Payload.Record,
                 .tuple => Payload.TupleInit,
                 .container_init => Payload.ContainerInit,
-                .std_meta_cast => Payload.Infix,
+                .container_init_dot => Payload.ContainerInitDot,
                 .std_meta_promoteIntLiteral => Payload.PromoteIntLiteral,
                 .block => Payload.Block,
                 .c_pointer, .single_pointer => Payload.Pointer,
@@ -447,14 +449,6 @@ pub const Node = extern union {
 
 pub const Payload = struct {
     tag: Node.Tag,
-
-    pub const Infix = struct {
-        base: Payload,
-        data: struct {
-            lhs: Node,
-            rhs: Node,
-        },
-    };
 
     pub const Value = struct {
         base: Payload,
@@ -593,6 +587,16 @@ pub const Payload = struct {
             lhs: Node,
             inits: []Initializer,
         },
+
+        pub const Initializer = struct {
+            name: []const u8,
+            value: Node,
+        };
+    };
+
+    pub const ContainerInitDot = struct {
+        base: Payload,
+        data: []Initializer,
 
         pub const Initializer = struct {
             name: []const u8,
@@ -1893,6 +1897,44 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 });
             }
         },
+        .container_init_dot => {
+            const payload = node.castTag(.container_init_dot).?.data;
+            _ = try c.addToken(.period, ".");
+            const l_brace = try c.addToken(.l_brace, "{");
+            var inits = try c.gpa.alloc(NodeIndex, std.math.max(payload.len, 2));
+            defer c.gpa.free(inits);
+            inits[0] = 0;
+            inits[1] = 0;
+            for (payload) |init, i| {
+                _ = try c.addToken(.period, ".");
+                _ = try c.addIdentifier(init.name);
+                _ = try c.addToken(.equal, "=");
+                inits[i] = try renderNode(c, init.value);
+                _ = try c.addToken(.comma, ",");
+            }
+            _ = try c.addToken(.r_brace, "}");
+
+            if (payload.len < 3) {
+                return c.addNode(.{
+                    .tag = .struct_init_dot_two_comma,
+                    .main_token = l_brace,
+                    .data = .{
+                        .lhs = inits[0],
+                        .rhs = inits[1],
+                    },
+                });
+            } else {
+                const span = try c.listToSpan(inits);
+                return c.addNode(.{
+                    .tag = .struct_init_dot_comma,
+                    .main_token = l_brace,
+                    .data = .{
+                        .lhs = span.start,
+                        .rhs = span.end,
+                    },
+                });
+            }
+        },
         .container_init => {
             const payload = node.castTag(.container_init).?.data;
             const lhs = try renderNode(c, payload.lhs);
@@ -2257,6 +2299,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .array_init,
         .tuple,
         .container_init,
+        .container_init_dot,
         .block,
         => return c.addNode(.{
             .tag = .grouped_expression,
