@@ -1253,12 +1253,31 @@ pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWO
     return rc;
 }
 
-var wsa_startup_mutex: std.Thread.Mutex = .{};
+var wsa_startup_once_fn = std.once(wsaStartupInternal);
+var wsa_startup_major_version: u8 = undefined;
+var wsa_startup_minor_version: u8 = undefined;
+var wsa_startup_result: anyerror!ws2_32.WSADATA = undefined;
 
-pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
-    var held = wsa_startup_mutex.acquire();
-    defer held.release();
+pub fn wsaStartupOnce(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
+    wsa_startup_major_version = majorVersion;
+    wsa_startup_minor_version = minorVersion;
 
+    wsa_startup_once_fn.call();
+    return wsa_startup_result;
+}
+
+pub fn wsaStartupOnceDefault() !ws2_32.WSADATA {
+    wsa_startup_major_version = 2;
+    wsa_startup_minor_version = 2;
+
+    wsa_startup_once_fn.call();
+}
+
+fn wsaStartupInternal() void {
+    wsa_startup_result = WSAStartup(wsa_startup_major_version, wsa_startup_minor_version);
+}
+
+fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
     var wsadata: ws2_32.WSADATA = undefined;
     return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
         0 => wsadata,
@@ -1284,7 +1303,6 @@ pub fn WSACleanup() !void {
         else => unreachable,
     };
 }
-
 
 /// Microsoft requires WSAStartup to be called to initialize, or else
 /// WSASocketW will return WSANOTINITIALISED.
@@ -1316,37 +1334,18 @@ pub fn WSASocketW(
     g: ws2_32.GROUP,
     dwFlags: DWORD,
 ) !ws2_32.SOCKET {
-    var first = true;
-    while (true) {
-        const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
-        if (rc == ws2_32.INVALID_SOCKET) {
-            switch (ws2_32.WSAGetLastError()) {
-                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-                .WSAEMFILE => return error.ProcessFdQuotaExceeded,
-                .WSAENOBUFS => return error.SystemResources,
-                .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
-                .WSANOTINITIALISED => {
-                    if (!first) return error.Unexpected;
-                    first = false;
-
-                    // Here we could use a flag to prevent multiple threads to prevent
-                    // multiple calls to WSAStartup, but it doesn't matter. We're globally
-                    // leaking the resource intentionally, and the WSAStartup function
-                    // prevents data races with a mutex.
-                    _ = WSAStartup(2, 2) catch |err| switch (err) {
-                        error.SystemNotAvailable => return error.SystemResources,
-                        error.VersionNotSupported => return error.Unexpected,
-                        error.BlockingOperationInProgress => return error.Unexpected,
-                        error.ProcessFdQuotaExceeded => return error.ProcessFdQuotaExceeded,
-                        error.Unexpected => return error.Unexpected,
-                    };
-                    continue;
-                },
-                else => |err| return unexpectedWSAError(err),
-            }
+    _ = try wsaStartupOnceDefault();
+    const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
+    if (rc == ws2_32.INVALID_SOCKET) {
+        switch (ws2_32.WSAGetLastError()) {
+            .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .WSAEMFILE => return error.ProcessFdQuotaExceeded,
+            .WSAENOBUFS => return error.SystemResources,
+            .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
+            else => |err| return unexpectedWSAError(err),
         }
-        return rc;
     }
+    return rc;
 }
 
 pub fn bind(s: ws2_32.SOCKET, name: *const ws2_32.sockaddr, namelen: ws2_32.socklen_t) i32 {
@@ -1845,7 +1844,7 @@ pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
 }
 
 fn getFullPathNameW(path: [*:0]const u16, out: []u16) !usize {
-    const result= kernel32.GetFullPathNameW(path, @intCast(u32, out.len), std.meta.assumeSentinel(out.ptr, 0), null);
+    const result = kernel32.GetFullPathNameW(path, @intCast(u32, out.len), std.meta.assumeSentinel(out.ptr, 0), null);
     if (result == 0) {
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
