@@ -115,7 +115,7 @@ pub const AtomicCondition = struct {
                             else => unreachable,
                         }
                     },
-                    else => spinLoopHint(),
+                    else => std.atomic.spinLoopHint(),
                 }
             }
         }

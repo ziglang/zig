@@ -767,6 +767,13 @@ pub const Target = struct {
             spirv32,
             spirv64,
 
+            pub fn isX86(arch: Arch) bool {
+                return switch (arch) {
+                    .i386, .x86_64 => true,
+                    else => false,
+                };
+            }
+
             pub fn isARM(arch: Arch) bool {
                 return switch (arch) {
                     .arm, .armeb => true,

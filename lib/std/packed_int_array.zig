@@ -379,9 +379,9 @@ test "PackedIntArray" {
 }
 
 test "PackedIntIo" {
-    const bytes = [_]u8 { 0b01101_000, 0b01011_110, 0b00011_101 };
-    try testing.expectEqual(@as(u15,  0x2bcd), PackedIntIo(u15, .Little).get(&bytes, 0, 3));
-    try testing.expectEqual(@as(u16,  0xabcd), PackedIntIo(u16, .Little).get(&bytes, 0, 3));
+    const bytes = [_]u8{ 0b01101_000, 0b01011_110, 0b00011_101 };
+    try testing.expectEqual(@as(u15, 0x2bcd), PackedIntIo(u15, .Little).get(&bytes, 0, 3));
+    try testing.expectEqual(@as(u16, 0xabcd), PackedIntIo(u16, .Little).get(&bytes, 0, 3));
     try testing.expectEqual(@as(u17, 0x1abcd), PackedIntIo(u17, .Little).get(&bytes, 0, 3));
     try testing.expectEqual(@as(u18, 0x3abcd), PackedIntIo(u18, .Little).get(&bytes, 0, 3));
 }

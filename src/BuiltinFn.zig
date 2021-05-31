@@ -400,7 +400,7 @@ pub const list = list: {
             "@fence",
             .{
                 .tag = .fence,
-                .param_count = 0,
+                .param_count = 1,
             },
         },
         .{
