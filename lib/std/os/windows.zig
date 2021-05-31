@@ -1271,6 +1271,7 @@ pub fn wsaStartupOnceDefault() !ws2_32.WSADATA {
     wsa_startup_minor_version = 2;
 
     wsa_startup_once_fn.call();
+    return wsa_startup_result;
 }
 
 fn wsaStartupInternal() void {
