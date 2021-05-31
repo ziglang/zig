@@ -79,7 +79,38 @@ pub fn Mixin(comptime Socket: type) type {
         /// with a set of flags specified. It returns the number of bytes that are
         /// written to the socket.
         pub fn writeMessage(self: Socket, msg: Socket.Message, flags: u32) !usize {
-            return os.sendmsg(self.fd, msg, flags);
+            while (true) {
+                const rc = os.system.sendmsg(self.fd, &msg, @intCast(c_int, flags));
+                return switch (os.errno(rc)) {
+                    0 => return @intCast(usize, rc),
+                    os.EACCES => error.AccessDenied,
+                    os.EAGAIN => error.WouldBlock,
+                    os.EALREADY => error.FastOpenAlreadyInProgress,
+                    os.EBADF => unreachable, // always a race condition
+                    os.ECONNRESET => error.ConnectionResetByPeer,
+                    os.EDESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
+                    os.EFAULT => unreachable, // An invalid user space address was specified for an argument.
+                    os.EINTR => continue,
+                    os.EINVAL => unreachable, // Invalid argument passed.
+                    os.EISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
+                    os.EMSGSIZE => error.MessageTooBig,
+                    os.ENOBUFS => error.SystemResources,
+                    os.ENOMEM => error.SystemResources,
+                    os.ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+                    os.EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+                    os.EPIPE => error.BrokenPipe,
+                    os.EAFNOSUPPORT => error.AddressFamilyNotSupported,
+                    os.ELOOP => error.SymLinkLoop,
+                    os.ENAMETOOLONG => error.NameTooLong,
+                    os.ENOENT => error.FileNotFound,
+                    os.ENOTDIR => error.NotDir,
+                    os.EHOSTUNREACH => error.NetworkUnreachable,
+                    os.ENETUNREACH => error.NetworkUnreachable,
+                    os.ENOTCONN => error.SocketNotConnected,
+                    os.ENETDOWN => error.NetworkSubsystemFailed,
+                    else => |err| os.unexpectedErrno(err),
+                };
+            }
         }
 
         /// Read multiple I/O vectors with a prepended message header from the socket

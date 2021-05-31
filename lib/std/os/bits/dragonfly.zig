@@ -396,6 +396,8 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 };
 
+pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
+
 pub const Kevent = extern struct {
     ident: usize,
     filter: c_short,
@@ -772,6 +774,15 @@ pub const cmsghdr = extern struct {
     cmsg_len: socklen_t,
     cmsg_level: c_int,
     cmsg_type: c_int,
+};
+pub const msghdr = extern struct {
+    msg_name: ?*c_void,
+    msg_namelen: socklen_t,
+    msg_iov: [*c]iovec,
+    msg_iovlen: c_int,
+    msg_control: ?*c_void,
+    msg_controllen: socklen_t,
+    msg_flags: c_int,
 };
 pub const cmsgcred = extern struct {
     cmcred_pid: pid_t,

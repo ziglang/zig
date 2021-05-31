@@ -1059,6 +1059,8 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 };
 
+pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
+
 /// IPv4 socket address
 pub const sockaddr_in = extern struct {
     family: ADDRESS_FAMILY = AF_INET,
@@ -1085,6 +1087,27 @@ pub const sockaddr_un = extern struct {
 pub const WSABUF = extern struct {
     len: ULONG,
     buf: [*]u8,
+};
+
+pub const msghdr = WSAMSG;
+pub const msghdr_const = WSAMSG_const;
+
+pub const WSAMSG_const = extern struct {
+    name: *const sockaddr,
+    namelen: INT,
+    lpBuffers: [*]WSABUF,
+    dwBufferCount: DWORD,
+    Control: WSABUF,
+    dwFlags: DWORD,
+};
+
+pub const WSAMSG = extern struct {
+    name: *sockaddr,
+    namelen: INT,
+    lpBuffers: [*]WSABUF,
+    dwBufferCount: DWORD,
+    Control: WSABUF,
+    dwFlags: DWORD,
 };
 
 pub const WSAPOLLFD = pollfd;

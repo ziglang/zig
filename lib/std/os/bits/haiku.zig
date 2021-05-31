@@ -73,6 +73,52 @@ pub const Flock = extern struct {
     __unused: [4]u8,
 };
 
+pub const msghdr = extern struct {
+    /// optional address
+    msg_name: ?*sockaddr,
+
+    /// size of address
+    msg_namelen: socklen_t,
+
+    /// scatter/gather array
+    msg_iov: [*]iovec,
+
+    /// # elements in msg_iov
+    msg_iovlen: i32,
+
+    /// ancillary data
+    msg_control: ?*c_void,
+
+    /// ancillary data buffer len
+    msg_controllen: socklen_t,
+
+    /// flags on received message
+    msg_flags: i32,
+};
+
+pub const msghdr_const = extern struct {
+    /// optional address
+    msg_name: ?*const sockaddr,
+
+    /// size of address
+    msg_namelen: socklen_t,
+
+    /// scatter/gather array
+    msg_iov: [*]iovec_const,
+
+    /// # elements in msg_iov
+    msg_iovlen: i32,
+
+    /// ancillary data
+    msg_control: ?*c_void,
+
+    /// ancillary data buffer len
+    msg_controllen: socklen_t,
+
+    /// flags on received message
+    msg_flags: i32,
+};
+
 pub const off_t = i64;
 pub const ino_t = u64;
 
@@ -192,6 +238,8 @@ pub const sockaddr = extern struct {
     /// actually longer; address value
     data: [14]u8,
 };
+
+pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
 
 pub const sockaddr_in = extern struct {
     len: u8 = @sizeOf(sockaddr_in),

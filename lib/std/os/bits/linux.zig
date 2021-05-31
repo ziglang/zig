@@ -1149,6 +1149,8 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 };
 
+pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
+
 /// IPv4 socket address
 pub const sockaddr_in = extern struct {
     family: sa_family_t = AF_INET,
@@ -1173,12 +1175,12 @@ pub const sockaddr_un = extern struct {
 };
 
 pub const mmsghdr = extern struct {
-    msg_hdr: std.x.os.Socket.Message,
+    msg_hdr: msghdr,
     msg_len: u32,
 };
 
 pub const mmsghdr_const = extern struct {
-    msg_hdr: std.x.os.Socket.Message,
+    msg_hdr: msghdr_const,
     msg_len: u32,
 };
 
