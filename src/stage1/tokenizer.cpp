@@ -1286,10 +1286,6 @@ void tokenize(const char *source, Tokenization *out) {
                         t.column -= 1;
                         t.state = TokenizeState_start;
                         continue;
-                    case 'e':
-                    case 'E':
-                        t.state = TokenizeState_float_exponent_unsigned;
-                        break;
                     case DIGIT:
                         t.state = TokenizeState_float_fraction_dec;
                         break;
@@ -1308,10 +1304,6 @@ void tokenize(const char *source, Tokenization *out) {
                         t.column -= 1;
                         t.state = TokenizeState_start;
                         continue;
-                    case 'p':
-                    case 'P':
-                        t.state = TokenizeState_float_exponent_unsigned;
-                        break;
                     case HEXDIGIT:
                         t.out->ids.last() = TokenIdFloatLiteral;
                         t.state = TokenizeState_float_fraction_hex;
