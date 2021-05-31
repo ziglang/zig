@@ -1253,7 +1253,12 @@ pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWO
     return rc;
 }
 
+var wsa_startup_mutex: std.Thread.Mutex = .{};
+
 pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
+    var held = wsa_startup_mutex.acquire();
+    defer held.release();
+
     var wsadata: ws2_32.WSADATA = undefined;
     return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
         0 => wsadata,
@@ -1280,7 +1285,6 @@ pub fn WSACleanup() !void {
     };
 }
 
-var wsa_startup_mutex: std.Thread.Mutex = .{};
 
 /// Microsoft requires WSAStartup to be called to initialize, or else
 /// WSASocketW will return WSANOTINITIALISED.
@@ -1325,13 +1329,10 @@ pub fn WSASocketW(
                     if (!first) return error.Unexpected;
                     first = false;
 
-                    var held = wsa_startup_mutex.acquire();
-                    defer held.release();
-
                     // Here we could use a flag to prevent multiple threads to prevent
                     // multiple calls to WSAStartup, but it doesn't matter. We're globally
-                    // leaking the resource intentionally, and the mutex already prevents
-                    // data races within the WSAStartup function.
+                    // leaking the resource intentionally, and the WSAStartup function
+                    // prevents data races with a mutex.
                     _ = WSAStartup(2, 2) catch |err| switch (err) {
                         error.SystemNotAvailable => return error.SystemResources,
                         error.VersionNotSupported => return error.Unexpected,

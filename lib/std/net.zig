@@ -723,35 +723,61 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             .addrlen = 0,
             .next = null,
         };
+
         var res: *os.addrinfo = undefined;
-        const rc = sys.getaddrinfo(name_c.ptr, std.meta.assumeSentinel(port_c.ptr, 0), &hints, &res);
-        if (builtin.target.os.tag == .windows) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
-            @intToEnum(os.windows.ws2_32.WinsockError, 0) => {},
-            .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
-            .WSANO_RECOVERY => return error.NameServerFailure,
-            .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-            .WSA_NOT_ENOUGH_MEMORY => return error.OutOfMemory,
-            .WSAHOST_NOT_FOUND => return error.UnknownHostName,
-            .WSATYPE_NOT_FOUND => return error.ServiceUnavailable,
-            .WSAEINVAL => unreachable,
-            .WSAESOCKTNOSUPPORT => unreachable,
-            else => |err| return os.windows.unexpectedWSAError(err),
-        } else switch (rc) {
-            @intToEnum(sys.EAI, 0) => {},
-            .ADDRFAMILY => return error.HostLacksNetworkAddresses,
-            .AGAIN => return error.TemporaryNameServerFailure,
-            .BADFLAGS => unreachable, // Invalid hints
-            .FAIL => return error.NameServerFailure,
-            .FAMILY => return error.AddressFamilyNotSupported,
-            .MEMORY => return error.OutOfMemory,
-            .NODATA => return error.HostLacksNetworkAddresses,
-            .NONAME => return error.UnknownHostName,
-            .SERVICE => return error.ServiceUnavailable,
-            .SOCKTYPE => unreachable, // Invalid socket type requested in hints
-            .SYSTEM => switch (os.errno(-1)) {
-                else => |e| return os.unexpectedErrno(e),
-            },
-            else => unreachable,
+
+        // On Windows, we need to run WSAStartup before we can call getaddrinfo.
+        // See notes in os/windows.zig on WSASocketW for more on
+        // how the standard library approaches Windows networking.
+        var first = true;
+        while (true) {
+            const rc = sys.getaddrinfo(name_c.ptr, std.meta.assumeSentinel(port_c.ptr, 0), &hints, &res);
+            if (builtin.target.os.tag == .windows) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
+                @intToEnum(os.windows.ws2_32.WinsockError, 0) => {},
+                .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
+                .WSANO_RECOVERY => return error.NameServerFailure,
+                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                .WSA_NOT_ENOUGH_MEMORY => return error.OutOfMemory,
+                .WSAHOST_NOT_FOUND => return error.UnknownHostName,
+                .WSATYPE_NOT_FOUND => return error.ServiceUnavailable,
+                .WSANOTINITIALISED => {
+                    if (!first) return error.Unexpected;
+                    first = false;
+
+                    // Here we could use a flag to prevent multiple threads to prevent
+                    // multiple calls to WSAStartup, but it doesn't matter. We're globally
+                    // leaking the resource intentionally, and the WSAStartup function
+                    // prevents data races with a mutex.
+                    _ = os.windows.WSAStartup(2, 2) catch |err| switch (err) {
+                        error.SystemNotAvailable => return error.SystemResources,
+                        error.VersionNotSupported => return error.Unexpected,
+                        error.BlockingOperationInProgress => return error.Unexpected,
+                        error.ProcessFdQuotaExceeded => return error.ProcessFdQuotaExceeded,
+                        error.Unexpected => return error.Unexpected,
+                    };
+                    continue;
+                },
+                .WSAEINVAL => unreachable,
+                .WSAESOCKTNOSUPPORT => unreachable,
+                else => |err| return os.windows.unexpectedWSAError(err),
+            } else switch (rc) {
+                @intToEnum(sys.EAI, 0) => {},
+                .ADDRFAMILY => return error.HostLacksNetworkAddresses,
+                .AGAIN => return error.TemporaryNameServerFailure,
+                .BADFLAGS => unreachable, // Invalid hints
+                .FAIL => return error.NameServerFailure,
+                .FAMILY => return error.AddressFamilyNotSupported,
+                .MEMORY => return error.OutOfMemory,
+                .NODATA => return error.HostLacksNetworkAddresses,
+                .NONAME => return error.UnknownHostName,
+                .SERVICE => return error.ServiceUnavailable,
+                .SOCKTYPE => unreachable, // Invalid socket type requested in hints
+                .SYSTEM => switch (os.errno(-1)) {
+                    else => |e| return os.unexpectedErrno(e),
+                },
+                else => unreachable,
+            }
+            break;
         }
         defer sys.freeaddrinfo(res);
 
