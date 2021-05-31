@@ -724,7 +724,6 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             .next = null,
         };
 
-
         // On Windows, we need to run WSAStartup before we can call getaddrinfo.
         // See notes in os/windows.zig on WSASocketW for more on
         // how the standard library approaches Windows networking.
@@ -735,7 +734,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
                 error.BlockingOperationInProgress => return error.Unexpected,
                 error.ProcessFdQuotaExceeded => return error.ProcessFdQuotaExceeded,
                 error.Unexpected => return error.Unexpected,
-                else => return error.Unexpected
+                else => return error.Unexpected,
             };
         }
 
