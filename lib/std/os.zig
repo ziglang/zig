@@ -6121,7 +6121,7 @@ pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
     }
 }
 
-pub const SetrlimitError = error{PermissionDenied} || UnexpectedError;
+pub const SetrlimitError = error{PermissionDenied, LimitTooBig} || UnexpectedError;
 
 pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void {
     const setrlimit_sym = if (builtin.os.tag == .linux and builtin.link_libc)
@@ -6132,7 +6132,7 @@ pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void 
     switch (errno(setrlimit_sym(resource, &limits))) {
         0 => return,
         EFAULT => unreachable, // bogus pointer
-        EINVAL => unreachable,
+        EINVAL => return error.LimitTooBig, // this could also mean "invalid resource", but that would be unreachable
         EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
