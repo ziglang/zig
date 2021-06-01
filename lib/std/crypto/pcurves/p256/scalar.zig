@@ -120,12 +120,12 @@ pub const Scalar = struct {
 
     /// Compute x+y (mod L)
     pub fn add(x: Scalar, y: Scalar) Scalar {
-        return Scalar{ .fe = x.fe().add(y.fe) };
+        return Scalar{ .fe = x.fe.add(y.fe) };
     }
 
     /// Compute x-y (mod L)
     pub fn sub(x: Scalar, y: Scalar) Scalar {
-        return Scalar{ .fe = x.fe().sub(y.fe) };
+        return Scalar{ .fe = x.fe.sub(y.fe) };
     }
 
     /// Compute 2n (mod L)
@@ -135,7 +135,7 @@ pub const Scalar = struct {
 
     /// Compute x*y (mod L)
     pub fn mul(x: Scalar, y: Scalar) Scalar {
-        return Scalar{ .fe = x.fe().mul(y.fe) };
+        return Scalar{ .fe = x.fe.mul(y.fe) };
     }
 
     /// Compute x^2 (mod L)
