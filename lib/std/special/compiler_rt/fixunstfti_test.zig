@@ -28,7 +28,7 @@ test "fixunstfti" {
     try test__fixunstfti(-0.01, 0);
     try test__fixunstfti(-0.99, 0);
 
-    try test__fixunstfti(0x1.p+128, 0xffffffffffffffffffffffffffffffff);
+    try test__fixunstfti(0x1p+128, 0xffffffffffffffffffffffffffffffff);
 
     try test__fixunstfti(0x1.FFFFFEp+126, 0x7fffff80000000000000000000000000);
     try test__fixunstfti(0x1.FFFFFEp+127, 0xffffff00000000000000000000000000);

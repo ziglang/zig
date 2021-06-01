@@ -23,5 +23,5 @@ test "fixunstfsi" {
     try test__fixunstfsi(0x1.23456789abcdefp+256, 0xffffffff);
     try test__fixunstfsi(-0x1.23456789abcdefp+3, 0x0);
 
-    try test__fixunstfsi(0x1.p+32, 0xFFFFFFFF);
+    try test__fixunstfsi(0x1p+32, 0xFFFFFFFF);
 }
