@@ -60,6 +60,7 @@ pub const Target = struct {
             opencl,
             glsl450,
             vulkan,
+            plan9,
             other,
 
             pub fn isDarwin(tag: Tag) bool {
@@ -262,6 +263,7 @@ pub const Target = struct {
                     .opencl, // TODO: OpenCL versions
                     .glsl450, // TODO: GLSL versions
                     .vulkan,
+                    .plan9,
                     .other,
                     => return .{ .none = {} },
 
@@ -420,6 +422,7 @@ pub const Target = struct {
                 .opencl,
                 .glsl450,
                 .vulkan,
+                .plan9,
                 .other,
                 => false,
             };
@@ -515,6 +518,7 @@ pub const Target = struct {
                 .opencl, // TODO: SPIR-V ABIs with Linkage capability
                 .glsl450,
                 .vulkan,
+                .plan9, // TODO specify abi
                 => return .none,
             }
         }
@@ -554,6 +558,7 @@ pub const Target = struct {
         spirv,
         hex,
         raw,
+        plan9,
     };
 
     pub const SubSystem = enum {
@@ -1359,6 +1364,8 @@ pub const Target = struct {
         if (cpu_arch.isSPIRV()) {
             return .spirv;
         }
+        if (os_tag == .plan9)
+            return .plan9;
         return .elf;
     }
 
@@ -1432,6 +1439,7 @@ pub const Target = struct {
             .opencl,
             .glsl450,
             .vulkan,
+            .plan9,
             .other,
             => return false,
             else => return true,
@@ -1616,6 +1624,7 @@ pub const Target = struct {
             .glsl450,
             .vulkan,
             .other,
+            .plan9,
             => return result,
 
             // TODO revisit when multi-arch for Haiku is available

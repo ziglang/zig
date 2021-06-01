@@ -117,6 +117,7 @@ pub fn targetTriple(allocator: *Allocator, target: std.Target) ![:0]u8 {
         .opencl => return error.LLVMBackendDoesNotSupportOpenCL,
         .glsl450 => return error.LLVMBackendDoesNotSupportGLSL450,
         .vulkan => return error.LLVMBackendDoesNotSupportVulkan,
+        .plan9 => return error.LLVMBackendDoesNotSupportPlan9,
         .other => "unknown",
     };
 

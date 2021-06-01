@@ -3437,6 +3437,9 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
                 // in `Decl` to notice that the line number did not change.
                 mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
             },
+            .plan9 => {
+                // TODO implement for plan9
+            },
             .c, .wasm, .spirv => {},
         }
     }
@@ -3514,6 +3517,7 @@ pub fn clearDecl(
                 .coff => .{ .coff = link.File.Coff.TextBlock.empty },
                 .elf => .{ .elf = link.File.Elf.TextBlock.empty },
                 .macho => .{ .macho = link.File.MachO.TextBlock.empty },
+                .plan9 => @panic("plan9 link"),
                 .c => .{ .c = link.File.C.DeclBlock.empty },
                 .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
                 .spirv => .{ .spirv = {} },
@@ -3522,6 +3526,7 @@ pub fn clearDecl(
                 .coff => .{ .coff = {} },
                 .elf => .{ .elf = link.File.Elf.SrcFn.empty },
                 .macho => .{ .macho = link.File.MachO.SrcFn.empty },
+                .plan9 => @panic("plan9 fn_link"),
                 .c => .{ .c = link.File.C.FnBlock.empty },
                 .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
                 .spirv => .{ .spirv = .{} },
@@ -3689,6 +3694,7 @@ fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node
             .coff => .{ .coff = link.File.Coff.TextBlock.empty },
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
             .macho => .{ .macho = link.File.MachO.TextBlock.empty },
+            .plan9 => @panic("PLan9 export"),
             .c => .{ .c = link.File.C.DeclBlock.empty },
             .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
             .spirv => .{ .spirv = {} },
@@ -3697,6 +3703,7 @@ fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node
             .coff => .{ .coff = {} },
             .elf => .{ .elf = link.File.Elf.SrcFn.empty },
             .macho => .{ .macho = link.File.MachO.SrcFn.empty },
+            .plan9 => .{ .plan9 = link.File.Plan9.SrcFn.empty },
             .c => .{ .c = link.File.C.FnBlock.empty },
             .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
             .spirv => .{ .spirv = .{} },
@@ -3766,6 +3773,7 @@ pub fn analyzeExport(
             .coff => .{ .coff = {} },
             .elf => .{ .elf = link.File.Elf.Export{} },
             .macho => .{ .macho = link.File.MachO.Export{} },
+            .plan9 => @panic("plan9 link"),
             .c => .{ .c = {} },
             .wasm => .{ .wasm = {} },
             .spirv => .{ .spirv = {} },

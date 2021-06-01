@@ -181,6 +181,8 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
         .spirv => return std.fmt.allocPrint(allocator, "{s}.spv", .{root_name}),
         .hex => return std.fmt.allocPrint(allocator, "{s}.ihex", .{root_name}),
         .raw => return std.fmt.allocPrint(allocator, "{s}.bin", .{root_name}),
+        // TODO change this to the arbitrary character for plan9 output, eg '6' for amd64
+        .plan9 => return std.fmt.allocPrint(allocator, "{s}.out.p9", .{root_name}),
     }
 }
 
