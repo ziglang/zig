@@ -48,38 +48,38 @@ pub fn Atomic(comptime T: type) type {
             };
         }
 
-        pub fn swap(self: *Self, value: T, comptime ordering: Ordering) callconv(.Inline) T {
+        pub inline fn swap(self: *Self, value: T, comptime ordering: Ordering) T {
             return self.rmw(.Xchg, value, ordering);
         }
 
-        pub fn compareAndSwap(
+        pub inline fn compareAndSwap(
             self: *Self,
             compare: T,
             exchange: T,
             comptime success: Ordering,
             comptime failure: Ordering,
-        ) callconv(.Inline) ?T {
+        ) ?T {
             return self.cmpxchg(true, compare, exchange, success, failure);
         }
 
-        pub fn tryCompareAndSwap(
+        pub inline fn tryCompareAndSwap(
             self: *Self,
             compare: T,
             exchange: T,
             comptime success: Ordering,
             comptime failure: Ordering,
-        ) callconv(.Inline) ?T {
+        ) ?T {
             return self.cmpxchg(false, compare, exchange, success, failure);
         }
 
-        fn cmpxchg(
+        inline fn cmpxchg(
             self: *Self,
             comptime is_strong: bool,
             compare: T,
             exchange: T,
             comptime success: Ordering,
             comptime failure: Ordering,
-        ) callconv(.Inline) ?T {
+        ) ?T {
             if (success == .Unordered or failure == .Unordered) {
                 @compileError(@tagName(Ordering.Unordered) ++ " is only allowed on atomic loads and stores");
             }
@@ -103,12 +103,12 @@ pub fn Atomic(comptime T: type) type {
             };
         }
 
-        fn rmw(
+        inline fn rmw(
             self: *Self,
             comptime op: std.builtin.AtomicRmwOp,
             value: T,
             comptime ordering: Ordering,
-        ) callconv(.Inline) T {
+        ) T {
             return @atomicRmw(T, &self.value, op, value, ordering);
         }
 
@@ -117,37 +117,37 @@ pub fn Atomic(comptime T: type) type {
         }
 
         pub usingnamespace exportWhen(std.meta.trait.isNumber(T), struct {
-            pub fn fetchAdd(self: *Self, value: T, comptime ordering: Ordering) callconv(.Inline) T {
+            pub inline fn fetchAdd(self: *Self, value: T, comptime ordering: Ordering) T {
                 return self.rmw(.Add, value, ordering);
             }
 
-            pub fn fetchSub(self: *Self, value: T, comptime ordering: Ordering) callconv(.Inline) T {
+            pub inline fn fetchSub(self: *Self, value: T, comptime ordering: Ordering) T {
                 return self.rmw(.Sub, value, ordering);
             }
 
-            pub fn fetchMin(self: *Self, value: T, comptime ordering: Ordering) callconv(.Inline) T {
+            pub inline fn fetchMin(self: *Self, value: T, comptime ordering: Ordering) T {
                 return self.rmw(.Min, value, ordering);
             }
 
-            pub fn fetchMax(self: *Self, value: T, comptime ordering: Ordering) callconv(.Inline) T {
+            pub inline fn fetchMax(self: *Self, value: T, comptime ordering: Ordering) T {
                 return self.rmw(.Max, value, ordering);
             }
         });
 
         pub usingnamespace exportWhen(std.meta.trait.isIntegral(T), struct {
-            pub fn fetchAnd(self: *Self, value: T, comptime ordering: Ordering) callconv(.Inline) T {
+            pub inline fn fetchAnd(self: *Self, value: T, comptime ordering: Ordering) T {
                 return self.rmw(.And, value, ordering);
             }
 
-            pub fn fetchNand(self: *Self, value: T, comptime ordering: Ordering) callconv(.Inline) T {
+            pub inline fn fetchNand(self: *Self, value: T, comptime ordering: Ordering) T {
                 return self.rmw(.Nand, value, ordering);
             }
 
-            pub fn fetchOr(self: *Self, value: T, comptime ordering: Ordering) callconv(.Inline) T {
+            pub inline fn fetchOr(self: *Self, value: T, comptime ordering: Ordering) T {
                 return self.rmw(.Or, value, ordering);
             }
 
-            pub fn fetchXor(self: *Self, value: T, comptime ordering: Ordering) callconv(.Inline) T {
+            pub inline fn fetchXor(self: *Self, value: T, comptime ordering: Ordering) T {
                 return self.rmw(.Xor, value, ordering);
             }
 
@@ -158,24 +158,24 @@ pub fn Atomic(comptime T: type) type {
                 Toggle,
             };
 
-            pub fn bitSet(self: *Self, bit: Bit, comptime ordering: Ordering) callconv(.Inline) u1 {
+            pub inline fn bitSet(self: *Self, bit: Bit, comptime ordering: Ordering) u1 {
                 return bitRmw(self, .Set, bit, ordering);
             }
 
-            pub fn bitReset(self: *Self, bit: Bit, comptime ordering: Ordering) callconv(.Inline) u1 {
+            pub inline fn bitReset(self: *Self, bit: Bit, comptime ordering: Ordering) u1 {
                 return bitRmw(self, .Reset, bit, ordering);
             }
 
-            pub fn bitToggle(self: *Self, bit: Bit, comptime ordering: Ordering) callconv(.Inline) u1 {
+            pub inline fn bitToggle(self: *Self, bit: Bit, comptime ordering: Ordering) u1 {
                 return bitRmw(self, .Toggle, bit, ordering);
             }
 
-            fn bitRmw(
+            inline fn bitRmw(
                 self: *Self,
                 comptime op: BitRmwOp,
                 bit: Bit,
                 comptime ordering: Ordering,
-            ) callconv(.Inline) u1 {
+            ) u1 {
                 // x86 supports dedicated bitwise instructions
                 if (comptime target.cpu.arch.isX86() and @sizeOf(T) >= 2 and @sizeOf(T) <= 8) {
                     const instruction = switch (op) {

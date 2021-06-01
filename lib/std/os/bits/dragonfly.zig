@@ -696,14 +696,6 @@ pub const in_port_t = u16;
 pub const sa_family_t = u8;
 pub const socklen_t = u32;
 
-pub const sockaddr_storage = extern struct {
-    ss_len: u8,
-    ss_family: sa_family_t,
-    __ss_pad1: [5]u8,
-    __ss_align: i64,
-    __ss_pad2: [112]u8,
-};
-
 pub const sockaddr_in = extern struct {
     len: u8 = @sizeOf(sockaddr_in),
     family: sa_family_t = AF_INET,
