@@ -1275,6 +1275,15 @@ fn isLibCLibrary(name: []const u8) bool {
     return false;
 }
 
+fn isLibCppLibrary(name: []const u8) bool {
+    const libcpp_libraries = [_][]const u8{ "c++", "stdc++" };
+    for (libcpp_libraries) |libcpp_lib_name| {
+        if (mem.eql(u8, name, libcpp_lib_name))
+            return true;
+    }
+    return false;
+}
+
 pub const FileSource = union(enum) {
     /// Relative to build root
     path: []const u8,
@@ -1381,6 +1390,7 @@ pub const LibExeObjStep = struct {
     c_macros: ArrayList([]const u8),
     output_dir: ?[]const u8,
     is_linking_libc: bool = false,
+    is_linking_libcpp: bool = false,
     vcpkg_bin_path: ?[]const u8 = null,
 
     /// This may be set in order to override the default install directory
@@ -1661,6 +1671,9 @@ pub const LibExeObjStep = struct {
         if (isLibCLibrary(name)) {
             return self.is_linking_libc;
         }
+        if (isLibCppLibrary(name)) {
+            return self.is_linking_libcpp;
+        }
         for (self.link_objects.items) |link_object| {
             switch (link_object) {
                 LinkObject.SystemLib => |n| if (mem.eql(u8, n, name)) return true,
@@ -1689,6 +1702,13 @@ pub const LibExeObjStep = struct {
         if (!self.is_linking_libc) {
             self.is_linking_libc = true;
             self.link_objects.append(LinkObject{ .SystemLib = "c" }) catch unreachable;
+        }
+    }
+
+    pub fn linkLibCpp(self: *LibExeObjStep) void {
+        if (!self.is_linking_libcpp) {
+            self.is_linking_libcpp = true;
+            self.link_objects.append(LinkObject{ .SystemLib = "c++" }) catch unreachable;
         }
     }
 
@@ -1796,6 +1816,10 @@ pub const LibExeObjStep = struct {
     pub fn linkSystemLibrary(self: *LibExeObjStep, name: []const u8) void {
         if (isLibCLibrary(name)) {
             self.linkLibC();
+            return;
+        }
+        if (isLibCppLibrary(name)) {
+            self.linkLibCpp();
             return;
         }
         if (self.linkSystemLibraryPkgConfigOnly(name)) |_| {
