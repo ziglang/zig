@@ -197,7 +197,6 @@ pub const ChildProcess = struct {
             .{ .fd = child.stderr.?.handle, .events = os.POLLIN, .revents = undefined },
         };
 
-        var dead_fds: usize = 0;
         // We ask for ensureCapacity with this much extra space. This has more of an
         // effect on small reads because once the reads start to get larger the amount
         // of space an ArrayList will allocate grows exponentially.
@@ -213,39 +212,36 @@ pub const ChildProcess = struct {
 
             // Try reading whatever is available before checking the error
             // conditions.
-            if (poll_fds[0].revents & os.POLLIN != 0) {
-                // stdout is ready.
-                const new_capacity = std.math.min(stdout.items.len + bump_amt, max_output_bytes);
-                try stdout.ensureCapacity(new_capacity);
-                const buf = stdout.unusedCapacitySlice();
-                if (buf.len == 0) return error.StdoutStreamTooLong;
-                const nread = try os.read(poll_fds[0].fd, buf);
-                stdout.items.len += nread;
+            for (poll_fds) |*poll_fd| {
+                while (poll_fd.revents & os.POLLIN != 0) {
+                    // stdout is ready.
+                    const new_capacity = std.math.min(stdout.items.len + bump_amt, max_output_bytes);
+                    try stdout.ensureCapacity(new_capacity);
+                    const buf = stdout.unusedCapacitySlice();
+                    if (buf.len == 0) return error.StdoutStreamTooLong;
+                    const nread = try os.read(poll_fd.fd, buf);
+                    stdout.items.len += nread;
 
-                // insert POLLHUP event because dragonfly fails to do so
-                if (dragonfly_workaround and nread == 0) poll_fds[0].revents |= os.POLLHUP;
-            }
-            if (poll_fds[1].revents & os.POLLIN != 0) {
-                // stderr is ready.
-                const new_capacity = std.math.min(stderr.items.len + bump_amt, max_output_bytes);
-                try stderr.ensureCapacity(new_capacity);
-                const buf = stderr.unusedCapacitySlice();
-                if (buf.len == 0) return error.StderrStreamTooLong;
-                const nread = try os.read(poll_fds[1].fd, buf);
-                stderr.items.len += nread;
-
-                // insert POLLHUP event because dragonfly fails to do so
-                if (dragonfly_workaround and nread == 0) poll_fds[1].revents |= os.POLLHUP;
+                    if (nread == 0) {
+                        // insert POLLHUP event because dragonfly fails to do so
+                        if (dragonfly_workaround) poll_fd.revents |= os.POLLHUP;
+                        break;
+                    }
+                }
             }
 
             // Exclude the fds that signaled an error.
-            if (poll_fds[0].revents & (os.POLLERR | os.POLLNVAL | os.POLLHUP) != 0) {
-                poll_fds[0].fd = -1;
-                dead_fds += 1;
+            var any_polls_alive = false;
+            for (poll_fds) |*poll_fd| {
+                if (poll_fd.revents & (os.POLLERR | os.POLLNVAL | os.POLLHUP) != 0) {
+                    poll_fd.fd = -1;
+                }
+
+                if (poll_fd.fd != -1) any_polls_alive = true;
             }
-            if (poll_fds[1].revents & (os.POLLERR | os.POLLNVAL | os.POLLHUP) != 0) {
-                poll_fds[1].fd = -1;
-                dead_fds += 1;
+
+            if (!any_polls_alive) {
+                break;
             }
         }
     }
