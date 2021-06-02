@@ -2,8 +2,30 @@
 
 . ./ci/drone/linux_script_base
 
-apk update
-apk add samurai
+PREFIX="/deps/local"
+ZIG="$PREFIX/bin/zig"
+TARGET="$TRIPLEARCH-linux-musl"
+MCPU="baseline"
+
+export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
+export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+
+# The `CMAKE_AR` parameter will consider any spaces to
+# be part of the executable path rather than CLI args, so we have
+# to create wrapper scripts for `zig ar` and zig ranlib`.
+
+cat <<'ENDFILE' >$PREFIX/bin/ar
+#!/bin/sh
+/deps/local/bin/zig ar $@
+ENDFILE
+
+cat <<'ENDFILE' >$PREFIX/bin/ranlib
+#!/bin/sh
+/deps/local/bin/zig ranlib $@
+ENDFILE
+
+chmod +x $PREFIX/bin/ar
+chmod +x $PREFIX/bin/ranlib
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
@@ -13,6 +35,25 @@ git fetch --tags
 
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON -DCMAKE_PREFIX_PATH=/deps/local -GNinja
+cmake .. \
+  -DCMAKE_INSTALL_PREFIX="$DISTDIR" \
+  -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_AR="$PREFIX/bin/ar" \
+  -DCMAKE_RANLIB="$PREFIX/bin/ranlib" \
+  -DZIG_TARGET_TRIPLE="$TARGET" \
+  -DZIG_TARGET_MCPU="$MCPU" \
+  -DZIG_STATIC=ON \
+  -GNinja
 
+# Now CMake will use Zig as the C/C++ compiler. We reset the environment variables
+# so that installation and testing do not get affected by them.
+unset CC
+unset CXX
+samu install
+
+# Here we rebuild Zig but this time using the Zig binary we just now produced to
+# build zig1.o rather than relying on the one built with stage0. See
+# https://github.com/ziglang/zig/issues/6830 for more details.
+cmake .. -DZIG_EXECUTABLE="$DISTDIR/bin/zig"
 samu install
