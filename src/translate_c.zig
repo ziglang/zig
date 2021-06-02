@@ -4688,6 +4688,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                 const macro = @ptrCast(*clang.MacroDefinitionRecord, entity);
                 const raw_name = macro.getName_getNameStart();
                 const begin_loc = macro.getSourceRange_getBegin();
+                const end_loc = clang.Lexer.getLocForEndOfToken(macro.getSourceRange_getEnd(), c.source_manager, unit);
 
                 const name = try c.str(raw_name);
                 // TODO https://github.com/ziglang/zig/issues/3756
@@ -4698,7 +4699,9 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                 }
 
                 const begin_c = c.source_manager.getCharacterData(begin_loc);
-                const slice = begin_c[0..mem.len(begin_c)];
+                const end_c = c.source_manager.getCharacterData(end_loc);
+                const slice_len = @ptrToInt(end_c) - @ptrToInt(begin_c);
+                const slice = begin_c[0..slice_len];
 
                 var tokenizer = std.c.Tokenizer{
                     .buffer = slice,
