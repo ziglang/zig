@@ -3100,6 +3100,13 @@ struct ZigClangSourceLocation ZigClangMacroDefinitionRecord_getSourceRange_getEn
     return bitcast(casted->getSourceRange().getEnd());
 }
 
+struct ZigClangSourceLocation ZigClangLexer_getLocForEndOfToken(ZigClangSourceLocation loc, const ZigClangSourceManager *sm, const ZigClangASTUnit *unit) {
+    const clang::SourceManager *casted_sm = reinterpret_cast<const clang::SourceManager *>(sm);
+    const clang::ASTUnit *casted_unit = reinterpret_cast<const clang::ASTUnit *>(unit);
+    clang::SourceLocation endloc = clang::Lexer::getLocForEndOfToken(bitcast(loc), 0, *casted_sm, casted_unit->getLangOpts());
+    return bitcast(endloc);
+}
+
 ZigClangRecordDecl_field_iterator ZigClangRecordDecl_field_begin(const struct ZigClangRecordDecl *self) {
     auto casted = reinterpret_cast<const clang::RecordDecl *>(self);
     return bitcast(casted->field_begin());

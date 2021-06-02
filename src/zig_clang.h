@@ -966,6 +966,8 @@ ZIG_EXTERN_C const char* ZigClangSourceManager_getCharacterData(const struct Zig
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangASTContext_getPointerType(const struct ZigClangASTContext*, struct ZigClangQualType T);
 
+ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangLexer_getLocForEndOfToken(struct ZigClangSourceLocation,
+        const ZigClangSourceManager *, const ZigClangASTUnit *);
 
 // Can return null.
 ZIG_EXTERN_C struct ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char **args_end,

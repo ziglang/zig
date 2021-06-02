@@ -607,6 +607,13 @@ pub const IntegerLiteral = opaque {
     extern fn ZigClangIntegerLiteral_isZero(*const IntegerLiteral, *bool, *const ASTContext) bool;
 };
 
+/// This is just used as a namespace for a static method on clang's Lexer class; we don't directly
+/// deal with Lexer objects
+pub const Lexer = struct {
+    pub const getLocForEndOfToken = ZigClangLexer_getLocForEndOfToken;
+    extern fn ZigClangLexer_getLocForEndOfToken(SourceLocation, *const SourceManager, *const ASTUnit) SourceLocation;
+};
+
 pub const MacroDefinitionRecord = opaque {
     pub const getName_getNameStart = ZigClangMacroDefinitionRecord_getName_getNameStart;
     extern fn ZigClangMacroDefinitionRecord_getName_getNameStart(*const MacroDefinitionRecord) [*:0]const u8;
