@@ -141,6 +141,7 @@ pub const File = struct {
         elf: Elf.TextBlock,
         coff: Coff.TextBlock,
         macho: MachO.TextBlock,
+        plan9: Plan9.DeclBlock,
         c: C.DeclBlock,
         wasm: Wasm.DeclBlock,
         spirv: void,
@@ -150,7 +151,7 @@ pub const File = struct {
         elf: Elf.SrcFn,
         coff: Coff.SrcFn,
         macho: MachO.SrcFn,
-        plan9: Plan9.SrcFn,
+        plan9: void,
         c: C.FnBlock,
         wasm: Wasm.FnData,
         spirv: SpirV.FnData,
@@ -207,12 +208,12 @@ pub const File = struct {
                     .coff, .pe => &(try Coff.createEmpty(allocator, options)).base,
                     .elf => &(try Elf.createEmpty(allocator, options)).base,
                     .macho => &(try MachO.createEmpty(allocator, options)).base,
+                    .plan9 => &(try Plan9.createEmpty(allocator, options)).base,
                     .wasm => &(try Wasm.createEmpty(allocator, options)).base,
                     .c => unreachable, // Reported error earlier.
                     .spirv => &(try SpirV.createEmpty(allocator, options)).base,
                     .hex => return error.HexObjectFormatUnimplemented,
                     .raw => return error.RawObjectFormatUnimplemented,
-                    .plan9 => return error.Plan9ObjectFormatUnimplemented,
                 };
             }
             // Open a temporary object file, not the final output file because we want to link with LLD.
@@ -224,12 +225,12 @@ pub const File = struct {
             .coff, .pe => &(try Coff.openPath(allocator, sub_path, options)).base,
             .elf => &(try Elf.openPath(allocator, sub_path, options)).base,
             .macho => &(try MachO.openPath(allocator, sub_path, options)).base,
+            .plan9 => &(try Plan9.openPath(allocator, sub_path, options)).base,
             .wasm => &(try Wasm.openPath(allocator, sub_path, options)).base,
             .c => &(try C.openPath(allocator, sub_path, options)).base,
             .spirv => &(try SpirV.openPath(allocator, sub_path, options)).base,
             .hex => return error.HexObjectFormatUnimplemented,
             .raw => return error.RawObjectFormatUnimplemented,
-            .plan9 => return error.Plan9ObjectFormatUnimplemented,
         };
 
         if (use_lld) {
@@ -347,7 +348,7 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
             .c => return @fieldParentPtr(C, "base", base).allocateDeclIndexes(decl),
             .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl),
+            .plan9 => {},
             .spirv => {},
         }
     }

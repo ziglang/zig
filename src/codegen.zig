@@ -2556,9 +2556,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 } else {
                     return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                 }
-            } else {
-                unreachable;
-            }
+            } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
+                if (inst.func.value()) |func_value| {
+                    if (func_value.castTag(.function)) |func_payload| {
+                        try p9.addCallReloc(self.code, .{
+                            .caller = p9.cur_decl,
+                            .callee = func_payload.data.owner_decl,
+                            .offset_in_caller = self.code.items.len,
+                        });
+                    } else return self.fail(inst.base.src, "TODO implement calling extern fn on plan9", .{});
+                } else {
+                    return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                }
+            } else unreachable;
 
             switch (info.return_value) {
                 .register => |reg| {

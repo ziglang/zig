@@ -1,0 +1,122 @@
+// Copyright © 2021 Plan 9 Foundation
+// Copyright © 20XX 9front authors
+
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+// Idomatic translation of 9front a.out.h
+const std = @import("std");
+// all integers are in big-endian format (needs a byteswap)
+pub const ExecHdr = struct {
+    magic: u32,
+    text: u32,
+    data: u32,
+    bss: u32,
+    syms: u32,
+    entry: u32,
+    spsz: u32,
+    pcsz: u32,
+    pub fn size() u8 {
+        return 32;
+    }
+};
+
+// uchar value[4];
+// char  type;
+// char  name[n];   /* NUL-terminated */
+pub const Sym32 = struct {
+    value: u32, // big endian in the file
+    type: SymType,
+    name: [*:0]const u8,
+};
+// uchar value[8];
+// char  type;
+// char  name[n];   /* NUL-terminated */
+pub const Sym64 = struct {
+    value: u64, // big endian in the file
+    type: SymType,
+    name: [*:0]const u8,
+};
+// The type field is one of the following characters with the
+// high bit set:
+// T    text segment symbol
+// t    static text segment symbol
+// L    leaf function text segment symbol
+// l    static leaf function text segment symbol
+// D    data segment symbol
+// d    static data segment symbol
+// B    bss segment symbol
+// b    static bss segment symbol
+// a    automatic (local) variable symbol
+// p    function parameter symbol
+// f    source file name components
+// z    source file name
+// Z    source file line offset
+// m for '.frame'
+pub const SymType = enum(u8) {
+    T = 0x80 | 'T',
+    t = 0x80 | 't',
+    L = 0x80 | 'L',
+    l = 0x80 | 'l',
+    D = 0x80 | 'D',
+    d = 0x80 | 'd',
+    B = 0x80 | 'B',
+    b = 0x80 | 'b',
+    a = 0x80 | 'a',
+    p = 0x80 | 'p',
+    f = 0x80 | 'f',
+    z = 0x80 | 'z',
+    Z = 0x80 | 'Z',
+    m = 0x80 | 'm',
+};
+
+pub const HDR_MAGIC = @import("std").meta.promoteIntLiteral(c_int, 0x00008000, .hexadecimal);
+pub inline fn _MAGIC(f: anytype, b: anytype) @TypeOf(f | ((((@as(c_int, 4) * b) + @as(c_int, 0)) * b) + @as(c_int, 7))) {
+    return f | ((((@as(c_int, 4) * b) + @as(c_int, 0)) * b) + @as(c_int, 7));
+}
+pub const A_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 8)); // 68020
+pub const I_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 11)); // intel 386
+pub const J_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 12)); // intel 960 (retired)
+pub const K_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 13)); // sparc
+pub const V_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 16)); // mips 3000 BE
+pub const X_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 17)); // att dsp 3210 (retired)
+pub const M_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 18)); // mips 4000 BE
+pub const D_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 19)); // amd 29000 (retired)
+pub const E_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 20)); // arm
+pub const Q_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 21)); // powerpc
+pub const N_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 22)); // mips 4000 LE
+pub const L_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 23)); // dec alpha (retired)
+pub const P_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 24)); // mips 3000 LE
+pub const U_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 25)); // sparc64
+pub const S_MAGIC = _MAGIC(HDR_MAGIC, @as(c_int, 26)); // amd64
+pub const T_MAGIC = _MAGIC(HDR_MAGIC, @as(c_int, 27)); // powerpc64
+pub const R_MAGIC = _MAGIC(HDR_MAGIC, @as(c_int, 28)); // arm64
+
+pub fn magicFromArch(arch: std.Target.Cpu.Arch) !u32 {
+    return switch (arch) {
+        .i386 => I_MAGIC,
+        .sparc => K_MAGIC, // TODO should sparcv9 and sparcel go here?
+        .mips => V_MAGIC,
+        .arm => E_MAGIC,
+        .aarch64 => R_MAGIC,
+        .powerpc => Q_MAGIC,
+        .powerpc64 => T_MAGIC,
+        .x86_64 => S_MAGIC,
+        else => error.ArchNotSupportedByPlan9,
+    };
+}
