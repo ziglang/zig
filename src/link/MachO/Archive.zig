@@ -58,7 +58,7 @@ const ar_hdr = extern struct {
 
     const NameOrLength = union(enum) {
         Name: []const u8,
-        Length: u64,
+        Length: u32,
     };
     fn nameOrLength(self: ar_hdr) !NameOrLength {
         const value = getValue(&self.ar_name);
@@ -70,14 +70,14 @@ const ar_hdr = extern struct {
         } else {
             // Name follows the header directly and its length is encoded in
             // the name field.
-            const length = try std.fmt.parseInt(u64, value[slash_index + 1 ..], 10);
+            const length = try std.fmt.parseInt(u32, value[slash_index + 1 ..], 10);
             return NameOrLength{ .Length = length };
         }
     }
 
-    fn size(self: ar_hdr) !u64 {
+    fn size(self: ar_hdr) !u32 {
         const value = getValue(&self.ar_size);
-        return std.fmt.parseInt(u64, value, 10);
+        return std.fmt.parseInt(u32, value, 10);
     }
 
     fn getValue(raw: []const u8) []const u8 {

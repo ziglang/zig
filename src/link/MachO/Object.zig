@@ -284,7 +284,7 @@ pub fn parseSections(self: *Object) !void {
     for (seg.sections.items) |sect| {
         log.debug("parsing section '{s},{s}'", .{ parseName(&sect.segname), parseName(&sect.sectname) });
         // Read sections' code
-        var code = try self.allocator.alloc(u8, sect.size);
+        var code = try self.allocator.alloc(u8, @intCast(usize, sect.size));
         _ = try self.file.?.preadAll(code, sect.offset);
 
         var section = Section{
@@ -461,7 +461,7 @@ pub fn parseDebugInfo(self: *Object) !void {
 fn readSection(self: Object, allocator: *Allocator, index: u16) ![]u8 {
     const seg = self.load_commands.items[self.segment_cmd_index.?].Segment;
     const sect = seg.sections.items[index];
-    var buffer = try allocator.alloc(u8, sect.size);
+    var buffer = try allocator.alloc(u8, @intCast(usize, sect.size));
     _ = try self.file.?.preadAll(buffer, sect.offset);
     return buffer;
 }
