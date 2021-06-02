@@ -206,7 +206,7 @@ pub const ChildProcess = struct {
         // parent process does not receive POLLHUP events
         const dragonfly_workaround = builtin.os.tag == .dragonfly;
 
-        while (dead_fds < poll_fds.len) {
+        while (true) {
             const events = try os.poll(&poll_fds, std.math.maxInt(i32));
             if (events == 0) continue;
 
