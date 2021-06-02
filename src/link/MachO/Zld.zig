@@ -2214,7 +2214,7 @@ fn flush(self: *Zld) !void {
         const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         const sect = &seg.sections.items[index];
 
-        var buffer = try self.allocator.alloc(u8, sect.size);
+        var buffer = try self.allocator.alloc(u8, @intCast(usize, sect.size));
         defer self.allocator.free(buffer);
         _ = try self.file.?.preadAll(buffer, sect.offset);
 

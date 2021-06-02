@@ -179,12 +179,12 @@ pub fn parse(
 
 pub const RelocIterator = struct {
     buffer: []const macho.relocation_info,
-    index: i64 = -1,
+    index: i32 = -1,
 
     pub fn next(self: *RelocIterator) ?macho.relocation_info {
         self.index += 1;
         if (self.index < self.buffer.len) {
-            const reloc = self.buffer[@intCast(u64, self.index)];
+            const reloc = self.buffer[@intCast(u32, self.index)];
             log.debug("relocation", .{});
             log.debug("    | type = {}", .{reloc.r_type});
             log.debug("    | offset = {}", .{reloc.r_address});
@@ -199,6 +199,6 @@ pub const RelocIterator = struct {
 
     pub fn peek(self: RelocIterator) macho.relocation_info {
         assert(self.index + 1 < self.buffer.len);
-        return self.buffer[@intCast(u64, self.index + 1)];
+        return self.buffer[@intCast(u32, self.index + 1)];
     }
 };
