@@ -7,7 +7,7 @@ if [ -n "$DRONE_PULL_REQUEST" ]; then
 fi
 
 apk update
-apk add py3-pip xz perl-utils jq curl samurai
+apk add py3-pip perl-utils jq curl
 pip3 install s3cmd
 
 cd build
