@@ -997,12 +997,12 @@ pub fn initDeclDebugBuffers(
             if (fn_ret_has_bits) {
                 const gop = try dbg_info_type_relocs.getOrPut(allocator, fn_ret_type);
                 if (!gop.found_existing) {
-                    gop.entry.value = .{
+                    gop.value_ptr.* = .{
                         .off = undefined,
                         .relocs = .{},
                     };
                 }
-                try gop.entry.value.relocs.append(allocator, @intCast(u32, dbg_info_buffer.items.len));
+                try gop.value_ptr.relocs.append(allocator, @intCast(u32, dbg_info_buffer.items.len));
                 dbg_info_buffer.items.len += 4; // DW.AT_type,  DW.FORM_ref4
             }
             dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT_name, DW.FORM_string
@@ -1158,26 +1158,30 @@ pub fn commitDeclDebugInfo(
     if (dbg_info_buffer.items.len == 0)
         return;
 
-    // Now we emit the .debug_info types of the Decl. These will count towards the size of
-    // the buffer, so we have to do it before computing the offset, and we can't perform the actual
-    // relocations yet.
-    var it = dbg_info_type_relocs.iterator();
-    while (it.next()) |entry| {
-        entry.value.off = @intCast(u32, dbg_info_buffer.items.len);
-        try self.addDbgInfoType(entry.key, dbg_info_buffer, target);
+    {
+        // Now we emit the .debug_info types of the Decl. These will count towards the size of
+        // the buffer, so we have to do it before computing the offset, and we can't perform the actual
+        // relocations yet.
+        var it = dbg_info_type_relocs.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
+            try self.addDbgInfoType(entry.key_ptr.*, dbg_info_buffer, target);
+        }
     }
 
     try self.updateDeclDebugInfoAllocation(allocator, text_block, @intCast(u32, dbg_info_buffer.items.len));
 
-    // Now that we have the offset assigned we can finally perform type relocations.
-    it = dbg_info_type_relocs.iterator();
-    while (it.next()) |entry| {
-        for (entry.value.relocs.items) |off| {
-            mem.writeIntLittle(
-                u32,
-                dbg_info_buffer.items[off..][0..4],
-                text_block.dbg_info_off + entry.value.off,
-            );
+    {
+        // Now that we have the offset assigned we can finally perform type relocations.
+        var it = dbg_info_type_relocs.valueIterator();
+        while (it.next()) |value| {
+            for (value.relocs.items) |off| {
+                mem.writeIntLittle(
+                    u32,
+                    dbg_info_buffer.items[off..][0..4],
+                    text_block.dbg_info_off + value.off,
+                );
+            }
         }
     }
 

@@ -252,7 +252,7 @@ pub const LibCInstallation = struct {
         // Detect infinite loops.
         const inf_loop_env_key = "ZIG_IS_DETECTING_LIBC_PATHS";
         if (env_map.get(inf_loop_env_key) != null) return error.ZigIsTheCCompiler;
-        try env_map.set(inf_loop_env_key, "1");
+        try env_map.put(inf_loop_env_key, "1");
 
         const exec_res = std.ChildProcess.exec(.{
             .allocator = allocator,
@@ -564,7 +564,7 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     // Detect infinite loops.
     const inf_loop_env_key = "ZIG_IS_DETECTING_LIBC_PATHS";
     if (env_map.get(inf_loop_env_key) != null) return error.ZigIsTheCCompiler;
-    try env_map.set(inf_loop_env_key, "1");
+    try env_map.put(inf_loop_env_key, "1");
 
     const exec_res = std.ChildProcess.exec(.{
         .allocator = allocator,

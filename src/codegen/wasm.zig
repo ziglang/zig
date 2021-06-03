@@ -625,10 +625,10 @@ pub const Context = struct {
                 const struct_data: *Module.Struct = ty.castTag(.@"struct").?.data;
                 const fields_len = @intCast(u32, struct_data.fields.count());
                 try self.locals.ensureCapacity(self.gpa, self.locals.items.len + fields_len);
-                for (struct_data.fields.items()) |entry| {
+                for (struct_data.fields.values()) |*value| {
                     const val_type = try self.genValtype(
                         .{ .node_offset = struct_data.node_offset },
-                        entry.value.ty,
+                        value.ty,
                     );
                     self.locals.appendAssumeCapacity(val_type);
                     self.local_index += 1;
@@ -1018,7 +1018,7 @@ pub const Context = struct {
                         .enum_full, .enum_nonexhaustive => {
                             const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
                             if (enum_full.values.count() != 0) {
-                                const tag_val = enum_full.values.entries.items[field_index.data].key;
+                                const tag_val = enum_full.values.keys()[field_index.data];
                                 try self.emitConstant(src, tag_val, enum_full.tag_ty);
                             } else {
                                 try writer.writeByte(wasm.opcode(.i32_const));

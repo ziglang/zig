@@ -1318,8 +1318,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
         try man.addListOfFiles(self.base.options.objects);
-        for (comp.c_object_table.items()) |entry| {
-            _ = try man.addFile(entry.key.status.success.object_path, null);
+        for (comp.c_object_table.keys()) |key| {
+            _ = try man.addFile(key.status.success.object_path, null);
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFile(compiler_rt_path);
@@ -1394,7 +1394,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 break :blk self.base.options.objects[0];
 
             if (comp.c_object_table.count() != 0)
-                break :blk comp.c_object_table.items()[0].key.status.success.object_path;
+                break :blk comp.c_object_table.keys()[0].status.success.object_path;
 
             if (module_obj_path) |p|
                 break :blk p;
@@ -1518,8 +1518,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             var test_path = std.ArrayList(u8).init(self.base.allocator);
             defer test_path.deinit();
             for (self.base.options.lib_dirs) |lib_dir_path| {
-                for (self.base.options.system_libs.items()) |entry| {
-                    const link_lib = entry.key;
+                for (self.base.options.system_libs.keys()) |link_lib| {
                     test_path.shrinkRetainingCapacity(0);
                     const sep = fs.path.sep_str;
                     try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, link_lib });
@@ -1568,8 +1567,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // Positional arguments to the linker such as object files.
         try argv.appendSlice(self.base.options.objects);
 
-        for (comp.c_object_table.items()) |entry| {
-            try argv.append(entry.key.status.success.object_path);
+        for (comp.c_object_table.keys()) |key| {
+            try argv.append(key.status.success.object_path);
         }
 
         if (module_obj_path) |p| {
@@ -1598,10 +1597,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
-            const system_libs = self.base.options.system_libs.items();
+            const system_libs = self.base.options.system_libs.keys();
             try argv.ensureCapacity(argv.items.len + system_libs.len);
-            for (system_libs) |entry| {
-                const link_lib = entry.key;
+            for (system_libs) |link_lib| {
                 // By this time, we depend on these libs being dynamically linked libraries and not static libraries
                 // (the check for that needs to be earlier), but they could be full paths to .so files, in which
                 // case we want to avoid prepending "-l".
@@ -2168,9 +2166,9 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
 
     var dbg_info_type_relocs: File.DbgInfoTypeRelocsTable = .{};
     defer {
-        var it = dbg_info_type_relocs.iterator();
-        while (it.next()) |entry| {
-            entry.value.relocs.deinit(self.base.allocator);
+        var it = dbg_info_type_relocs.valueIterator();
+        while (it.next()) |value| {
+            value.relocs.deinit(self.base.allocator);
         }
         dbg_info_type_relocs.deinit(self.base.allocator);
     }
@@ -2235,12 +2233,12 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         if (fn_ret_has_bits) {
             const gop = try dbg_info_type_relocs.getOrPut(self.base.allocator, fn_ret_type);
             if (!gop.found_existing) {
-                gop.entry.value = .{
+                gop.value_ptr.* = .{
                     .off = undefined,
                     .relocs = .{},
                 };
             }
-            try gop.entry.value.relocs.append(self.base.allocator, @intCast(u32, dbg_info_buffer.items.len));
+            try gop.value_ptr.relocs.append(self.base.allocator, @intCast(u32, dbg_info_buffer.items.len));
             dbg_info_buffer.items.len += 4; // DW.AT_type,  DW.FORM_ref4
         }
         dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT_name, DW.FORM_string
@@ -2448,24 +2446,28 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     // Now we emit the .debug_info types of the Decl. These will count towards the size of
     // the buffer, so we have to do it before computing the offset, and we can't perform the actual
     // relocations yet.
-    var it = dbg_info_type_relocs.iterator();
-    while (it.next()) |entry| {
-        entry.value.off = @intCast(u32, dbg_info_buffer.items.len);
-        try self.addDbgInfoType(entry.key, &dbg_info_buffer);
+    {
+        var it = dbg_info_type_relocs.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.off = @intCast(u32, dbg_info_buffer.items.len);
+            try self.addDbgInfoType(entry.key_ptr.*, &dbg_info_buffer);
+        }
     }
 
     try self.updateDeclDebugInfoAllocation(text_block, @intCast(u32, dbg_info_buffer.items.len));
 
-    // Now that we have the offset assigned we can finally perform type relocations.
-    it = dbg_info_type_relocs.iterator();
-    while (it.next()) |entry| {
-        for (entry.value.relocs.items) |off| {
-            mem.writeInt(
-                u32,
-                dbg_info_buffer.items[off..][0..4],
-                text_block.dbg_info_off + entry.value.off,
-                target_endian,
-            );
+    {
+        // Now that we have the offset assigned we can finally perform type relocations.
+        var it = dbg_info_type_relocs.valueIterator();
+        while (it.next()) |value| {
+            for (value.relocs.items) |off| {
+                mem.writeInt(
+                    u32,
+                    dbg_info_buffer.items[off..][0..4],
+                    text_block.dbg_info_off + value.off,
+                    target_endian,
+                );
+            }
         }
     }
 
@@ -2636,7 +2638,7 @@ pub fn updateDeclExports(
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
+                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
                     try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
@@ -2654,7 +2656,7 @@ pub fn updateDeclExports(
             },
             .Weak => elf.STB_WEAK,
             .LinkOnce => {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
+                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
                     try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: GlobalLinkage.LinkOnce", .{}),

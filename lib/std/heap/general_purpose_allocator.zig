@@ -346,10 +346,10 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                         break;
                 }
             }
-            var it = self.large_allocations.iterator();
+            var it = self.large_allocations.valueIterator();
             while (it.next()) |large_alloc| {
                 log.err("memory address 0x{x} leaked: {s}", .{
-                    @ptrToInt(large_alloc.value.bytes.ptr), large_alloc.value.getStackTrace(),
+                    @ptrToInt(large_alloc.bytes.ptr), large_alloc.getStackTrace(),
                 });
                 leaks = true;
             }
@@ -444,7 +444,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 }
             };
 
-            if (config.safety and old_mem.len != entry.value.bytes.len) {
+            if (config.safety and old_mem.len != entry.value_ptr.bytes.len) {
                 var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
                 var free_stack_trace = StackTrace{
                     .instruction_addresses = &addresses,
@@ -452,9 +452,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 };
                 std.debug.captureStackTrace(ret_addr, &free_stack_trace);
                 log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {s} Free: {s}", .{
-                    entry.value.bytes.len,
+                    entry.value_ptr.bytes.len,
                     old_mem.len,
-                    entry.value.getStackTrace(),
+                    entry.value_ptr.getStackTrace(),
                     free_stack_trace,
                 });
             }
@@ -466,7 +466,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     log.info("large free {d} bytes at {*}", .{ old_mem.len, old_mem.ptr });
                 }
 
-                self.large_allocations.removeAssertDiscard(@ptrToInt(old_mem.ptr));
+                assert(self.large_allocations.remove(@ptrToInt(old_mem.ptr)));
                 return 0;
             }
 
@@ -475,8 +475,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     old_mem.len, old_mem.ptr, new_size,
                 });
             }
-            entry.value.bytes = old_mem.ptr[0..result_len];
-            collectStackTrace(ret_addr, &entry.value.stack_addresses);
+            entry.value_ptr.bytes = old_mem.ptr[0..result_len];
+            collectStackTrace(ret_addr, &entry.value_ptr.stack_addresses);
             return result_len;
         }
 
@@ -645,8 +645,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
                 const gop = self.large_allocations.getOrPutAssumeCapacity(@ptrToInt(slice.ptr));
                 assert(!gop.found_existing); // This would mean the kernel double-mapped pages.
-                gop.entry.value.bytes = slice;
-                collectStackTrace(ret_addr, &gop.entry.value.stack_addresses);
+                gop.value_ptr.bytes = slice;
+                collectStackTrace(ret_addr, &gop.value_ptr.stack_addresses);
 
                 if (config.verbose_log) {
                     log.info("large alloc {d} bytes at {*}", .{ slice.len, slice.ptr });

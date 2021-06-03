@@ -135,9 +135,10 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
 
             const s = path.sep_str;
 
-            for (source_table.items()) |entry| {
-                const src_file = entry.key;
-                const ext = entry.value;
+            var it = source_table.iterator();
+            while (it.next()) |entry| {
+                const src_file = entry.key_ptr.*;
+                const ext = entry.value_ptr.*;
 
                 const dirname = path.dirname(src_file).?;
                 const basename = path.basename(src_file);

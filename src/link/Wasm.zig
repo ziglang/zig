@@ -422,8 +422,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
         var count: u32 = 0;
-        for (module.decl_exports.entries.items) |entry| {
-            for (entry.value) |exprt| {
+        for (module.decl_exports.values()) |exports| {
+            for (exports) |exprt| {
                 // Export name length + name
                 try leb.writeULEB128(writer, @intCast(u32, exprt.options.name.len));
                 try writer.writeAll(exprt.options.name);
@@ -590,8 +590,8 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         self.base.releaseLock();
 
         try man.addListOfFiles(self.base.options.objects);
-        for (comp.c_object_table.items()) |entry| {
-            _ = try man.addFile(entry.key.status.success.object_path, null);
+        for (comp.c_object_table.keys()) |key| {
+            _ = try man.addFile(key.status.success.object_path, null);
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFile(compiler_rt_path);
@@ -638,7 +638,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 break :blk self.base.options.objects[0];
 
             if (comp.c_object_table.count() != 0)
-                break :blk comp.c_object_table.items()[0].key.status.success.object_path;
+                break :blk comp.c_object_table.keys()[0].status.success.object_path;
 
             if (module_obj_path) |p|
                 break :blk p;
@@ -712,8 +712,8 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         // Positional arguments to the linker such as object files.
         try argv.appendSlice(self.base.options.objects);
 
-        for (comp.c_object_table.items()) |entry| {
-            try argv.append(entry.key.status.success.object_path);
+        for (comp.c_object_table.keys()) |key| {
+            try argv.append(key.status.success.object_path);
         }
         if (module_obj_path) |p| {
             try argv.append(p);

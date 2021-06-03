@@ -955,7 +955,7 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
         while (it.next()) |pair| {
             // +1 for '='
             // +1 for null byte
-            max_chars_needed += pair.key.len + pair.value.len + 2;
+            max_chars_needed += pair.key_ptr.len + pair.value_ptr.len + 2;
         }
         break :x max_chars_needed;
     };
@@ -965,10 +965,10 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
     var it = env_map.iterator();
     var i: usize = 0;
     while (it.next()) |pair| {
-        i += try unicode.utf8ToUtf16Le(result[i..], pair.key);
+        i += try unicode.utf8ToUtf16Le(result[i..], pair.key_ptr.*);
         result[i] = '=';
         i += 1;
-        i += try unicode.utf8ToUtf16Le(result[i..], pair.value);
+        i += try unicode.utf8ToUtf16Le(result[i..], pair.value_ptr.*);
         result[i] = 0;
         i += 1;
     }
@@ -990,10 +990,10 @@ pub fn createNullDelimitedEnvMap(arena: *mem.Allocator, env_map: *const std.BufM
         var it = env_map.iterator();
         var i: usize = 0;
         while (it.next()) |pair| : (i += 1) {
-            const env_buf = try arena.allocSentinel(u8, pair.key.len + pair.value.len + 1, 0);
-            mem.copy(u8, env_buf, pair.key);
-            env_buf[pair.key.len] = '=';
-            mem.copy(u8, env_buf[pair.key.len + 1 ..], pair.value);
+            const env_buf = try arena.allocSentinel(u8, pair.key_ptr.len + pair.value_ptr.len + 1, 0);
+            mem.copy(u8, env_buf, pair.key_ptr.*);
+            env_buf[pair.key_ptr.len] = '=';
+            mem.copy(u8, env_buf[pair.key_ptr.len + 1 ..], pair.value_ptr.*);
             envp_buf[i] = env_buf.ptr;
         }
         assert(i == envp_count);
@@ -1007,11 +1007,11 @@ test "createNullDelimitedEnvMap" {
     var envmap = BufMap.init(allocator);
     defer envmap.deinit();
 
-    try envmap.set("HOME", "/home/ifreund");
-    try envmap.set("WAYLAND_DISPLAY", "wayland-1");
-    try envmap.set("DISPLAY", ":1");
-    try envmap.set("DEBUGINFOD_URLS", " ");
-    try envmap.set("XCURSOR_SIZE", "24");
+    try envmap.put("HOME", "/home/ifreund");
+    try envmap.put("WAYLAND_DISPLAY", "wayland-1");
+    try envmap.put("DISPLAY", ":1");
+    try envmap.put("DEBUGINFOD_URLS", " ");
+    try envmap.put("XCURSOR_SIZE", "24");
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();

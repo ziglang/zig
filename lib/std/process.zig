@@ -85,7 +85,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
             i += 1; // skip over null byte
 
-            try result.setMove(key, value);
+            try result.putMove(key, value);
         }
         return result;
     } else if (builtin.os.tag == .wasi) {
@@ -112,7 +112,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             var parts = mem.split(pair, "=");
             const key = parts.next().?;
             const value = parts.next().?;
-            try result.set(key, value);
+            try result.put(key, value);
         }
         return result;
     } else if (builtin.link_libc) {
@@ -126,7 +126,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             while (line[end_i] != 0) : (end_i += 1) {}
             const value = line[line_i + 1 .. end_i];
 
-            try result.set(key, value);
+            try result.put(key, value);
         }
         return result;
     } else {
@@ -139,7 +139,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             while (line[end_i] != 0) : (end_i += 1) {}
             const value = line[line_i + 1 .. end_i];
 
-            try result.set(key, value);
+            try result.put(key, value);
         }
         return result;
     }

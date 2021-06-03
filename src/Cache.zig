@@ -90,10 +90,10 @@ pub const HashHelper = struct {
     }
 
     pub fn addStringSet(hh: *HashHelper, hm: std.StringArrayHashMapUnmanaged(void)) void {
-        const entries = hm.items();
-        hh.add(entries.len);
-        for (entries) |entry| {
-            hh.addBytes(entry.key);
+        const keys = hm.keys();
+        hh.add(keys.len);
+        for (keys) |key| {
+            hh.addBytes(key);
         }
     }
 

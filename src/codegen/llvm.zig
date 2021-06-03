@@ -789,7 +789,7 @@ pub const FuncGen = struct {
             .break_vals = &break_vals,
         });
         defer {
-            self.blocks.removeAssertDiscard(inst);
+            assert(self.blocks.remove(inst));
             break_bbs.deinit(self.gpa());
             break_vals.deinit(self.gpa());
         }

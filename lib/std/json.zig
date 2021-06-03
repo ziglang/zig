@@ -1303,14 +1303,14 @@ pub const Value = union(enum) {
                         try child_whitespace.outputIndent(out_stream);
                     }
 
-                    try stringify(entry.key, options, out_stream);
+                    try stringify(entry.key_ptr.*, options, out_stream);
                     try out_stream.writeByte(':');
                     if (child_options.whitespace) |child_whitespace| {
                         if (child_whitespace.separator) {
                             try out_stream.writeByte(' ');
                         }
                     }
-                    try stringify(entry.value, child_options, out_stream);
+                    try stringify(entry.value_ptr.*, child_options, out_stream);
                 }
                 if (field_output) {
                     if (options.whitespace) |whitespace| {
