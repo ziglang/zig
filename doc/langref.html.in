@@ -10421,7 +10421,7 @@ coding style.
       </p>
       <p>
       File names fall into two categories: types and namespaces. If the file
-      (implicity a struct) has top level fields, it should be named like any
+      (implicitly a struct) has top level fields, it should be named like any
       other struct with fields using {#syntax#}TitleCase{#endsyntax#}. Otherwise,
       it should use {#syntax#}snake_case{#endsyntax#}. Directory names should be
       {#syntax#}snake_case{#endsyntax#}.
