@@ -541,7 +541,7 @@ pub fn HashMap(
         pub fn get(self: Self, key: K) ?V {
             return self.unmanaged.getContext(key, self.ctx);
         }
-        pub fn getAdapted(self: Self, key: anytype, ctx: anytype) ?*V {
+        pub fn getAdapted(self: Self, key: anytype, ctx: anytype) ?V {
             return self.unmanaged.getAdapted(key, ctx);
         }
 
