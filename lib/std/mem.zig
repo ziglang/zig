@@ -1063,6 +1063,20 @@ pub fn indexOfPosLinear(comptime T: type, haystack: []const T, start_index: usiz
     return null;
 }
 
+/// Linear search for the index of a scalar slice value inside a slice of slices.
+pub fn indexOfSliceScalar(comptime Slice: type, haystack: []const Slice, needle: Slice) ?usize {
+    return indexOfSliceScalarPos(Slice, haystack, 0, needle);
+}
+/// Linear search for the index of a scalar slice value inside a slice of slices starting from start_index.
+/// Uses std.mem.eql to check for equality.
+pub fn indexOfSliceScalarPos(comptime Slice: type, haystack: []const Slice, start_index: usize, needle: Slice) ?usize {
+    var i: usize = start_index;
+    while (i < haystack.len) : (i += 1) {
+        if (std.mem.eql(std.meta.Child(Slice), haystack[i], needle)) return i;
+    }
+    return null;
+}
+
 fn boyerMooreHorspoolPreprocessReverse(pattern: []const u8, table: *[256]usize) void {
     for (table) |*c| {
         c.* = pattern.len;

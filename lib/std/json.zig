@@ -1530,6 +1530,73 @@ test "skipValue" {
     }
 }
 
+// build a list of aliases.  entries are [2][]const u8{alias_name, target_field_name}
+fn buildFieldAliases(comptime T: type) []const [2][]const u8 {
+    const tags_decl_name = "__tags";
+    const alias_field_name = "alias";
+    // look for `pub const __tags` decl in T
+    comptime {
+        const ti = @typeInfo(T);
+        const tags = if ((ti == .Struct or ti == .Union or ti == .Enum) and
+            @hasDecl(T, tags_decl_name) and
+            std.meta.declarationInfo(T, tags_decl_name).is_pub)
+            @field(T, tags_decl_name)
+        else
+            return &.{};
+
+        var result: []const [2][]const u8 = &.{};
+        const field_names = std.meta.fieldNames(T);
+        for (std.meta.fieldNames(@TypeOf(tags))) |tags_field_name| {
+            // check if tag field name matches a field name from T
+            // have to use a function rather than for loop to work around a compiler bug
+            const found = std.mem.indexOfSliceScalar([]const u8, field_names, tags_field_name) != null;
+            if (found) {
+                const tag_member = @field(tags, tags_field_name);
+                // if the tag_member has an alias field, append this alias, target pair to result
+                if (@hasField(@TypeOf(tag_member), alias_field_name)) {
+                    result = result ++ [1][2][]const u8{.{ @field(tag_member, alias_field_name), tags_field_name }};
+                }
+            }
+        }
+        return result;
+    }
+}
+
+fn findFieldAlias(field_aliases: []const [2][]const u8, field_name: []const u8) []const u8 {
+    for (field_aliases) |alias_pair| {
+        if (std.mem.eql(u8, alias_pair[0], field_name)) return alias_pair[1];
+    }
+    return field_name;
+}
+
+test "fieldAliases" {
+    const S = struct {
+        value: u8,
+        pub const __tags = .{
+            .value = .{ .alias = "__value" },
+        };
+    };
+    const text =
+        \\{"__value": 42}
+    ;
+    const s = try parse(S, &TokenStream.init(text), .{});
+    try testing.expectEqual(@as(u8, 42), s.value);
+}
+
+test "fieldAliases __tags missing pub" {
+    const S = struct {
+        value: u8,
+        // missing pub
+        const __tags = .{
+            .value = .{ .alias = "__value" },
+        };
+    };
+    const text =
+        \\{"__value": 42}
+    ;
+    try std.testing.expectError(error.UnknownField, parse(S, &TokenStream.init(text), .{}));
+}
+
 fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: ParseOptions) !T {
     switch (@typeInfo(T)) {
         .Bool => {
@@ -1624,11 +1691,16 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                 }
             }
 
+            comptime const field_aliases = buildFieldAliases(T);
+
             while (true) {
                 switch ((try tokens.next()) orelse return error.UnexpectedEndOfJson) {
                     .ObjectEnd => break,
                     .String => |stringToken| {
-                        const key_source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
+                        const key_source_slice = findFieldAlias(
+                            field_aliases,
+                            stringToken.slice(tokens.slice, tokens.i - 1),
+                        );
                         var child_options = options;
                         child_options.allow_trailing_data = true;
                         var found = false;
