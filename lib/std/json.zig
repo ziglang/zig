@@ -3140,12 +3140,13 @@ test "stringify vector" {
 
 test "stringify null optional fields" {
     const MyStruct = struct {
-        required: []const u8 = "something",
         optional: ?[]const u8 = null,
+        required: []const u8 = "something",
+        another_optional: ?[]const u8 = null,
         another_required: []const u8 = "something else",
     };
     try teststringify(
-        \\{"required":"something","optional":null,"another_required":"something else"}
+        \\{"optional":null,"required":"something","another_optional":null,"another_required":"something else"}
     ,
         MyStruct{},
         StringifyOptions{},
