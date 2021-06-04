@@ -1171,7 +1171,7 @@ test "mem.indexOf" {
 test "mem.indexOf multibyte" {
     {
         // make haystack and needle long enough to trigger boyer-moore-horspool algorithm
-        const haystack = [1]u16{0} ** 100 ++ [_]u16 { 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff };
+        const haystack = [1]u16{0} ** 100 ++ [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff };
         const needle = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee };
         try testing.expectEqual(indexOfPos(u16, &haystack, 0, &needle), 100);
 
@@ -1184,7 +1184,7 @@ test "mem.indexOf multibyte" {
 
     {
         // make haystack and needle long enough to trigger boyer-moore-horspool algorithm
-        const haystack = [_]u16 { 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff } ++ [1]u16{0} ** 100;
+        const haystack = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff } ++ [1]u16{0} ** 100;
         const needle = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee };
         try testing.expectEqual(lastIndexOf(u16, &haystack, &needle), 0);
 
@@ -2201,7 +2201,7 @@ pub fn collapseRepeatsLen(comptime T: type, slice: []T, elem: T) usize {
 
 /// Collapse consecutive duplicate elements into one entry.
 pub fn collapseRepeats(comptime T: type, slice: []T, elem: T) []T {
-    return slice[0 .. collapseRepeatsLen(T, slice, elem)];
+    return slice[0..collapseRepeatsLen(T, slice, elem)];
 }
 
 fn testCollapseRepeats(str: []const u8, elem: u8, expected: []const u8) !void {

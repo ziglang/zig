@@ -19,7 +19,7 @@ test "std.atomic" {
     _ = @import("atomic/Atomic.zig");
 }
 
-pub fn fence(comptime ordering: Ordering) callconv(.Inline) void {
+pub inline fn fence(comptime ordering: Ordering) void {
     switch (ordering) {
         .Acquire, .Release, .AcqRel, .SeqCst => {
             @fence(ordering);
@@ -30,7 +30,7 @@ pub fn fence(comptime ordering: Ordering) callconv(.Inline) void {
     }
 }
 
-pub fn compilerFence(comptime ordering: Ordering) callconv(.Inline) void {
+pub inline fn compilerFence(comptime ordering: Ordering) void {
     switch (ordering) {
         .Acquire, .Release, .AcqRel, .SeqCst => asm volatile ("" ::: "memory"),
         else => @compileLog(ordering, " only applies to a given memory location"),
@@ -45,7 +45,7 @@ test "fence/compilerFence" {
 }
 
 /// Signals to the processor that the caller is inside a busy-wait spin-loop.
-pub fn spinLoopHint() callconv(.Inline) void {
+pub inline fn spinLoopHint() void {
     const hint_instruction = switch (target.cpu.arch) {
         // No-op instruction that can hint to save (or share with a hardware-thread) pipelining/power resources
         // https://software.intel.com/content/www/us/en/develop/articles/benefitting-power-and-performance-sleep-loops.html

@@ -226,13 +226,7 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 };
 
-pub const sockaddr_storage = extern struct {
-    len: u8,
-    family: sa_family_t,
-    __pad1: [5]u8,
-    __align: i64,
-    __pad2: [112]u8,
-};
+pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
 
 pub const sockaddr_in = extern struct {
     len: u8 = @sizeOf(sockaddr_in),

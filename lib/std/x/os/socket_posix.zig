@@ -13,8 +13,12 @@ const time = std.time;
 pub fn Mixin(comptime Socket: type) type {
     return struct {
         /// Open a new socket.
-        pub fn init(domain: u32, socket_type: u32, protocol: u32) !Socket {
-            return Socket{ .fd = try os.socket(domain, socket_type, protocol) };
+        pub fn init(domain: u32, socket_type: u32, protocol: u32, flags: std.enums.EnumFieldStruct(Socket.InitFlags, bool, false)) !Socket {
+            var raw_flags: u32 = socket_type;
+            const set = std.EnumSet(Socket.InitFlags).init(flags);
+            if (set.contains(.close_on_exec)) raw_flags |= os.SOCK_CLOEXEC;
+            if (set.contains(.nonblocking)) raw_flags |= os.SOCK_NONBLOCK;
+            return Socket{ .fd = try os.socket(domain, raw_flags, protocol) };
         }
 
         /// Closes the socket.
@@ -44,11 +48,16 @@ pub fn Mixin(comptime Socket: type) type {
 
         /// Accept a pending incoming connection queued to the kernel backlog
         /// of the socket.
-        pub fn accept(self: Socket, flags: u32) !Socket.Connection {
-            var address: os.sockaddr_storage = undefined;
-            var address_len: u32 = @sizeOf(os.sockaddr_storage);
+        pub fn accept(self: Socket, flags: std.enums.EnumFieldStruct(Socket.InitFlags, bool, false)) !Socket.Connection {
+            var address: Socket.Address.Native.Storage = undefined;
+            var address_len: u32 = @sizeOf(Socket.Address.Native.Storage);
 
-            const socket = Socket{ .fd = try os.accept(self.fd, @ptrCast(*os.sockaddr, &address), &address_len, flags) };
+            var raw_flags: u32 = 0;
+            const set = std.EnumSet(Socket.InitFlags).init(flags);
+            if (set.contains(.close_on_exec)) raw_flags |= os.SOCK_CLOEXEC;
+            if (set.contains(.nonblocking)) raw_flags |= os.SOCK_NONBLOCK;
+
+            const socket = Socket{ .fd = try os.accept(self.fd, @ptrCast(*os.sockaddr, &address), &address_len, raw_flags) };
             const socket_address = Socket.Address.fromNative(@ptrCast(*os.sockaddr, &address));
 
             return Socket.Connection.from(socket, socket_address);
@@ -69,48 +78,76 @@ pub fn Mixin(comptime Socket: type) type {
         /// Writes multiple I/O vectors with a prepended message header to the socket
         /// with a set of flags specified. It returns the number of bytes that are
         /// written to the socket.
-        pub fn writeVectorized(self: Socket, msg: os.msghdr_const, flags: u32) !usize {
-            return os.sendmsg(self.fd, msg, flags);
+        pub fn writeMessage(self: Socket, msg: Socket.Message, flags: u32) !usize {
+            while (true) {
+                const rc = os.system.sendmsg(self.fd, &msg, @intCast(c_int, flags));
+                return switch (os.errno(rc)) {
+                    0 => return @intCast(usize, rc),
+                    os.EACCES => error.AccessDenied,
+                    os.EAGAIN => error.WouldBlock,
+                    os.EALREADY => error.FastOpenAlreadyInProgress,
+                    os.EBADF => unreachable, // always a race condition
+                    os.ECONNRESET => error.ConnectionResetByPeer,
+                    os.EDESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
+                    os.EFAULT => unreachable, // An invalid user space address was specified for an argument.
+                    os.EINTR => continue,
+                    os.EINVAL => unreachable, // Invalid argument passed.
+                    os.EISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
+                    os.EMSGSIZE => error.MessageTooBig,
+                    os.ENOBUFS => error.SystemResources,
+                    os.ENOMEM => error.SystemResources,
+                    os.ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+                    os.EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+                    os.EPIPE => error.BrokenPipe,
+                    os.EAFNOSUPPORT => error.AddressFamilyNotSupported,
+                    os.ELOOP => error.SymLinkLoop,
+                    os.ENAMETOOLONG => error.NameTooLong,
+                    os.ENOENT => error.FileNotFound,
+                    os.ENOTDIR => error.NotDir,
+                    os.EHOSTUNREACH => error.NetworkUnreachable,
+                    os.ENETUNREACH => error.NetworkUnreachable,
+                    os.ENOTCONN => error.SocketNotConnected,
+                    os.ENETDOWN => error.NetworkSubsystemFailed,
+                    else => |err| os.unexpectedErrno(err),
+                };
+            }
         }
 
         /// Read multiple I/O vectors with a prepended message header from the socket
         /// with a set of flags specified. It returns the number of bytes that were
         /// read into the buffer provided.
-        pub fn readVectorized(self: Socket, msg: *os.msghdr, flags: u32) !usize {
-            if (comptime @hasDecl(os.system, "recvmsg")) {
-                while (true) {
-                    const rc = os.system.recvmsg(self.fd, msg, flags);
-                    return switch (os.errno(rc)) {
-                        0 => @intCast(usize, rc),
-                        os.EBADF => unreachable, // always a race condition
-                        os.EFAULT => unreachable,
-                        os.EINVAL => unreachable,
-                        os.ENOTCONN => unreachable,
-                        os.ENOTSOCK => unreachable,
-                        os.EINTR => continue,
-                        os.EAGAIN => error.WouldBlock,
-                        os.ENOMEM => error.SystemResources,
-                        os.ECONNREFUSED => error.ConnectionRefused,
-                        os.ECONNRESET => error.ConnectionResetByPeer,
-                        else => |err| os.unexpectedErrno(err),
-                    };
-                }
+        pub fn readMessage(self: Socket, msg: *Socket.Message, flags: u32) !usize {
+            while (true) {
+                const rc = os.system.recvmsg(self.fd, msg, @intCast(c_int, flags));
+                return switch (os.errno(rc)) {
+                    0 => @intCast(usize, rc),
+                    os.EBADF => unreachable, // always a race condition
+                    os.EFAULT => unreachable,
+                    os.EINVAL => unreachable,
+                    os.ENOTCONN => unreachable,
+                    os.ENOTSOCK => unreachable,
+                    os.EINTR => continue,
+                    os.EAGAIN => error.WouldBlock,
+                    os.ENOMEM => error.SystemResources,
+                    os.ECONNREFUSED => error.ConnectionRefused,
+                    os.ECONNRESET => error.ConnectionResetByPeer,
+                    else => |err| os.unexpectedErrno(err),
+                };
             }
-            return error.NotSupported;
         }
 
         /// Query the address that the socket is locally bounded to.
         pub fn getLocalAddress(self: Socket) !Socket.Address {
-            var address: os.sockaddr_storage = undefined;
-            var address_len: u32 = @sizeOf(os.sockaddr_storage);
+            var address: Socket.Address.Native.Storage = undefined;
+            var address_len: u32 = @sizeOf(Socket.Address.Native.Storage);
             try os.getsockname(self.fd, @ptrCast(*os.sockaddr, &address), &address_len);
             return Socket.Address.fromNative(@ptrCast(*os.sockaddr, &address));
         }
 
         /// Query the address that the socket is connected to.
         pub fn getRemoteAddress(self: Socket) !Socket.Address {
-            var address: os.sockaddr_storage = undefined;
-            var address_len: u32 = @sizeOf(os.sockaddr_storage);
+            var address: Socket.Address.Native.Storage = undefined;
+            var address_len: u32 = @sizeOf(Socket.Address.Native.Storage);
             try os.getpeername(self.fd, @ptrCast(*os.sockaddr, &address), &address_len);
             return Socket.Address.fromNative(@ptrCast(*os.sockaddr, &address));
         }
@@ -165,14 +202,7 @@ pub fn Mixin(comptime Socket: type) type {
         /// seconds.
         pub fn setLinger(self: Socket, timeout_seconds: ?u16) !void {
             if (comptime @hasDecl(os, "SO_LINGER")) {
-                const settings = extern struct {
-                    l_onoff: c_int,
-                    l_linger: c_int,
-                }{
-                    .l_onoff = @intCast(c_int, @boolToInt(timeout_seconds != null)),
-                    .l_linger = if (timeout_seconds) |seconds| @intCast(c_int, seconds) else 0,
-                };
-
+                const settings = Socket.Linger.init(timeout_seconds);
                 return self.setOption(os.SOL_SOCKET, os.SO_LINGER, mem.asBytes(&settings));
             }
 
