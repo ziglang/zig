@@ -33,5 +33,5 @@ VirtualProtectFromApp@16
 VirtualQuery@12
 VirtualQueryEx@16
 VirtualUnlock@8
-VirtualUnlockEx@
+VirtualUnlockEx@12
 WriteProcessMemory@20

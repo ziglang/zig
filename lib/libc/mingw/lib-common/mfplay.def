@@ -5,5 +5,9 @@
 ;
 LIBRARY "MFPlay.DLL"
 EXPORTS
+; DllCanUnloadNow
+; DllGetClassObject
+; DllRegisterServer
+; DllUnregisterServer
 MFPCreateMediaPlayer
 MFPCreateMediaPlayerEx

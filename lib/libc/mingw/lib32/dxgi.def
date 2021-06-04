@@ -5,6 +5,9 @@
 ;
 LIBRARY "dxgi.dll"
 EXPORTS
+ApplyCompatResolutionQuirking@8
+CompatString@16
+CompatValue@8
 D3DKMTCloseAdapter@4
 D3DKMTDestroyAllocation@4
 D3DKMTDestroyContext@4
@@ -14,10 +17,18 @@ D3DKMTQueryAdapterInfo@4
 D3DKMTSetDisplayPrivateDriverFormat@4
 D3DKMTSignalSynchronizationObject@4
 D3DKMTUnlock@4
+D3DKMTWaitForSynchronizationObject@0
 DXGIDumpJournal@4
+PIXBeginCapture@8
+PIXEndCapture@4
+PIXGetCaptureState@0
+DXGIRevertToSxS@0
 OpenAdapter10@4
 OpenAdapter10_2@4
+SetAppCompatStringPointer@8
+UpdateHMDEmulationStatus@4
 CreateDXGIFactory1@8
+CreateDXGIFactory2@12
 CreateDXGIFactory@8
 D3DKMTCreateAllocation@4
 D3DKMTCreateContext@4
@@ -46,6 +57,9 @@ D3DKMTWaitForSynchronizationObject@4
 D3DKMTWaitForVerticalBlankEvent@4
 DXGID3D10CreateDevice@24
 DXGID3D10CreateLayeredDevice@20
+DXGID3D10ETWRundown@0
 DXGID3D10GetLayeredDeviceSize@8
 DXGID3D10RegisterLayers@8
+DXGIDeclareAdapterRemovalSupport@0
+DXGIGetDebugInterface1@12
 DXGIReportAdapterConfiguration@4

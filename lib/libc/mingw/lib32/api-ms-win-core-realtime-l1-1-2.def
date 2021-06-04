@@ -2,8 +2,8 @@ LIBRARY api-ms-win-core-realtime-l1-1-2
 
 EXPORTS
 
-ConvertAuxiliaryCounterToPerformanceCounter@
-ConvertPerformanceCounterToAuxiliaryCounter@
+ConvertAuxiliaryCounterToPerformanceCounter@16
+ConvertPerformanceCounterToAuxiliaryCounter@16
 QueryAuxiliaryCounterFrequency@
 QueryInterruptTime@4
 QueryInterruptTimePrecise@4

@@ -11,8 +11,8 @@ ShowChangeFriendRelationshipUI@12
 ShowChangeFriendRelationshipUIForUser@16
 ShowGameInviteUI@24
 ShowGameInviteUIForUser@28
-ShowGameInviteUIWithContext@
-ShowGameInviteUIWithContextForUser@
+ShowGameInviteUIWithContext@28
+ShowGameInviteUIWithContextForUser@32
 ShowPlayerPickerUI@36
 ShowPlayerPickerUIForUser@40
 ShowProfileCardUI@12

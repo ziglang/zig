@@ -9,14 +9,24 @@ AppendPropVariant
 ConvertPropVariant
 CopyPropertyStore
 CreateNamedPropertyStore
+; DllCanUnloadNow
+; DllGetActivationFactory
+; DllGetClassObject
+; DllRegisterServer
+; DllUnregisterServer
 ExtractPropVariant
 MFCopyMFMetadata
+MFCopyPropertyStore
+MFCopyStreamMetadata
 MFCreateAggregateSource
 MFCreateAppSourceProxy
 MFCreateAudioRenderer
 MFCreateAudioRendererActivate
 MFCreateDeviceSource
 MFCreateDeviceSourceActivate
+MFCreateEncryptedMediaExtensionsStoreActivate
+MFCreateExtendedCameraIntrinsicModel
+MFCreateExtendedCameraIntrinsics
 MFCreateFileSchemePlugin
 MFCreateMFMetadataOnPropertyStore
 MFCreateMediaProcessor
@@ -25,6 +35,7 @@ MFCreatePMPHost
 MFCreatePMPMediaSession
 MFCreatePMPServer
 MFCreatePresentationClock
+MFCreatePresentationClockAsyncTimeSource
 MFCreateSampleCopierMFT
 MFCreateSampleGrabberSinkActivate
 MFCreateSequencerSegmentOffset
