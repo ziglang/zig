@@ -168,7 +168,7 @@ pub fn build(b: *Builder) !void {
 
         switch (mem.count(u8, git_describe, "-")) {
             0 => {
-                // Tagged release version (e.g. 0.7.0).
+                // Tagged release version (e.g. 0.8.0).
                 if (!mem.eql(u8, git_describe, version_string)) {
                     std.debug.print("Zig version '{s}' does not match Git tag '{s}'\n", .{ version_string, git_describe });
                     std.process.exit(1);
@@ -176,7 +176,7 @@ pub fn build(b: *Builder) !void {
                 break :v version_string;
             },
             2 => {
-                // Untagged development build (e.g. 0.7.0-684-gbbe2cca1a).
+                // Untagged development build (e.g. 0.8.0-684-gbbe2cca1a).
                 var it = mem.split(git_describe, "-");
                 const tagged_ancestor = it.next() orelse unreachable;
                 const commit_height = it.next() orelse unreachable;
