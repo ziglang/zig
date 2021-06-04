@@ -92,9 +92,11 @@ pub fn init(allocator: *Allocator) Archive {
 }
 
 pub fn deinit(self: *Archive) void {
-    for (self.toc.items()) |*entry| {
-        self.allocator.free(entry.key);
-        entry.value.deinit(self.allocator);
+    for (self.toc.keys()) |*key| {
+        self.allocator.free(key.*);
+    }
+    for (self.toc.values()) |*value| {
+        value.deinit(self.allocator);
     }
     self.toc.deinit(self.allocator);
 
@@ -187,10 +189,10 @@ fn parseTableOfContents(self: *Archive, reader: anytype) !void {
         defer if (res.found_existing) self.allocator.free(owned_name);
 
         if (!res.found_existing) {
-            res.entry.value = .{};
+            res.value_ptr.* = .{};
         }
 
-        try res.entry.value.append(self.allocator, object_offset);
+        try res.value_ptr.append(self.allocator, object_offset);
     }
 }
 

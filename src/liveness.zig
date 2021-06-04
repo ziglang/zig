@@ -2,6 +2,7 @@ const std = @import("std");
 const ir = @import("air.zig");
 const trace = @import("tracy.zig").trace;
 const log = std.log.scoped(.liveness);
+const assert = std.debug.assert;
 
 /// Perform Liveness Analysis over the `Body`. Each `Inst` will have its `deaths` field populated.
 pub fn analyze(
@@ -86,9 +87,9 @@ fn analyzeInst(
 
             // Reset the table back to its state from before the branch.
             {
-                var it = then_table.iterator();
-                while (it.next()) |entry| {
-                    table.removeAssertDiscard(entry.key);
+                var it = then_table.keyIterator();
+                while (it.next()) |key| {
+                    assert(table.remove(key.*));
                 }
             }
 
@@ -102,9 +103,9 @@ fn analyzeInst(
             defer else_entry_deaths.deinit();
 
             {
-                var it = else_table.iterator();
-                while (it.next()) |entry| {
-                    const else_death = entry.key;
+                var it = else_table.keyIterator();
+                while (it.next()) |key| {
+                    const else_death = key.*;
                     if (!then_table.contains(else_death)) {
                         try then_entry_deaths.append(else_death);
                     }
@@ -113,9 +114,9 @@ fn analyzeInst(
             // This loop is the same, except it's for the then branch, and it additionally
             // has to put its items back into the table to undo the reset.
             {
-                var it = then_table.iterator();
-                while (it.next()) |entry| {
-                    const then_death = entry.key;
+                var it = then_table.keyIterator();
+                while (it.next()) |key| {
+                    const then_death = key.*;
                     if (!else_table.contains(then_death)) {
                         try else_entry_deaths.append(then_death);
                     }
@@ -125,13 +126,13 @@ fn analyzeInst(
             // Now we have to correctly populate new_set.
             if (new_set) |ns| {
                 try ns.ensureCapacity(@intCast(u32, ns.count() + then_table.count() + else_table.count()));
-                var it = then_table.iterator();
-                while (it.next()) |entry| {
-                    _ = ns.putAssumeCapacity(entry.key, {});
+                var it = then_table.keyIterator();
+                while (it.next()) |key| {
+                    _ = ns.putAssumeCapacity(key.*, {});
                 }
-                it = else_table.iterator();
-                while (it.next()) |entry| {
-                    _ = ns.putAssumeCapacity(entry.key, {});
+                it = else_table.keyIterator();
+                while (it.next()) |key| {
+                    _ = ns.putAssumeCapacity(key.*, {});
                 }
             }
             inst.then_death_count = std.math.cast(@TypeOf(inst.then_death_count), then_entry_deaths.items.len) catch return error.OutOfMemory;
@@ -159,18 +160,18 @@ fn analyzeInst(
                 try analyzeWithTable(arena, table, &case_tables[i], case.body);
 
                 // Reset the table back to its state from before the case.
-                var it = case_tables[i].iterator();
-                while (it.next()) |entry| {
-                    table.removeAssertDiscard(entry.key);
+                var it = case_tables[i].keyIterator();
+                while (it.next()) |key| {
+                    assert(table.remove(key.*));
                 }
             }
             { // else
                 try analyzeWithTable(arena, table, &case_tables[case_tables.len - 1], inst.else_body);
 
                 // Reset the table back to its state from before the case.
-                var it = case_tables[case_tables.len - 1].iterator();
-                while (it.next()) |entry| {
-                    table.removeAssertDiscard(entry.key);
+                var it = case_tables[case_tables.len - 1].keyIterator();
+                while (it.next()) |key| {
+                    assert(table.remove(key.*));
                 }
             }
 
@@ -184,9 +185,9 @@ fn analyzeInst(
             var total_deaths: u32 = 0;
             for (case_tables) |*ct, i| {
                 total_deaths += ct.count();
-                var it = ct.iterator();
-                while (it.next()) |entry| {
-                    const case_death = entry.key;
+                var it = ct.keyIterator();
+                while (it.next()) |key| {
+                    const case_death = key.*;
                     for (case_tables) |*ct_inner, j| {
                         if (i == j) continue;
                         if (!ct_inner.contains(case_death)) {
@@ -203,9 +204,9 @@ fn analyzeInst(
             if (new_set) |ns| {
                 try ns.ensureCapacity(@intCast(u32, ns.count() + total_deaths));
                 for (case_tables) |*ct| {
-                    var it = ct.iterator();
-                    while (it.next()) |entry| {
-                        _ = ns.putAssumeCapacity(entry.key, {});
+                    var it = ct.keyIterator();
+                    while (it.next()) |key| {
+                        _ = ns.putAssumeCapacity(key.*, {});
                     }
                 }
             }

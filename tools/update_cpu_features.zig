@@ -903,8 +903,8 @@ fn processOneTarget(job: Job) anyerror!void {
         var it = root_map.iterator();
         root_it: while (it.next()) |kv| {
             if (kv.key.len == 0) continue;
-            if (kv.key[0] == '!') continue;
-            if (kv.value != .Object) continue;
+            if (kv.key.*[0] == '!') continue;
+            if (kv.value.* != .Object) continue;
             if (hasSuperclass(&kv.value.Object, "SubtargetFeature")) {
                 const llvm_name = kv.value.Object.get("Name").?.String;
                 if (llvm_name.len == 0) continue;
@@ -917,7 +917,7 @@ fn processOneTarget(job: Job) anyerror!void {
                 const implies = kv.value.Object.get("Implies").?.Array;
                 for (implies.items) |imply| {
                     const other_key = imply.Object.get("def").?.String;
-                    const other_obj = &root_map.getEntry(other_key).?.value.Object;
+                    const other_obj = &root_map.getPtr(other_key).?.Object;
                     const other_llvm_name = other_obj.get("Name").?.String;
                     const other_zig_name = (try llvmNameToZigNameOmit(
                         arena,
@@ -969,7 +969,7 @@ fn processOneTarget(job: Job) anyerror!void {
                 const features = kv.value.Object.get("Features").?.Array;
                 for (features.items) |feature| {
                     const feature_key = feature.Object.get("def").?.String;
-                    const feature_obj = &root_map.getEntry(feature_key).?.value.Object;
+                    const feature_obj = &root_map.getPtr(feature_key).?.Object;
                     const feature_llvm_name = feature_obj.get("Name").?.String;
                     if (feature_llvm_name.len == 0) continue;
                     const feature_zig_name = (try llvmNameToZigNameOmit(
@@ -982,7 +982,7 @@ fn processOneTarget(job: Job) anyerror!void {
                 const tune_features = kv.value.Object.get("TuneFeatures").?.Array;
                 for (tune_features.items) |feature| {
                     const feature_key = feature.Object.get("def").?.String;
-                    const feature_obj = &root_map.getEntry(feature_key).?.value.Object;
+                    const feature_obj = &root_map.getPtr(feature_key).?.Object;
                     const feature_llvm_name = feature_obj.get("Name").?.String;
                     if (feature_llvm_name.len == 0) continue;
                     const feature_zig_name = (try llvmNameToZigNameOmit(
@@ -1109,9 +1109,9 @@ fn processOneTarget(job: Job) anyerror!void {
         try pruneFeatures(arena, features_table, &deps_set);
         var dependencies = std.ArrayList([]const u8).init(arena);
         {
-            var it = deps_set.iterator();
-            while (it.next()) |entry| {
-                try dependencies.append(entry.key);
+            var it = deps_set.keyIterator();
+            while (it.next()) |key| {
+                try dependencies.append(key.*);
             }
         }
         std.sort.sort([]const u8, dependencies.items, {}, asciiLessThan);
@@ -1154,9 +1154,9 @@ fn processOneTarget(job: Job) anyerror!void {
         try pruneFeatures(arena, features_table, &deps_set);
         var cpu_features = std.ArrayList([]const u8).init(arena);
         {
-            var it = deps_set.iterator();
-            while (it.next()) |entry| {
-                try cpu_features.append(entry.key);
+            var it = deps_set.keyIterator();
+            while (it.next()) |key| {
+                try cpu_features.append(key.*);
             }
         }
         std.sort.sort([]const u8, cpu_features.items, {}, asciiLessThan);
@@ -1278,16 +1278,16 @@ fn pruneFeatures(
     // Then, iterate over the deletion set and delete all that stuff from `deps_set`.
     var deletion_set = std.StringHashMap(void).init(arena);
     {
-        var it = deps_set.iterator();
-        while (it.next()) |entry| {
-            const feature = features_table.get(entry.key).?;
+        var it = deps_set.keyIterator();
+        while (it.next()) |key| {
+            const feature = features_table.get(key.*).?;
             try walkFeatures(features_table, &deletion_set, feature);
         }
     }
     {
-        var it = deletion_set.iterator();
-        while (it.next()) |entry| {
-            _ = deps_set.remove(entry.key);
+        var it = deletion_set.keyIterator();
+        while (it.next()) |key| {
+            _ = deps_set.remove(key.*);
         }
     }
 }

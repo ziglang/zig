@@ -504,10 +504,10 @@ pub const Builder = struct {
         }
         self.available_options_list.append(available_option) catch unreachable;
 
-        const entry = self.user_input_options.getEntry(name) orelse return null;
-        entry.value.used = true;
+        const option_ptr = self.user_input_options.getPtr(name) orelse return null;
+        option_ptr.used = true;
         switch (type_id) {
-            .Bool => switch (entry.value.value) {
+            .Bool => switch (option_ptr.value) {
                 .Flag => return true,
                 .Scalar => |s| {
                     if (mem.eql(u8, s, "true")) {
@@ -526,7 +526,7 @@ pub const Builder = struct {
                     return null;
                 },
             },
-            .Int => switch (entry.value.value) {
+            .Int => switch (option_ptr.value) {
                 .Flag => {
                     warn("Expected -D{s} to be an integer, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
@@ -553,7 +553,7 @@ pub const Builder = struct {
                     return null;
                 },
             },
-            .Float => switch (entry.value.value) {
+            .Float => switch (option_ptr.value) {
                 .Flag => {
                     warn("Expected -D{s} to be a float, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
@@ -573,7 +573,7 @@ pub const Builder = struct {
                     return null;
                 },
             },
-            .Enum => switch (entry.value.value) {
+            .Enum => switch (option_ptr.value) {
                 .Flag => {
                     warn("Expected -D{s} to be a string, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
@@ -594,7 +594,7 @@ pub const Builder = struct {
                     return null;
                 },
             },
-            .String => switch (entry.value.value) {
+            .String => switch (option_ptr.value) {
                 .Flag => {
                     warn("Expected -D{s} to be a string, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
@@ -607,7 +607,7 @@ pub const Builder = struct {
                 },
                 .Scalar => |s| return s,
             },
-            .List => switch (entry.value.value) {
+            .List => switch (option_ptr.value) {
                 .Flag => {
                     warn("Expected -D{s} to be a list, but received a boolean.\n\n", .{name});
                     self.markInvalidUserInput();
@@ -769,7 +769,7 @@ pub const Builder = struct {
         const value = self.dupe(value_raw);
         const gop = try self.user_input_options.getOrPut(name);
         if (!gop.found_existing) {
-            gop.entry.value = UserInputOption{
+            gop.value_ptr.* = UserInputOption{
                 .name = name,
                 .value = UserValue{ .Scalar = value },
                 .used = false,
@@ -778,7 +778,7 @@ pub const Builder = struct {
         }
 
         // option already exists
-        switch (gop.entry.value.value) {
+        switch (gop.value_ptr.value) {
             UserValue.Scalar => |s| {
                 // turn it into a list
                 var list = ArrayList([]const u8).init(self.allocator);
@@ -811,7 +811,7 @@ pub const Builder = struct {
         const name = self.dupe(name_raw);
         const gop = try self.user_input_options.getOrPut(name);
         if (!gop.found_existing) {
-            gop.entry.value = UserInputOption{
+            gop.value_ptr.* = UserInputOption{
                 .name = name,
                 .value = UserValue{ .Flag = {} },
                 .used = false,
@@ -820,7 +820,7 @@ pub const Builder = struct {
         }
 
         // option already exists
-        switch (gop.entry.value.value) {
+        switch (gop.value_ptr.value) {
             UserValue.Scalar => |s| {
                 warn("Flag '-D{s}' conflicts with option '-D{s}={s}'.\n", .{ name, name, s });
                 return true;
@@ -866,10 +866,9 @@ pub const Builder = struct {
     pub fn validateUserInputDidItFail(self: *Builder) bool {
         // make sure all args are used
         var it = self.user_input_options.iterator();
-        while (true) {
-            const entry = it.next() orelse break;
-            if (!entry.value.used) {
-                warn("Invalid option: -D{s}\n\n", .{entry.key});
+        while (it.next()) |entry| {
+            if (!entry.value_ptr.used) {
+                warn("Invalid option: -D{s}\n\n", .{entry.key_ptr.*});
                 self.markInvalidUserInput();
             }
         }
@@ -1653,7 +1652,8 @@ pub const LibExeObjStep = struct {
 
     pub fn linkFramework(self: *LibExeObjStep, framework_name: []const u8) void {
         assert(self.target.isDarwin());
-        self.frameworks.put(self.builder.dupe(framework_name)) catch unreachable;
+        // Note: No need to dupe because frameworks dupes internally.
+        self.frameworks.insert(framework_name) catch unreachable;
     }
 
     /// Returns whether the library, executable, or object depends on a particular system library.
@@ -2155,8 +2155,8 @@ pub const LibExeObjStep = struct {
         // Inherit dependencies on darwin frameworks
         if (self.target.isDarwin() and !other.isDynamicLibrary()) {
             var it = other.frameworks.iterator();
-            while (it.next()) |entry| {
-                self.frameworks.put(entry.key) catch unreachable;
+            while (it.next()) |framework| {
+                self.frameworks.insert(framework.*) catch unreachable;
             }
         }
     }
@@ -2591,9 +2591,9 @@ pub const LibExeObjStep = struct {
             }
 
             var it = self.frameworks.iterator();
-            while (it.next()) |entry| {
+            while (it.next()) |framework| {
                 zig_args.append("-framework") catch unreachable;
-                zig_args.append(entry.key) catch unreachable;
+                zig_args.append(framework.*) catch unreachable;
             }
         }
 

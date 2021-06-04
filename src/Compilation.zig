@@ -729,18 +729,21 @@ fn addPackageTableToCacheHash(
 ) (error{OutOfMemory} || std.os.GetCwdError)!void {
     const allocator = &arena.allocator;
 
-    const packages = try allocator.alloc(Package.Table.Entry, pkg_table.count());
+    const packages = try allocator.alloc(Package.Table.KV, pkg_table.count());
     {
         // Copy over the hashmap entries to our slice
         var table_it = pkg_table.iterator();
         var idx: usize = 0;
         while (table_it.next()) |entry| : (idx += 1) {
-            packages[idx] = entry.*;
+            packages[idx] = .{
+                .key = entry.key_ptr.*,
+                .value = entry.value_ptr.*,
+            };
         }
     }
     // Sort the slice by package name
-    std.sort.sort(Package.Table.Entry, packages, {}, struct {
-        fn lessThan(_: void, lhs: Package.Table.Entry, rhs: Package.Table.Entry) bool {
+    std.sort.sort(Package.Table.KV, packages, {}, struct {
+        fn lessThan(_: void, lhs: Package.Table.KV, rhs: Package.Table.KV) bool {
             return std.mem.lessThan(u8, lhs.key, rhs.key);
         }
     }.lessThan);
@@ -1525,8 +1528,8 @@ pub fn destroy(self: *Compilation) void {
     {
         var it = self.crt_files.iterator();
         while (it.next()) |entry| {
-            gpa.free(entry.key);
-            entry.value.deinit(gpa);
+            gpa.free(entry.key_ptr.*);
+            entry.value_ptr.deinit(gpa);
         }
         self.crt_files.deinit(gpa);
     }
@@ -1554,14 +1557,14 @@ pub fn destroy(self: *Compilation) void {
         glibc_file.deinit(gpa);
     }
 
-    for (self.c_object_table.items()) |entry| {
-        entry.key.destroy(gpa);
+    for (self.c_object_table.keys()) |key| {
+        key.destroy(gpa);
     }
     self.c_object_table.deinit(gpa);
     self.c_object_cache_digest_set.deinit(gpa);
 
-    for (self.failed_c_objects.items()) |entry| {
-        entry.value.destroy(gpa);
+    for (self.failed_c_objects.values()) |value| {
+        value.destroy(gpa);
     }
     self.failed_c_objects.deinit(gpa);
 
@@ -1578,8 +1581,8 @@ pub fn destroy(self: *Compilation) void {
 }
 
 pub fn clearMiscFailures(comp: *Compilation) void {
-    for (comp.misc_failures.items()) |*entry| {
-        entry.value.deinit(comp.gpa);
+    for (comp.misc_failures.values()) |*value| {
+        value.deinit(comp.gpa);
     }
     comp.misc_failures.deinit(comp.gpa);
     comp.misc_failures = .{};
@@ -1599,9 +1602,10 @@ pub fn update(self: *Compilation) !void {
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
     // Add a Job for each C object.
-    try self.c_object_work_queue.ensureUnusedCapacity(self.c_object_table.items().len);
-    for (self.c_object_table.items()) |entry| {
-        self.c_object_work_queue.writeItemAssumeCapacity(entry.key);
+    try self.c_object_work_queue.ensureUnusedCapacity(self.c_object_table.count());
+    for (self.c_object_table.keys()) |key| {
+        assert(@ptrToInt(key) != 0xaaaa_aaaa_aaaa_aaaa);
+        self.c_object_work_queue.writeItemAssumeCapacity(key);
     }
 
     const use_stage1 = build_options.omit_stage2 or
@@ -1620,8 +1624,8 @@ pub fn update(self: *Compilation) !void {
             // it changed, and, if so, re-compute ZIR and then queue the job
             // to update it.
             try self.astgen_work_queue.ensureUnusedCapacity(module.import_table.count());
-            for (module.import_table.items()) |entry| {
-                self.astgen_work_queue.writeItemAssumeCapacity(entry.value);
+            for (module.import_table.values()) |value| {
+                self.astgen_work_queue.writeItemAssumeCapacity(value);
             }
 
             try self.work_queue.writeItem(.{ .analyze_pkg = std_pkg });
@@ -1635,12 +1639,12 @@ pub fn update(self: *Compilation) !void {
             // Process the deletion set. We use a while loop here because the
             // deletion set may grow as we call `clearDecl` within this loop,
             // and more unreferenced Decls are revealed.
-            while (module.deletion_set.entries.items.len != 0) {
-                const decl = module.deletion_set.entries.items[0].key;
+            while (module.deletion_set.count() != 0) {
+                const decl = module.deletion_set.keys()[0];
                 assert(decl.deletion_flag);
                 assert(decl.dependants.count() == 0);
                 const is_anon = if (decl.zir_decl_index == 0) blk: {
-                    break :blk decl.namespace.anon_decls.swapRemove(decl) != null;
+                    break :blk decl.namespace.anon_decls.swapRemove(decl);
                 } else false;
 
                 try module.clearDecl(decl, null);
@@ -1677,8 +1681,7 @@ pub fn update(self: *Compilation) !void {
     // to reference the ZIR.
     if (self.totalErrorCount() == 0 and !self.keep_source_files_loaded) {
         if (self.bin_file.options.module) |module| {
-            for (module.import_table.items()) |entry| {
-                const file = entry.value;
+            for (module.import_table.values()) |file| {
                 file.unloadTree(self.gpa);
                 file.unloadSource(self.gpa);
             }
@@ -1702,18 +1705,21 @@ pub fn totalErrorCount(self: *Compilation) usize {
     var total: usize = self.failed_c_objects.count() + self.misc_failures.count();
 
     if (self.bin_file.options.module) |module| {
-        total += module.failed_exports.items().len;
+        total += module.failed_exports.count();
 
-        for (module.failed_files.items()) |entry| {
-            if (entry.value) |_| {
-                total += 1;
-            } else {
-                const file = entry.key;
-                assert(file.zir_loaded);
-                const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
-                assert(payload_index != 0);
-                const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
-                total += header.data.items_len;
+        {
+            var it = module.failed_files.iterator();
+            while (it.next()) |entry| {
+                if (entry.value_ptr.*) |_| {
+                    total += 1;
+                } else {
+                    const file = entry.key_ptr.*;
+                    assert(file.zir_loaded);
+                    const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
+                    assert(payload_index != 0);
+                    const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
+                    total += header.data.items_len;
+                }
             }
         }
 
@@ -1721,14 +1727,14 @@ pub fn totalErrorCount(self: *Compilation) usize {
         // When a parse error is introduced, we keep all the semantic analysis for
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
-        for (module.failed_decls.items()) |entry| {
-            if (entry.key.namespace.file_scope.okToReportErrors()) {
+        for (module.failed_decls.keys()) |key| {
+            if (key.namespace.file_scope.okToReportErrors()) {
                 total += 1;
             }
         }
         if (module.emit_h) |emit_h| {
-            for (emit_h.failed_decls.items()) |entry| {
-                if (entry.key.namespace.file_scope.okToReportErrors()) {
+            for (emit_h.failed_decls.keys()) |key| {
+                if (key.namespace.file_scope.okToReportErrors()) {
                     total += 1;
                 }
             }
@@ -1743,7 +1749,7 @@ pub fn totalErrorCount(self: *Compilation) usize {
     // Compile log errors only count if there are no other errors.
     if (total == 0) {
         if (self.bin_file.options.module) |module| {
-            total += @boolToInt(module.compile_log_decls.items().len != 0);
+            total += @boolToInt(module.compile_log_decls.count() != 0);
         }
     }
 
@@ -1757,57 +1763,67 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     var errors = std.ArrayList(AllErrors.Message).init(self.gpa);
     defer errors.deinit();
 
-    for (self.failed_c_objects.items()) |entry| {
-        const c_object = entry.key;
-        const err_msg = entry.value;
-        // TODO these fields will need to be adjusted when we have proper
-        // C error reporting bubbling up.
-        try errors.append(.{
-            .src = .{
-                .src_path = try arena.allocator.dupe(u8, c_object.src.src_path),
-                .msg = try std.fmt.allocPrint(&arena.allocator, "unable to build C object: {s}", .{
-                    err_msg.msg,
-                }),
-                .byte_offset = 0,
-                .line = err_msg.line,
-                .column = err_msg.column,
-                .source_line = null, // TODO
-            },
-        });
+    {
+        var it = self.failed_c_objects.iterator();
+        while (it.next()) |entry| {
+            const c_object = entry.key_ptr.*;
+            const err_msg = entry.value_ptr.*;
+            // TODO these fields will need to be adjusted when we have proper
+            // C error reporting bubbling up.
+            try errors.append(.{
+                .src = .{
+                    .src_path = try arena.allocator.dupe(u8, c_object.src.src_path),
+                    .msg = try std.fmt.allocPrint(&arena.allocator, "unable to build C object: {s}", .{
+                        err_msg.msg,
+                    }),
+                    .byte_offset = 0,
+                    .line = err_msg.line,
+                    .column = err_msg.column,
+                    .source_line = null, // TODO
+                },
+            });
+        }
     }
-    for (self.misc_failures.items()) |entry| {
-        try AllErrors.addPlainWithChildren(&arena, &errors, entry.value.msg, entry.value.children);
+    for (self.misc_failures.values()) |*value| {
+        try AllErrors.addPlainWithChildren(&arena, &errors, value.msg, value.children);
     }
     if (self.bin_file.options.module) |module| {
-        for (module.failed_files.items()) |entry| {
-            if (entry.value) |msg| {
-                try AllErrors.add(module, &arena, &errors, msg.*);
-            } else {
-                // Must be ZIR errors. In order for ZIR errors to exist, the parsing
-                // must have completed successfully.
-                const tree = try entry.key.getTree(module.gpa);
-                assert(tree.errors.len == 0);
-                try AllErrors.addZir(&arena.allocator, &errors, entry.key);
-            }
-        }
-        for (module.failed_decls.items()) |entry| {
-            // Skip errors for Decls within files that had a parse failure.
-            // We'll try again once parsing succeeds.
-            if (entry.key.namespace.file_scope.okToReportErrors()) {
-                try AllErrors.add(module, &arena, &errors, entry.value.*);
-            }
-        }
-        if (module.emit_h) |emit_h| {
-            for (emit_h.failed_decls.items()) |entry| {
-                // Skip errors for Decls within files that had a parse failure.
-                // We'll try again once parsing succeeds.
-                if (entry.key.namespace.file_scope.okToReportErrors()) {
-                    try AllErrors.add(module, &arena, &errors, entry.value.*);
+        {
+            var it = module.failed_files.iterator();
+            while (it.next()) |entry| {
+                if (entry.value_ptr.*) |msg| {
+                    try AllErrors.add(module, &arena, &errors, msg.*);
+                } else {
+                    // Must be ZIR errors. In order for ZIR errors to exist, the parsing
+                    // must have completed successfully.
+                    const tree = try entry.key_ptr.*.getTree(module.gpa);
+                    assert(tree.errors.len == 0);
+                    try AllErrors.addZir(&arena.allocator, &errors, entry.key_ptr.*);
                 }
             }
         }
-        for (module.failed_exports.items()) |entry| {
-            try AllErrors.add(module, &arena, &errors, entry.value.*);
+        {
+            var it = module.failed_decls.iterator();
+            while (it.next()) |entry| {
+                // Skip errors for Decls within files that had a parse failure.
+                // We'll try again once parsing succeeds.
+                if (entry.key_ptr.*.namespace.file_scope.okToReportErrors()) {
+                    try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
+                }
+            }
+        }
+        if (module.emit_h) |emit_h| {
+            var it = emit_h.failed_decls.iterator();
+            while (it.next()) |entry| {
+                // Skip errors for Decls within files that had a parse failure.
+                // We'll try again once parsing succeeds.
+                if (entry.key_ptr.*.namespace.file_scope.okToReportErrors()) {
+                    try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
+                }
+            }
+        }
+        for (module.failed_exports.values()) |value| {
+            try AllErrors.add(module, &arena, &errors, value.*);
         }
     }
 
@@ -1820,20 +1836,21 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     }
 
     if (self.bin_file.options.module) |module| {
-        const compile_log_items = module.compile_log_decls.items();
-        if (errors.items.len == 0 and compile_log_items.len != 0) {
+        if (errors.items.len == 0 and module.compile_log_decls.count() != 0) {
+            const keys = module.compile_log_decls.keys();
+            const values = module.compile_log_decls.values();
             // First one will be the error; subsequent ones will be notes.
-            const src_loc = compile_log_items[0].key.nodeOffsetSrcLoc(compile_log_items[0].value);
+            const src_loc = keys[0].nodeOffsetSrcLoc(values[0]);
             const err_msg = Module.ErrorMsg{
                 .src_loc = src_loc,
                 .msg = "found compile log statement",
-                .notes = try self.gpa.alloc(Module.ErrorMsg, compile_log_items.len - 1),
+                .notes = try self.gpa.alloc(Module.ErrorMsg, module.compile_log_decls.count() - 1),
             };
             defer self.gpa.free(err_msg.notes);
 
-            for (compile_log_items[1..]) |entry, i| {
+            for (keys[1..]) |key, i| {
                 err_msg.notes[i] = .{
-                    .src_loc = entry.key.nodeOffsetSrcLoc(entry.value),
+                    .src_loc = key.nodeOffsetSrcLoc(values[i+1]),
                     .msg = "also here",
                 };
             }
@@ -1898,6 +1915,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         }
 
         while (self.c_object_work_queue.readItem()) |c_object| {
+            assert(@ptrToInt(c_object) != 0xaaaa_aaaa_aaaa_aaaa);
             self.work_queue_wait_group.start();
             try self.thread_pool.spawn(workerUpdateCObject, .{
                 self, c_object, &c_obj_prog_node, &self.work_queue_wait_group,
@@ -1964,7 +1982,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                         continue;
                     },
                     else => {
-                        try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
+                        try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.count() + 1);
                         module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
                             module.gpa,
                             decl.srcLoc(),
@@ -2036,7 +2054,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 @panic("sadly stage2 is omitted from this build to save memory on the CI server");
             const module = self.bin_file.options.module.?;
             self.bin_file.updateDeclLineNumber(module, decl) catch |err| {
-                try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
+                try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.count() + 1);
                 module.failed_decls.putAssumeCapacityNoClobber(decl, try Module.ErrorMsg.create(
                     module.gpa,
                     decl.srcLoc(),
@@ -2101,7 +2119,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             };
         },
         .windows_import_lib => |index| {
-            const link_lib = self.bin_file.options.system_libs.items()[index].key;
+            const link_lib = self.bin_file.options.system_libs.keys()[index];
             mingw.buildImportLib(self, link_lib) catch |err| {
                 // TODO Surface more error details.
                 try self.setMiscFailure(
@@ -3023,7 +3041,7 @@ fn failCObjWithOwnedErrorMsg(
         defer lock.release();
         {
             errdefer err_msg.destroy(comp.gpa);
-            try comp.failed_c_objects.ensureCapacity(comp.gpa, comp.failed_c_objects.items().len + 1);
+            try comp.failed_c_objects.ensureCapacity(comp.gpa, comp.failed_c_objects.count() + 1);
         }
         comp.failed_c_objects.putAssumeCapacityNoClobber(c_object, err_msg);
     }
@@ -3953,8 +3971,8 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         // We need to save the inferred link libs to the cache, otherwise if we get a cache hit
         // next time we will be missing these libs.
         var libs_txt = std.ArrayList(u8).init(arena);
-        for (comp.bin_file.options.system_libs.items()[inferred_lib_start_index..]) |entry| {
-            try libs_txt.writer().print("{s}\n", .{entry.key});
+        for (comp.bin_file.options.system_libs.keys()[inferred_lib_start_index..]) |key| {
+            try libs_txt.writer().print("{s}\n", .{key});
         }
         try directory.handle.writeFile(libs_txt_basename, libs_txt.items);
     }
@@ -4017,7 +4035,7 @@ fn createStage1Pkg(
         var children = std.ArrayList(*stage1.Pkg).init(arena);
         var it = pkg.table.iterator();
         while (it.next()) |entry| {
-            try children.append(try createStage1Pkg(arena, entry.key, entry.value, child_pkg));
+            try children.append(try createStage1Pkg(arena, entry.key_ptr.*, entry.value_ptr.*, child_pkg));
         }
         break :blk children.items;
     };

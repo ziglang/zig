@@ -1350,7 +1350,7 @@ fn zirValidateStructInitPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Ind
     };
 
     // Maps field index to field_ptr index of where it was already initialized.
-    const found_fields = try gpa.alloc(Zir.Inst.Index, struct_obj.fields.entries.items.len);
+    const found_fields = try gpa.alloc(Zir.Inst.Index, struct_obj.fields.count());
     defer gpa.free(found_fields);
     mem.set(Zir.Inst.Index, found_fields, 0);
 
@@ -1382,7 +1382,7 @@ fn zirValidateStructInitPtr(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Ind
     for (found_fields) |field_ptr, i| {
         if (field_ptr != 0) continue;
 
-        const field_name = struct_obj.fields.entries.items[i].key;
+        const field_name = struct_obj.fields.keys()[i];
         const template = "missing struct field: {s}";
         const args = .{field_name};
         if (root_msg) |msg| {
@@ -1687,7 +1687,7 @@ fn zirCompileLog(
 
     const gop = try sema.mod.compile_log_decls.getOrPut(sema.gpa, sema.owner_decl);
     if (!gop.found_existing) {
-        gop.entry.value = src_node;
+        gop.value_ptr.* = src_node;
     }
     return sema.mod.constInst(sema.arena, src, .{
         .ty = Type.initTag(.void),
@@ -1954,7 +1954,7 @@ fn zirExport(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!
     const section_index = struct_obj.fields.getIndex("section").?;
     const export_name = try fields[name_index].toAllocatedBytes(sema.arena);
     const linkage = fields[linkage_index].toEnum(
-        struct_obj.fields.items()[linkage_index].value.ty,
+        struct_obj.fields.values()[linkage_index].ty,
         std.builtin.GlobalLinkage,
     );
 
@@ -2426,12 +2426,12 @@ fn zirErrorValue(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
     const src = inst_data.src();
 
     // Create an anonymous error set type with only this error value, and return the value.
-    const entry = try sema.mod.getErrorValue(inst_data.get(sema.code));
-    const result_type = try Type.Tag.error_set_single.create(sema.arena, entry.key);
+    const kv = try sema.mod.getErrorValue(inst_data.get(sema.code));
+    const result_type = try Type.Tag.error_set_single.create(sema.arena, kv.key);
     return sema.mod.constInst(sema.arena, src, .{
         .ty = result_type,
         .val = try Value.Tag.@"error".create(sema.arena, .{
-            .name = entry.key,
+            .name = kv.key,
         }),
     });
 }
@@ -2558,10 +2558,10 @@ fn zirMergeErrorSets(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) Inn
     }
 
     const new_names = try sema.arena.alloc([]const u8, set.count());
-    var it = set.iterator();
+    var it = set.keyIterator();
     var i: usize = 0;
-    while (it.next()) |entry| : (i += 1) {
-        new_names[i] = entry.key;
+    while (it.next()) |key| : (i += 1) {
+        new_names[i] = key.*;
     }
 
     const new_error_set = try sema.arena.create(Module.ErrorSet);
@@ -2636,7 +2636,7 @@ fn zirEnumToInt(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErr
                 .enum_full => {
                     const enum_full = enum_tag.ty.castTag(.enum_full).?.data;
                     if (enum_full.values.count() != 0) {
-                        const val = enum_full.values.entries.items[field_index].key;
+                        const val = enum_full.values.keys()[field_index];
                         return mod.constInst(arena, src, .{
                             .ty = int_tag_ty,
                             .val = val,
@@ -4360,7 +4360,7 @@ fn validateSwitchItemBool(
     }
 }
 
-const ValueSrcMap = std.HashMap(Value, Module.SwitchProngSrc, Value.hash, Value.eql, std.hash_map.DefaultMaxLoadPercentage);
+const ValueSrcMap = std.HashMap(Value, Module.SwitchProngSrc, Value.HashContext, std.hash_map.default_max_load_percentage);
 
 fn validateSwitchItemSparse(
     sema: *Sema,
@@ -4371,8 +4371,8 @@ fn validateSwitchItemSparse(
     switch_prong_src: Module.SwitchProngSrc,
 ) InnerError!void {
     const item_val = (try sema.resolveSwitchItemVal(block, item_ref, src_node_offset, switch_prong_src, .none)).val;
-    const entry = (try seen_values.fetchPut(item_val, switch_prong_src)) orelse return;
-    return sema.validateSwitchDupe(block, entry.value, switch_prong_src, src_node_offset);
+    const kv = (try seen_values.fetchPut(item_val, switch_prong_src)) orelse return;
+    return sema.validateSwitchDupe(block, kv.value, switch_prong_src, src_node_offset);
 }
 
 fn validateSwitchNoRange(
@@ -5470,12 +5470,12 @@ fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref:
 
     // Maps field index to field_type index of where it was already initialized.
     // For making sure all fields are accounted for and no fields are duplicated.
-    const found_fields = try gpa.alloc(Zir.Inst.Index, struct_obj.fields.entries.items.len);
+    const found_fields = try gpa.alloc(Zir.Inst.Index, struct_obj.fields.count());
     defer gpa.free(found_fields);
     mem.set(Zir.Inst.Index, found_fields, 0);
 
     // The init values to use for the struct instance.
-    const field_inits = try gpa.alloc(*ir.Inst, struct_obj.fields.entries.items.len);
+    const field_inits = try gpa.alloc(*ir.Inst, struct_obj.fields.count());
     defer gpa.free(field_inits);
 
     var field_i: u32 = 0;
@@ -5513,9 +5513,9 @@ fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref:
         if (field_type_inst != 0) continue;
 
         // Check if the field has a default init.
-        const field = struct_obj.fields.entries.items[i].value;
+        const field = struct_obj.fields.values()[i];
         if (field.default_val.tag() == .unreachable_value) {
-            const field_name = struct_obj.fields.entries.items[i].key;
+            const field_name = struct_obj.fields.keys()[i];
             const template = "missing struct field: {s}";
             const args = .{field_name};
             if (root_msg) |msg| {
@@ -6402,7 +6402,7 @@ fn analyzeStructFieldPtr(
 
     const field_index = struct_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadFieldAccess(block, struct_obj, field_name_src, field_name);
-    const field = struct_obj.fields.entries.items[field_index].value;
+    const field = struct_obj.fields.values()[field_index];
     const ptr_field_ty = try mod.simplePtrType(arena, field.ty, true, .One);
 
     if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
@@ -6438,7 +6438,7 @@ fn analyzeUnionFieldPtr(
     const field_index = union_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadUnionFieldAccess(block, union_obj, field_name_src, field_name);
 
-    const field = union_obj.fields.entries.items[field_index].value;
+    const field = union_obj.fields.values()[field_index];
     const ptr_field_ty = try mod.simplePtrType(arena, field.ty, true, .One);
 
     if (try sema.resolveDefinedValue(block, src, union_ptr)) |union_ptr_val| {
@@ -7476,9 +7476,8 @@ fn typeHasOnePossibleValue(
         .@"struct" => {
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const s = resolved_ty.castTag(.@"struct").?.data;
-            for (s.fields.entries.items) |entry| {
-                const field_ty = entry.value.ty;
-                if ((try sema.typeHasOnePossibleValue(block, src, field_ty)) == null) {
+            for (s.fields.values()) |value| {
+                if ((try sema.typeHasOnePossibleValue(block, src, value.ty)) == null) {
                     return null;
                 }
             }
@@ -7488,7 +7487,7 @@ fn typeHasOnePossibleValue(
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const enum_full = resolved_ty.castTag(.enum_full).?.data;
             if (enum_full.fields.count() == 1) {
-                return enum_full.values.entries.items[0].key;
+                return enum_full.values.keys()[0];
             } else {
                 return null;
             }

@@ -453,7 +453,7 @@ fn declVisitorNamesOnly(c: *Context, decl: *const clang.Decl) Error!void {
                 // Don't put this one in `decl_table` so it's processed later.
                 return;
             }
-            result.entry.value = name;
+            result.value_ptr.* = name;
             // Put this typedef in the decl_table to avoid redefinitions.
             try c.decl_table.putNoClobber(c.gpa, @ptrToInt(typedef_decl.getCanonicalDecl()), name);
         }
@@ -5765,14 +5765,14 @@ fn getFnProto(c: *Context, ref: Node) ?*ast.Payload.Func {
 
 fn addMacros(c: *Context) !void {
     var it = c.global_scope.macro_table.iterator();
-    while (it.next()) |kv| {
-        if (getFnProto(c, kv.value)) |proto_node| {
+    while (it.next()) |entry| {
+        if (getFnProto(c, entry.value_ptr.*)) |proto_node| {
             // If a macro aliases a global variable which is a function pointer, we conclude that
             // the macro is intended to represent a function that assumes the function pointer
             // variable is non-null and calls it.
-            try addTopLevelDecl(c, kv.key, try transCreateNodeMacroFn(c, kv.key, kv.value, proto_node));
+            try addTopLevelDecl(c, entry.key_ptr.*, try transCreateNodeMacroFn(c, entry.key_ptr.*, entry.value_ptr.*, proto_node));
         } else {
-            try addTopLevelDecl(c, kv.key, kv.value);
+            try addTopLevelDecl(c, entry.key_ptr.*, entry.value_ptr.*);
         }
     }
 }

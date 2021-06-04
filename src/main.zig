@@ -180,7 +180,7 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                 "in order to determine where libc is installed. However the system C " ++
                 "compiler is `zig cc`, so no libc installation was found.", .{});
         }
-        try env_map.set(inf_loop_env_key, "1");
+        try env_map.put(inf_loop_env_key, "1");
 
         // Some programs such as CMake will strip the `cc` and subsequent args from the
         // CC environment variable. We detect and support this scenario here because of
@@ -2310,9 +2310,9 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, hook: AfterUpdateHook) !voi
 
 fn freePkgTree(gpa: *Allocator, pkg: *Package, free_parent: bool) void {
     {
-        var it = pkg.table.iterator();
-        while (it.next()) |kv| {
-            freePkgTree(gpa, kv.value, true);
+        var it = pkg.table.valueIterator();
+        while (it.next()) |value| {
+            freePkgTree(gpa, value.*, true);
         }
     }
     if (free_parent) {
@@ -3895,7 +3895,7 @@ pub fn cmdChangelist(
         var it = inst_map.iterator();
         while (it.next()) |entry| {
             try stdout.print(" %{d} => %{d}\n", .{
-                entry.key, entry.value,
+                entry.key_ptr.*, entry.value_ptr.*,
             });
         }
     }
@@ -3904,7 +3904,7 @@ pub fn cmdChangelist(
         var it = extra_map.iterator();
         while (it.next()) |entry| {
             try stdout.print(" {d} => {d}\n", .{
-                entry.key, entry.value,
+                entry.key_ptr.*, entry.value_ptr.*,
             });
         }
     }

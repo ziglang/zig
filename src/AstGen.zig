@@ -144,9 +144,7 @@ pub fn generate(gpa: *Allocator, tree: ast.Tree) InnerError!Zir {
         astgen.extra.items[imports_index] = astgen.addExtraAssumeCapacity(Zir.Inst.Imports{
             .imports_len = @intCast(u32, astgen.imports.count()),
         });
-        for (astgen.imports.items()) |entry| {
-            astgen.extra.appendAssumeCapacity(entry.key);
-        }
+        astgen.extra.appendSliceAssumeCapacity(astgen.imports.keys());
     }
 
     return Zir{
@@ -7932,13 +7930,13 @@ fn identAsString(astgen: *AstGen, ident_token: ast.TokenIndex) !u32 {
     const gop = try astgen.string_table.getOrPut(gpa, key);
     if (gop.found_existing) {
         string_bytes.shrinkRetainingCapacity(str_index);
-        return gop.entry.value;
+        return gop.value_ptr.*;
     } else {
         // We have to dupe the key into the arena, otherwise the memory
         // becomes invalidated when string_bytes gets data appended.
         // TODO https://github.com/ziglang/zig/issues/8528
-        gop.entry.key = try astgen.arena.dupe(u8, key);
-        gop.entry.value = str_index;
+        gop.key_ptr.* = try astgen.arena.dupe(u8, key);
+        gop.value_ptr.* = str_index;
         try string_bytes.append(gpa, 0);
         return str_index;
     }
@@ -7957,15 +7955,15 @@ fn strLitAsString(astgen: *AstGen, str_lit_token: ast.TokenIndex) !IndexSlice {
     if (gop.found_existing) {
         string_bytes.shrinkRetainingCapacity(str_index);
         return IndexSlice{
-            .index = gop.entry.value,
+            .index = gop.value_ptr.*,
             .len = @intCast(u32, key.len),
         };
     } else {
         // We have to dupe the key into the arena, otherwise the memory
         // becomes invalidated when string_bytes gets data appended.
         // TODO https://github.com/ziglang/zig/issues/8528
-        gop.entry.key = try astgen.arena.dupe(u8, key);
-        gop.entry.value = str_index;
+        gop.key_ptr.* = try astgen.arena.dupe(u8, key);
+        gop.value_ptr.* = str_index;
         // Still need a null byte because we are using the same table
         // to lookup null terminated strings, so if we get a match, it has to
         // be null terminated for that to work.
@@ -9122,10 +9120,10 @@ fn declareNewName(
                     return astgen.failNodeNotes(node, "redeclaration of '{s}'", .{
                         name,
                     }, &[_]u32{
-                        try astgen.errNoteNode(gop.entry.value, "other declaration here", .{}),
+                        try astgen.errNoteNode(gop.value_ptr.*, "other declaration here", .{}),
                     });
                 }
-                gop.entry.value = node;
+                gop.value_ptr.* = node;
                 break;
             },
             .top => break,

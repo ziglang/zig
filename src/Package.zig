@@ -100,9 +100,9 @@ pub fn destroy(pkg: *Package, gpa: *Allocator) void {
     }
 
     {
-        var it = pkg.table.iterator();
-        while (it.next()) |kv| {
-            gpa.free(kv.key);
+        var it = pkg.table.keyIterator();
+        while (it.next()) |key| {
+            gpa.free(key.*);
         }
     }
 

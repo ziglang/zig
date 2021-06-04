@@ -567,8 +567,8 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
         try man.addListOfFiles(self.base.options.objects);
-        for (comp.c_object_table.items()) |entry| {
-            _ = try man.addFile(entry.key.status.success.object_path, null);
+        for (comp.c_object_table.keys()) |key| {
+            _ = try man.addFile(key.status.success.object_path, null);
         }
         try man.addOptionalFile(module_obj_path);
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
@@ -632,7 +632,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
                 break :blk self.base.options.objects[0];
 
             if (comp.c_object_table.count() != 0)
-                break :blk comp.c_object_table.items()[0].key.status.success.object_path;
+                break :blk comp.c_object_table.keys()[0].status.success.object_path;
 
             if (module_obj_path) |p|
                 break :blk p;
@@ -682,8 +682,8 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
             try positionals.appendSlice(self.base.options.objects);
 
-            for (comp.c_object_table.items()) |entry| {
-                try positionals.append(entry.key.status.success.object_path);
+            for (comp.c_object_table.keys()) |key| {
+                try positionals.append(key.status.success.object_path);
             }
 
             if (module_obj_path) |p| {
@@ -702,9 +702,8 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             var libs = std.ArrayList([]const u8).init(arena);
             var search_lib_names = std.ArrayList([]const u8).init(arena);
 
-            const system_libs = self.base.options.system_libs.items();
-            for (system_libs) |entry| {
-                const link_lib = entry.key;
+            const system_libs = self.base.options.system_libs.keys();
+            for (system_libs) |link_lib| {
                 // By this time, we depend on these libs being dynamically linked libraries and not static libraries
                 // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
                 // case we want to avoid prepending "-l".
@@ -804,8 +803,8 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
             var rpaths = std.ArrayList([]const u8).init(arena);
             try rpaths.ensureCapacity(rpath_table.count());
-            for (rpath_table.items()) |entry| {
-                rpaths.appendAssumeCapacity(entry.key);
+            for (rpath_table.keys()) |*key| {
+                rpaths.appendAssumeCapacity(key.*);
             }
 
             if (self.base.options.verbose_link) {
@@ -973,8 +972,8 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         // Positional arguments to the linker such as object files.
         try argv.appendSlice(self.base.options.objects);
 
-        for (comp.c_object_table.items()) |entry| {
-            try argv.append(entry.key.status.success.object_path);
+        for (comp.c_object_table.keys()) |key| {
+            try argv.append(key.status.success.object_path);
         }
         if (module_obj_path) |p| {
             try argv.append(p);
@@ -986,10 +985,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         }
 
         // Shared libraries.
-        const system_libs = self.base.options.system_libs.items();
+        const system_libs = self.base.options.system_libs.keys();
         try argv.ensureCapacity(argv.items.len + system_libs.len);
-        for (system_libs) |entry| {
-            const link_lib = entry.key;
+        for (system_libs) |link_lib| {
             // By this time, we depend on these libs being dynamically linked libraries and not static libraries
             // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
             // case we want to avoid prepending "-l".
@@ -1153,12 +1151,12 @@ pub fn deinit(self: *MachO) void {
     if (self.d_sym) |*ds| {
         ds.deinit(self.base.allocator);
     }
-    for (self.lazy_imports.items()) |*entry| {
-        self.base.allocator.free(entry.key);
+    for (self.lazy_imports.keys()) |*key| {
+        self.base.allocator.free(key.*);
     }
     self.lazy_imports.deinit(self.base.allocator);
-    for (self.nonlazy_imports.items()) |*entry| {
-        self.base.allocator.free(entry.key);
+    for (self.nonlazy_imports.keys()) |*key| {
+        self.base.allocator.free(key.*);
     }
     self.nonlazy_imports.deinit(self.base.allocator);
     self.pie_fixups.deinit(self.base.allocator);
@@ -1167,9 +1165,9 @@ pub fn deinit(self: *MachO) void {
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
     {
-        var it = self.string_table_directory.iterator();
-        while (it.next()) |entry| {
-            self.base.allocator.free(entry.key);
+        var it = self.string_table_directory.keyIterator();
+        while (it.next()) |key| {
+            self.base.allocator.free(key.*);
         }
     }
     self.string_table_directory.deinit(self.base.allocator);
@@ -1318,9 +1316,9 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         if (debug_buffers) |*dbg| {
             dbg.dbg_line_buffer.deinit();
             dbg.dbg_info_buffer.deinit();
-            var it = dbg.dbg_info_type_relocs.iterator();
-            while (it.next()) |entry| {
-                entry.value.relocs.deinit(self.base.allocator);
+            var it = dbg.dbg_info_type_relocs.valueIterator();
+            while (it.next()) |value| {
+                value.relocs.deinit(self.base.allocator);
             }
             dbg.dbg_info_type_relocs.deinit(self.base.allocator);
         }
@@ -1543,7 +1541,7 @@ pub fn updateDeclExports(
 
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, "__text")) {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
+                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
                     try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
@@ -1578,7 +1576,7 @@ pub fn updateDeclExports(
                 n_desc |= macho.N_WEAK_DEF;
             },
             .LinkOnce => {
-                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
+                try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.count() + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
                     try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
@@ -2259,7 +2257,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         self.load_commands_dirty = true;
     }
     if (!self.nonlazy_imports.contains("dyld_stub_binder")) {
-        const index = @intCast(u32, self.nonlazy_imports.items().len);
+        const index = @intCast(u32, self.nonlazy_imports.count());
         const name = try self.base.allocator.dupe(u8, "dyld_stub_binder");
         const offset = try self.makeString("dyld_stub_binder");
         try self.nonlazy_imports.putNoClobber(self.base.allocator, name, .{
@@ -2440,7 +2438,7 @@ fn updateString(self: *MachO, old_str_off: u32, new_name: []const u8) !u32 {
 }
 
 pub fn addExternSymbol(self: *MachO, name: []const u8) !u32 {
-    const index = @intCast(u32, self.lazy_imports.items().len);
+    const index = @intCast(u32, self.lazy_imports.count());
     const offset = try self.makeString(name);
     const sym_name = try self.base.allocator.dupe(u8, name);
     const dylib_ordinal = 1; // TODO this is now hardcoded, since we only support libSystem.
@@ -2627,7 +2625,7 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
                 break :blk self.locals.items[got_entry.symbol];
             },
             .Extern => {
-                break :blk self.nonlazy_imports.items()[got_entry.symbol].value.symbol;
+                break :blk self.nonlazy_imports.values()[got_entry.symbol].symbol;
             },
         }
     };
@@ -2910,7 +2908,7 @@ fn relocateSymbolTable(self: *MachO) !void {
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const nlocals = self.locals.items.len;
     const nglobals = self.globals.items.len;
-    const nundefs = self.lazy_imports.items().len + self.nonlazy_imports.items().len;
+    const nundefs = self.lazy_imports.count() + self.nonlazy_imports.count();
     const nsyms = nlocals + nglobals + nundefs;
 
     if (symtab.nsyms < nsyms) {
@@ -2957,15 +2955,15 @@ fn writeAllGlobalAndUndefSymbols(self: *MachO) !void {
     const nlocals = self.locals.items.len;
     const nglobals = self.globals.items.len;
 
-    const nundefs = self.lazy_imports.items().len + self.nonlazy_imports.items().len;
+    const nundefs = self.lazy_imports.count() + self.nonlazy_imports.count();
     var undefs = std.ArrayList(macho.nlist_64).init(self.base.allocator);
     defer undefs.deinit();
     try undefs.ensureCapacity(nundefs);
-    for (self.lazy_imports.items()) |entry| {
-        undefs.appendAssumeCapacity(entry.value.symbol);
+    for (self.lazy_imports.values()) |*value| {
+        undefs.appendAssumeCapacity(value.symbol);
     }
-    for (self.nonlazy_imports.items()) |entry| {
-        undefs.appendAssumeCapacity(entry.value.symbol);
+    for (self.nonlazy_imports.values()) |*value| {
+        undefs.appendAssumeCapacity(value.symbol);
     }
 
     const locals_off = symtab.symoff;
@@ -3005,10 +3003,10 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     const la_symbol_ptr = &data_segment.sections.items[self.la_symbol_ptr_section_index.?];
     const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
 
-    const lazy = self.lazy_imports.items();
+    const lazy_count = self.lazy_imports.count();
     const got_entries = self.offset_table.items;
     const allocated_size = self.allocatedSizeLinkedit(dysymtab.indirectsymoff);
-    const nindirectsyms = @intCast(u32, lazy.len * 2 + got_entries.len);
+    const nindirectsyms = @intCast(u32, lazy_count * 2 + got_entries.len);
     const needed_size = @intCast(u32, nindirectsyms * @sizeOf(u32));
 
     if (needed_size > allocated_size) {
@@ -3027,12 +3025,15 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     var writer = stream.writer();
 
     stubs.reserved1 = 0;
-    for (lazy) |_, i| {
-        const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
-        try writer.writeIntLittle(u32, symtab_idx);
+    {
+        var i: usize = 0;
+        while (i < lazy_count) : (i += 1) {
+            const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
+            try writer.writeIntLittle(u32, symtab_idx);
+        }
     }
 
-    const base_id = @intCast(u32, lazy.len);
+    const base_id = @intCast(u32, lazy_count);
     got.reserved1 = base_id;
     for (got_entries) |entry| {
         switch (entry.kind) {
@@ -3047,9 +3048,12 @@ fn writeIndirectSymbolTable(self: *MachO) !void {
     }
 
     la_symbol_ptr.reserved1 = got.reserved1 + @intCast(u32, got_entries.len);
-    for (lazy) |_, i| {
-        const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
-        try writer.writeIntLittle(u32, symtab_idx);
+    {
+        var i: usize = 0;
+        while (i < lazy_count) : (i += 1) {
+            const symtab_idx = @intCast(u32, dysymtab.iundefsym + i);
+            try writer.writeIntLittle(u32, symtab_idx);
+        }
     }
 
     try self.base.file.?.pwriteAll(buf, dysymtab.indirectsymoff);
@@ -3183,15 +3187,15 @@ fn writeRebaseInfoTable(self: *MachO) !void {
     }
 
     if (self.la_symbol_ptr_section_index) |idx| {
-        try pointers.ensureCapacity(pointers.items.len + self.lazy_imports.items().len);
+        try pointers.ensureCapacity(pointers.items.len + self.lazy_imports.count());
         const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         const sect = seg.sections.items[idx];
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = self.data_segment_cmd_index.?;
 
-        for (self.lazy_imports.items()) |entry| {
+        for (self.lazy_imports.values()) |*value| {
             pointers.appendAssumeCapacity(.{
-                .offset = base_offset + entry.value.index * @sizeOf(u64),
+                .offset = base_offset + value.index * @sizeOf(u64),
                 .segment_id = segment_id,
             });
         }
@@ -3241,12 +3245,13 @@ fn writeBindingInfoTable(self: *MachO) !void {
 
         for (self.offset_table.items) |entry| {
             if (entry.kind == .Local) continue;
-            const import = self.nonlazy_imports.items()[entry.symbol];
+            const import_key = self.nonlazy_imports.keys()[entry.symbol];
+            const import_ordinal = self.nonlazy_imports.values()[entry.symbol].dylib_ordinal;
             try pointers.append(.{
                 .offset = base_offset + entry.index * @sizeOf(u64),
                 .segment_id = segment_id,
-                .dylib_ordinal = import.value.dylib_ordinal,
-                .name = import.key,
+                .dylib_ordinal = import_ordinal,
+                .name = import_key,
             });
         }
     }
@@ -3286,18 +3291,21 @@ fn writeLazyBindingInfoTable(self: *MachO) !void {
     defer pointers.deinit();
 
     if (self.la_symbol_ptr_section_index) |idx| {
-        try pointers.ensureCapacity(self.lazy_imports.items().len);
+        try pointers.ensureCapacity(self.lazy_imports.count());
         const seg = self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         const sect = seg.sections.items[idx];
         const base_offset = sect.addr - seg.inner.vmaddr;
         const segment_id = @intCast(u16, self.data_segment_cmd_index.?);
 
-        for (self.lazy_imports.items()) |entry| {
+        const slice = self.lazy_imports.entries.slice();
+        const keys = slice.items(.key);
+        const values = slice.items(.value);
+        for (keys) |*key, i| {
             pointers.appendAssumeCapacity(.{
-                .offset = base_offset + entry.value.index * @sizeOf(u64),
+                .offset = base_offset + values[i].index * @sizeOf(u64),
                 .segment_id = segment_id,
-                .dylib_ordinal = entry.value.dylib_ordinal,
-                .name = entry.key,
+                .dylib_ordinal = values[i].dylib_ordinal,
+                .name = key.*,
             });
         }
     }
@@ -3329,7 +3337,7 @@ fn writeLazyBindingInfoTable(self: *MachO) !void {
 }
 
 fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
-    if (self.lazy_imports.items().len == 0) return;
+    if (self.lazy_imports.count() == 0) return;
 
     var stream = std.io.fixedBufferStream(buffer);
     var reader = stream.reader();
@@ -3375,7 +3383,7 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
             else => {},
         }
     }
-    assert(self.lazy_imports.items().len <= offsets.items.len);
+    assert(self.lazy_imports.count() <= offsets.items.len);
 
     const stub_size: u4 = switch (self.base.options.target.cpu.arch) {
         .x86_64 => 10,
@@ -3388,9 +3396,9 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, buffer: []const u8) !void {
         else => unreachable,
     };
     var buf: [@sizeOf(u32)]u8 = undefined;
-    for (self.lazy_imports.items()) |_, i| {
+    for (offsets.items[0..self.lazy_imports.count()]) |offset, i| {
         const placeholder_off = self.stub_helper_stubs_start_off.? + i * stub_size + off;
-        mem.writeIntLittle(u32, &buf, offsets.items[i]);
+        mem.writeIntLittle(u32, &buf, offset);
         try self.base.file.?.pwriteAll(&buf, placeholder_off);
     }
 }
