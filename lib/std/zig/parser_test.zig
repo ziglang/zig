@@ -4409,6 +4409,13 @@ test "zig fmt: regression test for #5722" {
     );
 }
 
+test "zig fmt: regression test for #8974" {
+    try testCanonical(
+        \\pub const VARIABLE;
+        \\
+    );
+}
+
 test "zig fmt: allow trailing line comments to do manual array formatting" {
     try testCanonical(
         \\fn foo() void {
