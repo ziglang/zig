@@ -9748,7 +9748,7 @@ test "expect in release fast mode" {
       to see a command-line usage help menu. This will include project-specific
       options that were declared in the build.zig script.
       </p>
-      
+
       {#header_open|Building an Executable#}
       <p>This <code>build.zig</code> file is automatically generated
         by <code>zig init-exe</code>.</p>
@@ -10421,7 +10421,7 @@ coding style.
       </p>
       <p>
       File names fall into two categories: types and namespaces. If the file
-      (implicity a struct) has top level fields, it should be named like any
+      (implicitly a struct) has top level fields, it should be named like any
       other struct with fields using {#syntax#}TitleCase{#endsyntax#}. Otherwise,
       it should use {#syntax#}snake_case{#endsyntax#}. Directory names should be
       {#syntax#}snake_case{#endsyntax#}.
@@ -11112,40 +11112,40 @@ fn readU32Be() u32 {}
       {#header_close#}
 
       {#header_open|Grammar#}
-      <pre><code>Root &lt;- skip ContainerMembers eof
+      <pre><code>Root &lt;- skip container_doc_comment? ContainerMembers eof
 
 # *** Top level ***
-ContainerMembers
-    &lt;- TestDecl ContainerMembers
-     / TopLevelComptime ContainerMembers
-     / KEYWORD_pub? TopLevelDecl ContainerMembers
-     / ContainerField COMMA ContainerMembers
-     / ContainerField
+ContainerMembers &lt;- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)
+
+ContainerDeclarations
+    &lt;- TestDecl ContainerDeclarations
+     / TopLevelComptime ContainerDeclarations
+     / doc_comment? KEYWORD_pub? TopLevelDecl ContainerDeclarations
      /
 
-TestDecl &lt;- KEYWORD_test STRINGLITERALSINGLE Block
+TestDecl &lt;- doc_comment? KEYWORD_test STRINGLITERALSINGLE? Block
 
-TopLevelComptime &lt;- KEYWORD_comptime BlockExpr
+TopLevelComptime &lt;- doc_comment? KEYWORD_comptime BlockExpr
 
 TopLevelDecl
     &lt;- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
      / KEYWORD_usingnamespace Expr SEMICOLON
 
-FnProto &lt;- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? CallConv? EXCLAMATIONMARK? (KEYWORD_anytype / TypeExpr)
+FnProto &lt;- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
 
 VarDecl &lt;- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
 
-ContainerField &lt;- KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
+ContainerField &lt;- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON (KEYWORD_anytype / TypeExpr) ByteAlign?)? (EQUAL Expr)?
 
 # *** Block Level ***
 Statement
     &lt;- KEYWORD_comptime? VarDecl
      / KEYWORD_comptime BlockExprStatement
      / KEYWORD_nosuspend BlockExprStatement
-     / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
+     / KEYWORD_suspend BlockExprStatement
      / KEYWORD_defer BlockExprStatement
-     / KEYWORD_errdefer BlockExprStatement
+     / KEYWORD_errdefer Payload? BlockExprStatement
      / IfStatement
      / LabeledStatement
      / SwitchExpr
@@ -11278,7 +11278,7 @@ WhileTypeExpr &lt;- WhilePrefix TypeExpr (KEYWORD_else Payload? TypeExpr)?
 SwitchExpr &lt;- KEYWORD_switch LPAREN Expr RPAREN LBRACE SwitchProngList RBRACE
 
 # *** Assembly ***
-AsmExpr &lt;- KEYWORD_asm KEYWORD_volatile? LPAREN STRINGLITERAL AsmOutput? RPAREN
+AsmExpr &lt;- KEYWORD_asm KEYWORD_volatile? LPAREN Expr AsmOutput? RPAREN
 
 AsmOutput &lt;- COLON AsmOutputList AsmInput?
 
@@ -11301,13 +11301,15 @@ WhileContinueExpr &lt;- COLON LPAREN AssignExpr RPAREN
 
 LinkSection &lt;- KEYWORD_linksection LPAREN Expr RPAREN
 
+# Fn specific
 CallConv &lt;- KEYWORD_callconv LPAREN Expr RPAREN
 
-ParamDecl &lt;- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
+ParamDecl
+    &lt;- doc_comment? (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
+     / DOT3
 
 ParamType
     &lt;- KEYWORD_anytype
-     / DOT3
      / TypeExpr
 
 # Control flow prefixes
@@ -11397,11 +11399,12 @@ PrefixOp
 PrefixTypeOp
     &lt;- QUESTIONMARK
      / KEYWORD_anyframe MINUSRARROW
-     / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+     / SliceTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+     / ArrayTypeStart
 
 SuffixOp
-    &lt;- LBRACKET Expr (DOT2 Expr?)? RBRACKET
+    &lt;- LBRACKET Expr (DOT2 (Expr? (COLON Expr)?)?)? RBRACKET
      / DOT IDENTIFIER
      / DOTASTERISK
      / DOTQUESTIONMARK
@@ -11409,15 +11412,17 @@ SuffixOp
 FnCallArguments &lt;- LPAREN ExprList RPAREN
 
 # Ptr specific
-ArrayTypeStart &lt;- LBRACKET Expr? (COLON Expr)? RBRACKET
+SliceTypeStart &lt;- LBRACKET (COLON Expr)? RBRACKET
 
 PtrTypeStart
     &lt;- ASTERISK
      / ASTERISK2
      / LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
 
+ArrayTypeStart &lt;- LBRACKET Expr (COLON Expr)? RBRACKET
+
 # ContainerDecl specific
-ContainerDeclAuto &lt;- ContainerDeclType LBRACE ContainerMembers RBRACE
+ContainerDeclAuto &lt;- ContainerDeclType LBRACE container_doc_comment? ContainerMembers RBRACE
 
 ContainerDeclType
     &lt;- KEYWORD_struct
@@ -11429,7 +11434,7 @@ ContainerDeclType
 ByteAlign &lt;- KEYWORD_align LPAREN Expr RPAREN
 
 # Lists
-IdentifierList &lt;- (IDENTIFIER COMMA)* IDENTIFIER?
+IdentifierList &lt;- (doc_comment? IDENTIFIER COMMA)* (doc_comment? IDENTIFIER)?
 
 SwitchProngList &lt;- (SwitchProng COMMA)* SwitchProng?
 
@@ -11445,49 +11450,96 @@ ExprList &lt;- (Expr COMMA)* Expr?
 
 # *** Tokens ***
 eof &lt;- !.
-eol &lt;- ('\r'? '\n') | eof
+bin &lt;- [01]
+bin_ &lt;- '_'? bin
+oct &lt;- [0-7]
+oct_ &lt;- '_'? oct
 hex &lt;- [0-9a-fA-F]
-hex_ &lt;- ('_'/hex)
+hex_ &lt;- '_'? hex
 dec &lt;- [0-9]
-dec_ &lt;- ('_'/dec)
+dec_ &lt;- '_'? dec
 
-dec_int &lt;- dec (dec_* dec)?
-hex_int &lt;- hex (hex_* dec)?
+bin_int &lt;- bin bin_*
+oct_int &lt;- oct oct_*
+dec_int &lt;- dec dec_*
+hex_int &lt;- hex hex_*
+
+ox80_oxBF &lt;- [\200-\277]
+oxF4 &lt;- '\364'
+ox80_ox8F &lt;- [\200-\217]
+oxF1_oxF3 &lt;- [\361-\363]
+oxF0 &lt;- '\360'
+ox90_0xBF &lt;- [\220-\277]
+oxEE_oxEF &lt;- [\356-\357]
+oxED &lt;- '\355'
+ox80_ox9F &lt;- [\200-\237]
+oxE1_oxEC &lt;- [\341-\354]
+oxE0 &lt;- '\340'
+oxA0_oxBF &lt;- [\240-\277]
+oxC2_oxDF &lt;- [\302-\337]
+
+# From https://lemire.me/blog/2018/05/09/how-quickly-can-you-check-that-a-string-is-valid-unicode-utf-8/
+# First Byte      Second Byte     Third Byte      Fourth Byte
+# [0x00,0x7F]
+# [0xC2,0xDF]     [0x80,0xBF]
+#    0xE0         [0xA0,0xBF]     [0x80,0xBF]
+# [0xE1,0xEC]     [0x80,0xBF]     [0x80,0xBF]
+#    0xED         [0x80,0x9F]     [0x80,0xBF]
+# [0xEE,0xEF]     [0x80,0xBF]     [0x80,0xBF]
+#    0xF0         [0x90,0xBF]     [0x80,0xBF]     [0x80,0xBF]
+# [0xF1,0xF3]     [0x80,0xBF]     [0x80,0xBF]     [0x80,0xBF]
+#    0xF4         [0x80,0x8F]     [0x80,0xBF]     [0x80,0xBF]
+
+mb_utf8_literal &lt;-
+       oxF4      ox80_ox8F ox80_oxBF ox80_oxBF
+     / oxF1_oxF3 ox80_oxBF ox80_oxBF ox80_oxBF
+     / oxF0      ox90_0xBF ox80_oxBF ox80_oxBF
+     / oxEE_oxEF ox80_oxBF ox80_oxBF
+     / oxED      ox80_ox9F ox80_oxBF
+     / oxE1_oxEC ox80_oxBF ox80_oxBF
+     / oxE0      oxA0_oxBF ox80_oxBF
+     / oxC2_oxDF ox80_oxBF
+
+ascii_char_not_nl_slash_squote &lt;- [\000-\011\013-\046-\050-\133\135-\177]
 
 char_escape
-    &lt;- '\\x' hex hex
-     / '\\u{' hex+ '}'
-     / '\\' [nr\\t'&quot;]
+    &lt;- &quot;\\x&quot; hex hex
+     / &quot;\\u{&quot; hex+ &quot;}&quot;
+     / &quot;\\&quot; [nr\\t'&quot;]
 char_char
-    &lt;- char_escape
-     / [^\\'\r\n]
+    &lt;- mb_utf8_literal
+     / char_escape
+     / ascii_char_not_nl_slash_squote
+
 string_char
     &lt;- char_escape
-     / [^\\&quot;\r\n]
+     / [^\\&quot;\n]
 
-line_comment &lt;- '//'[^\r\n]* eol
-line_string &lt;- ('\\\\' [^\r\n]* eol skip)+
-skip &lt;- ([ \t] / eol / line_comment)*
+container_doc_comment &lt;- ('//!' [^\n]* [ \n]*)+
+doc_comment &lt;- ('///' [^\n]* [ \n]*)+
+line_comment &lt;- '//' ![!/][^\n]* / '////' [^\n]*
+line_string &lt;- (&quot;\\\\&quot; [^\n]* [ \n]*)+
+skip &lt;- ([ \n] / line_comment)*
 
 CHAR_LITERAL &lt;- &quot;'&quot; char_char &quot;'&quot; skip
 FLOAT
-    &lt;- '0x' hex_* hex '.' hex_int ([pP] [-+]? hex_int)? skip
-     /      dec_int   '.' dec_int ([eE] [-+]? dec_int)? skip
-     / '0x' hex_* hex '.'? [pP] [-+]? hex_int skip
-     /      dec_int   '.'? [eE] [-+]? dec_int skip
+    &lt;- &quot;0x&quot; hex_int &quot;.&quot; hex_int ([pP] [-+]? dec_int)? skip
+     /      dec_int &quot;.&quot; dec_int ([eE] [-+]? dec_int)? skip
+     / &quot;0x&quot; hex_int &quot;.&quot;? [pP] [-+]? dec_int skip
+     /      dec_int &quot;.&quot;? [eE] [-+]? dec_int skip
 INTEGER
-    &lt;- '0b' [_01]*  [01]  skip
-     / '0o' [_0-7]* [0-7] skip
-     / '0x' hex_* hex skip
+    &lt;- &quot;0b&quot; bin_int skip
+     / &quot;0o&quot; oct_int skip
+     / &quot;0x&quot; hex_int skip
      /      dec_int   skip
-STRINGLITERALSINGLE &lt;- '&quot;' string_char* '&quot;' skip
+STRINGLITERALSINGLE &lt;- &quot;\&quot;&quot; string_char* &quot;\&quot;&quot; skip
 STRINGLITERAL
     &lt;- STRINGLITERALSINGLE
-     / line_string skip
+     / (line_string                 skip)+
 IDENTIFIER
     &lt;- !keyword [A-Za-z_] [A-Za-z0-9_]* skip
-     / '@&quot;' string_char* '&quot;' skip
-BUILTINIDENTIFIER &lt;- '@'[A-Za-z_][A-Za-z0-9_]* skip
+     / &quot;@\&quot;&quot; string_char* &quot;\&quot;&quot;                            skip
+BUILTINIDENTIFIER &lt;- &quot;@&quot;[A-Za-z_][A-Za-z0-9_]* skip
 
 
 AMPERSAND            &lt;- '&amp;'      ![=]      skip
