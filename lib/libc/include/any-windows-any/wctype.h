@@ -128,8 +128,10 @@ extern "C" {
   wint_t __cdecl towupper(wint_t);
   wint_t __cdecl towlower(wint_t);
   int __cdecl iswctype(wint_t,wctype_t);
+#if __MSVCRT_VERSION__ >= 0x800
   _CRTIMP int __cdecl __iswcsymf(wint_t);
   _CRTIMP int __cdecl __iswcsym(wint_t);
+#endif
   int __cdecl is_wctype(wint_t,wctype_t);
 #if (defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) || !defined (NO_OLDNAMES) || defined (__cplusplus)
 int __cdecl iswblank(wint_t _C);

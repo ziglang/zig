@@ -60,16 +60,24 @@ DECLARE_INTERFACE_IID_(IDCompositionTransform,IDCompositionTransform3D,"fd55faa7
 #define INTERFACE IDCompositionTranslateTransform
 DECLARE_INTERFACE_IID_(IDCompositionTranslateTransform,IDCompositionTransform,"06791122-c6f0-417d-8323-269e987f5954")
 {
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetOffsetX)(THIS_ float) PURE;
     STDMETHOD(SetOffsetX)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetOffsetY)(THIS_ float) PURE;
     STDMETHOD(SetOffsetY)(THIS_ IDCompositionAnimation*) PURE;
+#else
+    STDMETHOD(SetOffsetX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetOffsetX)(THIS_ float) PURE;
+    STDMETHOD(SetOffsetY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetOffsetY)(THIS_ float) PURE;
+#endif
 };
 
 #undef INTERFACE
 #define INTERFACE IDCompositionScaleTransform
 DECLARE_INTERFACE_IID_(IDCompositionScaleTransform,IDCompositionTransform,"71fde914-40ef-45ef-bd51-68b037c339f9")
 {
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetScaleX)(THIS_ float) PURE;
     STDMETHOD(SetScaleX)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetScaleY)(THIS_ float) PURE;
@@ -78,24 +86,44 @@ DECLARE_INTERFACE_IID_(IDCompositionScaleTransform,IDCompositionTransform,"71fde
     STDMETHOD(SetCenterX)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetCenterY)(THIS_ float) PURE;
     STDMETHOD(SetCenterY)(THIS_ IDCompositionAnimation*) PURE;
+#else
+    STDMETHOD(SetScaleX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetScaleX)(THIS_ float) PURE;
+    STDMETHOD(SetScaleY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetScaleY)(THIS_ float) PURE;
+    STDMETHOD(SetCenterX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetCenterX)(THIS_ float) PURE;
+    STDMETHOD(SetCenterY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetCenterY)(THIS_ float) PURE;
+#endif
 };
 
 #undef INTERFACE
 #define INTERFACE IDCompositionRotateTransform
 DECLARE_INTERFACE_IID_(IDCompositionRotateTransform,IDCompositionTransform,"641ed83c-ae96-46c5-90dc-32774cc5c6d5")
 {
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetAngle)(THIS_ float) PURE;
     STDMETHOD(SetAngle)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetCenterX)(THIS_ float) PURE;
     STDMETHOD(SetCenterX)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetCenterY)(THIS_ float) PURE;
     STDMETHOD(SetCenterY)(THIS_ IDCompositionAnimation*) PURE;
+#else
+    STDMETHOD(SetAngle)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetAngle)(THIS_ float) PURE;
+    STDMETHOD(SetCenterX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetCenterX)(THIS_ float) PURE;
+    STDMETHOD(SetCenterY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetCenterY)(THIS_ float) PURE;
+#endif
 };
 
 #undef INTERFACE
 #define INTERFACE IDCompositionSkewTransform
 DECLARE_INTERFACE_IID_(IDCompositionSkewTransform,IDCompositionTransform,"e57aa735-dcdb-4c72-9c61-0591f58889ee")
 {
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetAngleX)(THIS_ float) PURE;
     STDMETHOD(SetAngleX)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetAngleY)(THIS_ float) PURE;
@@ -104,6 +132,16 @@ DECLARE_INTERFACE_IID_(IDCompositionSkewTransform,IDCompositionTransform,"e57aa7
     STDMETHOD(SetCenterX)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetCenterY)(THIS_ float) PURE;
     STDMETHOD(SetCenterY)(THIS_ IDCompositionAnimation*) PURE;
+#else
+    STDMETHOD(SetAngleX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetAngleX)(THIS_ float) PURE;
+    STDMETHOD(SetAngleY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetAngleY)(THIS_ float) PURE;
+    STDMETHOD(SetCenterX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetCenterX)(THIS_ float) PURE;
+    STDMETHOD(SetCenterY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetCenterY)(THIS_ float) PURE;
+#endif
 };
 
 #undef INTERFACE
@@ -111,26 +149,41 @@ DECLARE_INTERFACE_IID_(IDCompositionSkewTransform,IDCompositionTransform,"e57aa7
 DECLARE_INTERFACE_IID_(IDCompositionMatrixTransform,IDCompositionTransform,"16cdff07-c503-419c-83f2-0965c7af1fa6")
 {
     STDMETHOD(SetMatrix)(THIS_ const D2D_MATRIX_3X2_F&) PURE;
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetMatrixElement)(THIS_ int,int,float) PURE;
     STDMETHOD(SetMatrixElement)(THIS_ int,int,IDCompositionAnimation*) PURE;
+#else
+    STDMETHOD(SetMatrixElement)(THIS_ int,int,IDCompositionAnimation*) PURE;
+    STDMETHOD(SetMatrixElement)(THIS_ int,int,float) PURE;
+#endif
 };
 
 #undef INTERFACE
 #define INTERFACE IDCompositionTranslateTransform3D
 DECLARE_INTERFACE_IID_(IDCompositionTranslateTransform3D,IDCompositionTransform3D,"91636d4b-9ba1-4532-aaf7-e3344994d788")
 {
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetOffsetX)(THIS_ float) PURE;
     STDMETHOD(SetOffsetX)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetOffsetY)(THIS_ float) PURE;
     STDMETHOD(SetOffsetY)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetOffsetZ)(THIS_ float) PURE;
     STDMETHOD(SetOffsetZ)(THIS_ IDCompositionAnimation*) PURE;
+#else
+    STDMETHOD(SetOffsetX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetOffsetX)(THIS_ float) PURE;
+    STDMETHOD(SetOffsetY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetOffsetY)(THIS_ float) PURE;
+    STDMETHOD(SetOffsetZ)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetOffsetZ)(THIS_ float) PURE;
+#endif
 };
 
 #undef INTERFACE
 #define INTERFACE IDCompositionScaleTransform3D
 DECLARE_INTERFACE_IID_(IDCompositionScaleTransform3D,IDCompositionTransform3D,"2a9e9ead-364b-4b15-a7c4-a1997f78b389")
 {
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetScaleX)(THIS_ float) PURE;
     STDMETHOD(SetScaleX)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetScaleY)(THIS_ float) PURE;
@@ -143,12 +196,27 @@ DECLARE_INTERFACE_IID_(IDCompositionScaleTransform3D,IDCompositionTransform3D,"2
     STDMETHOD(SetCenterY)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetCenterZ)(THIS_ float) PURE;
     STDMETHOD(SetCenterZ)(THIS_ IDCompositionAnimation*) PURE;
+#else
+    STDMETHOD(SetScaleX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetScaleX)(THIS_ float) PURE;
+    STDMETHOD(SetScaleY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetScaleY)(THIS_ float) PURE;
+    STDMETHOD(SetScaleZ)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetScaleZ)(THIS_ float) PURE;
+    STDMETHOD(SetCenterX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetCenterX)(THIS_ float) PURE;
+    STDMETHOD(SetCenterY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetCenterY)(THIS_ float) PURE;
+    STDMETHOD(SetCenterZ)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetCenterZ)(THIS_ float) PURE;
+#endif
 };
 
 #undef INTERFACE
 #define INTERFACE IDCompositionRotateTransform3D
 DECLARE_INTERFACE_IID_(IDCompositionRotateTransform3D,IDCompositionTransform3D,"d8f5b23f-d429-4a91-b55a-d2f45fd75b18")
 {
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetAngle)(THIS_ float) PURE;
     STDMETHOD(SetAngle)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetAxisX)(THIS_ float) PURE;
@@ -163,6 +231,22 @@ DECLARE_INTERFACE_IID_(IDCompositionRotateTransform3D,IDCompositionTransform3D,"
     STDMETHOD(SetCenterY)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetCenterZ)(THIS_ float) PURE;
     STDMETHOD(SetCenterZ)(THIS_ IDCompositionAnimation*) PURE;
+#else
+    STDMETHOD(SetAngle)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetAngle)(THIS_ float) PURE;
+    STDMETHOD(SetAxisX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetAxisX)(THIS_ float) PURE;
+    STDMETHOD(SetAxisY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetAxisY)(THIS_ float) PURE;
+    STDMETHOD(SetAxisZ)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetAxisZ)(THIS_ float) PURE;
+    STDMETHOD(SetCenterX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetCenterX)(THIS_ float) PURE;
+    STDMETHOD(SetCenterY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetCenterY)(THIS_ float) PURE;
+    STDMETHOD(SetCenterZ)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetCenterZ)(THIS_ float) PURE;
+#endif
 };
 
 #undef INTERFACE
@@ -170,16 +254,26 @@ DECLARE_INTERFACE_IID_(IDCompositionRotateTransform3D,IDCompositionTransform3D,"
 DECLARE_INTERFACE_IID_(IDCompositionMatrixTransform3D,IDCompositionTransform3D,"4b3363f0-643b-41b7-b6e0-ccf22d34467c")
 {
     STDMETHOD(SetMatrix)(THIS_ const D3DMATRIX&) PURE;
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetMatrixElement)(THIS_ int,int,float) PURE;
     STDMETHOD(SetMatrixElement)(THIS_ int,int,IDCompositionAnimation*) PURE;
+#else
+    STDMETHOD(SetMatrixElement)(THIS_ int,int,IDCompositionAnimation*) PURE;
+    STDMETHOD(SetMatrixElement)(THIS_ int,int,float) PURE;
+#endif
 };
 
 #undef INTERFACE
 #define INTERFACE IDCompositionEffectGroup
 DECLARE_INTERFACE_IID_(IDCompositionEffectGroup,IDCompositionEffect,"a7929a74-e6b2-4bd6-8b95-4040119ca34d")
 {
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetOpacity)(THIS_ float) PURE;
     STDMETHOD(SetOpacity)(THIS_ IDCompositionAnimation*) PURE;
+#else
+    STDMETHOD(SetOpacity)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetOpacity)(THIS_ float) PURE;
+#endif
     STDMETHOD(SetTransform3D)(THIS_ IDCompositionTransform3D*) PURE;
 };
 
@@ -193,6 +287,7 @@ DECLARE_INTERFACE_IID_(IDCompositionClip,IUnknown,"64ac3703-9d3f-45ec-a109-7cac0
 #define INTERFACE IDCompositionRectangleClip
 DECLARE_INTERFACE_IID_(IDCompositionRectangleClip,IDCompositionClip,"9842ad7d-d9cf-4908-aed7-48b51da5e7c2")
 {
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetLeft)(THIS_ float) PURE;
     STDMETHOD(SetLeft)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetTop)(THIS_ float) PURE;
@@ -217,24 +312,64 @@ DECLARE_INTERFACE_IID_(IDCompositionRectangleClip,IDCompositionClip,"9842ad7d-d9
     STDMETHOD(SetBottomRightRadiusX)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetBottomRightRadiusY)(THIS_ float) PURE;
     STDMETHOD(SetBottomRightRadiusY)(THIS_ IDCompositionAnimation*) PURE;
+#else
+    STDMETHOD(SetLeft)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetLeft)(THIS_ float) PURE;
+    STDMETHOD(SetTop)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetTop)(THIS_ float) PURE;
+    STDMETHOD(SetRight)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetRight)(THIS_ float) PURE;
+    STDMETHOD(SetBottom)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetBottom)(THIS_ float) PURE;
+    STDMETHOD(SetTopLeftRadiusX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetTopLeftRadiusX)(THIS_ float) PURE;
+    STDMETHOD(SetTopLeftRadiusY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetTopLeftRadiusY)(THIS_ float) PURE;
+    STDMETHOD(SetTopRightRadiusX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetTopRightRadiusX)(THIS_ float) PURE;
+    STDMETHOD(SetTopRightRadiusY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetTopRightRadiusY)(THIS_ float) PURE;
+    STDMETHOD(SetBottomLeftRadiusX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetBottomLeftRadiusX)(THIS_ float) PURE;
+    STDMETHOD(SetBottomLeftRadiusY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetBottomLeftRadiusY)(THIS_ float) PURE;
+    STDMETHOD(SetBottomRightRadiusX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetBottomRightRadiusX)(THIS_ float) PURE;
+    STDMETHOD(SetBottomRightRadiusY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetBottomRightRadiusY)(THIS_ float) PURE;
+#endif
 };
 
 #undef INTERFACE
 #define INTERFACE IDCompositionVisual
 DECLARE_INTERFACE_IID_(IDCompositionVisual,IUnknown,"4d93059d-097b-4651-9a60-f0f25116e2f3")
 {
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetOffsetX)(THIS_ float) PURE;
     STDMETHOD(SetOffsetX)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetOffsetY)(THIS_ float) PURE;
     STDMETHOD(SetOffsetY)(THIS_ IDCompositionAnimation*) PURE;
     STDMETHOD(SetTransform)(THIS_ const D2D_MATRIX_3X2_F&) PURE;
     STDMETHOD(SetTransform)(THIS_ IDCompositionTransform*) PURE;
+#else
+    STDMETHOD(SetOffsetX)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetOffsetX)(THIS_ float) PURE;
+    STDMETHOD(SetOffsetY)(THIS_ IDCompositionAnimation*) PURE;
+    STDMETHOD(SetOffsetY)(THIS_ float) PURE;
+    STDMETHOD(SetTransform)(THIS_ IDCompositionTransform*) PURE;
+    STDMETHOD(SetTransform)(THIS_ const D2D_MATRIX_3X2_F&) PURE;
+#endif
     STDMETHOD(SetTransformParent)(THIS_ IDCompositionVisual*) PURE;
     STDMETHOD(SetEffect)(THIS_ IDCompositionEffect*) PURE;
     STDMETHOD(SetBitmapInterpolationMode)(THIS_ DCOMPOSITION_BITMAP_INTERPOLATION_MODE) PURE;
     STDMETHOD(SetBorderMode)(THIS_ DCOMPOSITION_BORDER_MODE) PURE;
+#if defined(_MSC_VER) && defined(__cplusplus)
     STDMETHOD(SetClip)(THIS_ const D2D_RECT_F&) PURE;
     STDMETHOD(SetClip)(THIS_ IDCompositionClip*) PURE;
+#else
+    STDMETHOD(SetClip)(THIS_ IDCompositionClip*) PURE;
+    STDMETHOD(SetClip)(THIS_ const D2D_RECT_F&) PURE;
+#endif
     STDMETHOD(SetContent)(THIS_ IUnknown*) PURE;
     STDMETHOD(AddVisual)(THIS_ IDCompositionVisual*,BOOL,IDCompositionVisual*) PURE;
     STDMETHOD(RemoveVisual)(THIS_ IDCompositionVisual*) PURE;

@@ -4,6 +4,10 @@
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
 
-#ifndef _INC_NAPUTIL
-#include <naputil.h>
-#endif /* _INC_NAPUTIL */
+#include <winapifamily.h>
+
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+
+#include <wmsdkidl.h>
+
+#endif /* WINAPI_PARTITION_DESKTOP */

@@ -140,7 +140,6 @@
 /*
  * Functions and definitions for controlling the FPU.
  */
-#ifndef	__STRICT_ANSI__
 
 /* TODO: These constants are only valid for x86 machines */
 
@@ -234,17 +233,19 @@
 #define _FPE_STACKUNDERFLOW	0x8b
 #define _FPE_EXPLICITGEN	0x8c    /* raise( SIGFPE ); */
 
+#ifndef	__STRICT_ANSI__
 #define CW_DEFAULT _CW_DEFAULT
 #define MCW_PC  _MCW_PC
 #define PC_24   _PC_24
 #define PC_53   _PC_53
 #define PC_64   _PC_64
+#endif	/* Not __STRICT_ANSI__ */
 
-#if defined(_M_IX86)
+#if defined(__i386__)
 #define _CW_DEFAULT (_RC_NEAR+_PC_53+_EM_INVALID+_EM_ZERODIVIDE+_EM_OVERFLOW+_EM_UNDERFLOW+_EM_INEXACT+_EM_DENORMAL)
-#elif defined(_M_IA64)
+#elif defined(__ia64__)
 #define _CW_DEFAULT (_RC_NEAR+_PC_64+_EM_INVALID+_EM_ZERODIVIDE+_EM_OVERFLOW+_EM_UNDERFLOW+_EM_INEXACT+_EM_DENORMAL)
-#elif defined(_M_AMD64)
+#elif defined(__x86_64__)
 #define _CW_DEFAULT (_RC_NEAR+_EM_INVALID+_EM_ZERODIVIDE+_EM_OVERFLOW+_EM_UNDERFLOW+_EM_INEXACT+_EM_DENORMAL)
 #endif
 
@@ -257,9 +258,9 @@ extern "C" {
 /* Set the FPU control word as cw = (cw & ~unMask) | (unNew & unMask),
  * i.e. change the bits in unMask to have the values they have in unNew,
  * leaving other bits unchanged. */
-_CRTIMP unsigned int __cdecl __MINGW_NOTHROW _controlfp (unsigned int unNew, unsigned int unMask) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
+_CRTIMP unsigned int __cdecl __MINGW_NOTHROW _controlfp (unsigned int _NewValue, unsigned int _Mask) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
 _SECIMP errno_t __cdecl _controlfp_s(unsigned int *_CurrentState, unsigned int _NewValue, unsigned int _Mask);
-_CRTIMP unsigned int __cdecl __MINGW_NOTHROW _control87 (unsigned int unNew, unsigned int unMask);
+_CRTIMP unsigned int __cdecl __MINGW_NOTHROW _control87 (unsigned int _NewValue, unsigned int _Mask);
 
 
 _CRTIMP unsigned int __cdecl __MINGW_NOTHROW _clearfp (void);	/* Clear the FPU status word */
@@ -278,7 +279,9 @@ _CRTIMP unsigned int __cdecl __MINGW_NOTHROW _statusfp (void);	/* Report the FPU
    building your application.	 
 */
 void __cdecl __MINGW_NOTHROW _fpreset (void);
+#ifndef __STRICT_ANSI__
 void __cdecl __MINGW_NOTHROW fpreset (void);
+#endif	/* Not __STRICT_ANSI__ */
 
 /* Global 'variable' for the current floating point error code. */
 _CRTIMP int * __cdecl __MINGW_NOTHROW __fpecode(void);
@@ -310,8 +313,6 @@ extern long double __cdecl _chgsignl (long double);
 #endif
 
 #endif	/* Not RC_INVOKED */
-
-#endif	/* Not __STRICT_ANSI__ */
 
 #endif /* _MINGW_FLOAT_H_ */
 

@@ -60,6 +60,31 @@ typedef enum D2D1_PROPERTY_TYPE {
     D2D1_PROPERTY_TYPE_FORCE_DWORD   = 0xffffffff
 } D2D1_PROPERTY_TYPE;
 
+typedef enum D2D1_PROPERTY {
+    D2D1_PROPERTY_CLSID       = 0x80000000,
+    D2D1_PROPERTY_DISPLAYNAME = 0x80000001,
+    D2D1_PROPERTY_AUTHOR      = 0x80000002,
+    D2D1_PROPERTY_CATEGORY    = 0x80000003,
+    D2D1_PROPERTY_DESCRIPTION = 0x80000004,
+    D2D1_PROPERTY_INPUTS      = 0x80000005,
+    D2D1_PROPERTY_CACHED      = 0x80000006,
+    D2D1_PROPERTY_PRECISION   = 0x80000007,
+    D2D1_PROPERTY_MIN_INPUTS  = 0x80000008,
+    D2D1_PROPERTY_MAX_INPUTS  = 0x80000009,
+    D2D1_PROPERTY_FORCE_DWORD = 0xffffffff
+} D2D1_PROPERTY;
+
+typedef enum D2D1_SUBPROPERTY {
+    D2D1_SUBPROPERTY_DISPLAYNAME = 0x80000000,
+    D2D1_SUBPROPERTY_ISREADONLY  = 0x80000001,
+    D2D1_SUBPROPERTY_MIN         = 0x80000002,
+    D2D1_SUBPROPERTY_MAX         = 0x80000003,
+    D2D1_SUBPROPERTY_DEFAULT     = 0x80000004,
+    D2D1_SUBPROPERTY_FIELDS      = 0x80000005,
+    D2D1_SUBPROPERTY_INDEX       = 0x80000006,
+    D2D1_SUBPROPERTY_FORCE_DWORD = 0xffffffff
+} D2D1_SUBPROPERTY;
+
 typedef enum D2D1_CHANNEL_DEPTH {
     D2D1_CHANNEL_DEPTH_DEFAULT = 0,
     D2D1_CHANNEL_DEPTH_1       = 1,
@@ -154,6 +179,12 @@ typedef enum D2D1_PRIMITIVE_BLEND {
     D2D1_PRIMITIVE_BLEND_FORCE_DWORD = 0xffffffff
 } D2D1_PRIMITIVE_BLEND;
 
+typedef enum D2D1_THREADING_MODE {
+    D2D1_THREADING_MODE_SINGLE_THREADED = D2D1_FACTORY_TYPE_SINGLE_THREADED,
+    D2D1_THREADING_MODE_MULTI_THREADED  = D2D1_FACTORY_TYPE_MULTI_THREADED,
+    D2D1_THREADING_MODE_FORCE_DWORD     = 0xffffffff
+} D2D1_THREADING_MODE;
+
 typedef enum D2D1_UNIT_MODE {
     D2D1_UNIT_MODE_DIPS   = 0,
     D2D1_UNIT_MODE_PIXELS = 1,
@@ -242,6 +273,12 @@ typedef struct D2D1_PRINT_CONTROL_PROPERTIES {
     FLOAT rasterDPI;
     D2D1_COLOR_SPACE colorSpace;
 } D2D1_PRINT_CONTROL_PROPERTIES;
+
+typedef struct D2D1_CREATION_PROPERTIES {
+    D2D1_THREADING_MODE threadingMode;
+    D2D1_DEBUG_LEVEL debugLevel;
+    D2D1_DEVICE_CONTEXT_OPTIONS options;
+} D2D1_CREATION_PROPERTIES;
 
 typedef struct D2D1_STROKE_STYLE_PROPERTIES1 {
     D2D1_CAP_STYLE startCap;
@@ -579,6 +616,28 @@ ID2D1Bitmap1Vtbl;
 interface ID2D1Bitmap1 {
     const ID2D1Bitmap1Vtbl *lpVtbl;
 };
+
+/*** IUnknown methods ***/
+#define ID2D1Bitmap1_QueryInterface(This,riid,ppvObject) (This)->lpVtbl->QueryInterface(This,riid,ppvObject)
+#define ID2D1Bitmap1_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ID2D1Bitmap1_Release(This) (This)->lpVtbl->Release(This)
+/*** ID2D1Resource methods ***/
+#define ID2D1Bitmap1_GetFactory(This,factory) (This)->lpVtbl->GetFactory(This,factory)
+/*** ID2D1Bitmap methods ***/
+#define ID2D1Bitmap1_GetSize(This) ID2D1Bitmap1_GetSize_define_WIDL_C_INLINE_WRAPPERS_for_aggregate_return_support
+#define ID2D1Bitmap1_GetPixelSize(This) ID2D1Bitmap1_GetPixelSize_define_WIDL_C_INLINE_WRAPPERS_for_aggregate_return_support
+#define ID2D1Bitmap1_GetPixelFormat(This) ID2D1Bitmap1_GetPixelFormat_define_WIDL_C_INLINE_WRAPPERS_for_aggregate_return_support
+#define ID2D1Bitmap1_GetDpi(This,dpi_x,dpi_y) (This)->lpVtbl->GetDpi(This,dpi_x,dpi_y)
+#define ID2D1Bitmap1_CopyFromBitmap(This,dst_point,bitmap,src_rect) (This)->lpVtbl->CopyFromBitmap(This,dst_point,bitmap,src_rect)
+#define ID2D1Bitmap1_CopyFromRenderTarget(This,dst_point,render_target,src_rect) (This)->lpVtbl->CopyFromRenderTarget(This,dst_point,render_target,src_rect)
+#define ID2D1Bitmap1_CopyFromMemory(This,dst_rect,src_data,pitch) (This)->lpVtbl->CopyFromMemory(This,dst_rect,src_data,pitch)
+/*** ID2D1Bitmap1 methods ***/
+#define ID2D1Bitmap1_GetColorContext(This,context) (This)->lpVtbl->GetColorContext(This,context)
+#define ID2D1Bitmap1_GetOptions(This) (This)->lpVtbl->GetOptions(This)
+#define ID2D1Bitmap1_GetSurface(This,surface) (This)->lpVtbl->GetSurface(This,surface)
+#define ID2D1Bitmap1_Map(This,options,mapped_rect) (This)->lpVtbl->Map(This,options,mapped_rect)
+#define ID2D1Bitmap1_Unmap(This) (This)->lpVtbl->Unmap(This)
+
 #endif
 
 DEFINE_GUID(IID_ID2D1Bitmap1, 0xa898a84c,0x3873,0x4588,0xb0,0x8b,0xeb,0xbf,0x97,0x8d,0xf0,0x41);
@@ -1002,6 +1061,95 @@ interface ID2D1DeviceContext {
     const ID2D1DeviceContextVtbl *lpVtbl;
 };
 
+/*** IUnknown methods ***/
+#define ID2D1DeviceContext_QueryInterface(This,riid,ppvObject) (This)->lpVtbl->QueryInterface(This,riid,ppvObject)
+#define ID2D1DeviceContext_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ID2D1DeviceContext_Release(This) (This)->lpVtbl->Release(This)
+/*** ID2D1Resource methods ***/
+#define ID2D1DeviceContext_GetFactory(This,factory) (This)->lpVtbl->GetFactory(This,factory)
+/*** ID2D1RenderTarget methods ***/
+#define ID2D1DeviceContext_CreateSharedBitmap(This,iid,data,desc,bitmap) (This)->lpVtbl->CreateSharedBitmap(This,iid,data,desc,bitmap)
+#define ID2D1DeviceContext_CreateSolidColorBrush(This,color,desc,brush) (This)->lpVtbl->CreateSolidColorBrush(This,color,desc,brush)
+#define ID2D1DeviceContext_CreateLinearGradientBrush(This,gradient_brush_desc,brush_desc,gradient,brush) (This)->lpVtbl->CreateLinearGradientBrush(This,gradient_brush_desc,brush_desc,gradient,brush)
+#define ID2D1DeviceContext_CreateRadialGradientBrush(This,gradient_brush_desc,brush_desc,gradient,brush) (This)->lpVtbl->CreateRadialGradientBrush(This,gradient_brush_desc,brush_desc,gradient,brush)
+#define ID2D1DeviceContext_CreateCompatibleRenderTarget(This,size,pixel_size,format,options,render_target) (This)->lpVtbl->CreateCompatibleRenderTarget(This,size,pixel_size,format,options,render_target)
+#define ID2D1DeviceContext_CreateLayer(This,size,layer) (This)->lpVtbl->CreateLayer(This,size,layer)
+#define ID2D1DeviceContext_CreateMesh(This,mesh) (This)->lpVtbl->CreateMesh(This,mesh)
+#define ID2D1DeviceContext_DrawLine(This,p0,p1,brush,stroke_width,stroke_style) (This)->lpVtbl->DrawLine(This,p0,p1,brush,stroke_width,stroke_style)
+#define ID2D1DeviceContext_DrawRectangle(This,rect,brush,stroke_width,stroke_style) (This)->lpVtbl->DrawRectangle(This,rect,brush,stroke_width,stroke_style)
+#define ID2D1DeviceContext_FillRectangle(This,rect,brush) (This)->lpVtbl->FillRectangle(This,rect,brush)
+#define ID2D1DeviceContext_DrawRoundedRectangle(This,rect,brush,stroke_width,stroke_style) (This)->lpVtbl->DrawRoundedRectangle(This,rect,brush,stroke_width,stroke_style)
+#define ID2D1DeviceContext_FillRoundedRectangle(This,rect,brush) (This)->lpVtbl->FillRoundedRectangle(This,rect,brush)
+#define ID2D1DeviceContext_DrawEllipse(This,ellipse,brush,stroke_width,stroke_style) (This)->lpVtbl->DrawEllipse(This,ellipse,brush,stroke_width,stroke_style)
+#define ID2D1DeviceContext_FillEllipse(This,ellipse,brush) (This)->lpVtbl->FillEllipse(This,ellipse,brush)
+#define ID2D1DeviceContext_DrawGeometry(This,geometry,brush,stroke_width,stroke_style) (This)->lpVtbl->DrawGeometry(This,geometry,brush,stroke_width,stroke_style)
+#define ID2D1DeviceContext_FillGeometry(This,geometry,brush,opacity_brush) (This)->lpVtbl->FillGeometry(This,geometry,brush,opacity_brush)
+#define ID2D1DeviceContext_FillMesh(This,mesh,brush) (This)->lpVtbl->FillMesh(This,mesh,brush)
+#define ID2D1DeviceContext_DrawText(This,string,string_len,text_format,layout_rect,brush,options,measuring_mode) (This)->lpVtbl->DrawText(This,string,string_len,text_format,layout_rect,brush,options,measuring_mode)
+#define ID2D1DeviceContext_DrawTextLayout(This,origin,layout,brush,options) (This)->lpVtbl->DrawTextLayout(This,origin,layout,brush,options)
+#define ID2D1DeviceContext_SetTransform(This,transform) (This)->lpVtbl->SetTransform(This,transform)
+#define ID2D1DeviceContext_GetTransform(This,transform) (This)->lpVtbl->GetTransform(This,transform)
+#define ID2D1DeviceContext_SetAntialiasMode(This,antialias_mode) (This)->lpVtbl->SetAntialiasMode(This,antialias_mode)
+#define ID2D1DeviceContext_GetAntialiasMode(This) (This)->lpVtbl->GetAntialiasMode(This)
+#define ID2D1DeviceContext_SetTextAntialiasMode(This,antialias_mode) (This)->lpVtbl->SetTextAntialiasMode(This,antialias_mode)
+#define ID2D1DeviceContext_GetTextAntialiasMode(This) (This)->lpVtbl->GetTextAntialiasMode(This)
+#define ID2D1DeviceContext_SetTextRenderingParams(This,text_rendering_params) (This)->lpVtbl->SetTextRenderingParams(This,text_rendering_params)
+#define ID2D1DeviceContext_GetTextRenderingParams(This,text_rendering_params) (This)->lpVtbl->GetTextRenderingParams(This,text_rendering_params)
+#define ID2D1DeviceContext_SetTags(This,tag1,tag2) (This)->lpVtbl->SetTags(This,tag1,tag2)
+#define ID2D1DeviceContext_GetTags(This,tag1,tag2) (This)->lpVtbl->GetTags(This,tag1,tag2)
+#define ID2D1DeviceContext_PopLayer(This) (This)->lpVtbl->PopLayer(This)
+#define ID2D1DeviceContext_Flush(This,tag1,tag2) (This)->lpVtbl->Flush(This,tag1,tag2)
+#define ID2D1DeviceContext_SaveDrawingState(This,state_block) (This)->lpVtbl->SaveDrawingState(This,state_block)
+#define ID2D1DeviceContext_RestoreDrawingState(This,state_block) (This)->lpVtbl->RestoreDrawingState(This,state_block)
+#define ID2D1DeviceContext_PushAxisAlignedClip(This,clip_rect,antialias_mode) (This)->lpVtbl->PushAxisAlignedClip(This,clip_rect,antialias_mode)
+#define ID2D1DeviceContext_PopAxisAlignedClip(This) (This)->lpVtbl->PopAxisAlignedClip(This)
+#define ID2D1DeviceContext_Clear(This,color) (This)->lpVtbl->Clear(This,color)
+#define ID2D1DeviceContext_BeginDraw(This) (This)->lpVtbl->BeginDraw(This)
+#define ID2D1DeviceContext_EndDraw(This,tag1,tag2) (This)->lpVtbl->EndDraw(This,tag1,tag2)
+#define ID2D1DeviceContext_GetPixelFormat(This) ID2D1DeviceContext_GetPixelFormat_define_WIDL_C_INLINE_WRAPPERS_for_aggregate_return_support
+#define ID2D1DeviceContext_SetDpi(This,dpi_x,dpi_y) (This)->lpVtbl->SetDpi(This,dpi_x,dpi_y)
+#define ID2D1DeviceContext_GetDpi(This,dpi_x,dpi_y) (This)->lpVtbl->GetDpi(This,dpi_x,dpi_y)
+#define ID2D1DeviceContext_GetSize(This) ID2D1DeviceContext_GetSize_define_WIDL_C_INLINE_WRAPPERS_for_aggregate_return_support
+#define ID2D1DeviceContext_GetPixelSize(This) ID2D1DeviceContext_GetPixelSize_define_WIDL_C_INLINE_WRAPPERS_for_aggregate_return_support
+#define ID2D1DeviceContext_GetMaximumBitmapSize(This) (This)->lpVtbl->GetMaximumBitmapSize(This)
+#define ID2D1DeviceContext_IsSupported(This,desc) (This)->lpVtbl->IsSupported(This,desc)
+/*** ID2D1DeviceContext methods ***/
+#define ID2D1DeviceContext_CreateBitmap(This,size,src_data,pitch,desc,bitmap) (This)->lpVtbl->ID2D1DeviceContext_CreateBitmap(This,size,src_data,pitch,desc,bitmap)
+#define ID2D1DeviceContext_CreateBitmapFromWicBitmap(This,bitmap_source,desc,bitmap) (This)->lpVtbl->ID2D1DeviceContext_CreateBitmapFromWicBitmap(This,bitmap_source,desc,bitmap)
+#define ID2D1DeviceContext_CreateColorContext(This,space,profile,profile_size,color_context) (This)->lpVtbl->CreateColorContext(This,space,profile,profile_size,color_context)
+#define ID2D1DeviceContext_CreateColorContextFromFilename(This,filename,color_context) (This)->lpVtbl->CreateColorContextFromFilename(This,filename,color_context)
+#define ID2D1DeviceContext_CreateColorContextFromWicColorContext(This,wic_color_context,color_context) (This)->lpVtbl->CreateColorContextFromWicColorContext(This,wic_color_context,color_context)
+#define ID2D1DeviceContext_CreateBitmapFromDxgiSurface(This,surface,desc,bitmap) (This)->lpVtbl->CreateBitmapFromDxgiSurface(This,surface,desc,bitmap)
+#define ID2D1DeviceContext_CreateEffect(This,effect_id,effect) (This)->lpVtbl->CreateEffect(This,effect_id,effect)
+#define ID2D1DeviceContext_CreateGradientStopCollection(This,stops,stop_count,preinterpolation_space,postinterpolation_space,buffer_precision,extend_mode,color_interpolation_mode,gradient) (This)->lpVtbl->ID2D1DeviceContext_CreateGradientStopCollection(This,stops,stop_count,preinterpolation_space,postinterpolation_space,buffer_precision,extend_mode,color_interpolation_mode,gradient)
+#define ID2D1DeviceContext_CreateImageBrush(This,image,image_brush_desc,brush_desc,brush) (This)->lpVtbl->CreateImageBrush(This,image,image_brush_desc,brush_desc,brush)
+#define ID2D1DeviceContext_CreateBitmapBrush(This,bitmap,bitmap_brush_desc,brush_desc,bitmap_brush) (This)->lpVtbl->ID2D1DeviceContext_CreateBitmapBrush(This,bitmap,bitmap_brush_desc,brush_desc,bitmap_brush)
+#define ID2D1DeviceContext_CreateCommandList(This,command_list) (This)->lpVtbl->CreateCommandList(This,command_list)
+#define ID2D1DeviceContext_IsDxgiFormatSupported(This,format) (This)->lpVtbl->IsDxgiFormatSupported(This,format)
+#define ID2D1DeviceContext_IsBufferPrecisionSupported(This,buffer_precision) (This)->lpVtbl->IsBufferPrecisionSupported(This,buffer_precision)
+#define ID2D1DeviceContext_GetImageLocalBounds(This,image,local_bounds) (This)->lpVtbl->GetImageLocalBounds(This,image,local_bounds)
+#define ID2D1DeviceContext_GetImageWorldBounds(This,image,world_bounds) (This)->lpVtbl->GetImageWorldBounds(This,image,world_bounds)
+#define ID2D1DeviceContext_GetGlyphRunWorldBounds(This,baseline_origin,glyph_run,measuring_mode,bounds) (This)->lpVtbl->GetGlyphRunWorldBounds(This,baseline_origin,glyph_run,measuring_mode,bounds)
+#define ID2D1DeviceContext_GetDevice(This,device) (This)->lpVtbl->GetDevice(This,device)
+#define ID2D1DeviceContext_SetTarget(This,target) (This)->lpVtbl->SetTarget(This,target)
+#define ID2D1DeviceContext_GetTarget(This,target) (This)->lpVtbl->GetTarget(This,target)
+#define ID2D1DeviceContext_SetRenderingControls(This,rendering_controls) (This)->lpVtbl->SetRenderingControls(This,rendering_controls)
+#define ID2D1DeviceContext_GetRenderingControls(This,rendering_controls) (This)->lpVtbl->GetRenderingControls(This,rendering_controls)
+#define ID2D1DeviceContext_SetPrimitiveBlend(This,primitive_blend) (This)->lpVtbl->SetPrimitiveBlend(This,primitive_blend)
+#define ID2D1DeviceContext_GetPrimitiveBlend(This) (This)->lpVtbl->GetPrimitiveBlend(This)
+#define ID2D1DeviceContext_SetUnitMode(This,unit_mode) (This)->lpVtbl->SetUnitMode(This,unit_mode)
+#define ID2D1DeviceContext_GetUnitMode(This) (This)->lpVtbl->GetUnitMode(This)
+#define ID2D1DeviceContext_DrawGlyphRun(This,baseline_origin,glyph_run,glyph_run_desc,brush,measuring_mode) (This)->lpVtbl->ID2D1DeviceContext_DrawGlyphRun(This,baseline_origin,glyph_run,glyph_run_desc,brush,measuring_mode)
+#define ID2D1DeviceContext_DrawImage(This,image,target_offset,image_rect,interpolation_mode,composite_mode) (This)->lpVtbl->DrawImage(This,image,target_offset,image_rect,interpolation_mode,composite_mode)
+#define ID2D1DeviceContext_DrawGdiMetafile(This,metafile,target_offset) (This)->lpVtbl->DrawGdiMetafile(This,metafile,target_offset)
+#define ID2D1DeviceContext_DrawBitmap(This,bitmap,dst_rect,opacity,interpolation_mode,src_rect,perspective_transform) (This)->lpVtbl->ID2D1DeviceContext_DrawBitmap(This,bitmap,dst_rect,opacity,interpolation_mode,src_rect,perspective_transform)
+#define ID2D1DeviceContext_PushLayer(This,layer_parameters,layer) (This)->lpVtbl->ID2D1DeviceContext_PushLayer(This,layer_parameters,layer)
+#define ID2D1DeviceContext_InvalidateEffectInputRectangle(This,effect,input,input_rect) (This)->lpVtbl->InvalidateEffectInputRectangle(This,effect,input,input_rect)
+#define ID2D1DeviceContext_GetEffectInvalidRectangleCount(This,effect,rect_count) (This)->lpVtbl->GetEffectInvalidRectangleCount(This,effect,rect_count)
+#define ID2D1DeviceContext_GetEffectInvalidRectangles(This,effect,rectangles,rect_count) (This)->lpVtbl->GetEffectInvalidRectangles(This,effect,rectangles,rect_count)
+#define ID2D1DeviceContext_GetEffectRequiredInputRectangles(This,effect,image_rect,desc,input_rect,input_count) (This)->lpVtbl->GetEffectRequiredInputRectangles(This,effect,image_rect,desc,input_rect,input_count)
+#define ID2D1DeviceContext_FillOpacityMask(This,mask,brush,dst_rect,src_rect) (This)->lpVtbl->ID2D1DeviceContext_FillOpacityMask(This,mask,brush,dst_rect,src_rect)
+
 #endif
 
 DEFINE_GUID(IID_ID2D1DeviceContext, 0xe8f7fe7a,0x191c,0x466d,0xad,0x95,0x97,0x56,0x78,0xbd,0xa9,0x98);
@@ -1050,6 +1198,19 @@ ID2D1DeviceVtbl;
 interface ID2D1Device {
     const ID2D1DeviceVtbl *lpVtbl;
 };
+
+/*** IUnknown methods ***/
+#define ID2D1Device_QueryInterface(This,riid,ppvObject) (This)->lpVtbl->QueryInterface(This,riid,ppvObject)
+#define ID2D1Device_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ID2D1Device_Release(This) (This)->lpVtbl->Release(This)
+/*** ID2D1Resource methods ***/
+#define ID2D1Device_GetFactory(This,factory) (This)->lpVtbl->GetFactory(This,factory)
+/*** ID2D1Device methods ***/
+#define ID2D1Device_CreateDeviceContext(This,options,context) (This)->lpVtbl->CreateDeviceContext(This,options,context)
+#define ID2D1Device_CreatePrintControl(This,wic_factory,document_target,desc,print_control) (This)->lpVtbl->CreatePrintControl(This,wic_factory,document_target,desc,print_control)
+#define ID2D1Device_SetMaximumTextureMemory(This,max_texture_memory) (This)->lpVtbl->SetMaximumTextureMemory(This,max_texture_memory)
+#define ID2D1Device_GetMaximumTextureMemory(This) (This)->lpVtbl->GetMaximumTextureMemory(This)
+#define ID2D1Device_ClearResources(This,msec_since_use) (This)->lpVtbl->ClearResources(This,msec_since_use)
 
 #endif
 

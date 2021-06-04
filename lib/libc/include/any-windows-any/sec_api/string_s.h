@@ -43,6 +43,10 @@ extern "C" {
   _CRTIMP errno_t __cdecl strcat_s(char *_Dst, rsize_t _SizeInBytes, const char * _Src);
   __DEFINE_CPP_OVERLOAD_SECURE_FUNC_0_1(errno_t, strcat_s, char, _Dest, const char *, _Source)
 
+  __forceinline size_t __cdecl strnlen_s(const char * _src, size_t _count) {
+    return _src ? strnlen(_src, _count) : 0;
+  }
+
   _SECIMP errno_t __cdecl memmove_s(void *_dest,size_t _numberOfElements,const void *_src,size_t _count);
 #ifndef _WSTRING_S_DEFINED
 #define _WSTRING_S_DEFINED

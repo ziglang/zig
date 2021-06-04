@@ -864,7 +864,9 @@ extern "C" {
 #endif /* _WSTDIO_S_DEFINED */
 #endif /* _STDIO_S_DEFINED */
 
+#if __MSVCRT_VERSION__ >= 0x800
   _CRTIMP size_t __cdecl _fread_nolock_s(void *_DstBuf,size_t _DstSize,size_t _ElementSize,size_t _Count,FILE *_File);
+#endif
 
 #ifdef __cplusplus
 }

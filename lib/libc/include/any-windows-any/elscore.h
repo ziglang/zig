@@ -8,6 +8,10 @@
 
 #include <objbase.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef ELSCOREAPI
 #define ELSCOREAPI DECLSPEC_IMPORT
 #endif
@@ -15,6 +19,16 @@
 #ifndef CALLBACK
 #define CALLBACK WINAPI
 #endif
+
+/* MAPPING_ENUM_OPTIONS.ServiceType */
+#define ALL_SERVICE_TYPES 0
+#define HIGHLEVEL_SERVICE_TYPES 1
+#define LOWLEVEL_SERVICE_TYPES 2
+
+/* MAPPING_ENUM_OPTIONS.OnlineService */
+#define ALL_SERVICES 0
+#define ONLINE_SERVICES 1
+#define OFFLINE_SERVICES 2
 
 typedef struct _MAPPING_DATA_RANGE {
   DWORD  dwStartIndex;
@@ -139,5 +153,9 @@ ELSCOREAPI HRESULT WINAPI MappingGetServices(
   PMAPPING_SERVICE_INFO *prgServices,
   DWORD *pdwServicesCount
 );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /*__INC_ELSCORE__*/

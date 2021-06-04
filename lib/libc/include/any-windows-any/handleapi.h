@@ -18,6 +18,9 @@ extern "C" {
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
   WINBASEAPI WINBOOL WINAPI CloseHandle (HANDLE hObject);
   WINBASEAPI WINBOOL WINAPI DuplicateHandle (HANDLE hSourceProcessHandle, HANDLE hSourceHandle, HANDLE hTargetProcessHandle, LPHANDLE lpTargetHandle, DWORD dwDesiredAccess, WINBOOL bInheritHandle, DWORD dwOptions);
+#if _WIN32_WINNT >= _WIN32_WINNT_WIN10
+  WINBASEAPI WINBOOL WINAPI CompareObjectHandles (HANDLE hFirstObjectHandle, HANDLE hSecondObjectHandle);
+#endif
 #endif
 
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
