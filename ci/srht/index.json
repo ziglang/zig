@@ -86,7 +86,7 @@
       "size": "41211184"
     },
     "aarch64-macos": {
-      "tarball": "https://ziglang.org/download/0.8.0/zig-macos-x86_64-0.8.0.tar.xz",
+      "tarball": "https://ziglang.org/download/0.8.0/zig-macos-aarch64-0.8.0.tar.xz",
       "shasum": "b32d13f66d0e1ff740b3326d66a469ee6baddbd7211fa111c066d3bd57683111",
       "size": "35292180"
     },
