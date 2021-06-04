@@ -4998,7 +4998,7 @@ pub fn sendmsg(
     flags: u32,
 ) SendMsgError!usize {
     while (true) {
-        const rc = system.sendmsg(sockfd, &msg, flags);
+        const rc = system.sendmsg(sockfd, @ptrCast(*const std.x.os.Socket.Message, &msg), @intCast(c_int, flags));
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {

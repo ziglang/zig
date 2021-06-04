@@ -3,6 +3,7 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
+const std = @import("../../std.zig");
 usingnamespace @import("bits.zig");
 
 pub const SOCKET = *opaque {};
@@ -1058,12 +1059,7 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 };
 
-pub const sockaddr_storage = extern struct {
-    family: ADDRESS_FAMILY,
-    __pad1: [6]u8,
-    __align: i64,
-    __pad2: [112]u8,
-};
+pub const sockaddr_storage = std.x.os.Socket.Address.Native.Storage;
 
 /// IPv4 socket address
 pub const sockaddr_in = extern struct {
@@ -1163,7 +1159,7 @@ pub const LPFN_GETACCEPTEXSOCKADDRS = fn (
 
 pub const LPFN_WSASENDMSG = fn (
     s: SOCKET,
-    lpMsg: *const WSAMSG_const,
+    lpMsg: *const std.x.os.Socket.Message,
     dwFlags: u32,
     lpNumberOfBytesSent: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
@@ -1172,7 +1168,7 @@ pub const LPFN_WSASENDMSG = fn (
 
 pub const LPFN_WSARECVMSG = fn (
     s: SOCKET,
-    lpMsg: *WSAMSG,
+    lpMsg: *std.x.os.Socket.Message,
     lpdwNumberOfBytesRecv: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPWSAOVERLAPPED_COMPLETION_ROUTINE,
@@ -2046,7 +2042,7 @@ pub extern "ws2_32" fn WSASend(
 
 pub extern "ws2_32" fn WSASendMsg(
     s: SOCKET,
-    lpMsg: *const WSAMSG_const,
+    lpMsg: *const std.x.os.Socket.Message,
     dwFlags: u32,
     lpNumberOfBytesSent: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
@@ -2055,7 +2051,7 @@ pub extern "ws2_32" fn WSASendMsg(
 
 pub extern "ws2_32" fn WSARecvMsg(
     s: SOCKET,
-    lpMsg: *WSAMSG,
+    lpMsg: *std.x.os.Socket.Message,
     lpdwNumberOfBytesRecv: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPWSAOVERLAPPED_COMPLETION_ROUTINE,
