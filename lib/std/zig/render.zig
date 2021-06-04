@@ -989,16 +989,18 @@ fn renderVarDecl(gpa: *Allocator, ais: *Ais, tree: ast.Tree, var_decl: ast.full.
         }
     }
 
-    assert(var_decl.ast.init_node != 0);
-    const eq_token = tree.firstToken(var_decl.ast.init_node) - 1;
-    const eq_space: Space = if (tree.tokensOnSameLine(eq_token, eq_token + 1)) .space else .newline;
-    {
-        ais.pushIndent();
-        try renderToken(ais, tree, eq_token, eq_space); // =
-        ais.popIndent();
+    if (var_decl.ast.init_node != 0) {
+        const eq_token = tree.firstToken(var_decl.ast.init_node) - 1;
+        const eq_space: Space = if (tree.tokensOnSameLine(eq_token, eq_token + 1)) .space else .newline;
+        {
+            ais.pushIndent();
+            try renderToken(ais, tree, eq_token, eq_space); // =
+            ais.popIndent();
+        }
+        ais.pushIndentOneShot();
+        return renderExpression(gpa, ais, tree, var_decl.ast.init_node, .semicolon); // ;
     }
-    ais.pushIndentOneShot();
-    try renderExpression(gpa, ais, tree, var_decl.ast.init_node, .semicolon);
+    return renderToken(ais, tree, var_decl.ast.mut_token + 2, .newline); // ;
 }
 
 fn renderIf(gpa: *Allocator, ais: *Ais, tree: ast.Tree, if_node: ast.full.If, space: Space) Error!void {
