@@ -680,6 +680,9 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             // Put stack before globals so that stack overflow results in segfault immediately
             // before corrupting globals. See https://github.com/ziglang/zig/issues/4496
             try argv.append("--stack-first");
+            if (self.base.options.want_reactor_exec_model) {
+                try argv.append("--no-entry"); // So lld doesn't look for _start.
+            }
         } else {
             try argv.append("--no-entry"); // So lld doesn't look for _start.
             try argv.append("--export-all");
@@ -691,8 +694,9 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         });
 
         if (target.os.tag == .wasi) {
-            if (self.base.options.link_libc and self.base.options.output_mode == .Exe) {
-                // TODO work out if we want standard crt, a reactor or a command
+            if (self.base.options.want_reactor_exec_model) {
+                try argv.append(try comp.get_libc_crt_file(arena, "crt1-reactor.o"));
+            } else {
                 try argv.append(try comp.get_libc_crt_file(arena, "crt1.o"));
             }
 
