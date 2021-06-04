@@ -21,35 +21,7 @@ pub fn buildWasiLibcSysroot(comp: *Compilation) !void {
         // Compile crt sources.
         var args = std.ArrayList([]const u8).init(arena);
         try addCCArgs(comp, arena, &args, false);
-        try args.appendSlice(&[_][]const u8{
-            "-I",
-            try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                "libc",
-                "wasi",
-                "libc-bottom-half",
-                "headers",
-                "private",
-            }),
-
-            "-I",
-            try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                "libc",
-                "wasi",
-                "libc-bottom-half",
-                "cloudlibc",
-                "src",
-                "include",
-            }),
-
-            "-I",
-            try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                "libc",
-                "wasi",
-                "libc-bottom-half",
-                "cloudlibc",
-                "src",
-            }),
-        });
+        try addLibcBottomHalfIncludes(comp, arena, &args);
 
         var comp_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
         for (crt_src_files) |file_path| {
@@ -95,37 +67,75 @@ pub fn buildWasiLibcSysroot(comp: *Compilation) !void {
             // Compile libc-bottom-half.
             var args = std.ArrayList([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, true);
-            try args.appendSlice(&[_][]const u8{
-                "-I",
-                try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                    "libc",
-                    "wasi",
-                    "libc-bottom-half",
-                    "headers",
-                    "private",
-                }),
-
-                "-I",
-                try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                    "libc",
-                    "wasi",
-                    "libc-bottom-half",
-                    "cloudlibc",
-                    "src",
-                }),
-
-                "-I",
-                try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                    "libc",
-                    "wasi",
-                    "libc-bottom-half",
-                    "cloudlibc",
-                    "src",
-                    "include",
-                }),
-            });
+            try addLibcBottomHalfIncludes(comp, arena, &args);
 
             for (libc_bottom_half_src_files) |file_path| {
+                try comp_sources.append(.{
+                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        "libc", try sanitize(arena, file_path),
+                    }),
+                    .extra_flags = args.items,
+                });
+            }
+        }
+
+        {
+            // Compile emulated sources depending only on libc-bottom-half.
+            var args = std.ArrayList([]const u8).init(arena);
+            try addCCArgs(comp, arena, &args, true);
+            try addLibcBottomHalfIncludes(comp, arena, &args);
+
+            for (emulated_process_clocks_src_files) |file_path| {
+                try comp_sources.append(.{
+                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        "libc", try sanitize(arena, file_path),
+                    }),
+                    .extra_flags = args.items,
+                });
+            }
+
+            for (emulated_getpid_src_files) |file_path| {
+                try comp_sources.append(.{
+                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        "libc", try sanitize(arena, file_path),
+                    }),
+                    .extra_flags = args.items,
+                });
+            }
+
+            for (emulated_mman_src_files) |file_path| {
+                try comp_sources.append(.{
+                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        "libc", try sanitize(arena, file_path),
+                    }),
+                    .extra_flags = args.items,
+                });
+            }
+        }
+
+        {
+            // Compile emulated signals (bottom-half).
+            var args = std.ArrayList([]const u8).init(arena);
+            try addCCArgs(comp, arena, &args, true);
+
+            for (emulated_signal_bottom_half_src_files) |file_path| {
+                try comp_sources.append(.{
+                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        "libc", try sanitize(arena, file_path),
+                    }),
+                    .extra_flags = args.items,
+                });
+            }
+        }
+
+        {
+            // Compile emulated signals (top-half).
+            var args = std.ArrayList([]const u8).init(arena);
+            try addCCArgs(comp, arena, &args, true);
+            try addLibcTopHalfIncludes(comp, arena, &args);
+            try args.append("-D_WASI_EMULATED_SIGNAL");
+
+            for (emulated_signal_top_half_src_files) |file_path| {
                 try comp_sources.append(.{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", try sanitize(arena, file_path),
@@ -139,56 +149,7 @@ pub fn buildWasiLibcSysroot(comp: *Compilation) !void {
             // Compile libc-top-half.
             var args = std.ArrayList([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, true);
-            try args.appendSlice(&[_][]const u8{
-                "-I",
-                try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                    "libc",
-                    "wasi",
-                    "libc-top-half",
-                    "musl",
-                    "src",
-                    "include",
-                }),
-
-                "-I",
-                try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                    "libc",
-                    "wasi",
-                    "libc-top-half",
-                    "musl",
-                    "src",
-                    "internal",
-                }),
-
-                "-I",
-                try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                    "libc",
-                    "wasi",
-                    "libc-top-half",
-                    "musl",
-                    "arch",
-                    "wasm32",
-                }),
-
-                "-I",
-                try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                    "libc",
-                    "wasi",
-                    "libc-top-half",
-                    "musl",
-                    "arch",
-                    "generic",
-                }),
-
-                "-I",
-                try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                    "libc",
-                    "wasi",
-                    "libc-top-half",
-                    "headers",
-                    "private",
-                }),
-            });
+            try addLibcTopHalfIncludes(comp, arena, &args);
 
             for (libc_top_half_src_files) |file_path| {
                 try comp_sources.append(.{
@@ -248,6 +209,99 @@ fn addCCArgs(
 
         "-iwithsysroot",
         try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", triple }),
+    });
+}
+
+fn addLibcBottomHalfIncludes(
+    comp: *Compilation,
+    arena: *Allocator,
+    args: *std.ArrayList([]const u8),
+) error{OutOfMemory}!void {
+    try args.appendSlice(&[_][]const u8{
+        "-I",
+        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            "libc",
+            "wasi",
+            "libc-bottom-half",
+            "headers",
+            "private",
+        }),
+
+        "-I",
+        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            "libc",
+            "wasi",
+            "libc-bottom-half",
+            "cloudlibc",
+            "src",
+            "include",
+        }),
+
+        "-I",
+        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            "libc",
+            "wasi",
+            "libc-bottom-half",
+            "cloudlibc",
+            "src",
+        }),
+    });
+}
+
+fn addLibcTopHalfIncludes(
+    comp: *Compilation,
+    arena: *Allocator,
+    args: *std.ArrayList([]const u8),
+) error{OutOfMemory}!void {
+    try args.appendSlice(&[_][]const u8{
+        "-I",
+        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            "libc",
+            "wasi",
+            "libc-top-half",
+            "musl",
+            "src",
+            "include",
+        }),
+
+        "-I",
+        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            "libc",
+            "wasi",
+            "libc-top-half",
+            "musl",
+            "src",
+            "internal",
+        }),
+
+        "-I",
+        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            "libc",
+            "wasi",
+            "libc-top-half",
+            "musl",
+            "arch",
+            "wasm32",
+        }),
+
+        "-I",
+        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            "libc",
+            "wasi",
+            "libc-top-half",
+            "musl",
+            "arch",
+            "generic",
+        }),
+
+        "-I",
+        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            "libc",
+            "wasi",
+            "libc-top-half",
+            "headers",
+            "private",
+        }),
     });
 }
 
@@ -1025,6 +1079,11 @@ const emulated_mman_src_files = &[_][]const u8{
     "wasi/libc-bottom-half/mman/mman.c",
 };
 
-const emulated_signal_src_files = &[_][]const u8{
+const emulated_signal_bottom_half_src_files = &[_][]const u8{
     "wasi/libc-bottom-half/signal/signal.c",
+};
+
+const emulated_signal_top_half_src_files = &[_][]const u8{
+    "wasi/libc-top-half/musl/src/signal/psignal.c",
+    "wasi/libc-top-half/musl/src/string/strsignal.c",
 };
