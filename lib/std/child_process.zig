@@ -223,7 +223,8 @@ pub const ChildProcess = struct {
                 stdout.items.len += nread;
 
                 // insert POLLHUP event because dragonfly fails to do so
-                if (dragonfly_workaround and nread == 0) poll_fds[0].revents |= os.POLLHUP;
+                if (dragonfly_workaround and nread == 0)
+                    poll_fds[0].revents |= os.POLLHUP;
             }
             if (poll_fds[1].revents & os.POLLIN != 0) {
                 // stderr is ready.
@@ -235,15 +236,22 @@ pub const ChildProcess = struct {
                 stderr.items.len += nread;
 
                 // insert POLLHUP event because dragonfly fails to do so
-                if (dragonfly_workaround and nread == 0) poll_fds[1].revents |= os.POLLHUP;
+                if (dragonfly_workaround and nread == 0)
+                    poll_fds[1].revents |= os.POLLHUP;
             }
 
             // Exclude the fds that signaled an error.
-            if (poll_fds[0].revents & (os.POLLERR | os.POLLNVAL | os.POLLHUP) != 0) {
+            // It's still possible to read after a POLLHUP is received, always
+            // check if there's some data waiting to be read.
+            if (poll_fds[0].revents & (os.POLLERR | os.POLLNVAL) != 0 or
+                poll_fds[0].revents & (os.POLLHUP | os.POLLIN) == os.POLLHUP)
+            {
                 poll_fds[0].fd = -1;
                 dead_fds += 1;
             }
-            if (poll_fds[1].revents & (os.POLLERR | os.POLLNVAL | os.POLLHUP) != 0) {
+            if (poll_fds[1].revents & (os.POLLERR | os.POLLNVAL) != 0 or
+                poll_fds[1].revents & (os.POLLHUP | os.POLLIN) == os.POLLHUP)
+            {
                 poll_fds[1].fd = -1;
                 dead_fds += 1;
             }
