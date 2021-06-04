@@ -380,12 +380,41 @@ test "math.min" {
     }
 }
 
+/// Finds the min of three numbers
+pub fn min3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
+    return min(x, min(y, z));
+}
+
+test "math.min3" {
+    try testing.expect(min3(@as(i32, 0), @as(i32, 1), @as(i32, 2)) == 0);
+    try testing.expect(min3(@as(i32, 0), @as(i32, 2), @as(i32, 1)) == 0);
+    try testing.expect(min3(@as(i32, 1), @as(i32, 0), @as(i32, 2)) == 0);
+    try testing.expect(min3(@as(i32, 1), @as(i32, 2), @as(i32, 0)) == 0);
+    try testing.expect(min3(@as(i32, 2), @as(i32, 0), @as(i32, 1)) == 0);
+    try testing.expect(min3(@as(i32, 2), @as(i32, 1), @as(i32, 0)) == 0);
+}
+
 pub fn max(x: anytype, y: anytype) @TypeOf(x, y) {
     return if (x > y) x else y;
 }
 
 test "math.max" {
     try testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
+    try testing.expect(max(@as(i32, 2), @as(i32, -1)) == 2);
+}
+
+/// Finds the max of three numbers
+pub fn max3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
+    return max(x, max(y, z));
+}
+
+test "math.max3" {
+    try testing.expect(max3(@as(i32, 0), @as(i32, 1), @as(i32, 2)) == 2);
+    try testing.expect(max3(@as(i32, 0), @as(i32, 2), @as(i32, 1)) == 2);
+    try testing.expect(max3(@as(i32, 1), @as(i32, 0), @as(i32, 2)) == 2);
+    try testing.expect(max3(@as(i32, 1), @as(i32, 2), @as(i32, 0)) == 2);
+    try testing.expect(max3(@as(i32, 2), @as(i32, 0), @as(i32, 1)) == 2);
+    try testing.expect(max3(@as(i32, 2), @as(i32, 1), @as(i32, 0)) == 2);
 }
 
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
@@ -574,6 +603,17 @@ pub fn Log2Int(comptime T: type) type {
     // comptime ceil log2
     comptime var count = 0;
     comptime var s = @typeInfo(T).Int.bits - 1;
+    inline while (s != 0) : (s >>= 1) {
+        count += 1;
+    }
+
+    return std.meta.Int(.unsigned, count);
+}
+
+pub fn Log2IntCeil(comptime T: type) type {
+    // comptime ceil log2
+    comptime var count = 0;
+    comptime var s = @typeInfo(T).Int.bits;
     inline while (s != 0) : (s >>= 1) {
         count += 1;
     }
@@ -1046,15 +1086,18 @@ fn testCeilPowerOfTwo() !void {
 }
 
 pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
+    if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
+        @compileError("log2_int requires an unsigned integer, found "++@typeName(T));
     assert(x != 0);
     return @intCast(Log2Int(T), @typeInfo(T).Int.bits - 1 - @clz(T, x));
 }
 
-pub fn log2_int_ceil(comptime T: type, x: T) Log2Int(T) {
+pub fn log2_int_ceil(comptime T: type, x: T) Log2IntCeil(T) {
+    if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
+        @compileError("log2_int_ceil requires an unsigned integer, found "++@typeName(T));
     assert(x != 0);
-    const log2_val = log2_int(T, x);
-    if (@as(T, 1) << log2_val == x)
-        return log2_val;
+    if (x == 1) return 0;
+    const log2_val: Log2IntCeil(T) = log2_int(T, x - 1);
     return log2_val + 1;
 }
 

@@ -413,12 +413,12 @@ pub fn main() anyerror!void {
         var it = root_map.iterator();
         it_map: while (it.next()) |kv| {
             if (kv.key.len == 0) continue;
-            if (kv.key[0] == '!') continue;
-            if (kv.value != .Object) continue;
+            if (kv.key.*[0] == '!') continue;
+            if (kv.value.* != .Object) continue;
             if (!kv.value.Object.contains("NumArgs")) continue;
             if (!kv.value.Object.contains("Name")) continue;
             for (blacklisted_options) |blacklisted_key| {
-                if (std.mem.eql(u8, blacklisted_key, kv.key)) continue :it_map;
+                if (std.mem.eql(u8, blacklisted_key, kv.key.*)) continue :it_map;
             }
             if (kv.value.Object.get("Name").?.String.len == 0) continue;
             try all_objects.append(&kv.value.Object);

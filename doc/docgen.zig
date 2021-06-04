@@ -404,9 +404,9 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             .n = header_stack_size,
                         },
                     });
-                    if (try urls.fetchPut(urlized, tag_token)) |entry| {
+                    if (try urls.fetchPut(urlized, tag_token)) |kv| {
                         parseError(tokenizer, tag_token, "duplicate header url: #{s}", .{urlized}) catch {};
-                        parseError(tokenizer, entry.value, "other tag here", .{}) catch {};
+                        parseError(tokenizer, kv.value, "other tag here", .{}) catch {};
                         return error.ParseError;
                     }
                     if (last_action == Action.Open) {
@@ -1023,7 +1023,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
     defer root_node.end();
 
     var env_map = try process.getEnvMap(allocator);
-    try env_map.set("ZIG_DEBUG_COLOR", "1");
+    try env_map.put("ZIG_DEBUG_COLOR", "1");
 
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe);
 

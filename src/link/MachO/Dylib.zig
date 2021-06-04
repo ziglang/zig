@@ -50,9 +50,9 @@ pub fn deinit(self: *Dylib) void {
     }
     self.load_commands.deinit(self.allocator);
 
-    for (self.symbols.items()) |entry| {
-        entry.value.deinit(self.allocator);
-        self.allocator.destroy(entry.value);
+    for (self.symbols.values()) |value| {
+        value.deinit(self.allocator);
+        self.allocator.destroy(value);
     }
     self.symbols.deinit(self.allocator);
 

@@ -165,11 +165,13 @@ pub fn Watch(comptime V: type) type {
                 .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                     var it = self.os_data.file_table.iterator();
                     while (it.next()) |entry| {
-                        entry.value.cancelled = true;
+                        const key = entry.key_ptr.*;
+                        const value = entry.value_ptr.*;
+                        value.cancelled = true;
                         // @TODO Close the fd here?
-                        await entry.value.putter_frame;
-                        self.allocator.free(entry.key);
-                        self.allocator.destroy(entry.value);
+                        await value.putter_frame;
+                        self.allocator.free(key);
+                        self.allocator.destroy(value);
                     }
                 },
                 .linux => {
@@ -177,9 +179,9 @@ pub fn Watch(comptime V: type) type {
                     {
                         // Remove all directory watches linuxEventPutter will take care of
                         // cleaning up the memory and closing the inotify fd.
-                        var dir_it = self.os_data.wd_table.iterator();
-                        while (dir_it.next()) |wd_entry| {
-                            const rc = os.linux.inotify_rm_watch(self.os_data.inotify_fd, wd_entry.key);
+                        var dir_it = self.os_data.wd_table.keyIterator();
+                        while (dir_it.next()) |wd_key| {
+                            const rc = os.linux.inotify_rm_watch(self.os_data.inotify_fd, wd_key.*);
                             // Errno can only be EBADF, EINVAL if either the inotify fs or the wd are invalid
                             std.debug.assert(rc == 0);
                         }
@@ -202,13 +204,13 @@ pub fn Watch(comptime V: type) type {
                             await dir_entry.value.putter_frame;
                         }
 
-                        self.allocator.free(dir_entry.key);
-                        var file_it = dir_entry.value.file_table.iterator();
+                        self.allocator.free(dir_entry.key_ptr.*);
+                        var file_it = dir_entry.value.file_table.keyIterator();
                         while (file_it.next()) |file_entry| {
-                            self.allocator.free(file_entry.key);
+                            self.allocator.free(file_entry.*);
                         }
                         dir_entry.value.file_table.deinit(self.allocator);
-                        self.allocator.destroy(dir_entry.value);
+                        self.allocator.destroy(dir_entry.value_ptr.*);
                     }
                     self.os_data.dir_table.deinit(self.allocator);
                 },
@@ -236,18 +238,18 @@ pub fn Watch(comptime V: type) type {
             defer held.release();
 
             const gop = try self.os_data.file_table.getOrPut(self.allocator, realpath);
-            errdefer self.os_data.file_table.removeAssertDiscard(realpath);
+            errdefer assert(self.os_data.file_table.remove(realpath));
             if (gop.found_existing) {
-                const prev_value = gop.entry.value.value;
-                gop.entry.value.value = value;
+                const prev_value = gop.value_ptr.value;
+                gop.value_ptr.value = value;
                 return prev_value;
             }
 
-            gop.entry.key = try self.allocator.dupe(u8, realpath);
-            errdefer self.allocator.free(gop.entry.key);
-            gop.entry.value = try self.allocator.create(OsData.Put);
-            errdefer self.allocator.destroy(gop.entry.value);
-            gop.entry.value.* = .{
+            gop.key_ptr.* = try self.allocator.dupe(u8, realpath);
+            errdefer self.allocator.free(gop.key_ptr.*);
+            gop.value_ptr.* = try self.allocator.create(OsData.Put);
+            errdefer self.allocator.destroy(gop.value_ptr.*);
+            gop.value_ptr.* = .{
                 .putter_frame = undefined,
                 .value = value,
             };
@@ -255,7 +257,7 @@ pub fn Watch(comptime V: type) type {
             // @TODO Can I close this fd and get an error from bsdWaitKev?
             const flags = if (comptime std.Target.current.isDarwin()) os.O_SYMLINK | os.O_EVTONLY else 0;
             const fd = try os.open(realpath, flags, 0);
-            gop.entry.value.putter_frame = async self.kqPutEvents(fd, gop.entry.key, gop.entry.value);
+            gop.value_ptr.putter_frame = async self.kqPutEvents(fd, gop.key_ptr.*, gop.value_ptr.*);
             return null;
         }
 
@@ -345,24 +347,24 @@ pub fn Watch(comptime V: type) type {
             defer held.release();
 
             const gop = try self.os_data.wd_table.getOrPut(self.allocator, wd);
-            errdefer self.os_data.wd_table.removeAssertDiscard(wd);
+            errdefer assert(self.os_data.wd_table.remove(wd));
             if (!gop.found_existing) {
-                gop.entry.value = OsData.Dir{
+                gop.value_ptr.* = OsData.Dir{
                     .dirname = try self.allocator.dupe(u8, dirname),
                     .file_table = OsData.FileTable.init(self.allocator),
                 };
             }
 
-            const dir = &gop.entry.value;
+            const dir = gop.value_ptr;
             const file_table_gop = try dir.file_table.getOrPut(self.allocator, basename);
-            errdefer dir.file_table.removeAssertDiscard(basename);
+            errdefer assert(dir.file_table.remove(basename));
             if (file_table_gop.found_existing) {
-                const prev_value = file_table_gop.entry.value;
-                file_table_gop.entry.value = value;
+                const prev_value = file_table_gop.value_ptr.*;
+                file_table_gop.value_ptr.* = value;
                 return prev_value;
             } else {
-                file_table_gop.entry.key = try self.allocator.dupe(u8, basename);
-                file_table_gop.entry.value = value;
+                file_table_gop.key_ptr.* = try self.allocator.dupe(u8, basename);
+                file_table_gop.value_ptr.* = value;
                 return null;
             }
         }
@@ -383,19 +385,19 @@ pub fn Watch(comptime V: type) type {
             defer held.release();
 
             const gop = try self.os_data.dir_table.getOrPut(self.allocator, dirname);
-            errdefer self.os_data.dir_table.removeAssertDiscard(dirname);
+            errdefer assert(self.os_data.dir_table.remove(dirname));
             if (gop.found_existing) {
-                const dir = gop.entry.value;
+                const dir = gop.value_ptr.*;
 
                 const file_gop = try dir.file_table.getOrPut(self.allocator, basename);
-                errdefer dir.file_table.removeAssertDiscard(basename);
+                errdefer assert(dir.file_table.remove(basename));
                 if (file_gop.found_existing) {
-                    const prev_value = file_gop.entry.value;
-                    file_gop.entry.value = value;
+                    const prev_value = file_gop.value_ptr.*;
+                    file_gop.value_ptr.* = value;
                     return prev_value;
                 } else {
-                    file_gop.entry.value = value;
-                    file_gop.entry.key = try self.allocator.dupe(u8, basename);
+                    file_gop.value_ptr.* = value;
+                    file_gop.key_ptr.* = try self.allocator.dupe(u8, basename);
                     return null;
                 }
             } else {
@@ -411,17 +413,17 @@ pub fn Watch(comptime V: type) type {
                 const dir = try self.allocator.create(OsData.Dir);
                 errdefer self.allocator.destroy(dir);
 
-                gop.entry.key = try self.allocator.dupe(u8, dirname);
-                errdefer self.allocator.free(gop.entry.key);
+                gop.key_ptr.* = try self.allocator.dupe(u8, dirname);
+                errdefer self.allocator.free(gop.key_ptr.*);
 
                 dir.* = OsData.Dir{
                     .file_table = OsData.FileTable.init(self.allocator),
                     .putter_frame = undefined,
                     .dir_handle = dir_handle,
                 };
-                gop.entry.value = dir;
+                gop.value_ptr.* = dir;
                 try dir.file_table.put(self.allocator, try self.allocator.dupe(u8, basename), value);
-                dir.putter_frame = async self.windowsDirReader(dir, gop.entry.key);
+                dir.putter_frame = async self.windowsDirReader(dir, gop.key_ptr.*);
                 return null;
             }
         }
@@ -501,9 +503,9 @@ pub fn Watch(comptime V: type) type {
                             if (dir.file_table.getEntry(basename)) |entry| {
                                 self.channel.put(Event{
                                     .id = id,
-                                    .data = entry.value,
+                                    .data = entry.value_ptr.*,
                                     .dirname = dirname,
-                                    .basename = entry.key,
+                                    .basename = entry.key_ptr.*,
                                 });
                             }
                         }
@@ -525,7 +527,7 @@ pub fn Watch(comptime V: type) type {
                     defer held.release();
 
                     const dir = self.os_data.wd_table.get(dirname) orelse return null;
-                    if (dir.file_table.remove(basename)) |file_entry| {
+                    if (dir.file_table.fetchRemove(basename)) |file_entry| {
                         self.allocator.free(file_entry.key);
                         return file_entry.value;
                     }
@@ -539,7 +541,7 @@ pub fn Watch(comptime V: type) type {
                     defer held.release();
 
                     const dir = self.os_data.dir_table.get(dirname) orelse return null;
-                    if (dir.file_table.remove(basename)) |file_entry| {
+                    if (dir.file_table.fetchRemove(basename)) |file_entry| {
                         self.allocator.free(file_entry.key);
                         return file_entry.value;
                     }
@@ -552,14 +554,14 @@ pub fn Watch(comptime V: type) type {
                     const held = self.os_data.table_lock.acquire();
                     defer held.release();
 
-                    const entry = self.os_data.file_table.get(realpath) orelse return null;
-                    entry.value.cancelled = true;
+                    const entry = self.os_data.file_table.getEntry(realpath) orelse return null;
+                    entry.value_ptr.cancelled = true;
                     // @TODO Close the fd here?
-                    await entry.value.putter_frame;
-                    self.allocator.free(entry.key);
-                    self.allocator.destroy(entry.value);
+                    await entry.value_ptr.putter_frame;
+                    self.allocator.free(entry.key_ptr.*);
+                    self.allocator.destroy(entry.value_ptr.*);
 
-                    self.os_data.file_table.removeAssertDiscard(realpath);
+                    assert(self.os_data.file_table.remove(realpath));
                 },
                 else => @compileError("Unsupported OS"),
             }
@@ -594,19 +596,19 @@ pub fn Watch(comptime V: type) type {
                         if (dir.file_table.getEntry(basename)) |file_value| {
                             self.channel.put(Event{
                                 .id = .CloseWrite,
-                                .data = file_value.value,
+                                .data = file_value.value_ptr.*,
                                 .dirname = dir.dirname,
-                                .basename = file_value.key,
+                                .basename = file_value.key_ptr.*,
                             });
                         }
                     } else if (ev.mask & os.linux.IN_IGNORED == os.linux.IN_IGNORED) {
                         // Directory watch was removed
                         const held = self.os_data.table_lock.acquire();
                         defer held.release();
-                        if (self.os_data.wd_table.remove(ev.wd)) |*wd_entry| {
-                            var file_it = wd_entry.value.file_table.iterator();
+                        if (self.os_data.wd_table.fetchRemove(ev.wd)) |wd_entry| {
+                            var file_it = wd_entry.value.file_table.keyIterator();
                             while (file_it.next()) |file_entry| {
-                                self.allocator.free(file_entry.key);
+                                self.allocator.free(file_entry.*);
                             }
                             self.allocator.free(wd_entry.value.dirname);
                             wd_entry.value.file_table.deinit(self.allocator);
@@ -620,9 +622,9 @@ pub fn Watch(comptime V: type) type {
                         if (dir.file_table.getEntry(basename)) |file_value| {
                             self.channel.put(Event{
                                 .id = .Delete,
-                                .data = file_value.value,
+                                .data = file_value.value_ptr.*,
                                 .dirname = dir.dirname,
-                                .basename = file_value.key,
+                                .basename = file_value.key_ptr.*,
                             });
                         }
                     }

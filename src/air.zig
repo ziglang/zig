@@ -696,10 +696,11 @@ const DumpTzir = struct {
 
         std.debug.print("Module.Function(name={s}):\n", .{dtz.module_fn.owner_decl.name});
 
-        for (dtz.const_table.items()) |entry| {
-            const constant = entry.key.castTag(.constant).?;
+        var it = dtz.const_table.iterator();
+        while (it.next()) |entry| {
+            const constant = entry.key_ptr.*.castTag(.constant).?;
             try writer.print("  @{d}: {} = {};\n", .{
-                entry.value, constant.base.ty, constant.val,
+                entry.value_ptr.*, constant.base.ty, constant.val,
             });
         }
 

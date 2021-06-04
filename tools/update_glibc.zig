@@ -148,12 +148,12 @@ pub fn main() !void {
     for (abi_lists) |*abi_list| {
         const target_funcs_gop = try target_functions.getOrPut(@ptrToInt(abi_list));
         if (!target_funcs_gop.found_existing) {
-            target_funcs_gop.entry.value = FunctionSet{
+            target_funcs_gop.value_ptr.* = FunctionSet{
                 .list = std.ArrayList(VersionedFn).init(allocator),
                 .fn_vers_list = FnVersionList.init(allocator),
             };
         }
-        const fn_set = &target_funcs_gop.entry.value.list;
+        const fn_set = &target_funcs_gop.value_ptr.list;
 
         for (lib_names) |lib_name, lib_name_index| {
             const lib_prefix = if (std.mem.eql(u8, lib_name, "ld")) "" else "lib";
@@ -203,11 +203,11 @@ pub fn main() !void {
                 try global_ver_set.put(ver, undefined);
                 const gop = try global_fn_set.getOrPut(name);
                 if (gop.found_existing) {
-                    if (!std.mem.eql(u8, gop.entry.value.lib, "c")) {
-                        gop.entry.value.lib = lib_name;
+                    if (!std.mem.eql(u8, gop.value_ptr.lib, "c")) {
+                        gop.value_ptr.lib = lib_name;
                     }
                 } else {
-                    gop.entry.value = Function{
+                    gop.value_ptr.* = Function{
                         .name = name,
                         .lib = lib_name,
                         .index = undefined,
@@ -223,15 +223,15 @@ pub fn main() !void {
 
     const global_fn_list = blk: {
         var list = std.ArrayList([]const u8).init(allocator);
-        var it = global_fn_set.iterator();
-        while (it.next()) |entry| try list.append(entry.key);
+        var it = global_fn_set.keyIterator();
+        while (it.next()) |key| try list.append(key.*);
         std.sort.sort([]const u8, list.items, {}, strCmpLessThan);
         break :blk list.items;
     };
     const global_ver_list = blk: {
         var list = std.ArrayList([]const u8).init(allocator);
-        var it = global_ver_set.iterator();
-        while (it.next()) |entry| try list.append(entry.key);
+        var it = global_ver_set.keyIterator();
+        while (it.next()) |key| try list.append(key.*);
         std.sort.sort([]const u8, list.items, {}, versionLessThan);
         break :blk list.items;
     };
@@ -254,9 +254,9 @@ pub fn main() !void {
         var buffered = std.io.bufferedWriter(fns_txt_file.writer());
         const fns_txt = buffered.writer();
         for (global_fn_list) |name, i| {
-            const entry = global_fn_set.getEntry(name).?;
-            entry.value.index = i;
-            try fns_txt.print("{s} {s}\n", .{ name, entry.value.lib });
+            const value = global_fn_set.getPtr(name).?;
+            value.index = i;
+            try fns_txt.print("{s} {s}\n", .{ name, value.lib });
         }
         try buffered.flush();
     }
@@ -264,16 +264,16 @@ pub fn main() !void {
     // Now the mapping of version and function to integer index is complete.
     // Here we create a mapping of function name to list of versions.
     for (abi_lists) |*abi_list, abi_index| {
-        const entry = target_functions.getEntry(@ptrToInt(abi_list)).?;
-        const fn_vers_list = &entry.value.fn_vers_list;
-        for (entry.value.list.items) |*ver_fn| {
+        const value = target_functions.getPtr(@ptrToInt(abi_list)).?;
+        const fn_vers_list = &value.fn_vers_list;
+        for (value.list.items) |*ver_fn| {
             const gop = try fn_vers_list.getOrPut(ver_fn.name);
             if (!gop.found_existing) {
-                gop.entry.value = std.ArrayList(usize).init(allocator);
+                gop.value_ptr.* = std.ArrayList(usize).init(allocator);
             }
-            const ver_index = global_ver_set.getEntry(ver_fn.ver).?.value;
-            if (std.mem.indexOfScalar(usize, gop.entry.value.items, ver_index) == null) {
-                try gop.entry.value.append(ver_index);
+            const ver_index = global_ver_set.get(ver_fn.ver).?;
+            if (std.mem.indexOfScalar(usize, gop.value_ptr.items, ver_index) == null) {
+                try gop.value_ptr.append(ver_index);
             }
         }
     }
@@ -287,7 +287,7 @@ pub fn main() !void {
 
         // first iterate over the abi lists
         for (abi_lists) |*abi_list, abi_index| {
-            const fn_vers_list = &target_functions.getEntry(@ptrToInt(abi_list)).?.value.fn_vers_list;
+            const fn_vers_list = &target_functions.getPtr(@ptrToInt(abi_list)).?.fn_vers_list;
             for (abi_list.targets) |target, it_i| {
                 if (it_i != 0) try abilist_txt.writeByte(' ');
                 try abilist_txt.print("{s}-linux-{s}", .{ @tagName(target.arch), @tagName(target.abi) });
@@ -295,11 +295,11 @@ pub fn main() !void {
             try abilist_txt.writeByte('\n');
             // next, each line implicitly corresponds to a function
             for (global_fn_list) |name| {
-                const entry = fn_vers_list.getEntry(name) orelse {
+                const value = fn_vers_list.getPtr(name) orelse {
                     try abilist_txt.writeByte('\n');
                     continue;
                 };
-                for (entry.value.items) |ver_index, it_i| {
+                for (value.items) |ver_index, it_i| {
                     if (it_i != 0) try abilist_txt.writeByte(' ');
                     try abilist_txt.print("{d}", .{ver_index});
                 }

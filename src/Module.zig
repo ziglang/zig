@@ -268,15 +268,7 @@ pub const Decl = struct {
     /// typed_value may need to be regenerated.
     dependencies: DepsTable = .{},
 
-    /// The reason this is not `std.AutoArrayHashMapUnmanaged` is a workaround for
-    /// stage1 compiler giving me: `error: struct 'Module.Decl' depends on itself`
-    pub const DepsTable = std.ArrayHashMapUnmanaged(
-        *Decl,
-        void,
-        std.array_hash_map.getAutoHashFn(*Decl),
-        std.array_hash_map.getAutoEqlFn(*Decl),
-        false,
-    );
+    pub const DepsTable = std.AutoArrayHashMapUnmanaged(*Decl, void);
 
     pub fn clearName(decl: *Decl, gpa: *Allocator) void {
         gpa.free(mem.spanZ(decl.name));
@@ -287,7 +279,7 @@ pub const Decl = struct {
         const gpa = module.gpa;
         log.debug("destroy {*} ({s})", .{ decl, decl.name });
         if (decl.deletion_flag) {
-            module.deletion_set.swapRemoveAssertDiscard(decl);
+            assert(module.deletion_set.swapRemove(decl));
         }
         if (decl.has_tv) {
             if (decl.getInnerNamespace()) |namespace| {
@@ -550,11 +542,11 @@ pub const Decl = struct {
     }
 
     fn removeDependant(decl: *Decl, other: *Decl) void {
-        decl.dependants.removeAssertDiscard(other);
+        assert(decl.dependants.swapRemove(other));
     }
 
     fn removeDependency(decl: *Decl, other: *Decl) void {
-        decl.dependencies.removeAssertDiscard(other);
+        assert(decl.dependencies.swapRemove(other));
     }
 };
 
@@ -683,7 +675,7 @@ pub const EnumFull = struct {
     /// Offset from `owner_decl`, points to the enum decl AST node.
     node_offset: i32,
 
-    pub const ValueMap = std.ArrayHashMapUnmanaged(Value, void, Value.hash_u32, Value.eql, false);
+    pub const ValueMap = std.ArrayHashMapUnmanaged(Value, void, Value.ArrayHashContext, false);
 
     pub fn srcLoc(self: EnumFull) SrcLoc {
         return .{
@@ -895,13 +887,13 @@ pub const Scope = struct {
             var anon_decls = ns.anon_decls;
             ns.anon_decls = .{};
 
-            for (decls.items()) |entry| {
-                entry.value.destroy(mod);
+            for (decls.values()) |value| {
+                value.destroy(mod);
             }
             decls.deinit(gpa);
 
-            for (anon_decls.items()) |entry| {
-                entry.key.destroy(mod);
+            for (anon_decls.keys()) |key| {
+                key.destroy(mod);
             }
             anon_decls.deinit(gpa);
         }
@@ -924,15 +916,13 @@ pub const Scope = struct {
             // TODO rework this code to not panic on OOM.
             // (might want to coordinate with the clearDecl function)
 
-            for (decls.items()) |entry| {
-                const child_decl = entry.value;
+            for (decls.values()) |child_decl| {
                 mod.clearDecl(child_decl, outdated_decls) catch @panic("out of memory");
                 child_decl.destroy(mod);
             }
             decls.deinit(gpa);
 
-            for (anon_decls.items()) |entry| {
-                const child_decl = entry.key;
+            for (anon_decls.keys()) |child_decl| {
                 mod.clearDecl(child_decl, outdated_decls) catch @panic("out of memory");
                 child_decl.destroy(mod);
             }
@@ -2120,9 +2110,11 @@ pub const InnerError = error{ OutOfMemory, AnalysisFail };
 pub fn deinit(mod: *Module) void {
     const gpa = mod.gpa;
 
-    for (mod.import_table.items()) |entry| {
-        gpa.free(entry.key);
-        entry.value.destroy(mod);
+    for (mod.import_table.keys()) |key| {
+        gpa.free(key);
+    }
+    for (mod.import_table.values()) |value| {
+        value.destroy(mod);
     }
     mod.import_table.deinit(gpa);
 
@@ -2130,16 +2122,16 @@ pub fn deinit(mod: *Module) void {
 
     // The callsite of `Compilation.create` owns the `root_pkg`, however
     // Module owns the builtin and std packages that it adds.
-    if (mod.root_pkg.table.remove("builtin")) |entry| {
-        gpa.free(entry.key);
-        entry.value.destroy(gpa);
+    if (mod.root_pkg.table.fetchRemove("builtin")) |kv| {
+        gpa.free(kv.key);
+        kv.value.destroy(gpa);
     }
-    if (mod.root_pkg.table.remove("std")) |entry| {
-        gpa.free(entry.key);
-        entry.value.destroy(gpa);
+    if (mod.root_pkg.table.fetchRemove("std")) |kv| {
+        gpa.free(kv.key);
+        kv.value.destroy(gpa);
     }
-    if (mod.root_pkg.table.remove("root")) |entry| {
-        gpa.free(entry.key);
+    if (mod.root_pkg.table.fetchRemove("root")) |kv| {
+        gpa.free(kv.key);
     }
 
     mod.compile_log_text.deinit(gpa);
@@ -2148,46 +2140,45 @@ pub fn deinit(mod: *Module) void {
     mod.local_zir_cache.handle.close();
     mod.global_zir_cache.handle.close();
 
-    for (mod.failed_decls.items()) |entry| {
-        entry.value.destroy(gpa);
+    for (mod.failed_decls.values()) |value| {
+        value.destroy(gpa);
     }
     mod.failed_decls.deinit(gpa);
 
     if (mod.emit_h) |emit_h| {
-        for (emit_h.failed_decls.items()) |entry| {
-            entry.value.destroy(gpa);
+        for (emit_h.failed_decls.values()) |value| {
+            value.destroy(gpa);
         }
         emit_h.failed_decls.deinit(gpa);
         emit_h.decl_table.deinit(gpa);
         gpa.destroy(emit_h);
     }
 
-    for (mod.failed_files.items()) |entry| {
-        if (entry.value) |msg| msg.destroy(gpa);
+    for (mod.failed_files.values()) |value| {
+        if (value) |msg| msg.destroy(gpa);
     }
     mod.failed_files.deinit(gpa);
 
-    for (mod.failed_exports.items()) |entry| {
-        entry.value.destroy(gpa);
+    for (mod.failed_exports.values()) |value| {
+        value.destroy(gpa);
     }
     mod.failed_exports.deinit(gpa);
 
     mod.compile_log_decls.deinit(gpa);
 
-    for (mod.decl_exports.items()) |entry| {
-        const export_list = entry.value;
+    for (mod.decl_exports.values()) |export_list| {
         gpa.free(export_list);
     }
     mod.decl_exports.deinit(gpa);
 
-    for (mod.export_owners.items()) |entry| {
-        freeExportList(gpa, entry.value);
+    for (mod.export_owners.values()) |value| {
+        freeExportList(gpa, value);
     }
     mod.export_owners.deinit(gpa);
 
-    var it = mod.global_error_set.iterator();
-    while (it.next()) |entry| {
-        gpa.free(entry.key);
+    var it = mod.global_error_set.keyIterator();
+    while (it.next()) |key| {
+        gpa.free(key.*);
     }
     mod.global_error_set.deinit(gpa);
 
@@ -2670,12 +2661,10 @@ fn updateZirRefs(gpa: *Allocator, file: *Scope.File, old_zir: Zir) !void {
         }
 
         if (decl.getInnerNamespace()) |namespace| {
-            for (namespace.decls.items()) |entry| {
-                const sub_decl = entry.value;
+            for (namespace.decls.values()) |sub_decl| {
                 try decl_stack.append(gpa, sub_decl);
             }
-            for (namespace.anon_decls.items()) |entry| {
-                const sub_decl = entry.key;
+            for (namespace.anon_decls.keys()) |sub_decl| {
                 try decl_stack.append(gpa, sub_decl);
             }
         }
@@ -2769,8 +2758,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
             // prior to re-analysis.
             mod.deleteDeclExports(decl);
             // Dependencies will be re-discovered, so we remove them here prior to re-analysis.
-            for (decl.dependencies.items()) |entry| {
-                const dep = entry.key;
+            for (decl.dependencies.keys()) |dep| {
                 dep.removeDependant(decl);
                 if (dep.dependants.count() == 0 and !dep.deletion_flag) {
                     log.debug("insert {*} ({s}) dependant {*} ({s}) into deletion set", .{
@@ -2817,8 +2805,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl: *Decl) InnerError!void {
         // We may need to chase the dependants and re-analyze them.
         // However, if the decl is a function, and the type is the same, we do not need to.
         if (type_changed or decl.ty.zigTypeTag() != .Fn) {
-            for (decl.dependants.items()) |entry| {
-                const dep = entry.key;
+            for (decl.dependants.keys()) |dep| {
                 switch (dep.analysis) {
                     .unreferenced => unreachable,
                     .in_progress => continue, // already doing analysis, ok
@@ -3128,7 +3115,7 @@ pub fn declareDeclDependency(mod: *Module, depender: *Decl, dependee: *Decl) !vo
 
     if (dependee.deletion_flag) {
         dependee.deletion_flag = false;
-        mod.deletion_set.removeAssertDiscard(dependee);
+        assert(mod.deletion_set.swapRemove(dependee));
     }
 
     dependee.dependants.putAssumeCapacity(depender, {});
@@ -3154,7 +3141,7 @@ pub fn importPkg(mod: *Module, cur_pkg: *Package, pkg: *Package) !ImportFileResu
 
     const gop = try mod.import_table.getOrPut(gpa, resolved_path);
     if (gop.found_existing) return ImportFileResult{
-        .file = gop.entry.value,
+        .file = gop.value_ptr.*,
         .is_new = false,
     };
     keep_resolved_path = true; // It's now owned by import_table.
@@ -3165,7 +3152,7 @@ pub fn importPkg(mod: *Module, cur_pkg: *Package, pkg: *Package) !ImportFileResu
     const new_file = try gpa.create(Scope.File);
     errdefer gpa.destroy(new_file);
 
-    gop.entry.value = new_file;
+    gop.value_ptr.* = new_file;
     new_file.* = .{
         .sub_file_path = sub_file_path,
         .source = undefined,
@@ -3209,7 +3196,7 @@ pub fn importFile(
 
     const gop = try mod.import_table.getOrPut(gpa, resolved_path);
     if (gop.found_existing) return ImportFileResult{
-        .file = gop.entry.value,
+        .file = gop.value_ptr.*,
         .is_new = false,
     };
     keep_resolved_path = true; // It's now owned by import_table.
@@ -3231,7 +3218,7 @@ pub fn importFile(
         resolved_root_path, resolved_path, sub_file_path, import_string,
     });
 
-    gop.entry.value = new_file;
+    gop.value_ptr.* = new_file;
     new_file.* = .{
         .sub_file_path = sub_file_path,
         .source = undefined,
@@ -3366,7 +3353,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
         log.debug("scan new {*} ({s}) into {*}", .{ new_decl, decl_name, namespace });
         new_decl.src_line = line;
         new_decl.name = decl_name;
-        gop.entry.value = new_decl;
+        gop.value_ptr.* = new_decl;
         // Exported decls, comptime decls, usingnamespace decls, and
         // test decls if in test mode, get analyzed.
         const want_analysis = is_exported or switch (decl_name_index) {
@@ -3385,7 +3372,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) InnerError!vo
         return;
     }
     gpa.free(decl_name);
-    const decl = gop.entry.value;
+    const decl = gop.value_ptr.*;
     log.debug("scan existing {*} ({s}) of {*}", .{ decl, decl.name, namespace });
     // Update the AST node of the decl; even if its contents are unchanged, it may
     // have been re-ordered.
@@ -3438,10 +3425,9 @@ pub fn clearDecl(
     }
 
     // Remove itself from its dependencies.
-    for (decl.dependencies.items()) |entry| {
-        const dep = entry.key;
+    for (decl.dependencies.keys()) |dep| {
         dep.removeDependant(decl);
-        if (dep.dependants.items().len == 0 and !dep.deletion_flag) {
+        if (dep.dependants.count() == 0 and !dep.deletion_flag) {
             // We don't recursively perform a deletion here, because during the update,
             // another reference to it may turn up.
             dep.deletion_flag = true;
@@ -3451,8 +3437,7 @@ pub fn clearDecl(
     decl.dependencies.clearRetainingCapacity();
 
     // Anything that depends on this deleted decl needs to be re-analyzed.
-    for (decl.dependants.items()) |entry| {
-        const dep = entry.key;
+    for (decl.dependants.keys()) |dep| {
         dep.removeDependency(decl);
         if (outdated_decls) |map| {
             map.putAssumeCapacity(dep, {});
@@ -3467,14 +3452,14 @@ pub fn clearDecl(
     }
     decl.dependants.clearRetainingCapacity();
 
-    if (mod.failed_decls.swapRemove(decl)) |entry| {
-        entry.value.destroy(gpa);
+    if (mod.failed_decls.fetchSwapRemove(decl)) |kv| {
+        kv.value.destroy(gpa);
     }
     if (mod.emit_h) |emit_h| {
-        if (emit_h.failed_decls.swapRemove(decl)) |entry| {
-            entry.value.destroy(gpa);
+        if (emit_h.failed_decls.fetchSwapRemove(decl)) |kv| {
+            kv.value.destroy(gpa);
         }
-        emit_h.decl_table.removeAssertDiscard(decl);
+        assert(emit_h.decl_table.swapRemove(decl));
     }
     _ = mod.compile_log_decls.swapRemove(decl);
     mod.deleteDeclExports(decl);
@@ -3510,7 +3495,7 @@ pub fn clearDecl(
 
     if (decl.deletion_flag) {
         decl.deletion_flag = false;
-        mod.deletion_set.swapRemoveAssertDiscard(decl);
+        assert(mod.deletion_set.swapRemove(decl));
     }
 
     decl.analysis = .unreferenced;
@@ -3519,12 +3504,12 @@ pub fn clearDecl(
 /// Delete all the Export objects that are caused by this Decl. Re-analysis of
 /// this Decl will cause them to be re-created (or not).
 fn deleteDeclExports(mod: *Module, decl: *Decl) void {
-    const kv = mod.export_owners.swapRemove(decl) orelse return;
+    const kv = mod.export_owners.fetchSwapRemove(decl) orelse return;
 
     for (kv.value) |exp| {
-        if (mod.decl_exports.getEntry(exp.exported_decl)) |decl_exports_kv| {
+        if (mod.decl_exports.getPtr(exp.exported_decl)) |value_ptr| {
             // Remove exports with owner_decl matching the regenerating decl.
-            const list = decl_exports_kv.value;
+            const list = value_ptr.*;
             var i: usize = 0;
             var new_len = list.len;
             while (i < new_len) {
@@ -3535,9 +3520,9 @@ fn deleteDeclExports(mod: *Module, decl: *Decl) void {
                     i += 1;
                 }
             }
-            decl_exports_kv.value = mod.gpa.shrink(list, new_len);
+            value_ptr.* = mod.gpa.shrink(list, new_len);
             if (new_len == 0) {
-                mod.decl_exports.removeAssertDiscard(exp.exported_decl);
+                assert(mod.decl_exports.swapRemove(exp.exported_decl));
             }
         }
         if (mod.comp.bin_file.cast(link.File.Elf)) |elf| {
@@ -3546,8 +3531,8 @@ fn deleteDeclExports(mod: *Module, decl: *Decl) void {
         if (mod.comp.bin_file.cast(link.File.MachO)) |macho| {
             macho.deleteExport(exp.link.macho);
         }
-        if (mod.failed_exports.swapRemove(exp)) |entry| {
-            entry.value.destroy(mod.gpa);
+        if (mod.failed_exports.fetchSwapRemove(exp)) |failed_kv| {
+            failed_kv.value.destroy(mod.gpa);
         }
         mod.gpa.free(exp.options.name);
         mod.gpa.destroy(exp);
@@ -3623,12 +3608,12 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
 fn markOutdatedDecl(mod: *Module, decl: *Decl) !void {
     log.debug("mark outdated {*} ({s})", .{ decl, decl.name });
     try mod.comp.work_queue.writeItem(.{ .analyze_decl = decl });
-    if (mod.failed_decls.swapRemove(decl)) |entry| {
-        entry.value.destroy(mod.gpa);
+    if (mod.failed_decls.fetchSwapRemove(decl)) |kv| {
+        kv.value.destroy(mod.gpa);
     }
     if (mod.emit_h) |emit_h| {
-        if (emit_h.failed_decls.swapRemove(decl)) |entry| {
-            entry.value.destroy(mod.gpa);
+        if (emit_h.failed_decls.fetchSwapRemove(decl)) |kv| {
+            kv.value.destroy(mod.gpa);
         }
     }
     _ = mod.compile_log_decls.swapRemove(decl);
@@ -3686,17 +3671,24 @@ fn allocateNewDecl(mod: *Module, namespace: *Scope.Namespace, src_node: ast.Node
 }
 
 /// Get error value for error tag `name`.
-pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged(ErrorInt).Entry {
+pub fn getErrorValue(mod: *Module, name: []const u8) !std.StringHashMapUnmanaged(ErrorInt).KV {
     const gop = try mod.global_error_set.getOrPut(mod.gpa, name);
-    if (gop.found_existing)
-        return gop.entry.*;
+    if (gop.found_existing) {
+        return std.StringHashMapUnmanaged(ErrorInt).KV{
+            .key = gop.key_ptr.*,
+            .value = gop.value_ptr.*,
+        };
+    }
 
-    errdefer mod.global_error_set.removeAssertDiscard(name);
+    errdefer assert(mod.global_error_set.remove(name));
     try mod.error_name_list.ensureCapacity(mod.gpa, mod.error_name_list.items.len + 1);
-    gop.entry.key = try mod.gpa.dupe(u8, name);
-    gop.entry.value = @intCast(ErrorInt, mod.error_name_list.items.len);
-    mod.error_name_list.appendAssumeCapacity(gop.entry.key);
-    return gop.entry.*;
+    gop.key_ptr.* = try mod.gpa.dupe(u8, name);
+    gop.value_ptr.* = @intCast(ErrorInt, mod.error_name_list.items.len);
+    mod.error_name_list.appendAssumeCapacity(gop.key_ptr.*);
+    return std.StringHashMapUnmanaged(ErrorInt).KV{
+        .key = gop.key_ptr.*,
+        .value = gop.value_ptr.*,
+    };
 }
 
 pub fn analyzeExport(
@@ -3712,8 +3704,8 @@ pub fn analyzeExport(
         else => return mod.fail(scope, src, "unable to export type '{}'", .{exported_decl.ty}),
     }
 
-    try mod.decl_exports.ensureCapacity(mod.gpa, mod.decl_exports.items().len + 1);
-    try mod.export_owners.ensureCapacity(mod.gpa, mod.export_owners.items().len + 1);
+    try mod.decl_exports.ensureCapacity(mod.gpa, mod.decl_exports.count() + 1);
+    try mod.export_owners.ensureCapacity(mod.gpa, mod.export_owners.count() + 1);
 
     const new_export = try mod.gpa.create(Export);
     errdefer mod.gpa.destroy(new_export);
@@ -3746,20 +3738,20 @@ pub fn analyzeExport(
     // Add to export_owners table.
     const eo_gop = mod.export_owners.getOrPutAssumeCapacity(owner_decl);
     if (!eo_gop.found_existing) {
-        eo_gop.entry.value = &[0]*Export{};
+        eo_gop.value_ptr.* = &[0]*Export{};
     }
-    eo_gop.entry.value = try mod.gpa.realloc(eo_gop.entry.value, eo_gop.entry.value.len + 1);
-    eo_gop.entry.value[eo_gop.entry.value.len - 1] = new_export;
-    errdefer eo_gop.entry.value = mod.gpa.shrink(eo_gop.entry.value, eo_gop.entry.value.len - 1);
+    eo_gop.value_ptr.* = try mod.gpa.realloc(eo_gop.value_ptr.*, eo_gop.value_ptr.len + 1);
+    eo_gop.value_ptr.*[eo_gop.value_ptr.len - 1] = new_export;
+    errdefer eo_gop.value_ptr.* = mod.gpa.shrink(eo_gop.value_ptr.*, eo_gop.value_ptr.len - 1);
 
     // Add to exported_decl table.
     const de_gop = mod.decl_exports.getOrPutAssumeCapacity(exported_decl);
     if (!de_gop.found_existing) {
-        de_gop.entry.value = &[0]*Export{};
+        de_gop.value_ptr.* = &[0]*Export{};
     }
-    de_gop.entry.value = try mod.gpa.realloc(de_gop.entry.value, de_gop.entry.value.len + 1);
-    de_gop.entry.value[de_gop.entry.value.len - 1] = new_export;
-    errdefer de_gop.entry.value = mod.gpa.shrink(de_gop.entry.value, de_gop.entry.value.len - 1);
+    de_gop.value_ptr.* = try mod.gpa.realloc(de_gop.value_ptr.*, de_gop.value_ptr.len + 1);
+    de_gop.value_ptr.*[de_gop.value_ptr.len - 1] = new_export;
+    errdefer de_gop.value_ptr.* = mod.gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
 }
 pub fn constInst(mod: *Module, arena: *Allocator, src: LazySrcLoc, typed_value: TypedValue) !*ir.Inst {
     const const_inst = try arena.create(ir.Inst.Constant);
@@ -3851,7 +3843,7 @@ pub fn constIntBig(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, b
 
 pub fn deleteAnonDecl(mod: *Module, scope: *Scope, decl: *Decl) void {
     const scope_decl = scope.ownerDecl().?;
-    scope_decl.namespace.anon_decls.swapRemoveAssertDiscard(decl);
+    assert(scope_decl.namespace.anon_decls.swapRemove(decl));
     decl.destroy(mod);
 }
 
@@ -4001,8 +3993,8 @@ pub fn failWithOwnedErrorMsg(mod: *Module, scope: *Scope, err_msg: *ErrorMsg) In
 
     {
         errdefer err_msg.destroy(mod.gpa);
-        try mod.failed_decls.ensureCapacity(mod.gpa, mod.failed_decls.items().len + 1);
-        try mod.failed_files.ensureCapacity(mod.gpa, mod.failed_files.items().len + 1);
+        try mod.failed_decls.ensureCapacity(mod.gpa, mod.failed_decls.count() + 1);
+        try mod.failed_files.ensureCapacity(mod.gpa, mod.failed_files.count() + 1);
     }
     switch (scope.tag) {
         .block => {
@@ -4420,8 +4412,8 @@ fn lockAndClearFileCompileError(mod: *Module, file: *Scope.File) void {
         .never_loaded, .parse_failure, .astgen_failure => {
             const lock = mod.comp.mutex.acquire();
             defer lock.release();
-            if (mod.failed_files.swapRemove(file)) |entry| {
-                if (entry.value) |msg| msg.destroy(mod.gpa); // Delete previous error message.
+            if (mod.failed_files.fetchSwapRemove(file)) |kv| {
+                if (kv.value) |msg| msg.destroy(mod.gpa); // Delete previous error message.
             }
         },
     }
@@ -4649,7 +4641,7 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) InnerError!void {
 
         const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
         assert(!gop.found_existing);
-        gop.entry.value = .{
+        gop.value_ptr.* = .{
             .ty = field_ty,
             .abi_align = Value.initTag(.abi_align_default),
             .default_val = Value.initTag(.unreachable_value),
@@ -4663,7 +4655,7 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) InnerError!void {
             // TODO: if we need to report an error here, use a source location
             // that points to this alignment expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
-            gop.entry.value.abi_align = (try sema.resolveInstConst(&block, src, align_ref)).val;
+            gop.value_ptr.abi_align = (try sema.resolveInstConst(&block, src, align_ref)).val;
         }
         if (has_default) {
             const default_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
@@ -4671,7 +4663,7 @@ pub fn analyzeStructFields(mod: *Module, struct_obj: *Struct) InnerError!void {
             // TODO: if we need to report an error here, use a source location
             // that points to this default value expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
-            gop.entry.value.default_val = (try sema.resolveInstConst(&block, src, default_ref)).val;
+            gop.value_ptr.default_val = (try sema.resolveInstConst(&block, src, default_ref)).val;
         }
     }
 }
@@ -4816,7 +4808,7 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
 
         const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
         assert(!gop.found_existing);
-        gop.entry.value = .{
+        gop.value_ptr.* = .{
             .ty = field_ty,
             .abi_align = Value.initTag(.abi_align_default),
         };
@@ -4825,7 +4817,7 @@ pub fn analyzeUnionFields(mod: *Module, union_obj: *Union) InnerError!void {
             // TODO: if we need to report an error here, use a source location
             // that points to this alignment expression rather than the struct.
             // But only resolve the source location if we need to emit a compile error.
-            gop.entry.value.abi_align = (try sema.resolveInstConst(&block, src, align_ref)).val;
+            gop.value_ptr.abi_align = (try sema.resolveInstConst(&block, src, align_ref)).val;
         }
     }
 
@@ -4841,9 +4833,7 @@ pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
     // deleted Decl pointers in the work queue.
     var outdated_decls = std.AutoArrayHashMap(*Decl, void).init(mod.gpa);
     defer outdated_decls.deinit();
-    for (mod.import_table.items()) |import_table_entry| {
-        const file = import_table_entry.value;
-
+    for (mod.import_table.values()) |file| {
         try outdated_decls.ensureUnusedCapacity(file.outdated_decls.items.len);
         for (file.outdated_decls.items) |decl| {
             outdated_decls.putAssumeCapacity(decl, {});
@@ -4872,8 +4862,8 @@ pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
     }
     // Finally we can queue up re-analysis tasks after we have processed
     // the deleted decls.
-    for (outdated_decls.items()) |entry| {
-        try mod.markOutdatedDecl(entry.key);
+    for (outdated_decls.keys()) |key| {
+        try mod.markOutdatedDecl(key);
     }
 }
 
@@ -4886,9 +4876,10 @@ pub fn processExports(mod: *Module) !void {
     var symbol_exports: std.StringArrayHashMapUnmanaged(*Export) = .{};
     defer symbol_exports.deinit(gpa);
 
-    for (mod.decl_exports.items()) |entry| {
-        const exported_decl = entry.key;
-        const exports = entry.value;
+    var it = mod.decl_exports.iterator();
+    while (it.next()) |entry| {
+        const exported_decl = entry.key_ptr.*;
+        const exports = entry.value_ptr.*;
         for (exports) |new_export| {
             const gop = try symbol_exports.getOrPut(gpa, new_export.options.name);
             if (gop.found_existing) {
@@ -4899,13 +4890,13 @@ pub fn processExports(mod: *Module) !void {
                     new_export.options.name,
                 });
                 errdefer msg.destroy(gpa);
-                const other_export = gop.entry.value;
+                const other_export = gop.value_ptr.*;
                 const other_src_loc = other_export.getSrcLoc();
                 try mod.errNoteNonLazy(other_src_loc, msg, "other symbol here", .{});
                 mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
                 new_export.status = .failed;
             } else {
-                gop.entry.value = new_export;
+                gop.value_ptr.* = new_export;
             }
         }
         mod.comp.bin_file.updateDeclExports(mod, exported_decl, exports) catch |err| switch (err) {

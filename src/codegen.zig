@@ -794,7 +794,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
             const table = &self.branch_stack.items[self.branch_stack.items.len - 1].inst_table;
-            try table.ensureCapacity(self.gpa, table.items().len + additional_count);
+            try table.ensureCapacity(self.gpa, table.count() + additional_count);
         }
 
         /// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
@@ -808,12 +808,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     const gop = try dbg_out.dbg_info_type_relocs.getOrPut(self.gpa, ty);
                     if (!gop.found_existing) {
-                        gop.entry.value = .{
+                        gop.value_ptr.* = .{
                             .off = undefined,
                             .relocs = .{},
                         };
                     }
-                    try gop.entry.value.relocs.append(self.gpa, @intCast(u32, index));
+                    try gop.value_ptr.relocs.append(self.gpa, @intCast(u32, index));
                 },
                 .none => {},
             }
@@ -2877,58 +2877,67 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // assert that parent_branch.free_registers equals the saved_then_branch.free_registers
             // rather than assigning it.
             const parent_branch = &self.branch_stack.items[self.branch_stack.items.len - 2];
-            try parent_branch.inst_table.ensureCapacity(self.gpa, parent_branch.inst_table.items().len +
-                else_branch.inst_table.items().len);
-            for (else_branch.inst_table.items()) |else_entry| {
-                const canon_mcv = if (saved_then_branch.inst_table.swapRemove(else_entry.key)) |then_entry| blk: {
+            try parent_branch.inst_table.ensureCapacity(self.gpa, parent_branch.inst_table.count() +
+                else_branch.inst_table.count());
+
+            const else_slice = else_branch.inst_table.entries.slice();
+            const else_keys = else_slice.items(.key);
+            const else_values = else_slice.items(.value);
+            for (else_keys) |else_key, else_idx| {
+                const else_value = else_values[else_idx];
+                const canon_mcv = if (saved_then_branch.inst_table.fetchSwapRemove(else_key)) |then_entry| blk: {
                     // The instruction's MCValue is overridden in both branches.
-                    parent_branch.inst_table.putAssumeCapacity(else_entry.key, then_entry.value);
-                    if (else_entry.value == .dead) {
+                    parent_branch.inst_table.putAssumeCapacity(else_key, then_entry.value);
+                    if (else_value == .dead) {
                         assert(then_entry.value == .dead);
                         continue;
                     }
                     break :blk then_entry.value;
                 } else blk: {
-                    if (else_entry.value == .dead)
+                    if (else_value == .dead)
                         continue;
                     // The instruction is only overridden in the else branch.
                     var i: usize = self.branch_stack.items.len - 2;
                     while (true) {
                         i -= 1; // If this overflows, the question is: why wasn't the instruction marked dead?
-                        if (self.branch_stack.items[i].inst_table.get(else_entry.key)) |mcv| {
+                        if (self.branch_stack.items[i].inst_table.get(else_key)) |mcv| {
                             assert(mcv != .dead);
                             break :blk mcv;
                         }
                     }
                 };
-                log.debug("consolidating else_entry {*} {}=>{}", .{ else_entry.key, else_entry.value, canon_mcv });
+                log.debug("consolidating else_entry {*} {}=>{}", .{ else_key, else_value, canon_mcv });
                 // TODO make sure the destination stack offset / register does not already have something
                 // going on there.
-                try self.setRegOrMem(inst.base.src, else_entry.key.ty, canon_mcv, else_entry.value);
+                try self.setRegOrMem(inst.base.src, else_key.ty, canon_mcv, else_value);
                 // TODO track the new register / stack allocation
             }
-            try parent_branch.inst_table.ensureCapacity(self.gpa, parent_branch.inst_table.items().len +
-                saved_then_branch.inst_table.items().len);
-            for (saved_then_branch.inst_table.items()) |then_entry| {
+            try parent_branch.inst_table.ensureCapacity(self.gpa, parent_branch.inst_table.count() +
+                saved_then_branch.inst_table.count());
+            const then_slice = saved_then_branch.inst_table.entries.slice();
+            const then_keys = then_slice.items(.key);
+            const then_values = then_slice.items(.value);
+            for (then_keys) |then_key, then_idx| {
+                const then_value = then_values[then_idx];
                 // We already deleted the items from this table that matched the else_branch.
                 // So these are all instructions that are only overridden in the then branch.
-                parent_branch.inst_table.putAssumeCapacity(then_entry.key, then_entry.value);
-                if (then_entry.value == .dead)
+                parent_branch.inst_table.putAssumeCapacity(then_key, then_value);
+                if (then_value == .dead)
                     continue;
                 const parent_mcv = blk: {
                     var i: usize = self.branch_stack.items.len - 2;
                     while (true) {
                         i -= 1;
-                        if (self.branch_stack.items[i].inst_table.get(then_entry.key)) |mcv| {
+                        if (self.branch_stack.items[i].inst_table.get(then_key)) |mcv| {
                             assert(mcv != .dead);
                             break :blk mcv;
                         }
                     }
                 };
-                log.debug("consolidating then_entry {*} {}=>{}", .{ then_entry.key, parent_mcv, then_entry.value });
+                log.debug("consolidating then_entry {*} {}=>{}", .{ then_key, parent_mcv, then_value });
                 // TODO make sure the destination stack offset / register does not already have something
                 // going on there.
-                try self.setRegOrMem(inst.base.src, then_entry.key.ty, parent_mcv, then_entry.value);
+                try self.setRegOrMem(inst.base.src, then_key.ty, parent_mcv, then_value);
                 // TODO track the new register / stack allocation
             }
 
@@ -3028,7 +3037,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 // block results.
                 .mcv = MCValue{ .none = {} },
             });
-            const block_data = &self.blocks.getEntry(inst).?.value;
+            const block_data = self.blocks.getPtr(inst).?;
             defer block_data.relocs.deinit(self.gpa);
 
             try self.genBody(inst.body);
@@ -3109,7 +3118,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn br(self: *Self, src: LazySrcLoc, block: *ir.Inst.Block, operand: *ir.Inst) !MCValue {
-            const block_data = &self.blocks.getEntry(block).?.value;
+            const block_data = self.blocks.getPtr(block).?;
 
             if (operand.ty.hasCodeGenBits()) {
                 const operand_mcv = try self.resolveInst(operand);
@@ -3124,7 +3133,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn brVoid(self: *Self, src: LazySrcLoc, block: *ir.Inst.Block) !MCValue {
-            const block_data = &self.blocks.getEntry(block).?.value;
+            const block_data = self.blocks.getPtr(block).?;
 
             // Emit a jump with a relocation. It will be patched up after the block ends.
             try block_data.relocs.ensureCapacity(self.gpa, block_data.relocs.items.len + 1);
@@ -4118,9 +4127,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 const branch = &self.branch_stack.items[0];
                 const gop = try branch.inst_table.getOrPut(self.gpa, inst);
                 if (!gop.found_existing) {
-                    gop.entry.value = try self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
+                    gop.value_ptr.* = try self.genTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val });
                 }
-                return gop.entry.value;
+                return gop.value_ptr.*;
             }
 
             return self.getResolvedInstValue(inst);

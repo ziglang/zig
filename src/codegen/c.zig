@@ -39,7 +39,7 @@ const BlockData = struct {
 };
 
 pub const CValueMap = std.AutoHashMap(*Inst, CValue);
-pub const TypedefMap = std.HashMap(Type, struct { name: []const u8, rendered: []u8 }, Type.hash, Type.eql, std.hash_map.default_max_load_percentage);
+pub const TypedefMap = std.HashMap(Type, struct { name: []const u8, rendered: []u8 }, Type.HashContext, std.hash_map.default_max_load_percentage);
 
 fn formatTypeAsCIdentifier(
     data: Type,
@@ -309,7 +309,7 @@ pub const DeclGen = struct {
                             .enum_full, .enum_nonexhaustive => {
                                 const enum_full = t.cast(Type.Payload.EnumFull).?.data;
                                 if (enum_full.values.count() != 0) {
-                                    const tag_val = enum_full.values.entries.items[field_index].key;
+                                    const tag_val = enum_full.values.keys()[field_index];
                                     return dg.renderValue(writer, enum_full.tag_ty, tag_val);
                                 } else {
                                     return writer.print("{d}", .{field_index});
@@ -493,10 +493,13 @@ pub const DeclGen = struct {
                 defer buffer.deinit();
 
                 try buffer.appendSlice("typedef struct {\n");
-                for (struct_obj.fields.entries.items) |entry| {
-                    try buffer.append(' ');
-                    try dg.renderType(buffer.writer(), entry.value.ty);
-                    try buffer.writer().print(" {s};\n", .{fmtIdent(entry.key)});
+                {
+                    var it = struct_obj.fields.iterator();
+                    while (it.next()) |entry| {
+                        try buffer.append(' ');
+                        try dg.renderType(buffer.writer(), entry.value_ptr.ty);
+                        try buffer.writer().print(" {s};\n", .{fmtIdent(entry.key_ptr.*)});
+                    }
                 }
                 try buffer.appendSlice("} ");
 
@@ -1186,7 +1189,7 @@ fn genStructFieldPtr(o: *Object, inst: *Inst.StructFieldPtr) !CValue {
     const writer = o.writer();
     const struct_ptr = try o.resolveInst(inst.struct_ptr);
     const struct_obj = inst.struct_ptr.ty.elemType().castTag(.@"struct").?.data;
-    const field_name = struct_obj.fields.entries.items[inst.field_index].key;
+    const field_name = struct_obj.fields.keys()[inst.field_index];
 
     const local = try o.allocLocal(inst.base.ty, .Const);
     switch (struct_ptr) {

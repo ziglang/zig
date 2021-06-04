@@ -1256,6 +1256,23 @@ pub const Value = extern union {
         return hasher.final();
     }
 
+    pub const ArrayHashContext = struct {
+        pub fn hash(self: @This(), v: Value) u32 {
+            return v.hash_u32();
+        }
+        pub fn eql(self: @This(), a: Value, b: Value) bool {
+            return a.eql(b);
+        }
+    };
+    pub const HashContext = struct {
+        pub fn hash(self: @This(), v: Value) u64 {
+            return v.hash();
+        }
+        pub fn eql(self: @This(), a: Value, b: Value) bool {
+            return a.eql(b);
+        }
+    };
+
     /// Asserts the value is a pointer and dereferences it.
     /// Returns error.AnalysisFail if the pointer points to a Decl that failed semantic analysis.
     pub fn pointerDeref(self: Value, allocator: *Allocator) error{ AnalysisFail, OutOfMemory }!Value {

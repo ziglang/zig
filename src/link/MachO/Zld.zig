@@ -168,9 +168,9 @@ pub fn deinit(self: *Zld) void {
     self.strtab.deinit(self.allocator);
 
     {
-        var it = self.strtab_dir.iterator();
-        while (it.next()) |entry| {
-            self.allocator.free(entry.key);
+        var it = self.strtab_dir.keyIterator();
+        while (it.next()) |key| {
+            self.allocator.free(key.*);
         }
     }
     self.strtab_dir.deinit(self.allocator);
@@ -954,9 +954,8 @@ fn sortSections(self: *Zld) !void {
         }
     }
 
-    var it = self.mappings.iterator();
-    while (it.next()) |entry| {
-        const mapping = &entry.value;
+    var it = self.mappings.valueIterator();
+    while (it.next()) |mapping| {
         if (self.text_segment_cmd_index.? == mapping.target_seg_id) {
             const new_index = text_index_mapping.get(mapping.target_sect_id) orelse unreachable;
             mapping.target_sect_id = new_index;
@@ -1400,16 +1399,16 @@ fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
         if (sym.cast(Symbol.Regular)) |reg| {
             if (reg.linkage == .translation_unit) continue; // Symbol local to TU.
 
-            if (self.unresolved.swapRemove(sym.name)) |entry| {
+            if (self.unresolved.fetchSwapRemove(sym.name)) |kv| {
                 // Create link to the global.
-                entry.value.alias = sym;
+                kv.value.alias = sym;
             }
-            const entry = self.globals.getEntry(sym.name) orelse {
+            const sym_ptr = self.globals.getPtr(sym.name) orelse {
                 // Put new global symbol into the symbol table.
                 try self.globals.putNoClobber(self.allocator, sym.name, sym);
                 continue;
             };
-            const g_sym = entry.value;
+            const g_sym = sym_ptr.*;
             const g_reg = g_sym.cast(Symbol.Regular) orelse unreachable;
 
             switch (g_reg.linkage) {
@@ -1432,7 +1431,7 @@ fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
             }
 
             g_sym.alias = sym;
-            entry.value = sym;
+            sym_ptr.* = sym;
         } else if (sym.cast(Symbol.Unresolved)) |und| {
             if (self.globals.get(sym.name)) |g_sym| {
                 sym.alias = g_sym;
@@ -1458,8 +1457,7 @@ fn resolveSymbols(self: *Zld) !void {
     while (true) {
         if (next_sym == self.unresolved.count()) break;
 
-        const entry = self.unresolved.items()[next_sym];
-        const sym = entry.value;
+        const sym = self.unresolved.values()[next_sym];
 
         var reset: bool = false;
         for (self.archives.items) |archive| {
@@ -1492,8 +1490,8 @@ fn resolveSymbols(self: *Zld) !void {
     defer unresolved.deinit();
 
     try unresolved.ensureCapacity(self.unresolved.count());
-    for (self.unresolved.items()) |entry| {
-        unresolved.appendAssumeCapacity(entry.value);
+    for (self.unresolved.values()) |value| {
+        unresolved.appendAssumeCapacity(value);
     }
     self.unresolved.clearAndFree(self.allocator);
 
@@ -2780,8 +2778,7 @@ fn writeSymbolTable(self: *Zld) !void {
     var undefs = std.ArrayList(macho.nlist_64).init(self.allocator);
     defer undefs.deinit();
 
-    for (self.imports.items()) |entry| {
-        const sym = entry.value;
+    for (self.imports.values()) |sym| {
         const ordinal = ordinal: {
             const dylib = sym.cast(Symbol.Proxy).?.dylib orelse break :ordinal 1; // TODO handle libSystem
             break :ordinal dylib.ordinal.?;
@@ -3071,9 +3068,9 @@ pub fn parseName(name: *const [16]u8) []const u8 {
 
 fn printSymbols(self: *Zld) void {
     log.debug("globals", .{});
-    for (self.globals.items()) |entry| {
-        const sym = entry.value.cast(Symbol.Regular) orelse unreachable;
-        log.debug("    | {s} @ {*}", .{ sym.base.name, entry.value });
+    for (self.globals.values()) |value| {
+        const sym = value.cast(Symbol.Regular) orelse unreachable;
+        log.debug("    | {s} @ {*}", .{ sym.base.name, value });
         log.debug("      => alias of {*}", .{sym.base.alias});
         log.debug("      => linkage {s}", .{sym.linkage});
         log.debug("      => defined in {s}", .{sym.file.name.?});
@@ -3091,9 +3088,9 @@ fn printSymbols(self: *Zld) void {
         }
     }
     log.debug("proxies", .{});
-    for (self.imports.items()) |entry| {
-        const sym = entry.value.cast(Symbol.Proxy) orelse unreachable;
-        log.debug("    | {s} @ {*}", .{ sym.base.name, entry.value });
+    for (self.imports.values()) |value| {
+        const sym = value.cast(Symbol.Proxy) orelse unreachable;
+        log.debug("    | {s} @ {*}", .{ sym.base.name, value });
         log.debug("      => alias of {*}", .{sym.base.alias});
         log.debug("      => defined in libSystem.B.dylib", .{});
     }
