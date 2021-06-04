@@ -26,9 +26,25 @@ extern "C" {
 
 #ifndef _NTLSA_IFS_
   typedef enum _SECURITY_LOGON_TYPE {
-    Interactive = 2,Network,Batch,Service,Proxy,Unlock,NetworkCleartext,NewCredentials,RemoteInteractive,CachedInteractive,
-    CachedRemoteInteractive,CachedUnlock
-  } SECURITY_LOGON_TYPE,*PSECURITY_LOGON_TYPE;
+    UndefinedLogonType = 0,
+    Interactive = 2,
+    Network,
+    Batch,
+    Service,
+    Proxy,
+    Unlock,
+    NetworkCleartext,
+    NewCredentials
+#if _WIN32_WINNT >= 0x0501
+    ,RemoteInteractive
+    ,CachedInteractive
+#endif
+#if _WIN32_WINNT >= 0x0502
+    ,CachedRemoteInteractive
+    ,CachedUnlock
+#endif
+  } SECURITY_LOGON_TYPE, *PSECURITY_LOGON_TYPE;
+
 #endif
 
 #ifndef _NTLSA_IFS_
@@ -36,12 +52,44 @@ extern "C" {
 #ifndef _NTLSA_AUDIT_
 #define _NTLSA_AUDIT_
 
-  typedef enum _SE_ADT_PARAMETER_TYPE {
-    SeAdtParmTypeNone = 0,SeAdtParmTypeString,SeAdtParmTypeFileSpec,SeAdtParmTypeUlong,SeAdtParmTypeSid,SeAdtParmTypeLogonId,
-    SeAdtParmTypeNoLogonId,SeAdtParmTypeAccessMask,SeAdtParmTypePrivs,SeAdtParmTypeObjectTypes,SeAdtParmTypeHexUlong,SeAdtParmTypePtr,
-    SeAdtParmTypeTime,SeAdtParmTypeGuid,SeAdtParmTypeLuid,SeAdtParmTypeHexInt64,SeAdtParmTypeStringList,SeAdtParmTypeSidList,
-    SeAdtParmTypeDuration,SeAdtParmTypeUserAccountControl,SeAdtParmTypeNoUac,SeAdtParmTypeMessage,SeAdtParmTypeDateTime,SeAdtParmTypeSockAddr
-  } SE_ADT_PARAMETER_TYPE,*PSE_ADT_PARAMETER_TYPE;
+typedef enum _SE_ADT_PARAMETER_TYPE {
+    SeAdtParmTypeNone = 0,
+    SeAdtParmTypeString,
+    SeAdtParmTypeFileSpec,
+    SeAdtParmTypeUlong,
+    SeAdtParmTypeSid,
+    SeAdtParmTypeLogonId,
+    SeAdtParmTypeNoLogonId,
+    SeAdtParmTypeAccessMask,
+    SeAdtParmTypePrivs,
+    SeAdtParmTypeObjectTypes,
+    SeAdtParmTypeHexUlong,
+    SeAdtParmTypePtr,
+    SeAdtParmTypeTime,
+    SeAdtParmTypeGuid,
+    SeAdtParmTypeLuid,
+    SeAdtParmTypeHexInt64,
+    SeAdtParmTypeStringList,
+    SeAdtParmTypeSidList,
+    SeAdtParmTypeDuration,
+    SeAdtParmTypeUserAccountControl,
+    SeAdtParmTypeNoUac,
+    SeAdtParmTypeMessage,
+    SeAdtParmTypeDateTime,
+    SeAdtParmTypeSockAddr,
+    SeAdtParmTypeSD,
+    SeAdtParmTypeLogonHours,
+    SeAdtParmTypeLogonIdNoSid,
+    SeAdtParmTypeUlongNoConv,
+    SeAdtParmTypeSockAddrNoPort,
+    SeAdtParmTypeAccessReason,
+    SeAdtParmTypeStagingReason,
+    SeAdtParmTypeResourceAttribute,
+    SeAdtParmTypeClaims,
+    SeAdtParmTypeLogonIdAsSid,
+    SeAdtParmTypeMultiSzString,
+    SeAdtParmTypeLogonIdEx
+  } SE_ADT_PARAMETER_TYPE, *PSE_ADT_PARAMETER_TYPE;
 
 #include <guiddef.h>
 
@@ -61,6 +109,19 @@ extern "C" {
     PVOID Address;
   } SE_ADT_PARAMETER_ARRAY_ENTRY,*PSE_ADT_PARAMETER_ARRAY_ENTRY;
 
+  typedef struct _SE_ADT_ACCESS_REASON {
+    ACCESS_MASK AccessMask;
+    ULONG AccessReasons[32];
+    ULONG ObjectTypeIndex;
+    ULONG AccessGranted;
+    PSECURITY_DESCRIPTOR SecurityDescriptor;
+  } SE_ADT_ACCESS_REASON, *PSE_ADT_ACCESS_REASON;
+
+  typedef struct _SE_ADT_CLAIMS {
+    ULONG Length;
+    PCLAIMS_BLOB Claims;
+  } SE_ADT_CLAIMS, *PSE_ADT_CLAIMS;
+
 #define SE_MAX_AUDIT_PARAMETERS 32
 #define SE_MAX_GENERIC_AUDIT_PARAMETERS 28
 
@@ -71,12 +132,31 @@ extern "C" {
     ULONG Length;
     USHORT Type;
     ULONG Flags;
-    SE_ADT_PARAMETER_ARRAY_ENTRY Parameters[SE_MAX_AUDIT_PARAMETERS ];
+    SE_ADT_PARAMETER_ARRAY_ENTRY Parameters[SE_MAX_AUDIT_PARAMETERS];
   } SE_ADT_PARAMETER_ARRAY,*PSE_ADT_PARAMETER_ARRAY;
 
+  typedef struct _SE_ADT_PARAMETER_ARRAY_EX {
+    ULONG CategoryId;
+    ULONG AuditId;
+    ULONG Version;
+    ULONG ParameterCount;
+    ULONG Length;
+    USHORT FlatSubCategoryId;
+    USHORT Type;
+    ULONG Flags;
+    SE_ADT_PARAMETER_ARRAY_ENTRY Parameters[SE_MAX_AUDIT_PARAMETERS];
+  } SE_ADT_PARAMETER_ARRAY_EX, *PSE_ADT_PARAMETER_ARRAY_EX;
+
 #define SE_ADT_PARAMETERS_SELF_RELATIVE 0x00000001
-#endif
-#endif
+#define SE_ADT_PARAMETERS_SEND_TO_LSA 0x00000002
+#define SE_ADT_PARAMETER_EXTENSIBLE_AUDIT 0x00000004
+#define SE_ADT_PARAMETER_GENERIC_AUDIT 0x00000008
+#define SE_ADT_PARAMETER_WRITE_SYNCHRONOUS 0x00000010
+
+#define LSAP_SE_ADT_PARAMETER_ARRAY_TRUE_SIZE(AuditParameters) (sizeof(SE_ADT_PARAMETER_ARRAY) - sizeof(SE_ADT_PARAMETER_ARRAY_ENTRY) * (SE_MAX_AUDIT_PARAMETERS - AuditParameters->ParameterCount))
+
+#endif /* _NTLSA_AUDIT_ */
+#endif /* _NTLSA_IFS_ */
 
   typedef enum _POLICY_AUDIT_EVENT_TYPE {
     AuditCategorySystem = 0,AuditCategoryLogon,AuditCategoryObjectAccess,AuditCategoryPrivilegeUse,AuditCategoryDetailedTracking,
@@ -139,6 +219,8 @@ extern "C" {
   NTSTATUS NTAPI LsaCallAuthenticationPackage(HANDLE LsaHandle,ULONG AuthenticationPackage,PVOID ProtocolSubmitBuffer,ULONG SubmitBufferLength,PVOID *ProtocolReturnBuffer,PULONG ReturnBufferLength,PNTSTATUS ProtocolStatus);
   NTSTATUS NTAPI LsaDeregisterLogonProcess(HANDLE LsaHandle);
   NTSTATUS NTAPI LsaConnectUntrusted(PHANDLE LsaHandle);
+  NTSTATUS NTAPI LsaInsertProtectedProcessAddress(PVOID BufferAddress,ULONG BufferSize);
+  NTSTATUS NTAPI LsaRemoveProtectedProcessAddress(PVOID BufferAddress,ULONG BufferSize);
 #endif
 
 #define POLICY_VIEW_LOCAL_INFORMATION __MSABI_LONG(0x00000001)
@@ -196,11 +278,23 @@ extern "C" {
   typedef ULONG POLICY_AUDIT_EVENT_OPTIONS,*PPOLICY_AUDIT_EVENT_OPTIONS;
 
   typedef enum _POLICY_INFORMATION_CLASS {
-    PolicyAuditLogInformation = 1,PolicyAuditEventsInformation,PolicyPrimaryDomainInformation,PolicyPdAccountInformation,
-    PolicyAccountDomainInformation,PolicyLsaServerRoleInformation,PolicyReplicaSourceInformation,PolicyDefaultQuotaInformation,
-    PolicyModificationInformation,PolicyAuditFullSetInformation,PolicyAuditFullQueryInformation,PolicyDnsDomainInformation,
-    PolicyDnsDomainInformationInt
-  } POLICY_INFORMATION_CLASS,*PPOLICY_INFORMATION_CLASS;
+    PolicyAuditLogInformation = 1,
+    PolicyAuditEventsInformation,
+    PolicyPrimaryDomainInformation,
+    PolicyPdAccountInformation,
+    PolicyAccountDomainInformation,
+    PolicyLsaServerRoleInformation,
+    PolicyReplicaSourceInformation,
+    PolicyDefaultQuotaInformation,
+    PolicyModificationInformation,
+    PolicyAuditFullSetInformation,
+    PolicyAuditFullQueryInformation,
+    PolicyDnsDomainInformation,
+    PolicyDnsDomainInformationInt,
+    PolicyLocalAccountDomainInformation,
+    PolicyMachineAccountInformation,
+    PolicyLastEntry
+  } POLICY_INFORMATION_CLASS, *PPOLICY_INFORMATION_CLASS;
 
   typedef struct _POLICY_AUDIT_LOG_INFO {
     ULONG AuditLogPercentFull;
@@ -216,6 +310,16 @@ extern "C" {
     PPOLICY_AUDIT_EVENT_OPTIONS EventAuditingOptions;
     ULONG MaximumAuditEventCount;
   } POLICY_AUDIT_EVENTS_INFO,*PPOLICY_AUDIT_EVENTS_INFO;
+
+  typedef struct _POLICY_AUDIT_SUBCATEGORIES_INFO {
+    ULONG MaximumSubCategoryCount;
+    PPOLICY_AUDIT_EVENT_OPTIONS EventAuditingOptions;
+  } POLICY_AUDIT_SUBCATEGORIES_INFO, *PPOLICY_AUDIT_SUBCATEGORIES_INFO;
+
+  typedef struct _POLICY_AUDIT_CATEGORIES_INFO {
+    ULONG MaximumCategoryCount;
+    PPOLICY_AUDIT_SUBCATEGORIES_INFO SubCategoriesInfo;
+  } POLICY_AUDIT_CATEGORIES_INFO, *PPOLICY_AUDIT_CATEGORIES_INFO;
 
   typedef struct _POLICY_ACCOUNT_DOMAIN_INFO {
     LSA_UNICODE_STRING DomainName;
@@ -267,8 +371,12 @@ extern "C" {
   } POLICY_AUDIT_FULL_QUERY_INFO,*PPOLICY_AUDIT_FULL_QUERY_INFO;
 
   typedef enum _POLICY_DOMAIN_INFORMATION_CLASS {
-    PolicyDomainEfsInformation = 2,PolicyDomainKerberosTicketInformation
-  } POLICY_DOMAIN_INFORMATION_CLASS,*PPOLICY_DOMAIN_INFORMATION_CLASS;
+#if _WIN32_WINNT <= 0x0500
+    PolicyDomainQualityOfServiceInformation = 1,
+#endif
+    PolicyDomainEfsInformation = 2
+    ,PolicyDomainKerberosTicketInformation
+  } POLICY_DOMAIN_INFORMATION_CLASS, *PPOLICY_DOMAIN_INFORMATION_CLASS;
 
   typedef struct _POLICY_DOMAIN_EFS_INFO {
     ULONG InfoLength;
@@ -286,10 +394,22 @@ extern "C" {
     LARGE_INTEGER Reserved;
   } POLICY_DOMAIN_KERBEROS_TICKET_INFO,*PPOLICY_DOMAIN_KERBEROS_TICKET_INFO;
 
+  typedef struct _POLICY_MACHINE_ACCT_INFO {
+    ULONG Rid;
+    PSID Sid;
+  } POLICY_MACHINE_ACCT_INFO, *PPOLICY_MACHINE_ACCT_INFO;
+
   typedef enum _POLICY_NOTIFICATION_INFORMATION_CLASS {
-    PolicyNotifyAuditEventsInformation = 1,PolicyNotifyAccountDomainInformation,PolicyNotifyServerRoleInformation,PolicyNotifyDnsDomainInformation,
-    PolicyNotifyDomainEfsInformation,PolicyNotifyDomainKerberosTicketInformation,PolicyNotifyMachineAccountPasswordInformation
-  } POLICY_NOTIFICATION_INFORMATION_CLASS,*PPOLICY_NOTIFICATION_INFORMATION_CLASS;
+    PolicyNotifyAuditEventsInformation = 1,
+    PolicyNotifyAccountDomainInformation,
+    PolicyNotifyServerRoleInformation,
+    PolicyNotifyDnsDomainInformation,
+    PolicyNotifyDomainEfsInformation,
+    PolicyNotifyDomainKerberosTicketInformation,
+    PolicyNotifyMachineAccountPasswordInformation,
+    PolicyNotifyGlobalSaclInformation,
+    PolicyNotifyMax
+  } POLICY_NOTIFICATION_INFORMATION_CLASS, *PPOLICY_NOTIFICATION_INFORMATION_CLASS;
 
   typedef PVOID LSA_HANDLE,*PLSA_HANDLE;
 
@@ -784,7 +904,21 @@ extern "C" {
 #define MSV1_0_NTLM3_MIN_NT_RESPONSE_LENGTH RTL_SIZEOF_THROUGH_FIELD(MSV1_0_NTLM3_RESPONSE,AvPairsOff)
 
   typedef enum {
-    MsvAvEOL,MsvAvNbComputerName,MsvAvNbDomainName,MsvAvDnsComputerName,MsvAvDnsDomainName,MsvAvDnsTreeName,MsvAvFlags
+    MsvAvEOL,
+    MsvAvNbComputerName,
+    MsvAvNbDomainName,
+    MsvAvDnsComputerName,
+    MsvAvDnsDomainName
+#if _WIN32_WINNT >= 0x0501
+    ,MsvAvDnsTreeName
+    ,MsvAvFlags
+#if _WIN32_WINNT >= 0x0600
+    ,MsvAvTimestamp
+    ,MsvAvRestrictions
+    ,MsvAvTargetName
+    ,MsvAvChannelBindings
+#endif
+#endif
   } MSV1_0_AVID;
 
   typedef struct _MSV1_0_AV_PAIR {
@@ -1335,11 +1469,14 @@ extern "C" {
 #define PER_USER_AUDIT_FAILURE_EXCLUDE 0x08
 #define PER_USER_AUDIT_NONE 0x10
 
+#define VALID_PER_USER_AUDIT_POLICY_FLAG (PER_USER_AUDIT_SUCCESS_INCLUDE | PER_USER_AUDIT_SUCCESS_EXCLUDE | PER_USER_AUDIT_FAILURE_INCLUDE | PER_USER_AUDIT_FAILURE_EXCLUDE | PER_USER_AUDIT_NONE)
+
   typedef struct _AUDIT_POLICY_INFORMATION {
     GUID  AuditSubCategoryGuid;
     ULONG AuditingInformation;
     GUID  AuditCategoryGuid;
-  } AUDIT_POLICY_INFORMATION, *PAUDIT_POLICY_INFORMATION, *PCAUDIT_POLICY_INFORMATION;
+  } AUDIT_POLICY_INFORMATION, *PAUDIT_POLICY_INFORMATION;
+  typedef const PAUDIT_POLICY_INFORMATION PCAUDIT_POLICY_INFORMATION, LPCAUDIT_POLICY_INFORMATION;
 
   typedef struct _POLICY_AUDIT_SID_ARRAY {
     ULONG UsersCount;

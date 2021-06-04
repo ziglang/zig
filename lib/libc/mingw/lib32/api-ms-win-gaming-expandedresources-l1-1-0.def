@@ -2,6 +2,6 @@ LIBRARY api-ms-win-gaming-expandedresources-l1-1-0
 
 EXPORTS
 
-GetExpandedResourceExclusiveCpuCount@
-HasExpandedResources@
-ReleaseExclusiveCpuSets@
+GetExpandedResourceExclusiveCpuCount@4
+HasExpandedResources@4
+ReleaseExclusiveCpuSets@0

@@ -249,7 +249,7 @@ typedef struct {
  #define SCNuPTR "u"
 #endif
 
-#if defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#if defined(_UCRT) || __USE_MINGW_ANSI_STDIO
 /*
  * no length modifier for char types prior to C9x
  * MS runtime  scanf appears to treat "hh" as "h" 

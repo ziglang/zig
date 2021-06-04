@@ -19,48 +19,11 @@
 #include <psdk_inc/_ip_mreq1.h>
 #include <winapifamily.h>
 
-struct ip_mreq_source {
-  struct in_addr imr_multiaddr;
-  struct in_addr imr_sourceaddr;
-  struct in_addr imr_interface;
-};
-
-struct ip_msfilter {
-  struct in_addr imsf_multiaddr;
-  struct in_addr imsf_interface;
-  u_long imsf_fmode;
-  u_long imsf_numsrc;
-  struct in_addr imsf_slist[1];
-};
-
-#define IP_MSFILTER_SIZE(numsrc) (sizeof(struct ip_msfilter)-sizeof(struct in_addr) + (numsrc)*sizeof(struct in_addr))
-
 #define SIO_GET_INTERFACE_LIST _IOR('t',127,u_long)
 
 #define SIO_GET_INTERFACE_LIST_EX _IOR('t',126,u_long)
 #define SIO_SET_MULTICAST_FILTER _IOW('t',125,u_long)
 #define SIO_GET_MULTICAST_FILTER _IOW('t',124 | IOC_IN,u_long)
-
-#define IP_OPTIONS 1
-#define IP_HDRINCL 2
-#define IP_TOS 3
-#define IP_TTL 4
-#define IP_MULTICAST_IF 9
-#define IP_MULTICAST_TTL 10
-#define IP_MULTICAST_LOOP 11
-#define IP_ADD_MEMBERSHIP 12
-#define IP_DROP_MEMBERSHIP 13
-#define IP_DONTFRAGMENT 14
-#define IP_ADD_SOURCE_MEMBERSHIP 15
-#define IP_DROP_SOURCE_MEMBERSHIP 16
-#define IP_BLOCK_SOURCE 17
-#define IP_UNBLOCK_SOURCE 18
-#define IP_PKTINFO 19
-#define IP_RECEIVE_BROADCAST 22
-
-#define PROTECTION_LEVEL_UNRESTRICTED 10
-#define PROTECTION_LEVEL_DEFAULT 20
-#define PROTECTION_LEVEL_RESTRICTED 30
 
 #define UDP_NOCHECKSUM 1
 #define UDP_CHECKSUM_COVERAGE 20
@@ -153,19 +116,6 @@ WS2TCPIP_INLINE void IN6ADDR_SETLOOPBACK(struct sockaddr_in6 *a) {
 #ifdef __cplusplus
 }
 #endif
-
-typedef struct _INTERFACE_INFO_EX {
-  u_long iiFlags;
-  SOCKET_ADDRESS iiAddress;
-  SOCKET_ADDRESS iiBroadcastAddress;
-  SOCKET_ADDRESS iiNetmask;
-} INTERFACE_INFO_EX,*LPINTERFACE_INFO_EX;
-
-#define IFF_UP 0x00000001
-#define IFF_BROADCAST 0x00000002
-#define IFF_LOOPBACK 0x00000004
-#define IFF_POINTTOPOINT 0x00000008
-#define IFF_MULTICAST 0x00000010
 
 typedef struct in_pktinfo {
   IN_ADDR ipi_addr;

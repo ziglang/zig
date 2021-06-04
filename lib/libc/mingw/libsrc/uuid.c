@@ -26,6 +26,7 @@
 #include <urlmon.h>
 #include <d2d1_1.h>
 #include <d3d11_1.h>
+#include <directmanipulation.h>
 #include <netlistmgr.h>
 
 DEFINE_GUID(ARRAYID_PathProperties,0x7ecbba04,0x2d97,0x11cf,0xa2,0x29,0,0xaa,0,0x3d,0x73,0x52);

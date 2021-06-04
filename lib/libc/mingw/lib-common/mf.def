@@ -9,6 +9,11 @@ AppendPropVariant
 ConvertPropVariant
 CopyPropertyStore
 CreateNamedPropertyStore
+; DllCanUnloadNow
+; DllGetActivationFactory
+; DllGetClassObject
+; DllRegisterServer
+; DllUnregisterServer
 ExtractPropVariant
 MFCreate3GPMediaSink
 MFCreateAC3MediaSink
@@ -36,6 +41,7 @@ MFCreateCredentialCache
 MFCreateDeviceSource
 MFCreateDeviceSourceActivate
 MFCreateDrmNetNDSchemePlugin
+MFCreateEncryptedMediaExtensionsStoreActivate
 MFCreateFMPEG4MediaSink
 MFCreateFileBlockMap
 MFCreateFileSchemePlugin

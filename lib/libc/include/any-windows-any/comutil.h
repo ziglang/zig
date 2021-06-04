@@ -7,6 +7,7 @@
 #define _INC_COMUTIL
 
 #include <ole2.h>
+#include <stdio.h>
 
 #ifndef _COM_ASSERT
 #define _COM_ASSERT(x) ((void)0)

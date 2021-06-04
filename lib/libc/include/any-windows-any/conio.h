@@ -39,7 +39,8 @@ extern "C" {
     __builtin_va_end(_ArgList);
     return _Ret;
   }
-  __mingw_ovr int __cdecl _cscanf(const char * __restrict__ _Format,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN
+  __mingw_ovr __MINGW_ATTRIB_DEPRECATED_SEC_WARN
+  int __cdecl _cscanf(const char * __restrict__ _Format,...)
   {
     __builtin_va_list _ArgList;
     int _Ret;
@@ -48,7 +49,8 @@ extern "C" {
     __builtin_va_end(_ArgList);
     return _Ret;
   }
-  __mingw_ovr int __cdecl _cscanf_l(const char * __restrict__ _Format,_locale_t _Locale,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN
+  __mingw_ovr __MINGW_ATTRIB_DEPRECATED_SEC_WARN
+  int __cdecl _cscanf_l(const char * __restrict__ _Format,_locale_t _Locale,...)
   {
     __builtin_va_list _ArgList;
     int _Ret;
@@ -122,10 +124,12 @@ extern "C" {
 
   _CRTIMP int __cdecl _putch(int _Ch);
   _CRTIMP int __cdecl _ungetch(int _Ch);
+#if __MSVCRT_VERSION__ >= 0x800
   _CRTIMP int __cdecl _getch_nolock(void);
   _CRTIMP int __cdecl _getche_nolock(void);
   _CRTIMP int __cdecl _putch_nolock(int _Ch);
   _CRTIMP int __cdecl _ungetch_nolock(int _Ch);
+#endif
 
 #ifndef _WCONIO_DEFINED
 #define _WCONIO_DEFINED
@@ -159,7 +163,8 @@ extern "C" {
     __builtin_va_end(_ArgList);
     return _Ret;
   }
-  __mingw_ovr int __cdecl _cwscanf(const wchar_t * __restrict__ _Format,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN
+  __mingw_ovr __MINGW_ATTRIB_DEPRECATED_SEC_WARN
+  int __cdecl _cwscanf(const wchar_t * __restrict__ _Format,...)
   {
     __builtin_va_list _ArgList;
     int _Ret;
@@ -168,7 +173,8 @@ extern "C" {
     __builtin_va_end(_ArgList);
     return _Ret;
   }
-  __mingw_ovr int __cdecl _cwscanf_l(const wchar_t * __restrict__ _Format,_locale_t _Locale,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN
+  __mingw_ovr __MINGW_ATTRIB_DEPRECATED_SEC_WARN
+  int __cdecl _cwscanf_l(const wchar_t * __restrict__ _Format,_locale_t _Locale,...)
   {
     __builtin_va_list _ArgList;
     int _Ret;
@@ -228,10 +234,12 @@ extern "C" {
   _CRTIMP int __cdecl _cwprintf_p_l(const wchar_t * __restrict__ _Format,_locale_t _Locale,...);
   _CRTIMP int __cdecl _vcwprintf_p_l(const wchar_t * __restrict__ _Format,_locale_t _Locale,va_list _ArgList);
 #endif
+#if __MSVCRT_VERSION__ >= 0x800
   _CRTIMP wint_t __cdecl _putwch_nolock(wchar_t _WCh);
   _CRTIMP wint_t __cdecl _getwch_nolock(void);
   _CRTIMP wint_t __cdecl _getwche_nolock(void);
   _CRTIMP wint_t __cdecl _ungetwch_nolock(wint_t _WCh);
+#endif
 #endif
 
 #ifndef	NO_OLDNAMES

@@ -12,8 +12,8 @@ PackageFullNameFromId@12
 PackageIdFromFullName@16
 PackageNameAndPublisherIdFromFamilyName@20
 ParseApplicationUserModelId@20
-VerifyApplicationUserModelId@
-VerifyPackageFamilyName@
-VerifyPackageFullName@
-VerifyPackageId@
-VerifyPackageRelativeApplicationId@
+VerifyApplicationUserModelId@4
+VerifyPackageFamilyName@4
+VerifyPackageFullName@4
+VerifyPackageId@4
+VerifyPackageRelativeApplicationId@4

@@ -52,11 +52,21 @@ enum AutomationIdentifierType
     AutomationIdentifierType_Style
 };
 
+enum ProviderType
+{
+    ProviderType_BaseHwnd,
+    ProviderType_Proxy,
+    ProviderType_NonClientArea,
+};
+
+typedef SAFEARRAY * WINAPI UiaProviderCallback(HWND hwnd,enum ProviderType providerType);
+
 HRESULT WINAPI UiaGetReservedMixedAttributeValue(IUnknown **value);
 HRESULT WINAPI UiaGetReservedNotSupportedValue(IUnknown **value);
 int WINAPI UiaLookupId(enum AutomationIdentifierType type, const GUID *guid);
 WINBOOL WINAPI UiaPatternRelease(HUIAPATTERNOBJECT hobj);
 HRESULT WINAPI UiaRaiseAutomationEvent(IRawElementProviderSimple *provider, EVENTID id);
+void WINAPI UiaRegisterProviderCallback(UiaProviderCallback *pCallback);
 LRESULT WINAPI UiaReturnRawElementProvider(HWND hwnd, WPARAM wParam, LPARAM lParam, IRawElementProviderSimple *elprov);
 WINBOOL WINAPI UiaTextRangeRelease(HUIATEXTRANGE hobj);
 HRESULT WINAPI UiaHostProviderFromHwnd(HWND hwnd, IRawElementProviderSimple **elprov);

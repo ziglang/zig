@@ -387,6 +387,9 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #define _CRT_TERMINATE_DEFINED
   void __cdecl __MINGW_NOTHROW exit(int _Code) __MINGW_ATTRIB_NORETURN;
   void __cdecl __MINGW_NOTHROW _exit(int _Code) __MINGW_ATTRIB_NORETURN;
+#ifdef _UCRT
+  void __cdecl __MINGW_NOTHROW quick_exit(int _Code) __MINGW_ATTRIB_NORETURN;
+#endif
 
 #if !defined __NO_ISOCEXT /* extern stub in static libmingwex.a */
   /* C99 function name */
@@ -420,6 +423,9 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #endif
 
   int __cdecl atexit(void (__cdecl *)(void));
+#ifdef _UCRT
+  int __cdecl at_quick_exit(void (__cdecl *)(void));
+#endif
 #ifndef _CRT_ATOF_DEFINED
 #define _CRT_ATOF_DEFINED
   double __cdecl atof(const char *_String);
@@ -531,17 +537,8 @@ float __cdecl __MINGW_NOTHROW strtof(const char * __restrict__ _Str,char ** __re
   void *__cdecl malloc(size_t _Size);
   void *__cdecl realloc(void *_Memory,size_t _NewSize);
   _CRTIMP void *__cdecl _recalloc(void *_Memory,size_t _Count,size_t _Size);
-/* Make sure that X86intrin.h doesn't produce here collisions.  */
-#if (!defined (_XMMINTRIN_H_INCLUDED) && !defined (_MM_MALLOC_H_INCLUDED)) || defined(_aligned_malloc)
-#pragma push_macro("_aligned_free")
-#pragma push_macro("_aligned_malloc")
-#undef _aligned_free
-#undef _aligned_malloc
   _CRTIMP void __cdecl _aligned_free(void *_Memory);
   _CRTIMP void *__cdecl _aligned_malloc(size_t _Size,size_t _Alignment);
-#pragma pop_macro("_aligned_free")
-#pragma pop_macro("_aligned_malloc")
-#endif
   _CRTIMP void *__cdecl _aligned_offset_malloc(size_t _Size,size_t _Alignment,size_t _Offset);
   _CRTIMP void *__cdecl _aligned_realloc(void *_Memory,size_t _Size,size_t _Alignment);
   _CRTIMP void *__cdecl _aligned_recalloc(void *_Memory,size_t _Count,size_t _Size,size_t _Alignment);

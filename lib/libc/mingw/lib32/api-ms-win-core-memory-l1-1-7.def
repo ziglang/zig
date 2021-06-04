@@ -10,7 +10,7 @@ GetLargePageMinimum@0
 GetProcessWorkingSetSizeEx@16
 GetWriteWatch@24
 MapViewOfFile@20
-MapViewOfFile3FromApp@
+MapViewOfFile3FromApp@40
 MapViewOfFileEx@24
 MapViewOfFileFromApp@20
 OfferVirtualMemory@12
@@ -19,14 +19,14 @@ OpenFileMappingW@12
 ReadProcessMemory@20
 ReclaimVirtualMemory@8
 ResetWriteWatch@8
-SetProcessValidCallTargets
-SetProcessValidCallTargetsForMappedView@
+SetProcessValidCallTargets@20
+SetProcessValidCallTargetsForMappedView@32
 SetProcessWorkingSetSizeEx@16
 UnmapViewOfFile@4
-UnmapViewOfFile2@
+UnmapViewOfFile2@12
 UnmapViewOfFileEx@8
 VirtualAlloc@16
-VirtualAlloc2FromApp@
+VirtualAlloc2FromApp@28
 VirtualAllocFromApp@16
 VirtualFree@12
 VirtualFreeEx@16
@@ -36,5 +36,5 @@ VirtualProtectFromApp@16
 VirtualQuery@12
 VirtualQueryEx@16
 VirtualUnlock@8
-VirtualUnlockEx@
+VirtualUnlockEx@12
 WriteProcessMemory@20

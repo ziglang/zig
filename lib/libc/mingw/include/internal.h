@@ -101,7 +101,7 @@ extern wchar_t *** __MINGW_IMP_SYMBOL(__winitenv);
 #define __winitenv (* __MINGW_IMP_SYMBOL(__winitenv))
 #endif
 
-#if !defined(__initenv) && !defined(__arm__)
+#if !defined(__initenv)
 extern char *** __MINGW_IMP_SYMBOL(__initenv);
 #define __initenv (* __MINGW_IMP_SYMBOL(__initenv))
 #endif

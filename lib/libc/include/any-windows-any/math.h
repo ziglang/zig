@@ -143,8 +143,13 @@ extern "C" {
 #endif
 
 #ifndef _HUGE
+#ifdef _UCRT
+  extern double const _HUGE;
+#define _HUGE _HUGE
+#else
   extern double * __MINGW_IMP_SYMBOL(_HUGE);
 #define _HUGE	(* __MINGW_IMP_SYMBOL(_HUGE))
+#endif /* _UCRT */
 #endif
 
 #ifdef __GNUC__

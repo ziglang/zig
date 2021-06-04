@@ -35,7 +35,7 @@ extern char __mingw_module_is_dll;
 static CRITICAL_SECTION lock;
 static int inited = 0;
 static dtor_obj *global_dtors = NULL;
-static __thread dtor_obj *tls_dtors = NULL;
+static DWORD tls_dtors_slot = TLS_OUT_OF_INDEXES;
 
 int __mingw_cxa_atexit(dtor_fn dtor, void *obj, void *dso) {
   if (!inited)
@@ -73,24 +73,29 @@ int __mingw_cxa_thread_atexit(dtor_fn dtor, void *obj, void *dso) {
     return 1;
   handler->dtor = dtor;
   handler->obj = obj;
-  handler->next = tls_dtors;
-  tls_dtors = handler;
+  handler->next = (dtor_obj *)TlsGetValue(tls_dtors_slot);
+  TlsSetValue(tls_dtors_slot, handler);
   return 0;
 }
 
 static void WINAPI tls_atexit_callback(HANDLE __UNUSED_PARAM(hDllHandle), DWORD dwReason, LPVOID __UNUSED_PARAM(lpReserved)) {
   if (dwReason == DLL_PROCESS_DETACH) {
-    run_dtor_list(&tls_dtors);
+    dtor_obj * p = (dtor_obj *)TlsGetValue(tls_dtors_slot);
+    run_dtor_list(&p);
+    TlsSetValue(tls_dtors_slot, p);
+    TlsFree(tls_dtors_slot);
     run_dtor_list(&global_dtors);
   }
 }
 
 static void WINAPI tls_callback(HANDLE hDllHandle, DWORD dwReason, LPVOID __UNUSED_PARAM(lpReserved)) {
+  dtor_obj * p;
   switch (dwReason) {
   case DLL_PROCESS_ATTACH:
     if (inited == 0) {
       InitializeCriticalSection(&lock);
       __dso_handle = hDllHandle;
+      tls_dtors_slot = TlsAlloc();
       /*
        * We can only call _register_thread_local_exe_atexit_callback once
        * in a process; if we call it a second time the process terminates.
@@ -124,16 +129,19 @@ static void WINAPI tls_callback(HANDLE hDllHandle, DWORD dwReason, LPVOID __UNUS
      * main, or when a DLL is unloaded), and when exiting bypassing some of
      * the cleanup, by calling _exit or ExitProcess. In the latter cases,
      * destructors (both TLS and global) in loaded DLLs still get called,
-     * but only TLS destructors get called for the main executable, global
-     * variables' destructors don't run. (This matches what MSVC does with
-     * a dynamically linked CRT.)
+     * but none get called for the main executable. This matches what the
+     * standard says, but differs from what MSVC does with a dynamically
+     * linked CRT (which still runs TLS destructors for the main thread).
      */
-    run_dtor_list(&tls_dtors);
     if (__mingw_module_is_dll) {
+      p = (dtor_obj *)TlsGetValue(tls_dtors_slot);
+      run_dtor_list(&p);
+      TlsSetValue(tls_dtors_slot, p);
       /* For DLLs, run dtors when detached. For EXEs, run dtors via the
        * thread local atexit callback, to make sure they don't run when
        * exiting the process with _exit or ExitProcess. */
       run_dtor_list(&global_dtors);
+      TlsFree(tls_dtors_slot);
     }
     if (inited == 1) {
       inited = 0;
@@ -143,9 +151,11 @@ static void WINAPI tls_callback(HANDLE hDllHandle, DWORD dwReason, LPVOID __UNUS
   case DLL_THREAD_ATTACH:
     break;
   case DLL_THREAD_DETACH:
-    run_dtor_list(&tls_dtors);
+    p = (dtor_obj *)TlsGetValue(tls_dtors_slot);
+    run_dtor_list(&p);
+    TlsSetValue(tls_dtors_slot, p);
     break;
   }
 }
 
-_CRTALLOC(".CRT$XLE") PIMAGE_TLS_CALLBACK __xl_e = (PIMAGE_TLS_CALLBACK) tls_callback;
+_CRTALLOC(".CRT$XLB") PIMAGE_TLS_CALLBACK __xl_b = (PIMAGE_TLS_CALLBACK) tls_callback;

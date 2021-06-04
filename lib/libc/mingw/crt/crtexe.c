@@ -9,10 +9,6 @@
 #define _DLL
 #endif
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #define SPECIAL_CRTEXE
 
 #include <oscalls.h>
@@ -34,7 +30,7 @@ extern wchar_t *** __MINGW_IMP_SYMBOL(__winitenv);
 #define __winitenv (* __MINGW_IMP_SYMBOL(__winitenv))
 #endif
 
-#if !defined(__initenv) && !defined(__arm__) && !defined(__aarch64__)
+#if !defined(__initenv)
 extern char *** __MINGW_IMP_SYMBOL(__initenv);
 #define __initenv (* __MINGW_IMP_SYMBOL(__initenv))
 #endif
@@ -66,12 +62,6 @@ extern _CRTALLOC(".CRT$XIZ") _PIFV __xi_z[];
 extern _CRTALLOC(".CRT$XCA") _PVFV __xc_a[];
 extern _CRTALLOC(".CRT$XCZ") _PVFV __xc_z[];
 
-#ifndef HAVE_CTOR_LIST
-__attribute__ (( __section__ (".ctors"), __used__ , aligned(sizeof(void *)))) const void * __CTOR_LIST__ = (void *) -1;
-__attribute__ (( __section__ (".dtors"), __used__ , aligned(sizeof(void *)))) const void * __DTOR_LIST__ = (void *) -1;
-__attribute__ (( __section__ (".ctors.99999"), __used__ , aligned(sizeof(void *)))) const void * __CTOR_END__ = (void *) 0;
-__attribute__ (( __section__ (".dtors.99999"), __used__ , aligned(sizeof(void *)))) const void * __DTOR_END__ = (void *) 0;
-#endif
 
 /* TLS initialization hook.  */
 extern const PIMAGE_TLS_CALLBACK __dyn_tls_init_callback;
@@ -327,9 +317,7 @@ __tmainCRTStartup (void)
        gcc inserts this call automatically for a function called main, but not for wmain.  */
     mainret = wmain (argc, argv, envp);
 #else
-#if !defined(__arm__) && !defined(__aarch64__)
     __initenv = envp;
-#endif
     mainret = main (argc, argv, envp);
 #endif
     if (!managedapp)

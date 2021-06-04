@@ -22,6 +22,11 @@
 
 #include "d3dcommon.h"
 
+/* If not defined set d3dcompiler_47 by default. */
+#ifndef D3D_COMPILER_VERSION
+#define D3D_COMPILER_VERSION 47
+#endif
+
 /* These are defined as version-neutral in d3dcommon.h */
 typedef D3D_CBUFFER_TYPE D3D11_CBUFFER_TYPE;
 
