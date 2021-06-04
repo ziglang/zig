@@ -223,8 +223,10 @@ pub const ChildProcess = struct {
                 stdout.items.len += nread;
 
                 // insert POLLHUP event because dragonfly fails to do so
-                if (dragonfly_workaround and nread == 0)
+                if (dragonfly_workaround and nread == 0) {
+                    poll_fds[0].revents &= ~@as(@TypeOf(poll_fds[0].revents), os.POLLIN);
                     poll_fds[0].revents |= os.POLLHUP;
+                }
             }
             if (poll_fds[1].revents & os.POLLIN != 0) {
                 // stderr is ready.
@@ -236,8 +238,10 @@ pub const ChildProcess = struct {
                 stderr.items.len += nread;
 
                 // insert POLLHUP event because dragonfly fails to do so
-                if (dragonfly_workaround and nread == 0)
+                if (dragonfly_workaround and nread == 0) {
+                    poll_fds[1].revents &= ~@as(@TypeOf(poll_fds[1].revents), os.POLLIN);
                     poll_fds[1].revents |= os.POLLHUP;
+                }
             }
 
             // Exclude the fds that signaled an error.
