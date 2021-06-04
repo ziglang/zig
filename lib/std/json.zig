@@ -2815,9 +2815,9 @@ pub fn stringify(
             if (child_options.whitespace) |*child_whitespace| {
                 child_whitespace.indent_level += 1;
             }
-            inline for (S.fields) |Field, field_i| {
+            inline for (S.fields) |field, field_i| {
                 // don't include void fields
-                if (Field.field_type == void) continue;
+                if (field.field_type == void) continue;
 
                 if (!field_output) {
                     field_output = true;
@@ -2828,14 +2828,14 @@ pub fn stringify(
                     try out_stream.writeByte('\n');
                     try child_whitespace.outputIndent(out_stream);
                 }
-                try stringify(Field.name, options, out_stream);
+                try stringify(field.name, options, out_stream);
                 try out_stream.writeByte(':');
                 if (child_options.whitespace) |child_whitespace| {
                     if (child_whitespace.separator) {
                         try out_stream.writeByte(' ');
                     }
                 }
-                try stringify(@field(value, Field.name), child_options, out_stream);
+                try stringify(@field(value, field.name), child_options, out_stream);
             }
             if (field_output) {
                 if (options.whitespace) |whitespace| {
