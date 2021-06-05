@@ -7588,8 +7588,16 @@ void render_const_value(CodeGen *g, Buf *buf, ZigValue *const_val) {
             }
         case ZigTypeIdOptional:
             {
-                if (get_src_ptr_type(const_val->type) != nullptr)
+                ZigType *src_ptr_type = get_src_ptr_type(const_val->type);
+                if (src_ptr_type != nullptr) {
+                    if (src_ptr_type->id == ZigTypeIdPointer && !optional_value_is_null(const_val)) {
+                        ZigValue tmp = {};
+                        copy_const_val(g, &tmp, const_val);
+                        tmp.type = type_entry->data.maybe.child_type;
+                        return render_const_val_ptr(g, buf, &tmp, tmp.type);
+                    }
                     return render_const_val_ptr(g, buf, const_val, type_entry->data.maybe.child_type);
+                }
                 if (type_entry->data.maybe.child_type->id == ZigTypeIdErrorSet)
                     return render_const_val_err_set(g, buf, const_val, type_entry->data.maybe.child_type);
                 if (const_val->data.x_optional) {
