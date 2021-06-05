@@ -5,7 +5,7 @@
 // and substantial portions of the software.
 const __floatunsitf = @import("floatunsitf.zig").__floatunsitf;
 
-fn test__floatunsitf(a: u64, expected_hi: u64, expected_lo: u64) !void {
+fn test__floatunsitf(a: u32, expected_hi: u64, expected_lo: u64) !void {
     const x = __floatunsitf(a);
 
     const x_repr = @bitCast(u128, x);
