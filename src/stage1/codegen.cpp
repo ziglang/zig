@@ -364,6 +364,29 @@ static bool codegen_have_frame_pointer(CodeGen *g) {
     return g->build_mode == BuildModeDebug;
 }
 
+static void add_common_fn_attributes(CodeGen *g, LLVMValueRef llvm_fn) {
+    if (!g->red_zone) {
+        addLLVMFnAttr(llvm_fn, "noredzone");
+    }
+
+    addLLVMFnAttr(llvm_fn, "nounwind");
+    add_uwtable_attr(g, llvm_fn);
+    addLLVMFnAttr(llvm_fn, "nobuiltin");
+
+    if (g->build_mode == BuildModeSmallRelease) {
+        // Optimize for small code size.
+        addLLVMFnAttr(llvm_fn, "minsize");
+        addLLVMFnAttr(llvm_fn, "optsize");
+    }
+
+    if (g->zig_target->llvm_cpu_name != nullptr) {
+        ZigLLVMAddFunctionAttr(llvm_fn, "target-cpu", g->zig_target->llvm_cpu_name);
+    }
+    if (g->zig_target->llvm_cpu_features != nullptr) {
+        ZigLLVMAddFunctionAttr(llvm_fn, "target-features", g->zig_target->llvm_cpu_features);
+    }
+}
+
 static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     const char *unmangled_name = buf_ptr(&fn->symbol_name);
     const char *symbol_name;
@@ -556,23 +579,10 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         maybe_import_dll(g, llvm_fn, linkage);
     }
 
-    if (!g->red_zone) {
-        addLLVMFnAttr(llvm_fn, "noredzone");
-    }
-
     if (fn->alignstack_value != 0) {
         addLLVMFnAttrInt(llvm_fn, "alignstack", fn->alignstack_value);
     }
 
-    if (g->build_mode == BuildModeSmallRelease) {
-        // Optimize for small code size.
-        addLLVMFnAttr(llvm_fn, "minsize");
-        addLLVMFnAttr(llvm_fn, "optsize");
-    }
-
-    addLLVMFnAttr(llvm_fn, "nounwind");
-    add_uwtable_attr(g, llvm_fn);
-    addLLVMFnAttr(llvm_fn, "nobuiltin");
     if (codegen_have_frame_pointer(g) && cc != CallingConventionInline) {
         ZigLLVMAddFunctionAttr(llvm_fn, "frame-pointer", "all");
     }
@@ -588,12 +598,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         // use the ABI alignment, which is fine.
     }
 
-    if (g->zig_target->llvm_cpu_name != nullptr) {
-        ZigLLVMAddFunctionAttr(llvm_fn, "target-cpu", g->zig_target->llvm_cpu_name);
-    }
-    if (g->zig_target->llvm_cpu_features != nullptr) {
-        ZigLLVMAddFunctionAttr(llvm_fn, "target-features", g->zig_target->llvm_cpu_features);
-    }
+    add_common_fn_attributes(g, llvm_fn);
 
     if (is_async) {
         addLLVMArgAttr(llvm_fn, 0, "nonnull");
@@ -1183,8 +1188,7 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "alwaysinline");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
-    addLLVMFnAttr(fn_val, "nounwind");
-    add_uwtable_attr(g, fn_val);
+    add_common_fn_attributes(g, fn_val);
     // Error return trace memory is in the stack, which is impossible to be at address 0
     // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
@@ -1263,8 +1267,7 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "cold");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
-    addLLVMFnAttr(fn_val, "nounwind");
-    add_uwtable_attr(g, fn_val);
+    add_common_fn_attributes(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
         ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
@@ -1346,8 +1349,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "cold");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
-    addLLVMFnAttr(fn_val, "nounwind");
-    add_uwtable_attr(g, fn_val);
+    add_common_fn_attributes(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
         ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
@@ -2322,8 +2324,7 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
-    addLLVMFnAttr(fn_val, "nounwind");
-    add_uwtable_attr(g, fn_val);
+    add_common_fn_attributes(g, fn_val);
     addLLVMArgAttr(fn_val, (unsigned)0, "noalias");
     addLLVMArgAttr(fn_val, (unsigned)0, "writeonly");
 
@@ -5266,8 +5267,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
-    addLLVMFnAttr(fn_val, "nounwind");
-    add_uwtable_attr(g, fn_val);
+    add_common_fn_attributes(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
         ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
