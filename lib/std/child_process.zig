@@ -203,16 +203,18 @@ pub const ChildProcess = struct {
         // of space an ArrayList will allocate grows exponentially.
         const bump_amt = 512;
 
-        // TODO https://github.com/ziglang/zig/issues/8724
-        // parent process does not receive POLLHUP events
-        const dragonfly_workaround = builtin.os.tag == .dragonfly;
+        const err_mask = os.POLLERR | os.POLLNVAL | os.POLLHUP;
 
         while (dead_fds < poll_fds.len) {
             const events = try os.poll(&poll_fds, std.math.maxInt(i32));
             if (events == 0) continue;
 
+            var remove_stdout = false;
+            var remove_stderr = false;
             // Try reading whatever is available before checking the error
             // conditions.
+            // It's still possible to read after a POLLHUP is received, always
+            // check if there's some data waiting to be read first.
             if (poll_fds[0].revents & os.POLLIN != 0) {
                 // stdout is ready.
                 const new_capacity = std.math.min(stdout.items.len + bump_amt, max_output_bytes);
@@ -222,9 +224,12 @@ pub const ChildProcess = struct {
                 const nread = try os.read(poll_fds[0].fd, buf);
                 stdout.items.len += nread;
 
-                // insert POLLHUP event because dragonfly fails to do so
-                if (dragonfly_workaround and nread == 0) poll_fds[0].revents |= os.POLLHUP;
+                // Remove the fd when the EOF condition is met.
+                remove_stdout = nread == 0;
+            } else {
+                remove_stdout = poll_fds[0].revents & err_mask != 0;
             }
+
             if (poll_fds[1].revents & os.POLLIN != 0) {
                 // stderr is ready.
                 const new_capacity = std.math.min(stderr.items.len + bump_amt, max_output_bytes);
@@ -234,16 +239,18 @@ pub const ChildProcess = struct {
                 const nread = try os.read(poll_fds[1].fd, buf);
                 stderr.items.len += nread;
 
-                // insert POLLHUP event because dragonfly fails to do so
-                if (dragonfly_workaround and nread == 0) poll_fds[1].revents |= os.POLLHUP;
+                // Remove the fd when the EOF condition is met.
+                remove_stderr = nread == 0;
+            } else {
+                remove_stderr = poll_fds[1].revents & err_mask != 0;
             }
 
             // Exclude the fds that signaled an error.
-            if (poll_fds[0].revents & (os.POLLERR | os.POLLNVAL | os.POLLHUP) != 0) {
+            if (remove_stdout) {
                 poll_fds[0].fd = -1;
                 dead_fds += 1;
             }
-            if (poll_fds[1].revents & (os.POLLERR | os.POLLNVAL | os.POLLHUP) != 0) {
+            if (remove_stderr) {
                 poll_fds[1].fd = -1;
                 dead_fds += 1;
             }
@@ -294,6 +301,10 @@ pub const ChildProcess = struct {
 
         var stdout = std.ArrayList(u8).init(args.allocator);
         var stderr = std.ArrayList(u8).init(args.allocator);
+        errdefer {
+            stdout.deinit();
+            stderr.deinit();
+        }
 
         try collectOutputPosix(child, &stdout, &stderr, args.max_output_bytes);
 
