@@ -509,7 +509,7 @@ pub fn analyzeBody(
         };
         if (air_inst.ty.isNoReturn())
             return always_noreturn;
-        try map.putNoClobber(sema.gpa, inst, air_inst);
+        try map.put(sema.gpa, inst, air_inst);
     }
 }
 
@@ -1238,9 +1238,26 @@ fn zirAllocExtended(
 }
 
 fn zirAllocComptime(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO implement Sema.zirAllocComptime", .{});
+    const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
+    const var_type = try sema.resolveType(block, ty_src, inst_data.operand);
+    const ptr_type = try sema.mod.simplePtrType(sema.arena, var_type, true, .One);
+
+    const val_payload = try sema.arena.create(Value.Payload.ComptimeAlloc);
+    val_payload.* = .{
+        .data = .{
+            .runtime_index = block.runtime_index,
+            .val = undefined, // astgen guarantees there will be a store before the first load
+        },
+    };
+    return sema.mod.constInst(sema.arena, src, .{
+        .ty = ptr_type,
+        .val = Value.initPayload(&val_payload.base),
+    });
 }
 
 fn zirAllocInferredComptime(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
@@ -1742,6 +1759,9 @@ fn zirLoop(sema: *Sema, parent_block: *Scope.Block, inst: Zir.Inst.Index) InnerE
     };
     var child_block = parent_block.makeSubBlock();
     child_block.label = &label;
+    child_block.runtime_cond = null;
+    child_block.runtime_loop = src;
+    child_block.runtime_index += 1;
     const merges = &child_block.label.?.merges;
 
     defer child_block.instructions.deinit(sema.gpa);
@@ -4066,6 +4086,9 @@ fn analyzeSwitch(
     const cases = try sema.arena.alloc(Inst.SwitchBr.Case, scalar_cases_len);
 
     var case_block = child_block.makeSubBlock();
+    case_block.runtime_loop = null;
+    case_block.runtime_cond = operand.src;
+    case_block.runtime_index += 1;
     defer case_block.instructions.deinit(gpa);
 
     var extra_index: usize = special.end;
@@ -4584,14 +4607,14 @@ fn zirArithmetic(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerEr
 
     const tag_override = block.sema.code.instructions.items(.tag)[inst];
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    sema.src = .{ .node_offset_bin_op = inst_data.src_node };
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const lhs = try sema.resolveInst(extra.lhs);
     const rhs = try sema.resolveInst(extra.rhs);
 
-    return sema.analyzeArithmetic(block, tag_override, lhs, rhs, src, lhs_src, rhs_src);
+    return sema.analyzeArithmetic(block, tag_override, lhs, rhs, sema.src, lhs_src, rhs_src);
 }
 
 fn zirOverflowArithmetic(
@@ -5150,6 +5173,9 @@ fn zirBoolBr(
     };
 
     var child_block = parent_block.makeSubBlock();
+    child_block.runtime_loop = null;
+    child_block.runtime_cond = lhs.src;
+    child_block.runtime_index += 1;
     defer child_block.instructions.deinit(sema.gpa);
 
     var then_block = child_block.makeSubBlock();
@@ -5258,6 +5284,9 @@ fn zirCondbr(
     }
 
     var sub_block = parent_block.makeSubBlock();
+    sub_block.runtime_loop = null;
+    sub_block.runtime_cond = cond.src;
+    sub_block.runtime_index += 1;
     defer sub_block.instructions.deinit(sema.gpa);
 
     _ = try sema.analyzeBody(&sub_block, then_body);
@@ -6753,7 +6782,35 @@ fn storePtr(
     if ((try sema.typeHasOnePossibleValue(block, src, elem_ty)) != null)
         return;
 
-    // TODO handle comptime pointer writes
+    if (try sema.resolvePossiblyUndefinedValue(block, src, ptr)) |ptr_val| {
+        const const_val = (try sema.resolvePossiblyUndefinedValue(block, src, value)) orelse
+            return sema.mod.fail(&block.base, src, "cannot store runtime value in compile time variable", .{});
+
+        const comptime_alloc = ptr_val.castTag(.comptime_alloc).?;
+        if (comptime_alloc.data.runtime_index < block.runtime_index) {
+            if (block.runtime_cond) |cond_src| {
+                const msg = msg: {
+                    const msg = try sema.mod.errMsg(&block.base, src, "store to comptime variable depends on runtime condition", .{});
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.mod.errNote(&block.base, cond_src, msg, "runtime condition here", .{});
+                    break :msg msg;
+                };
+                return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
+            }
+            if (block.runtime_loop) |loop_src| {
+                const msg = msg: {
+                    const msg = try sema.mod.errMsg(&block.base, src, "cannot store to comptime variable in non-inline loop", .{});
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.mod.errNote(&block.base, loop_src, msg, "non-inline loop here", .{});
+                    break :msg msg;
+                };
+                return sema.mod.failWithOwnedErrorMsg(&block.base, msg);
+            }
+            unreachable;
+        }
+        comptime_alloc.data.val = const_val;
+        return;
+    }
     // TODO handle if the element type requires comptime
 
     try sema.requireRuntimeBlock(block, src);

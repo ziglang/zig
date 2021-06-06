@@ -2357,7 +2357,7 @@ fn varDecl(
             return &sub_scope.base;
         },
         .keyword_var => {
-            const is_comptime = var_decl.comptime_token != null;
+            const is_comptime = var_decl.comptime_token != null or gz.force_comptime;
             var resolve_inferred_alloc: Zir.Inst.Ref = .none;
             const var_data: struct {
                 result_loc: ResultLoc,
