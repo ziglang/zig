@@ -459,8 +459,6 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
     };
 }
 
-
-
 pub fn SectionHeaderIterator(ParseSource: anytype) type {
     return struct {
         elf_header: Header,
@@ -482,7 +480,6 @@ pub fn SectionHeaderIterator(ParseSource: anytype) type {
 
                 // Convert fields to native endianness.
                 bswapAllFields(Elf64_Shdr, &shdr);
-
             }
 
             var shdr: Elf32_Shdr = undefined;
@@ -512,7 +509,6 @@ pub fn SectionHeaderIterator(ParseSource: anytype) type {
         }
     };
 }
-
 
 pub fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
     if (is_64) {
