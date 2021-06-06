@@ -1336,8 +1336,8 @@ pub const LibExeObjStep = struct {
     version: ?Version,
     build_mode: builtin.Mode,
     kind: Kind,
-    major_only_filename: []const u8,
-    name_only_filename: []const u8,
+    major_only_filename: ?[]const u8,
+    name_only_filename: ?[]const u8,
     strip: bool,
     lib_paths: ArrayList([]const u8),
     rpaths: ArrayList([]const u8),
@@ -1529,8 +1529,8 @@ pub const LibExeObjStep = struct {
             .out_h_filename = builder.fmt("{s}.h", .{name}),
             .out_lib_filename = undefined,
             .out_pdb_filename = builder.fmt("{s}.pdb", .{name}),
-            .major_only_filename = undefined,
-            .name_only_filename = undefined,
+            .major_only_filename = null,
+            .name_only_filename = null,
             .packages = ArrayList(Pkg).init(builder.allocator),
             .include_dirs = ArrayList(IncludeDir).init(builder.allocator),
             .link_objects = ArrayList(LinkObject).init(builder.allocator),
@@ -2703,7 +2703,7 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.kind == Kind.Lib and self.is_dynamic and self.version != null and self.target.wantSharedLibSymLinks()) {
-            try doAtomicSymLinks(builder.allocator, self.getOutputPath(), self.major_only_filename, self.name_only_filename);
+            try doAtomicSymLinks(builder.allocator, self.getOutputPath(), self.major_only_filename.?, self.name_only_filename.?);
         }
     }
 };
@@ -2746,9 +2746,11 @@ pub const InstallArtifactStep = struct {
 
         builder.pushInstalledFile(self.dest_dir, artifact.out_filename);
         if (self.artifact.isDynamicLibrary()) {
-            if (self.artifact.version != null) {
-                builder.pushInstalledFile(.Lib, artifact.major_only_filename);
-                builder.pushInstalledFile(.Lib, artifact.name_only_filename);
+            if (artifact.major_only_filename) |name| {
+                builder.pushInstalledFile(.Lib, name);
+            }
+            if (artifact.name_only_filename) |name| {
+                builder.pushInstalledFile(.Lib, name);
             }
             if (self.artifact.target.isWindows()) {
                 builder.pushInstalledFile(.Lib, artifact.out_lib_filename);
@@ -2770,7 +2772,7 @@ pub const InstallArtifactStep = struct {
         const full_dest_path = builder.getInstallPath(self.dest_dir, self.artifact.out_filename);
         try builder.updateFile(self.artifact.getOutputPath(), full_dest_path);
         if (self.artifact.isDynamicLibrary() and self.artifact.version != null and self.artifact.target.wantSharedLibSymLinks()) {
-            try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename, self.artifact.name_only_filename);
+            try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
         }
         if (self.pdb_dir) |pdb_dir| {
             const full_pdb_path = builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);
