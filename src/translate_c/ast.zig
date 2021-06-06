@@ -1782,7 +1782,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const arg_expr = try renderNode(c, payload.int_type);
             _ = try c.addToken(.r_paren, ")");
             _ = try c.addToken(.l_brace, "{");
-            const members = try c.gpa.alloc(NodeIndex, std.math.max(payload.fields.len + 1, 1));
+            const members = try c.gpa.alloc(NodeIndex, payload.fields.len + 1);
             defer c.gpa.free(members);
             members[0] = 0;
 
