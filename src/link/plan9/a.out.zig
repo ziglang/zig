@@ -22,7 +22,7 @@
 // Idomatic translation of 9front a.out.h
 const std = @import("std");
 // all integers are in big-endian format (needs a byteswap)
-pub const ExecHdr = struct {
+pub const ExecHdr = extern struct {
     magic: u32,
     text: u32,
     data: u32,
@@ -31,8 +31,18 @@ pub const ExecHdr = struct {
     entry: u32,
     spsz: u32,
     pcsz: u32,
-    pub fn size() u8 {
-        return 32;
+    comptime {
+        std.debug.assert(@sizeOf(@This()) == 32);
+    }
+    /// it is up to the caller to disgard the last 8 bytes if the header is not fat
+    pub fn toU8s(self: *@This()) [40]u8 {
+        var buf: [40]u8 = undefined;
+        var i: u8 = 0;
+        inline for (std.meta.fields(@This())) |f| {
+            std.mem.writeIntSliceBig(u32, buf[i .. i + 4], @field(self, f.name));
+            i += 4;
+        }
+        return buf;
     }
 };
 
@@ -42,7 +52,7 @@ pub const ExecHdr = struct {
 pub const Sym32 = struct {
     value: u32, // big endian in the file
     type: SymType,
-    name: [*:0]const u8,
+    name: []const u8,
 };
 // uchar value[8];
 // char  type;
@@ -50,7 +60,7 @@ pub const Sym32 = struct {
 pub const Sym64 = struct {
     value: u64, // big endian in the file
     type: SymType,
-    name: [*:0]const u8,
+    name: []const u8,
 };
 // The type field is one of the following characters with the
 // high bit set:
@@ -85,27 +95,27 @@ pub const SymType = enum(u8) {
     m = 0x80 | 'm',
 };
 
-pub const HDR_MAGIC = @import("std").meta.promoteIntLiteral(c_int, 0x00008000, .hexadecimal);
+pub const HDR_MAGIC = 0x00008000;
 pub inline fn _MAGIC(f: anytype, b: anytype) @TypeOf(f | ((((@as(c_int, 4) * b) + @as(c_int, 0)) * b) + @as(c_int, 7))) {
     return f | ((((@as(c_int, 4) * b) + @as(c_int, 0)) * b) + @as(c_int, 7));
 }
-pub const A_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 8)); // 68020
-pub const I_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 11)); // intel 386
-pub const J_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 12)); // intel 960 (retired)
-pub const K_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 13)); // sparc
-pub const V_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 16)); // mips 3000 BE
-pub const X_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 17)); // att dsp 3210 (retired)
-pub const M_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 18)); // mips 4000 BE
-pub const D_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 19)); // amd 29000 (retired)
-pub const E_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 20)); // arm
-pub const Q_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 21)); // powerpc
-pub const N_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 22)); // mips 4000 LE
-pub const L_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 23)); // dec alpha (retired)
-pub const P_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 24)); // mips 3000 LE
-pub const U_MAGIC = _MAGIC(@as(c_int, 0), @as(c_int, 25)); // sparc64
-pub const S_MAGIC = _MAGIC(HDR_MAGIC, @as(c_int, 26)); // amd64
-pub const T_MAGIC = _MAGIC(HDR_MAGIC, @as(c_int, 27)); // powerpc64
-pub const R_MAGIC = _MAGIC(HDR_MAGIC, @as(c_int, 28)); // arm64
+pub const A_MAGIC = _MAGIC(0, 8); // 68020
+pub const I_MAGIC = _MAGIC(0, 11); // intel 386
+pub const J_MAGIC = _MAGIC(0, 12); // intel 960 (retired)
+pub const K_MAGIC = _MAGIC(0, 13); // sparc
+pub const V_MAGIC = _MAGIC(0, 16); // mips 3000 BE
+pub const X_MAGIC = _MAGIC(0, 17); // att dsp 3210 (retired)
+pub const M_MAGIC = _MAGIC(0, 18); // mips 4000 BE
+pub const D_MAGIC = _MAGIC(0, 19); // amd 29000 (retired)
+pub const E_MAGIC = _MAGIC(0, 20); // arm
+pub const Q_MAGIC = _MAGIC(0, 21); // powerpc
+pub const N_MAGIC = _MAGIC(0, 22); // mips 4000 LE
+pub const L_MAGIC = _MAGIC(0, 23); // dec alpha (retired)
+pub const P_MAGIC = _MAGIC(0, 24); // mips 3000 LE
+pub const U_MAGIC = _MAGIC(0, 25); // sparc64
+pub const S_MAGIC = _MAGIC(HDR_MAGIC, 26); // amd64
+pub const T_MAGIC = _MAGIC(HDR_MAGIC, 27); // powerpc64
+pub const R_MAGIC = _MAGIC(HDR_MAGIC, 28); // arm64
 
 pub fn magicFromArch(arch: std.Target.Cpu.Arch) !u32 {
     return switch (arch) {

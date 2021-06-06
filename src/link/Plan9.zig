@@ -32,16 +32,18 @@ hdr: aout.ExecHdr = undefined,
 
 fn headerSize(self: Plan9) u32 {
     // fat header (currently unused)
-    const fat: u4 = if (self.ptr_width == .p64) 8 else 0;
-    return aout.ExecHdr.size() + fat;
+    const fat: u8 = if (self.ptr_width == .p64) 8 else 0;
+    return @sizeOf(aout.ExecHdr) + fat;
 }
 pub const DeclBlock = struct {
     type: enum { text, data },
     // offset in the text or data sects
     offset: u32,
+    sym_index: usize,
     pub const empty = DeclBlock{
         .type = .text,
         .offset = 0,
+        .sym_index = 0,
     };
 };
 
@@ -62,7 +64,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Plan9 {
     const ptr_width: PtrWidth = switch (options.target.cpu.arch.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
-        else => return error.UnsupportedELFArchitecture,
+        else => return error.UnsupportedP9Architecture,
     };
     const self = try gpa.create(Plan9);
     self.* = .{
@@ -93,13 +95,14 @@ pub fn flush(self: *Plan9, comp: *Compilation) !void {
     return self.flushModule(comp);
 }
 pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
-    // generate the header
-    self.hdr.magic = try aout.magicFromArch(self.base.options.target.cpu.arch);
-    const file = self.base.file.?;
-    try file.seekTo(self.headerSize());
-
+    self.text_buf.items.len = 0;
+    self.data_buf.items.len = 0;
+    self.call_relocs.items.len = 0;
     // temporary buffer
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -111,10 +114,32 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
             decl.link.plan9 = if (is_fn) .{
                 .offset = @intCast(u32, self.text_buf.items.len),
                 .type = .text,
+                .sym_index = decl.link.plan9.sym_index,
             } else .{
                 .offset = @intCast(u32, self.data_buf.items.len),
                 .type = .data,
+                .sym_index = decl.link.plan9.sym_index,
             };
+            if (decl.link.plan9.sym_index == 0) {
+                try self.syms.append(self.base.allocator, .{
+                    .value = decl.link.plan9.offset,
+                    .type = switch (decl.link.plan9.type) {
+                        .text => .t,
+                        .data => .d,
+                    },
+                    .name = mem.span(decl.name),
+                });
+                decl.link.plan9.sym_index = self.syms.items.len - 1;
+            } else {
+                self.syms.items[decl.link.plan9.sym_index] = .{
+                    .value = decl.link.plan9.offset,
+                    .type = switch (decl.link.plan9.type) {
+                        .text => .t,
+                        .data => .d,
+                    },
+                    .name = mem.span(decl.name),
+                };
+            }
             const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
                 .ty = decl.ty,
                 .val = decl.val,
@@ -136,16 +161,35 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
             code_buffer.items.len = 0;
         }
     }
-    try file.writeAll(self.text_buf.items);
-    try file.writeAll(self.data_buf.items);
-    try file.seekTo(0);
+
+    var sym_buf = std.ArrayList(u8).init(self.base.allocator);
+    defer sym_buf.deinit();
+    try self.writeSyms(&sym_buf);
+
+    // generate the header
+    self.hdr.magic = try aout.magicFromArch(self.base.options.target.cpu.arch);
     self.hdr.text = @intCast(u32, self.text_buf.items.len);
     self.hdr.data = @intCast(u32, self.data_buf.items.len);
+    self.hdr.syms = @intCast(u32, sym_buf.items.len);
+    self.hdr.bss = 0;
     self.hdr.pcsz = 0;
     self.hdr.spsz = 0;
-    inline for (std.meta.fields(aout.ExecHdr)) |f| {
-        try file.writer().writeIntBig(f.field_type, @field(self.hdr, f.name));
-    }
+
+    const file = self.base.file.?;
+
+    const hdr_buf = self.hdr.toU8s();
+    const hdr_slice: []const u8 = &hdr_buf;
+    // account for the fat header
+    const hdr_size: u8 = if (self.ptr_width == .p32) 32 else 40;
+    // write it all!
+    var vectors: [4]std.os.iovec_const = .{
+        .{ .iov_base = hdr_slice.ptr, .iov_len = hdr_size },
+        .{ .iov_base = self.text_buf.items.ptr, .iov_len = self.text_buf.items.len },
+        .{ .iov_base = self.data_buf.items.ptr, .iov_len = self.data_buf.items.len },
+        .{ .iov_base = sym_buf.items.ptr, .iov_len = sym_buf.items.len },
+        // TODO spsz, pcsz
+    };
+    try file.pwritevAll(&vectors, 0);
 }
 pub fn freeDecl(self: *Plan9, decl: *Module.Decl) void {
     assert(self.decl_table.swapRemove(decl));
@@ -173,14 +217,13 @@ pub fn updateDeclExports(
             self.hdr.entry = Plan9.default_base_addr + self.headerSize() + decl.link.plan9.offset;
         }
         if (exp.link.plan9) |i| {
-            const sym = &self.syms.items[i];
-            sym.* = .{
+            self.syms.items[i] = .{
                 .value = decl.link.plan9.offset,
                 .type = switch (decl.link.plan9.type) {
                     .text => .T,
                     .data => .D,
                 },
-                .name = decl.name,
+                .name = exp.options.name,
             };
         } else {
             try self.syms.append(self.base.allocator, .{
@@ -189,8 +232,9 @@ pub fn updateDeclExports(
                     .text => .T,
                     .data => .D,
                 },
-                .name = decl.name,
+                .name = exp.options.name,
             });
+            exp.link.plan9 = self.syms.items.len - 1;
         }
     }
 }
@@ -225,4 +269,18 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 pub fn addCallReloc(self: *Plan9, code: *std.ArrayList(u8), reloc: CallReloc) !void {
     try self.call_relocs.append(self.base.allocator, reloc);
     try code.writer().writeIntBig(u64, 0xdeadbeef);
+}
+
+pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
+    const writer = buf.writer();
+    for (self.syms.items) |sym| {
+        if (self.ptr_width == .p32) {
+            try writer.writeIntBig(u32, @intCast(u32, sym.value));
+        } else {
+            try writer.writeIntBig(u64, sym.value);
+        }
+        try writer.writeByte(@enumToInt(sym.type));
+        try writer.writeAll(std.mem.span(sym.name));
+        try writer.writeByte(0);
+    }
 }
