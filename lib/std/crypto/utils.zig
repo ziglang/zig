@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const debug = std.debug;
 const mem = std.mem;
+const random = std.crypto.random;
 const testing = std.testing;
 
 const Endian = std.builtin.Endian;
@@ -77,6 +78,52 @@ pub fn timingSafeCompare(comptime T: type, a: []const T, b: []const T, endian: E
     return Order.lt;
 }
 
+/// Add two integers serialized as arrays of the same size, in constant time.
+/// The result is stored into `result`, and `true` is returned if an overflow occurred.
+pub fn timingSafeAdd(comptime T: type, a: []const T, b: []const T, result: []T, endian: Endian) bool {
+    const len = a.len;
+    debug.assert(len == b.len and len == result.len);
+    var carry: u1 = 0;
+    if (endian == .Little) {
+        var i: usize = 0;
+        while (i < len) : (i += 1) {
+            const tmp = @boolToInt(@addWithOverflow(u8, a[i], b[i], &result[i]));
+            carry = tmp | @boolToInt(@addWithOverflow(u8, result[i], carry, &result[i]));
+        }
+    } else {
+        var i: usize = len;
+        while (i != 0) {
+            i -= 1;
+            const tmp = @boolToInt(@addWithOverflow(u8, a[i], b[i], &result[i]));
+            carry = tmp | @boolToInt(@addWithOverflow(u8, result[i], carry, &result[i]));
+        }
+    }
+    return @bitCast(bool, carry);
+}
+
+/// Subtract two integers serialized as arrays of the same size, in constant time.
+/// The result is stored into `result`, and `true` is returned if an underflow occurred.
+pub fn timingSafeSub(comptime T: type, a: []const T, b: []const T, result: []T, endian: Endian) bool {
+    const len = a.len;
+    debug.assert(len == b.len and len == result.len);
+    var borrow: u1 = 0;
+    if (endian == .Little) {
+        var i: usize = 0;
+        while (i < len) : (i += 1) {
+            const tmp = @boolToInt(@subWithOverflow(u8, a[i], b[i], &result[i]));
+            borrow = tmp | @boolToInt(@subWithOverflow(u8, result[i], borrow, &result[i]));
+        }
+    } else {
+        var i: usize = len;
+        while (i != 0) {
+            i -= 1;
+            const tmp = @boolToInt(@subWithOverflow(u8, a[i], b[i], &result[i]));
+            borrow = tmp | @boolToInt(@subWithOverflow(u8, result[i], borrow, &result[i]));
+        }
+    }
+    return @bitCast(bool, borrow);
+}
+
 /// Sets a slice to zeroes.
 /// Prevents the store from being optimized out.
 pub fn secureZero(comptime T: type, s: []T) void {
@@ -90,8 +137,8 @@ pub fn secureZero(comptime T: type, s: []T) void {
 test "crypto.utils.timingSafeEql" {
     var a: [100]u8 = undefined;
     var b: [100]u8 = undefined;
-    std.crypto.random.bytes(a[0..]);
-    std.crypto.random.bytes(b[0..]);
+    random.bytes(a[0..]);
+    random.bytes(b[0..]);
     try testing.expect(!timingSafeEql([100]u8, a, b));
     mem.copy(u8, a[0..], b[0..]);
     try testing.expect(timingSafeEql([100]u8, a, b));
@@ -100,8 +147,8 @@ test "crypto.utils.timingSafeEql" {
 test "crypto.utils.timingSafeEql (vectors)" {
     var a: [100]u8 = undefined;
     var b: [100]u8 = undefined;
-    std.crypto.random.bytes(a[0..]);
-    std.crypto.random.bytes(b[0..]);
+    random.bytes(a[0..]);
+    random.bytes(b[0..]);
     const v1: std.meta.Vector(100, u8) = a;
     const v2: std.meta.Vector(100, u8) = b;
     try testing.expect(!timingSafeEql(std.meta.Vector(100, u8), v1, v2));
@@ -120,6 +167,26 @@ test "crypto.utils.timingSafeCompare" {
     a[0] = 20;
     try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Big), .gt);
     try testing.expectEqual(timingSafeCompare(u8, &a, &b, .Little), .lt);
+}
+
+test "crypto.utils.timingSafe{Add,Sub}" {
+    const len = 32;
+    var a: [len]u8 = undefined;
+    var b: [len]u8 = undefined;
+    var c: [len]u8 = undefined;
+    const zero = [_]u8{0} ** len;
+    var iterations: usize = 100;
+    while (iterations != 0) : (iterations -= 1) {
+        random.bytes(&a);
+        random.bytes(&b);
+        const endian = if (iterations % 2 == 0) Endian.Big else Endian.Little;
+        _ = timingSafeSub(u8, &a, &b, &c, endian); // a-b
+        _ = timingSafeAdd(u8, &c, &b, &c, endian); // (a-b)+b
+        try testing.expectEqualSlices(u8, &c, &a);
+        const borrow = timingSafeSub(u8, &c, &a, &c, endian); // ((a-b)+b)-a
+        try testing.expectEqualSlices(u8, &c, &zero);
+        try testing.expectEqual(borrow, false);
+    }
 }
 
 test "crypto.utils.secureZero" {
