@@ -16694,7 +16694,7 @@ static IrInstGen *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
     {
         // We're now done inferring the type.
         container_type->data.structure.resolve_status = ResolveStatusUnstarted;
-    } else if (container_type->id == ZigTypeIdVector) {
+    } else if (container_type->id == ZigTypeIdVector || is_tuple(container_type)) {
         // OK
     } else {
         ir_add_error(ira, &instruction->base.base,
