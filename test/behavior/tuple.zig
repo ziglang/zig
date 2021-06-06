@@ -111,3 +111,39 @@ test "tuple initializer for var" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "array-like initializer for tuple types" {
+    const T = @Type(std.builtin.TypeInfo{
+        .Struct = std.builtin.TypeInfo.Struct{
+            .is_tuple = true,
+            .layout = .Auto,
+            .decls = &[_]std.builtin.TypeInfo.Declaration{},
+            .fields = &[_]std.builtin.TypeInfo.StructField{
+                .{
+                    .name = "0",
+                    .field_type = i32,
+                    .default_value = @as(?i32, null),
+                    .is_comptime = false,
+                    .alignment = @alignOf(i32),
+                },
+                .{
+                    .name = "1",
+                    .field_type = u8,
+                    .default_value = @as(?i32, null),
+                    .is_comptime = false,
+                    .alignment = @alignOf(i32),
+                },
+            },
+        },
+    });
+    const S = struct {
+        fn doTheTest() !void {
+            var obj: T = .{ -1234, 128 };
+            try testing.expectEqual(@as(i32, -1234), obj[0]);
+            try testing.expectEqual(@as(u8, 128), obj[1]);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
