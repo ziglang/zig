@@ -190,7 +190,7 @@ pub const Builder = struct {
     }
 
     /// This function is intended to be called by std/special/build_runner.zig, not a build.zig file.
-    pub fn resolveInstallPrefix(self: *Builder, install_prefix: ?[]const u8) void {
+    pub fn resolveInstallPrefix(self: *Builder, install_prefix: ?[]const u8, lib_dir: ?[]const u8) void {
         if (self.dest_dir) |dest_dir| {
             self.install_prefix = install_prefix orelse "/usr";
             self.install_path = fs.path.join(self.allocator, &[_][]const u8{ dest_dir, self.install_prefix }) catch unreachable;
@@ -199,7 +199,7 @@ pub const Builder = struct {
                 (fs.path.join(self.allocator, &[_][]const u8{ self.build_root, "zig-out" }) catch unreachable);
             self.install_path = self.install_prefix;
         }
-        self.lib_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "lib" }) catch unreachable;
+        self.lib_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, lib_dir orelse "lib" }) catch unreachable;
         self.exe_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "bin" }) catch unreachable;
         self.h_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "include" }) catch unreachable;
     }

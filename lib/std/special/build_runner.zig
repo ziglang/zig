@@ -61,6 +61,7 @@ pub fn main() !void {
     const stdout_stream = io.getStdOut().writer();
 
     var install_prefix: ?[]const u8 = null;
+    var lib_dir: ?[]const u8 = null;
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
@@ -84,6 +85,11 @@ pub fn main() !void {
                 return usage(builder, false, stdout_stream);
             } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--prefix")) {
                 install_prefix = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after {s}\n\n", .{arg});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
+            } else if (mem.eql(u8, arg, "--output-lib-dir")) {
+                lib_dir = nextArg(args, &arg_idx) orelse {
                     warn("Expected argument after {s}\n\n", .{arg});
                     return usageAndErr(builder, false, stderr_stream);
                 };
@@ -135,7 +141,7 @@ pub fn main() !void {
         }
     }
 
-    builder.resolveInstallPrefix(install_prefix);
+    builder.resolveInstallPrefix(install_prefix, lib_dir);
     try runBuild(builder);
 
     if (builder.validateUserInputDidItFail())
@@ -189,6 +195,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  -h, --help                  Print this help and exit
         \\  --verbose                   Print commands before executing them
         \\  -p, --prefix [path]         Override default install prefix
+        \\  --output-lib-dir [path]     Override default library directory name
         \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
         \\  --color [auto|off|on]       Enable or disable colored error messages
         \\
