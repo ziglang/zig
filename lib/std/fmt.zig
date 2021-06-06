@@ -495,6 +495,22 @@ pub fn formatType(
             }
         },
         .Struct => |info| {
+            if (info.is_tuple) {
+                // Skip the type and field names when formatting tuples.
+                if (max_depth == 0) {
+                    return writer.writeAll("{ ... }");
+                }
+                try writer.writeAll("{");
+                inline for (info.fields) |f, i| {
+                    if (i == 0) {
+                        try writer.writeAll(" ");
+                    } else {
+                        try writer.writeAll(", ");
+                    }
+                    try formatType(@field(value, f.name), ANY, options, writer, max_depth - 1);
+                }
+                return writer.writeAll(" }");
+            }
             try writer.writeAll(@typeName(T));
             if (max_depth == 0) {
                 return writer.writeAll("{ ... }");
@@ -2164,6 +2180,10 @@ test "struct" {
     };
 
     try expectFmt("S{ .a = 456, .b = error.Unused }", "{}", .{inst});
+    // Tuples
+    try expectFmt("{ }", "{}", .{.{}});
+    try expectFmt("{ -1 }", "{}", .{.{-1}});
+    try expectFmt("{ -1, 42, 2.5e+04 }", "{}", .{.{ -1, 42, 0.25e5 }});
 }
 
 test "union" {
