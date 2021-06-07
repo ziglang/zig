@@ -4157,6 +4157,12 @@ pub fn stage1AddLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     if (comp.bin_file.options.skip_linker_dependencies) return;
 
     // This happens when an `extern "foo"` function is referenced by the stage1 backend.
+    if (comp.getTarget().os.tag == .wasi and mem.eql(u8, "wasi_snapshot_preview1", lib_name)) {
+        // Any referenced symbol from this lib, will be undefined until
+        // runtime as this lib is provided directly by the runtime.
+        return;
+    }
+
     // If we haven't seen this library yet and we're targeting Windows, we need to queue up
     // a work item to produce the DLL import library for this.
     const gop = try comp.bin_file.options.system_libs.getOrPut(comp.gpa, lib_name);
