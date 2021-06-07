@@ -574,7 +574,6 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         null;
 
     const target = self.base.options.target;
-    const link_in_crt = self.base.options.link_libc and self.base.options.output_mode == .Exe;
 
     const id_symlink_basename = "lld.id";
 
@@ -653,8 +652,6 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
     } else {
-        const is_obj = self.base.options.output_mode == .Obj;
-
         // Create an LLD command line and invoke it.
         var argv = std.ArrayList([]const u8).init(self.base.allocator);
         defer argv.deinit();
@@ -662,10 +659,6 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         // This is necessary because LLD does not behave properly as a library -
         // it calls exit() and does not reset all global data between invocations.
         try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, "wasm-ld" });
-        if (is_obj) {
-            try argv.append("-r");
-        }
-
         try argv.append("-error-limit=0");
 
         if (self.base.options.lto) {
@@ -697,25 +690,29 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             full_out_path,
         });
 
-        if (link_in_crt) {
-            // TODO work out if we want standard crt, a reactor or a command
-            try argv.append(try comp.get_libc_crt_file(arena, "crt1.o"));
-        }
-
-        if (!is_obj) {
-            const system_libs = self.base.options.system_libs.keys();
-            for (system_libs) |link_lib| {
-                try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{link_lib}));
+        if (target.os.tag == .wasi) {
+            if (self.base.options.link_libc and self.base.options.output_mode == .Exe) {
+                // TODO work out if we want standard crt, a reactor or a command
+                try argv.append(try comp.get_libc_crt_file(arena, "crt1.o"));
             }
 
-            const wasi_emulated_libs = self.base.options.wasi_emulated_libs;
-            for (wasi_emulated_libs) |lib_name| {
-                const full_lib_name = try std.fmt.allocPrint(arena, "lib{s}.a", .{lib_name});
-                try argv.append(try comp.get_libc_crt_file(arena, full_lib_name));
-            }
+            const is_exe_or_dyn_lib = self.base.options.output_mode == .Exe or
+                (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic);
+            if (is_exe_or_dyn_lib) {
+                const system_libs = self.base.options.system_libs.keys();
+                for (system_libs) |link_lib| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{link_lib}));
+                }
 
-            if (self.base.options.link_libc) {
-                try argv.append(try comp.get_libc_crt_file(arena, "libc.a"));
+                const wasi_emulated_libs = self.base.options.wasi_emulated_libs;
+                for (wasi_emulated_libs) |lib_name| {
+                    const full_lib_name = try std.fmt.allocPrint(arena, "lib{s}.a", .{lib_name});
+                    try argv.append(try comp.get_libc_crt_file(arena, full_lib_name));
+                }
+
+                if (self.base.options.link_libc) {
+                    try argv.append(try comp.get_libc_crt_file(arena, "libc.a"));
+                }
             }
         }
 
