@@ -479,7 +479,7 @@ pub fn SectionHeaderIterator(ParseSource: anytype) type {
                 if (self.elf_header.endian == native_endian) return shdr;
 
                 // Convert fields to native endianness.
-                bswapAllFields(Elf64_Shdr, &shdr);
+                return bswapAllFields(Elf64_Shdr, &shdr);
             }
 
             var shdr: Elf32_Shdr = undefined;
