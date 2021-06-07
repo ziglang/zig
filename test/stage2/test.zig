@@ -1475,6 +1475,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    x += 1;
             \\    if (x != 1) unreachable;
             \\}
+            \\pub fn main() void {}
         , &.{":4:17: error: unable to resolve comptime value"});
 
         case.addError(
@@ -1501,5 +1502,25 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    if (x != 2) unreachable;
             \\}
         , "");
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    comptime var i: u64 = 2;
+            \\    inline while (i < 6) : (i+=1) {
+            \\        print(i);
+            \\    }
+            \\}
+            \\fn print(len: usize) void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello")),
+            \\          [arg3] "{rdx}" (len)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+        , "HeHelHellHello");
     }
 }

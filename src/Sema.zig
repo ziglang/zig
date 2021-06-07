@@ -147,7 +147,7 @@ pub fn analyzeBody(
     // directly jump to the next one, rather than detouring through the loop
     // continue expression. Related: https://github.com/ziglang/zig/issues/8220
     var i: usize = 0;
-    while (true) : (i += 1) {
+    while (true) {
         const inst = body[i];
         const air_inst = switch (tags[inst]) {
             // zig fmt: off
@@ -394,78 +394,97 @@ pub fn analyzeBody(
             // putting them into the map.
             .breakpoint => {
                 try sema.zirBreakpoint(block, inst);
+                i += 1;
                 continue;
             },
             .fence => {
                 try sema.zirFence(block, inst);
+                i += 1;
                 continue;
             },
             .dbg_stmt => {
                 try sema.zirDbgStmt(block, inst);
+                i += 1;
                 continue;
             },
             .ensure_err_payload_void => {
                 try sema.zirEnsureErrPayloadVoid(block, inst);
+                i += 1;
                 continue;
             },
             .ensure_result_non_error => {
                 try sema.zirEnsureResultNonError(block, inst);
+                i += 1;
                 continue;
             },
             .ensure_result_used => {
                 try sema.zirEnsureResultUsed(block, inst);
+                i += 1;
                 continue;
             },
             .set_eval_branch_quota => {
                 try sema.zirSetEvalBranchQuota(block, inst);
+                i += 1;
                 continue;
             },
             .store => {
                 try sema.zirStore(block, inst);
+                i += 1;
                 continue;
             },
             .store_node => {
                 try sema.zirStoreNode(block, inst);
+                i += 1;
                 continue;
             },
             .store_to_block_ptr => {
                 try sema.zirStoreToBlockPtr(block, inst);
+                i += 1;
                 continue;
             },
             .store_to_inferred_ptr => {
                 try sema.zirStoreToInferredPtr(block, inst);
+                i += 1;
                 continue;
             },
             .resolve_inferred_alloc => {
                 try sema.zirResolveInferredAlloc(block, inst);
+                i += 1;
                 continue;
             },
             .validate_struct_init_ptr => {
                 try sema.zirValidateStructInitPtr(block, inst);
+                i += 1;
                 continue;
             },
             .validate_array_init_ptr => {
                 try sema.zirValidateArrayInitPtr(block, inst);
+                i += 1;
                 continue;
             },
             .@"export" => {
                 try sema.zirExport(block, inst);
+                i += 1;
                 continue;
             },
             .set_align_stack => {
                 try sema.zirSetAlignStack(block, inst);
+                i += 1;
                 continue;
             },
             .set_cold => {
                 try sema.zirSetAlignStack(block, inst);
+                i += 1;
                 continue;
             },
             .set_float_mode => {
                 try sema.zirSetFloatMode(block, inst);
+                i += 1;
                 continue;
             },
             .set_runtime_safety => {
                 try sema.zirSetRuntimeSafety(block, inst);
+                i += 1;
                 continue;
             },
 
@@ -510,6 +529,7 @@ pub fn analyzeBody(
         if (air_inst.ty.isNoReturn())
             return always_noreturn;
         try map.put(sema.gpa, inst, air_inst);
+        i += 1;
     }
 }
 
