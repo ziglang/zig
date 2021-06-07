@@ -89,7 +89,8 @@ pub extern "kernel32" fn GetCommandLineW() callconv(WINAPI) LPWSTR;
 pub extern "kernel32" fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: *DWORD) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn GetConsoleScreenBufferInfo(hConsoleOutput: HANDLE, lpConsoleScreenBufferInfo: *CONSOLE_SCREEN_BUFFER_INFO) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn FillConsoleOutputCharacterA(hConsoleOutput: HANDLE, cCharacter: TCHAR, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfCharsWritten: LPDWORD) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn FillConsoleOutputCharacterA(hConsoleOutput: HANDLE, cCharacter: CHAR, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfCharsWritten: LPDWORD) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn FillConsoleOutputCharacterW(hConsoleOutput: HANDLE, cCharacter: WCHAR, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfCharsWritten: LPDWORD) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn FillConsoleOutputAttribute(hConsoleOutput: HANDLE, wAttribute: WORD, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfAttrsWritten: LPDWORD) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn SetConsoleCursorPosition(hConsoleOutput: HANDLE, dwCursorPosition: COORD) callconv(WINAPI) BOOL;
 

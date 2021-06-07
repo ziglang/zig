@@ -234,7 +234,7 @@ fn refreshWithHeldLock(self: *Progress) void {
             self.terminal = null;
             break :winapi;
         }
-        if (windows.kernel32.FillConsoleOutputCharacterA(
+        if (windows.kernel32.FillConsoleOutputCharacterW(
             file.handle,
             ' ',
             fill_chars,
