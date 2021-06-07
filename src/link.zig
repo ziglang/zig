@@ -110,6 +110,7 @@ pub const Options = struct {
     framework_dirs: []const []const u8,
     frameworks: []const []const u8,
     system_libs: std.StringArrayHashMapUnmanaged(void),
+    wasi_emulated_libs: []const []const u8,
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
 
