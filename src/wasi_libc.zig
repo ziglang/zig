@@ -23,21 +23,21 @@ pub fn buildWasiLibcSysroot(comp: *Compilation) !void {
         try addCCArgs(comp, arena, &args, false);
         try addLibcBottomHalfIncludes(comp, arena, &args);
 
-        var comp_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
+        var crt_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
         for (crt_src_files) |file_path| {
-            try comp_sources.append(.{
+            try crt_sources.append(.{
                 .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                     "libc", try sanitize(arena, file_path),
                 }),
                 .extra_flags = args.items,
             });
         }
-        try comp.build_crt_file("crt", .Obj, comp_sources.items);
+        try comp.build_crt_file("crt", .Obj, crt_sources.items);
     }
 
     {
         // Compile WASI libc (sysroot).
-        var comp_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
+        var libc_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
 
         {
             // Compile dlmalloc.
@@ -54,7 +54,7 @@ pub fn buildWasiLibcSysroot(comp: *Compilation) !void {
             });
 
             for (dlmalloc_src_files) |file_path| {
-                try comp_sources.append(.{
+                try libc_sources.append(.{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", try sanitize(arena, file_path),
                     }),
@@ -70,73 +70,7 @@ pub fn buildWasiLibcSysroot(comp: *Compilation) !void {
             try addLibcBottomHalfIncludes(comp, arena, &args);
 
             for (libc_bottom_half_src_files) |file_path| {
-                try comp_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                });
-            }
-        }
-
-        {
-            // Compile emulated sources depending only on libc-bottom-half.
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, true);
-            try addLibcBottomHalfIncludes(comp, arena, &args);
-
-            for (emulated_process_clocks_src_files) |file_path| {
-                try comp_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                });
-            }
-
-            for (emulated_getpid_src_files) |file_path| {
-                try comp_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                });
-            }
-
-            for (emulated_mman_src_files) |file_path| {
-                try comp_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                });
-            }
-        }
-
-        {
-            // Compile emulated signals (bottom-half).
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, true);
-
-            for (emulated_signal_bottom_half_src_files) |file_path| {
-                try comp_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                });
-            }
-        }
-
-        {
-            // Compile emulated signals (top-half).
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, true);
-            try addLibcTopHalfIncludes(comp, arena, &args);
-            try args.append("-D_WASI_EMULATED_SIGNAL");
-
-            for (emulated_signal_top_half_src_files) |file_path| {
-                try comp_sources.append(.{
+                try libc_sources.append(.{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", try sanitize(arena, file_path),
                     }),
@@ -152,7 +86,7 @@ pub fn buildWasiLibcSysroot(comp: *Compilation) !void {
             try addLibcTopHalfIncludes(comp, arena, &args);
 
             for (libc_top_half_src_files) |file_path| {
-                try comp_sources.append(.{
+                try libc_sources.append(.{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", try sanitize(arena, file_path),
                     }),
@@ -161,7 +95,98 @@ pub fn buildWasiLibcSysroot(comp: *Compilation) !void {
             }
         }
 
-        try comp.build_crt_file("c", .Lib, comp_sources.items);
+        try comp.build_crt_file("c", .Lib, libc_sources.items);
+    }
+
+    {
+        // Compile emulated process clocks.
+        var args = std.ArrayList([]const u8).init(arena);
+        try addCCArgs(comp, arena, &args, true);
+        try addLibcBottomHalfIncludes(comp, arena, &args);
+
+        var emu_clocks_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
+        for (emulated_process_clocks_src_files) |file_path| {
+            try emu_clocks_sources.append(.{
+                .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    "libc", try sanitize(arena, file_path),
+                }),
+                .extra_flags = args.items,
+            });
+        }
+        try comp.build_crt_file("wasi-emulated-process-clocks", .Lib, emu_clocks_sources.items);
+    }
+
+    {
+        // Compile emulated getpid.
+        var args = std.ArrayList([]const u8).init(arena);
+        try addCCArgs(comp, arena, &args, true);
+        try addLibcBottomHalfIncludes(comp, arena, &args);
+
+        var emu_getpid_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
+        for (emulated_getpid_src_files) |file_path| {
+            try emu_getpid_sources.append(.{
+                .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    "libc", try sanitize(arena, file_path),
+                }),
+                .extra_flags = args.items,
+            });
+        }
+        try comp.build_crt_file("wasi-emulated-getpid", .Lib, emu_getpid_sources.items);
+    }
+
+    {
+        // Compile emulated mman.
+        var args = std.ArrayList([]const u8).init(arena);
+        try addCCArgs(comp, arena, &args, true);
+        try addLibcBottomHalfIncludes(comp, arena, &args);
+
+        var emu_mman_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
+        for (emulated_mman_src_files) |file_path| {
+            try emu_mman_sources.append(.{
+                .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    "libc", try sanitize(arena, file_path),
+                }),
+                .extra_flags = args.items,
+            });
+        }
+        try comp.build_crt_file("wasi-emulated-mman", .Lib, emu_mman_sources.items);
+    }
+
+    {
+        // Compile emulated signals.
+        var emu_signal_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
+
+        {
+            var args = std.ArrayList([]const u8).init(arena);
+            try addCCArgs(comp, arena, &args, true);
+
+            for (emulated_signal_bottom_half_src_files) |file_path| {
+                try emu_signal_sources.append(.{
+                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        "libc", try sanitize(arena, file_path),
+                    }),
+                    .extra_flags = args.items,
+                });
+            }
+        }
+
+        {
+            var args = std.ArrayList([]const u8).init(arena);
+            try addCCArgs(comp, arena, &args, true);
+            try addLibcTopHalfIncludes(comp, arena, &args);
+            try args.append("-D_WASI_EMULATED_SIGNAL");
+
+            for (emulated_signal_top_half_src_files) |file_path| {
+                try emu_signal_sources.append(.{
+                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        "libc", try sanitize(arena, file_path),
+                    }),
+                    .extra_flags = args.items,
+                });
+            }
+        }
+
+        try comp.build_crt_file("wasi-emulated-signal", .Lib, emu_signal_sources.items);
     }
 }
 
