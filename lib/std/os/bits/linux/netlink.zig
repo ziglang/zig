@@ -273,8 +273,7 @@ pub const ifinfomsg = extern struct {
     flags: c_uint,
 
     /// IFF_* change mask
-    /// is reserved for future use and should be always set to 0xFFFFFFFF.
-    change: c_uint = 0xFFFFFFFF,
+    change: c_uint,
 };
 
 pub const rtattr = extern struct {
