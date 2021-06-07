@@ -699,18 +699,19 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 
         if (link_in_crt) {
             // TODO work out if we want standard crt, a reactor or a command
-            try argv.append(try comp.get_libc_crt_file(arena, "crt.o"));
+            try argv.append(try comp.get_libc_crt_file(arena, "crt1.o"));
         }
 
         if (!is_obj) {
             const system_libs = self.base.options.system_libs.keys();
             for (system_libs) |link_lib| {
-                const full_name = try std.fmt.allocPrint(arena, "lib{s}.a", .{link_lib});
-                if (comp.crt_files.get(full_name)) |crt| {
-                    try argv.append(crt.full_object_path);
-                } else {
-                    try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{link_lib}));
-                }
+                try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{link_lib}));
+            }
+
+            const wasi_emulated_libs = self.base.options.wasi_emulated_libs;
+            for (wasi_emulated_libs) |lib_name| {
+                const full_lib_name = try std.fmt.allocPrint(arena, "lib{s}.a", .{lib_name});
+                try argv.append(try comp.get_libc_crt_file(arena, full_lib_name));
             }
 
             if (self.base.options.link_libc) {

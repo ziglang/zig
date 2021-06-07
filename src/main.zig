@@ -15,6 +15,7 @@ const Package = @import("Package.zig");
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
+const wasi_libc = @import("wasi_libc.zig");
 const translate_c = @import("translate_c.zig");
 const Cache = @import("Cache.zig");
 const target_util = @import("target.zig");
@@ -615,6 +616,9 @@ fn buildOutputType(
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
+
+    var wasi_emulated_libs = std.ArrayList([]const u8).init(gpa);
+    defer wasi_emulated_libs.deinit();
 
     var clang_argv = std.ArrayList([]const u8).init(gpa);
     defer clang_argv.deinit();
@@ -1586,6 +1590,13 @@ fn buildOutputType(
             if (std.fs.path.isAbsolute(lib_name)) {
                 fatal("cannot use absolute path as a system library: {s}", .{lib_name});
             }
+            if (target_info.target.os.tag == .wasi) {
+                if (wasi_libc.getEmulatedLibCRTFile(lib_name)) |_| {
+                    try wasi_emulated_libs.append(lib_name);
+                    _ = system_libs.orderedRemove(i);
+                    continue;
+                }
+            }
             i += 1;
         }
     }
@@ -1895,6 +1906,7 @@ fn buildOutputType(
         .framework_dirs = framework_dirs.items,
         .frameworks = frameworks.items,
         .system_libs = system_libs.items,
+        .wasi_emulated_libs = wasi_emulated_libs.items,
         .link_libc = link_libc,
         .link_libcpp = link_libcpp,
         .link_libunwind = link_libunwind,
