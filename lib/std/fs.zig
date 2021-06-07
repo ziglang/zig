@@ -1264,11 +1264,9 @@ pub const Dir = struct {
     pub fn openDirWasi(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
         const w = os.wasi;
         var base: w.rights_t = w.RIGHT_FD_FILESTAT_GET | w.RIGHT_FD_FDSTAT_SET_FLAGS | w.RIGHT_FD_FILESTAT_SET_TIMES;
-        if (args.iterate) {
-            base |= w.RIGHT_FD_READDIR;
-        }
         if (args.access_sub_paths) {
-            base |= w.RIGHT_PATH_CREATE_DIRECTORY |
+            base |= w.RIGHT_FD_READDIR |
+                w.RIGHT_PATH_CREATE_DIRECTORY |
                 w.RIGHT_PATH_CREATE_FILE |
                 w.RIGHT_PATH_LINK_SOURCE |
                 w.RIGHT_PATH_LINK_TARGET |
