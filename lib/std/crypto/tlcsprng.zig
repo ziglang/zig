@@ -145,7 +145,7 @@ fn tlsCsprngFill(_: *const std.rand.Random, buffer: []u8) void {
 }
 
 fn setupPthreadAtforkAndFill(buffer: []u8) void {
-    install_atfork_handler.call();
+    install_atfork_handler.call(.{});
     return initAndFill(buffer);
 }
 

@@ -7,36 +7,54 @@ const std = @import("std.zig");
 const builtin = std.builtin;
 const testing = std.testing;
 
-pub fn once(comptime f: fn () void) Once(f) {
+pub fn once(comptime f: anytype) Once(f) {
     return Once(f){};
 }
 
 /// An object that executes the function `f` just once.
-pub fn Once(comptime f: fn () void) type {
+pub fn Once(comptime f: anytype) type {
+    const T = @TypeOf(f);
+    const info = @typeInfo(T);
+    if (info != .Fn)
+        @compileError("expected function type, found " ++ @typeName(T));
+
+    const fn_info = info.Fn;
+    if (fn_info.is_generic)
+        @compileError("cannot instantiate Once with a generic function");
+    if (fn_info.is_var_args)
+        @compileError("cannot instantiate Once with a variadic function");
+
+    if (@typeInfo(fn_info.return_type.?) != .Void)
+        @compileError("expected function returning void, found " ++ @typeName(T));
+
+    const Args = std.meta.ArgsTuple(T);
+
     return struct {
         done: bool = false,
         mutex: std.Thread.Mutex = std.Thread.Mutex{},
 
-        /// Call the function `f`.
+        /// Call the function `f` with the supplied arguments, use .{} if the
+        /// function takes no arguments.
         /// If `call` is invoked multiple times `f` will be executed only the
-        /// first time.
+        /// first time. The arguments are unused for every call but the first
+        /// one.
         /// The invocations are thread-safe.
-        pub fn call(self: *@This()) void {
+        pub fn call(self: *@This(), args: Args) void {
             if (@atomicLoad(bool, &self.done, .Acquire))
                 return;
 
-            return self.callSlow();
+            return self.callSlow(args);
         }
 
-        fn callSlow(self: *@This()) void {
+        fn callSlow(self: *@This(), args: Args) void {
             @setCold(true);
 
-            const T = self.mutex.acquire();
-            defer T.release();
+            const mut = self.mutex.acquire();
+            defer mut.release();
 
             // The first thread to acquire the mutex gets to run the initializer
             if (!self.done) {
-                f();
+                @call(.{}, f, args);
                 @atomicStore(bool, &self.done, true, .Release);
             }
         }
@@ -46,24 +64,24 @@ pub fn Once(comptime f: fn () void) type {
 var global_number: i32 = 0;
 var global_once = once(incr);
 
-fn incr() void {
-    global_number += 1;
+fn incr(x: i32) void {
+    global_number += x;
 }
 
 test "Once executes its function just once" {
     if (builtin.single_threaded) {
-        global_once.call();
-        global_once.call();
+        global_once.call(.{1});
+        global_once.call(.{1});
     } else {
-        var threads: [10]*std.Thread = undefined;
+        var threads: [4]*std.Thread = undefined;
         defer for (threads) |handle| handle.wait();
 
         for (threads) |*handle| {
             handle.* = try std.Thread.spawn(struct {
                 fn thread_fn(x: u8) void {
-                    global_once.call();
+                    global_once.call(.{x});
                 }
-            }.thread_fn, 0);
+            }.thread_fn, 1);
         }
     }
 
