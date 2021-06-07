@@ -30,6 +30,7 @@ pub usingnamespace switch (arch) {
 pub usingnamespace @import("linux/netlink.zig");
 pub usingnamespace @import("linux/prctl.zig");
 pub usingnamespace @import("linux/securebits.zig");
+pub usingnamespace @import("linux/xdp.zig");
 
 const is_mips = arch.isMIPS();
 const is_ppc = arch.isPPC();
