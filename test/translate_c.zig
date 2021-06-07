@@ -2668,7 +2668,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    if (a != 0) return 0;
         \\    if (b != 0) return 1;
         \\    if (c != null) return 2;
-        \\    if (d != 0) return 3;
+        \\    if (@enumToInt(d) != 0) return 3;
         \\    return 4;
         \\}
     });

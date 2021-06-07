@@ -1508,4 +1508,15 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("enum used as boolean expression",
+        \\#include <stdlib.h>
+        \\enum FOO {BAR, BAZ};
+        \\int main(void) {
+        \\    enum FOO x = BAR;
+        \\    if (x) abort();
+        \\    if (!BAZ) abort();
+        \\    return 0;
+        \\}
+    , "");
 }

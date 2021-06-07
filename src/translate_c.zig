@@ -1931,7 +1931,8 @@ fn finishBoolExpr(
         },
         .Enum => {
             // node != 0
-            return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.zero_literal.init() });
+            const int_val = try Tag.enum_to_int.create(c.arena, node);
+            return Tag.not_equal.create(c.arena, .{ .lhs = int_val, .rhs = Tag.zero_literal.init() });
         },
         .Elaborated => {
             const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
