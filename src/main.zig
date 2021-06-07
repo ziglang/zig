@@ -613,7 +613,7 @@ fn buildOutputType(
     var subsystem: ?std.Target.SubSystem = null;
     var major_subsystem_version: ?u32 = null;
     var minor_subsystem_version: ?u32 = null;
-    var want_reactor_exec_model = false;
+    var wasi_exec_model: ?Compilation.WasiExecModel = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -1255,7 +1255,14 @@ fn buildOutputType(
                     .framework => try frameworks.append(it.only_arg),
                     .nostdlibinc => want_native_include_dirs = false,
                     .strip => strip = true,
-                    .exec_model => want_reactor_exec_model = mem.eql(u8, it.only_arg, "reactor"),
+                    .exec_model => {
+                        wasi_exec_model = if (std.mem.eql(u8, it.only_arg, "reactor"))
+                            Compilation.WasiExecModel.reactor
+                        else if (std.mem.eql(u8, it.only_arg, "command"))
+                            Compilation.WasiExecModel.command
+                        else
+                            null;
+                    },
                 }
             }
             // Parse linker args.
@@ -1971,7 +1978,7 @@ fn buildOutputType(
         .test_name_prefix = test_name_prefix,
         .disable_lld_caching = !have_enable_cache,
         .subsystem = subsystem,
-        .want_reactor_exec_model = want_reactor_exec_model,
+        .wasi_exec_model = wasi_exec_model,
     }) catch |err| {
         fatal("unable to create compilation: {s}", .{@errorName(err)});
     };

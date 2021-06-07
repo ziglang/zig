@@ -603,6 +603,11 @@ pub const ClangPreprocessorMode = enum {
     stdout,
 };
 
+pub const WasiExecModel = enum {
+    command,
+    reactor,
+};
+
 pub const InitOptions = struct {
     zig_lib_directory: Directory,
     local_cache_directory: Directory,
@@ -725,7 +730,7 @@ pub const InitOptions = struct {
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
-    want_reactor_exec_model: bool = false,
+    wasi_exec_model: ?WasiExecModel = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -1341,7 +1346,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .disable_lld_caching = options.disable_lld_caching,
             .subsystem = options.subsystem,
             .is_test = options.is_test,
-            .want_reactor_exec_model = options.want_reactor_exec_model,
+            .wasi_exec_model = options.wasi_exec_model,
         });
         errdefer bin_file.destroy();
         comp.* = .{

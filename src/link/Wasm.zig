@@ -107,6 +107,11 @@ pub const DeclBlock = struct {
     }
 };
 
+pub const WasiExecModel = enum {
+    command,
+    reactor,
+};
+
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
     assert(options.object_format == .wasm);
 
@@ -680,8 +685,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             // Put stack before globals so that stack overflow results in segfault immediately
             // before corrupting globals. See https://github.com/ziglang/zig/issues/4496
             try argv.append("--stack-first");
-            if (self.base.options.want_reactor_exec_model) {
-                try argv.append("--no-entry"); // So lld doesn't look for _start.
+
+            // Reactor execution model does not have _start so lld doesn't look for it.
+            if (self.base.options.wasi_exec_model != null and self.base.options.wasi_exec_model.? == Compilation.WasiExecModel.reactor) {
+                try argv.append("--no-entry");
             }
         } else {
             try argv.append("--no-entry"); // So lld doesn't look for _start.
@@ -694,11 +701,11 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         });
 
         if (target.os.tag == .wasi) {
-            if (self.base.options.want_reactor_exec_model) {
-                try argv.append(try comp.get_libc_crt_file(arena, "crt1-reactor.o"));
-            } else {
-                try argv.append(try comp.get_libc_crt_file(arena, "crt1.o"));
-            }
+            const crt_name = if (self.base.options.wasi_exec_model) |exec_model|
+                try std.fmt.allocPrint(arena, "crt1-{s}.o", .{@tagName(exec_model)})
+            else
+                "crt1.o";
+            try argv.append(try comp.get_libc_crt_file(arena, crt_name));
 
             const is_exe_or_dyn_lib = self.base.options.output_mode == .Exe or
                 (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic);

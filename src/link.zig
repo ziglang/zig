@@ -117,7 +117,7 @@ pub const Options = struct {
     version: ?std.builtin.Version,
     libc_installation: ?*const LibCInstallation,
 
-    want_reactor_exec_model: bool = false,
+    wasi_exec_model: ?Compilation.WasiExecModel = null,
 
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
