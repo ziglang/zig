@@ -702,11 +702,20 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             try argv.append(try comp.get_libc_crt_file(arena, "crt.o"));
         }
 
-        if (!is_obj and self.base.options.link_libc) {
-            try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
-                .Static => "libc.a",
-                .Dynamic => unreachable,
-            }));
+        if (!is_obj) {
+            const system_libs = self.base.options.system_libs.keys();
+            for (system_libs) |link_lib| {
+                const full_name = try std.fmt.allocPrint(arena, "lib{s}.a", .{link_lib});
+                if (comp.crt_files.get(full_name)) |crt| {
+                    try argv.append(crt.full_object_path);
+                } else {
+                    try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{link_lib}));
+                }
+            }
+
+            if (self.base.options.link_libc) {
+                try argv.append(try comp.get_libc_crt_file(arena, "libc.a"));
+            }
         }
 
         // Positional arguments to the linker such as object files.
