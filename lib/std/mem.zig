@@ -2324,9 +2324,8 @@ pub fn nativeToBig(comptime T: type, x: T) T {
 }
 
 /// Returns the number of elements that, if added to the given pointer, align it
-/// to a multiple of the given quantity.
-/// Returns an aligned pointer or null if one of the following conditions is
-/// met:
+/// to a multiple of the given quantity, or `null` if one of the following
+/// conditions is met:
 /// - The aligned pointer would not fit the address space,
 /// - The delta required to align the pointer is not a multiple of the pointee's
 ///   type.
