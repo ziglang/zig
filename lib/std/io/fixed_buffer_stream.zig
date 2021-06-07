@@ -81,7 +81,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         }
 
         pub fn seekTo(self: *Self, pos: u64) SeekError!void {
-            self.pos = if (std.math.cast(usize, pos)) |x| x else |_| self.buffer.len;
+            self.pos = if (std.math.cast(usize, pos)) |x| std.math.min(self.buffer.len, x) else |_| self.buffer.len;
         }
 
         pub fn seekBy(self: *Self, amt: i64) SeekError!void {
