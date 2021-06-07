@@ -98,15 +98,14 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-        // https://github.com/ziglang/zig/issues/8930
-        //TestTarget{
-        //    .target = .{
-        //        .cpu_arch = .i386,
-        //        .os_tag = .linux,
-        //        .abi = .gnu,
-        //    },
-        //    .link_libc = true,
-        //},
+        TestTarget{
+            .target = .{
+                .cpu_arch = .i386,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
 
         TestTarget{
             .target = .{

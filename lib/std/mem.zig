@@ -2323,6 +2323,70 @@ pub fn nativeToBig(comptime T: type, x: T) T {
     };
 }
 
+/// Returns the number of elements that, if added to the given pointer, align it
+/// to a multiple of the given quantity, or `null` if one of the following
+/// conditions is met:
+/// - The aligned pointer would not fit the address space,
+/// - The delta required to align the pointer is not a multiple of the pointee's
+///   type.
+pub fn alignPointerOffset(ptr: anytype, align_to: u29) ?usize {
+    assert(align_to != 0 and @popCount(u29, align_to) == 1);
+
+    const T = @TypeOf(ptr);
+    const info = @typeInfo(T);
+    if (info != .Pointer or info.Pointer.size != .Many)
+        @compileError("expected many item pointer, got " ++ @typeName(T));
+
+    // Do nothing if the pointer is already well-aligned.
+    if (align_to <= info.Pointer.alignment)
+        return 0;
+
+    // Calculate the aligned base address with an eye out for overflow.
+    const addr = @ptrToInt(ptr);
+    var new_addr: usize = undefined;
+    if (@addWithOverflow(usize, addr, align_to - 1, &new_addr)) return null;
+    new_addr &= ~@as(usize, align_to - 1);
+
+    // The delta is expressed in terms of bytes, turn it into a number of child
+    // type elements.
+    const delta = new_addr - addr;
+    const pointee_size = @sizeOf(info.Pointer.child);
+    if (delta % pointee_size != 0) return null;
+    return delta / pointee_size;
+}
+
+/// Aligns a given pointer value to a specified alignment factor.
+/// Returns an aligned pointer or null if one of the following conditions is
+/// met:
+/// - The aligned pointer would not fit the address space,
+/// - The delta required to align the pointer is not a multiple of the pointee's
+///   type.
+pub fn alignPointer(ptr: anytype, align_to: u29) ?@TypeOf(ptr) {
+    const adjust_off = alignPointerOffset(ptr, align_to) orelse return null;
+    const T = @TypeOf(ptr);
+    // Avoid the use of intToPtr to avoid losing the pointer provenance info.
+    return @alignCast(@typeInfo(T).Pointer.alignment, ptr + adjust_off);
+}
+
+test "alignPointer" {
+    const S = struct {
+        fn checkAlign(comptime T: type, base: usize, align_to: u29, expected: usize) !void {
+            var ptr = @intToPtr(T, base);
+            var aligned = alignPointer(ptr, align_to);
+            try testing.expectEqual(expected, @ptrToInt(aligned));
+        }
+    };
+
+    try S.checkAlign([*]u8, 0x123, 0x200, 0x200);
+    try S.checkAlign([*]align(4) u8, 0x10, 2, 0x10);
+    try S.checkAlign([*]u32, 0x10, 2, 0x10);
+    try S.checkAlign([*]u32, 0x4, 16, 0x10);
+    // Misaligned.
+    try S.checkAlign([*]align(1) u32, 0x3, 2, 0);
+    // Overflow.
+    try S.checkAlign([*]u32, math.maxInt(usize) - 3, 8, 0);
+}
+
 fn CopyPtrAttrs(comptime source: type, comptime size: std.builtin.TypeInfo.Pointer.Size, comptime child: type) type {
     const info = @typeInfo(source).Pointer;
     return @Type(.{
