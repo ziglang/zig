@@ -107,11 +107,6 @@ pub const DeclBlock = struct {
     }
 };
 
-pub const WasiExecModel = enum {
-    command,
-    reactor,
-};
-
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
     assert(options.object_format == .wasm);
 
