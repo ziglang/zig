@@ -1282,6 +1282,16 @@ pub fn openatW(dir_fd: fd_t, file_path_w: []const u16, flags: u32, mode: mode_t)
     };
 }
 
+pub fn dup(old_fd: fd_t) !fd_t {
+    const rc = system.dup(old_fd);
+    return switch (errno(rc)) {
+        0 => return @intCast(fd_t, rc),
+        EMFILE => error.ProcessFdQuotaExceeded,
+        EBADF => unreachable, // invalid file descriptor
+        else => |err| return unexpectedErrno(err),
+    };
+}
+
 pub fn dup2(old_fd: fd_t, new_fd: fd_t) !void {
     while (true) {
         switch (errno(system.dup2(old_fd, new_fd))) {

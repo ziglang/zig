@@ -94,6 +94,10 @@ pub fn getErrno(r: usize) u12 {
     return if (signed_r > -4096 and signed_r < 0) @intCast(u12, -signed_r) else 0;
 }
 
+pub fn dup(old: i32) usize {
+    return syscall1(.dup, @bitCast(usize, @as(isize, old)));
+}
+
 pub fn dup2(old: i32, new: i32) usize {
     if (@hasField(SYS, "dup2")) {
         return syscall2(.dup2, @bitCast(usize, @as(isize, old)), @bitCast(usize, @as(isize, new)));
