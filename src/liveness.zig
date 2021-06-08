@@ -1,5 +1,5 @@
 const std = @import("std");
-const ir = @import("air.zig");
+const air = @import("air.zig");
 const trace = @import("tracy.zig").trace;
 const log = std.log.scoped(.liveness);
 const assert = std.debug.assert;
@@ -10,12 +10,12 @@ pub fn analyze(
     gpa: *std.mem.Allocator,
     /// Used to tack on extra allocations in the same lifetime as the existing instructions.
     arena: *std.mem.Allocator,
-    body: ir.Body,
+    body: air.Body,
 ) error{OutOfMemory}!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    var table = std.AutoHashMap(*ir.Inst, void).init(gpa);
+    var table = std.AutoHashMap(*air.Inst, void).init(gpa);
     defer table.deinit();
     try table.ensureCapacity(@intCast(u32, body.instructions.len));
     try analyzeWithTable(arena, &table, null, body);
@@ -23,9 +23,9 @@ pub fn analyze(
 
 fn analyzeWithTable(
     arena: *std.mem.Allocator,
-    table: *std.AutoHashMap(*ir.Inst, void),
-    new_set: ?*std.AutoHashMap(*ir.Inst, void),
-    body: ir.Body,
+    table: *std.AutoHashMap(*air.Inst, void),
+    new_set: ?*std.AutoHashMap(*air.Inst, void),
+    body: air.Body,
 ) error{OutOfMemory}!void {
     var i: usize = body.instructions.len;
 
@@ -50,16 +50,16 @@ fn analyzeWithTable(
 
 fn analyzeInst(
     arena: *std.mem.Allocator,
-    table: *std.AutoHashMap(*ir.Inst, void),
-    new_set: ?*std.AutoHashMap(*ir.Inst, void),
-    base: *ir.Inst,
+    table: *std.AutoHashMap(*air.Inst, void),
+    new_set: ?*std.AutoHashMap(*air.Inst, void),
+    base: *air.Inst,
 ) error{OutOfMemory}!void {
     if (table.contains(base)) {
         base.deaths = 0;
     } else {
         // No tombstone for this instruction means it is never referenced,
         // and its birth marks its own death. Very metal 🤘
-        base.deaths = 1 << ir.Inst.unreferenced_bit_index;
+        base.deaths = 1 << air.Inst.unreferenced_bit_index;
     }
 
     switch (base.tag) {
@@ -81,7 +81,7 @@ fn analyzeInst(
             // Each death that occurs inside one branch, but not the other, needs
             // to be added as a death immediately upon entering the other branch.
 
-            var then_table = std.AutoHashMap(*ir.Inst, void).init(table.allocator);
+            var then_table = std.AutoHashMap(*air.Inst, void).init(table.allocator);
             defer then_table.deinit();
             try analyzeWithTable(arena, table, &then_table, inst.then_body);
 
@@ -93,13 +93,13 @@ fn analyzeInst(
                 }
             }
 
-            var else_table = std.AutoHashMap(*ir.Inst, void).init(table.allocator);
+            var else_table = std.AutoHashMap(*air.Inst, void).init(table.allocator);
             defer else_table.deinit();
             try analyzeWithTable(arena, table, &else_table, inst.else_body);
 
-            var then_entry_deaths = std.ArrayList(*ir.Inst).init(table.allocator);
+            var then_entry_deaths = std.ArrayList(*air.Inst).init(table.allocator);
             defer then_entry_deaths.deinit();
-            var else_entry_deaths = std.ArrayList(*ir.Inst).init(table.allocator);
+            var else_entry_deaths = std.ArrayList(*air.Inst).init(table.allocator);
             defer else_entry_deaths.deinit();
 
             {
@@ -137,10 +137,10 @@ fn analyzeInst(
             }
             inst.then_death_count = std.math.cast(@TypeOf(inst.then_death_count), then_entry_deaths.items.len) catch return error.OutOfMemory;
             inst.else_death_count = std.math.cast(@TypeOf(inst.else_death_count), else_entry_deaths.items.len) catch return error.OutOfMemory;
-            const allocated_slice = try arena.alloc(*ir.Inst, then_entry_deaths.items.len + else_entry_deaths.items.len);
+            const allocated_slice = try arena.alloc(*air.Inst, then_entry_deaths.items.len + else_entry_deaths.items.len);
             inst.deaths = allocated_slice.ptr;
-            std.mem.copy(*ir.Inst, inst.thenDeaths(), then_entry_deaths.items);
-            std.mem.copy(*ir.Inst, inst.elseDeaths(), else_entry_deaths.items);
+            std.mem.copy(*air.Inst, inst.thenDeaths(), then_entry_deaths.items);
+            std.mem.copy(*air.Inst, inst.elseDeaths(), else_entry_deaths.items);
 
             // Continue on with the instruction analysis. The following code will find the condition
             // instruction, and the deaths flag for the CondBr instruction will indicate whether the
@@ -149,7 +149,7 @@ fn analyzeInst(
         .switchbr => {
             const inst = base.castTag(.switchbr).?;
 
-            const Table = std.AutoHashMap(*ir.Inst, void);
+            const Table = std.AutoHashMap(*air.Inst, void);
             const case_tables = try table.allocator.alloc(Table, inst.cases.len + 1); // +1 for else
             defer table.allocator.free(case_tables);
 
@@ -175,7 +175,7 @@ fn analyzeInst(
                 }
             }
 
-            const List = std.ArrayList(*ir.Inst);
+            const List = std.ArrayList(*air.Inst);
             const case_deaths = try table.allocator.alloc(List, case_tables.len); // +1 for else
             defer table.allocator.free(case_deaths);
 
@@ -225,24 +225,24 @@ fn analyzeInst(
                 total_deaths += else_deaths;
             }
 
-            const allocated_slice = try arena.alloc(*ir.Inst, total_deaths);
+            const allocated_slice = try arena.alloc(*air.Inst, total_deaths);
             inst.deaths = allocated_slice.ptr;
             for (case_deaths[0 .. case_deaths.len - 1]) |*cd, i| {
-                std.mem.copy(*ir.Inst, inst.caseDeaths(i), cd.items);
+                std.mem.copy(*air.Inst, inst.caseDeaths(i), cd.items);
             }
-            std.mem.copy(*ir.Inst, inst.elseDeaths(), case_deaths[case_deaths.len - 1].items);
+            std.mem.copy(*air.Inst, inst.elseDeaths(), case_deaths[case_deaths.len - 1].items);
         },
         else => {},
     }
 
     const needed_bits = base.operandCount();
-    if (needed_bits <= ir.Inst.deaths_bits) {
-        var bit_i: ir.Inst.DeathsBitIndex = 0;
+    if (needed_bits <= air.Inst.deaths_bits) {
+        var bit_i: air.Inst.DeathsBitIndex = 0;
         while (base.getOperand(bit_i)) |operand| : (bit_i += 1) {
             const prev = try table.fetchPut(operand, {});
             if (prev == null) {
                 // Death.
-                base.deaths |= @as(ir.Inst.DeathsInt, 1) << bit_i;
+                base.deaths |= @as(air.Inst.DeathsInt, 1) << bit_i;
                 if (new_set) |ns| try ns.putNoClobber(operand, {});
             }
         }

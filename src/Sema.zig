@@ -32,7 +32,7 @@ func: ?*Module.Fn,
 /// > Denormalized data to make `resolveInst` faster. This is 0 if not inside a function,
 /// > otherwise it is the number of parameters of the function.
 /// > param_count: u32
-param_inst_list: []const *ir.Inst,
+param_inst_list: []const *air.Inst,
 branch_quota: u32 = 1000,
 branch_count: u32 = 0,
 /// This field is updated when a new source location becomes active, so that
@@ -52,11 +52,11 @@ const Sema = @This();
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
-const ir = @import("air.zig");
+const air = @import("air.zig");
 const Zir = @import("Zir.zig");
 const Module = @import("Module.zig");
-const Inst = ir.Inst;
-const Body = ir.Body;
+const Inst = air.Inst;
+const Body = air.Body;
 const trace = @import("tracy.zig").trace;
 const Scope = Module.Scope;
 const InnerError = Module.InnerError;
@@ -65,7 +65,7 @@ const LazySrcLoc = Module.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
 const target_util = @import("target.zig");
 
-pub const InstMap = std.AutoHashMapUnmanaged(Zir.Inst.Index, *ir.Inst);
+pub const InstMap = std.AutoHashMapUnmanaged(Zir.Inst.Index, *air.Inst);
 
 pub fn deinit(sema: *Sema) void {
     sema.inst_map.deinit(sema.gpa);
@@ -569,7 +569,7 @@ fn zirExtended(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerErro
 }
 
 /// TODO when we rework AIR memory layout, this function will no longer have a possible error.
-pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) error{OutOfMemory}!*ir.Inst {
+pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) error{OutOfMemory}!*air.Inst {
     var i: usize = @enumToInt(zir_ref);
 
     // First section of indexes correspond to a set number of constant values.
@@ -577,7 +577,7 @@ pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) error{OutOfMemory}!*ir.In
         // TODO when we rework AIR memory layout, this function can be as simple as:
         // if (zir_ref < Zir.const_inst_list.len + sema.param_count)
         //     return zir_ref;
-        // Until then we allocate memory for a new, mutable `ir.Inst` to match what
+        // Until then we allocate memory for a new, mutable `air.Inst` to match what
         // AIR expects.
         return sema.mod.constInst(sema.arena, .unneeded, Zir.Inst.Ref.typed_value_map[i]);
     }
@@ -605,19 +605,19 @@ pub fn resolveType(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, zir_ref: Z
     return sema.resolveAirAsType(block, src, air_inst);
 }
 
-fn resolveAirAsType(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, air_inst: *ir.Inst) !Type {
+fn resolveAirAsType(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, air_inst: *air.Inst) !Type {
     const wanted_type = Type.initTag(.@"type");
     const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
     const val = try sema.resolveConstValue(block, src, coerced_inst);
     return val.toType(sema.arena);
 }
 
-fn resolveConstValue(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, base: *ir.Inst) !Value {
+fn resolveConstValue(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, base: *air.Inst) !Value {
     return (try sema.resolveDefinedValue(block, src, base)) orelse
         return sema.failWithNeededComptime(block, src);
 }
 
-fn resolveDefinedValue(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, base: *ir.Inst) !?Value {
+fn resolveDefinedValue(sema: *Sema, block: *Scope.Block, src: LazySrcLoc, base: *air.Inst) !?Value {
     if (try sema.resolvePossiblyUndefinedValue(block, src, base)) |val| {
         if (val.isUndef()) {
             return sema.failWithUseOfUndef(block, src);
@@ -631,7 +631,7 @@ fn resolvePossiblyUndefinedValue(
     sema: *Sema,
     block: *Scope.Block,
     src: LazySrcLoc,
-    base: *ir.Inst,
+    base: *air.Inst,
 ) !?Value {
     if (try sema.typeHasOnePossibleValue(block, src, base.ty)) |opv| {
         return opv;
@@ -2186,7 +2186,7 @@ fn analyzeCall(
     modifier: std.builtin.CallOptions.Modifier,
     ensure_result_used: bool,
     zir_args: []const Zir.Inst.Ref,
-) InnerError!*ir.Inst {
+) InnerError!*air.Inst {
     const func = try sema.resolveInst(zir_func);
 
     if (func.ty.zigTypeTag() != .Fn)
@@ -4525,7 +4525,7 @@ fn zirBitwise(
     sema: *Sema,
     block: *Scope.Block,
     inst: Zir.Inst.Index,
-    ir_tag: ir.Inst.Tag,
+    ir_tag: air.Inst.Tag,
 ) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
@@ -5097,7 +5097,7 @@ fn zirTypeofPeer(
     const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
     const args = sema.code.refSlice(extra.end, extended.small);
 
-    const inst_list = try sema.gpa.alloc(*ir.Inst, args.len);
+    const inst_list = try sema.gpa.alloc(*air.Inst, args.len);
     defer sema.gpa.free(inst_list);
 
     for (args) |arg_ref, i| {
@@ -5152,7 +5152,7 @@ fn zirBoolOp(
         }
     }
     try sema.requireRuntimeBlock(block, src);
-    const tag: ir.Inst.Tag = if (is_bool_or) .bool_or else .bool_and;
+    const tag: air.Inst.Tag = if (is_bool_or) .bool_or else .bool_and;
     return block.addBinOp(src, bool_type, tag, lhs, rhs);
 }
 
@@ -5216,8 +5216,8 @@ fn zirBoolBr(
     const rhs_result = try sema.resolveBody(rhs_block, body);
     _ = try rhs_block.addBr(src, block_inst, rhs_result);
 
-    const air_then_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, then_block.instructions.items) };
-    const air_else_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, else_block.instructions.items) };
+    const air_then_body: air.Body = .{ .instructions = try sema.arena.dupe(*Inst, then_block.instructions.items) };
+    const air_else_body: air.Body = .{ .instructions = try sema.arena.dupe(*Inst, else_block.instructions.items) };
     _ = try child_block.addCondBr(src, lhs, air_then_body, air_else_body);
 
     block_inst.body = .{
@@ -5310,14 +5310,14 @@ fn zirCondbr(
     defer sub_block.instructions.deinit(sema.gpa);
 
     _ = try sema.analyzeBody(&sub_block, then_body);
-    const air_then_body: ir.Body = .{
+    const air_then_body: air.Body = .{
         .instructions = try sema.arena.dupe(*Inst, sub_block.instructions.items),
     };
 
     sub_block.instructions.shrinkRetainingCapacity(0);
 
     _ = try sema.analyzeBody(&sub_block, else_body);
-    const air_else_body: ir.Body = .{
+    const air_else_body: air.Body = .{
         .instructions = try sema.arena.dupe(*Inst, sub_block.instructions.items),
     };
 
@@ -5524,7 +5524,7 @@ fn zirStructInit(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index, is_ref:
     mem.set(Zir.Inst.Index, found_fields, 0);
 
     // The init values to use for the struct instance.
-    const field_inits = try gpa.alloc(*ir.Inst, struct_obj.fields.count());
+    const field_inits = try gpa.alloc(*air.Inst, struct_obj.fields.count());
     defer gpa.free(field_inits);
 
     var field_i: u32 = 0;
@@ -6196,7 +6196,7 @@ fn addSafetyCheck(sema: *Sema, parent_block: *Scope.Block, ok: *Inst, panic_id: 
         },
     };
 
-    const ok_body: ir.Body = .{
+    const ok_body: air.Body = .{
         .instructions = try sema.arena.alloc(*Inst, 1), // Only need space for the br_void.
     };
     const br_void = try sema.arena.create(Inst.BrVoid);
@@ -6223,7 +6223,7 @@ fn addSafetyCheck(sema: *Sema, parent_block: *Scope.Block, ok: *Inst, panic_id: 
 
     _ = try sema.safetyPanic(&fail_block, ok.src, panic_id);
 
-    const fail_body: ir.Body = .{ .instructions = try sema.arena.dupe(*Inst, fail_block.instructions.items) };
+    const fail_body: air.Body = .{ .instructions = try sema.arena.dupe(*Inst, fail_block.instructions.items) };
 
     const condbr = try sema.arena.create(Inst.CondBr);
     condbr.* = .{

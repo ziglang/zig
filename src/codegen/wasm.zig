@@ -9,8 +9,8 @@ const wasm = std.wasm;
 
 const Module = @import("../Module.zig");
 const Decl = Module.Decl;
-const ir = @import("../air.zig");
-const Inst = ir.Inst;
+const air = @import("../air.zig");
+const Inst = air.Inst;
 const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;
 const Compilation = @import("../Compilation.zig");
@@ -833,7 +833,7 @@ pub const Context = struct {
         };
     }
 
-    fn genBody(self: *Context, body: ir.Body) InnerError!void {
+    fn genBody(self: *Context, body: air.Body) InnerError!void {
         for (body.instructions) |inst| {
             const result = try self.genInst(inst);
             try self.values.putNoClobber(self.gpa, inst, result);

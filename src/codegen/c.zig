@@ -6,8 +6,8 @@ const log = std.log.scoped(.c);
 const link = @import("../link.zig");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
-const ir = @import("../air.zig");
-const Inst = ir.Inst;
+const air = @import("../air.zig");
+const Inst = air.Inst;
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 const TypedValue = @import("../TypedValue.zig");
@@ -88,7 +88,7 @@ pub const Object = struct {
     gpa: *mem.Allocator,
     code: std.ArrayList(u8),
     value_map: CValueMap,
-    blocks: std.AutoHashMapUnmanaged(*ir.Inst.Block, BlockData) = .{},
+    blocks: std.AutoHashMapUnmanaged(*air.Inst.Block, BlockData) = .{},
     next_arg_index: usize = 0,
     next_local_index: usize = 0,
     next_block_index: usize = 0,
@@ -648,7 +648,7 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
     }
 }
 
-pub fn genBody(o: *Object, body: ir.Body) error{ AnalysisFail, OutOfMemory }!void {
+pub fn genBody(o: *Object, body: air.Body) error{ AnalysisFail, OutOfMemory }!void {
     const writer = o.writer();
     if (body.instructions.len == 0) {
         try writer.writeAll("{}");

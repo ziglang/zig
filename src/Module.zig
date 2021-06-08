@@ -21,7 +21,7 @@ const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
-const ir = @import("air.zig");
+const air = @import("air.zig");
 const Zir = @import("Zir.zig");
 const trace = @import("tracy.zig").trace;
 const AstGen = @import("AstGen.zig");
@@ -739,7 +739,7 @@ pub const Fn = struct {
     /// The Decl that corresponds to the function itself.
     owner_decl: *Decl,
     /// undefined unless analysis state is `success`.
-    body: ir.Body,
+    body: air.Body,
     /// The ZIR instruction that is a function instruction. Use this to find
     /// the body. We store this rather than the body directly so that when ZIR
     /// is regenerated on update(), we can map this to the new corresponding
@@ -771,7 +771,7 @@ pub const Fn = struct {
 
     /// For debugging purposes.
     pub fn dump(func: *Fn, mod: Module) void {
-        ir.dumpFn(mod, func);
+        air.dumpFn(mod, func);
     }
 
     pub fn deinit(func: *Fn, gpa: *Allocator) void {}
@@ -1136,7 +1136,7 @@ pub const Scope = struct {
         /// This can vary during inline or comptime function calls. See `Sema.owner_decl`
         /// for the one that will be the same for all Block instances.
         src_decl: *Decl,
-        instructions: ArrayListUnmanaged(*ir.Inst),
+        instructions: ArrayListUnmanaged(*air.Inst),
         label: ?*Label = null,
         inlining: ?*Inlining,
         /// If runtime_index is not 0 then one of these is guaranteed to be non null.
@@ -1165,14 +1165,14 @@ pub const Scope = struct {
         };
 
         pub const Merges = struct {
-            block_inst: *ir.Inst.Block,
+            block_inst: *air.Inst.Block,
             /// Separate array list from break_inst_list so that it can be passed directly
             /// to resolvePeerTypes.
-            results: ArrayListUnmanaged(*ir.Inst),
+            results: ArrayListUnmanaged(*air.Inst),
             /// Keeps track of the break instructions so that the operand can be replaced
             /// if we need to add type coercion at the end of block analysis.
             /// Same indexes, capacity, length as `results`.
-            br_list: ArrayListUnmanaged(*ir.Inst.Br),
+            br_list: ArrayListUnmanaged(*air.Inst.Br),
         };
 
         /// For debugging purposes.
@@ -1213,8 +1213,8 @@ pub const Scope = struct {
             block: *Scope.Block,
             src: LazySrcLoc,
             ty: Type,
-            comptime tag: ir.Inst.Tag,
-        ) !*ir.Inst {
+            comptime tag: air.Inst.Tag,
+        ) !*air.Inst {
             const inst = try block.sema.arena.create(tag.Type());
             inst.* = .{
                 .base = .{
@@ -1231,10 +1231,10 @@ pub const Scope = struct {
             block: *Scope.Block,
             src: LazySrcLoc,
             ty: Type,
-            tag: ir.Inst.Tag,
-            operand: *ir.Inst,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.UnOp);
+            tag: air.Inst.Tag,
+            operand: *air.Inst,
+        ) !*air.Inst {
+            const inst = try block.sema.arena.create(air.Inst.UnOp);
             inst.* = .{
                 .base = .{
                     .tag = tag,
@@ -1251,11 +1251,11 @@ pub const Scope = struct {
             block: *Scope.Block,
             src: LazySrcLoc,
             ty: Type,
-            tag: ir.Inst.Tag,
-            lhs: *ir.Inst,
-            rhs: *ir.Inst,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.BinOp);
+            tag: air.Inst.Tag,
+            lhs: *air.Inst,
+            rhs: *air.Inst,
+        ) !*air.Inst {
+            const inst = try block.sema.arena.create(air.Inst.BinOp);
             inst.* = .{
                 .base = .{
                     .tag = tag,
@@ -1272,10 +1272,10 @@ pub const Scope = struct {
         pub fn addBr(
             scope_block: *Scope.Block,
             src: LazySrcLoc,
-            target_block: *ir.Inst.Block,
-            operand: *ir.Inst,
-        ) !*ir.Inst.Br {
-            const inst = try scope_block.sema.arena.create(ir.Inst.Br);
+            target_block: *air.Inst.Block,
+            operand: *air.Inst,
+        ) !*air.Inst.Br {
+            const inst = try scope_block.sema.arena.create(air.Inst.Br);
             inst.* = .{
                 .base = .{
                     .tag = .br,
@@ -1292,11 +1292,11 @@ pub const Scope = struct {
         pub fn addCondBr(
             block: *Scope.Block,
             src: LazySrcLoc,
-            condition: *ir.Inst,
-            then_body: ir.Body,
-            else_body: ir.Body,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.CondBr);
+            condition: *air.Inst,
+            then_body: air.Body,
+            else_body: air.Body,
+        ) !*air.Inst {
+            const inst = try block.sema.arena.create(air.Inst.CondBr);
             inst.* = .{
                 .base = .{
                     .tag = .condbr,
@@ -1315,10 +1315,10 @@ pub const Scope = struct {
             block: *Scope.Block,
             src: LazySrcLoc,
             ty: Type,
-            func: *ir.Inst,
-            args: []const *ir.Inst,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.Call);
+            func: *air.Inst,
+            args: []const *air.Inst,
+        ) !*air.Inst {
+            const inst = try block.sema.arena.create(air.Inst.Call);
             inst.* = .{
                 .base = .{
                     .tag = .call,
@@ -1335,11 +1335,11 @@ pub const Scope = struct {
         pub fn addSwitchBr(
             block: *Scope.Block,
             src: LazySrcLoc,
-            operand: *ir.Inst,
-            cases: []ir.Inst.SwitchBr.Case,
-            else_body: ir.Body,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.SwitchBr);
+            operand: *air.Inst,
+            cases: []air.Inst.SwitchBr.Case,
+            else_body: air.Body,
+        ) !*air.Inst {
+            const inst = try block.sema.arena.create(air.Inst.SwitchBr);
             inst.* = .{
                 .base = .{
                     .tag = .switchbr,
@@ -1354,8 +1354,8 @@ pub const Scope = struct {
             return &inst.base;
         }
 
-        pub fn addDbgStmt(block: *Scope.Block, src: LazySrcLoc, line: u32, column: u32) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.DbgStmt);
+        pub fn addDbgStmt(block: *Scope.Block, src: LazySrcLoc, line: u32, column: u32) !*air.Inst {
+            const inst = try block.sema.arena.create(air.Inst.DbgStmt);
             inst.* = .{
                 .base = .{
                     .tag = .dbg_stmt,
@@ -1373,10 +1373,10 @@ pub const Scope = struct {
             block: *Scope.Block,
             src: LazySrcLoc,
             ty: Type,
-            struct_ptr: *ir.Inst,
+            struct_ptr: *air.Inst,
             field_index: u32,
-        ) !*ir.Inst {
-            const inst = try block.sema.arena.create(ir.Inst.StructFieldPtr);
+        ) !*air.Inst {
+            const inst = try block.sema.arena.create(air.Inst.StructFieldPtr);
             inst.* = .{
                 .base = .{
                     .tag = .struct_field_ptr,
@@ -3559,12 +3559,12 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
     defer decl.value_arena.?.* = arena.state;
 
     const fn_ty = decl.ty;
-    const param_inst_list = try mod.gpa.alloc(*ir.Inst, fn_ty.fnParamLen());
+    const param_inst_list = try mod.gpa.alloc(*air.Inst, fn_ty.fnParamLen());
     defer mod.gpa.free(param_inst_list);
 
     for (param_inst_list) |*param_inst, param_index| {
         const param_type = fn_ty.fnParamType(param_index);
-        const arg_inst = try arena.allocator.create(ir.Inst.Arg);
+        const arg_inst = try arena.allocator.create(air.Inst.Arg);
         arg_inst.* = .{
             .base = .{
                 .tag = .arg,
@@ -3609,7 +3609,7 @@ pub fn analyzeFnBody(mod: *Module, decl: *Decl, func: *Fn) !void {
 
     try sema.analyzeFnBody(&inner_block, func.zir_body_inst);
 
-    const instructions = try arena.allocator.dupe(*ir.Inst, inner_block.instructions.items);
+    const instructions = try arena.allocator.dupe(*air.Inst, inner_block.instructions.items);
     func.state = .success;
     func.body = .{ .instructions = instructions };
     log.debug("set {s} to success", .{decl.name});
@@ -3763,11 +3763,11 @@ pub fn analyzeExport(
     de_gop.value_ptr.*[de_gop.value_ptr.len - 1] = new_export;
     errdefer de_gop.value_ptr.* = mod.gpa.shrink(de_gop.value_ptr.*, de_gop.value_ptr.len - 1);
 }
-pub fn constInst(mod: *Module, arena: *Allocator, src: LazySrcLoc, typed_value: TypedValue) !*ir.Inst {
-    const const_inst = try arena.create(ir.Inst.Constant);
+pub fn constInst(mod: *Module, arena: *Allocator, src: LazySrcLoc, typed_value: TypedValue) !*air.Inst {
+    const const_inst = try arena.create(air.Inst.Constant);
     const_inst.* = .{
         .base = .{
-            .tag = ir.Inst.Constant.base_tag,
+            .tag = air.Inst.Constant.base_tag,
             .ty = typed_value.ty,
             .src = src,
         },
@@ -3776,56 +3776,56 @@ pub fn constInst(mod: *Module, arena: *Allocator, src: LazySrcLoc, typed_value: 
     return &const_inst.base;
 }
 
-pub fn constType(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type) !*ir.Inst {
+pub fn constType(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type) !*air.Inst {
     return mod.constInst(arena, src, .{
         .ty = Type.initTag(.type),
         .val = try ty.toValue(arena),
     });
 }
 
-pub fn constVoid(mod: *Module, arena: *Allocator, src: LazySrcLoc) !*ir.Inst {
+pub fn constVoid(mod: *Module, arena: *Allocator, src: LazySrcLoc) !*air.Inst {
     return mod.constInst(arena, src, .{
         .ty = Type.initTag(.void),
         .val = Value.initTag(.void_value),
     });
 }
 
-pub fn constNoReturn(mod: *Module, arena: *Allocator, src: LazySrcLoc) !*ir.Inst {
+pub fn constNoReturn(mod: *Module, arena: *Allocator, src: LazySrcLoc) !*air.Inst {
     return mod.constInst(arena, src, .{
         .ty = Type.initTag(.noreturn),
         .val = Value.initTag(.unreachable_value),
     });
 }
 
-pub fn constUndef(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type) !*ir.Inst {
+pub fn constUndef(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type) !*air.Inst {
     return mod.constInst(arena, src, .{
         .ty = ty,
         .val = Value.initTag(.undef),
     });
 }
 
-pub fn constBool(mod: *Module, arena: *Allocator, src: LazySrcLoc, v: bool) !*ir.Inst {
+pub fn constBool(mod: *Module, arena: *Allocator, src: LazySrcLoc, v: bool) !*air.Inst {
     return mod.constInst(arena, src, .{
         .ty = Type.initTag(.bool),
         .val = ([2]Value{ Value.initTag(.bool_false), Value.initTag(.bool_true) })[@boolToInt(v)],
     });
 }
 
-pub fn constIntUnsigned(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, int: u64) !*ir.Inst {
+pub fn constIntUnsigned(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, int: u64) !*air.Inst {
     return mod.constInst(arena, src, .{
         .ty = ty,
         .val = try Value.Tag.int_u64.create(arena, int),
     });
 }
 
-pub fn constIntSigned(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, int: i64) !*ir.Inst {
+pub fn constIntSigned(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, int: i64) !*air.Inst {
     return mod.constInst(arena, src, .{
         .ty = ty,
         .val = try Value.Tag.int_i64.create(arena, int),
     });
 }
 
-pub fn constIntBig(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, big_int: BigIntConst) !*ir.Inst {
+pub fn constIntBig(mod: *Module, arena: *Allocator, src: LazySrcLoc, ty: Type, big_int: BigIntConst) !*air.Inst {
     if (big_int.positive) {
         if (big_int.to(u64)) |x| {
             return mod.constIntUnsigned(arena, src, ty, x);
@@ -4376,7 +4376,7 @@ pub fn errorUnionType(
     });
 }
 
-pub fn dumpInst(mod: *Module, scope: *Scope, inst: *ir.Inst) void {
+pub fn dumpInst(mod: *Module, scope: *Scope, inst: *air.Inst) void {
     const zir_module = scope.namespace();
     const source = zir_module.getSource(mod) catch @panic("dumpInst failed to get source");
     const loc = std.zig.findLineColumn(source, inst.src);

@@ -9,8 +9,8 @@ const math = std.math;
 
 const Module = @import("../Module.zig");
 const TypedValue = @import("../TypedValue.zig");
-const ir = @import("../air.zig");
-const Inst = ir.Inst;
+const air = @import("../air.zig");
+const Inst = air.Inst;
 
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
@@ -643,7 +643,7 @@ pub const FuncGen = struct {
         return self.dg.gpa;
     }
 
-    fn resolveInst(self: *FuncGen, inst: *ir.Inst) !*const llvm.Value {
+    fn resolveInst(self: *FuncGen, inst: *air.Inst) !*const llvm.Value {
         if (inst.value()) |val| {
             return self.dg.genTypedValue(.{ .ty = inst.ty, .val = val }, self);
         }
@@ -652,7 +652,7 @@ pub const FuncGen = struct {
         return self.todo("implement global llvm values (or the value is not in the func_inst_table table)", .{});
     }
 
-    fn genBody(self: *FuncGen, body: ir.Body) error{ OutOfMemory, CodegenFail }!void {
+    fn genBody(self: *FuncGen, body: air.Body) error{ OutOfMemory, CodegenFail }!void {
         for (body.instructions) |inst| {
             const opt_value = switch (inst.tag) {
                 .add => try self.genAdd(inst.castTag(.add).?),
