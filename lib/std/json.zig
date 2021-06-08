@@ -1567,6 +1567,18 @@ test "field aliases" {
     try testing.expectEqual(@as(u8, 42), s.value);
 }
 
+test "field alias escapes" {
+    const S = struct { foo: u8 };
+    const text =
+        "{\"__f\x6fo\": 42}";
+
+    const s = try parse(S, &TokenStream.init(text), .{
+        .field_aliases = &.{.{ "foo", "__foo" }},
+        .allocator = std.testing.allocator,
+    });
+    try testing.expectEqual(@as(u8, 42), s.foo);
+}
+
 fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: ParseOptions) !T {
     switch (@typeInfo(T)) {
         .Bool => {
