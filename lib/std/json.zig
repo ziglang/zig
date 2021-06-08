@@ -1531,7 +1531,7 @@ test "skipValue" {
     }
 }
 
-// build a map of aliases from alias_name => target_field_name
+// build a map of aliases from field_name => alias_name
 fn buildFieldAliases(comptime T: type, options: ParseOptions) !std.StringHashMapUnmanaged([]const u8) {
     const field_aliases = options.field_aliases;
     var result = std.StringHashMapUnmanaged([]const u8){};
@@ -1540,7 +1540,7 @@ fn buildFieldAliases(comptime T: type, options: ParseOptions) !std.StringHashMap
         for (alias_entries) |entry| {
             if (std.mem.eql(u8, field_name, entry.field)) {
                 const allocator = options.allocator orelse return error.AllocatorRequired;
-                try result.put(allocator, entry.alias, entry.field);
+                try result.put(allocator, entry.field, entry.alias);
             }
         }
     }
@@ -1572,6 +1572,24 @@ test "field alias escapes" {
     const text =
         \\{"__f\u006fo": 42}
     ;
+
+    // match alias, mismatched field
+    try testing.expectError(
+        error.UnknownField,
+        parse(S, &TokenStream.init(text), .{
+            .field_aliases = &.{.{ .field = "bar", .alias = "__foo" }},
+        }),
+    );
+
+    // match field, mismatched alias
+    try testing.expectError(
+        error.UnknownField,
+        parse(S, &TokenStream.init(text), .{
+            .field_aliases = &.{.{ .field = "foo", .alias = "__bar" }},
+            .allocator = std.testing.allocator,
+        }),
+    );
+
     const s = try parse(S, &TokenStream.init(text), .{
         .field_aliases = &.{.{ .field = "foo", .alias = "__foo" }},
         .allocator = std.testing.allocator,
@@ -1690,20 +1708,13 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                 // no escapes, no alias
                                 (mem.eql(u8, field.name, key_source_slice) or
                                 // no escapes, yes alias - the key may be an unescaped alias
-                                if (field_alias_map.get(key_source_slice)) |aliased_field| mem.eql(u8, field.name, aliased_field) else false) or
+                                if (field_alias_map.get(field.name)) |alias| mem.eql(u8, alias, key_source_slice) else false) or
                                 (stringToken.escapes == .Some and
                                 // yes escapes, no alias
                                 ((field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)) or
                                 // yes escapes, yes alias  - the key may be an escaped alias.
-                                // we must search the alias map's keys, checking if a key encodes correctly
-                                found_alias: {
-                                var it = field_alias_map.iterator();
-                                while (it.next()) |entry| {
-                                    const alias = entry.key_ptr.*;
-                                    if (alias.len == stringToken.decodedLength() and encodesTo(alias, key_source_slice))
-                                        break :found_alias true;
-                                } else break :found_alias false;
-                            })))) {
+                                if (field_alias_map.get(field.name)) |alias| alias.len == stringToken.decodedLength() and encodesTo(alias, key_source_slice) else false))))
+                            {
                                 // if (switch (stringToken.escapes) {
                                 //     .None => mem.eql(u8, field.name, key_source_slice),
                                 //     .Some => (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)),
