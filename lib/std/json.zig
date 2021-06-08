@@ -1548,16 +1548,16 @@ fn buildFieldAliases(comptime T: type, options: ParseOptions) !std.StringHashMap
 }
 
 test "field aliases" {
-    const S = struct {
-        value: u8,
-    };
+    const S = struct { value: u8 };
     const text =
         \\{"__value": 42}
     ;
 
     try testing.expectError(
         error.AllocatorRequired,
-        parse(S, &TokenStream.init(text), .{ .field_aliases = &.{.{ .field = "value", .alias = "__value" }} }),
+        parse(S, &TokenStream.init(text), .{
+            .field_aliases = &.{.{ .field = "value", .alias = "__value" }},
+        }),
     );
 
     const s = try parse(S, &TokenStream.init(text), .{
@@ -1572,11 +1572,8 @@ test "field alias escapes" {
     const text =
         \\{"__f\u006fo": 42}
     ;
-    testing.log_level = .debug;
     const s = try parse(S, &TokenStream.init(text), .{
-        .field_aliases = &.{.{ .field = "foo", .alias = 
-        \\__f\u006fo 
-        }},
+        .field_aliases = &.{.{ .field = "foo", .alias = "__foo" }},
         .allocator = std.testing.allocator,
     });
     try testing.expectEqual(@as(u8, 42), s.foo);
@@ -1684,14 +1681,29 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                     .ObjectEnd => break,
                     .String => |stringToken| {
                         const key_source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
-                        const aliased_key_opt = field_alias_map.get(key_source_slice);
-                        std.log.debug("stringToken {} key_source_slice {s} aliased_key_opt {s}", .{ stringToken, key_source_slice, aliased_key_opt });
                         var child_options = options;
                         child_options.allow_trailing_data = true;
                         var found = false;
                         inline for (structInfo.fields) |field, i| {
                             // TODO: using switches here segfault the compiler (#2727?)
-                            if ((stringToken.escapes == .None and mem.eql(u8, field.name, key_source_slice)) or (stringToken.escapes == .Some and (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)))) {
+                            if ((stringToken.escapes == .None and
+                                // no escapes, no alias
+                                (mem.eql(u8, field.name, key_source_slice) or
+                                // no escapes, yes alias - the key may be an unescaped alias
+                                if (field_alias_map.get(key_source_slice)) |aliased_field| mem.eql(u8, field.name, aliased_field) else false) or
+                                (stringToken.escapes == .Some and
+                                // yes escapes, no alias
+                                ((field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)) or
+                                // yes escapes, yes alias  - the key may be an escaped alias.
+                                // we must search the alias map's keys, checking if a key encodes correctly
+                                found_alias: {
+                                var it = field_alias_map.iterator();
+                                while (it.next()) |entry| {
+                                    const alias = entry.key_ptr.*;
+                                    if (alias.len == stringToken.decodedLength() and encodesTo(alias, key_source_slice))
+                                        break :found_alias true;
+                                } else break :found_alias false;
+                            })))) {
                                 // if (switch (stringToken.escapes) {
                                 //     .None => mem.eql(u8, field.name, key_source_slice),
                                 //     .Some => (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)),
