@@ -1451,6 +1451,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             // TODO add logic deciding which crt1 we want here.
             comp.work_queue.writeAssumeCapacity(&[_]Job{
                 .{ .wasi_libc_crt_file = .crt1_o },
+                .{ .wasi_libc_crt_file = .crt1_command_o },
+                .{ .wasi_libc_crt_file = .crt1_reactor_o },
                 .{ .wasi_libc_crt_file = .libc_a },
             });
         }
@@ -1875,7 +1877,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
 
             for (keys[1..]) |key, i| {
                 err_msg.notes[i] = .{
-                    .src_loc = key.nodeOffsetSrcLoc(values[i+1]),
+                    .src_loc = key.nodeOffsetSrcLoc(values[i + 1]),
                     .msg = "also here",
                 };
             }
