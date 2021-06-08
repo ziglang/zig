@@ -682,7 +682,8 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             try argv.append("--stack-first");
 
             // Reactor execution model does not have _start so lld doesn't look for it.
-            if (self.base.options.wasi_exec_model != null and self.base.options.wasi_exec_model.? == Compilation.WasiExecModel.reactor) {
+            if (self.base.options.wasi_exec_model) |exec_model| blk: {
+                if (exec_model != .reactor) break :blk;
                 try argv.append("--no-entry");
             }
         } else {

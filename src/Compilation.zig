@@ -730,6 +730,7 @@ pub const InitOptions = struct {
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
+    /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?WasiExecModel = null,
 };
 
@@ -1448,11 +1449,14 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                     .wasi_libc_crt_file = wasi_libc.getEmulatedLibCRTFile(lib_name).?,
                 });
             }
-            // TODO add logic deciding which crt1 we want here.
+            const crt_file: wasi_libc.CRTFile = if (comp.bin_file.options.wasi_exec_model) |exec_model| crt_file: {
+                switch (exec_model) {
+                    .command => break :crt_file wasi_libc.CRTFile.crt1_command_o,
+                    .reactor => break :crt_file wasi_libc.CRTFile.crt1_reactor_o,
+                }
+            } else .crt1_o;
             comp.work_queue.writeAssumeCapacity(&[_]Job{
-                .{ .wasi_libc_crt_file = .crt1_o },
-                .{ .wasi_libc_crt_file = .crt1_command_o },
-                .{ .wasi_libc_crt_file = .crt1_reactor_o },
+                .{ .wasi_libc_crt_file = crt_file },
                 .{ .wasi_libc_crt_file = .libc_a },
             });
         }

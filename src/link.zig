@@ -117,6 +117,7 @@ pub const Options = struct {
     version: ?std.builtin.Version,
     libc_installation: ?*const LibCInstallation,
 
+    /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?Compilation.WasiExecModel = null,
 
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
