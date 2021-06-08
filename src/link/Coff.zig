@@ -1221,13 +1221,26 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             try argv.append(comp.compiler_rt_static_lib.?.full_object_path);
         }
 
+        try argv.ensureUnusedCapacity(self.base.options.system_libs.count());
         for (self.base.options.system_libs.keys()) |key| {
             const lib_basename = try allocPrint(arena, "{s}.lib", .{key});
             if (comp.crt_files.get(lib_basename)) |crt_file| {
-                try argv.append(crt_file.full_object_path);
-            } else {
-                try argv.append(lib_basename);
+                argv.appendAssumeCapacity(crt_file.full_object_path);
+                continue;
             }
+            if (try self.findLib(arena, lib_basename)) |full_path| {
+                argv.appendAssumeCapacity(full_path);
+                continue;
+            }
+            if (target.abi.isGnu()) {
+                const fallback_name = try allocPrint(arena, "lib{s}.dll.a", .{key});
+                if (try self.findLib(arena, fallback_name)) |full_path| {
+                    argv.appendAssumeCapacity(full_path);
+                    continue;
+                }
+            }
+            log.err("DLL import library for -l{s} not found", .{key});
+            return error.DllImportLibraryNotFound;
         }
 
         if (self.base.options.verbose_link) {
@@ -1307,6 +1320,18 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         // other processes clobbering it.
         self.base.lock = man.toOwnedLock();
     }
+}
+
+fn findLib(self: *Coff, arena: *Allocator, name: []const u8) !?[]const u8 {
+    for (self.base.options.lib_dirs) |lib_dir| {
+        const full_path = try fs.path.join(arena, &.{ lib_dir, name });
+        fs.cwd().access(full_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => |e| return e,
+        };
+        return full_path;
+    }
+    return null;
 }
 
 pub fn getDeclVAddr(self: *Coff, decl: *const Module.Decl) u64 {
