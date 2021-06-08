@@ -283,4 +283,22 @@
 #   endif
 #endif
 
+/* OBJC_COLD: very rarely called, e.g. on error path */
+#if !defined(OBJC_COLD)
+#   if __OBJC__ && __has_attribute(cold)
+#       define OBJC_COLD __attribute__((cold))
+#   else
+#       define OBJC_COLD
+#   endif
+#endif
+
+/* OBJC_NORETURN: does not return normally, but may throw */
+#if !defined(OBJC_NORETURN)
+#   if __OBJC__ && __has_attribute(noreturn)
+#       define OBJC_NORETURN __attribute__((noreturn))
+#   else
+#       define OBJC_NORETURN
+#   endif
+#endif
+
 #endif
