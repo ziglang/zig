@@ -72,7 +72,7 @@ pub fn getDaysInYear(year: Year) u9 {
 pub const YearLeapKind = enum(u1) { not_leap, leap };
 
 pub const Month = enum(u4) {
-    jan,
+    jan = 1,
     feb,
     mar,
     apr,
@@ -88,7 +88,7 @@ pub const Month = enum(u4) {
     /// return the numeric calendar value for the given month
     /// i.e. jan=1, feb=2, etc
     pub fn numeric(self: Month) u4 {
-        return @enumToInt(self) + 1;
+        return @enumToInt(self);
     }
 };
 
