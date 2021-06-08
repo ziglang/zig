@@ -1256,12 +1256,11 @@ fn buildOutputType(
                     .nostdlibinc => want_native_include_dirs = false,
                     .strip => strip = true,
                     .exec_model => {
-                        wasi_exec_model = if (std.mem.eql(u8, it.only_arg, "reactor"))
-                            Compilation.WasiExecModel.reactor
-                        else if (std.mem.eql(u8, it.only_arg, "command"))
-                            Compilation.WasiExecModel.command
-                        else
-                            null;
+                        if (std.mem.eql(u8, it.only_arg, "reactor")) {
+                            wasi_exec_model = Compilation.WasiExecModel.reactor;
+                        } else if (std.mem.eql(u8, it.only_arg, "command")) {
+                            wasi_exec_model = Compilation.WasiExecModel.command;
+                        }
                     },
                 }
             }
