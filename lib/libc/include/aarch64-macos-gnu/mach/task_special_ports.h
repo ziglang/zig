@@ -81,7 +81,9 @@ typedef int     task_special_port_t;
 
 #define TASK_READ_PORT          6       /* The read port for task. */
 
-
+/*
+ * Evolving and likely to change.
+ */
 
 #define TASK_SEATBELT_PORT      7       /* Seatbelt compiler/DEM port for task. */
 

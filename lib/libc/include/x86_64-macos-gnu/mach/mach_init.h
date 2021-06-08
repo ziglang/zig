@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2002 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 1999 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -26,11 +26,8 @@
  * @APPLE_OSREFERENCE_LICENSE_HEADER_END@
  */
 /*
- * @OSF_COPYRIGHT@
- */
-/*
  * Mach Operating System
- * Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University
+ * Copyright (c) 1991,1990,1989,1988,1987,1986 Carnegie Mellon University
  * All Rights Reserved.
  *
  * Permission to use, copy, modify and distribute this software and its
@@ -53,35 +50,61 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+
 /*
- */
-/*
- *	File:	mach/thread_special_ports.h
- *
- *	Defines codes for special_purpose thread ports.  These are NOT
- *	port identifiers - they are only used for the thread_get_special_port
- *	and thread_set_special_port routines.
- *
+ *	Items provided by the Mach environment initialization.
  */
 
-#ifndef _MACH_THREAD_SPECIAL_PORTS_H_
-#define _MACH_THREAD_SPECIAL_PORTS_H_
+#ifndef _MACH_INIT_
+#define _MACH_INIT_     1
 
-#define THREAD_KERNEL_PORT      1       /* The full thread port for thread. */
+#include <mach/mach_types.h>
+#include <mach/vm_page_size.h>
+#include <stdarg.h>
 
-#define THREAD_INSPECT_PORT     2       /* The inspect port for thread. */
+#include <sys/cdefs.h>
 
-#define THREAD_READ_PORT        3       /* The read port for thread. */
-
-#define THREAD_MAX_SPECIAL_PORT THREAD_READ_PORT
 /*
- *	Definitions for ease of use
+ *	Kernel-related ports; how a task/thread controls itself
  */
 
-#define thread_get_kernel_port(thread, port)    \
-	        (thread_get_special_port((thread), THREAD_KERNEL_PORT, (port)))
+__BEGIN_DECLS
+extern mach_port_t mach_host_self(void);
+extern mach_port_t mach_thread_self(void);
+extern kern_return_t host_page_size(host_t, vm_size_t *);
 
-#define thread_set_kernel_port(thread, port)    \
-	        (thread_set_special_port((thread), THREAD_KERNEL_PORT, (port)))
+extern mach_port_t      mach_task_self_;
+#define mach_task_self() mach_task_self_
+#define current_task()  mach_task_self()
 
-#endif  /* _MACH_THREAD_SPECIAL_PORTS_H_ */
+__END_DECLS
+#include <mach/mach_traps.h>
+__BEGIN_DECLS
+
+/*
+ *	Other important ports in the Mach user environment
+ */
+
+extern  mach_port_t     bootstrap_port;
+
+/*
+ *	Where these ports occur in the "mach_ports_register"
+ *	collection... only servers or the runtime library need know.
+ */
+
+#define NAME_SERVER_SLOT        0
+#define ENVIRONMENT_SLOT        1
+#define SERVICE_SLOT            2
+
+#define MACH_PORTS_SLOTS_USED   3
+
+/*
+ *	fprintf_stderr uses vprintf_stderr_func to produce
+ *	error messages, this can be overridden by a user
+ *	application to point to a user-specified output function
+ */
+extern int (*vprintf_stderr_func)(const char *format, va_list ap);
+
+__END_DECLS
+
+#endif  /* _MACH_INIT_ */
