@@ -1466,7 +1466,7 @@ pub const ParseOptions = struct {
     ignore_unknown_fields: bool = false,
 
     allow_trailing_data: bool = false,
-    field_aliases: ?[]const [2][]const u8 = null,
+    field_aliases: ?[]const struct { field: []const u8, alias: []const u8 } = null,
 };
 
 fn skipValue(tokens: *TokenStream) !void {
@@ -1538,9 +1538,9 @@ fn buildFieldAliases(comptime T: type, options: ParseOptions) !std.StringHashMap
     const alias_entries = field_aliases orelse return result;
     inline for (comptime std.meta.fieldNames(T)) |field_name| {
         for (alias_entries) |entry| {
-            if (std.mem.eql(u8, field_name, entry[0])) {
+            if (std.mem.eql(u8, field_name, entry.field)) {
                 const allocator = options.allocator orelse return error.AllocatorRequired;
-                try result.put(allocator, entry[1], entry[0]);
+                try result.put(allocator, entry.alias, entry.field);
             }
         }
     }
@@ -1557,11 +1557,11 @@ test "field aliases" {
 
     try testing.expectError(
         error.AllocatorRequired,
-        parse(S, &TokenStream.init(text), .{ .field_aliases = &.{.{ "value", "__value" }} }),
+        parse(S, &TokenStream.init(text), .{ .field_aliases = &.{.{ .field = "value", .alias = "__value" }} }),
     );
 
     const s = try parse(S, &TokenStream.init(text), .{
-        .field_aliases = &.{.{ "value", "__value" }},
+        .field_aliases = &.{.{ .field = "value", .alias = "__value" }},
         .allocator = std.testing.allocator,
     });
     try testing.expectEqual(@as(u8, 42), s.value);
@@ -1570,10 +1570,13 @@ test "field aliases" {
 test "field alias escapes" {
     const S = struct { foo: u8 };
     const text =
-        "{\"__f\x6fo\": 42}";
-
+        \\{"__f\u006fo": 42}
+    ;
+    testing.log_level = .debug;
     const s = try parse(S, &TokenStream.init(text), .{
-        .field_aliases = &.{.{ "foo", "__foo" }},
+        .field_aliases = &.{.{ .field = "foo", .alias = 
+        \\__f\u006fo 
+        }},
         .allocator = std.testing.allocator,
     });
     try testing.expectEqual(@as(u8, 42), s.foo);
@@ -1680,8 +1683,9 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                 switch ((try tokens.next()) orelse return error.UnexpectedEndOfJson) {
                     .ObjectEnd => break,
                     .String => |stringToken| {
-                        const key_source_slice_orig = stringToken.slice(tokens.slice, tokens.i - 1);
-                        const key_source_slice = field_alias_map.get(key_source_slice_orig) orelse key_source_slice_orig;
+                        const key_source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
+                        const aliased_key_opt = field_alias_map.get(key_source_slice);
+                        std.log.debug("stringToken {} key_source_slice {s} aliased_key_opt {s}", .{ stringToken, key_source_slice, aliased_key_opt });
                         var child_options = options;
                         child_options.allow_trailing_data = true;
                         var found = false;
