@@ -49,7 +49,7 @@ typedef function_table_entry   *function_table_t;
 #endif /* AUTOTEST */
 
 #ifndef	task_MSG_COUNT
-#define	task_MSG_COUNT	55
+#define	task_MSG_COUNT	61
 #endif	/* task_MSG_COUNT */
 
 #include <mach/std_types.h>
@@ -175,7 +175,7 @@ __WATCHOS_PROHIBITED
 __TVOS_PROHIBITED
 kern_return_t task_suspend
 (
-	task_t target_task
+	task_read_t target_task
 );
 
 /* Routine task_resume */
@@ -188,7 +188,7 @@ __WATCHOS_PROHIBITED
 __TVOS_PROHIBITED
 kern_return_t task_resume
 (
-	task_t target_task
+	task_read_t target_task
 );
 
 /* Routine task_get_special_port */
@@ -305,7 +305,7 @@ kern_return_t task_swap_exception_ports
 	thread_state_flavor_t new_flavor,
 	exception_mask_array_t masks,
 	mach_msg_type_number_t *masksCnt,
-	exception_handler_array_t old_handlerss,
+	exception_handler_array_t old_handlers,
 	exception_behavior_array_t old_behaviors,
 	exception_flavor_array_t old_flavors
 );
@@ -606,7 +606,7 @@ __WATCHOS_PROHIBITED
 __TVOS_PROHIBITED
 kern_return_t task_suspend2
 (
-	task_t target_task,
+	task_read_t target_task,
 	task_suspension_token_t *suspend_token
 );
 
@@ -687,7 +687,7 @@ extern
 #endif	/* mig_external */
 kern_return_t task_generate_corpse
 (
-	task_t task,
+	task_read_t task,
 	mach_port_t *corpse_task_port
 );
 
@@ -846,6 +846,72 @@ kern_return_t task_create_suid_cred
 	suid_cred_path_t path,
 	suid_cred_uid_t uid,
 	suid_cred_t *delegation
+);
+
+/* Routine task_dyld_process_info_notify_register */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t task_dyld_process_info_notify_register
+(
+	task_read_t target_task,
+	mach_port_t notify
+);
+
+/* Routine task_create_identity_token */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t task_create_identity_token
+(
+	task_t task,
+	task_id_token_t *token
+);
+
+/* Routine task_identity_token_get_task_port */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t task_identity_token_get_task_port
+(
+	task_id_token_t token,
+	task_flavor_t flavor,
+	mach_port_t *task_port
+);
+
+/* Routine task_dyld_process_info_notify_deregister */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t task_dyld_process_info_notify_deregister
+(
+	task_read_t target_task,
+	mach_port_name_t notify
+);
+
+/* Routine task_get_exception_ports_info */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t task_get_exception_ports_info
+(
+	mach_port_t port,
+	exception_mask_t exception_mask,
+	exception_mask_array_t masks,
+	mach_msg_type_number_t *masksCnt,
+	exception_handler_info_array_t old_handlers_info,
+	exception_behavior_array_t old_behaviors,
+	exception_flavor_array_t old_flavors
 );
 
 __END_DECLS
@@ -1586,6 +1652,66 @@ __END_DECLS
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		/* start of the kernel processed data */
+		mach_msg_body_t msgh_body;
+		mach_msg_port_descriptor_t notify;
+		/* end of the kernel processed data */
+	} __Request__task_dyld_process_info_notify_register_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+	} __Request__task_create_identity_token_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		task_flavor_t flavor;
+	} __Request__task_identity_token_get_task_port_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		mach_port_name_t notify;
+	} __Request__task_dyld_process_info_notify_deregister_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		exception_mask_t exception_mask;
+	} __Request__task_get_exception_ports_info_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Request__task_subsystem__defined */
 
 /* union of all requests */
@@ -1648,6 +1774,11 @@ union __RequestUnion__task_subsystem {
 	__Request__task_get_exc_guard_behavior_t Request_task_get_exc_guard_behavior;
 	__Request__task_set_exc_guard_behavior_t Request_task_set_exc_guard_behavior;
 	__Request__task_create_suid_cred_t Request_task_create_suid_cred;
+	__Request__task_dyld_process_info_notify_register_t Request_task_dyld_process_info_notify_register;
+	__Request__task_create_identity_token_t Request_task_create_identity_token;
+	__Request__task_identity_token_get_task_port_t Request_task_identity_token_get_task_port;
+	__Request__task_dyld_process_info_notify_deregister_t Request_task_dyld_process_info_notify_deregister;
+	__Request__task_get_exception_ports_info_t Request_task_get_exception_ports_info;
 };
 #endif /* !__RequestUnion__task_subsystem__defined */
 /* typedefs for all replies */
@@ -1867,7 +1998,7 @@ union __RequestUnion__task_subsystem {
 		mach_msg_header_t Head;
 		/* start of the kernel processed data */
 		mach_msg_body_t msgh_body;
-		mach_msg_port_descriptor_t old_handlerss[32];
+		mach_msg_port_descriptor_t old_handlers[32];
 		/* end of the kernel processed data */
 		NDR_record_t NDR;
 		mach_msg_type_number_t masksCnt;
@@ -2392,6 +2523,75 @@ union __RequestUnion__task_subsystem {
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+	} __Reply__task_dyld_process_info_notify_register_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		/* start of the kernel processed data */
+		mach_msg_body_t msgh_body;
+		mach_msg_port_descriptor_t token;
+		/* end of the kernel processed data */
+	} __Reply__task_create_identity_token_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		/* start of the kernel processed data */
+		mach_msg_body_t msgh_body;
+		mach_msg_port_descriptor_t task_port;
+		/* end of the kernel processed data */
+	} __Reply__task_identity_token_get_task_port_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+	} __Reply__task_dyld_process_info_notify_deregister_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+		mach_msg_type_number_t masksCnt;
+		exception_mask_t masks[32];
+		exception_handler_info_t old_handlers_info[32];
+		exception_behavior_t old_behaviors[32];
+		thread_state_flavor_t old_flavors[32];
+	} __Reply__task_get_exception_ports_info_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Reply__task_subsystem__defined */
 
 /* union of all replies */
@@ -2454,6 +2654,11 @@ union __ReplyUnion__task_subsystem {
 	__Reply__task_get_exc_guard_behavior_t Reply_task_get_exc_guard_behavior;
 	__Reply__task_set_exc_guard_behavior_t Reply_task_set_exc_guard_behavior;
 	__Reply__task_create_suid_cred_t Reply_task_create_suid_cred;
+	__Reply__task_dyld_process_info_notify_register_t Reply_task_dyld_process_info_notify_register;
+	__Reply__task_create_identity_token_t Reply_task_create_identity_token;
+	__Reply__task_identity_token_get_task_port_t Reply_task_identity_token_get_task_port;
+	__Reply__task_dyld_process_info_notify_deregister_t Reply_task_dyld_process_info_notify_deregister;
+	__Reply__task_get_exception_ports_info_t Reply_task_get_exception_ports_info;
 };
 #endif /* !__RequestUnion__task_subsystem__defined */
 
@@ -2513,7 +2718,12 @@ union __ReplyUnion__task_subsystem {
     { "task_inspect", 3451 },\
     { "task_get_exc_guard_behavior", 3452 },\
     { "task_set_exc_guard_behavior", 3453 },\
-    { "task_create_suid_cred", 3454 }
+    { "task_create_suid_cred", 3454 },\
+    { "task_dyld_process_info_notify_register", 3456 },\
+    { "task_create_identity_token", 3457 },\
+    { "task_identity_token_get_task_port", 3458 },\
+    { "task_dyld_process_info_notify_deregister", 3459 },\
+    { "task_get_exception_ports_info", 3460 }
 #endif
 
 #ifdef __AfterMigUserHeader

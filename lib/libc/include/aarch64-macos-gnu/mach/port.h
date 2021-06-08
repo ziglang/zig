@@ -211,7 +211,6 @@ typedef mach_port_type_t *mach_port_type_array_t;
 #define MACH_PORT_TYPE_LABELH       MACH_PORT_TYPE(MACH_PORT_RIGHT_LABELH) /* obsolete */
 
 
-
 /* Convenient combinations. */
 
 #define MACH_PORT_TYPE_SEND_RECEIVE                                     \
@@ -388,9 +387,16 @@ enum mach_port_guard_exception_codes {
 	kGUARD_EXC_SEND_INVALID_RIGHT    = 1u << 18,
 	kGUARD_EXC_RCV_INVALID_NAME      = 1u << 19,
 	kGUARD_EXC_RCV_GUARDED_DESC      = 1u << 20, /* should never be fatal; for development only */
+	kGUARD_EXC_MOD_REFS_NON_FATAL    = 1u << 21,
+	kGUARD_EXC_IMMOVABLE_NON_FATAL   = 1u << 22,
 };
 
-#define MAX_FATAL_kGUARD_EXC_CODE (1u << 6)
+#define MAX_FATAL_kGUARD_EXC_CODE (1u << 7)
+
+/*
+ * Mach port guard flags.
+ */
+#define MPG_FLAGS_NONE                             (0x00ull)
 
 /*
  * These flags are used as bits in the subcode of kGUARD_EXC_STRICT_REPLY exceptions.
@@ -401,6 +407,16 @@ enum mach_port_guard_exception_codes {
 #define MPG_FLAGS_STRICT_REPLY_NO_BANK_ATTR        (0x08ull << 56)
 #define MPG_FLAGS_STRICT_REPLY_MISMATCHED_PERSONA  (0x10ull << 56)
 #define MPG_FLAGS_STRICT_REPLY_MASK                (0xffull << 56)
+
+/*
+ * These flags are used as bits in the subcode of kGUARD_EXC_MOD_REFS exceptions.
+ */
+#define MPG_FLAGS_MOD_REFS_PINNED_DEALLOC          (0x01ull << 56)
+
+/*
+ * These flags are used as bits in the subcode of kGUARD_EXC_IMMOVABLE exceptions.
+ */
+#define MPG_FLAGS_IMMOVABLE_PINNED                 (0x01ull << 56)
 
 /*
  * Flags for mach_port_guard_with_flags. These flags extend

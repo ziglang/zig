@@ -557,11 +557,11 @@ __API_AVAILABLE(macos(10.4), ios(2.0))
 void pthread_yield_np(void);
 
 __API_AVAILABLE(macos(11.0))
-__API_UNAVAILABLE(ios, tvos, watchos)
+__API_UNAVAILABLE(ios, tvos, watchos, driverkit)
 void pthread_jit_write_protect_np(int enabled);
 
 __API_AVAILABLE(macos(11.0))
-__API_UNAVAILABLE(ios, tvos, watchos)
+__API_UNAVAILABLE(ios, tvos, watchos, driverkit)
 int pthread_jit_write_protect_supported_np(void);
 
 /*!
