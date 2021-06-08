@@ -81,7 +81,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         }
 
         pub fn seekTo(self: *Self, pos: u64) SeekError!void {
-            self.pos = if (std.math.cast(usize, pos)) |x| x else |_| self.buffer.len;
+            self.pos = if (std.math.cast(usize, pos)) |x| std.math.min(self.buffer.len, x) else |_| self.buffer.len;
         }
 
         pub fn seekBy(self: *Self, amt: i64) SeekError!void {
@@ -155,6 +155,9 @@ test "FixedBufferStream output 2" {
 
     try testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("Hello world!"));
     try testing.expect(mem.eql(u8, fbs.getWritten(), "Hello worl"));
+
+    try fbs.seekTo((try fbs.getEndPos()) + 1);
+    try testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("H"));
 }
 
 test "FixedBufferStream input" {
@@ -163,14 +166,18 @@ test "FixedBufferStream input" {
 
     var dest: [4]u8 = undefined;
 
-    var read = try fbs.reader().read(dest[0..4]);
+    var read = try fbs.reader().read(&dest);
     try testing.expect(read == 4);
     try testing.expect(mem.eql(u8, dest[0..4], bytes[0..4]));
 
-    read = try fbs.reader().read(dest[0..4]);
+    read = try fbs.reader().read(&dest);
     try testing.expect(read == 3);
     try testing.expect(mem.eql(u8, dest[0..3], bytes[4..7]));
 
-    read = try fbs.reader().read(dest[0..4]);
+    read = try fbs.reader().read(&dest);
+    try testing.expect(read == 0);
+
+    try fbs.seekTo((try fbs.getEndPos()) + 1);
+    read = try fbs.reader().read(&dest);
     try testing.expect(read == 0);
 }
