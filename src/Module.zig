@@ -1139,6 +1139,13 @@ pub const Scope = struct {
         instructions: ArrayListUnmanaged(*ir.Inst),
         label: ?*Label = null,
         inlining: ?*Inlining,
+        /// If runtime_index is not 0 then one of these is guaranteed to be non null.
+        runtime_cond: ?LazySrcLoc = null,
+        runtime_loop: ?LazySrcLoc = null,
+        /// Non zero if a non-inline loop or a runtime conditional have been encountered.
+        /// Stores to to comptime variables are only allowed when var.runtime_index <= runtime_index.
+        runtime_index: u32 = 0,
+
         is_comptime: bool,
 
         /// This `Block` maps a block ZIR instruction to the corresponding
@@ -1182,6 +1189,9 @@ pub const Scope = struct {
                 .label = null,
                 .inlining = parent.inlining,
                 .is_comptime = parent.is_comptime,
+                .runtime_cond = parent.runtime_cond,
+                .runtime_loop = parent.runtime_loop,
+                .runtime_index = parent.runtime_index,
             };
         }
 

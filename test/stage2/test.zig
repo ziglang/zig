@@ -1420,4 +1420,107 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &[_][]const u8{":4:27: error: expected type, found comptime_int"});
     }
+    {
+        var case = ctx.exe("comptime var", linux_x64);
+
+        case.addError(
+            \\pub fn main() void {
+            \\    var a: u32 = 0;
+            \\    comptime var b: u32 = 0;
+            \\    if (a == 0) b = 3;
+            \\}
+        , &.{
+            ":4:21: error: store to comptime variable depends on runtime condition",
+            ":4:11: note: runtime condition here",
+        });
+
+        case.addError(
+            \\pub fn main() void {
+            \\    var a: u32 = 0;
+            \\    comptime var b: u32 = 0;
+            \\    switch (a) {
+            \\        0 => {},
+            \\        else => b = 3,
+            \\    }
+            \\}
+        , &.{
+            ":6:21: error: store to comptime variable depends on runtime condition",
+            ":4:13: note: runtime condition here",
+        });
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    comptime var len: u32 = 5;
+            \\    print(len);
+            \\    len += 9;
+            \\    print(len);
+            \\}
+            \\
+            \\fn print(len: usize) void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{rdx}" (len)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+        , "HelloHello, World!\n");
+
+        case.addError(
+            \\comptime {
+            \\    var x: i32 = 1;
+            \\    x += 1;
+            \\    if (x != 1) unreachable;
+            \\}
+            \\pub fn main() void {}
+        , &.{":4:17: error: unable to resolve comptime value"});
+
+        case.addError(
+            \\pub fn main() void {
+            \\    comptime var i: u64 = 0;
+            \\    while (i < 5) : (i += 1) {}
+            \\}
+        , &.{
+            ":3:24: error: cannot store to comptime variable in non-inline loop",
+            ":3:5: note: non-inline loop here",
+        });
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    var a: u32 = 0;
+            \\    if (a == 0) {
+            \\        comptime var b: u32 = 0;
+            \\        b = 1;
+            \\    }
+            \\}
+            \\comptime {
+            \\    var x: i32 = 1;
+            \\    x += 1;
+            \\    if (x != 2) unreachable;
+            \\}
+        , "");
+
+        case.addCompareOutput(
+            \\pub fn main() void {
+            \\    comptime var i: u64 = 2;
+            \\    inline while (i < 6) : (i+=1) {
+            \\        print(i);
+            \\    }
+            \\}
+            \\fn print(len: usize) void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello")),
+            \\          [arg3] "{rdx}" (len)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+        , "HeHelHellHello");
+    }
 }
