@@ -15,6 +15,7 @@ const codegen = @import("../codegen/wasm.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
+const wasi_libc = @import("../wasi_libc.zig");
 const Cache = @import("../Cache.zig");
 const TypedValue = @import("../TypedValue.zig");
 
@@ -700,14 +701,22 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic);
             if (is_exe_or_dyn_lib) {
                 const system_libs = self.base.options.system_libs.keys();
+
                 for (system_libs) |link_lib| {
+                    if (mem.eql(u8, "wasi_snapshot_preview1", link_lib)) {
+                        // Any referenced symbol from this lib, will be undefined until
+                        // runtime as this lib is provided directly by the runtime.
+                        continue;
+                    }
                     try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{link_lib}));
                 }
 
                 const wasi_emulated_libs = self.base.options.wasi_emulated_libs;
-                for (wasi_emulated_libs) |lib_name| {
-                    const full_lib_name = try std.fmt.allocPrint(arena, "lib{s}.a", .{lib_name});
-                    try argv.append(try comp.get_libc_crt_file(arena, full_lib_name));
+                for (wasi_emulated_libs) |crt_file| {
+                    try argv.append(try comp.get_libc_crt_file(
+                        arena,
+                        wasi_libc.emulatedLibCRFileLibName(crt_file),
+                    ));
                 }
 
                 if (self.base.options.link_libc) {

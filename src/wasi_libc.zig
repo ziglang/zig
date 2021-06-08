@@ -35,6 +35,16 @@ pub fn getEmulatedLibCRTFile(lib_name: []const u8) ?CRTFile {
     return null;
 }
 
+pub fn emulatedLibCRFileLibName(crt_file: CRTFile) []const u8 {
+    return switch (crt_file) {
+        .libwasi_emulated_process_clocks_a => "libwasi-emulated-process-clocks.a",
+        .libwasi_emulated_getpid_a => "libwasi-emulated-getpid.a",
+        .libwasi_emulated_mman_a => "libwasi-emulated-mman.a",
+        .libwasi_emulated_signal_a => "libwasi-emulated-signal.a",
+        else => unreachable,
+    };
+}
+
 pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;

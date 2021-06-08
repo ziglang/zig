@@ -651,7 +651,7 @@ pub const InitOptions = struct {
     /// * getpid
     /// * mman
     /// * signal
-    wasi_emulated_libs: []const []const u8 = &[0][]const u8{},
+    wasi_emulated_libs: []const wasi_libc.CRTFile = &[0]wasi_libc.CRTFile{},
     link_libc: bool = false,
     link_libcpp: bool = false,
     link_libunwind: bool = false,
@@ -1434,11 +1434,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             });
         }
         if (comp.wantBuildWasiLibcFromSource()) {
-            try comp.work_queue.ensureUnusedCapacity(6); // worst-case we need all components
             const wasi_emulated_libs = comp.bin_file.options.wasi_emulated_libs;
-            for (wasi_emulated_libs) |lib_name| {
+            try comp.work_queue.ensureUnusedCapacity(wasi_emulated_libs.len + 2); // worst-case we need all components
+            for (wasi_emulated_libs) |crt_file| {
                 comp.work_queue.writeItemAssumeCapacity(.{
-                    .wasi_libc_crt_file = wasi_libc.getEmulatedLibCRTFile(lib_name).?,
+                    .wasi_libc_crt_file = crt_file,
                 });
             }
             // TODO add logic deciding which crt1 we want here.
@@ -4157,12 +4157,6 @@ pub fn stage1AddLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     if (comp.bin_file.options.skip_linker_dependencies) return;
 
     // This happens when an `extern "foo"` function is referenced by the stage1 backend.
-    if (comp.getTarget().os.tag == .wasi and mem.eql(u8, "wasi_snapshot_preview1", lib_name)) {
-        // Any referenced symbol from this lib, will be undefined until
-        // runtime as this lib is provided directly by the runtime.
-        return;
-    }
-
     // If we haven't seen this library yet and we're targeting Windows, we need to queue up
     // a work item to produce the DLL import library for this.
     const gop = try comp.bin_file.options.system_libs.getOrPut(comp.gpa, lib_name);

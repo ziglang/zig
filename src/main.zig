@@ -617,7 +617,7 @@ fn buildOutputType(
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
 
-    var wasi_emulated_libs = std.ArrayList([]const u8).init(gpa);
+    var wasi_emulated_libs = std.ArrayList(wasi_libc.CRTFile).init(gpa);
     defer wasi_emulated_libs.deinit();
 
     var clang_argv = std.ArrayList([]const u8).init(gpa);
@@ -1591,8 +1591,8 @@ fn buildOutputType(
                 fatal("cannot use absolute path as a system library: {s}", .{lib_name});
             }
             if (target_info.target.os.tag == .wasi) {
-                if (wasi_libc.getEmulatedLibCRTFile(lib_name)) |_| {
-                    try wasi_emulated_libs.append(lib_name);
+                if (wasi_libc.getEmulatedLibCRTFile(lib_name)) |crt_file| {
+                    try wasi_emulated_libs.append(crt_file);
                     _ = system_libs.orderedRemove(i);
                     continue;
                 }
