@@ -30,6 +30,7 @@ pub usingnamespace switch (arch) {
 pub usingnamespace @import("linux/netlink.zig");
 pub usingnamespace @import("linux/prctl.zig");
 pub usingnamespace @import("linux/securebits.zig");
+pub usingnamespace @import("linux/xdp.zig");
 
 const is_mips = arch.isMIPS();
 const is_ppc = arch.isPPC();
@@ -408,7 +409,8 @@ pub const PF_VSOCK = 40;
 pub const PF_KCM = 41;
 pub const PF_QIPCRTR = 42;
 pub const PF_SMC = 43;
-pub const PF_MAX = 44;
+pub const PF_XDP = 44;
+pub const PF_MAX = 45;
 
 pub const AF_UNSPEC = PF_UNSPEC;
 pub const AF_LOCAL = PF_LOCAL;
@@ -457,6 +459,7 @@ pub const AF_VSOCK = PF_VSOCK;
 pub const AF_KCM = PF_KCM;
 pub const AF_QIPCRTR = PF_QIPCRTR;
 pub const AF_SMC = PF_SMC;
+pub const AF_XDP = PF_XDP;
 pub const AF_MAX = PF_MAX;
 
 pub usingnamespace if (is_mips)
@@ -601,6 +604,7 @@ pub const SOL_ALG = 279;
 pub const SOL_NFC = 280;
 pub const SOL_KCM = 281;
 pub const SOL_TLS = 282;
+pub const SOL_XDP = 283;
 
 pub const SOMAXCONN = 128;
 
