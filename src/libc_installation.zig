@@ -237,26 +237,38 @@ pub const LibCInstallation = struct {
 
     fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) FindError!void {
         const allocator = args.allocator;
+
+        // Detect infinite loops.
+        var env_map = try std.process.getEnvMap(allocator);
+        defer env_map.deinit();
+        const skip_cc_env_var = if (env_map.get(inf_loop_env_key)) |phase| blk: {
+            if (std.mem.eql(u8, phase, "1")) {
+                try env_map.put(inf_loop_env_key, "2");
+                break :blk true;
+            } else {
+                return error.ZigIsTheCCompiler;
+            }
+        } else blk: {
+            try env_map.put(inf_loop_env_key, "1");
+            break :blk false;
+        };
+
         const dev_null = if (is_windows) "nul" else "/dev/null";
-        const cc_exe = std.os.getenvZ("CC") orelse default_cc_exe;
-        const argv = [_][]const u8{
-            cc_exe,
+
+        var argv = std.ArrayList([]const u8).init(allocator);
+        defer argv.deinit();
+
+        try appendCcExe(&argv, skip_cc_env_var);
+        try argv.appendSlice(&.{
             "-E",
             "-Wp,-v",
             "-xc",
             dev_null,
-        };
-        var env_map = try std.process.getEnvMap(allocator);
-        defer env_map.deinit();
-
-        // Detect infinite loops.
-        const inf_loop_env_key = "ZIG_IS_DETECTING_LIBC_PATHS";
-        if (env_map.get(inf_loop_env_key) != null) return error.ZigIsTheCCompiler;
-        try env_map.put(inf_loop_env_key, "1");
+        });
 
         const exec_res = std.ChildProcess.exec(.{
             .allocator = allocator,
-            .argv = &argv,
+            .argv = argv.items,
             .max_output_bytes = 1024 * 1024,
             .env_map = &env_map,
             // Some C compilers, such as Clang, are known to rely on argv[0] to find the path
@@ -267,7 +279,7 @@ pub const LibCInstallation = struct {
         }) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => {
-                printVerboseInvocation(&argv, null, args.verbose, null);
+                printVerboseInvocation(argv.items, null, args.verbose, null);
                 return error.UnableToSpawnCCompiler;
             },
         };
@@ -277,11 +289,11 @@ pub const LibCInstallation = struct {
         }
         switch (exec_res.term) {
             .Exited => |code| if (code != 0) {
-                printVerboseInvocation(&argv, null, args.verbose, exec_res.stderr);
+                printVerboseInvocation(argv.items, null, args.verbose, exec_res.stderr);
                 return error.CCompilerExitCode;
             },
             else => {
-                printVerboseInvocation(&argv, null, args.verbose, exec_res.stderr);
+                printVerboseInvocation(argv.items, null, args.verbose, exec_res.stderr);
                 return error.CCompilerCrashed;
             },
         }
@@ -540,8 +552,6 @@ pub const LibCInstallation = struct {
     }
 };
 
-const default_cc_exe = if (is_windows) "cc.exe" else "cc";
-
 pub const CCPrintFileNameOptions = struct {
     allocator: *Allocator,
     search_basename: []const u8,
@@ -553,22 +563,33 @@ pub const CCPrintFileNameOptions = struct {
 fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     const allocator = args.allocator;
 
-    const cc_exe = std.os.getenvZ("CC") orelse default_cc_exe;
-    const arg1 = try std.fmt.allocPrint(allocator, "-print-file-name={s}", .{args.search_basename});
-    defer allocator.free(arg1);
-    const argv = [_][]const u8{ cc_exe, arg1 };
-
+    // Detect infinite loops.
     var env_map = try std.process.getEnvMap(allocator);
     defer env_map.deinit();
+    const skip_cc_env_var = if (env_map.get(inf_loop_env_key)) |phase| blk: {
+        if (std.mem.eql(u8, phase, "1")) {
+            try env_map.put(inf_loop_env_key, "2");
+            break :blk true;
+        } else {
+            return error.ZigIsTheCCompiler;
+        }
+    } else blk: {
+        try env_map.put(inf_loop_env_key, "1");
+        break :blk false;
+    };
 
-    // Detect infinite loops.
-    const inf_loop_env_key = "ZIG_IS_DETECTING_LIBC_PATHS";
-    if (env_map.get(inf_loop_env_key) != null) return error.ZigIsTheCCompiler;
-    try env_map.put(inf_loop_env_key, "1");
+    var argv = std.ArrayList([]const u8).init(allocator);
+    defer argv.deinit();
+
+    const arg1 = try std.fmt.allocPrint(allocator, "-print-file-name={s}", .{args.search_basename});
+    defer allocator.free(arg1);
+
+    try appendCcExe(&argv, skip_cc_env_var);
+    try argv.append(arg1);
 
     const exec_res = std.ChildProcess.exec(.{
         .allocator = allocator,
-        .argv = &argv,
+        .argv = argv.items,
         .max_output_bytes = 1024 * 1024,
         .env_map = &env_map,
         // Some C compilers, such as Clang, are known to rely on argv[0] to find the path
@@ -586,11 +607,11 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     }
     switch (exec_res.term) {
         .Exited => |code| if (code != 0) {
-            printVerboseInvocation(&argv, args.search_basename, args.verbose, exec_res.stderr);
+            printVerboseInvocation(argv.items, args.search_basename, args.verbose, exec_res.stderr);
             return error.CCompilerExitCode;
         },
         else => {
-            printVerboseInvocation(&argv, args.search_basename, args.verbose, exec_res.stderr);
+            printVerboseInvocation(argv.items, args.search_basename, args.verbose, exec_res.stderr);
             return error.CCompilerCrashed;
         },
     }
@@ -658,4 +679,24 @@ fn fillSearch(search_buf: *[2]Search, sdk: *ZigWindowsSDK) []Search {
         }
     }
     return search_buf[0..search_end];
+}
+
+const inf_loop_env_key = "ZIG_IS_DETECTING_LIBC_PATHS";
+
+fn appendCcExe(args: *std.ArrayList([]const u8), skip_cc_env_var: bool) !void {
+    const default_cc_exe = if (is_windows) "cc.exe" else "cc";
+    try args.ensureUnusedCapacity(1);
+    if (skip_cc_env_var) {
+        args.appendAssumeCapacity(default_cc_exe);
+        return;
+    }
+    const cc_env_var = std.os.getenvZ("CC") orelse {
+        args.appendAssumeCapacity(default_cc_exe);
+        return;
+    };
+    // Respect space-separated flags to the C compiler.
+    var it = std.mem.tokenize(cc_env_var, " ");
+    while (it.next()) |arg| {
+        try args.append(arg);
+    }
 }
