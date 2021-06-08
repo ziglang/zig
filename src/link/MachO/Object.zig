@@ -383,11 +383,10 @@ pub fn parseSymbols(self: *Object) !void {
             }
 
             if (sym.n_value != 0) {
-                log.err("common symbol {s} in {s}", .{ sym_name, self.name.? });
+                const comm_size = sym.n_value;
+                const comm_align = (sym.n_desc >> 8) & 0x0f;
+                log.err("Common symbol {s} in {s}: size 0x{x}, align 0x{x}", .{ sym_name, self.name.?, comm_size, comm_align });
                 return error.UnhandledSymbolType;
-                // const comm_size = sym.n_value;
-                // const comm_align = (sym.n_desc >> 8) & 0x0f;
-                // log.warn("Common symbol: size 0x{x}, align 0x{x}", .{ comm_size, comm_align });
             }
 
             const undef = try self.allocator.create(Symbol.Unresolved);
