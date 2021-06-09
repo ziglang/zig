@@ -701,17 +701,6 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
             const is_exe_or_dyn_lib = self.base.options.output_mode == .Exe or
                 (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic);
             if (is_exe_or_dyn_lib) {
-                const system_libs = self.base.options.system_libs.keys();
-
-                for (system_libs) |link_lib| {
-                    if (mem.eql(u8, "wasi_snapshot_preview1", link_lib)) {
-                        // Any referenced symbol from this lib, will be undefined until
-                        // runtime as this lib is provided directly by the runtime.
-                        continue;
-                    }
-                    try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{link_lib}));
-                }
-
                 const wasi_emulated_libs = self.base.options.wasi_emulated_libs;
                 for (wasi_emulated_libs) |crt_file| {
                     try argv.append(try comp.get_libc_crt_file(
