@@ -196,8 +196,6 @@ struct ZigStage1 {
     bool enable_time_report;
     bool enable_stack_report;
     bool test_is_evented;
-    bool verbose_tokenize;
-    bool verbose_ast;
     bool verbose_ir;
     bool verbose_llvm_ir;
     bool verbose_cimport;

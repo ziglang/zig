@@ -2121,8 +2121,6 @@ struct CodeGen {
     unsigned pointer_size_bytes;
     bool is_big_endian;
     bool have_err_ret_tracing;
-    bool verbose_tokenize;
-    bool verbose_ast;
     bool verbose_ir;
     bool verbose_llvm_ir;
     bool verbose_cimport;

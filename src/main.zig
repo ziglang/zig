@@ -407,9 +407,7 @@ const usage_build_generic =
     \\  -fstack-report               Print stack size diagnostics
     \\  --verbose-link               Display linker invocations
     \\  --verbose-cc                 Display C compiler invocations
-    \\  --verbose-tokenize           Enable compiler debug output for tokenization
-    \\  --verbose-ast                Enable compiler debug output for AST parsing
-    \\  --verbose-ir                 Enable compiler debug output for Zig IR
+    \\  --verbose-air                Enable compiler debug output for Zig AIR
     \\  --verbose-llvm-ir            Enable compiler debug output for LLVM IR
     \\  --verbose-cimport            Enable compiler debug output for C imports
     \\  --verbose-llvm-cpu-features  Enable compiler debug output for LLVM CPU features
@@ -541,9 +539,7 @@ fn buildOutputType(
     var watch = false;
     var verbose_link = try optionalBoolEnvVar(arena, "ZIG_VERBOSE_LINK");
     var verbose_cc = try optionalBoolEnvVar(arena, "ZIG_VERBOSE_CC");
-    var verbose_tokenize = false;
-    var verbose_ast = false;
-    var verbose_ir = false;
+    var verbose_air = false;
     var verbose_llvm_ir = false;
     var verbose_cimport = false;
     var verbose_llvm_cpu_features = false;
@@ -1031,12 +1027,8 @@ fn buildOutputType(
                         verbose_link = true;
                     } else if (mem.eql(u8, arg, "--verbose-cc")) {
                         verbose_cc = true;
-                    } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
-                        verbose_tokenize = true;
-                    } else if (mem.eql(u8, arg, "--verbose-ast")) {
-                        verbose_ast = true;
-                    } else if (mem.eql(u8, arg, "--verbose-ir")) {
-                        verbose_ir = true;
+                    } else if (mem.eql(u8, arg, "--verbose-air")) {
+                        verbose_air = true;
                     } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
                         verbose_llvm_ir = true;
                     } else if (mem.eql(u8, arg, "--verbose-cimport")) {
@@ -1940,9 +1932,7 @@ fn buildOutputType(
         .libc_installation = if (libc_installation) |*lci| lci else null,
         .verbose_cc = verbose_cc,
         .verbose_link = verbose_link,
-        .verbose_tokenize = verbose_tokenize,
-        .verbose_ast = verbose_ast,
-        .verbose_ir = verbose_ir,
+        .verbose_air = verbose_air,
         .verbose_llvm_ir = verbose_llvm_ir,
         .verbose_cimport = verbose_cimport,
         .verbose_llvm_cpu_features = verbose_llvm_cpu_features,

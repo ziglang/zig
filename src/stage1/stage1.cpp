@@ -106,8 +106,6 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
     g->enable_stack_report = stage1->enable_stack_report;
     g->test_is_evented = stage1->test_is_evented;
 
-    g->verbose_tokenize = stage1->verbose_tokenize;
-    g->verbose_ast = stage1->verbose_ast;
     g->verbose_ir = stage1->verbose_ir;
     g->verbose_llvm_ir = stage1->verbose_llvm_ir;
     g->verbose_cimport = stage1->verbose_cimport;
