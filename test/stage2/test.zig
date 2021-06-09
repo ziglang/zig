@@ -247,6 +247,14 @@ pub fn addCases(ctx: *TestContext) !void {
         );
     }
     {
+        var case = ctx.exe("unused vars", linux_x64);
+        case.addError(
+            \\pub fn main() void {
+            \\    const x = 1;
+            \\}
+        , &.{":2:11: error: unused local constant"});
+    }
+    {
         var case = ctx.exe("@TypeOf", linux_x64);
         case.addCompareOutput(
             \\pub fn main() void {

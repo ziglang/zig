@@ -1826,6 +1826,7 @@ fn blockExprStmts(
     }
 
     try genDefers(gz, parent_scope, scope, .none);
+    try checkUsed(gz, parent_scope, scope);
 }
 
 fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) InnerError!void {
@@ -2148,6 +2149,36 @@ fn genDefers(
                 defer gz.in_defer = prev_in_defer;
                 try unusedResultExpr(gz, defer_scope.parent, expr_node);
             },
+            .namespace => unreachable,
+            .top => unreachable,
+        }
+    }
+}
+
+fn checkUsed(
+    gz: *GenZir,
+    outer_scope: *Scope,
+    inner_scope: *Scope,
+) InnerError!void {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const node_datas = tree.nodes.items(.data);
+
+    var scope = inner_scope;
+    while (scope != outer_scope) {
+        switch (scope.tag) {
+            .gen_zir => scope = scope.cast(GenZir).?.parent,
+            .local_val => {
+                const s = scope.cast(Scope.LocalVal).?;
+                if (!s.used) return astgen.failTok(s.token_src, "unused local constant", .{});
+                scope = s.parent;
+            },
+            .local_ptr => {
+                const s = scope.cast(Scope.LocalPtr).?;
+                if (!s.used) return astgen.failTok(s.token_src, "unused local variable", .{});
+                scope = s.parent;
+            },
+            .defer_normal, .defer_error => scope = scope.cast(Scope.Defer).?.parent,
             .namespace => unreachable,
             .top => unreachable,
         }
@@ -2930,6 +2961,7 @@ fn fnDecl(
                     .name = param_name,
                     .inst = arg_inst,
                     .token_src = name_token,
+                    // TODO make function paramater have different message instead of unused constant
                 };
                 params_scope = &sub_scope.base;
 
@@ -3370,6 +3402,7 @@ fn structDeclInner(
     };
     defer block_scope.instructions.deinit(gpa);
 
+    // TODO should we change this to scope in other places too?
     var namespace: Scope.Namespace = .{ .parent = scope };
     defer namespace.decls.deinit(gpa);
 
@@ -6131,10 +6164,14 @@ fn identifier(
         while (true) switch (s.tag) {
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
+                if (local_val.name == name_str_index) {
+                    local_val.used = true;
+                }
                 if (hit_namespace) {
                     // captures of non-locals need to be emitted as decl_val or decl_ref
                     // This *might* be capturable depending on if it is comptime known
-                    break;
+                    s = local_val.parent;
+                    continue;
                 }
                 if (local_val.name == name_str_index) {
                     return rvalue(gz, scope, rl, local_val.inst, ident);
@@ -6144,6 +6181,7 @@ fn identifier(
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (local_ptr.name == name_str_index) {
+                    local_ptr.used = true;
                     if (hit_namespace) {
                         if (local_ptr.is_comptime)
                             break
@@ -6151,6 +6189,8 @@ fn identifier(
                             return astgen.failNodeNotes(ident, "'{s}' not accessible from inner function", .{ident_name}, &.{
                                 try astgen.errNoteTok(local_ptr.token_src, "declared here", .{}),
                                 // TODO add crossed function definition here note.
+                                // Maybe add a note to the error about it being because of the var,
+                                // maybe recommend copying it into a const variable. -SpexGuy
                             });
                     }
                     switch (rl) {
@@ -8341,6 +8381,8 @@ const Scope = struct {
         token_src: ast.TokenIndex,
         /// String table index.
         name: u32,
+        /// has this variable been referenced?
+        used: bool = false,
     };
 
     /// This could be a `const` or `var` local. It has a pointer instead of a value.
@@ -8358,6 +8400,8 @@ const Scope = struct {
         /// String table index.
         name: u32,
         is_comptime: bool,
+        /// has this variable been referenced?
+        used: bool = false,
     };
 
     const Defer = struct {
