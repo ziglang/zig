@@ -781,12 +781,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             branch.inst_table.putAssumeCapacity(inst, .dead);
             switch (prev_value) {
                 .register => |reg| {
-                    // TODO separate architectures with registers from
-                    // stack-based architectures (spu_2)
-                    if (callee_preserved_regs.len > 0) {
-                        const canon_reg = toCanonicalReg(reg);
-                        self.register_manager.freeReg(canon_reg);
-                    }
+                    const canon_reg = toCanonicalReg(reg);
+                    self.register_manager.freeReg(canon_reg);
                 },
                 else => {}, // TODO process stack allocation death
             }
@@ -926,12 +922,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 const ptr_bits = arch.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 if (abi_size <= ptr_bytes) {
-                    // TODO separate architectures with registers from
-                    // stack-based architectures (spu_2)
-                    if (callee_preserved_regs.len > 0) {
-                        if (self.register_manager.tryAllocReg(inst, &.{})) |reg| {
-                            return MCValue{ .register = registerAlias(reg, abi_size) };
-                        }
+                    if (self.register_manager.tryAllocReg(inst, &.{})) |reg| {
+                        return MCValue{ .register = registerAlias(reg, abi_size) };
                     }
                 }
             }
@@ -1249,16 +1241,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .register => |reg| {
                     // If it's in the registers table, need to associate the register with the
                     // new instruction.
-                    // TODO separate architectures with registers from
-                    // stack-based architectures (spu_2)
-                    if (callee_preserved_regs.len > 0) {
-                        if (reg.allocIndex()) |index| {
-                            if (!self.register_manager.isRegFree(reg)) {
-                                self.register_manager.registers[index] = inst;
-                            }
+                    if (reg.allocIndex()) |index| {
+                        if (!self.register_manager.isRegFree(reg)) {
+                            self.register_manager.registers[index] = inst;
                         }
-                        log.debug("reusing {} => {*}", .{ reg, inst });
                     }
+                    log.debug("reusing {} => {*}", .{ reg, inst });
                 },
                 .stack_offset => |off| {
                     log.debug("reusing stack offset {} => {*}", .{ off, inst });
@@ -2181,12 +2169,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genArg(self: *Self, inst: *ir.Inst.Arg) !MCValue {
             const arg_index = self.arg_index;
             self.arg_index += 1;
-
-            // TODO separate architectures with registers from
-            // stack-based architectures (spu_2)
-            if (callee_preserved_regs.len == 0) {
-                return self.fail(inst.base.src, "TODO implement Register enum for {}", .{self.target.cpu.arch});
-            }
 
             const result = self.args[arg_index];
             const mcv = switch (arch) {
