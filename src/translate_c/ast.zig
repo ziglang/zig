@@ -60,6 +60,8 @@ pub const Node = extern union {
         array_access,
         call,
         var_decl,
+        /// const name = struct { init }
+        static_local_var,
         func,
         warning,
         /// All enums are non-exhaustive
@@ -366,7 +368,7 @@ pub const Node = extern union {
                 .array_type, .null_sentinel_array_type => Payload.Array,
                 .arg_redecl, .alias, .fail_decl => Payload.ArgRedecl,
                 .log2_int_type => Payload.Log2IntType,
-                .var_simple, .pub_var_simple => Payload.SimpleVarDecl,
+                .var_simple, .pub_var_simple, .static_local_var => Payload.SimpleVarDecl,
                 .pub_enum_redecl, .enum_redecl => Payload.EnumRedecl,
                 .array_filler => Payload.ArrayFiller,
                 .pub_inline_fn => Payload.PubInlineFn,
@@ -1206,6 +1208,35 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .data = .{
                     .lhs = 0,
                     .rhs = init,
+                },
+            });
+        },
+        .static_local_var => {
+            const payload = node.castTag(.static_local_var).?.data;
+
+            const const_tok = try c.addToken(.keyword_const, "const");
+            _ = try c.addIdentifier(payload.name);
+            _ = try c.addToken(.equal, "=");
+
+            const kind_tok = try c.addToken(.keyword_struct, "struct");
+            _ = try c.addToken(.l_brace, "{");
+
+            const container_def = try c.addNode(.{
+                .tag = .container_decl_two_trailing,
+                .main_token = kind_tok,
+                .data = .{
+                    .lhs = try renderNode(c, payload.init),
+                    .rhs = 0,
+                },
+            });
+            _ = try c.addToken(.r_brace, "}");
+
+            return c.addNode(.{
+                .tag = .simple_var_decl,
+                .main_token = const_tok,
+                .data = .{
+                    .lhs = 0,
+                    .rhs = container_def,
                 },
             });
         },
@@ -2276,6 +2307,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .div_exact,
         .offset_of,
         .shuffle,
+        .static_local_var,
         => {
             // no grouping needed
             return renderNode(c, node);

@@ -2458,6 +2458,11 @@ enum ZigClangStorageClass ZigClangVarDecl_getStorageClass(const struct ZigClangV
     return (ZigClangStorageClass)casted->getStorageClass();
 }
 
+bool ZigClangVarDecl_isStaticLocal(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return casted->isStaticLocal();
+}
+
 enum ZigClangBuiltinTypeKind ZigClangBuiltinType_getKind(const struct ZigClangBuiltinType *self) {
     auto casted = reinterpret_cast<const clang::BuiltinType *>(self);
     return (ZigClangBuiltinTypeKind)casted->getKind();

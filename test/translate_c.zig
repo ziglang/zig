@@ -286,15 +286,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("extern variable in block scope",
+    cases.add("static variable in block scope",
         \\float bar;
         \\int foo() {
         \\    _Thread_local static int bar = 2;
         \\}
     , &[_][]const u8{
         \\pub export var bar: f32 = @import("std").mem.zeroes(f32);
-        \\threadlocal var bar_1: c_int = 2;
         \\pub export fn foo() c_int {
+        \\    const bar_1 = struct {
+        \\        threadlocal var static: c_int = 2;
+        \\    };
         \\    return 0;
         \\}
     });
@@ -816,8 +818,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    static const char v2[] = "2.2.2";
         \\}
     , &[_][]const u8{
-        \\const v2: [5:0]u8 = "2.2.2".*;
-        \\pub export fn foo() void {}
+        \\pub export fn foo() void {
+        \\    const v2 = struct {
+        \\        const static: [5:0]u8 = "2.2.2".*;
+        \\    };
+        \\}
     });
 
     cases.add("simple function definition",
@@ -3593,6 +3598,25 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn bar(c_int, c_int) c_int;
         \\pub export fn foo() c_int {
         \\    return bar(@as(c_int, 1), @as(c_int, 2));
+        \\}
+    });
+
+    cases.add("static local variable zero-initialized if no initializer",
+        \\struct FOO {int x; int y;};
+        \\int bar(void) {
+        \\    static struct FOO foo;
+        \\    return foo.x;
+        \\}
+    , &[_][]const u8{
+        \\pub const struct_FOO = extern struct {
+        \\    x: c_int,
+        \\    y: c_int,
+        \\};
+        \\pub export fn bar() c_int {
+        \\    const foo = struct {
+        \\        var static: struct_FOO = @import("std").mem.zeroes(struct_FOO);
+        \\    };
+        \\    return foo.static.x;
         \\}
     });
 }
