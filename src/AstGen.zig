@@ -6472,6 +6472,33 @@ fn asmExpr(
             // issues and decide how to handle outputs. Do we want this to be identifiers?
             // Or maybe we want to force this to be expressions with a pointer type.
             // Until that is figured out this is only hooked up for referencing Decls.
+            // TODO we have put this as an identifier lookup just so that we don't get
+            // unused vars for outputs. We need to check if this is correct in the future ^^
+            // so we just put in this simple lookup. This is a workaround.
+            {
+                var s = scope;
+                while (true) switch (s.tag) {
+                    .local_val => {
+                        const local_val = s.cast(Scope.LocalVal).?;
+                        if (local_val.name == str_index) {
+                            local_val.used = true;
+                            break;
+                        }
+                        s = local_val.parent;
+                    },
+                    .local_ptr => {
+                        const local_ptr = s.cast(Scope.LocalPtr).?;
+                        if (local_ptr.name == str_index) {
+                            local_ptr.used = true;
+                            break;
+                        }
+                        s = local_ptr.parent;
+                    },
+                    .gen_zir => s = s.cast(GenZir).?.parent,
+                    .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
+                    .namespace, .top => break,
+                };
+            }
             const operand = try gz.addStrTok(.decl_ref, str_index, ident_token);
             outputs[i] = .{
                 .name = name,
