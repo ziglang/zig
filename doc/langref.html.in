@@ -220,10 +220,6 @@
       all on one page so you can search with your browser's search tool.
       </p>
       <p>
-      If you search for something specific in this documentation and do not find it,
-      please <a href="https://github.com/ziglang/www.ziglang.org/issues/new?title=I%20searched%20for%20___%20in%20the%20docs%20and%20didn%27t%20find%20it">file an issue</a> or <a href="https://webchat.freenode.net/?channels=%23zig">say something on IRC</a>.
-      </p>
-      <p>
       The code samples in this document are compiled and tested as part of the main test suite of Zig.
       </p>
       <p>
