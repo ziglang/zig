@@ -6,26 +6,54 @@
 const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 
-/// This allocator is used in front of another allocator and logs to the provided stream
-/// on every call to the allocator. Stream errors are ignored.
-/// If https://github.com/ziglang/zig/issues/2586 is implemented, this API can be improved.
-pub fn LoggingAllocator(comptime Writer: type) type {
+/// This allocator is used in front of another allocator and logs to `std.log`
+/// on every call to the allocator.
+/// For logging to a `std.io.Writer` see `std.heap.LogToWriterAllocator`
+pub fn LoggingAllocator(
+    comptime success_log_level: std.log.Level,
+    comptime failure_log_level: std.log.Level,
+) type {
+    return ScopedLoggingAllocator(.default, success_log_level, failure_log_level);
+}
+
+/// This allocator is used in front of another allocator and logs to `std.log`
+/// with the given scope on every call to the allocator.
+/// For logging to a `std.io.Writer` see `std.heap.LogToWriterAllocator`
+pub fn ScopedLoggingAllocator(
+    comptime scope: @Type(.EnumLiteral),
+    comptime success_log_level: std.log.Level,
+    comptime failure_log_level: std.log.Level,
+) type {
+    const log = std.log.scoped(scope);
+
     return struct {
         allocator: Allocator,
         parent_allocator: *Allocator,
-        writer: Writer,
 
         const Self = @This();
 
-        pub fn init(parent_allocator: *Allocator, writer: Writer) Self {
-            return Self{
+        pub fn init(parent_allocator: *Allocator) Self {
+            return .{
                 .allocator = Allocator{
                     .allocFn = alloc,
                     .resizeFn = resize,
                 },
                 .parent_allocator = parent_allocator,
-                .writer = writer,
             };
+        }
+
+        // This function is required as the `std.log.log` function is not public
+        fn logHelper(comptime log_level: std.log.Level, comptime format: []const u8, args: anytype) callconv(.Inline) void {
+            switch (log_level) {
+                .emerg => log.emerg(format, args),
+                .alert => log.alert(format, args),
+                .crit => log.crit(format, args),
+                .err => log.err(format, args),
+                .warn => log.warn(format, args),
+                .notice => log.notice(format, args),
+                .info => log.info(format, args),
+                .debug => log.debug(format, args),
+            }
         }
 
         fn alloc(
@@ -36,12 +64,19 @@ pub fn LoggingAllocator(comptime Writer: type) type {
             ra: usize,
         ) error{OutOfMemory}![]u8 {
             const self = @fieldParentPtr(Self, "allocator", allocator);
-            self.writer.print("alloc : {}", .{len}) catch {};
             const result = self.parent_allocator.allocFn(self.parent_allocator, len, ptr_align, len_align, ra);
             if (result) |buff| {
-                self.writer.print(" success!\n", .{}) catch {};
+                logHelper(
+                    success_log_level,
+                    "alloc - success - len: {}, ptr_align: {}, len_align: {}",
+                    .{ len, ptr_align, len_align },
+                );
             } else |err| {
-                self.writer.print(" failure!\n", .{}) catch {};
+                logHelper(
+                    failure_log_level,
+                    "alloc - failure: {s} - len: {}, ptr_align: {}, len_align: {}",
+                    .{ @errorName(err), len, ptr_align, len_align },
+                );
             }
             return result;
         }
@@ -55,53 +90,41 @@ pub fn LoggingAllocator(comptime Writer: type) type {
             ra: usize,
         ) error{OutOfMemory}!usize {
             const self = @fieldParentPtr(Self, "allocator", allocator);
-            if (new_len == 0) {
-                self.writer.print("free  : {}\n", .{buf.len}) catch {};
-            } else if (new_len <= buf.len) {
-                self.writer.print("shrink: {} to {}\n", .{ buf.len, new_len }) catch {};
-            } else {
-                self.writer.print("expand: {} to {}", .{ buf.len, new_len }) catch {};
-            }
+
             if (self.parent_allocator.resizeFn(self.parent_allocator, buf, buf_align, new_len, len_align, ra)) |resized_len| {
-                if (new_len > buf.len) {
-                    self.writer.print(" success!\n", .{}) catch {};
+                if (new_len == 0) {
+                    logHelper(success_log_level, "free - success - len: {}", .{buf.len});
+                } else if (new_len <= buf.len) {
+                    logHelper(
+                        success_log_level,
+                        "shrink - success - {} to {}, len_align: {}, buf_align: {}",
+                        .{ buf.len, new_len, len_align, buf_align },
+                    );
+                } else {
+                    logHelper(
+                        success_log_level,
+                        "expand - success - {} to {}, len_align: {}, buf_align: {}",
+                        .{ buf.len, new_len, len_align, buf_align },
+                    );
                 }
+
                 return resized_len;
-            } else |e| {
+            } else |err| {
                 std.debug.assert(new_len > buf.len);
-                self.writer.print(" failure!\n", .{}) catch {};
-                return e;
+                logHelper(
+                    failure_log_level,
+                    "expand - failure: {s} - {} to {}, len_align: {}, buf_align: {}",
+                    .{ @errorName(err), buf.len, new_len, len_align, buf_align },
+                );
+                return err;
             }
         }
     };
 }
 
-pub fn loggingAllocator(
-    parent_allocator: *Allocator,
-    writer: anytype,
-) LoggingAllocator(@TypeOf(writer)) {
-    return LoggingAllocator(@TypeOf(writer)).init(parent_allocator, writer);
-}
-
-test "LoggingAllocator" {
-    var log_buf: [255]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&log_buf);
-
-    var allocator_buf: [10]u8 = undefined;
-    var fixedBufferAllocator = std.mem.validationWrap(std.heap.FixedBufferAllocator.init(&allocator_buf));
-    const allocator = &loggingAllocator(&fixedBufferAllocator.allocator, fbs.writer()).allocator;
-
-    var a = try allocator.alloc(u8, 10);
-    a = allocator.shrink(a, 5);
-    try std.testing.expect(a.len == 5);
-    try std.testing.expectError(error.OutOfMemory, allocator.resize(a, 20));
-    allocator.free(a);
-
-    try std.testing.expectEqualSlices(u8,
-        \\alloc : 10 success!
-        \\shrink: 10 to 5
-        \\expand: 5 to 20 failure!
-        \\free  : 5
-        \\
-    , fbs.getWritten());
+/// This allocator is used in front of another allocator and logs to `std.log`
+/// on every call to the allocator.
+/// For logging to a `std.io.Writer` see `std.heap.LogToWriterAllocator`
+pub fn loggingAllocator(parent_allocator: *Allocator) LoggingAllocator(.debug, .crit) {
+    return LoggingAllocator(.debug, .crit).init(parent_allocator);
 }
