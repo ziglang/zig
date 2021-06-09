@@ -72,6 +72,11 @@ const Scope = struct {
         /// so that the return expression can be cast, if necessary
         return_type: ?clang.QualType = null,
 
+        /// C static local variables are wrapped in a block-local struct. The struct
+        /// is named after the (mangled) variable name, the Zig variable within the
+        /// struct itself is given this name.
+        const StaticInnerName = "static";
+
         fn init(c: *Context, parent: *Scope, labeled: bool) !Block {
             var blk = Block{
                 .base = .{
@@ -1738,15 +1743,13 @@ fn transDeclStmtOne(
             const name = try c.str(@ptrCast(*const clang.NamedDecl, var_decl).getName_bytes_begin());
             const mangled_name = try block_scope.makeMangledName(c, name);
 
-            switch (var_decl.getStorageClass()) {
-                .Extern, .Static => {
-                    // This is actually a global variable, put it in the global scope and reference it.
-                    // `_ = mangled_name;`
-                    return visitVarDecl(c, var_decl, mangled_name);
-                },
-                else => {},
+            if (var_decl.getStorageClass() == .Extern) {
+                // This is actually a global variable, put it in the global scope and reference it.
+                // `_ = mangled_name;`
+                return visitVarDecl(c, var_decl, mangled_name);
             }
 
+            const is_static_local = var_decl.isStaticLocal();
             const is_const = qual_type.isConstQualified();
 
             const loc = decl.getLocation();
@@ -1757,24 +1760,30 @@ fn transDeclStmtOne(
                     try transStringLiteralInitializer(c, scope, @ptrCast(*const clang.StringLiteral, expr), type_node)
                 else
                     try transExprCoercing(c, scope, expr, .used)
+            else if (is_static_local)
+                try Tag.std_mem_zeroes.create(c.arena, type_node)
             else
                 Tag.undefined_literal.init();
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
                 init_node = try Tag.bool_to_int.create(c.arena, init_node);
             }
 
-            const node = try Tag.var_decl.create(c.arena, .{
+            const var_name: []const u8 = if (is_static_local) Scope.Block.StaticInnerName else mangled_name;
+            var node = try Tag.var_decl.create(c.arena, .{
                 .is_pub = false,
                 .is_const = is_const,
                 .is_extern = false,
                 .is_export = false,
-                .is_threadlocal = false,
+                .is_threadlocal = var_decl.getTLSKind() != .None,
                 .linksection_string = null,
                 .alignment = zigAlignment(var_decl.getAlignedAttribute(c.clang_context)),
-                .name = mangled_name,
+                .name = var_name,
                 .type = type_node,
                 .init = init_node,
             });
+            if (is_static_local) {
+                node = try Tag.static_local_var.create(c.arena, .{ .name = mangled_name, .init = node });
+            }
             try block_scope.statements.append(node);
 
             const cleanup_attr = var_decl.getCleanupAttribute();
@@ -1834,7 +1843,18 @@ fn transDeclRefExpr(
     const value_decl = expr.getDecl();
     const name = try c.str(@ptrCast(*const clang.NamedDecl, value_decl).getName_bytes_begin());
     const mangled_name = scope.getAlias(name);
-    return Tag.identifier.create(c.arena, mangled_name);
+    var ref_expr = try Tag.identifier.create(c.arena, mangled_name);
+
+    if (@ptrCast(*const clang.Decl, value_decl).getKind() == .Var) {
+        const var_decl = @ptrCast(*const clang.VarDecl, value_decl);
+        if (var_decl.isStaticLocal()) {
+            ref_expr = try Tag.field_access.create(c.arena, .{
+                .lhs = ref_expr,
+                .field_name = Scope.Block.StaticInnerName,
+            });
+        }
+    }
+    return ref_expr;
 }
 
 fn transImplicitCastExpr(

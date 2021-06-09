@@ -1550,4 +1550,42 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    if(FORCE_UINT != 0xffffffff) abort();
         \\}
     , "");
+
+    cases.add("block-scope static variable shadows function parameter. Issue #8208",
+        \\#include <stdlib.h>
+        \\int func1(int foo) { return foo + 1; }
+        \\int func2(void) {
+        \\    static int foo = 5;
+        \\    return foo++;
+        \\}
+        \\int main(void) {
+        \\    if (func1(42) != 43) abort();
+        \\    if (func2() != 5) abort();
+        \\    if (func2() != 6) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("nested same-name static locals",
+        \\#include <stdlib.h>
+        \\int func(int val) {
+        \\    static int foo;
+        \\    if (foo != val) abort();
+        \\    {
+        \\        foo += 1;
+        \\        static int foo = 2;
+        \\        if (foo != val + 2) abort();
+        \\        foo += 1;
+        \\    }
+        \\    return foo;
+        \\}
+        \\int main(void) {
+        \\    int foo = 1;
+        \\    if (func(0) != 1) abort();
+        \\    if (func(1) != 2) abort();
+        \\    if (func(2) != 3) abort();
+        \\    if (foo != 1) abort();
+        \\    return 0;
+        \\}
+    , "");
 }

@@ -1002,6 +1002,9 @@ pub const VarDecl = opaque {
 
     pub const getTypeSourceInfo_getType = ZigClangVarDecl_getTypeSourceInfo_getType;
     extern fn ZigClangVarDecl_getTypeSourceInfo_getType(*const VarDecl) QualType;
+
+    pub const isStaticLocal = ZigClangVarDecl_isStaticLocal;
+    extern fn ZigClangVarDecl_isStaticLocal(*const VarDecl) bool;
 };
 
 pub const VectorType = opaque {
