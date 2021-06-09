@@ -753,10 +753,11 @@ pub fn EnumIndexer(comptime E: type) type {
     std.sort.sort(EnumField, &fields, {}, ascByValue);
     const min = fields[0].value;
     const max = fields[fields.len - 1].value;
+    const fields_len = fields.len;
     if (max - min == fields.len - 1) {
         return struct {
             pub const Key = E;
-            pub const count = fields.len;
+            pub const count = fields_len;
             pub fn indexOf(e: E) usize {
                 return @intCast(usize, @enumToInt(e) - min);
             }
@@ -774,7 +775,7 @@ pub fn EnumIndexer(comptime E: type) type {
 
     return struct {
         pub const Key = E;
-        pub const count = fields.len;
+        pub const count = fields_len;
         pub fn indexOf(e: E) usize {
             for (keys) |k, i| {
                 if (k == e) return i;
