@@ -1328,6 +1328,8 @@ fn structInitExpr(
     }
     switch (rl) {
         .discard => {
+            if (struct_init.ast.type_expr != 0)
+                _ = try typeExpr(gz, scope, struct_init.ast.type_expr);
             for (struct_init.ast.fields) |field_init| {
                 _ = try expr(gz, scope, .discard, field_init);
             }
@@ -1411,6 +1413,9 @@ fn structInitExprRlPtr(
 
     const field_ptr_list = try gpa.alloc(Zir.Inst.Index, struct_init.ast.fields.len);
     defer gpa.free(field_ptr_list);
+
+    if (struct_init.ast.type_expr != 0)
+        _ = try typeExpr(gz, scope, struct_init.ast.type_expr);
 
     for (struct_init.ast.fields) |field_init, i| {
         const name_token = tree.firstToken(field_init) - 2;
