@@ -39,11 +39,12 @@ pub const DeclBlock = struct {
     type: enum { text, data },
     // offset in the text or data sects
     offset: u32,
-    sym_index: usize,
+    // offset into syms
+    sym_index: ?usize,
     pub const empty = DeclBlock{
         .type = .text,
         .offset = 0,
-        .sym_index = 0,
+        .sym_index = null,
     };
 };
 
@@ -98,6 +99,8 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    defer assert(self.hdr.entry != 0x0);
+
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     self.text_buf.items.len = 0;
@@ -120,7 +123,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
                 .type = .data,
                 .sym_index = decl.link.plan9.sym_index,
             };
-            if (decl.link.plan9.sym_index == 0) {
+            if (decl.link.plan9.sym_index == null) {
                 try self.syms.append(self.base.allocator, .{
                     .value = decl.link.plan9.offset,
                     .type = switch (decl.link.plan9.type) {
@@ -131,7 +134,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
                 });
                 decl.link.plan9.sym_index = self.syms.items.len - 1;
             } else {
-                self.syms.items[decl.link.plan9.sym_index] = .{
+                self.syms.items[decl.link.plan9.sym_index.?] = .{
                     .value = decl.link.plan9.offset,
                     .type = switch (decl.link.plan9.type) {
                         .text => .t,
@@ -162,18 +165,40 @@ pub fn flushModule(self: *Plan9, comp: *Compilation) !void {
         }
     }
 
+    // Do relocations.
+    {
+        for (self.call_relocs.items) |reloc| {
+            const l: DeclBlock = reloc.caller.link.plan9;
+            assert(l.sym_index != null); // we didn't process it already
+            const endian = self.base.options.target.cpu.arch.endian();
+            if (self.ptr_width == .p32) {
+                const callee_offset = @truncate(u32, reloc.callee.link.plan9.offset + default_base_addr); // TODO this is different if its data
+                const off = reloc.offset_in_caller + l.offset;
+                std.mem.writeInt(u32, self.text_buf.items[off - 4 ..][0..4], callee_offset, endian);
+            } else {
+                // what we are writing
+                const callee_offset = reloc.callee.link.plan9.offset + default_base_addr; // TODO this is different if its data
+                const off = reloc.offset_in_caller + l.offset;
+                std.mem.writeInt(u64, self.text_buf.items[off - 8 ..][0..8], callee_offset, endian);
+            }
+        }
+    }
+
     var sym_buf = std.ArrayList(u8).init(self.base.allocator);
     defer sym_buf.deinit();
     try self.writeSyms(&sym_buf);
 
     // generate the header
-    self.hdr.magic = try aout.magicFromArch(self.base.options.target.cpu.arch);
-    self.hdr.text = @intCast(u32, self.text_buf.items.len);
-    self.hdr.data = @intCast(u32, self.data_buf.items.len);
-    self.hdr.syms = @intCast(u32, sym_buf.items.len);
-    self.hdr.bss = 0;
-    self.hdr.pcsz = 0;
-    self.hdr.spsz = 0;
+    self.hdr = .{
+        .magic = try aout.magicFromArch(self.base.options.target.cpu.arch),
+        .text = @intCast(u32, self.text_buf.items.len),
+        .data = @intCast(u32, self.data_buf.items.len),
+        .syms = @intCast(u32, sym_buf.items.len),
+        .bss = 0,
+        .pcsz = 0,
+        .spsz = 0,
+        .entry = self.hdr.entry,
+    };
 
     const file = self.base.file.?;
 
@@ -262,22 +287,26 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     const self = try createEmpty(allocator, options);
     errdefer self.base.destroy();
 
+    if (std.builtin.mode == .Debug or std.builtin.mode == .ReleaseSafe)
+        self.hdr.entry = 0x0;
+
     self.base.file = file;
     return self;
 }
 
+// tells its future self to write the addr of the callee decl into offset_in_caller.
+// writes it to the {4, 8} bytes before offset_in_caller
 pub fn addCallReloc(self: *Plan9, code: *std.ArrayList(u8), reloc: CallReloc) !void {
     try self.call_relocs.append(self.base.allocator, reloc);
-    try code.writer().writeIntBig(u64, 0xdeadbeef);
 }
 
 pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
     const writer = buf.writer();
     for (self.syms.items) |sym| {
         if (self.ptr_width == .p32) {
-            try writer.writeIntBig(u32, @intCast(u32, sym.value));
+            try writer.writeIntBig(u32, @intCast(u32, sym.value) + default_base_addr);
         } else {
-            try writer.writeIntBig(u64, sym.value);
+            try writer.writeIntBig(u64, sym.value + default_base_addr);
         }
         try writer.writeByte(@enumToInt(sym.type));
         try writer.writeAll(std.mem.span(sym.name));

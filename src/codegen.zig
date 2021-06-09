@@ -2557,16 +2557,56 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                 }
             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-                if (inst.func.value()) |func_value| {
-                    if (func_value.castTag(.function)) |func_payload| {
-                        try p9.addCallReloc(self.code, .{
-                            .caller = p9.cur_decl,
-                            .callee = func_payload.data.owner_decl,
-                            .offset_in_caller = self.code.items.len,
-                        });
-                    } else return self.fail(inst.base.src, "TODO implement calling extern fn on plan9", .{});
-                } else {
-                    return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                switch (arch) {
+                    .x86_64 => {
+                        for (info.args) |mc_arg, arg_i| {
+                            const arg = inst.args[arg_i];
+                            const arg_mcv = try self.resolveInst(inst.args[arg_i]);
+                            // Here we do not use setRegOrMem even though the logic is similar, because
+                            // the function call will move the stack pointer, so the offsets are different.
+                            switch (mc_arg) {
+                                .none => continue,
+                                .register => |reg| {
+                                    try self.register_manager.getReg(reg, null);
+                                    try self.genSetReg(arg.src, arg.ty, reg, arg_mcv);
+                                },
+                                .stack_offset => {
+                                    // Here we need to emit instructions like this:
+                                    // mov     qword ptr [rsp + stack_offset], x
+                                    return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                                },
+                                .ptr_stack_offset => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+                                },
+                                .ptr_embedded_in_code => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
+                                },
+                                .undef => unreachable,
+                                .immediate => unreachable,
+                                .unreach => unreachable,
+                                .dead => unreachable,
+                                .embedded_in_code => unreachable,
+                                .memory => unreachable,
+                                .compare_flags_signed => unreachable,
+                                .compare_flags_unsigned => unreachable,
+                            }
+                        }
+                        if (inst.func.value()) |func_value| {
+                            if (func_value.castTag(.function)) |func_payload| {
+                                try self.genSetReg(inst.base.src, Type.initTag(.u64), .rax, .{ .immediate = 0xdeadbeefdeadbeef });
+                                try p9.addCallReloc(self.code, .{
+                                    .caller = p9.cur_decl,
+                                    .callee = func_payload.data.owner_decl,
+                                    .offset_in_caller = self.code.items.len,
+                                });
+                                // call rax
+                                try self.code.appendSlice(&.{ 0xff, 0xd0 });
+                            } else return self.fail(inst.base.src, "TODO implement calling extern fn on plan9", .{});
+                        } else {
+                            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                        }
+                    },
+                    else => return self.fail(inst.base.src, "TODO implement call on plan9 for {}", .{self.target.cpu.arch}),
                 }
             } else unreachable;
 
