@@ -336,6 +336,10 @@ const known_options = [_]KnownOpt{
         .name = "dynamiclib",
         .ident = "shared",
     },
+    .{
+        .name = "mexec-model",
+        .ident = "exec_model",
+    }
 };
 
 const blacklisted_options = [_][]const u8{};

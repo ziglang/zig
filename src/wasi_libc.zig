@@ -45,6 +45,15 @@ pub fn emulatedLibCRFileLibName(crt_file: CRTFile) []const u8 {
     };
 }
 
+pub fn crtFileFullName(crt_file: CRTFile) []const u8 {
+    return switch (crt_file) {
+        .crt1_o => "crt1.o",
+        .crt1_reactor_o => "crt1-reactor.o",
+        .crt1_command_o => "crt1-command.o",
+        else => unreachable,
+    };
+}
+
 pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;

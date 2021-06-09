@@ -725,6 +725,8 @@ pub const InitOptions = struct {
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
+    /// WASI-only. Type of WASI execution model ("command" or "reactor").
+    wasi_exec_model: ?wasi_libc.CRTFile = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -1340,6 +1342,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .disable_lld_caching = options.disable_lld_caching,
             .subsystem = options.subsystem,
             .is_test = options.is_test,
+            .wasi_exec_model = options.wasi_exec_model,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -1441,9 +1444,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                     .wasi_libc_crt_file = crt_file,
                 });
             }
-            // TODO add logic deciding which crt1 we want here.
             comp.work_queue.writeAssumeCapacity(&[_]Job{
-                .{ .wasi_libc_crt_file = .crt1_o },
+                .{ .wasi_libc_crt_file = comp.bin_file.options.wasi_exec_model orelse .crt1_o },
                 .{ .wasi_libc_crt_file = .libc_a },
             });
         }
@@ -1868,7 +1870,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
 
             for (keys[1..]) |key, i| {
                 err_msg.notes[i] = .{
-                    .src_loc = key.nodeOffsetSrcLoc(values[i+1]),
+                    .src_loc = key.nodeOffsetSrcLoc(values[i + 1]),
                     .msg = "also here",
                 };
             }
