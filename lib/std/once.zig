@@ -30,8 +30,9 @@ pub fn Once(comptime f: anytype) type {
         .Void => true,
         .ErrorUnion => |info| info.payload == void,
         else => false,
-    })
+    }) {
         @compileError("expected function returning void or !void, found " ++ @typeName(T));
+    }
 
     const Args = std.meta.ArgsTuple(T);
 
