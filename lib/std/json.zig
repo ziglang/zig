@@ -1466,7 +1466,17 @@ pub const ParseOptions = struct {
     ignore_unknown_fields: bool = false,
 
     allow_trailing_data: bool = false,
-    field_aliases: ?[]const struct { field: []const u8, alias: []const u8 } = null,
+
+    /// Provide if struct field names are different from json key names
+    field_aliases: []const FieldAlias = &.{},
+};
+
+pub const FieldAlias = struct {
+    /// the struct field name
+    field: []const u8,
+
+    /// the json key name
+    alias: []const u8,
 };
 
 fn skipValue(tokens: *TokenStream) !void {
@@ -1532,14 +1542,12 @@ test "skipValue" {
 }
 
 // build a map of aliases from field_name => alias_name
-fn buildFieldAliases(comptime T: type, options: ParseOptions) !std.StringHashMapUnmanaged([]const u8) {
-    const field_aliases = options.field_aliases;
+fn buildFieldAliasMap(comptime T: type, options: ParseOptions, allocator: *mem.Allocator) !std.StringHashMapUnmanaged([]const u8) {
     var result = std.StringHashMapUnmanaged([]const u8){};
-    const alias_entries = field_aliases orelse return result;
+    if (options.field_aliases.len == 0) return result;
     inline for (comptime std.meta.fieldNames(T)) |field_name| {
-        for (alias_entries) |entry| {
+        for (options.field_aliases) |entry| {
             if (std.mem.eql(u8, field_name, entry.field)) {
-                const allocator = options.allocator orelse return error.AllocatorRequired;
                 try result.put(allocator, entry.field, entry.alias);
             }
         }
@@ -1553,18 +1561,32 @@ test "field aliases" {
         \\{"__value": 42}
     ;
 
-    try testing.expectError(
-        error.AllocatorRequired,
-        parse(S, &TokenStream.init(text), .{
-            .field_aliases = &.{.{ .field = "value", .alias = "__value" }},
-        }),
-    );
-
     const s = try parse(S, &TokenStream.init(text), .{
         .field_aliases = &.{.{ .field = "value", .alias = "__value" }},
-        .allocator = std.testing.allocator,
     });
     try testing.expectEqual(@as(u8, 42), s.value);
+}
+
+test "many field_aliases" {
+    const S = struct { value: u8, zzz: u8 };
+    const text =
+        \\{"__value": 42, "__zzz": 84}
+    ;
+
+    // make oversized list of aliases to check if stack allocated field_alias_map has enough memory
+    comptime var field_aliases = [1]FieldAlias{undefined} ** 256;
+    comptime for (field_aliases) |*fa, i| {
+        const c = [1]u8{@intCast(u8, 'A' + (i % 64))};
+        const cs = c ** (i / 64 + 1);
+        fa.field = &cs;
+        fa.alias = &("__" ++ cs);
+    };
+
+    const s = try parse(S, &TokenStream.init(text), .{
+        .field_aliases = &(field_aliases ++ [1]FieldAlias{.{ .field = "value", .alias = "__value" }}),
+    });
+    try testing.expectEqual(@as(u8, 42), s.value);
+    try testing.expectEqual(@as(u8, 84), s.zzz);
 }
 
 test "field alias escapes" {
@@ -1586,13 +1608,11 @@ test "field alias escapes" {
         error.UnknownField,
         parse(S, &TokenStream.init(text), .{
             .field_aliases = &.{.{ .field = "foo", .alias = "__bar" }},
-            .allocator = std.testing.allocator,
         }),
     );
 
     const s = try parse(S, &TokenStream.init(text), .{
         .field_aliases = &.{.{ .field = "foo", .alias = "__foo" }},
-        .allocator = std.testing.allocator,
     });
     try testing.expectEqual(@as(u8, 42), s.foo);
 }
@@ -1690,9 +1710,9 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                     }
                 }
             }
-
-            var field_alias_map = try buildFieldAliases(T, options);
-            defer if (options.allocator) |allocator| field_alias_map.deinit(allocator);
+            var buf: [structInfo.fields.len * (1 << 9)]u8 = undefined;
+            var fba = std.heap.FixedBufferAllocator.init(&buf);
+            var field_alias_map = try buildFieldAliasMap(T, options, &fba.allocator);
 
             while (true) {
                 switch ((try tokens.next()) orelse return error.UnexpectedEndOfJson) {
