@@ -25,6 +25,7 @@ pub const shell32 = @import("windows/shell32.zig");
 pub const user32 = @import("windows/user32.zig");
 pub const ws2_32 = @import("windows/ws2_32.zig");
 pub const gdi32 = @import("windows/gdi32.zig");
+pub const winmm = @import("windows/winmm.zig");
 
 pub usingnamespace @import("windows/bits.zig");
 
