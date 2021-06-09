@@ -6262,7 +6262,7 @@ pub fn printValue(self: *Writer, value: anytype) !void {
       <p>
       And now, what happens if we give too many arguments to {#syntax#}printf{#endsyntax#}?
       </p>
-      {#code_begin|test_err|Unused arguments#}
+      {#code_begin|test_err|Unused argument in "here is a string: '{s}' here is a number: {}#}
 const print = @import("std").debug.print;
 
 const a_number: i32 = 1234;
