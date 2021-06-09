@@ -516,4 +516,87 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
 
         break :x tc;
     });
+
+    // It is required to override the log function in order to print to stdout instead of stderr
+    cases.add("std.log per scope log level override",
+        \\const std = @import("std");
+        \\
+        \\pub const log_level: std.log.Level = .debug;
+        \\
+        \\pub const scope_levels = [_]std.log.ScopeLevel{
+        \\    .{ .scope = .a, .level = .alert },
+        \\    .{ .scope = .c, .level = .emerg },
+        \\};
+        \\
+        \\const loga = std.log.scoped(.a);
+        \\const logb = std.log.scoped(.b);
+        \\const logc = std.log.scoped(.c);
+        \\
+        \\pub fn main() !void {
+        \\    loga.debug("", .{});
+        \\    logb.debug("", .{});
+        \\    logc.debug("", .{});
+        \\
+        \\    loga.info("", .{});
+        \\    logb.info("", .{});
+        \\    logc.info("", .{});
+        \\
+        \\    loga.notice("", .{});
+        \\    logb.notice("", .{});
+        \\    logc.notice("", .{});
+        \\
+        \\    loga.warn("", .{});
+        \\    logb.warn("", .{});
+        \\    logc.warn("", .{});
+        \\
+        \\    loga.err("", .{});
+        \\    logb.err("", .{});
+        \\    logc.err("", .{});
+        \\
+        \\    loga.crit("", .{});
+        \\    logb.crit("", .{});
+        \\    logc.crit("", .{});
+        \\
+        \\    loga.alert("", .{});
+        \\    logb.alert("", .{});
+        \\    logc.alert("", .{});
+        \\
+        \\    loga.emerg("", .{});
+        \\    logb.emerg("", .{});
+        \\    logc.emerg("", .{});
+        \\}
+        \\pub fn log(
+        \\    comptime level: std.log.Level,
+        \\    comptime scope: @TypeOf(.EnumLiteral),
+        \\    comptime format: []const u8,
+        \\    args: anytype,
+        \\) void {
+        \\    const level_txt = switch (level) {
+        \\        .emerg => "emergency",
+        \\        .alert => "alert",
+        \\        .crit => "critical",
+        \\        .err => "error",
+        \\        .warn => "warning",
+        \\        .notice => "notice",
+        \\        .info => "info",
+        \\        .debug => "debug",
+        \\    };
+        \\    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+        \\    const stdout = std.io.getStdOut().writer();
+        \\    nosuspend stdout.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+        \\}
+    ,
+        \\debug(b): 
+        \\info(b): 
+        \\notice(b): 
+        \\warning(b): 
+        \\error(b): 
+        \\critical(b): 
+        \\alert(a): 
+        \\alert(b): 
+        \\emergency(a): 
+        \\emergency(b): 
+        \\emergency(c): 
+        \\
+    );
 }
