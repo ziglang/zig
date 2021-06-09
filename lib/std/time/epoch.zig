@@ -124,7 +124,7 @@ pub const YearAndDay = struct {
         const leap_kind: YearLeapKind = if (isLeapYear(self.year)) .leap else .not_leap;
         while (true) {
             const days_in_month = getDaysInMonth(leap_kind, month);
-            if (days_left <= days_in_month)
+            if (days_left < days_in_month)
                 break;
             days_left -= days_in_month;
             month = @intToEnum(Month, @enumToInt(month) + 1);
@@ -214,8 +214,19 @@ test "epoch decoding" {
         .month = .jan,
         .day_index = 0,
     }, .{ .hours_into_day = 0, .minutes_into_hour = 0, .seconds_into_minute = 0 });
+
+    try testEpoch(31535999, .{ .year = 1970, .day = 364 }, .{
+        .month = .dec,
+        .day_index = 30,
+    }, .{ .hours_into_day = 23, .minutes_into_hour = 59, .seconds_into_minute = 59 });
+
     try testEpoch(1622924906, .{ .year = 2021, .day = 31 + 28 + 31 + 30 + 31 + 4 }, .{
         .month = .jun,
         .day_index = 4,
     }, .{ .hours_into_day = 20, .minutes_into_hour = 28, .seconds_into_minute = 26 });
+
+    try testEpoch(1625159473, .{ .year = 2021, .day = 31 + 28 + 31 + 30 + 31 + 30 }, .{
+        .month = .jul,
+        .day_index = 0,
+    }, .{ .hours_into_day = 17, .minutes_into_hour = 11, .seconds_into_minute = 13 });
 }
