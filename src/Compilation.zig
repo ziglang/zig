@@ -203,8 +203,8 @@ const Job = union(enum) {
     /// needed when not linking libc and using LLVM for code generation because it generates
     /// calls to, for example, memcpy and memset.
     zig_libc: void,
-    /// WASI libc sysroot
-    wasi_libc_sysroot: void,
+    /// one of WASI libc static objects
+    wasi_libc_crt_file: wasi_libc.CRTFile,
 
     /// Use stage1 C++ code to compile zig code into an object file.
     stage1_module: void,
@@ -279,7 +279,7 @@ pub const MiscTask = enum {
     libcxx,
     libcxxabi,
     libtsan,
-    wasi_libc_sysroot,
+    wasi_libc_crt_file,
     compiler_rt,
     libssp,
     zig_libc,
@@ -646,6 +646,12 @@ pub const InitOptions = struct {
     framework_dirs: []const []const u8 = &[0][]const u8{},
     frameworks: []const []const u8 = &[0][]const u8{},
     system_libs: []const []const u8 = &[0][]const u8{},
+    /// These correspond to the WASI libc emulated subcomponents including:
+    /// * process clocks
+    /// * getpid
+    /// * mman
+    /// * signal
+    wasi_emulated_libs: []const wasi_libc.CRTFile = &[0]wasi_libc.CRTFile{},
     link_libc: bool = false,
     link_libcpp: bool = false,
     link_libunwind: bool = false,
@@ -1286,6 +1292,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .framework_dirs = options.framework_dirs,
             .system_libs = system_libs,
             .syslibroot = darwin_options.syslibroot,
+            .wasi_emulated_libs = options.wasi_emulated_libs,
             .lib_dirs = options.lib_dirs,
             .rpath_list = options.rpath_list,
             .strip = strip,
@@ -1426,8 +1433,19 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 },
             });
         }
-        if (comp.wantBuildWasiLibcSysrootFromSource()) {
-            try comp.work_queue.write(&[_]Job{.{ .wasi_libc_sysroot = {} }});
+        if (comp.wantBuildWasiLibcFromSource()) {
+            const wasi_emulated_libs = comp.bin_file.options.wasi_emulated_libs;
+            try comp.work_queue.ensureUnusedCapacity(wasi_emulated_libs.len + 2); // worst-case we need all components
+            for (wasi_emulated_libs) |crt_file| {
+                comp.work_queue.writeItemAssumeCapacity(.{
+                    .wasi_libc_crt_file = crt_file,
+                });
+            }
+            // TODO add logic deciding which crt1 we want here.
+            comp.work_queue.writeAssumeCapacity(&[_]Job{
+                .{ .wasi_libc_crt_file = .crt1_o },
+                .{ .wasi_libc_crt_file = .libc_a },
+            });
         }
         if (comp.wantBuildMinGWFromSource()) {
             const static_lib_jobs = [_]Job{
@@ -2169,12 +2187,12 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
                 );
             };
         },
-        .wasi_libc_sysroot => {
-            wasi_libc.buildWasiLibcSysroot(self) catch |err| {
+        .wasi_libc_crt_file => |crt_file| {
+            wasi_libc.buildCRTFile(self, crt_file) catch |err| {
                 // TODO Surface more error details.
                 try self.setMiscFailure(
-                    .wasi_libc_sysroot,
-                    "unable to build WASI libc sysroot: {s}",
+                    .wasi_libc_crt_file,
+                    "unable to build WASI libc CRT file: {s}",
                     .{@errorName(err)},
                 );
             };
@@ -3303,7 +3321,7 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: *Allocator, basename: []cons
     if (comp.wantBuildGLibCFromSource() or
         comp.wantBuildMuslFromSource() or
         comp.wantBuildMinGWFromSource() or
-        comp.wantBuildWasiLibcSysrootFromSource())
+        comp.wantBuildWasiLibcFromSource())
     {
         return comp.crt_files.get(basename).?.full_object_path;
     }
@@ -3343,8 +3361,9 @@ fn wantBuildMuslFromSource(comp: Compilation) bool {
         !comp.getTarget().isWasm();
 }
 
-fn wantBuildWasiLibcSysrootFromSource(comp: Compilation) bool {
-    return comp.wantBuildLibCFromSource() and comp.getTarget().isWasm();
+fn wantBuildWasiLibcFromSource(comp: Compilation) bool {
+    return comp.wantBuildLibCFromSource() and comp.getTarget().isWasm() and
+        comp.getTarget().os.tag == .wasi;
 }
 
 fn wantBuildMinGWFromSource(comp: Compilation) bool {
