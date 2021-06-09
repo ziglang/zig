@@ -5405,7 +5405,7 @@ fn forExpr(
             .name = index_name,
             .ptr = index_ptr,
             .token_src = index_token,
-            .is_comptime = parent_gz.force_comptime,
+            .is_comptime = is_inline,
         };
         break :blk &index_scope.base;
     };
