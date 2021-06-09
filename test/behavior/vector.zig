@@ -412,9 +412,6 @@ test "vector bitwise not operator" {
 }
 
 test "vector shift operators" {
-    // TODO investigate why this fails when cross-compiled to wasm.
-    if (builtin.target.os.tag == .wasi) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTestShift(x: anytype, y: anytype) !void {
             const N = @typeInfo(@TypeOf(x)).Array.len;

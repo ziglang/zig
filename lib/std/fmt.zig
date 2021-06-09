@@ -2392,10 +2392,6 @@ test "vector" {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;
     }
-    if (builtin.target.cpu.arch == .wasm32) {
-        // https://github.com/ziglang/zig/issues/5339
-        return error.SkipZigTest;
-    }
 
     const vbool: std.meta.Vector(4, bool) = [_]bool{ true, false, true, false };
     const vi64: std.meta.Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
