@@ -613,7 +613,7 @@ fn buildOutputType(
     var subsystem: ?std.Target.SubSystem = null;
     var major_subsystem_version: ?u32 = null;
     var minor_subsystem_version: ?u32 = null;
-    var wasi_exec_model: ?Compilation.WasiExecModel = null;
+    var wasi_exec_model: ?wasi_libc.CRTFile = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -1257,9 +1257,9 @@ fn buildOutputType(
                     .strip => strip = true,
                     .exec_model => {
                         if (std.mem.eql(u8, it.only_arg, "reactor")) {
-                            wasi_exec_model = Compilation.WasiExecModel.reactor;
+                            wasi_exec_model = .crt1_reactor_o;
                         } else if (std.mem.eql(u8, it.only_arg, "command")) {
-                            wasi_exec_model = Compilation.WasiExecModel.command;
+                            wasi_exec_model = .crt1_command_o;
                         }
                     },
                 }

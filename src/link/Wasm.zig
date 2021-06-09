@@ -684,7 +684,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
 
             // Reactor execution model does not have _start so lld doesn't look for it.
             if (self.base.options.wasi_exec_model) |exec_model| blk: {
-                if (exec_model != .reactor) break :blk;
+                if (exec_model != .crt1_reactor_o) break :blk;
                 try argv.append("--no-entry");
             }
         } else {
@@ -698,12 +698,6 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         });
 
         if (target.os.tag == .wasi) {
-            const crt_name = if (self.base.options.wasi_exec_model) |exec_model|
-                try std.fmt.allocPrint(arena, "crt1-{s}.o", .{@tagName(exec_model)})
-            else
-                "crt1.o";
-            try argv.append(try comp.get_libc_crt_file(arena, crt_name));
-
             const is_exe_or_dyn_lib = self.base.options.output_mode == .Exe or
                 (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic);
             if (is_exe_or_dyn_lib) {
@@ -727,6 +721,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 }
 
                 if (self.base.options.link_libc) {
+                    try argv.append(try comp.get_libc_crt_file(
+                        arena,
+                        wasi_libc.crtFileFullName(self.base.options.wasi_exec_model orelse .crt1_o),
+                    ));
                     try argv.append(try comp.get_libc_crt_file(arena, "libc.a"));
                 }
             }
