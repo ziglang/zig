@@ -250,8 +250,6 @@ int main(int argc, char **argv) {
     const char *emit_bin_path = nullptr;
     bool strip = false;
     const char *out_name = nullptr;
-    bool verbose_tokenize = false;
-    bool verbose_ast = false;
     bool verbose_ir = false;
     bool verbose_llvm_ir = false;
     bool verbose_cimport = false;
@@ -288,10 +286,6 @@ int main(int argc, char **argv) {
                 return print_full_usage(arg0, stdout, EXIT_SUCCESS);
             } else if (strcmp(arg, "--strip") == 0) {
                 strip = true;
-            } else if (strcmp(arg, "--verbose-tokenize") == 0) {
-                verbose_tokenize = true;
-            } else if (strcmp(arg, "--verbose-ast") == 0) {
-                verbose_ast = true;
             } else if (strcmp(arg, "--verbose-ir") == 0) {
                 verbose_ir = true;
             } else if (strcmp(arg, "--verbose-llvm-ir") == 0) {
@@ -458,8 +452,6 @@ int main(int argc, char **argv) {
     stage1->root_name_ptr = out_name;
     stage1->root_name_len = strlen(out_name);
     stage1->strip = strip;
-    stage1->verbose_tokenize = verbose_tokenize;
-    stage1->verbose_ast = verbose_ast;
     stage1->verbose_ir = verbose_ir;
     stage1->verbose_llvm_ir = verbose_llvm_ir;
     stage1->verbose_cimport = verbose_cimport;
