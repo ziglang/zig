@@ -182,6 +182,7 @@ struct ZigStage1 {
     bool pic;
     bool pie;
     bool lto;
+    bool unwind_tables;
     bool link_libc;
     bool link_libcpp;
     bool strip;
