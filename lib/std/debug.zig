@@ -957,7 +957,7 @@ pub fn readElfDebugInfo(allocator: *mem.Allocator, elf_file: File) !ModuleDebugI
 }
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
-/// This takes ownership of coff_file: users of this function should not close
+/// This takes ownership of macho_file: users of this function should not close
 /// it themselves, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
 fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !ModuleDebugInfo {
