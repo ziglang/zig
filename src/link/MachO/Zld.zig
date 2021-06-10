@@ -86,9 +86,9 @@ imports: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
 unresolved: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
 tentatives: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
 
-// /// Offset into __DATA,__common section.
-// /// Set if the linker found tentative definitions in any of the objects.
-// tentative_defs_offset: u32 = 0,
+/// Offset into __DATA,__common section.
+/// Set if the linker found tentative definitions in any of the objects.
+tentative_defs_offset: u64 = 0,
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
 strtab_dir: std.StringHashMapUnmanaged(u32) = .{},
@@ -227,6 +227,7 @@ pub fn link(self: *Zld, files: []const []const u8, out_path: []const u8, args: L
     try self.allocateDataSegment();
     self.allocateLinkeditSegment();
     try self.allocateSymbols();
+    try self.allocateTentativeSymbols();
     try self.flush();
 }
 
@@ -691,6 +692,49 @@ fn updateMetadata(self: *Zld) !void {
         }
     }
 
+    // Ensure we have __DATA,__common section if we have tentative definitions.
+    // Update size and alignment of __DATA,__common section.
+    if (self.tentatives.values().len > 0) {
+        const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const common_section_index = self.common_section_index orelse ind: {
+            self.common_section_index = @intCast(u16, data_seg.sections.items.len);
+            try data_seg.addSection(self.allocator, .{
+                .sectname = makeStaticString("__common"),
+                .segname = makeStaticString("__DATA"),
+                .addr = 0,
+                .size = 0,
+                .offset = 0,
+                .@"align" = 0,
+                .reloff = 0,
+                .nreloc = 0,
+                .flags = macho.S_ZEROFILL,
+                .reserved1 = 0,
+                .reserved2 = 0,
+                .reserved3 = 0,
+            });
+            break :ind self.common_section_index.?;
+        };
+        const common_sect = &data_seg.sections.items[common_section_index];
+
+        var max_align: u16 = 0;
+        var added_size: u64 = 0;
+        for (self.tentatives.values()) |sym| {
+            const tent = sym.cast(Symbol.Tentative) orelse unreachable;
+            if (max_align > tent.alignment) continue;
+            max_align = tent.alignment;
+            added_size += tent.size;
+        }
+
+        common_sect.@"align" = math.max(common_sect.@"align", max_align);
+
+        const alignment = try math.powi(u32, 2, common_sect.@"align");
+        const offset = mem.alignForwardGeneric(u64, common_sect.size, alignment);
+        const size = mem.alignForwardGeneric(u64, added_size, alignment);
+
+        common_sect.size = offset + size;
+        self.tentative_defs_offset = offset;
+    }
+
     tlv_align: {
         const has_tlv =
             self.tlv_section_index != null or
@@ -1110,6 +1154,70 @@ fn allocateSymbols(self: *Zld) !void {
     }
 }
 
+fn allocateTentativeSymbols(self: *Zld) !void {
+    if (self.tentatives.values().len == 0) return;
+
+    const data_seg = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+    const common_sect = &data_seg.sections.items[self.common_section_index.?];
+
+    const alignment = try math.powi(u32, 2, common_sect.@"align");
+    var base_address: u64 = common_sect.addr + self.tentative_defs_offset;
+
+    log.debug("base address for tentative definitions 0x{x}", .{base_address});
+
+    // TODO there might be a more generic way of doing this.
+    var section: u8 = 0;
+    for (self.load_commands.items) |cmd, cmd_id| {
+        if (cmd != .Segment) break;
+        if (cmd_id == self.data_segment_cmd_index.?) {
+            section += @intCast(u8, self.common_section_index.?) + 1;
+            break;
+        }
+        section += @intCast(u8, cmd.Segment.sections.items.len);
+    }
+
+    // Convert tentative definitions into regular symbols.
+    for (self.tentatives.values()) |sym, i| {
+        const tent = sym.cast(Symbol.Tentative) orelse unreachable;
+        const reg = try self.allocator.create(Symbol.Regular);
+        errdefer self.allocator.destroy(reg);
+
+        reg.* = .{
+            .base = .{
+                .@"type" = .regular,
+                .name = try self.allocator.dupe(u8, tent.base.name),
+                .got_index = tent.base.got_index,
+                .stubs_index = tent.base.stubs_index,
+            },
+            .linkage = .global,
+            .address = base_address,
+            .section = section,
+            .weak_ref = false,
+            .file = tent.file,
+        };
+
+        try self.globals.putNoClobber(self.allocator, reg.base.name, &reg.base);
+        tent.base.alias = &reg.base;
+
+        if (tent.base.got_index) |idx| {
+            self.got_entries.items[idx] = &reg.base;
+        }
+        if (tent.base.stubs_index) |idx| {
+            self.stubs.items[idx] = &reg.base;
+        }
+
+        const address = mem.alignForwardGeneric(u64, base_address + tent.size, alignment);
+
+        log.debug("tentative definition '{s}' allocated from 0x{x} to 0x{x}", .{
+            tent.base.name,
+            base_address,
+            address,
+        });
+
+        base_address = address;
+    }
+}
+
 fn writeStubHelperCommon(self: *Zld) !void {
     const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const stub_helper = &text_segment.sections.items[self.stub_helper_section_index.?];
@@ -1432,14 +1540,25 @@ fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
                 kv.value.alias = sym;
             }
 
-            const t_sym = self.tentatives.get(sym.name) orelse {
+            const sym_ptr = self.tentatives.getPtr(sym.name) orelse {
                 // Put new tentative definition symbol into symbol table.
                 try self.tentatives.putNoClobber(self.allocator, sym.name, sym);
                 continue;
             };
 
-            // TODO compare by size and pick the largest.
-            return error.TODOResolveTentatives;
+            // Compare by size and pick the largest tentative definition.
+            // We model this like a heap where the tentative definition with the
+            // largest size always washes up on top.
+            const t_sym = sym_ptr.*;
+            const t_tent = t_sym.cast(Symbol.Tentative) orelse unreachable;
+
+            if (tent.size < t_tent.size) {
+                sym.alias = t_sym;
+                continue;
+            }
+
+            t_sym.alias = sym;
+            sym_ptr.* = sym;
         } else if (sym.cast(Symbol.Unresolved)) |und| {
             if (self.globals.get(sym.name)) |g_sym| {
                 sym.alias = g_sym;
@@ -1453,6 +1572,7 @@ fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
                 sym.alias = u_sym;
                 continue;
             }
+
             try self.unresolved.putNoClobber(self.allocator, sym.name, sym);
         } else unreachable;
     }
@@ -1494,7 +1614,6 @@ fn resolveSymbols(self: *Zld) !void {
             next_sym += 1;
         }
     }
-
     // Third pass, resolve symbols in dynamic libraries.
     // TODO Implement libSystem as a hard-coded library, or ship with
     // a libSystem.B.tbd definition file?
