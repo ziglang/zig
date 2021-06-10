@@ -2161,11 +2161,11 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             // Register 2: (ptr + 1).*
 
             // One floating point register per f64 or 2 f32's
-            size_t number_of_fp_regs = (size_t)ceilf((float)ty_size / (float)8);
+            size_t number_of_fp_regs = (ty_size + 7) / 8;
 
             switch (fn_walk->id) {
                 case FnWalkIdAttrs: {
-                    fn_walk->data.attrs.gen_i += 1;
+                    fn_walk->data.attrs.gen_i += number_of_fp_regs;
                     break;
                 }
                 case FnWalkIdCall: {

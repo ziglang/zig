@@ -257,6 +257,7 @@ const Vector3 = extern struct {
     z: f32,
 };
 extern fn c_small_struct_floats(Vector3) void;
+extern fn c_small_struct_floats_extra(Vector3, ?[*]const u8) void;
 
 const Vector5 = extern struct {
     x: f32,
@@ -274,6 +275,7 @@ test "C ABI structs of floats as parameter" {
         .z = 12.0,
     };
     c_small_struct_floats(v3);
+    c_small_struct_floats_extra(v3, "hello");
 
     var v5 = Vector5{
         .x = 76.0,
