@@ -54,6 +54,11 @@ pub const Section = struct {
     inner: macho.section_64,
     code: []u8,
     relocs: ?[]*Relocation,
+    target_map: ?struct {
+        segment_id: u16,
+        section_id: u16,
+        offset: u32,
+    } = null,
 
     pub fn deinit(self: *Section, allocator: *Allocator) void {
         allocator.free(self.code);

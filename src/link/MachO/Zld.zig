@@ -95,9 +95,6 @@ got_entries: std.ArrayListUnmanaged(*Symbol) = .{},
 
 stub_helper_stubs_start_off: ?u64 = null,
 
-mappings: std.AutoHashMapUnmanaged(MappingKey, SectionMapping) = .{},
-unhandled_sections: std.AutoHashMapUnmanaged(MappingKey, u0) = .{},
-
 const TlvOffset = struct {
     source_addr: u64,
     offset: u64,
@@ -105,18 +102,6 @@ const TlvOffset = struct {
     fn cmp(context: void, a: TlvOffset, b: TlvOffset) bool {
         return a.source_addr < b.source_addr;
     }
-};
-
-const MappingKey = struct {
-    object_id: u16,
-    source_sect_id: u16,
-};
-
-pub const SectionMapping = struct {
-    source_sect_id: u16,
-    target_seg_id: u16,
-    target_sect_id: u16,
-    offset: u32,
 };
 
 /// Default path to dyld
@@ -158,9 +143,6 @@ pub fn deinit(self: *Zld) void {
         self.allocator.destroy(dylib);
     }
     self.dylibs.deinit(self.allocator);
-
-    self.mappings.deinit(self.allocator);
-    self.unhandled_sections.deinit(self.allocator);
 
     self.globals.deinit(self.allocator);
     self.imports.deinit(self.allocator);
@@ -407,46 +389,39 @@ fn parseLibs(self: *Zld, libs: []const []const u8) !void {
 
 fn mapAndUpdateSections(
     self: *Zld,
-    object_id: u16,
+    object: *Object,
     source_sect_id: u16,
     target_seg_id: u16,
     target_sect_id: u16,
 ) !void {
-    const object = self.objects.items[object_id];
-    const source_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-    const source_sect = source_seg.sections.items[source_sect_id];
+    const source_sect = &object.sections.items[source_sect_id];
     const target_seg = &self.load_commands.items[target_seg_id].Segment;
     const target_sect = &target_seg.sections.items[target_sect_id];
 
     const alignment = try math.powi(u32, 2, target_sect.@"align");
     const offset = mem.alignForwardGeneric(u64, target_sect.size, alignment);
-    const size = mem.alignForwardGeneric(u64, source_sect.size, alignment);
-    const key = MappingKey{
-        .object_id = object_id,
-        .source_sect_id = source_sect_id,
-    };
-    try self.mappings.putNoClobber(self.allocator, key, .{
-        .source_sect_id = source_sect_id,
-        .target_seg_id = target_seg_id,
-        .target_sect_id = target_sect_id,
-        .offset = @intCast(u32, offset),
-    });
-    log.debug("{s}: {s},{s} mapped to {s},{s} from 0x{x} to 0x{x}", .{
-        object.name,
-        parseName(&source_sect.segname),
-        parseName(&source_sect.sectname),
+    const size = mem.alignForwardGeneric(u64, source_sect.inner.size, alignment);
+
+    log.debug("{s}: '{s},{s}' mapped to '{s},{s}' from 0x{x} to 0x{x}", .{
+        object.name.?,
+        parseName(&source_sect.inner.segname),
+        parseName(&source_sect.inner.sectname),
         parseName(&target_sect.segname),
         parseName(&target_sect.sectname),
         offset,
         offset + size,
     });
 
+    source_sect.target_map = .{
+        .segment_id = target_seg_id,
+        .section_id = target_sect_id,
+        .offset = @intCast(u32, offset),
+    };
     target_sect.size = offset + size;
 }
 
 fn updateMetadata(self: *Zld) !void {
-    for (self.objects.items) |object, id| {
-        const object_id = @intCast(u16, id);
+    for (self.objects.items) |object| {
         const object_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
         const text_seg = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
         const data_const_seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].Segment;
@@ -699,19 +674,14 @@ fn updateMetadata(self: *Zld) !void {
         for (object_seg.sections.items) |source_sect, sect_id| {
             const source_sect_id = @intCast(u16, sect_id);
             if (self.getMatchingSection(source_sect)) |res| {
-                try self.mapAndUpdateSections(object_id, source_sect_id, res.seg, res.sect);
+                try self.mapAndUpdateSections(object, source_sect_id, res.seg, res.sect);
                 continue;
             }
 
-            const segname = parseName(&source_sect.segname);
-            const sectname = parseName(&source_sect.sectname);
-
-            log.debug("section '{s}/{s}' will be unmapped", .{ segname, sectname });
-
-            try self.unhandled_sections.putNoClobber(self.allocator, .{
-                .object_id = object_id,
-                .source_sect_id = source_sect_id,
-            }, 0);
+            log.debug("section '{s},{s}' will be unmapped", .{
+                parseName(&source_sect.segname),
+                parseName(&source_sect.sectname),
+            });
         }
     }
 
@@ -954,18 +924,34 @@ fn sortSections(self: *Zld) !void {
         }
     }
 
-    var it = self.mappings.valueIterator();
-    while (it.next()) |mapping| {
-        if (self.text_segment_cmd_index.? == mapping.target_seg_id) {
-            const new_index = text_index_mapping.get(mapping.target_sect_id) orelse unreachable;
-            mapping.target_sect_id = new_index;
-        } else if (self.data_const_segment_cmd_index.? == mapping.target_seg_id) {
-            const new_index = data_const_index_mapping.get(mapping.target_sect_id) orelse unreachable;
-            mapping.target_sect_id = new_index;
-        } else if (self.data_segment_cmd_index.? == mapping.target_seg_id) {
-            const new_index = data_index_mapping.get(mapping.target_sect_id) orelse unreachable;
-            mapping.target_sect_id = new_index;
-        } else unreachable;
+    for (self.objects.items) |object| {
+        for (object.sections.items) |*sect| {
+            const target_map = sect.target_map orelse continue;
+
+            const new_index = blk: {
+                if (self.text_segment_cmd_index.? == target_map.segment_id) {
+                    break :blk text_index_mapping.get(target_map.section_id) orelse unreachable;
+                } else if (self.data_const_segment_cmd_index.? == target_map.segment_id) {
+                    break :blk data_const_index_mapping.get(target_map.section_id) orelse unreachable;
+                } else if (self.data_segment_cmd_index.? == target_map.segment_id) {
+                    break :blk data_index_mapping.get(target_map.section_id) orelse unreachable;
+                } else unreachable;
+            };
+
+            log.debug("remapping in {s}: '{s},{s}': {} => {}", .{
+                object.name.?,
+                parseName(&sect.inner.segname),
+                parseName(&sect.inner.sectname),
+                target_map.section_id,
+                new_index,
+            });
+
+            sect.target_map = .{
+                .segment_id = target_map.segment_id,
+                .section_id = new_index,
+                .offset = target_map.offset,
+            };
+        }
     }
 }
 
@@ -1080,30 +1066,24 @@ fn allocateSegment(self: *Zld, index: u16, offset: u64) !void {
 }
 
 fn allocateSymbols(self: *Zld) !void {
-    for (self.objects.items) |object, object_id| {
+    for (self.objects.items) |object| {
         for (object.symbols.items) |sym| {
             const reg = sym.cast(Symbol.Regular) orelse continue;
 
-            // TODO I am more and more convinced we should store the mapping as part of the Object struct.
-            const target_mapping = self.mappings.get(.{
-                .object_id = @intCast(u16, object_id),
-                .source_sect_id = reg.section,
-            }) orelse {
-                if (self.unhandled_sections.get(.{
-                    .object_id = @intCast(u16, object_id),
-                    .source_sect_id = reg.section,
-                }) != null) continue;
-
-                log.err("section not mapped for symbol '{s}'", .{sym.name});
-                return error.SectionNotMappedForSymbol;
+            const source_sect = &object.sections.items[reg.section];
+            const target_map = source_sect.target_map orelse {
+                log.debug("section '{s},{s}' not mapped for symbol '{s}'", .{
+                    parseName(&source_sect.inner.segname),
+                    parseName(&source_sect.inner.sectname),
+                    sym.name,
+                });
+                continue;
             };
 
-            const source_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-            const source_sect = source_seg.sections.items[reg.section];
-            const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
-            const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
-            const target_addr = target_sect.addr + target_mapping.offset;
-            const address = reg.address - source_sect.addr + target_addr;
+            const target_seg = self.load_commands.items[target_map.segment_id].Segment;
+            const target_sect = target_seg.sections.items[target_map.section_id];
+            const target_addr = target_sect.addr + target_map.offset;
+            const address = reg.address - source_sect.inner.addr + target_addr;
 
             log.debug("resolving symbol '{s}' at 0x{x}", .{ sym.name, address });
 
@@ -1111,8 +1091,8 @@ fn allocateSymbols(self: *Zld) !void {
             var section: u8 = 0;
             for (self.load_commands.items) |cmd, cmd_id| {
                 if (cmd != .Segment) break;
-                if (cmd_id == target_mapping.target_seg_id) {
-                    section += @intCast(u8, target_mapping.target_sect_id) + 1;
+                if (cmd_id == target_map.segment_id) {
+                    section += @intCast(u8, target_map.section_id) + 1;
                     break;
                 }
                 section += @intCast(u8, cmd.Segment.sections.items.len);
@@ -1602,10 +1582,10 @@ fn resolveStubsAndGotEntries(self: *Zld) !void {
 }
 
 fn resolveRelocsAndWriteSections(self: *Zld) !void {
-    for (self.objects.items) |object, object_id| {
+    for (self.objects.items) |object| {
         log.debug("relocating object {s}", .{object.name});
 
-        for (object.sections.items) |sect, source_sect_id| {
+        for (object.sections.items) |sect| {
             if (sect.inner.flags == macho.S_MOD_INIT_FUNC_POINTERS or
                 sect.inner.flags == macho.S_MOD_TERM_FUNC_POINTERS) continue;
 
@@ -1614,18 +1594,15 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
 
             log.debug("relocating section '{s},{s}'", .{ segname, sectname });
 
-            // Get mapping
-            const target_mapping = self.mappings.get(.{
-                .object_id = @intCast(u16, object_id),
-                .source_sect_id = @intCast(u16, source_sect_id),
-            }) orelse {
-                log.debug("no mapping for {s},{s}; skipping", .{ segname, sectname });
+            // Get target mapping
+            const target_map = sect.target_map orelse {
+                log.debug("no mapping for '{s},{s}'; skipping", .{ segname, sectname });
                 continue;
             };
-            const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
-            const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
-            const target_sect_addr = target_sect.addr + target_mapping.offset;
-            const target_sect_off = target_sect.offset + target_mapping.offset;
+            const target_seg = self.load_commands.items[target_map.segment_id].Segment;
+            const target_sect = target_seg.sections.items[target_map.section_id];
+            const target_sect_addr = target_sect.addr + target_map.offset;
+            const target_sect_off = target_sect.offset + target_map.offset;
 
             if (sect.relocs) |relocs| {
                 for (relocs) |rel| {
@@ -1638,11 +1615,11 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
 
                     switch (rel.@"type") {
                         .unsigned => {
-                            args.target_addr = try self.relocTargetAddr(@intCast(u16, object_id), rel.target);
+                            args.target_addr = try self.relocTargetAddr(object, rel.target);
 
                             const unsigned = rel.cast(reloc.Unsigned) orelse unreachable;
                             if (unsigned.subtractor) |subtractor| {
-                                args.subtractor = try self.relocTargetAddr(@intCast(u16, object_id), subtractor);
+                                args.subtractor = try self.relocTargetAddr(object, subtractor);
                             }
                             if (rel.target == .section) {
                                 const source_sect = object.sections.items[rel.target.section];
@@ -1652,14 +1629,14 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
 
                             rebases: {
                                 var hit: bool = false;
-                                if (target_mapping.target_seg_id == self.data_segment_cmd_index.?) {
+                                if (target_map.segment_id == self.data_segment_cmd_index.?) {
                                     if (self.data_section_index) |index| {
-                                        if (index == target_mapping.target_sect_id) hit = true;
+                                        if (index == target_map.section_id) hit = true;
                                     }
                                 }
-                                if (target_mapping.target_seg_id == self.data_const_segment_cmd_index.?) {
+                                if (target_map.segment_id == self.data_const_segment_cmd_index.?) {
                                     if (self.data_const_section_index) |index| {
-                                        if (index == target_mapping.target_sect_id) hit = true;
+                                        if (index == target_map.section_id) hit = true;
                                     }
                                 }
 
@@ -1667,7 +1644,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
 
                                 try self.local_rebases.append(self.allocator, .{
                                     .offset = source_addr - target_seg.inner.vmaddr,
-                                    .segment_id = target_mapping.target_seg_id,
+                                    .segment_id = target_map.segment_id,
                                 });
                             }
                             // TLV is handled via a separate offset mechanism.
@@ -1705,7 +1682,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
                                 args.source_source_sect_addr = sect.inner.addr;
                                 args.source_target_sect_addr = source_sect.inner.addr;
                             }
-                            args.target_addr = try self.relocTargetAddr(@intCast(u16, object_id), rel.target);
+                            args.target_addr = try self.relocTargetAddr(object, rel.target);
                         },
                     }
 
@@ -1744,7 +1721,7 @@ fn resolveRelocsAndWriteSections(self: *Zld) !void {
     }
 }
 
-fn relocTargetAddr(self: *Zld, object_id: u16, target: reloc.Relocation.Target) !u64 {
+fn relocTargetAddr(self: *Zld, object: *const Object, target: reloc.Relocation.Target) !u64 {
     const target_addr = blk: {
         switch (target) {
             .symbol => |sym| {
@@ -1770,13 +1747,11 @@ fn relocTargetAddr(self: *Zld, object_id: u16, target: reloc.Relocation.Target) 
                 }
             },
             .section => |sect_id| {
-                const target_mapping = self.mappings.get(.{
-                    .object_id = object_id,
-                    .source_sect_id = sect_id,
-                }) orelse unreachable;
-                const target_seg = self.load_commands.items[target_mapping.target_seg_id].Segment;
-                const target_sect = target_seg.sections.items[target_mapping.target_sect_id];
-                break :blk target_sect.addr + target_mapping.offset;
+                const source_sect = object.sections.items[sect_id];
+                const target_map = source_sect.target_map orelse unreachable;
+                const target_seg = self.load_commands.items[target_map.segment_id].Segment;
+                const target_sect = target_seg.sections.items[target_map.section_id];
+                break :blk target_sect.addr + target_map.offset;
             },
         }
     };
@@ -2901,20 +2876,16 @@ fn writeDataInCode(self: *Zld) !void {
 
     const text_seg = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
     const text_sect = text_seg.sections.items[self.text_section_index.?];
-    for (self.objects.items) |object, object_id| {
-        const source_seg = object.load_commands.items[object.segment_cmd_index.?].Segment;
-        const source_sect = source_seg.sections.items[object.text_section_index.?];
-        const target_mapping = self.mappings.get(.{
-            .object_id = @intCast(u16, object_id),
-            .source_sect_id = object.text_section_index.?,
-        }) orelse continue;
+    for (self.objects.items) |object| {
+        const source_sect = object.sections.items[object.text_section_index.?];
+        const target_map = source_sect.target_map orelse continue;
 
         try buf.ensureCapacity(
             buf.items.len + object.data_in_code_entries.items.len * @sizeOf(macho.data_in_code_entry),
         );
         for (object.data_in_code_entries.items) |dice| {
             const new_dice: macho.data_in_code_entry = .{
-                .offset = text_sect.offset + target_mapping.offset + dice.offset,
+                .offset = text_sect.offset + target_map.offset + dice.offset,
                 .length = dice.length,
                 .kind = dice.kind,
             };
