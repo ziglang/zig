@@ -1820,7 +1820,7 @@ fn buildOutputType(
 
     if (libc_paths_file) |paths_file| {
         libc_installation = LibCInstallation.parse(gpa, paths_file) catch |err| {
-            fatal("unable to parse libc paths file: {s}", .{@errorName(err)});
+            fatal("unable to parse libc paths file at path {s}: {s}", .{ paths_file, @errorName(err) });
         };
     }
 
@@ -2494,7 +2494,7 @@ pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
     }
     if (input_file) |libc_file| {
         var libc = LibCInstallation.parse(gpa, libc_file) catch |err| {
-            fatal("unable to parse libc file: {s}", .{@errorName(err)});
+            fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
         };
         defer libc.deinit(gpa);
     } else {
