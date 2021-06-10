@@ -1194,6 +1194,10 @@ fn allocateTentativeSymbols(self: *Zld) !void {
             .section = section,
             .weak_ref = false,
             .file = tent.file,
+            .stab = .{
+                .kind = .global,
+                .size = 0,
+            },
         };
 
         try self.globals.putNoClobber(self.allocator, reg.base.name, &reg.base);
@@ -2772,8 +2776,17 @@ fn writeDebugInfo(self: *Zld) !void {
         });
 
         for (object.symbols.items) |sym| {
-            if (sym.@"type" != .regular) continue;
-            const reg = sym.cast(Symbol.Regular) orelse unreachable;
+            const reg = reg: {
+                switch (sym.@"type") {
+                    .regular => break :reg sym.cast(Symbol.Regular) orelse unreachable,
+                    .tentative => {
+                        const final = sym.getTopmostAlias().cast(Symbol.Regular) orelse unreachable;
+                        if (object != final.file) continue;
+                        break :reg final;
+                    },
+                    else => continue,
+                }
+            };
 
             if (reg.isTemp() or reg.stab == null) continue;
             const stab = reg.stab orelse unreachable;
@@ -2877,6 +2890,7 @@ fn writeSymbolTable(self: *Zld) !void {
 
             const reg = final.cast(Symbol.Regular) orelse unreachable;
             if (reg.isTemp()) continue;
+            if (reg.visited) continue;
 
             switch (reg.linkage) {
                 .translation_unit => {
@@ -2898,6 +2912,8 @@ fn writeSymbolTable(self: *Zld) !void {
                     });
                 },
             }
+
+            reg.visited = true;
         }
     }
 

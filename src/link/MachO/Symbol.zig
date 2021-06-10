@@ -61,6 +61,10 @@ pub const Regular = struct {
         size: u64,
     } = null,
 
+    /// True if symbol was already committed into the final
+    /// symbol table.
+    visited: bool = false,
+
     pub const base_type: Symbol.Type = .regular;
 
     pub const Linkage = enum {
