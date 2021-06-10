@@ -287,8 +287,8 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcTagName";
         case IrInstSrcIdFieldParentPtr:
             return "SrcFieldParentPtr";
-        case IrInstSrcIdByteOffsetOf:
-            return "SrcByteOffsetOf";
+        case IrInstSrcIdOffsetOf:
+            return "SrcOffsetOf";
         case IrInstSrcIdBitOffsetOf:
             return "SrcBitOffsetOf";
         case IrInstSrcIdTypeInfo:
@@ -2292,8 +2292,8 @@ static void ir_print_field_parent_ptr(IrPrintGen *irp, IrInstGenFieldParentPtr *
     fprintf(irp->f, ")");
 }
 
-static void ir_print_byte_offset_of(IrPrintSrc *irp, IrInstSrcByteOffsetOf *instruction) {
-    fprintf(irp->f, "@byte_offset_of(");
+static void ir_print_offset_of(IrPrintSrc *irp, IrInstSrcOffsetOf *instruction) {
+    fprintf(irp->f, "@offset_of(");
     ir_print_other_inst_src(irp, instruction->type_value);
     fprintf(irp->f, ",");
     ir_print_other_inst_src(irp, instruction->field_name);
@@ -2946,8 +2946,8 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
         case IrInstSrcIdFieldParentPtr:
             ir_print_field_parent_ptr(irp, (IrInstSrcFieldParentPtr *)instruction);
             break;
-        case IrInstSrcIdByteOffsetOf:
-            ir_print_byte_offset_of(irp, (IrInstSrcByteOffsetOf *)instruction);
+        case IrInstSrcIdOffsetOf:
+            ir_print_offset_of(irp, (IrInstSrcOffsetOf *)instruction);
             break;
         case IrInstSrcIdBitOffsetOf:
             ir_print_bit_offset_of(irp, (IrInstSrcBitOffsetOf *)instruction);

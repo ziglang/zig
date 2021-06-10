@@ -407,7 +407,7 @@ pub const Inst = struct {
     pub const convertable_br_size = std.math.max(@sizeOf(BrBlockFlat), @sizeOf(Br));
     pub const convertable_br_align = std.math.max(@alignOf(BrBlockFlat), @alignOf(Br));
     comptime {
-        assert(@byteOffsetOf(BrBlockFlat, "base") == @byteOffsetOf(Br, "base"));
+        assert(@offsetOf(BrBlockFlat, "base") == @offsetOf(Br, "base"));
     }
 
     pub const BrBlockFlat = struct {

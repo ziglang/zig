@@ -859,9 +859,9 @@ pub const Inst = struct {
         /// Implements the `@bitOffsetOf` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         bit_offset_of,
-        /// Implements the `@byteOffsetOf` builtin.
+        /// Implements the `@offsetOf` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
-        byte_offset_of,
+        offset_of,
         /// Implements the `@cmpxchgStrong` builtin.
         /// Uses the `pl_node` union field with payload `Cmpxchg`.
         cmpxchg_strong,
@@ -1166,7 +1166,7 @@ pub const Inst = struct {
                 .shl_exact,
                 .shr_exact,
                 .bit_offset_of,
-                .byte_offset_of,
+                .offset_of,
                 .cmpxchg_strong,
                 .cmpxchg_weak,
                 .splat,
@@ -1436,7 +1436,7 @@ pub const Inst = struct {
                 .shr_exact = .pl_node,
 
                 .bit_offset_of = .pl_node,
-                .byte_offset_of = .pl_node,
+                .offset_of = .pl_node,
                 .cmpxchg_strong = .pl_node,
                 .cmpxchg_weak = .pl_node,
                 .splat = .pl_node,
@@ -2992,7 +2992,7 @@ const Writer = struct {
             .mod,
             .rem,
             .bit_offset_of,
-            .byte_offset_of,
+            .offset_of,
             .splat,
             .reduce,
             .atomic_load,

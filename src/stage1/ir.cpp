@@ -17082,7 +17082,7 @@ static TypeStructField *validate_host_int_byte_offset(IrAnalyze *ira,
     return field;
 }
 
-static IrInstGen *ir_analyze_instruction_byte_offset_of(IrAnalyze *ira, IrInstSrcByteOffsetOf *instruction) {
+static IrInstGen *ir_analyze_instruction_offset_of(IrAnalyze *ira, IrInstSrcOffsetOf *instruction) {
     IrInstGen *type_value = instruction->type_value->child;
     if (type_is_invalid(type_value->value->type))
         return ira->codegen->invalid_inst_gen;
@@ -24368,8 +24368,8 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_enum_tag_name(ira, (IrInstSrcTagName *)instruction);
         case IrInstSrcIdFieldParentPtr:
             return ir_analyze_instruction_field_parent_ptr(ira, (IrInstSrcFieldParentPtr *)instruction);
-        case IrInstSrcIdByteOffsetOf:
-            return ir_analyze_instruction_byte_offset_of(ira, (IrInstSrcByteOffsetOf *)instruction);
+        case IrInstSrcIdOffsetOf:
+            return ir_analyze_instruction_offset_of(ira, (IrInstSrcOffsetOf *)instruction);
         case IrInstSrcIdBitOffsetOf:
             return ir_analyze_instruction_bit_offset_of(ira, (IrInstSrcBitOffsetOf *)instruction);
         case IrInstSrcIdTypeInfo:
@@ -24824,7 +24824,7 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdTypeName:
         case IrInstSrcIdTagName:
         case IrInstSrcIdFieldParentPtr:
-        case IrInstSrcIdByteOffsetOf:
+        case IrInstSrcIdOffsetOf:
         case IrInstSrcIdBitOffsetOf:
         case IrInstSrcIdTypeInfo:
         case IrInstSrcIdType:

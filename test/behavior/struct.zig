@@ -699,7 +699,7 @@ test "non-packed struct with u128 entry in union" {
 
     var sx: S = undefined;
     var s = &sx;
-    try std.testing.expect(@ptrToInt(&s.f2) - @ptrToInt(&s.f1) == @byteOffsetOf(S, "f2"));
+    try std.testing.expect(@ptrToInt(&s.f2) - @ptrToInt(&s.f1) == @offsetOf(S, "f2"));
     var v2 = U{ .Num = 123 };
     s.f2 = v2;
     try std.testing.expect(s.f2.Num == 123);

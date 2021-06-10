@@ -15,7 +15,7 @@ pub const JournalHeader = packed struct {
         assert(entry.len >= @sizeOf(JournalHeader));
         assert(entry.len == self.size);
 
-        const checksum_offset = @byteOffsetOf(JournalHeader, "checksum");
+        const checksum_offset = @offsetOf(JournalHeader, "checksum");
         const checksum_size = @sizeOf(@TypeOf(self.checksum));
         assert(checksum_offset == 0 + 16 + 16);
         assert(checksum_size == 16);
@@ -29,12 +29,12 @@ pub const JournalHeader = packed struct {
         const hash_chain_root_size = @sizeOf(@TypeOf(self.hash_chain_root));
         assert(hash_chain_root_size == 16);
 
-        const prev_hash_chain_root_offset = @byteOffsetOf(JournalHeader, "prev_hash_chain_root");
+        const prev_hash_chain_root_offset = @offsetOf(JournalHeader, "prev_hash_chain_root");
         const prev_hash_chain_root_size = @sizeOf(@TypeOf(self.prev_hash_chain_root));
         assert(prev_hash_chain_root_offset == 0 + 16);
         assert(prev_hash_chain_root_size == 16);
 
-        const checksum_offset = @byteOffsetOf(JournalHeader, "checksum");
+        const checksum_offset = @offsetOf(JournalHeader, "checksum");
         const checksum_size = @sizeOf(@TypeOf(self.checksum));
         assert(checksum_offset == 0 + 16 + 16);
         assert(checksum_size == 16);

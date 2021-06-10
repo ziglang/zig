@@ -1426,7 +1426,7 @@ fn transSimpleOffsetOfExpr(
                 const quoted_field_name = try std.fmt.allocPrint(c.arena, "\"{s}\"", .{raw_field_name});
                 const field_name_node = try Tag.string_literal.create(c.arena, quoted_field_name);
 
-                return Tag.byte_offset_of.create(c.arena, .{
+                return Tag.offset_of.create(c.arena, .{
                     .lhs = type_node,
                     .rhs = field_name_node,
                 });

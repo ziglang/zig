@@ -2027,7 +2027,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: ast.Node.Index) Inner
             .shl_exact,
             .shr_exact,
             .bit_offset_of,
-            .byte_offset_of,
+            .offset_of,
             .cmpxchg_strong,
             .cmpxchg_weak,
             .splat,
@@ -6816,7 +6816,7 @@ fn builtinCall(
         .shr_exact => return shiftOp(gz, scope, rl, node, params[0], params[1], .shr_exact),
 
         .bit_offset_of  => return offsetOf(gz, scope, rl, node, params[0], params[1], .bit_offset_of),
-        .byte_offset_of => return offsetOf(gz, scope, rl, node, params[0], params[1], .byte_offset_of),
+        .offset_of => return offsetOf(gz, scope, rl, node, params[0], params[1], .offset_of),
 
         .c_undef   => return simpleCBuiltin(gz, scope, rl, node, params[0], .c_undef),
         .c_include => return simpleCBuiltin(gz, scope, rl, node, params[0], .c_include),

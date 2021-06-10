@@ -34,71 +34,71 @@ const P = packed struct {
     i: u7,
 };
 
-test "@byteOffsetOf" {
+test "@offsetOf" {
     // Packed structs have fixed memory layout
-    try expect(@byteOffsetOf(P, "a") == 0);
-    try expect(@byteOffsetOf(P, "b") == 1);
-    try expect(@byteOffsetOf(P, "c") == 5);
-    try expect(@byteOffsetOf(P, "d") == 6);
-    try expect(@byteOffsetOf(P, "e") == 6);
-    try expect(@byteOffsetOf(P, "f") == 7);
-    try expect(@byteOffsetOf(P, "g") == 9);
-    try expect(@byteOffsetOf(P, "h") == 11);
-    try expect(@byteOffsetOf(P, "i") == 12);
+    try expect(@offsetOf(P, "a") == 0);
+    try expect(@offsetOf(P, "b") == 1);
+    try expect(@offsetOf(P, "c") == 5);
+    try expect(@offsetOf(P, "d") == 6);
+    try expect(@offsetOf(P, "e") == 6);
+    try expect(@offsetOf(P, "f") == 7);
+    try expect(@offsetOf(P, "g") == 9);
+    try expect(@offsetOf(P, "h") == 11);
+    try expect(@offsetOf(P, "i") == 12);
 
     // Normal struct fields can be moved/padded
     var a: A = undefined;
-    try expect(@ptrToInt(&a.a) - @ptrToInt(&a) == @byteOffsetOf(A, "a"));
-    try expect(@ptrToInt(&a.b) - @ptrToInt(&a) == @byteOffsetOf(A, "b"));
-    try expect(@ptrToInt(&a.c) - @ptrToInt(&a) == @byteOffsetOf(A, "c"));
-    try expect(@ptrToInt(&a.d) - @ptrToInt(&a) == @byteOffsetOf(A, "d"));
-    try expect(@ptrToInt(&a.e) - @ptrToInt(&a) == @byteOffsetOf(A, "e"));
-    try expect(@ptrToInt(&a.f) - @ptrToInt(&a) == @byteOffsetOf(A, "f"));
-    try expect(@ptrToInt(&a.g) - @ptrToInt(&a) == @byteOffsetOf(A, "g"));
-    try expect(@ptrToInt(&a.h) - @ptrToInt(&a) == @byteOffsetOf(A, "h"));
-    try expect(@ptrToInt(&a.i) - @ptrToInt(&a) == @byteOffsetOf(A, "i"));
+    try expect(@ptrToInt(&a.a) - @ptrToInt(&a) == @offsetOf(A, "a"));
+    try expect(@ptrToInt(&a.b) - @ptrToInt(&a) == @offsetOf(A, "b"));
+    try expect(@ptrToInt(&a.c) - @ptrToInt(&a) == @offsetOf(A, "c"));
+    try expect(@ptrToInt(&a.d) - @ptrToInt(&a) == @offsetOf(A, "d"));
+    try expect(@ptrToInt(&a.e) - @ptrToInt(&a) == @offsetOf(A, "e"));
+    try expect(@ptrToInt(&a.f) - @ptrToInt(&a) == @offsetOf(A, "f"));
+    try expect(@ptrToInt(&a.g) - @ptrToInt(&a) == @offsetOf(A, "g"));
+    try expect(@ptrToInt(&a.h) - @ptrToInt(&a) == @offsetOf(A, "h"));
+    try expect(@ptrToInt(&a.i) - @ptrToInt(&a) == @offsetOf(A, "i"));
 }
 
-test "@byteOffsetOf packed struct, array length not power of 2 or multiple of native pointer width in bytes" {
+test "@offsetOf packed struct, array length not power of 2 or multiple of native pointer width in bytes" {
     const p3a_len = 3;
     const P3 = packed struct {
         a: [p3a_len]u8,
         b: usize,
     };
-    try std.testing.expectEqual(0, @byteOffsetOf(P3, "a"));
-    try std.testing.expectEqual(p3a_len, @byteOffsetOf(P3, "b"));
+    try std.testing.expectEqual(0, @offsetOf(P3, "a"));
+    try std.testing.expectEqual(p3a_len, @offsetOf(P3, "b"));
 
     const p5a_len = 5;
     const P5 = packed struct {
         a: [p5a_len]u8,
         b: usize,
     };
-    try std.testing.expectEqual(0, @byteOffsetOf(P5, "a"));
-    try std.testing.expectEqual(p5a_len, @byteOffsetOf(P5, "b"));
+    try std.testing.expectEqual(0, @offsetOf(P5, "a"));
+    try std.testing.expectEqual(p5a_len, @offsetOf(P5, "b"));
 
     const p6a_len = 6;
     const P6 = packed struct {
         a: [p6a_len]u8,
         b: usize,
     };
-    try std.testing.expectEqual(0, @byteOffsetOf(P6, "a"));
-    try std.testing.expectEqual(p6a_len, @byteOffsetOf(P6, "b"));
+    try std.testing.expectEqual(0, @offsetOf(P6, "a"));
+    try std.testing.expectEqual(p6a_len, @offsetOf(P6, "b"));
 
     const p7a_len = 7;
     const P7 = packed struct {
         a: [p7a_len]u8,
         b: usize,
     };
-    try std.testing.expectEqual(0, @byteOffsetOf(P7, "a"));
-    try std.testing.expectEqual(p7a_len, @byteOffsetOf(P7, "b"));
+    try std.testing.expectEqual(0, @offsetOf(P7, "a"));
+    try std.testing.expectEqual(p7a_len, @offsetOf(P7, "b"));
 
     const p9a_len = 9;
     const P9 = packed struct {
         a: [p9a_len]u8,
         b: usize,
     };
-    try std.testing.expectEqual(0, @byteOffsetOf(P9, "a"));
-    try std.testing.expectEqual(p9a_len, @byteOffsetOf(P9, "b"));
+    try std.testing.expectEqual(0, @offsetOf(P9, "a"));
+    try std.testing.expectEqual(p9a_len, @offsetOf(P9, "b"));
 
     // 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 25 etc. are further cases
 }
@@ -113,13 +113,13 @@ test "@bitOffsetOf" {
     try expect(@bitOffsetOf(P, "f") == 56);
     try expect(@bitOffsetOf(P, "g") == 72);
 
-    try expect(@byteOffsetOf(A, "a") * 8 == @bitOffsetOf(A, "a"));
-    try expect(@byteOffsetOf(A, "b") * 8 == @bitOffsetOf(A, "b"));
-    try expect(@byteOffsetOf(A, "c") * 8 == @bitOffsetOf(A, "c"));
-    try expect(@byteOffsetOf(A, "d") * 8 == @bitOffsetOf(A, "d"));
-    try expect(@byteOffsetOf(A, "e") * 8 == @bitOffsetOf(A, "e"));
-    try expect(@byteOffsetOf(A, "f") * 8 == @bitOffsetOf(A, "f"));
-    try expect(@byteOffsetOf(A, "g") * 8 == @bitOffsetOf(A, "g"));
+    try expect(@offsetOf(A, "a") * 8 == @bitOffsetOf(A, "a"));
+    try expect(@offsetOf(A, "b") * 8 == @bitOffsetOf(A, "b"));
+    try expect(@offsetOf(A, "c") * 8 == @bitOffsetOf(A, "c"));
+    try expect(@offsetOf(A, "d") * 8 == @bitOffsetOf(A, "d"));
+    try expect(@offsetOf(A, "e") * 8 == @bitOffsetOf(A, "e"));
+    try expect(@offsetOf(A, "f") * 8 == @bitOffsetOf(A, "f"));
+    try expect(@offsetOf(A, "g") * 8 == @bitOffsetOf(A, "g"));
 }
 
 test "@sizeOf on compile-time types" {

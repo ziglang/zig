@@ -6669,24 +6669,24 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:8:29: error: field 'b' has index 1 but pointer value is index 0 of struct 'Foo'",
     });
 
-    cases.add("@byteOffsetOf - non struct",
+    cases.add("@offsetOf - non struct",
         \\const Foo = i32;
         \\export fn foo() usize {
-        \\    return @byteOffsetOf(Foo, "a",);
+        \\    return @offsetOf(Foo, "a",);
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:26: error: expected struct type, found 'i32'",
+        "tmp.zig:3:22: error: expected struct type, found 'i32'",
     });
 
-    cases.add("@byteOffsetOf - bad field name",
+    cases.add("@offsetOf - bad field name",
         \\const Foo = struct {
         \\    derp: i32,
         \\};
         \\export fn foo() usize {
-        \\    return @byteOffsetOf(Foo, "a",);
+        \\    return @offsetOf(Foo, "a",);
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:31: error: struct 'Foo' has no field 'a'",
+        "tmp.zig:5:27: error: struct 'Foo' has no field 'a'",
     });
 
     cases.addExe("missing main fn in executable",
@@ -7693,10 +7693,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    val: void,
         \\};
         \\export fn foo() void {
-        \\    const fieldOffset = @byteOffsetOf(Empty, "val",);
+        \\    const fieldOffset = @offsetOf(Empty, "val",);
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:46: error: zero-bit field 'val' in struct 'Empty' has no offset",
+        "tmp.zig:5:42: error: zero-bit field 'val' in struct 'Empty' has no offset",
     });
 
     cases.add("taking bit offset of void field in struct",
