@@ -2000,8 +2000,6 @@ fn llmulacc_karatsuba(allocator: *Allocator, r: []Limb, x: []const Limb, y: []co
     } else {
         llsub(j1, y0[0..y0_len], y1[0..y1_len]);
     }
-    const j0_len = llnormalize(j0);
-    const j1_len = llnormalize(j1);
     if (x_cmp == y_cmp) {
         mem.set(Limb, tmp[0..length], 0);
         llmulacc(allocator, tmp, j0, j1);

@@ -18,5 +18,5 @@ test "import in non-toplevel scope" {
 }
 
 test "import empty file" {
-    const empty = @import("import/empty.zig");
+    _ = @import("import/empty.zig");
 }

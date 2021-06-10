@@ -316,16 +316,12 @@ test "math.expm1_64" {
 }
 
 test "math.expm1_32.special" {
-    const epsilon = 0.000001;
-
     try expect(math.isPositiveInf(expm1_32(math.inf(f32))));
     try expect(expm1_32(-math.inf(f32)) == -1.0);
     try expect(math.isNan(expm1_32(math.nan(f32))));
 }
 
 test "math.expm1_64.special" {
-    const epsilon = 0.000001;
-
     try expect(math.isPositiveInf(expm1_64(math.inf(f64))));
     try expect(expm1_64(-math.inf(f64)) == -1.0);
     try expect(math.isNan(expm1_64(math.nan(f64))));

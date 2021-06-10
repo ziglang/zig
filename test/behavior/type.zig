@@ -436,6 +436,7 @@ test "Type.Fn" {
     }.func;
     const Foo = @Type(@typeInfo(@TypeOf(foo)));
     const foo_2: Foo = foo;
+    _ = foo_2;
 }
 
 test "Type.BoundFn" {

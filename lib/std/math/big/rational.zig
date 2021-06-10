@@ -204,7 +204,6 @@ pub const Rational = struct {
         const esize = math.floatExponentBits(T);
         const ebias = (1 << (esize - 1)) - 1;
         const emin = 1 - ebias;
-        const emax = ebias;
 
         if (self.p.eqZero()) {
             return 0;

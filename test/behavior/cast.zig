@@ -102,6 +102,7 @@ fn castToOptionalTypeError(z: i32) !void {
 
     const f = z;
     const g: anyerror!?i32 = f;
+    _ = g catch {};
 
     const a = A{ .a = z };
     const b: anyerror!?A = a;
@@ -114,7 +115,9 @@ test "implicitly cast from int to anyerror!?T" {
 }
 fn implicitIntLitToOptional() void {
     const f: ?i32 = 1;
+    _ = f;
     const g: anyerror!?i32 = 1;
+    _ = g catch {};
 }
 
 test "return null from fn() anyerror!?&T" {

@@ -444,7 +444,6 @@ fn ChaChaWith64BitNonce(comptime rounds_nb: usize) type {
                 if (comptime @sizeOf(usize) > 4) {
                     // A big block is giant: 256 GiB, but we can avoid this limitation
                     var remaining_blocks: u32 = @intCast(u32, (in.len / big_block));
-                    var i: u32 = 0;
                     while (remaining_blocks > 0) : (remaining_blocks -= 1) {
                         ChaChaImpl(rounds_nb).chacha20Xor(out[cursor .. cursor + big_block], in[cursor .. cursor + big_block], k, c);
                         c[1] += 1; // upper 32-bit of counter, generic chacha20Xor() doesn't know about this.

@@ -325,7 +325,6 @@ pub const AllErrors = struct {
         },
 
         pub fn renderToStdErr(msg: Message, ttyconf: std.debug.TTY.Config) void {
-            const stderr_mutex = std.debug.getStderrMutex();
             const held = std.debug.getStderrMutex().acquire();
             defer held.release();
             const stderr = std.io.getStdErr();
@@ -2373,7 +2372,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     // We need to "unhit" in this case, to keep the digests matching.
     const prev_hash_state = man.hash.peekBin();
     const actual_hit = hit: {
-        const is_hit = try man.hit();
+        _ = try man.hit();
         if (man.files.items.len == 0) {
             man.unhit(prev_hash_state, 0);
             break :hit false;

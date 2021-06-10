@@ -12,8 +12,8 @@
 const std = @import("../../std.zig");
 const debug = std.debug;
 const math = std.math;
-const cmath = math.complex;
 const testing = std.testing;
+const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns exp(z) scaled to avoid overflow.

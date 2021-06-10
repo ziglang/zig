@@ -372,11 +372,9 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     try child.spawn();
 
-    const stdout_reader = child.stdout.?.reader();
     const stderr_reader = child.stderr.?.reader();
 
     // TODO https://github.com/ziglang/zig/issues/6343
-    const stdout = try stdout_reader.readAllAlloc(arena, std.math.maxInt(u32));
     const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
 
     const term = child.wait() catch |err| {

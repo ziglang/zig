@@ -3013,7 +3013,7 @@ pub const Type = extern union {
                 .base = .{ .tag = t },
                 .data = data,
             };
-            return Type{ .ptr_otherwise = &ptr.base };
+            return file_struct.Type{ .ptr_otherwise = &ptr.base };
         }
 
         pub fn Data(comptime t: Tag) type {
@@ -3163,7 +3163,6 @@ pub const CType = enum {
     longdouble,
 
     pub fn sizeInBits(self: CType, target: Target) u16 {
-        const arch = target.cpu.arch;
         switch (target.os.tag) {
             .freestanding, .other => switch (target.cpu.arch) {
                 .msp430 => switch (self) {

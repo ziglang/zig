@@ -477,7 +477,7 @@ pub const Dir = struct {
                     }
 
                     var stat_info: os.libc_stat = undefined;
-                    const rc2 = os.system._kern_read_stat(
+                    _ = os.system._kern_read_stat(
                         self.dir.fd,
                         &haiku_entry.d_name,
                         false,
@@ -2438,7 +2438,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                     }) catch continue;
 
                     var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-                    if (os.realpathZ(&resolved_path_buf, &real_path_buf)) |real_path| {
+                    if (os.realpathZ(resolved_path, &real_path_buf)) |real_path| {
                         // found a file, and hope it is the right file
                         if (real_path.len > out_buffer.len)
                             return error.NameTooLong;

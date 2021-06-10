@@ -112,9 +112,6 @@ pub const Base64Encoder = struct {
         const out_len = encoder.calcSize(source.len);
         assert(dest.len >= out_len);
 
-        const nibbles = source.len / 3;
-        const leftover = source.len - 3 * nibbles;
-
         var acc: u12 = 0;
         var acc_len: u4 = 0;
         var out_idx: usize = 0;
@@ -223,7 +220,6 @@ pub const Base64Decoder = struct {
         if (decoder.pad_char) |pad_char| {
             const padding_len = acc_len / 2;
             var padding_chars: usize = 0;
-            var i: usize = 0;
             for (leftover) |c| {
                 if (c != pad_char) {
                     return if (c == Base64Decoder.invalid_char) error.InvalidCharacter else error.InvalidPadding;
@@ -302,7 +298,6 @@ pub const Base64DecoderWithIgnore = struct {
         var leftover = source[leftover_idx.?..];
         if (decoder.pad_char) |pad_char| {
             var padding_chars: usize = 0;
-            var i: usize = 0;
             for (leftover) |c| {
                 if (decoder_with_ignore.char_is_ignored[c]) continue;
                 if (c != pad_char) {

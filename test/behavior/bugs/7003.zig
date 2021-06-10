@@ -5,4 +5,5 @@ test "@Type should resolve its children types" {
     comptime var sparse_info = @typeInfo(anyerror!sparse);
     sparse_info.ErrorUnion.payload = dense;
     const B = @Type(sparse_info);
+    _ = B;
 }

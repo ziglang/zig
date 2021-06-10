@@ -46,7 +46,6 @@ fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: std.meta.Int(.unsi
     const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).Float.bits);
     const srcSigBits = std.math.floatMantissaBits(src_t);
     const dstSigBits = std.math.floatMantissaBits(dst_t);
-    const SrcShift = std.math.Log2Int(src_rep_t);
     const DstShift = std.math.Log2Int(dst_rep_t);
 
     // Various constants whose values follow from the type parameters.

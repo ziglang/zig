@@ -103,6 +103,7 @@ fn testErrorSetType() !void {
 
     const a: MyErrSet!i32 = 5678;
     const b: MyErrSet!i32 = MyErrSet.OutOfMemory;
+    try expect(b catch error.OutOfMemory == error.OutOfMemory);
 
     if (a) |value| try expect(value == 5678) else |err| switch (err) {
         error.OutOfMemory => unreachable,
@@ -162,6 +163,7 @@ fn testErrToIntWithOnePossibleValue(
 
 test "empty error union" {
     const x = error{} || error{};
+    _ = x;
 }
 
 test "error union peer type resolution" {
@@ -204,6 +206,7 @@ fn entry() void {
 
 fn foo2(f: fn () anyerror!void) void {
     const x = f();
+    x catch {};
 }
 
 fn bar2() (error{}!void) {}
@@ -338,6 +341,7 @@ test "optional error set is the same size as error set" {
 test "debug info for optional error set" {
     const SomeError = error{Hello};
     var a_local_variable: ?SomeError = null;
+    _ = a_local_variable;
 }
 
 test "nested catch" {
@@ -349,7 +353,7 @@ test "nested catch" {
             return error.Wrong;
         }
         fn func() anyerror!Foo {
-            const x = fail() catch
+            _ = fail() catch
                 fail() catch
                 return error.Bad;
             unreachable;

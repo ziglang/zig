@@ -184,6 +184,7 @@ fn testTryToTrickEvalWithRuntimeIf(b: bool) usize {
     comptime var i: usize = 0;
     inline while (i < 10) : (i += 1) {
         const result = if (b) false else true;
+        _ = result;
     }
     comptime {
         return i;
@@ -195,6 +196,7 @@ test "inlined loop has array literal with elided runtime scope on first iteratio
     comptime var i: usize = 0;
     inline while (i < 2) : (i += 1) {
         const result = if (i == 0) [1]i32{2} else runtime;
+        _ = result;
     }
     comptime {
         try expect(i == 2);

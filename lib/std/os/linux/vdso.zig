@@ -15,7 +15,6 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
 
     const eh = @intToPtr(*elf.Ehdr, vdso_addr);
     var ph_addr: usize = vdso_addr + eh.e_phoff;
-    const ph = @intToPtr(*elf.Phdr, ph_addr);
 
     var maybe_dynv: ?[*]usize = null;
     var base: usize = maxInt(usize);

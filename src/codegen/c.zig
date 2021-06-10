@@ -1107,7 +1107,6 @@ fn genAsm(o: *Object, as: *Inst.Assembly) !CValue {
         for (as.inputs) |i, index| {
             if (i[0] == '{' and i[i.len - 1] == '}') {
                 const reg = i[1 .. i.len - 1];
-                const arg = as.args[index];
                 if (index > 0) {
                     try writer.writeAll(", ");
                 }

@@ -3749,7 +3749,6 @@ pub fn cmdAstCheck(
 
     var color: Color = .auto;
     var want_output_text = false;
-    var have_zig_source_file = false;
     var zig_source_file: ?[]const u8 = null;
 
     var i: usize = 0;

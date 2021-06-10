@@ -114,7 +114,6 @@ test "Aes256Gcm - Empty message and no associated data" {
     const ad = "";
     const m = "";
     var c: [m.len]u8 = undefined;
-    var m2: [m.len]u8 = undefined;
     var tag: [Aes256Gcm.tag_length]u8 = undefined;
 
     Aes256Gcm.encrypt(&c, &tag, m, ad, nonce, key);

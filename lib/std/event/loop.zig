@@ -680,7 +680,7 @@ pub const Loop = struct {
             fn run(func_args: Args, loop: *Loop, allocator: *mem.Allocator) void {
                 loop.beginOneEvent();
                 loop.yield();
-                const result = @call(.{}, func, func_args);
+                @call(.{}, func, func_args); // compile error when called with non-void ret type
                 suspend {
                     loop.finishOneEvent();
                     allocator.destroy(@frame());

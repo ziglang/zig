@@ -206,7 +206,6 @@ pub const ResultLoc = union(enum) {
     };
 
     fn strategy(rl: ResultLoc, block_scope: *GenZir) Strategy {
-        var elide_store_to_block_ptr_instructions = false;
         switch (rl) {
             // In this branch there will not be any store_to_block_ptr instructions.
             .discard, .none, .none_or_ref, .ty, .ref => return .{
@@ -905,7 +904,6 @@ fn nosuspendExpr(
     node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const gpa = astgen.gpa;
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
     const body_node = node_datas[node].lhs;
@@ -1113,7 +1111,6 @@ fn arrayInitExpr(
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const gpa = astgen.gpa;
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
 
@@ -1293,7 +1290,6 @@ fn structInitExpr(
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const gpa = astgen.gpa;
 
     if (struct_init.ast.fields.len == 0) {
         if (struct_init.ast.type_expr == 0) {
@@ -1675,9 +1671,6 @@ fn checkLabelRedefinition(astgen: *AstGen, parent_scope: *Scope, label: ast.Toke
                 const gen_zir = scope.cast(GenZir).?;
                 if (gen_zir.label) |prev_label| {
                     if (try astgen.tokenIdentEql(label, prev_label.token)) {
-                        const tree = astgen.tree;
-                        const main_tokens = tree.nodes.items(.main_token);
-
                         const label_name = try astgen.identifierTokenString(label);
                         return astgen.failTokNotes(label, "redefinition of label '{s}'", .{
                             label_name,
@@ -1790,7 +1783,6 @@ fn blockExprStmts(
 ) !void {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const main_tokens = tree.nodes.items(.main_token);
     const node_tags = tree.nodes.items(.tag);
 
     var block_arena = std.heap.ArenaAllocator.init(gz.astgen.gpa);
@@ -2147,7 +2139,10 @@ fn genDefers(
             .defer_error => {
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
-                if (err_code == .none) continue;
+                // TODO add this back when we have more errdefer support
+                // right now it is making stuff not get evaluated which causes
+                // unused vars.
+                // if (err_code == .none) continue;
                 const expr_node = node_datas[defer_scope.defer_node].rhs;
                 const prev_in_defer = gz.in_defer;
                 gz.in_defer = true;
@@ -2166,8 +2161,6 @@ fn checkUsed(
     inner_scope: *Scope,
 ) InnerError!void {
     const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const node_datas = tree.nodes.items(.data);
 
     var scope = inner_scope;
     while (scope != outer_scope) {
@@ -2450,7 +2443,7 @@ fn varDecl(
                 resolve_inferred_alloc = alloc;
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };
-            const init_inst = try expr(gz, scope, var_data.result_loc, var_decl.ast.init_node);
+            _ = try expr(gz, scope, var_data.result_loc, var_decl.ast.init_node);
             if (resolve_inferred_alloc != .none) {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
@@ -2477,7 +2470,6 @@ fn emitDbgNode(gz: *GenZir, node: ast.Node.Index) !void {
 
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const node_tags = tree.nodes.items(.tag);
     const token_starts = tree.tokens.items(.start);
     const decl_start = token_starts[tree.firstToken(gz.decl_node_index)];
     const node_start = token_starts[tree.firstToken(node)];
@@ -2602,9 +2594,6 @@ fn ptrType(
     node: ast.Node.Index,
     ptr_info: ast.full.PtrType,
 ) InnerError!Zir.Inst.Ref {
-    const astgen = gz.astgen;
-    const tree = astgen.tree;
-
     const elem_type = try typeExpr(gz, scope, ptr_info.ast.child_type);
 
     const simple = ptr_info.ast.align_node == 0 and
@@ -4305,10 +4294,8 @@ fn containerDecl(
             defer wip_decls.deinit(gpa);
 
             for (container_decl.ast.members) |member_node| {
-                const member = switch (node_tags[member_node]) {
-                    .container_field_init => tree.containerFieldInit(member_node),
-                    .container_field_align => tree.containerFieldAlign(member_node),
-                    .container_field => tree.containerField(member_node),
+                switch (node_tags[member_node]) {
+                    .container_field_init, .container_field_align, .container_field => {},
 
                     .fn_decl => {
                         const fn_proto = node_datas[member_node].lhs;
@@ -4429,7 +4416,7 @@ fn containerDecl(
                         continue;
                     },
                     else => unreachable,
-                };
+                }
             }
             {
                 const empty_slot_count = WipDecls.fields_per_u32 - (wip_decls.decl_index % WipDecls.fields_per_u32);
@@ -4497,11 +4484,6 @@ fn errorSetDecl(
         }
     }
 
-    const tag: Zir.Inst.Tag = switch (gz.anon_name_strategy) {
-        .parent => .error_set_decl,
-        .anon => .error_set_decl_anon,
-        .func => .error_set_decl_func,
-    };
     const result = try gz.addPlNode(.error_set_decl, node, Zir.Inst.ErrorSetDecl{
         .fields_len = @intCast(u32, field_names.items.len),
     });
@@ -4517,7 +4499,6 @@ fn tryExpr(
     operand_node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
-    const tree = astgen.tree;
 
     const fn_block = astgen.fn_block orelse {
         return astgen.failNode(node, "invalid 'try' outside function scope", .{});
@@ -4702,7 +4683,6 @@ fn finishThenElseBlock(
     // We now have enough information to decide whether the result instruction should
     // be communicated via result location pointer or break instructions.
     const strat = rl.strategy(block_scope);
-    const astgen = block_scope.astgen;
     switch (strat.tag) {
         .break_void => {
             if (!parent_gz.refIsNoReturn(then_result)) {
@@ -4786,7 +4766,6 @@ fn arrayAccess(
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const main_tokens = tree.nodes.items(.main_token);
     const node_datas = tree.nodes.items(.data);
     switch (rl) {
         .ref => return gz.addBin(
@@ -6054,7 +6033,6 @@ fn ret(gz: *GenZir, scope: *Scope, node: ast.Node.Index) InnerError!Zir.Inst.Ref
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
 
     if (gz.in_defer) return astgen.failNode(node, "cannot return from defer expression", .{});
 
@@ -6271,7 +6249,6 @@ fn multilineStringLiteral(
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
-    const main_tokens = tree.nodes.items(.main_token);
 
     const start = node_datas[node].lhs;
     const end = node_datas[node].rhs;
@@ -6387,7 +6364,6 @@ fn floatLiteral(
     node: ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const arena = astgen.arena;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
 
@@ -6430,7 +6406,6 @@ fn asmExpr(
     full: ast.full.Asm,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
-    const arena = astgen.arena;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
     const node_datas = tree.nodes.items(.data);
@@ -6519,7 +6494,6 @@ fn asmExpr(
         const name = try astgen.identAsString(symbolic_name);
         const constraint_token = symbolic_name + 2;
         const constraint = (try astgen.strLitAsString(constraint_token)).index;
-        const has_arrow = token_tags[symbolic_name + 4] == .arrow;
         const operand = try expr(gz, scope, .{ .ty = .usize_type }, node_datas[input_node].lhs);
         inputs[i] = .{
             .name = name,
@@ -6601,7 +6575,7 @@ fn unionInit(
     const field_name = try comptimeExpr(gz, scope, .{ .ty = .const_slice_u8_type }, params[1]);
     switch (rl) {
         .none, .none_or_ref, .discard, .ref, .ty, .inferred_ptr => {
-            const field_type = try gz.addPlNode(.field_type_ref, params[1], Zir.Inst.FieldTypeRef{
+            _ = try gz.addPlNode(.field_type_ref, params[1], Zir.Inst.FieldTypeRef{
                 .container_type = union_type,
                 .field_name = field_name,
             });
@@ -6783,7 +6757,6 @@ fn builtinCall(
     switch (info.tag) {
         .import => {
             const node_tags = tree.nodes.items(.tag);
-            const node_datas = tree.nodes.items(.data);
             const operand_node = params[0];
 
             if (node_tags[operand_node] != .string_literal) {
@@ -8119,7 +8092,6 @@ fn parseStrLit(
     bytes: []const u8,
     offset: u32,
 ) InnerError!void {
-    const tree = astgen.tree;
     const raw_string = bytes[offset..];
     var buf_managed = buf.toManaged(astgen.gpa);
     const result = std.zig.string_literal.parseAppend(&buf_managed, raw_string);
@@ -8567,7 +8539,6 @@ const GenZir = struct {
     fn calcLine(gz: GenZir, node: ast.Node.Index) u32 {
         const astgen = gz.astgen;
         const tree = astgen.tree;
-        const node_tags = tree.nodes.items(.tag);
         const token_starts = tree.tokens.items(.start);
         const decl_start = token_starts[tree.firstToken(gz.decl_node_index)];
         const node_start = token_starts[tree.firstToken(node)];

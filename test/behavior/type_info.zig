@@ -329,6 +329,7 @@ test "typeInfo with comptime parameter in struct fn def" {
         pub fn func(comptime x: f32) void {}
     };
     comptime var info = @typeInfo(S);
+    _ = info;
 }
 
 test "type info: vectors" {

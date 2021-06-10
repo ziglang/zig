@@ -30,4 +30,8 @@ test "comptime struct return should not return the same instance" {
     //a second parameter is required to trigger the bug
     const ValA = constCount(&CountBy.One, 12);
     const ValB = constCount(&CountBy.One, 15);
+    if (false) {
+        ValA;
+        ValB;
+    }
 }

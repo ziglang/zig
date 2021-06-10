@@ -36,5 +36,5 @@ test "void optional" {
 
 test "void array as a local variable initializer" {
     var x = [_]void{{}} ** 1004;
-    var y = x[0];
+    _ = x[0];
 }

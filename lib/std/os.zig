@@ -5341,7 +5341,7 @@ pub fn sendfile(
                     ENXIO => return error.Unseekable,
                     ESPIPE => return error.Unseekable,
                     else => |err| {
-                        const discard = unexpectedErrno(err);
+                        unexpectedErrno(err) catch {};
                         break :sf;
                     },
                 }
@@ -5422,7 +5422,7 @@ pub fn sendfile(
                     EPIPE => return error.BrokenPipe,
 
                     else => {
-                        const discard = unexpectedErrno(err);
+                        unexpectedErrno(err) catch {};
                         if (amt != 0) {
                             return amt;
                         } else {
@@ -5484,7 +5484,7 @@ pub fn sendfile(
                     EPIPE => return error.BrokenPipe,
 
                     else => {
-                        const discard = unexpectedErrno(err);
+                        unexpectedErrno(err) catch {};
                         if (amt != 0) {
                             return amt;
                         } else {

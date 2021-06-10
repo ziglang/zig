@@ -175,7 +175,6 @@ pub const Parser = struct {
 
         const rel_type = @intToEnum(macho.reloc_type_x86_64, rel.r_type);
         const target = Relocation.Target.from_reloc(rel, parser.symbols);
-        const is_extern = rel.r_extern == 1;
 
         const offset = @intCast(u32, rel.r_address);
         const inst = parser.code[offset..][0..4];

@@ -18,7 +18,7 @@ test "add arbitrary args" {
 }
 
 fn readFirstVarArg(args: anytype) void {
-    const value = args[0];
+    _ = args[0];
 }
 
 test "send void arg to var args" {
@@ -79,5 +79,5 @@ test "pass zero length array to var args param" {
 }
 
 fn doNothingWithFirstArg(args: anytype) void {
-    const a = args[0];
+    _ = args[0];
 }

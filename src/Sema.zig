@@ -1073,6 +1073,11 @@ fn zirOpaqueDecl(
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
+    if (false) {
+        inst_data;
+        src;
+        extra;
+    }
 
     return sema.mod.fail(&block.base, sema.src, "TODO implement zirOpaqueDecl", .{});
 }
@@ -1230,7 +1235,6 @@ fn zirIndexablePtrLen(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) In
 
 fn zirArg(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
-    const src = inst_data.src();
     const arg_name = inst_data.get(sema.code);
     const arg_index = sema.next_arg_index;
     sema.next_arg_index += 1;
@@ -3005,7 +3009,6 @@ fn zirFunc(
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Func, inst_data.payload_index);
     const param_types = sema.code.refSlice(extra.end, extra.data.param_types_len);
 
@@ -3332,9 +3335,7 @@ fn zirBitcast(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
     const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
 
     const dest_type = try sema.resolveType(block, dest_ty_src, extra.lhs);
@@ -3653,7 +3654,6 @@ fn analyzeSwitch(
                     extra_index += 1;
                     const body_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body = sema.code.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
                     try sema.validateSwitchItemEnum(
@@ -3763,7 +3763,6 @@ fn analyzeSwitch(
                     extra_index += 1;
                     const body_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body = sema.code.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
                     try sema.validateSwitchItem(
@@ -3859,7 +3858,6 @@ fn analyzeSwitch(
                     extra_index += 1;
                     const body_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body = sema.code.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
                     try sema.validateSwitchItemBool(
@@ -3942,7 +3940,6 @@ fn analyzeSwitch(
                     extra_index += 1;
                     const body_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body = sema.code.extra[extra_index..][0..body_len];
                     extra_index += body_len;
 
                     try sema.validateSwitchItemSparse(
@@ -4457,6 +4454,7 @@ fn validateSwitchNoRange(
 fn zirHasField(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    _ = extra;
     const src = inst_data.src();
 
     return sema.mod.fail(&block.base, src, "TODO implement zirHasField", .{});
@@ -6035,7 +6033,6 @@ fn zirVarExtended(
 ) InnerError!*Inst {
     const extra = sema.code.extraData(Zir.Inst.ExtendedVar, extended.operand);
     const src = sema.src;
-    const align_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at align
     const ty_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at type
     const mut_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at mut token
     const init_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at init expr
@@ -7131,6 +7128,7 @@ fn analyzeSlice(
         ptr_child.isVolatilePtr(),
         return_ptr_size,
     );
+    _ = return_type;
 
     return sema.mod.fail(&block.base, src, "TODO implement analysis of slice", .{});
 }

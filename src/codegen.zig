@@ -118,7 +118,6 @@ pub fn generateSymbol(
                 if (typed_value.ty.sentinel()) |sentinel| {
                     try code.ensureCapacity(code.items.len + payload.data.len + 1);
                     code.appendSliceAssumeCapacity(payload.data);
-                    const prev_len = code.items.len;
                     switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = typed_value.ty.elemType(),
                         .val = sentinel,

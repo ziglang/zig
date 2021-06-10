@@ -3176,6 +3176,7 @@ const Writer = struct {
         inst: Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].array_type_sentinel;
+        _ = inst_data;
         try stream.writeAll("TODO)");
     }
 
@@ -3213,6 +3214,7 @@ const Writer = struct {
         inst: Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].ptr_type;
+        _ = inst_data;
         try stream.writeAll("TODO)");
     }
 
@@ -4739,7 +4741,6 @@ fn findDeclsSwitch(
     var extra_index: usize = special.end;
     var scalar_i: usize = 0;
     while (scalar_i < extra.data.cases_len) : (scalar_i += 1) {
-        const item_ref = @intToEnum(Inst.Ref, zir.extra[extra_index]);
         extra_index += 1;
         const body_len = zir.extra[extra_index];
         extra_index += 1;
@@ -4779,7 +4780,6 @@ fn findDeclsSwitchMulti(
     {
         var scalar_i: usize = 0;
         while (scalar_i < extra.data.scalar_cases_len) : (scalar_i += 1) {
-            const item_ref = @intToEnum(Inst.Ref, zir.extra[extra_index]);
             extra_index += 1;
             const body_len = zir.extra[extra_index];
             extra_index += 1;
@@ -4800,12 +4800,11 @@ fn findDeclsSwitchMulti(
             extra_index += 1;
             const items = zir.refSlice(extra_index, items_len);
             extra_index += items_len;
+            _ = items;
 
             var range_i: usize = 0;
             while (range_i < ranges_len) : (range_i += 1) {
-                const item_first = @intToEnum(Inst.Ref, zir.extra[extra_index]);
                 extra_index += 1;
-                const item_last = @intToEnum(Inst.Ref, zir.extra[extra_index]);
                 extra_index += 1;
             }
 

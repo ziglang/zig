@@ -1321,7 +1321,6 @@ fn transConvertVectorExpr(
     const src_type = qualTypeCanon(src_expr.getType());
     const src_vector_ty = @ptrCast(*const clang.VectorType, src_type);
     const src_element_qt = src_vector_ty.getElementType();
-    const src_element_type_node = try transQualType(c, &block_scope.base, src_element_qt, base_stmt.getBeginLoc());
 
     const src_expr_node = try transExpr(c, &block_scope.base, src_expr, .used);
 
@@ -3802,7 +3801,6 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
     const res_is_bool = qualTypeIsBoolean(qt);
     const casted_stmt = @ptrCast(*const clang.AbstractConditionalOperator, stmt);
     const cond_expr = casted_stmt.getCond();
-    const true_expr = casted_stmt.getTrueExpr();
     const false_expr = casted_stmt.getFalseExpr();
 
     // c:   (cond_expr)?:(false_expr)
@@ -4336,8 +4334,6 @@ fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float 
 }
 
 fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: Node, proto_alias: *ast.Payload.Func) !Node {
-    const scope = &c.global_scope.base;
-
     var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
     defer fn_params.deinit();
 

@@ -105,6 +105,7 @@ test "tuple initializer for var" {
                 .id = @as(usize, 2),
                 .name = Bytes{ .id = 20 },
             };
+            _ = tmp;
         }
     };
 

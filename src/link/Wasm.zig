@@ -496,7 +496,6 @@ pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     if (data_size != 0) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
-        var len: u32 = 0;
         // index to memory section (currently, there can only be 1 memory section in wasm)
         try leb.writeULEB128(writer, @as(u32, 0));
 

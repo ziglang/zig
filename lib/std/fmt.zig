@@ -1140,7 +1140,7 @@ pub fn formatFloatHexadecimal(
 
     // +1 for the decimal part.
     var buf: [1 + mantissa_digits]u8 = undefined;
-    const N = formatIntBuf(&buf, mantissa, 16, .lower, .{ .fill = '0', .width = 1 + mantissa_digits });
+    _ = formatIntBuf(&buf, mantissa, 16, .lower, .{ .fill = '0', .width = 1 + mantissa_digits });
 
     try writer.writeAll("0x");
     try writer.writeByte(buf[0]);
@@ -2162,7 +2162,6 @@ test "custom" {
         }
     };
 
-    var buf1: [32]u8 = undefined;
     var value = Vec2{
         .x = 10.2,
         .y = 2.22,
@@ -2220,7 +2219,7 @@ test "union" {
     try std.testing.expect(mem.eql(u8, uu_result[0..3], "UU@"));
 
     const eu_result = try bufPrint(buf[0..], "{}", .{eu_inst});
-    try std.testing.expect(mem.eql(u8, uu_result[0..3], "EU@"));
+    try std.testing.expect(mem.eql(u8, eu_result[0..3], "EU@"));
 }
 
 test "enum" {

@@ -407,7 +407,7 @@ test "dynamic_library" {
         else => return error.SkipZigTest,
     };
 
-    const dynlib = DynLib.open(libname) catch |err| {
+    _ = DynLib.open(libname) catch |err| {
         try testing.expect(err == error.FileNotFound);
         return;
     };

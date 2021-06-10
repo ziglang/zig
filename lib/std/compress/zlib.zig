@@ -35,6 +35,7 @@ pub fn ZlibStream(comptime ReaderType: type) type {
             const CM = @truncate(u4, header[0]);
             const CINFO = @truncate(u4, header[0] >> 4);
             const FCHECK = @truncate(u5, header[1]);
+            _ = FCHECK;
             const FDICT = @truncate(u1, header[1] >> 5);
 
             if ((@as(u16, header[0]) << 8 | header[1]) % 31 != 0)

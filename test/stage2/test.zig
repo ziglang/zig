@@ -899,6 +899,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\            try expect(false);
             \\        }
             \\    };
+            \\    _ = S;
             \\}
         ,
             &.{":4:13: error: invalid 'try' outside function scope"},

@@ -584,13 +584,14 @@ test "default struct initialization fields" {
     const x = S{
         .b = 5,
     };
-    if (x.a + x.b != 1239) {
-        @compileError("it should be comptime known");
-    }
     var five: i32 = 5;
     const y = S{
         .b = five,
     };
+    if (x.a + x.b != 1239) {
+        @compileError("it should be comptime known");
+    }
+    try expectEqual(y, x);
     try expectEqual(1239, x.a + x.b);
 }
 
@@ -654,6 +655,7 @@ test "zero-bit field in packed struct" {
         y: void,
     };
     var x: S = undefined;
+    _ = x;
 }
 
 test "struct field init with catch" {

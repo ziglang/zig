@@ -103,6 +103,7 @@ fn switchProngWithVarFn(a: SwitchProngWithVarEnum) !void {
         },
         SwitchProngWithVarEnum.Meh => |x| {
             const v: void = x;
+            _ = v;
         },
     }
 }
@@ -454,6 +455,7 @@ test "switch variable for range and multiple prongs" {
             }
         }
     };
+    _ = S;
 }
 
 var state: u32 = 0;

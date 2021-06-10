@@ -48,7 +48,6 @@ const State = struct {
     fn expand0(state: *State, key: []const u8) void {
         var i: usize = 0;
         var j: usize = 0;
-        var t: u32 = undefined;
         while (i < state.subkeys.len) : (i += 1) {
             state.subkeys[i] ^= toWord(key, &j);
         }
@@ -75,7 +74,6 @@ const State = struct {
     fn expand(state: *State, data: []const u8, key: []const u8) void {
         var i: usize = 0;
         var j: usize = 0;
-        var t: u32 = undefined;
         while (i < state.subkeys.len) : (i += 1) {
             state.subkeys[i] ^= toWord(key, &j);
         }

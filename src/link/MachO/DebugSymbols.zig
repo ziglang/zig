@@ -500,7 +500,6 @@ pub fn flushModule(self: *DebugSymbols, allocator: *Allocator, options: link.Opt
     if (self.debug_aranges_section_dirty) {
         const dwarf_segment = &self.load_commands.items[self.dwarf_segment_cmd_index.?].Segment;
         const debug_aranges_sect = &dwarf_segment.sections.items[self.debug_aranges_section_index.?];
-        const debug_info_sect = dwarf_segment.sections.items[self.debug_info_section_index.?];
 
         var di_buf = std.ArrayList(u8).init(allocator);
         defer di_buf.deinit();
@@ -844,7 +843,6 @@ fn relocateSymbolTable(self: *DebugSymbols) !void {
     const nsyms = nlocals + nglobals;
 
     if (symtab.nsyms < nsyms) {
-        const linkedit_segment = self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
         const needed_size = nsyms * @sizeOf(macho.nlist_64);
         if (needed_size > self.allocatedSizeLinkedit(symtab.symoff)) {
             // Move the entire symbol table to a new location
@@ -903,11 +901,6 @@ fn writeStringTable(self: *DebugSymbols) !void {
 pub fn updateDeclLineNumber(self: *DebugSymbols, module: *Module, decl: *const Module.Decl) !void {
     const tracy = trace(@src());
     defer tracy.end();
-
-    const tree = decl.namespace.file_scope.tree;
-    const node_tags = tree.nodes.items(.tag);
-    const node_datas = tree.nodes.items(.data);
-    const token_starts = tree.tokens.items(.start);
 
     const func = decl.val.castTag(.function).?.data;
     const line_off = @intCast(u28, decl.src_line + func.lbrace_line);

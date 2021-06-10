@@ -128,6 +128,7 @@ test "nested orelse" {
             const x = maybe() orelse
                 maybe() orelse
                 return null;
+            _ = x;
             unreachable;
         }
         const Foo = struct {

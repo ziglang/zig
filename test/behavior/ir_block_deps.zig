@@ -5,6 +5,7 @@ fn foo(id: u64) !i32 {
         1 => getErrInt(),
         2 => {
             const size = try getErrInt();
+            _ = size;
             return try getErrInt();
         },
         else => error.ItBroke,

@@ -234,6 +234,7 @@ test "compile time global reinterpret" {
 test "explicit cast maybe pointers" {
     const a: ?*i32 = undefined;
     const b: ?*f32 = @ptrCast(?*f32, a);
+    _ = b;
 }
 
 test "generic malloc free" {

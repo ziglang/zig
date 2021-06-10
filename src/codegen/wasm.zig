@@ -849,7 +849,6 @@ pub const Context = struct {
     }
 
     fn genCall(self: *Context, inst: *Inst.Call) InnerError!WValue {
-        const func_inst = inst.func.castTag(.constant).?;
         const func_val = inst.func.value().?;
 
         const target: *Decl = blk: {
@@ -1146,8 +1145,6 @@ pub const Context = struct {
     }
 
     fn genCmp(self: *Context, inst: *Inst.BinOp, op: std.math.CompareOperator) InnerError!WValue {
-        const ty = inst.lhs.ty.tag();
-
         // save offset, so potential conditions can insert blocks in front of
         // the comparison that we can later jump back to
         const offset = self.code.items.len;

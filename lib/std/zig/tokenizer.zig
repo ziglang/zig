@@ -416,7 +416,6 @@ pub const Tokenizer = struct {
             self.pending_invalid_token = null;
             return token;
         }
-        const start_index = self.index;
         var state: State = .start;
         var result = Token{
             .tag = .eof,

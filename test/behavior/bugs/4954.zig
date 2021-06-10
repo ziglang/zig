@@ -1,5 +1,5 @@
 fn f(buf: []u8) void {
-    var ptr = &buf[@sizeOf(u32)];
+    _ = &buf[@sizeOf(u32)];
 }
 
 test "crash" {

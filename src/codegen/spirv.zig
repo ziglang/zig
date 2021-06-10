@@ -714,7 +714,6 @@ pub const DeclGen = struct {
             return self.fail(inst.base.src, "TODO: SPIR-V backend: binary operations for strange integers", .{});
         }
 
-        const is_bool = info.class == .bool;
         const is_float = info.class == .float;
         const is_signed = info.signedness == .signed;
         // **Note**: All these operations must be valid for vectors as well!
@@ -802,8 +801,6 @@ pub const DeclGen = struct {
         const result_id = self.spv.allocResultId();
         const result_type_id = try self.genType(inst.base.src, inst.base.ty);
 
-        const info = try self.arithmeticTypeInfo(inst.operand.ty);
-
         const opcode = switch (inst.base.tag) {
             // Bool -> bool
             .not => Opcode.OpLogicalNot,
@@ -867,6 +864,7 @@ pub const DeclGen = struct {
         // are not allowed to be created from a phi node, and throw an error for those. For now, genType already throws
         // an error for pointers.
         const result_type_id = try self.genType(inst.base.src, inst.base.ty);
+        _ = result_type_id;
 
         try writeOpcode(&self.code, .OpPhi, 2 + @intCast(u16, incoming_blocks.items.len * 2)); // result type + result + variable/parent...
 

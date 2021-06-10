@@ -944,7 +944,7 @@ fn printLabel(out: anytype, label: []const u8, bytes: []const u8) !void {
     try out.writeAll(text);
     var i: usize = text.len;
     const end = 79;
-    while (i < 79) : (i += 1) {
+    while (i < end) : (i += 1) {
         try out.writeAll(&[_]u8{label[0]});
     }
     try out.writeAll("\n");
@@ -953,7 +953,7 @@ fn printLabel(out: anytype, label: []const u8, bytes: []const u8) !void {
 fn printRuler(out: anytype) !void {
     var i: usize = 0;
     const end = 79;
-    while (i < 79) : (i += 1) {
+    while (i < end) : (i += 1) {
         try out.writeAll("-");
     }
     try out.writeAll("\n");
@@ -1057,4 +1057,3 @@ const printable_char_tab: [256]u8 = (
     "................................................................" ++
     "................................................................"
 ).*;
-
