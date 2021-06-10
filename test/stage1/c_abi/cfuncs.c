@@ -1,6 +1,7 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 
 void zig_panic();
 
@@ -251,6 +252,13 @@ void c_small_struct_floats(Vector3 vec) {
     assert_or_panic(vec.x == 3.0);
     assert_or_panic(vec.y == 6.0);
     assert_or_panic(vec.z == 12.0);
+}
+
+void c_small_struct_floats_extra(Vector3 vec, const char *str) {
+    assert_or_panic(vec.x == 3.0);
+    assert_or_panic(vec.y == 6.0);
+    assert_or_panic(vec.z == 12.0);
+    assert_or_panic(!strcmp(str, "hello"));
 }
 
 void c_big_struct_floats(Vector5 vec) {
