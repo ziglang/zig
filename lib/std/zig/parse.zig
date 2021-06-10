@@ -1850,65 +1850,54 @@ const Parser = struct {
     /// Block <- LBRACE Statement* RBRACE
     fn parseBlock(p: *Parser) !Node.Index {
         const lbrace = p.eatToken(.l_brace) orelse return null_node;
-
-        if (p.eatToken(.r_brace)) |_| {
-            return p.addNode(.{
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
+        while (true) {
+            if (p.token_tags[p.tok_i] == .r_brace) break;
+            const statement = try p.expectStatementRecoverable();
+            if (statement == 0) break;
+            try p.scratch.append(p.gpa, statement);
+        }
+        _ = try p.expectToken(.r_brace);
+        const semicolon = (p.token_tags[p.tok_i - 2] == .semicolon);
+        const statements = p.scratch.items[scratch_top..];
+        switch (statements.len) {
+            0 => return p.addNode(.{
                 .tag = .block_two,
                 .main_token = lbrace,
                 .data = .{
                     .lhs = 0,
                     .rhs = 0,
                 },
-            });
-        }
-
-        const stmt_one = try p.expectStatementRecoverable();
-        if (p.eatToken(.r_brace)) |_| {
-            const semicolon = p.token_tags[p.tok_i - 2] == .semicolon;
-            return p.addNode(.{
+            }),
+            1 => return p.addNode(.{
                 .tag = if (semicolon) .block_two_semicolon else .block_two,
                 .main_token = lbrace,
                 .data = .{
-                    .lhs = stmt_one,
+                    .lhs = statements[0],
                     .rhs = 0,
                 },
-            });
-        }
-        const stmt_two = try p.expectStatementRecoverable();
-        if (p.eatToken(.r_brace)) |_| {
-            const semicolon = p.token_tags[p.tok_i - 2] == .semicolon;
-            return p.addNode(.{
+            }),
+            2 => return p.addNode(.{
                 .tag = if (semicolon) .block_two_semicolon else .block_two,
                 .main_token = lbrace,
                 .data = .{
-                    .lhs = stmt_one,
-                    .rhs = stmt_two,
+                    .lhs = statements[0],
+                    .rhs = statements[1],
                 },
-            });
-        }
-
-        const scratch_top = p.scratch.items.len;
-        defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-        try p.scratch.appendSlice(p.gpa, &.{ stmt_one, stmt_two });
-
-        while (true) {
-            const statement = try p.expectStatementRecoverable();
-            if (statement == 0) break;
-            try p.scratch.append(p.gpa, statement);
-            if (p.token_tags[p.tok_i] == .r_brace) break;
-        }
-        _ = try p.expectToken(.r_brace);
-        const semicolon = p.token_tags[p.tok_i - 2] == .semicolon;
-        const statements_span = try p.listToSpan(p.scratch.items[scratch_top..]);
-        return p.addNode(.{
-            .tag = if (semicolon) .block_semicolon else .block,
-            .main_token = lbrace,
-            .data = .{
-                .lhs = statements_span.start,
-                .rhs = statements_span.end,
+            }),
+            else => {
+                const span = try p.listToSpan(statements);
+                return p.addNode(.{
+                    .tag = if (semicolon) .block_semicolon else .block,
+                    .main_token = lbrace,
+                    .data = .{
+                        .lhs = span.start,
+                        .rhs = span.end,
+                    },
+                });
             },
-        });
+        }
     }
 
     /// ForPrefix <- KEYWORD_for LPAREN Expr RPAREN PtrIndexPayload
@@ -2010,114 +1999,86 @@ const Parser = struct {
         // If there are 0 or 1 items, we can use ArrayInitOne/StructInitOne;
         // otherwise we use the full ArrayInit/StructInit.
 
-        if (p.eatToken(.r_brace)) |_| {
-            return p.addNode(.{
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
+        const field_init = try p.parseFieldInit();
+        if (field_init != 0) {
+            try p.scratch.append(p.gpa, field_init);
+            while (true) {
+                 switch (p.token_tags[p.tok_i]) {
+                    .comma => p.tok_i += 1,
+                    .r_brace => { p.tok_i += 1; break; },
+                    .colon, .r_paren, .r_bracket => return p.failExpected(.r_brace),
+                    // Likely just a missing comma; give error but continue parsing.
+                    else => try p.warnExpected(.comma),
+                }
+                if (p.eatToken(.r_brace)) |_| break;
+                const next = try p.expectFieldInit();
+                try p.scratch.append(p.gpa, next);
+            }
+            const comma = (p.token_tags[p.tok_i - 2] == .comma);
+            const inits = p.scratch.items[scratch_top..];
+            switch (inits.len) {
+                0 => unreachable,
+                1 => return p.addNode(.{
+                    .tag = if (comma) .struct_init_one_comma else .struct_init_one,
+                    .main_token = lbrace,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = inits[0],
+                    },
+                }),
+                else => return p.addNode(.{
+                    .tag = if (comma) .struct_init_comma else .struct_init,
+                    .main_token = lbrace,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = try p.addExtra(try p.listToSpan(inits)),
+                    },
+                }),
+            }
+        }
+
+        while (true) {
+            if (p.eatToken(.r_brace)) |_| break;
+            const elem_init = try p.expectExpr();
+            try p.scratch.append(p.gpa, elem_init);
+            switch (p.token_tags[p.tok_i]) {
+                .comma => p.tok_i += 1,
+                .r_brace => { p.tok_i += 1; break; },
+                .colon, .r_paren, .r_bracket => return p.failExpected(.r_brace),
+                // Likely just a missing comma; give error but continue parsing.
+                else => try p.warnExpected(.comma),
+            }
+        }
+        const comma = (p.token_tags[p.tok_i - 2] == .comma);
+        const inits = p.scratch.items[scratch_top..];
+        switch (inits.len) {
+            0 => return p.addNode(.{
                 .tag = .struct_init_one,
                 .main_token = lbrace,
                 .data = .{
                     .lhs = lhs,
                     .rhs = 0,
                 },
-            });
-        }
-        const field_init = try p.parseFieldInit();
-        if (field_init != 0) {
-            const comma_one = p.eatToken(.comma);
-            if (p.eatToken(.r_brace)) |_| {
-                return p.addNode(.{
-                    .tag = if (comma_one != null) .struct_init_one_comma else .struct_init_one,
-                    .main_token = lbrace,
-                    .data = .{
-                        .lhs = lhs,
-                        .rhs = field_init,
-                    },
-                });
-            }
-
-            const scratch_top = p.scratch.items.len;
-            defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-            try p.scratch.append(p.gpa, field_init);
-
-            while (true) {
-                const next = try p.expectFieldInit();
-                try p.scratch.append(p.gpa, next);
-
-                switch (p.token_tags[p.nextToken()]) {
-                    .comma => {
-                        if (p.eatToken(.r_brace)) |_| break;
-                        continue;
-                    },
-                    .r_brace => break,
-                    .colon, .r_paren, .r_bracket => {
-                        p.tok_i -= 1;
-                        return p.failExpected(.r_brace);
-                    },
-                    else => {
-                        // This is likely just a missing comma;
-                        // give an error but continue parsing this list.
-                        p.tok_i -= 1;
-                        try p.warnExpected(.comma);
-                    },
-                }
-            }
-            const span = try p.listToSpan(p.scratch.items[scratch_top..]);
-            return p.addNode(.{
-                .tag = if (p.token_tags[p.tok_i - 2] == .comma) .struct_init_comma else .struct_init,
+            }),
+            1 => return p.addNode(.{
+                .tag = if (comma) .array_init_one_comma else .array_init_one,
                 .main_token = lbrace,
                 .data = .{
                     .lhs = lhs,
-                    .rhs = try p.addExtra(Node.SubRange{
-                        .start = span.start,
-                        .end = span.end,
-                    }),
+                    .rhs = inits[0],
                 },
-            });
-        }
-
-        const elem_init = try p.expectExpr();
-        const comma_one = p.eatToken(.comma);
-        if (p.eatToken(.r_brace)) |_| {
-            return p.addNode(.{
-                .tag = if (comma_one != null) .array_init_one_comma else .array_init_one,
+            }),
+            else => return p.addNode(.{
+                .tag = if (comma) .array_init_comma else .array_init,
                 .main_token = lbrace,
                 .data = .{
                     .lhs = lhs,
-                    .rhs = elem_init,
+                    .rhs = try p.addExtra(try p.listToSpan(inits)),
                 },
-            });
+            }),
         }
-        if (comma_one == null) {
-            try p.warnExpected(.comma);
-        }
-
-        const scratch_top = p.scratch.items.len;
-        defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-        try p.scratch.append(p.gpa, elem_init);
-
-        var trailing_comma = true;
-        var next = try p.parseExpr();
-        while (next != 0) : (next = try p.parseExpr()) {
-            try p.scratch.append(p.gpa, next);
-            if (p.eatToken(.comma) == null) {
-                trailing_comma = false;
-                break;
-            }
-        }
-        _ = try p.expectToken(.r_brace);
-        const span = try p.listToSpan(p.scratch.items[scratch_top..]);
-        return p.addNode(.{
-            .tag = if (trailing_comma) .array_init_comma else .array_init,
-            .main_token = lbrace,
-            .data = .{
-                .lhs = lhs,
-                .rhs = try p.addExtra(Node.SubRange{
-                    .start = span.start,
-                    .end = span.end,
-                }),
-            },
-        });
     }
 
     /// ErrorUnionExpr <- SuffixExpr (EXCLAMATIONMARK TypeExpr)?
@@ -2143,184 +2104,109 @@ const Parser = struct {
     fn parseSuffixExpr(p: *Parser) !Node.Index {
         if (p.eatToken(.keyword_async)) |async_token| {
             var res = try p.expectPrimaryTypeExpr();
-
             while (true) {
                 const node = try p.parseSuffixOp(res);
                 if (node == 0) break;
                 res = node;
             }
-            const lparen = p.nextToken();
-            if (p.token_tags[lparen] != .l_paren) {
-                p.tok_i -= 1;
+            const lparen = p.eatToken(.l_paren) orelse {
                 try p.warn(.expected_param_list);
                 return res;
+            };
+            const scratch_top = p.scratch.items.len;
+            defer p.scratch.shrinkRetainingCapacity(scratch_top);
+            while (true) {
+                if (p.eatToken(.r_paren)) |_| break;
+                const param = try p.expectExpr();
+                try p.scratch.append(p.gpa, param);
+                switch (p.token_tags[p.tok_i]) {
+                    .comma => p.tok_i += 1,
+                    .r_paren => { p.tok_i += 1; break; },
+                    .colon, .r_brace, .r_bracket => return p.failExpected(.r_paren),
+                    // Likely just a missing comma; give error but continue parsing.
+                    else => try p.warnExpected(.comma),
+                }
             }
-            if (p.eatToken(.r_paren)) |_| {
-                return p.addNode(.{
-                    .tag = .async_call_one,
+            const comma = (p.token_tags[p.tok_i - 2] == .comma);
+            const params = p.scratch.items[scratch_top..];
+            switch(params.len) {
+                0 => return p.addNode(.{
+                    .tag = if (comma) .async_call_one_comma else .async_call_one,
                     .main_token = lparen,
                     .data = .{
                         .lhs = res,
                         .rhs = 0,
                     },
-                });
-            }
-            const param_one = try p.expectExpr();
-            const comma_one = p.eatToken(.comma);
-            if (p.eatToken(.r_paren)) |_| {
-                return p.addNode(.{
-                    .tag = if (comma_one == null) .async_call_one else .async_call_one_comma,
+                }),
+                1 => return p.addNode(.{
+                    .tag = if (comma) .async_call_one_comma else .async_call_one,
                     .main_token = lparen,
                     .data = .{
                         .lhs = res,
-                        .rhs = param_one,
+                        .rhs = params[0],
                     },
-                });
-            }
-            if (comma_one == null) {
-                try p.warnExpected(.comma);
-            }
-
-            const scratch_top = p.scratch.items.len;
-            defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-            try p.scratch.append(p.gpa, param_one);
-
-            while (true) {
-                const next = try p.expectExpr();
-                try p.scratch.append(p.gpa, next);
-                switch (p.token_tags[p.nextToken()]) {
-                    .comma => {
-                        if (p.eatToken(.r_paren)) |_| {
-                            const span = try p.listToSpan(p.scratch.items[scratch_top..]);
-                            return p.addNode(.{
-                                .tag = .async_call_comma,
-                                .main_token = lparen,
-                                .data = .{
-                                    .lhs = res,
-                                    .rhs = try p.addExtra(Node.SubRange{
-                                        .start = span.start,
-                                        .end = span.end,
-                                    }),
-                                },
-                            });
-                        } else {
-                            continue;
-                        }
+                }),
+                else => return p.addNode(.{
+                    .tag = if (comma) .async_call_comma else .async_call,
+                    .main_token = lparen,
+                    .data = .{
+                        .lhs = res,
+                        .rhs = try p.addExtra(try p.listToSpan(params)),
                     },
-                    .r_paren => {
-                        const span = try p.listToSpan(p.scratch.items[scratch_top..]);
-                        return p.addNode(.{
-                            .tag = .async_call,
-                            .main_token = lparen,
-                            .data = .{
-                                .lhs = res,
-                                .rhs = try p.addExtra(Node.SubRange{
-                                    .start = span.start,
-                                    .end = span.end,
-                                }),
-                            },
-                        });
-                    },
-                    .colon, .r_brace, .r_bracket => {
-                        p.tok_i -= 1;
-                        return p.failExpected(.r_paren);
-                    },
-                    else => {
-                        p.tok_i -= 1;
-                        try p.warnExpected(.comma);
-                    },
-                }
+                }),
             }
         }
+
         var res = try p.parsePrimaryTypeExpr();
         if (res == 0) return res;
-
         while (true) {
             const suffix_op = try p.parseSuffixOp(res);
             if (suffix_op != 0) {
                 res = suffix_op;
                 continue;
             }
-            res = res: {
-                const lparen = p.eatToken(.l_paren) orelse return res;
-                if (p.eatToken(.r_paren)) |_| {
-                    break :res try p.addNode(.{
-                        .tag = .call_one,
-                        .main_token = lparen,
-                        .data = .{
-                            .lhs = res,
-                            .rhs = 0,
-                        },
-                    });
+            const lparen = p.eatToken(.l_paren) orelse return res;
+            const scratch_top = p.scratch.items.len;
+            defer p.scratch.shrinkRetainingCapacity(scratch_top);
+            while (true) {
+                if (p.eatToken(.r_paren)) |_| break;
+                const param = try p.expectExpr();
+                try p.scratch.append(p.gpa, param);
+                switch (p.token_tags[p.tok_i]) {
+                    .comma => p.tok_i += 1,
+                    .r_paren => { p.tok_i += 1; break; },
+                    .colon, .r_brace, .r_bracket => return p.failExpected(.r_paren),
+                    // Likely just a missing comma; give error but continue parsing.
+                    else => try p.warnExpected(.comma),
                 }
-                const param_one = try p.expectExpr();
-                const comma_one = p.eatToken(.comma);
-                if (p.eatToken(.r_paren)) |_| {
-                    break :res try p.addNode(.{
-                        .tag = if (comma_one == null) .call_one else .call_one_comma,
-                        .main_token = lparen,
-                        .data = .{
-                            .lhs = res,
-                            .rhs = param_one,
-                        },
-                    });
-                }
-                if (comma_one == null) {
-                    try p.warnExpected(.comma);
-                }
-
-                const scratch_top = p.scratch.items.len;
-                defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-                try p.scratch.append(p.gpa, param_one);
-
-                while (true) {
-                    const next = try p.expectExpr();
-                    try p.scratch.append(p.gpa, next);
-                    switch (p.token_tags[p.nextToken()]) {
-                        .comma => {
-                            if (p.eatToken(.r_paren)) |_| {
-                                const span = try p.listToSpan(p.scratch.items[scratch_top..]);
-                                break :res try p.addNode(.{
-                                    .tag = .call_comma,
-                                    .main_token = lparen,
-                                    .data = .{
-                                        .lhs = res,
-                                        .rhs = try p.addExtra(Node.SubRange{
-                                            .start = span.start,
-                                            .end = span.end,
-                                        }),
-                                    },
-                                });
-                            } else {
-                                continue;
-                            }
-                        },
-                        .r_paren => {
-                            const span = try p.listToSpan(p.scratch.items[scratch_top..]);
-                            break :res try p.addNode(.{
-                                .tag = .call,
-                                .main_token = lparen,
-                                .data = .{
-                                    .lhs = res,
-                                    .rhs = try p.addExtra(Node.SubRange{
-                                        .start = span.start,
-                                        .end = span.end,
-                                    }),
-                                },
-                            });
-                        },
-                        .colon, .r_brace, .r_bracket => {
-                            p.tok_i -= 1;
-                            return p.failExpected(.r_paren);
-                        },
-                        else => {
-                            p.tok_i -= 1;
-                            try p.warnExpected(.comma);
-                        },
-                    }
-                }
+            }
+            const comma = (p.token_tags[p.tok_i - 2] == .comma);
+            const params = p.scratch.items[scratch_top..];
+            res = switch(params.len) {
+                0 => try p.addNode(.{
+                    .tag = if (comma) .call_one_comma else .call_one,
+                    .main_token = lparen,
+                    .data = .{
+                        .lhs = res,
+                        .rhs = 0,
+                    },
+                }),
+                1 => try p.addNode(.{
+                    .tag = if (comma) .call_one_comma else .call_one,
+                    .main_token = lparen,
+                    .data = .{
+                        .lhs = res,
+                        .rhs = params[0],
+                    },
+                }),
+                else => try p.addNode(.{
+                    .tag = if (comma) .call_comma else .call,
+                    .main_token = lparen,
+                    .data = .{
+                        .lhs = res,
+                        .rhs = try p.addExtra(try p.listToSpan(params)),
+                    },
+                }),
             };
         }
     }
@@ -2554,148 +2440,108 @@ const Parser = struct {
                     // If there are 0, 1, or 2 items, we can use ArrayInitDotTwo/StructInitDotTwo;
                     // otherwise we use the full ArrayInitDot/StructInitDot.
 
-                    if (p.eatToken(.r_brace)) |_| {
-                        return p.addNode(.{
+                    const scratch_top = p.scratch.items.len;
+                    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+                    const field_init = try p.parseFieldInit();
+                    if (field_init != 0) {
+                        try p.scratch.append(p.gpa, field_init);
+                        while (true) {
+                            switch (p.token_tags[p.tok_i]) {
+                                .comma => p.tok_i += 1,
+                                .r_brace => { p.tok_i += 1; break; },
+                                .colon, .r_paren, .r_bracket => return p.failExpected(.r_brace),
+                                // Likely just a missing comma; give error but continue parsing.
+                                else => try p.warnExpected(.comma),
+                            }
+                            if (p.eatToken(.r_brace)) |_| break;
+                            const next = try p.expectFieldInit();
+                            try p.scratch.append(p.gpa, next);
+                        }
+                        const comma = (p.token_tags[p.tok_i - 2] == .comma);
+                        const inits = p.scratch.items[scratch_top..];
+                        switch (inits.len) {
+                            0 => unreachable,
+                            1 => return p.addNode(.{
+                                .tag = if (comma) .struct_init_dot_two_comma else .struct_init_dot_two,
+                                .main_token = lbrace,
+                                .data = .{
+                                    .lhs = inits[0],
+                                    .rhs = 0,
+                                },
+                            }),
+                            2 => return p.addNode(.{
+                                .tag = if (comma) .struct_init_dot_two_comma else .struct_init_dot_two,
+                                .main_token = lbrace,
+                                .data = .{
+                                    .lhs = inits[0],
+                                    .rhs = inits[1],
+                                },
+                            }),
+                            else => {
+                                const span = try p.listToSpan(inits);
+                                return p.addNode(.{
+                                    .tag = if (comma) .struct_init_dot_comma else .struct_init_dot,
+                                    .main_token = lbrace,
+                                    .data = .{
+                                        .lhs = span.start,
+                                        .rhs = span.end,
+                                    },
+                                });
+                            },
+                        }
+                    }
+
+                    while (true) {
+                        if (p.eatToken(.r_brace)) |_| break;
+                        const elem_init = try p.expectExpr();
+                        try p.scratch.append(p.gpa, elem_init);
+                        switch (p.token_tags[p.tok_i]) {
+                            .comma => p.tok_i += 1,
+                            .r_brace => { p.tok_i += 1; break; },
+                            .colon, .r_paren, .r_bracket => return p.failExpected(.r_brace),
+                            // Likely just a missing comma; give error but continue parsing.
+                            else => try p.warnExpected(.comma),
+                        }
+                    }
+                    const comma = (p.token_tags[p.tok_i - 2] == .comma);
+                    const inits = p.scratch.items[scratch_top..];
+                    switch (inits.len) {
+                        0 => return p.addNode(.{
                             .tag = .struct_init_dot_two,
                             .main_token = lbrace,
                             .data = .{
                                 .lhs = 0,
                                 .rhs = 0,
                             },
-                        });
-                    }
-                    const field_init_one = try p.parseFieldInit();
-                    if (field_init_one != 0) {
-                        const comma_one = p.eatToken(.comma);
-                        if (p.eatToken(.r_brace)) |_| {
-                            return p.addNode(.{
-                                .tag = if (comma_one != null) .struct_init_dot_two_comma else .struct_init_dot_two,
-                                .main_token = lbrace,
-                                .data = .{
-                                    .lhs = field_init_one,
-                                    .rhs = 0,
-                                },
-                            });
-                        }
-                        if (comma_one == null) {
-                            try p.warnExpected(.comma);
-                        }
-                        const field_init_two = try p.expectFieldInit();
-                        const comma_two = p.eatToken(.comma);
-                        if (p.eatToken(.r_brace)) |_| {
-                            return p.addNode(.{
-                                .tag = if (comma_two != null) .struct_init_dot_two_comma else .struct_init_dot_two,
-                                .main_token = lbrace,
-                                .data = .{
-                                    .lhs = field_init_one,
-                                    .rhs = field_init_two,
-                                },
-                            });
-                        }
-                        if (comma_two == null) {
-                            try p.warnExpected(.comma);
-                        }
-                        const scratch_top = p.scratch.items.len;
-                        defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-                        try p.scratch.appendSlice(p.gpa, &.{ field_init_one, field_init_two });
-
-                        while (true) {
-                            const next = try p.expectFieldInit();
-                            assert(next != 0);
-                            try p.scratch.append(p.gpa, next);
-                            switch (p.token_tags[p.nextToken()]) {
-                                .comma => {
-                                    if (p.eatToken(.r_brace)) |_| break;
-                                    continue;
-                                },
-                                .r_brace => break,
-                                .colon, .r_paren, .r_bracket => {
-                                    p.tok_i -= 1;
-                                    return p.failExpected(.r_brace);
-                                },
-                                else => {
-                                    p.tok_i -= 1;
-                                    try p.warnExpected(.comma);
-                                },
-                            }
-                        }
-                        const span = try p.listToSpan(p.scratch.items[scratch_top..]);
-                        const trailing_comma = p.token_tags[p.tok_i - 2] == .comma;
-                        return p.addNode(.{
-                            .tag = if (trailing_comma) .struct_init_dot_comma else .struct_init_dot,
+                        }),
+                        1 => return p.addNode(.{
+                            .tag = if (comma) .array_init_dot_two_comma else .array_init_dot_two,
                             .main_token = lbrace,
                             .data = .{
-                                .lhs = span.start,
-                                .rhs = span.end,
-                            },
-                        });
-                    }
-
-                    const elem_init_one = try p.expectExpr();
-                    const comma_one = p.eatToken(.comma);
-                    if (p.eatToken(.r_brace)) |_| {
-                        return p.addNode(.{
-                            .tag = if (comma_one != null) .array_init_dot_two_comma else .array_init_dot_two,
-                            .main_token = lbrace,
-                            .data = .{
-                                .lhs = elem_init_one,
+                                .lhs = inits[0],
                                 .rhs = 0,
                             },
-                        });
-                    }
-                    if (comma_one == null) {
-                        try p.warnExpected(.comma);
-                    }
-                    const elem_init_two = try p.expectExpr();
-                    const comma_two = p.eatToken(.comma);
-                    if (p.eatToken(.r_brace)) |_| {
-                        return p.addNode(.{
-                            .tag = if (comma_two != null) .array_init_dot_two_comma else .array_init_dot_two,
+                        }),
+                        2 => return p.addNode(.{
+                            .tag = if (comma) .array_init_dot_two_comma else .array_init_dot_two,
                             .main_token = lbrace,
                             .data = .{
-                                .lhs = elem_init_one,
-                                .rhs = elem_init_two,
+                                .lhs = inits[0],
+                                .rhs = inits[1],
                             },
-                        });
-                    }
-                    if (comma_two == null) {
-                        try p.warnExpected(.comma);
-                    }
-                    const scratch_top = p.scratch.items.len;
-                    defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-                    try p.scratch.appendSlice(p.gpa, &.{ elem_init_one, elem_init_two });
-
-                    while (true) {
-                        const next = try p.expectExpr();
-                        if (next == 0) break;
-                        try p.scratch.append(p.gpa, next);
-                        switch (p.token_tags[p.nextToken()]) {
-                            .comma => {
-                                if (p.eatToken(.r_brace)) |_| break;
-                                continue;
-                            },
-                            .r_brace => break,
-                            .colon, .r_paren, .r_bracket => {
-                                p.tok_i -= 1;
-                                return p.failExpected(.r_brace);
-                            },
-                            else => {
-                                p.tok_i -= 1;
-                                try p.warnExpected(.comma);
-                            },
-                        }
-                    }
-                    const span = try p.listToSpan(p.scratch.items[scratch_top..]);
-                    return p.addNode(.{
-                        .tag = if (p.token_tags[p.tok_i - 2] == .comma) .array_init_dot_comma else .array_init_dot,
-                        .main_token = lbrace,
-                        .data = .{
-                            .lhs = span.start,
-                            .rhs = span.end,
+                        }),
+                        else => {
+                            const span = try p.listToSpan(inits);
+                            return p.addNode(.{
+                                .tag = if (comma) .array_init_dot_comma else .array_init_dot,
+                                .main_token = lbrace,
+                                .data = .{
+                                    .lhs = span.start,
+                                    .rhs = span.end,
+                                },
+                            });
                         },
-                    });
+                    }
                 },
                 else => return null_node,
             },
@@ -2703,37 +2549,16 @@ const Parser = struct {
                 .l_brace => {
                     const error_token = p.tok_i;
                     p.tok_i += 2;
-
-                    if (p.eatToken(.r_brace)) |rbrace| {
-                        return p.addNode(.{
-                            .tag = .error_set_decl,
-                            .main_token = error_token,
-                            .data = .{
-                                .lhs = undefined,
-                                .rhs = rbrace,
-                            },
-                        });
-                    }
-
                     while (true) {
+                        if (p.eatToken(.r_brace)) |_| break;
                         const doc_comment = try p.eatDocComments();
                         const identifier = try p.expectToken(.identifier);
-                        switch (p.token_tags[p.nextToken()]) {
-                            .comma => {
-                                if (p.eatToken(.r_brace)) |_| break;
-                                continue;
-                            },
-                            .r_brace => break,
-                            .colon, .r_paren, .r_bracket => {
-                                p.tok_i -= 1;
-                                return p.failExpected(.r_brace);
-                            },
-                            else => {
-                                // This is likely just a missing comma;
-                                // give an error but continue parsing this list.
-                                p.tok_i -= 1;
-                                try p.warnExpected(.comma);
-                            },
+                        switch (p.token_tags[p.tok_i]) {
+                            .comma => p.tok_i += 1,
+                            .r_brace => { p.tok_i += 1; break; },
+                            .colon, .r_paren, .r_bracket => return p.failExpected(.r_brace),
+                            // Likely just a missing comma; give error but continue parsing.
+                            else => try p.warnExpected(.comma),
                         }
                     }
                     return p.addNode(.{
@@ -2926,12 +2751,10 @@ const Parser = struct {
             try p.scratch.append(p.gpa, output_item);
             switch (p.token_tags[p.tok_i]) {
                 .comma => p.tok_i += 1,
-                .colon, .r_paren, .r_brace, .r_bracket => break, // All possible delimiters.
-                else => {
-                    // This is likely just a missing comma;
-                    // give an error but continue parsing this list.
-                    try p.warnExpected(.comma);
-                },
+                // All possible delimiters.
+                .colon, .r_paren, .r_brace, .r_bracket => break,
+                // Likely just a missing comma; give error but continue parsing.
+                else => try p.warnExpected(.comma),
             }
         }
         if (p.eatToken(.colon)) |_| {
@@ -2941,12 +2764,10 @@ const Parser = struct {
                 try p.scratch.append(p.gpa, input_item);
                 switch (p.token_tags[p.tok_i]) {
                     .comma => p.tok_i += 1,
-                    .colon, .r_paren, .r_brace, .r_bracket => break, // All possible delimiters.
-                    else => {
-                        // This is likely just a missing comma;
-                        // give an error but continue parsing this list.
-                        try p.warnExpected(.comma);
-                    },
+                    // All possible delimiters.
+                    .colon, .r_paren, .r_brace, .r_bracket => break,
+                    // Likely just a missing comma; give error but continue parsing.
+                    else => try p.warnExpected(.comma),
                 }
             }
             if (p.eatToken(.colon)) |_| {
@@ -2954,11 +2775,8 @@ const Parser = struct {
                     switch (p.token_tags[p.tok_i]) {
                         .comma => p.tok_i += 1,
                         .colon, .r_paren, .r_brace, .r_bracket => break,
-                        else => {
-                            // This is likely just a missing comma;
-                            // give an error but continue parsing this list.
-                            try p.warnExpected(.comma);
-                        },
+                        // Likely just a missing comma; give error but continue parsing.
+                        else => try p.warnExpected(.comma),
                     }
                 }
             }
@@ -3201,10 +3019,7 @@ const Parser = struct {
             .tag = .switch_case,
             .main_token = arrow_token,
             .data = .{
-                .lhs = try p.addExtra(Node.SubRange{
-                    .start = span.start,
-                    .end = span.end,
-                }),
+                .lhs = try p.addExtra(span),
                 .rhs = try p.expectAssignExpr(),
             },
         });
@@ -3563,19 +3378,12 @@ const Parser = struct {
             } else if (p.token_tags[p.tok_i - 1] == .ellipsis3) {
                 if (varargs == .none) varargs = .seen;
             }
-            switch (p.token_tags[p.nextToken()]) {
-                .comma => {},
-                .r_paren => break,
-                .colon, .r_brace, .r_bracket => {
-                    p.tok_i -= 1;
-                    return p.failExpected(.r_paren);
-                },
-                else => {
-                    // This is likely just a missing comma;
-                    // give an error but continue parsing this list.
-                    p.tok_i -= 1;
-                    try p.warnExpected(.comma);
-                },
+            switch (p.token_tags[p.tok_i]) {
+                .comma => p.tok_i += 1,
+                .r_paren => { p.tok_i += 1; break; },
+                .colon, .r_brace, .r_bracket => return p.failExpected(.r_paren),
+                // Likely just a missing comma; give error but continue parsing.
+                else => try p.warnExpected(.comma),
             }
         }
         if (varargs == .nonfinal) {
@@ -3605,13 +3413,10 @@ const Parser = struct {
 
                     switch (p.token_tags[p.tok_i]) {
                         .comma => p.tok_i += 1,
-                        // all possible delimiters
+                        // All possible delimiters.
                         .colon, .r_paren, .r_brace, .r_bracket => break,
-                        else => {
-                            // This is likely just a missing comma;
-                            // give an error but continue parsing this list.
-                            try p.warnExpected(.comma);
-                        },
+                        // Likely just a missing comma; give error but continue parsing.
+                        else => try p.warnExpected(.comma),
                     }
                 }
                 return p.listToSpan(p.scratch.items[scratch_top..]);
@@ -3636,116 +3441,57 @@ const Parser = struct {
                 },
             });
         }
-        if (p.eatToken(.r_paren)) |_| {
-            return p.addNode(.{
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
+        while (true) {
+            if (p.eatToken(.r_paren)) |_| break;
+            const param = try p.expectExpr();
+            try p.scratch.append(p.gpa, param);
+            switch (p.token_tags[p.tok_i]) {
+                .comma => p.tok_i += 1,
+                .r_paren => { p.tok_i += 1; break; },
+                // Likely just a missing comma; give error but continue parsing.
+                else => try p.warnExpected(.comma),
+            }
+        }
+        const comma = (p.token_tags[p.tok_i - 2] == .comma);
+        const params = p.scratch.items[scratch_top..];
+        switch (params.len) {
+            0 => return p.addNode(.{
                 .tag = .builtin_call_two,
                 .main_token = builtin_token,
                 .data = .{
                     .lhs = 0,
                     .rhs = 0,
                 },
-            });
-        }
-        const param_one = try p.expectExpr();
-        switch (p.token_tags[p.nextToken()]) {
-            .comma => {
-                if (p.eatToken(.r_paren)) |_| {
-                    return p.addNode(.{
-                        .tag = .builtin_call_two_comma,
-                        .main_token = builtin_token,
-                        .data = .{
-                            .lhs = param_one,
-                            .rhs = 0,
-                        },
-                    });
-                }
-            },
-            .r_paren => return p.addNode(.{
-                .tag = .builtin_call_two,
+            }),
+            1 => return p.addNode(.{
+                .tag = if (comma) .builtin_call_two_comma else .builtin_call_two,
                 .main_token = builtin_token,
                 .data = .{
-                    .lhs = param_one,
+                    .lhs = params[0],
                     .rhs = 0,
                 },
             }),
-            else => {
-                // This is likely just a missing comma;
-                // give an error but continue parsing this list.
-                p.tok_i -= 1;
-                try p.warnExpected(.comma);
-            },
-        }
-        const param_two = try p.expectExpr();
-        switch (p.token_tags[p.nextToken()]) {
-            .comma => {
-                if (p.eatToken(.r_paren)) |_| {
-                    return p.addNode(.{
-                        .tag = .builtin_call_two_comma,
-                        .main_token = builtin_token,
-                        .data = .{
-                            .lhs = param_one,
-                            .rhs = param_two,
-                        },
-                    });
-                }
-            },
-            .r_paren => return p.addNode(.{
-                .tag = .builtin_call_two,
+            2 => return p.addNode(.{
+                .tag = if (comma) .builtin_call_two_comma else .builtin_call_two,
                 .main_token = builtin_token,
                 .data = .{
-                    .lhs = param_one,
-                    .rhs = param_two,
+                    .lhs = params[0],
+                    .rhs = params[1],
                 },
             }),
             else => {
-                // This is likely just a missing comma;
-                // give an error but continue parsing this list.
-                p.tok_i -= 1;
-                try p.warnExpected(.comma);
+                const span = try p.listToSpan(params);
+                return p.addNode(.{
+                    .tag = if (comma) .builtin_call_comma else .builtin_call,
+                    .main_token = builtin_token,
+                    .data = .{
+                        .lhs = span.start,
+                        .rhs = span.end,
+                    },
+                });
             },
-        }
-
-        const scratch_top = p.scratch.items.len;
-        defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-        try p.scratch.appendSlice(p.gpa, &.{ param_one, param_two });
-
-        while (true) {
-            const param = try p.expectExpr();
-            try p.scratch.append(p.gpa, param);
-            switch (p.token_tags[p.nextToken()]) {
-                .comma => {
-                    if (p.eatToken(.r_paren)) |_| {
-                        const params = try p.listToSpan(p.scratch.items[scratch_top..]);
-                        return p.addNode(.{
-                            .tag = .builtin_call_comma,
-                            .main_token = builtin_token,
-                            .data = .{
-                                .lhs = params.start,
-                                .rhs = params.end,
-                            },
-                        });
-                    }
-                    continue;
-                },
-                .r_paren => {
-                    const params = try p.listToSpan(p.scratch.items[scratch_top..]);
-                    return p.addNode(.{
-                        .tag = .builtin_call,
-                        .main_token = builtin_token,
-                        .data = .{
-                            .lhs = params.start,
-                            .rhs = params.end,
-                        },
-                    });
-                },
-                else => {
-                    // This is likely just a missing comma;
-                    // give an error but continue parsing this list.
-                    p.tok_i -= 1;
-                    try p.warnExpected(.comma);
-                },
-            }
         }
     }
 
