@@ -322,7 +322,7 @@ pub fn analyzeBody(
             .shl_exact                    => try sema.zirShlExact(block, inst),
             .shr_exact                    => try sema.zirShrExact(block, inst),
             .bit_offset_of                => try sema.zirBitOffsetOf(block, inst),
-            .byte_offset_of               => try sema.zirByteOffsetOf(block, inst),
+            .offset_of                    => try sema.zirOffsetOf(block, inst),
             .cmpxchg_strong               => try sema.zirCmpxchg(block, inst),
             .cmpxchg_weak                 => try sema.zirCmpxchg(block, inst),
             .splat                        => try sema.zirSplat(block, inst),
@@ -5860,10 +5860,10 @@ fn zirBitOffsetOf(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerE
     return sema.mod.fail(&block.base, src, "TODO: Sema.zirBitOffsetOf", .{});
 }
 
-fn zirByteOffsetOf(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
+fn zirOffsetOf(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    return sema.mod.fail(&block.base, src, "TODO: Sema.zirByteOffsetOf", .{});
+    return sema.mod.fail(&block.base, src, "TODO: Sema.zirOffsetOf", .{});
 }
 
 fn zirCmpxchg(sema: *Sema, block: *Scope.Block, inst: Zir.Inst.Index) InnerError!*Inst {

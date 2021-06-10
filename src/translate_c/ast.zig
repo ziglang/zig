@@ -158,8 +158,8 @@ pub const Node = extern union {
         ptr_cast,
         /// @divExact(lhs, rhs)
         div_exact,
-        /// @byteOffsetOf(lhs, rhs)
-        byte_offset_of,
+        /// @offsetOf(lhs, rhs)
+        offset_of,
         /// @shuffle(type, a, b, mask)
         shuffle,
 
@@ -335,7 +335,7 @@ pub const Node = extern union {
                 .std_meta_vector,
                 .ptr_cast,
                 .div_exact,
-                .byte_offset_of,
+                .offset_of,
                 .std_meta_cast,
                 => Payload.BinOp,
 
@@ -1304,9 +1304,9 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.div_exact).?.data;
             return renderBuiltinCall(c, "@divExact", &.{ payload.lhs, payload.rhs });
         },
-        .byte_offset_of => {
-            const payload = node.castTag(.byte_offset_of).?.data;
-            return renderBuiltinCall(c, "@byteOffsetOf", &.{ payload.lhs, payload.rhs });
+        .offset_of => {
+            const payload = node.castTag(.offset_of).?.data;
+            return renderBuiltinCall(c, "@offsetOf", &.{ payload.lhs, payload.rhs });
         },
         .sizeof => {
             const payload = node.castTag(.sizeof).?.data;
@@ -2274,7 +2274,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .null_sentinel_array_type,
         .bool_to_int,
         .div_exact,
-        .byte_offset_of,
+        .offset_of,
         .shuffle,
         => {
             // no grouping needed

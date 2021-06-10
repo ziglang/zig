@@ -17,7 +17,7 @@ pub const Tag = enum {
     mul_add,
     byte_swap,
     bit_reverse,
-    byte_offset_of,
+    offset_of,
     call,
     c_define,
     c_import,
@@ -235,9 +235,9 @@ pub const list = list: {
             },
         },
         .{
-            "@byteOffsetOf",
+            "@offsetOf",
             .{
-                .tag = .byte_offset_of,
+                .tag = .offset_of,
                 .param_count = 2,
             },
         },

@@ -256,8 +256,8 @@ void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPanic *>(inst));
         case IrInstSrcIdFieldParentPtr:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFieldParentPtr *>(inst));
-        case IrInstSrcIdByteOffsetOf:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcByteOffsetOf *>(inst));
+        case IrInstSrcIdOffsetOf:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcOffsetOf *>(inst));
         case IrInstSrcIdBitOffsetOf:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBitOffsetOf *>(inst));
         case IrInstSrcIdTypeInfo:
@@ -777,8 +777,8 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcFieldParentPtr *) {
     return IrInstSrcIdFieldParentPtr;
 }
 
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcByteOffsetOf *) {
-    return IrInstSrcIdByteOffsetOf;
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcOffsetOf *) {
+    return IrInstSrcIdOffsetOf;
 }
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcBitOffsetOf *) {
@@ -2472,10 +2472,10 @@ static IrInstSrc *ir_build_field_parent_ptr_src(Stage1AstGen *ag, Scope *scope, 
     return &inst->base;
 }
 
-static IrInstSrc *ir_build_byte_offset_of(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
+static IrInstSrc *ir_build_offset_of(Stage1AstGen *ag, Scope *scope, AstNode *source_node,
         IrInstSrc *type_value, IrInstSrc *field_name)
 {
-    IrInstSrcByteOffsetOf *instruction = ir_build_instruction<IrInstSrcByteOffsetOf>(ag, scope, source_node);
+    IrInstSrcOffsetOf *instruction = ir_build_instruction<IrInstSrcOffsetOf>(ag, scope, source_node);
     instruction->type_value = type_value;
     instruction->field_name = field_name;
 
@@ -4945,7 +4945,7 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                         arg0_value, arg1_value, arg2_value);
                 return ir_lval_wrap(ag, scope, field_parent_ptr, lval, result_loc);
             }
-        case BuiltinFnIdByteOffsetOf:
+        case BuiltinFnIdOffsetOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
                 IrInstSrc *arg0_value = astgen_node(ag, arg0_node, scope);
@@ -4957,7 +4957,7 @@ static IrInstSrc *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, AstNode
                 if (arg1_value == ag->codegen->invalid_inst_src)
                     return arg1_value;
 
-                IrInstSrc *offset_of = ir_build_byte_offset_of(ag, scope, node, arg0_value, arg1_value);
+                IrInstSrc *offset_of = ir_build_offset_of(ag, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(ag, scope, offset_of, lval, result_loc);
             }
         case BuiltinFnIdBitOffsetOf:
