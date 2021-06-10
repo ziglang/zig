@@ -388,9 +388,19 @@ pub fn parseSymbols(self: *Object) !void {
             }
 
             if (sym.n_value != 0) {
-                const comm_size = sym.n_value;
-                const comm_align = (sym.n_desc >> 8) & 0x0f;
-                log.err("Common symbol {s} in {s}: size 0x{x}, align 0x{x}", .{ sym_name, self.name.?, comm_size, comm_align });
+                const tentative = try self.allocator.create(Symbol.Tentative);
+                errdefer self.allocator.destroy(tentative);
+                tentative.* = .{
+                    .base = .{
+                        .@"type" = .tentative,
+                        .name = name,
+                    },
+                    .size = sym.n_value,
+                    .alignment = (sym.n_desc >> 8) & 0x0f,
+                    .file = self,
+                };
+
+                log.err("Common symbol {s} in {s}: {}", .{ sym_name, self.name.?, tentative });
                 return error.UnhandledSymbolType;
             }
 
