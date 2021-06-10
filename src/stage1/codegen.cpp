@@ -211,7 +211,7 @@ static ZigLLVM_CallingConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
 }
 
 static void add_uwtable_attr(CodeGen *g, LLVMValueRef fn_val) {
-    if (g->zig_target->os == OsWindows) {
+    if (g->unwind_tables) {
         addLLVMFnAttr(fn_val, "uwtable");
     }
 }

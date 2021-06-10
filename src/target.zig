@@ -404,3 +404,7 @@ pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
         else => false,
     };
 }
+
+pub fn needUnwindTables(target: std.Target) bool {
+    return target.os.tag == .windows;
+}

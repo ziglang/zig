@@ -71,6 +71,14 @@ const known_options = [_]KnownOpt{
         .ident = "no_lto",
     },
     .{
+        .name = "funwind-tables",
+        .ident = "unwind_tables",
+    },
+    .{
+        .name = "fno-unwind-tables",
+        .ident = "no_unwind_tables",
+    },
+    .{
         .name = "nolibc",
         .ident = "nostdlib",
     },
