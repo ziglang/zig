@@ -351,15 +351,15 @@ pub fn parseSymbols(self: *Object) !void {
         const sym_name = mem.spanZ(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx));
 
         if (Symbol.isStab(sym)) {
-            log.err("stab {s} in {s}", .{ sym_name, self.name.? });
+            log.err("unhandled symbol type: stab {s} in {s}", .{ sym_name, self.name.? });
             return error.UnhandledSymbolType;
         }
         if (Symbol.isIndr(sym)) {
-            log.err("indirect symbol {s} in {s}", .{ sym_name, self.name.? });
+            log.err("unhandled symbol type: indirect {s} in {s}", .{ sym_name, self.name.? });
             return error.UnhandledSymbolType;
         }
         if (Symbol.isAbs(sym)) {
-            log.err("absolute symbol {s} in {s}", .{ sym_name, self.name.? });
+            log.err("unhandled symbol type: absolute {s} in {s}", .{ sym_name, self.name.? });
             return error.UnhandledSymbolType;
         }
 
@@ -399,9 +399,7 @@ pub fn parseSymbols(self: *Object) !void {
                     .alignment = (sym.n_desc >> 8) & 0x0f,
                     .file = self,
                 };
-
-                log.err("Common symbol {s} in {s}: {}", .{ sym_name, self.name.?, tentative });
-                return error.UnhandledSymbolType;
+                break :symbol &tentative.base;
             }
 
             const undef = try self.allocator.create(Symbol.Unresolved);

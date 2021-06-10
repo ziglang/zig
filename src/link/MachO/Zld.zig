@@ -84,6 +84,11 @@ common_section_index: ?u16 = null,
 globals: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
 imports: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
 unresolved: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
+tentatives: std.StringArrayHashMapUnmanaged(*Symbol) = .{},
+
+// /// Offset into __DATA,__common section.
+// /// Set if the linker found tentative definitions in any of the objects.
+// tentative_defs_offset: u32 = 0,
 
 strtab: std.ArrayListUnmanaged(u8) = .{},
 strtab_dir: std.StringHashMapUnmanaged(u32) = .{},
@@ -144,6 +149,7 @@ pub fn deinit(self: *Zld) void {
     }
     self.dylibs.deinit(self.allocator);
 
+    self.tentatives.deinit(self.allocator);
     self.globals.deinit(self.allocator);
     self.imports.deinit(self.allocator);
     self.unresolved.deinit(self.allocator);
@@ -1379,6 +1385,10 @@ fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
         if (sym.cast(Symbol.Regular)) |reg| {
             if (reg.linkage == .translation_unit) continue; // Symbol local to TU.
 
+            if (self.tentatives.fetchSwapRemove(sym.name)) |kv| {
+                // Create link to the global.
+                kv.value.alias = sym;
+            }
             if (self.unresolved.fetchSwapRemove(sym.name)) |kv| {
                 // Create link to the global.
                 kv.value.alias = sym;
@@ -1412,9 +1422,31 @@ fn resolveSymbolsInObject(self: *Zld, object: *Object) !void {
 
             g_sym.alias = sym;
             sym_ptr.* = sym;
+        } else if (sym.cast(Symbol.Tentative)) |tent| {
+            if (self.globals.get(sym.name)) |g_sym| {
+                sym.alias = g_sym;
+                continue;
+            }
+
+            if (self.unresolved.fetchSwapRemove(sym.name)) |kv| {
+                kv.value.alias = sym;
+            }
+
+            const t_sym = self.tentatives.get(sym.name) orelse {
+                // Put new tentative definition symbol into symbol table.
+                try self.tentatives.putNoClobber(self.allocator, sym.name, sym);
+                continue;
+            };
+
+            // TODO compare by size and pick the largest.
+            return error.TODOResolveTentatives;
         } else if (sym.cast(Symbol.Unresolved)) |und| {
             if (self.globals.get(sym.name)) |g_sym| {
                 sym.alias = g_sym;
+                continue;
+            }
+            if (self.tentatives.get(sym.name)) |t_sym| {
+                sym.alias = t_sym;
                 continue;
             }
             if (self.unresolved.get(sym.name)) |u_sym| {
