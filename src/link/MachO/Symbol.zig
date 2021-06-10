@@ -111,8 +111,6 @@ pub const Tentative = struct {
     /// File where this symbol was referenced.
     file: *Object,
 
-    // TODO debug info?
-
     pub const base_type: Symbol.Type = .tentative;
 };
 
