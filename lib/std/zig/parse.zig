@@ -2976,53 +2976,48 @@ const Parser = struct {
     ///     <- SwitchItem (COMMA SwitchItem)* COMMA?
     ///      / KEYWORD_else
     fn parseSwitchProng(p: *Parser) !Node.Index {
-        if (p.eatToken(.keyword_else)) |_| {
-            const arrow_token = try p.expectToken(.equal_angle_bracket_right);
-            _ = try p.parsePtrPayload();
-            return p.addNode(.{
+        const scratch_top = p.scratch.items.len;
+        defer p.scratch.shrinkRetainingCapacity(scratch_top);
+
+        if (p.eatToken(.keyword_else) == null) {
+            while (true) {
+                const item = try p.parseSwitchItem();
+                if (item == 0) break;
+                try p.scratch.append(p.gpa, item);
+                if (p.eatToken(.comma) == null) break;
+            }
+            if (scratch_top == p.scratch.items.len) return null_node;
+        }
+        const arrow_token = try p.expectToken(.equal_angle_bracket_right);
+        _ = try p.parsePtrPayload();
+
+        const items = p.scratch.items[scratch_top..];
+        switch(items.len) {
+            0 => return p.addNode(.{
                 .tag = .switch_case_one,
                 .main_token = arrow_token,
                 .data = .{
                     .lhs = 0,
                     .rhs = try p.expectAssignExpr(),
-                },
-            });
-        }
-        const first_item = try p.parseSwitchItem();
-        if (first_item == 0) return null_node;
-
-        if (p.eatToken(.equal_angle_bracket_right)) |arrow_token| {
-            _ = try p.parsePtrPayload();
-            return p.addNode(.{
+                }
+            }),
+            1 => return p.addNode(.{
                 .tag = .switch_case_one,
                 .main_token = arrow_token,
                 .data = .{
-                    .lhs = first_item,
+                    .lhs = items[0],
+                    .rhs = try p.expectAssignExpr(),
+                }
+            }),
+            else => return p.addNode(.{
+                .tag = .switch_case,
+                .main_token = arrow_token,
+                .data = .{
+                    .lhs = try p.addExtra(try p.listToSpan(items)),
                     .rhs = try p.expectAssignExpr(),
                 },
-            });
+            }),
         }
-
-        const scratch_top = p.scratch.items.len;
-        defer p.scratch.shrinkRetainingCapacity(scratch_top);
-
-        try p.scratch.append(p.gpa, first_item);
-        while (p.eatToken(.comma)) |_| {
-            const next_item = try p.parseSwitchItem();
-            if (next_item == 0) break;
-            try p.scratch.append(p.gpa, next_item);
-        }
-        const span = try p.listToSpan(p.scratch.items[scratch_top..]);
-        const arrow_token = try p.expectToken(.equal_angle_bracket_right);
-        _ = try p.parsePtrPayload();
-        return p.addNode(.{
-            .tag = .switch_case,
-            .main_token = arrow_token,
-            .data = .{
-                .lhs = try p.addExtra(span),
-                .rhs = try p.expectAssignExpr(),
-            },
-        });
     }
 
     /// SwitchItem <- Expr (DOT3 Expr)?
