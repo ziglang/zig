@@ -391,8 +391,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     var it = self.large_allocations.iterator();
                     while (it.next()) |large| {
                         if (large.value_ptr.freed) {
-                            _ = self.backing_allocator.resizeFn(self.backing_allocator, large.value_ptr.bytes,
-                                large.value_ptr.ptr_align, 0, 0, @returnAddress()) catch unreachable;
+                            _ = self.backing_allocator.resizeFn(self.backing_allocator, large.value_ptr.bytes, large.value_ptr.ptr_align, 0, 0, @returnAddress()) catch unreachable;
                         }
                     }
                 }
@@ -532,10 +531,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             if (config.retain_metadata and entry.value_ptr.freed) {
                 if (config.safety) {
-                    reportDoubleFree(ret_addr,
-                        entry.value_ptr.getStackTrace(.alloc),
-                        entry.value_ptr.getStackTrace(.free)
-                    );
+                    reportDoubleFree(ret_addr, entry.value_ptr.getStackTrace(.alloc), entry.value_ptr.getStackTrace(.free));
                     if (new_size == 0) {
                         // Recoverable. Restore self.total_requested_bytes if needed.
                         if (config.enable_memory_limit) {
@@ -564,8 +560,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 });
             }
 
-            const result_len = if (config.never_unmap and new_size == 0) 0 else
-                try self.backing_allocator.resizeFn(self.backing_allocator, old_mem, old_align, new_size, len_align, ret_addr);
+            const result_len = if (config.never_unmap and new_size == 0) 0 else try self.backing_allocator.resizeFn(self.backing_allocator, old_mem, old_align, new_size, len_align, ret_addr);
 
             if (result_len == 0) {
                 if (config.verbose_log) {
@@ -659,10 +654,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const is_used = @truncate(u1, used_byte.* >> used_bit_index) != 0;
             if (!is_used) {
                 if (config.safety) {
-                    reportDoubleFree(ret_addr,
-                        bucketStackTrace(bucket, size_class, slot_index, .alloc),
-                        bucketStackTrace(bucket, size_class, slot_index, .free)
-                    );
+                    reportDoubleFree(ret_addr, bucketStackTrace(bucket, size_class, slot_index, .alloc), bucketStackTrace(bucket, size_class, slot_index, .free));
                     if (new_size == 0) {
                         // Recoverable. Restore self.total_requested_bytes if needed, as we
                         // don't return an error value so the errdefer above does not run.

@@ -2517,7 +2517,7 @@ fn allocatedSizeLinkedit(self: *MachO, start: u64) u64 {
 
     return min_pos - start;
 }
-fn checkForCollision(start: u64, end: u64, off: u64, size: u64) callconv(.Inline) ?u64 {
+inline fn checkForCollision(start: u64, end: u64, off: u64, size: u64) ?u64 {
     const increased_size = padToIdeal(size);
     const test_end = off + increased_size;
     if (end > off and start < test_end) {

@@ -116,20 +116,20 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
         switch (@typeInfo(Context)) {
             .Struct, .Union, .Enum => {},
             // Special-case .Opaque for a better error message
-            .Opaque => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use "++@typeName(Context)++" because it is opaque.  Use a pointer instead."),
+            .Opaque => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is opaque.  Use a pointer instead."),
             .Pointer => |ptr| {
                 if (ptr.size != .One) {
-                    @compileError("Hash context must be a type with hash and eql member functions.  Cannot use "++@typeName(Context)++" because it is not a single pointer.");
+                    @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is not a single pointer.");
                 }
                 Context = ptr.child;
                 allow_const_ptr = true;
                 allow_mutable_ptr = !ptr.is_const;
                 switch (@typeInfo(Context)) {
                     .Struct, .Union, .Enum, .Opaque => {},
-                    else => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use "++@typeName(Context)),
+                    else => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context)),
                 }
             },
-            else => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use "++@typeName(Context)),
+            else => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context)),
         }
 
         // Keep track of multiple errors so we can report them all.
@@ -140,12 +140,12 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
         const lazy = struct {
             const prefix = "\n  ";
             const deep_prefix = prefix ++ "  ";
-            const hash_signature = "fn (self, "++@typeName(PseudoKey)++") "++@typeName(Hash);
-            const eql_signature = "fn (self, "++@typeName(PseudoKey)++", "++@typeName(Key)++") bool";
+            const hash_signature = "fn (self, " ++ @typeName(PseudoKey) ++ ") " ++ @typeName(Hash);
+            const eql_signature = "fn (self, " ++ @typeName(PseudoKey) ++ ", " ++ @typeName(Key) ++ ") bool";
             const err_invalid_hash_signature = prefix ++ @typeName(Context) ++ ".hash must be " ++ hash_signature ++
-                    deep_prefix ++ "but is actually " ++ @typeName(@TypeOf(Context.hash));
+                deep_prefix ++ "but is actually " ++ @typeName(@TypeOf(Context.hash));
             const err_invalid_eql_signature = prefix ++ @typeName(Context) ++ ".eql must be " ++ eql_signature ++
-                    deep_prefix ++ "but is actually " ++ @typeName(@TypeOf(Context.eql));
+                deep_prefix ++ "but is actually " ++ @typeName(@TypeOf(Context.eql));
         };
 
         // Verify Context.hash(self, PseudoKey) => Hash
@@ -167,7 +167,7 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
                                     errors = errors ++ lazy.err_invalid_hash_signature;
                                     emitted_signature = true;
                                 }
-                                errors = errors ++ lazy.deep_prefix ++ "First parameter must be "++@typeName(Context)++", but is "++@typeName(Self);
+                                errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
                                 errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
                             }
                         } else if (Self == *Context) {
@@ -177,10 +177,10 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
                                     emitted_signature = true;
                                 }
                                 if (!allow_const_ptr) {
-                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be "++@typeName(Context)++", but is "++@typeName(Self);
+                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
                                     errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
                                 } else {
-                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be "++@typeName(Context)++" or "++@typeName(*const Context)++", but is "++@typeName(Self);
+                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ " or " ++ @typeName(*const Context) ++ ", but is " ++ @typeName(Self);
                                     errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be non-const because it is passed by const pointer.";
                                 }
                             }
@@ -189,14 +189,14 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
                                 errors = errors ++ lazy.err_invalid_hash_signature;
                                 emitted_signature = true;
                             }
-                            errors = errors ++ lazy.deep_prefix ++ "First parameter must be "++@typeName(Context);
+                            errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context);
                             if (allow_const_ptr) {
-                                errors = errors++" or "++@typeName(*const Context);
+                                errors = errors ++ " or " ++ @typeName(*const Context);
                                 if (allow_mutable_ptr) {
-                                    errors = errors++" or "++@typeName(*Context);
+                                    errors = errors ++ " or " ++ @typeName(*Context);
                                 }
                             }
-                            errors = errors++", but is "++@typeName(Self);
+                            errors = errors ++ ", but is " ++ @typeName(Self);
                         }
                     }
                     if (func.args[1].arg_type != null and func.args[1].arg_type.? != PseudoKey) {
@@ -204,14 +204,14 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
                             errors = errors ++ lazy.err_invalid_hash_signature;
                             emitted_signature = true;
                         }
-                        errors = errors ++ lazy.deep_prefix ++ "Second parameter must be "++@typeName(PseudoKey)++", but is "++@typeName(func.args[1].arg_type.?);
+                        errors = errors ++ lazy.deep_prefix ++ "Second parameter must be " ++ @typeName(PseudoKey) ++ ", but is " ++ @typeName(func.args[1].arg_type.?);
                     }
                     if (func.return_type != null and func.return_type.? != Hash) {
                         if (!emitted_signature) {
                             errors = errors ++ lazy.err_invalid_hash_signature;
                             emitted_signature = true;
                         }
-                        errors = errors ++ lazy.deep_prefix ++ "Return type must be "++@typeName(Hash)++", but was "++@typeName(func.return_type.?);
+                        errors = errors ++ lazy.deep_prefix ++ "Return type must be " ++ @typeName(Hash) ++ ", but was " ++ @typeName(func.return_type.?);
                     }
                     // If any of these are generic (null), we cannot verify them.
                     // The call sites check the return type, but cannot check the
@@ -243,7 +243,7 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
                                     errors = errors ++ lazy.err_invalid_eql_signature;
                                     emitted_signature = true;
                                 }
-                                errors = errors ++ lazy.deep_prefix ++ "First parameter must be "++@typeName(Context)++", but is "++@typeName(Self);
+                                errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
                                 errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
                             }
                         } else if (Self == *Context) {
@@ -253,10 +253,10 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
                                     emitted_signature = true;
                                 }
                                 if (!allow_const_ptr) {
-                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be "++@typeName(Context)++", but is "++@typeName(Self);
+                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
                                     errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
                                 } else {
-                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be "++@typeName(Context)++" or "++@typeName(*const Context)++", but is "++@typeName(Self);
+                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ " or " ++ @typeName(*const Context) ++ ", but is " ++ @typeName(Self);
                                     errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be non-const because it is passed by const pointer.";
                                 }
                             }
@@ -265,14 +265,14 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
                                 errors = errors ++ lazy.err_invalid_eql_signature;
                                 emitted_signature = true;
                             }
-                            errors = errors ++ lazy.deep_prefix ++ "First parameter must be "++@typeName(Context);
+                            errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context);
                             if (allow_const_ptr) {
-                                errors = errors++" or "++@typeName(*const Context);
+                                errors = errors ++ " or " ++ @typeName(*const Context);
                                 if (allow_mutable_ptr) {
-                                    errors = errors++" or "++@typeName(*Context);
+                                    errors = errors ++ " or " ++ @typeName(*Context);
                                 }
                             }
-                            errors = errors++", but is "++@typeName(Self);
+                            errors = errors ++ ", but is " ++ @typeName(Self);
                         }
                     }
                     if (func.args[1].arg_type.? != PseudoKey) {
@@ -280,21 +280,21 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
                             errors = errors ++ lazy.err_invalid_eql_signature;
                             emitted_signature = true;
                         }
-                        errors = errors ++ lazy.deep_prefix ++ "Second parameter must be "++@typeName(PseudoKey)++", but is "++@typeName(func.args[1].arg_type.?);
+                        errors = errors ++ lazy.deep_prefix ++ "Second parameter must be " ++ @typeName(PseudoKey) ++ ", but is " ++ @typeName(func.args[1].arg_type.?);
                     }
                     if (func.args[2].arg_type.? != Key) {
                         if (!emitted_signature) {
                             errors = errors ++ lazy.err_invalid_eql_signature;
                             emitted_signature = true;
                         }
-                        errors = errors ++ lazy.deep_prefix ++ "Third parameter must be "++@typeName(Key)++", but is "++@typeName(func.args[2].arg_type.?);
+                        errors = errors ++ lazy.deep_prefix ++ "Third parameter must be " ++ @typeName(Key) ++ ", but is " ++ @typeName(func.args[2].arg_type.?);
                     }
                     if (func.return_type.? != bool) {
                         if (!emitted_signature) {
                             errors = errors ++ lazy.err_invalid_eql_signature;
                             emitted_signature = true;
                         }
-                        errors = errors ++ lazy.deep_prefix ++ "Return type must be bool, but was "++@typeName(func.return_type.?);
+                        errors = errors ++ lazy.deep_prefix ++ "Return type must be bool, but was " ++ @typeName(func.return_type.?);
                     }
                     // If any of these are generic (null), we cannot verify them.
                     // The call sites check the return type, but cannot check the
@@ -309,7 +309,7 @@ pub fn verifyContext(comptime RawContext: type, comptime PseudoKey: type, compti
 
         if (errors.len != 0) {
             // errors begins with a newline (from lazy.prefix)
-            @compileError("Problems found with hash context type "++@typeName(Context)++":"++errors);
+            @compileError("Problems found with hash context type " ++ @typeName(Context) ++ ":" ++ errors);
         }
     }
 }
@@ -790,7 +790,7 @@ pub fn HashMapUnmanaged(
 
         pub fn promote(self: Self, allocator: *Allocator) Managed {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call promoteContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call promoteContext instead.");
             return promoteContext(self, allocator, undefined);
         }
 
@@ -819,7 +819,7 @@ pub fn HashMapUnmanaged(
 
         pub fn ensureCapacity(self: *Self, allocator: *Allocator, new_size: Size) !void {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call ensureCapacityContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call ensureCapacityContext instead.");
             return ensureCapacityContext(self, allocator, new_size, undefined);
         }
         pub fn ensureCapacityContext(self: *Self, allocator: *Allocator, new_size: Size, ctx: Context) !void {
@@ -902,7 +902,7 @@ pub fn HashMapUnmanaged(
         /// Insert an entry in the map. Assumes it is not already present.
         pub fn putNoClobber(self: *Self, allocator: *Allocator, key: K, value: V) !void {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call putNoClobberContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call putNoClobberContext instead.");
             return self.putNoClobberContext(allocator, key, value, undefined);
         }
         pub fn putNoClobberContext(self: *Self, allocator: *Allocator, key: K, value: V, ctx: Context) !void {
@@ -917,7 +917,7 @@ pub fn HashMapUnmanaged(
         /// existing data, see `getOrPutAssumeCapacity`.
         pub fn putAssumeCapacity(self: *Self, key: K, value: V) void {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call putAssumeCapacityContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call putAssumeCapacityContext instead.");
             return self.putAssumeCapacityContext(key, value, undefined);
         }
         pub fn putAssumeCapacityContext(self: *Self, key: K, value: V, ctx: Context) void {
@@ -929,7 +929,7 @@ pub fn HashMapUnmanaged(
         /// and that no allocation is needed.
         pub fn putAssumeCapacityNoClobber(self: *Self, key: K, value: V) void {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call putAssumeCapacityNoClobberContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call putAssumeCapacityNoClobberContext instead.");
             return self.putAssumeCapacityNoClobberContext(key, value, undefined);
         }
         pub fn putAssumeCapacityNoClobberContext(self: *Self, key: K, value: V, ctx: Context) void {
@@ -961,7 +961,7 @@ pub fn HashMapUnmanaged(
         /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
         pub fn fetchPut(self: *Self, allocator: *Allocator, key: K, value: V) !?KV {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call fetchPutContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call fetchPutContext instead.");
             return self.fetchPutContext(allocator, key, value, undefined);
         }
         pub fn fetchPutContext(self: *Self, allocator: *Allocator, key: K, value: V, ctx: Context) !?KV {
@@ -981,7 +981,7 @@ pub fn HashMapUnmanaged(
         /// If insertion happens, asserts there is enough capacity without allocating.
         pub fn fetchPutAssumeCapacity(self: *Self, key: K, value: V) ?KV {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call fetchPutAssumeCapacityContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call fetchPutAssumeCapacityContext instead.");
             return self.fetchPutAssumeCapacityContext(key, value, undefined);
         }
         pub fn fetchPutAssumeCapacityContext(self: *Self, key: K, value: V, ctx: Context) ?KV {
@@ -1001,7 +1001,7 @@ pub fn HashMapUnmanaged(
         /// the hash map, and then returned from this function.
         pub fn fetchRemove(self: *Self, key: K) ?KV {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call fetchRemoveContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call fetchRemoveContext instead.");
             return self.fetchRemoveContext(key, undefined);
         }
         pub fn fetchRemoveContext(self: *Self, key: K, ctx: Context) ?KV {
@@ -1033,7 +1033,7 @@ pub fn HashMapUnmanaged(
         /// fuse the basic blocks after the branch to the basic blocks
         /// from this function.  To encourage that, this function is
         /// marked as inline.
-        fn getIndex(self: Self, key: anytype, ctx: anytype) callconv(.Inline) ?usize {
+        inline fn getIndex(self: Self, key: anytype, ctx: anytype) ?usize {
             comptime verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash);
 
             if (self.size == 0) {
@@ -1046,7 +1046,7 @@ pub fn HashMapUnmanaged(
             // verifyContext can't verify the return type of generic hash functions,
             // so we need to double-check it here.
             if (@TypeOf(hash) != Hash) {
-                @compileError("Context "++@typeName(@TypeOf(ctx))++" has a generic hash function that returns the wrong type! "++@typeName(Hash)++" was expected, but found "++@typeName(@TypeOf(hash)));
+                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type! " ++ @typeName(Hash) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
             }
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
@@ -1062,7 +1062,7 @@ pub fn HashMapUnmanaged(
                     // verifyContext can't verify the return type of generic eql functions,
                     // so we need to double-check it here.
                     if (@TypeOf(eql) != bool) {
-                        @compileError("Context "++@typeName(@TypeOf(ctx))++" has a generic eql function that returns the wrong type! bool was expected, but found "++@typeName(@TypeOf(eql)));
+                        @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type! bool was expected, but found " ++ @typeName(@TypeOf(eql)));
                     }
                     if (eql) {
                         return idx;
@@ -1078,7 +1078,7 @@ pub fn HashMapUnmanaged(
 
         pub fn getEntry(self: Self, key: K) ?Entry {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call getEntryContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getEntryContext instead.");
             return self.getEntryContext(key, undefined);
         }
         pub fn getEntryContext(self: Self, key: K, ctx: Context) ?Entry {
@@ -1097,7 +1097,7 @@ pub fn HashMapUnmanaged(
         /// Insert an entry if the associated key is not already present, otherwise update preexisting value.
         pub fn put(self: *Self, allocator: *Allocator, key: K, value: V) !void {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call putContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call putContext instead.");
             return self.putContext(allocator, key, value, undefined);
         }
         pub fn putContext(self: *Self, allocator: *Allocator, key: K, value: V, ctx: Context) !void {
@@ -1108,7 +1108,7 @@ pub fn HashMapUnmanaged(
         /// Get an optional pointer to the value associated with key, if present.
         pub fn getPtr(self: Self, key: K) ?*V {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call getPtrContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getPtrContext instead.");
             return self.getPtrContext(key, undefined);
         }
         pub fn getPtrContext(self: Self, key: K, ctx: Context) ?*V {
@@ -1124,7 +1124,7 @@ pub fn HashMapUnmanaged(
         /// Get a copy of the value associated with key, if present.
         pub fn get(self: Self, key: K) ?V {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call getContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getContext instead.");
             return self.getContext(key, undefined);
         }
         pub fn getContext(self: Self, key: K, ctx: Context) ?V {
@@ -1139,7 +1139,7 @@ pub fn HashMapUnmanaged(
 
         pub fn getOrPut(self: *Self, allocator: *Allocator, key: K) !GetOrPutResult {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call getOrPutContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutContext instead.");
             return self.getOrPutContext(allocator, key, undefined);
         }
         pub fn getOrPutContext(self: *Self, allocator: *Allocator, key: K, ctx: Context) !GetOrPutResult {
@@ -1151,7 +1151,7 @@ pub fn HashMapUnmanaged(
         }
         pub fn getOrPutAdapted(self: *Self, allocator: *Allocator, key: anytype, key_ctx: anytype) !GetOrPutResult {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call getOrPutContextAdapted instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutContextAdapted instead.");
             return self.getOrPutContextAdapted(allocator, key, key_ctx, undefined);
         }
         pub fn getOrPutContextAdapted(self: *Self, allocator: *Allocator, key: anytype, key_ctx: anytype, ctx: Context) !GetOrPutResult {
@@ -1171,7 +1171,7 @@ pub fn HashMapUnmanaged(
 
         pub fn getOrPutAssumeCapacity(self: *Self, key: K) GetOrPutResult {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call getOrPutAssumeCapacityContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutAssumeCapacityContext instead.");
             return self.getOrPutAssumeCapacityContext(key, undefined);
         }
         pub fn getOrPutAssumeCapacityContext(self: *Self, key: K, ctx: Context) GetOrPutResult {
@@ -1190,7 +1190,7 @@ pub fn HashMapUnmanaged(
             // verifyContext can't verify the return type of generic hash functions,
             // so we need to double-check it here.
             if (@TypeOf(hash) != Hash) {
-                @compileError("Context "++@typeName(@TypeOf(ctx))++" has a generic hash function that returns the wrong type! "++@typeName(Hash)++" was expected, but found "++@typeName(@TypeOf(hash)));
+                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type! " ++ @typeName(Hash) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
             }
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
@@ -1207,7 +1207,7 @@ pub fn HashMapUnmanaged(
                     // verifyContext can't verify the return type of generic eql functions,
                     // so we need to double-check it here.
                     if (@TypeOf(eql) != bool) {
-                        @compileError("Context "++@typeName(@TypeOf(ctx))++" has a generic eql function that returns the wrong type! bool was expected, but found "++@typeName(@TypeOf(eql)));
+                        @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type! bool was expected, but found " ++ @typeName(@TypeOf(eql)));
                     }
                     if (eql) {
                         return GetOrPutResult{
@@ -1249,7 +1249,7 @@ pub fn HashMapUnmanaged(
 
         pub fn getOrPutValue(self: *Self, allocator: *Allocator, key: K, value: V) !Entry {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call getOrPutValueContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getOrPutValueContext instead.");
             return self.getOrPutValueContext(allocator, key, value, undefined);
         }
         pub fn getOrPutValueContext(self: *Self, allocator: *Allocator, key: K, value: V, ctx: Context) !Entry {
@@ -1264,7 +1264,7 @@ pub fn HashMapUnmanaged(
         /// Return true if there is a value associated with key in the map.
         pub fn contains(self: *const Self, key: K) bool {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call containsContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call containsContext instead.");
             return self.containsContext(key, undefined);
         }
         pub fn containsContext(self: *const Self, key: K, ctx: Context) bool {
@@ -1279,7 +1279,7 @@ pub fn HashMapUnmanaged(
         /// function returns false.
         pub fn remove(self: *Self, key: K) bool {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call removeContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call removeContext instead.");
             return self.removeContext(key, undefined);
         }
         pub fn removeContext(self: *Self, key: K, ctx: Context) bool {
@@ -1317,7 +1317,7 @@ pub fn HashMapUnmanaged(
 
         pub fn clone(self: Self, allocator: *Allocator) !Self {
             if (@sizeOf(Context) != 0)
-                @compileError("Cannot infer context "++@typeName(Context)++", call cloneContext instead.");
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call cloneContext instead.");
             return self.cloneContext(allocator, @as(Context, undefined));
         }
         pub fn cloneContext(self: Self, allocator: *Allocator, new_ctx: anytype) !HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage) {

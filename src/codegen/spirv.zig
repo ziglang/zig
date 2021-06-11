@@ -885,10 +885,7 @@ pub const DeclGen = struct {
         if (inst.operand.ty.hasCodeGenBits()) {
             const operand_id = try self.resolve(inst.operand);
             // current_block_label_id should not be undefined here, lest there is a br or br_void in the function's body.
-            try target.incoming_blocks.append(self.spv.gpa, .{
-                .src_label_id = self.current_block_label_id,
-                .break_value_id = operand_id
-            });
+            try target.incoming_blocks.append(self.spv.gpa, .{ .src_label_id = self.current_block_label_id, .break_value_id = operand_id });
         }
 
         try writeInstruction(&self.code, .OpBranch, &[_]Word{target.label_id});
@@ -936,9 +933,9 @@ pub const DeclGen = struct {
         const result_id = self.spv.allocResultId();
 
         const operands = if (inst.base.ty.isVolatilePtr())
-            &[_]Word{ result_type_id, result_id, operand_id, @bitCast(u32, spec.MemoryAccess{.Volatile = true}) }
+            &[_]Word{ result_type_id, result_id, operand_id, @bitCast(u32, spec.MemoryAccess{ .Volatile = true }) }
         else
-            &[_]Word{ result_type_id, result_id, operand_id};
+            &[_]Word{ result_type_id, result_id, operand_id };
 
         try writeInstruction(&self.code, .OpLoad, operands);
 
@@ -950,14 +947,14 @@ pub const DeclGen = struct {
         const loop_label_id = self.spv.allocResultId();
 
         // Jump to the loop entry point
-        try writeInstruction(&self.code, .OpBranch, &[_]Word{ loop_label_id });
+        try writeInstruction(&self.code, .OpBranch, &[_]Word{loop_label_id});
 
         // TODO: Look into OpLoopMerge.
 
         try self.beginSPIRVBlock(loop_label_id);
         try self.genBody(inst.body);
 
-        try writeInstruction(&self.code, .OpBranch, &[_]Word{ loop_label_id });
+        try writeInstruction(&self.code, .OpBranch, &[_]Word{loop_label_id});
     }
 
     fn genRet(self: *DeclGen, inst: *Inst.UnOp) !void {
@@ -976,7 +973,7 @@ pub const DeclGen = struct {
         const src_val_id = try self.resolve(inst.rhs);
 
         const operands = if (inst.lhs.ty.isVolatilePtr())
-            &[_]Word{ dst_ptr_id, src_val_id, @bitCast(u32, spec.MemoryAccess{.Volatile = true}) }
+            &[_]Word{ dst_ptr_id, src_val_id, @bitCast(u32, spec.MemoryAccess{ .Volatile = true }) }
         else
             &[_]Word{ dst_ptr_id, src_val_id };
 

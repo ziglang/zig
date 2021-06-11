@@ -3553,7 +3553,7 @@ const Parser = struct {
         _ = try p.expectToken(.l_paren);
         const scratch_top = p.scratch.items.len;
         defer p.scratch.shrinkRetainingCapacity(scratch_top);
-        var varargs: union(enum){ none, seen, nonfinal: TokenIndex } = .none;
+        var varargs: union(enum) { none, seen, nonfinal: TokenIndex } = .none;
         while (true) {
             if (p.eatToken(.r_paren)) |_| break;
             if (varargs == .seen) varargs = .{ .nonfinal = p.tok_i };
@@ -3583,9 +3583,9 @@ const Parser = struct {
         }
         const params = p.scratch.items[scratch_top..];
         return switch (params.len) {
-            0 => SmallSpan { .zero_or_one = 0 },
-            1 => SmallSpan { .zero_or_one = params[0] },
-            else => SmallSpan { .multi = try p.listToSpan(params) },
+            0 => SmallSpan{ .zero_or_one = 0 },
+            1 => SmallSpan{ .zero_or_one = params[0] },
+            else => SmallSpan{ .multi = try p.listToSpan(params) },
         };
     }
 

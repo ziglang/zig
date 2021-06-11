@@ -43,7 +43,7 @@ pub fn ScopedLoggingAllocator(
         }
 
         // This function is required as the `std.log.log` function is not public
-        fn logHelper(comptime log_level: std.log.Level, comptime format: []const u8, args: anytype) callconv(.Inline) void {
+        inline fn logHelper(comptime log_level: std.log.Level, comptime format: []const u8, args: anytype) void {
             switch (log_level) {
                 .emerg => log.emerg(format, args),
                 .alert => log.alert(format, args),

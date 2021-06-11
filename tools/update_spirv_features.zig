@@ -1,8 +1,3 @@
-const std = @import("std");
-const fs = std.fs;
-const Allocator = std.mem.Allocator;
-const g = @import("spirv/grammar.zig");
-
 //! This tool generates SPIR-V features from the grammar files in the SPIRV-Headers
 //! (https://github.com/KhronosGroup/SPIRV-Headers/) and SPIRV-Registry (https://github.com/KhronosGroup/SPIRV-Registry/)
 //! repositories. Currently it only generates a basic feature set definition consisting of versions, extensions and capabilities.
@@ -13,6 +8,11 @@ const g = @import("spirv/grammar.zig");
 //! - Note that the grammar spec also contains definitions from extensions which aren't actually official. Most of these seem to be
 //!   from an intel project (https://github.com/intel/llvm/, https://github.com/intel/llvm/tree/sycl/sycl/doc/extensions/SPIRV),
 //!   and so ONLY extensions in the SPIRV-Registry should be included.
+
+const std = @import("std");
+const fs = std.fs;
+const Allocator = std.mem.Allocator;
+const g = @import("spirv/grammar.zig");
 
 const Version = struct {
     major: u32,
@@ -38,9 +38,9 @@ const Version = struct {
 
     fn lessThan(ctx: void, a: Version, b: Version) bool {
         return if (a.major == b.major)
-                a.minor < b.minor
-            else
-                a.major < b.major;
+            a.minor < b.minor
+        else
+            a.major < b.major;
     }
 };
 
@@ -103,11 +103,11 @@ pub fn main() !void {
     }
 
     for (extensions) |ext| {
-        try w.print("    {},\n", .{ std.zig.fmtId(ext) });
+        try w.print("    {},\n", .{std.zig.fmtId(ext)});
     }
 
     for (capabilities) |cap| {
-        try w.print("    {},\n", .{ std.zig.fmtId(cap.enumerant) });
+        try w.print("    {},\n", .{std.zig.fmtId(cap.enumerant)});
     }
 
     try w.writeAll(
@@ -129,8 +129,7 @@ pub fn main() !void {
             \\        .llvm_name = null,
             \\        .description = "SPIR-V version {0}.{1}",
             \\
-            , .{ ver.major, ver.minor }
-        );
+        , .{ ver.major, ver.minor });
 
         if (i == 0) {
             try w.writeAll(
@@ -145,8 +144,7 @@ pub fn main() !void {
                 \\        }}),
                 \\    }};
                 \\
-                , .{ versions[i - 1].major, versions[i - 1].minor }
-            );
+            , .{ versions[i - 1].major, versions[i - 1].minor });
         }
     }
 
@@ -159,11 +157,10 @@ pub fn main() !void {
             \\        .dependencies = featureSet(&[_]Feature{{}}),
             \\    }};
             \\
-            , .{
-                std.zig.fmtId(ext),
-                ext,
-            }
-        );
+        , .{
+            std.zig.fmtId(ext),
+            ext,
+        });
     }
 
     // TODO: Capability extension dependencies.
@@ -174,11 +171,10 @@ pub fn main() !void {
             \\        .description = "Enable SPIR-V capability {s}",
             \\        .dependencies = featureSet(&[_]Feature{{
             \\
-            , .{
-                std.zig.fmtId(cap.enumerant),
-                cap.enumerant,
-            }
-        );
+        , .{
+            std.zig.fmtId(cap.enumerant),
+            cap.enumerant,
+        });
 
         if (cap.version) |ver_str| {
             if (!std.mem.eql(u8, ver_str, "None")) {
@@ -188,7 +184,7 @@ pub fn main() !void {
         }
 
         for (cap.capabilities) |cap_dep| {
-            try w.print("            .{},\n", .{ std.zig.fmtId(cap_dep) });
+            try w.print("            .{},\n", .{std.zig.fmtId(cap_dep)});
         }
 
         try w.writeAll(
@@ -198,7 +194,7 @@ pub fn main() !void {
         );
     }
 
-   try w.writeAll(
+    try w.writeAll(
         \\    const ti = @typeInfo(Feature);
         \\    for (result) |*elem, i| {
         \\        elem.index = i;
@@ -217,7 +213,7 @@ pub fn main() !void {
 /// registered ones.
 /// TODO: Unfortunately, neither repository contains a machine-readable list of extension dependencies.
 fn gather_extensions(allocator: *Allocator, spirv_registry_root: []const u8) ![]const []const u8 {
-    const extensions_path = try fs.path.join(allocator, &.{spirv_registry_root, "extensions"});
+    const extensions_path = try fs.path.join(allocator, &.{ spirv_registry_root, "extensions" });
     var extensions_dir = try fs.cwd().openDir(extensions_path, .{ .iterate = true });
     defer extensions_dir.close();
 
@@ -262,7 +258,7 @@ fn gather_extensions(allocator: *Allocator, spirv_registry_root: []const u8) ![]
             }
 
             const ext_end = std.mem.indexOfScalarPos(u8, ext_spec, ext_start, '\n') orelse return error.InvalidRegistry;
-            const ext = ext_spec[ext_start .. ext_end];
+            const ext = ext_spec[ext_start..ext_end];
 
             std.debug.assert(std.mem.startsWith(u8, ext, "SPV_")); // Sanity check, all extensions should have a name like SPV_VENDOR_extension.
 
@@ -315,7 +311,6 @@ fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
         \\SPIRV-Headers can be cloned from https://github.com/KhronosGroup/SPIRV-Headers,
         \\SPIRV-Registry can be cloned from https://github.com/KhronosGroup/SPIRV-Registry.
         \\
-        , .{arg0}
-    ) catch std.process.exit(1);
+    , .{arg0}) catch std.process.exit(1);
     std.process.exit(code);
 }

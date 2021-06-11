@@ -1087,14 +1087,14 @@ fn testCeilPowerOfTwo() !void {
 
 pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
     if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
-        @compileError("log2_int requires an unsigned integer, found "++@typeName(T));
+        @compileError("log2_int requires an unsigned integer, found " ++ @typeName(T));
     assert(x != 0);
     return @intCast(Log2Int(T), @typeInfo(T).Int.bits - 1 - @clz(T, x));
 }
 
 pub fn log2_int_ceil(comptime T: type, x: T) Log2IntCeil(T) {
     if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
-        @compileError("log2_int_ceil requires an unsigned integer, found "++@typeName(T));
+        @compileError("log2_int_ceil requires an unsigned integer, found " ++ @typeName(T));
     assert(x != 0);
     if (x == 1) return 0;
     const log2_val: Log2IntCeil(T) = log2_int(T, x - 1);
