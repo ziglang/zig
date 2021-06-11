@@ -37,89 +37,75 @@ fn tanh32(x: f32) f32 {
     const u = @bitCast(u32, x);
     const ux = u & 0x7FFFFFFF;
     const ax = @bitCast(f32, ux);
+    const sign = (u >> 31) != 0;
 
     var t: f32 = undefined;
-
-    if (x == 0.0 or math.isNan(x)) {
-        return x;
-    }
 
     // |x| < log(3) / 2 ~= 0.5493 or nan
     if (ux > 0x3F0C9F54) {
         // |x| > 10
         if (ux > 0x41200000) {
-            t = 1.0;
+            t = 1.0 + 0 / x;
         } else {
-            t = math.expm1(2 * x);
+            t = math.expm1(2 * ax);
             t = 1 - 2 / (t + 2);
         }
     }
     // |x| > log(5 / 3) / 2 ~= 0.2554
     else if (ux > 0x3E82C578) {
-        t = math.expm1(2 * x);
+        t = math.expm1(2 * ax);
         t = t / (t + 2);
     }
     // |x| >= 0x1.0p-126
     else if (ux >= 0x00800000) {
-        t = math.expm1(-2 * x);
+        t = math.expm1(-2 * ax);
         t = -t / (t + 2);
     }
     // |x| is subnormal
     else {
-        math.doNotOptimizeAway(x * x);
-        t = x;
+        math.doNotOptimizeAway(ax * ax);
+        t = ax;
     }
 
-    if (u >> 31 != 0) {
-        return -t;
-    } else {
-        return t;
-    }
+    return if (sign) -t else t;
 }
 
 fn tanh64(x: f64) f64 {
     const u = @bitCast(u64, x);
-    const w = @intCast(u32, u >> 32);
-    const ax = @bitCast(f64, u & (maxInt(u64) >> 1));
+    const ux = u & 0x7FFFFFFFFFFFFFFF;
+    const w = @intCast(u32, ux >> 32);
+    const ax = @bitCast(f64, ux);
+    const sign = (u >> 63) != 0;
 
     var t: f64 = undefined;
-
-    // TODO: Shouldn't need these checks.
-    if (x == 0.0 or math.isNan(x)) {
-        return x;
-    }
 
     // |x| < log(3) / 2 ~= 0.5493 or nan
     if (w > 0x3FE193EA) {
         // |x| > 20 or nan
         if (w > 0x40340000) {
-            t = 1.0;
+            t = 1.0 - 0 / ax;
         } else {
-            t = math.expm1(2 * x);
+            t = math.expm1(2 * ax);
             t = 1 - 2 / (t + 2);
         }
     }
     // |x| > log(5 / 3) / 2 ~= 0.2554
     else if (w > 0x3FD058AE) {
-        t = math.expm1(2 * x);
+        t = math.expm1(2 * ax);
         t = t / (t + 2);
     }
     // |x| >= 0x1.0p-1022
     else if (w >= 0x00100000) {
-        t = math.expm1(-2 * x);
+        t = math.expm1(-2 * ax);
         t = -t / (t + 2);
     }
     // |x| is subnormal
     else {
-        math.doNotOptimizeAway(@floatCast(f32, x));
-        t = x;
+        math.doNotOptimizeAway(@floatCast(f32, ax));
+        t = ax;
     }
 
-    if (u >> 63 != 0) {
-        return -t;
-    } else {
-        return t;
-    }
+    return if (sign) -t else t;
 }
 
 test "math.tanh" {
@@ -135,6 +121,9 @@ test "math.tanh32" {
     try expect(math.approxEqAbs(f32, tanh32(0.8923), 0.712528, epsilon));
     try expect(math.approxEqAbs(f32, tanh32(1.5), 0.905148, epsilon));
     try expect(math.approxEqAbs(f32, tanh32(37.45), 1.0, epsilon));
+    try expect(math.approxEqAbs(f32, tanh32(-0.8923), -0.712528, epsilon));
+    try expect(math.approxEqAbs(f32, tanh32(-1.5), -0.905148, epsilon));
+    try expect(math.approxEqAbs(f32, tanh32(-37.45), -1.0, epsilon));
 }
 
 test "math.tanh64" {
@@ -145,6 +134,9 @@ test "math.tanh64" {
     try expect(math.approxEqAbs(f64, tanh64(0.8923), 0.712528, epsilon));
     try expect(math.approxEqAbs(f64, tanh64(1.5), 0.905148, epsilon));
     try expect(math.approxEqAbs(f64, tanh64(37.45), 1.0, epsilon));
+    try expect(math.approxEqAbs(f64, tanh64(-0.8923), -0.712528, epsilon));
+    try expect(math.approxEqAbs(f64, tanh64(-1.5), -0.905148, epsilon));
+    try expect(math.approxEqAbs(f64, tanh64(-37.45), -1.0, epsilon));
 }
 
 test "math.tanh32.special" {
