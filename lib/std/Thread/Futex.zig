@@ -22,7 +22,7 @@ const Atomic = std.atomic.Atomic;
 const spinLoopHint = std.atomic.spinLoopHint;
 
 /// Checks if `ptr` still contains the value `expect` and, if so, blocks the caller until either:
-/// - The value at `ptr` is longer equal to `expect`.
+/// - The value at `ptr` is no longer equal to `expect`.
 /// - The caller is unblocked by a matching `wake()`.
 /// - The caller is unblocked spuriously by an arbitrary internal signal.
 /// 
