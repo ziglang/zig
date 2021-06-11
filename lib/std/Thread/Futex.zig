@@ -73,13 +73,12 @@ pub fn wake(ptr: *const Atomic(u32), num_waiters: u32) void {
 
 const OsFutex = if (target.os.tag == .windows)
     WindowsFutex
-    else if (std.builtin.link_libc)
-    PosixFutex
 else if (target.os.tag == .linux)
     LinuxFutex
 else if (target.isDarwin())
     DarwinFutex
-
+else if (std.builtin.link_libc)
+    PosixFutex
 else
     @compileError("Operating System unsupported");
 
@@ -181,18 +180,11 @@ const DarwinFutex = struct {
         const flags = darwin.UL_COMPARE_AND_WAIT | darwin.ULF_NO_ERRNO;
         const status = blk: {
             if (target.os.version_range.semver.max >= 11) {
-                break :blk darwin.__ulock_wait2(flags, addr, expected, timeout_us, 0);
+                break :blk darwin.__ulock_wait2(flags, addr, expect, timeout_us, 0);
             } else {
-                break :blk darwin.__ulock_wait(flags, addr, expected, timeout_us);
+                break :blk darwin.__ulock_wait(flags, addr, expect, timeout_us);
             }
         };
-
-        const status = darwin.__ulock_wait(
-            darwin.UL_COMPARE_AND_WAIT | darwin.ULF_NO_ERRNO,
-            @ptrCast(*const c_void, ptr),
-            @as(u64, expect),
-            timeout_us,
-        );
 
         if (status >= 0) return;
         switch (-status) {
