@@ -75,7 +75,7 @@ const OsFutex = if (target.os.tag == .windows)
     WindowsFutex
 else if (target.os.tag == .linux)
     LinuxFutex
-else if (comptime target.isDarwin())
+else if (target.isDarwin())
     DarwinFutex
 else if (std.builtin.link_libc)
     PosixFutex
