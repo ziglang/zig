@@ -481,8 +481,7 @@ fn updateMetadata(self: *Zld) !void {
                                 .reserved3 = 0,
                             });
                         }
-                    } else if (mem.eql(u8, segname, "__DATA")) {
-                        if (!mem.eql(u8, sectname, "__const")) continue;
+                    } else if (mem.eql(u8, segname, "__DATA") or mem.eql(u8, segname, "__DATA_CONST")) {
                         if (self.data_const_section_index != null) continue;
 
                         self.data_const_section_index = @intCast(u16, data_const_seg.sections.items.len);
@@ -503,7 +502,6 @@ fn updateMetadata(self: *Zld) !void {
                     }
                 },
                 macho.S_CSTRING_LITERALS => {
-                    if (!mem.eql(u8, segname, "__TEXT")) continue;
                     if (self.cstring_section_index != null) continue;
 
                     self.cstring_section_index = @intCast(u16, text_seg.sections.items.len);
@@ -523,7 +521,6 @@ fn updateMetadata(self: *Zld) !void {
                     });
                 },
                 macho.S_MOD_INIT_FUNC_POINTERS => {
-                    if (!mem.eql(u8, segname, "__DATA")) continue;
                     if (self.mod_init_func_section_index != null) continue;
 
                     self.mod_init_func_section_index = @intCast(u16, data_const_seg.sections.items.len);
@@ -543,7 +540,6 @@ fn updateMetadata(self: *Zld) !void {
                     });
                 },
                 macho.S_MOD_TERM_FUNC_POINTERS => {
-                    if (!mem.eql(u8, segname, "__DATA")) continue;
                     if (self.mod_term_func_section_index != null) continue;
 
                     self.mod_term_func_section_index = @intCast(u16, data_const_seg.sections.items.len);
@@ -563,7 +559,6 @@ fn updateMetadata(self: *Zld) !void {
                     });
                 },
                 macho.S_ZEROFILL => {
-                    if (!mem.eql(u8, segname, "__DATA")) continue;
                     if (mem.eql(u8, sectname, "__common")) {
                         if (self.common_section_index != null) continue;
 
@@ -603,7 +598,6 @@ fn updateMetadata(self: *Zld) !void {
                     }
                 },
                 macho.S_THREAD_LOCAL_VARIABLES => {
-                    if (!mem.eql(u8, segname, "__DATA")) continue;
                     if (self.tlv_section_index != null) continue;
 
                     self.tlv_section_index = @intCast(u16, data_seg.sections.items.len);
@@ -623,7 +617,6 @@ fn updateMetadata(self: *Zld) !void {
                     });
                 },
                 macho.S_THREAD_LOCAL_REGULAR => {
-                    if (!mem.eql(u8, segname, "__DATA")) continue;
                     if (self.tlv_data_section_index != null) continue;
 
                     self.tlv_data_section_index = @intCast(u16, data_seg.sections.items.len);
@@ -643,7 +636,6 @@ fn updateMetadata(self: *Zld) !void {
                     });
                 },
                 macho.S_THREAD_LOCAL_ZEROFILL => {
-                    if (!mem.eql(u8, segname, "__DATA")) continue;
                     if (self.tlv_bss_section_index != null) continue;
 
                     self.tlv_bss_section_index = @intCast(u16, data_seg.sections.items.len);
@@ -861,6 +853,12 @@ fn getMatchingSection(self: *Zld, section: macho.section_64) ?MatchingSection {
                     break :blk .{
                         .seg = self.text_segment_cmd_index.?,
                         .sect = self.text_const_section_index.?,
+                    };
+                }
+                if (mem.eql(u8, segname, "__DATA_CONST")) {
+                    break :blk .{
+                        .seg = self.data_const_segment_cmd_index.?,
+                        .sect = self.data_const_section_index.?,
                     };
                 }
                 if (mem.eql(u8, segname, "__DATA")) {
@@ -1900,7 +1898,12 @@ fn relocTargetAddr(self: *Zld, object: *const Object, target: reloc.Relocation.T
                 }
             },
             .section => |sect_id| {
+                log.debug("    | section offset", .{});
                 const source_sect = object.sections.items[sect_id];
+                log.debug("    | section '{s},{s}'", .{
+                    parseName(&source_sect.inner.segname),
+                    parseName(&source_sect.inner.sectname),
+                });
                 const target_map = source_sect.target_map orelse unreachable;
                 const target_seg = self.load_commands.items[target_map.segment_id].Segment;
                 const target_sect = target_seg.sections.items[target_map.section_id];
