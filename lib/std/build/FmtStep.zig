@@ -12,6 +12,8 @@ const mem = std.mem;
 
 const FmtStep = @This();
 
+pub const base_id = .fmt;
+
 step: Step,
 builder: *Builder,
 argv: [][]const u8,
@@ -20,7 +22,7 @@ pub fn create(builder: *Builder, paths: []const []const u8) *FmtStep {
     const self = builder.allocator.create(FmtStep) catch unreachable;
     const name = "zig fmt";
     self.* = FmtStep{
-        .step = Step.init(.Fmt, name, builder.allocator, make),
+        .step = Step.init(.fmt, name, builder.allocator, make),
         .builder = builder,
         .argv = builder.allocator.alloc([]u8, paths.len + 2) catch unreachable,
     };

@@ -179,6 +179,8 @@ fn emitRaw(allocator: *Allocator, elf_path: []const u8, raw_path: []const u8) !v
 
 const InstallRawStep = @This();
 
+pub const base_id = .install_raw;
+
 step: Step,
 builder: *Builder,
 artifact: *LibExeObjStep,
@@ -188,14 +190,14 @@ dest_filename: []const u8,
 pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) *InstallRawStep {
     const self = builder.allocator.create(InstallRawStep) catch unreachable;
     self.* = InstallRawStep{
-        .step = Step.init(.InstallRaw, builder.fmt("install raw binary {s}", .{artifact.step.name}), builder.allocator, make),
+        .step = Step.init(.install_raw, builder.fmt("install raw binary {s}", .{artifact.step.name}), builder.allocator, make),
         .builder = builder,
         .artifact = artifact,
         .dest_dir = switch (artifact.kind) {
-            .Obj => unreachable,
-            .Test => unreachable,
-            .Exe => .Bin,
-            .Lib => unreachable,
+            .obj => unreachable,
+            .@"test" => unreachable,
+            .exe => .bin,
+            .lib => unreachable,
         },
         .dest_filename = dest_filename,
     };

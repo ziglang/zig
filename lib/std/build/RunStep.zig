@@ -21,6 +21,8 @@ const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
 
 const RunStep = @This();
 
+pub const base_id = .run;
+
 step: Step,
 builder: *Builder,
 
@@ -57,7 +59,7 @@ pub fn create(builder: *Builder, name: []const u8) *RunStep {
     const self = builder.allocator.create(RunStep) catch unreachable;
     self.* = RunStep{
         .builder = builder,
-        .step = Step.init(.Run, name, builder.allocator, make),
+        .step = Step.init(.run, name, builder.allocator, make),
         .argv = ArrayList(Arg).init(builder.allocator),
         .cwd = null,
         .env_map = null,

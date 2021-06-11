@@ -656,7 +656,7 @@ pub const StackTracesContext = struct {
         const b = self.b;
         const src_basename = "source.zig";
         const write_src = b.addWriteFile(src_basename, source);
-            const exe = b.addExecutableSource("test", write_src.getFileSource(src_basename).?, false);
+            const exe = b.addExecutableSource("test", write_src.getFileSource(src_basename).?, .static);
         exe.setBuildMode(mode);
 
         const run_and_compare = RunAndCompareStep.create(
@@ -672,6 +672,8 @@ pub const StackTracesContext = struct {
 
 
     const RunAndCompareStep = struct {
+        pub const base_id = .custom;
+
         step: build.Step,
         context: *StackTracesContext,
         exe: *LibExeObjStep,
@@ -690,7 +692,7 @@ pub const StackTracesContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(RunAndCompareStep) catch unreachable;
             ptr.* = RunAndCompareStep{
-                .step = build.Step.init(.Custom, "StackTraceCompareOutputStep", allocator, make),
+                .step = build.Step.init(.custom, "StackTraceCompareOutputStep", allocator, make),
                 .context = context,
                 .exe = exe,
                 .name = name,
@@ -875,6 +877,8 @@ pub const CompileErrorContext = struct {
     };
 
     const CompileCmpOutputStep = struct {
+        pub const base_id = .custom;
+
         step: build.Step,
         context: *CompileErrorContext,
         name: []const u8,
@@ -911,7 +915,7 @@ pub const CompileErrorContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(CompileCmpOutputStep) catch unreachable;
             ptr.* = CompileCmpOutputStep{
-                .step = build.Step.init(.Custom, "CompileCmpOutput", allocator, make),
+                .step = build.Step.init(.custom, "CompileCmpOutput", allocator, make),
                 .context = context,
                 .name = name,
                 .test_index = context.test_index,

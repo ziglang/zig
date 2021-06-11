@@ -202,7 +202,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         for (builder.available_options_list.items) |option| {
             const name = try fmt.allocPrint(allocator, "  -D{s}=[{s}]", .{
                 option.name,
-                Builder.typeIdName(option.type_id),
+                @tagName(option.type_id),
             });
             defer allocator.free(name);
             try out_stream.print("{s:<29} {s}\n", .{ name, option.description });

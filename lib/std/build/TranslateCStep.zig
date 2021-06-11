@@ -15,6 +15,8 @@ const CrossTarget = std.zig.CrossTarget;
 
 const TranslateCStep = @This();
 
+pub const base_id = .translate_c;
+
 step: Step,
 builder: *Builder,
 source: build.FileSource,
@@ -27,7 +29,7 @@ output_file: build.GeneratedFile,
 pub fn create(builder: *Builder, source: build.FileSource) *TranslateCStep {
     const self = builder.allocator.create(TranslateCStep) catch unreachable;
     self.* = TranslateCStep{
-        .step = Step.init(.TranslateC, "translate-c", builder.allocator, make),
+        .step = Step.init(.translate_c, "translate-c", builder.allocator, make),
         .builder = builder,
         .source = source,
         .include_dirs = std.ArrayList([]const u8).init(builder.allocator),
