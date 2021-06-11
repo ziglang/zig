@@ -126,7 +126,7 @@ pub const CompareOutputContext = struct {
                     }
 
                     const basename = case.sources.items[0].filename;
-                    const exe = b.addExecutableSource("test", write_src.getFileSource(basename).?, .static);
+                    const exe = b.addExecutableSource("test", write_src.getFileSource(basename).?);
                     exe.setBuildMode(mode);
                     if (case.link_libc) {
                         exe.linkSystemLibrary("c");
@@ -147,7 +147,7 @@ pub const CompareOutputContext = struct {
                 }
 
                 const basename = case.sources.items[0].filename;
-                const exe = b.addExecutableSource("test", write_src.getFileSource(basename).?, .static);
+                const exe = b.addExecutableSource("test", write_src.getFileSource(basename).?);
                 if (case.link_libc) {
                     exe.linkSystemLibrary("c");
                 }

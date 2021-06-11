@@ -214,11 +214,11 @@ pub const Builder = struct {
     }
 
     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        return addExecutableSource(self, name, convertOptionalPathToFileSource(root_src), .static);
+        return addExecutableSource(self, name, convertOptionalPathToFileSource(root_src));
     }
 
-    pub fn addExecutableSource(builder: *Builder, name: []const u8, root_src: ?FileSource, linkage: LibExeObjStep.Linkage) *LibExeObjStep {
-        return LibExeObjStep.createExecutable(builder, name, root_src, linkage);
+    pub fn addExecutableSource(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
+        return LibExeObjStep.createExecutable(builder, name, root_src);
     }
 
     pub fn addObject(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
@@ -1319,7 +1319,7 @@ pub const LibExeObjStep = struct {
     linker_script: ?FileSource = null,
     version_script: ?[]const u8 = null,
     out_filename: []const u8,
-    linkage: Linkage,
+    linkage: ?Linkage = null,
     version: ?Version,
     build_mode: builtin.Mode,
     kind: Kind,
@@ -1473,15 +1473,15 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn createObject(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
-        return initExtraArgs(builder, name, root_src, .obj, .static, null);
+        return initExtraArgs(builder, name, root_src, .obj, null, null);
     }
 
-    pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?FileSource, linkage: Linkage) *LibExeObjStep {
-        return initExtraArgs(builder, name, root_src, .exe, linkage, null);
+    pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
+        return initExtraArgs(builder, name, root_src, .exe, null, null);
     }
 
     pub fn createTest(builder: *Builder, name: []const u8, root_src: FileSource) *LibExeObjStep {
-        return initExtraArgs(builder, name, root_src, .@"test", .static, null);
+        return initExtraArgs(builder, name, root_src, .@"test", null, null);
     }
 
     fn initExtraArgs(
@@ -1489,7 +1489,7 @@ pub const LibExeObjStep = struct {
         name_raw: []const u8,
         root_src_raw: ?FileSource,
         kind: Kind,
-        linkage: Linkage,
+        linkage: ?Linkage,
         ver: ?Version,
     ) *LibExeObjStep {
         const name = builder.dupe(name_raw);
@@ -1569,15 +1569,15 @@ pub const LibExeObjStep = struct {
                 .obj => .Obj,
                 .exe, .@"test" => .Exe,
             },
-            .link_mode = switch (self.linkage) {
+            .link_mode = if (self.linkage) |some| @as(std.builtin.LinkMode, switch (some) {
                 .dynamic => .Dynamic,
                 .static => .Static,
-            },
+            }) else null,
             .version = self.version,
         }) catch unreachable;
 
         if (self.kind == .lib) {
-            if (self.linkage == .static) {
+            if (self.linkage != null and self.linkage.? == .static) {
                 self.out_lib_filename = self.out_filename;
             } else if (self.version) |version| {
                 if (target.isDarwin()) {
@@ -1681,7 +1681,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn isDynamicLibrary(self: *LibExeObjStep) bool {
-        return self.kind == .lib and self.linkage == .dynamic;
+        return self.kind == .lib and self.linkage != null and self.linkage.? == .dynamic;
     }
 
     pub fn producesPdbFile(self: *LibExeObjStep) bool {
@@ -2254,7 +2254,7 @@ pub const LibExeObjStep = struct {
                         const full_path_lib = other.getOutputLibSource().getPath(builder);
                         try zig_args.append(full_path_lib);
 
-                        if (other.linkage == .dynamic and !self.target.isWindows()) {
+                        if (other.linkage != null and other.linkage.? == .dynamic and !self.target.isWindows()) {
                             if (fs.path.dirname(full_path_lib)) |dirname| {
                                 try zig_args.append("-rpath");
                                 try zig_args.append(dirname);
@@ -2420,15 +2420,17 @@ pub const LibExeObjStep = struct {
         zig_args.append("--name") catch unreachable;
         zig_args.append(self.name) catch unreachable;
 
-        if (self.kind == .lib and self.linkage == .dynamic) {
+        if (self.linkage) |some| switch (some) {
+            .dynamic => try zig_args.append("-dynamic"),
+            .static => try zig_args.append("-static"),
+        };
+        if (self.kind == .lib and self.linkage != null and self.linkage.? == .dynamic) {
             if (self.version) |version| {
                 zig_args.append("--version") catch unreachable;
                 zig_args.append(builder.fmt("{}", .{version})) catch unreachable;
             }
         }
-        if (self.linkage == .dynamic) {
-            try zig_args.append("-dynamic");
-        }
+
         if (self.bundle_compiler_rt) |x| {
             if (x) {
                 try zig_args.append("-fcompiler-rt");
@@ -2757,7 +2759,7 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        if (self.kind == .lib and self.linkage == .dynamic and self.version != null and self.target.wantSharedLibSymLinks()) {
+        if (self.kind == .lib and self.linkage != null and self.linkage.? == .dynamic and self.version != null and self.target.wantSharedLibSymLinks()) {
             try doAtomicSymLinks(builder.allocator, self.getOutputSource().getPath(builder), self.major_only_filename.?, self.name_only_filename.?);
         }
     }
