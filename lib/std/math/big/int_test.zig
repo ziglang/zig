@@ -538,6 +538,17 @@ test "big.int add sign" {
     try testing.expect((try a.to(i32)) == -3);
 }
 
+test "big.int add scalar" {
+    var a = try Managed.initSet(testing.allocator, 50);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+    try b.addScalar(a.toConst(), 5);
+
+    try testing.expect((try b.to(u32)) == 55);
+}
+
 test "big.int sub single-single" {
     var a = try Managed.initSet(testing.allocator, 50);
     defer a.deinit();
@@ -1561,4 +1572,32 @@ test "big.int pow" {
         try a.pow(a.toConst(), 16);
         try testing.expectEqual(@as(i32, 1), try a.to(i32));
     }
+}
+
+test "big.int regression test for 1 limb overflow with alias" {
+    // Note these happen to be two consecutive Fibonacci sequence numbers, the
+    // first two whose sum exceeds 2**64.
+    var a = try Managed.initSet(testing.allocator, 7540113804746346429);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 12200160415121876738);
+    defer b.deinit();
+
+    try a.ensureAddCapacity(a.toConst(), b.toConst());
+    try a.add(a.toConst(), b.toConst());
+
+    try testing.expect(a.toConst().orderAgainstScalar(19740274219868223167) == .eq);
+}
+
+test "big.int regression test for realloc with alias" {
+    // Note these happen to be two consecutive Fibonacci sequence numbers, the
+    // second of which is the first such number to exceed 2**192.
+    var a = try Managed.initSet(testing.allocator, 5611500259351924431073312796924978741056961814867751431689);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 9079598147510263717870894449029933369491131786514446266146);
+    defer b.deinit();
+
+    try a.ensureAddCapacity(a.toConst(), b.toConst());
+    try a.add(a.toConst(), b.toConst());
+
+    try testing.expect(a.toConst().orderAgainstScalar(14691098406862188148944207245954912110548093601382197697835) == .eq);
 }
